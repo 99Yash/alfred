@@ -50,7 +50,9 @@
  * - **Live integration tools** (`packages/assistant/src/tool-runtime`) remain
  *   the provider drill-down and action surface. The boundary's live adapters
  *   (#428) are bounded read-only expansions of thin or stale local hits; they
- *   never invoke a provider-specific action tool.
+ *   never invoke a provider-specific action tool. The PHASE that calls them is
+ *   live (#1077, see "Expansion" below); no provider expander is registered
+ *   yet.
  * - **The source capability manifest** (#466) is the source-discovery contract,
  *   now live. `SourceManifest` in `@alfred/contracts` is what a source declares
  *   about itself; `manifest.ts` here is the only code that acts on the
@@ -83,6 +85,40 @@
  * (`@alfred/assistant/context-search/test-support`), not part of the
  * production interface below.
  *
+ * ## Expansion (#1077)
+ *
+ * After the rank and the truncation, `searchContext` runs a second phase
+ * (`expand.ts`). It takes each surviving card that is not already `live` and
+ * carries an `EvidenceCard.expansion` handle, routes that handle to a source
+ * whose manifest declares its KIND in `expansionKinds`, calls those sources in
+ * parallel, and puts each returned card back at the rank position of the card
+ * it refreshed. Two cards pointing at one record cost one provider call, the
+ * read pays for at most `CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS` of them, and a
+ * caller that cannot pay at all sends `expand: false`.
+ *
+ * Routing reads the declared kind and never the handle's own `sourceId`, so a
+ * card cannot choose its reader; registration binds the `expand` capability to
+ * a non-empty `expansionKinds` in both directions, so neither half can ship
+ * dead. A refreshed card is validated exactly like a collected one and must
+ * additionally declare `time.freshness: "live"` — the expanding source makes
+ * that claim, the boundary never stamps it. A failed expansion leaves the
+ * original card in place: an expansion-only source reports `error`, while a
+ * source that already answered keeps its status and only its count moves.
+ * The expanders run in parallel under a phase deadline
+ * (`CONTEXT_SEARCH_EXPANSION_TIMEOUT_MS`) with the abort signal in hand, so
+ * one hung provider cannot hang the read: the count cap bounds how many round
+ * trips the read pays for, the deadline bounds how long it waits.
+ *
+ * A source that only expands is not unanswerable: it answers a different
+ * question. It takes its own `expansion-only` skip reason in the first phase,
+ * which the packer renders in plain words, and a second phase that consults it
+ * replaces that skip with the source's real outcome in its registration
+ * position — `ok` when a refresh landed, `error` on failure, and the skip
+ * itself when it returned nothing, because it was never asked the query.
+ * An `empty` source whose refresh landed becomes `ok` for the same reason:
+ * it now has a card in the pack. No provider
+ * expander is registered today; the first lands with #428.
+ *
  * ## Discovery (#466)
  *
  * Every source registers with a `RetrievalSourceManifest`
@@ -90,9 +126,10 @@
  * availability), and how far to trust and how much to spend (authority, cost).
  * The contract reserves a wider catalog surface (`objectKinds`, `mediaKinds`,
  * `identityKeys`, `indexability`, `freshness.windowMinutes`,
- * `cost.typicalLatencyMs`, `discovery`, and the `enumerate` / `expand`
- * capabilities for #428); the boundary does not branch on those yet and
- * production manifests leave them unset. `SourceManifest` stays loose for the
+ * `cost.typicalLatencyMs`, `discovery`, and the `enumerate` capability); the
+ * boundary does not branch on those yet and production manifests leave them
+ * unset. `expand` and its `expansionKinds` left that reserved set with #1077
+ * and now drive the expansion phase. `SourceManifest` stays loose for the
  * catalog case, but registration takes the strict retrieval subtype — at
  * least one read capability and an authority above `unknown` — so a
  * forgotten declaration fails at boot rather than going dark. The ADR-0093
@@ -130,8 +167,9 @@
  * With no source registered, `searchContext` returns an empty result. A source
  * that throws, or that returns a card violating the `EvidenceCard` contract,
  * becomes one `error` report and never fails the whole search. A source the
- * manifest reader excluded becomes one `skipped` report. Absence is reported,
- * never inferred as a closed loop.
+ * manifest reader excluded becomes one `skipped` report. An expansion that
+ * fails leaves the card it would have refreshed exactly as the local store
+ * returned it. Absence is reported, never inferred as a closed loop.
  */
 
 export type { ContextSearchRequest } from "@alfred/contracts";
@@ -162,7 +200,12 @@ export type {
 
 export type { EvidenceRanking } from "./rank";
 
-export type { ContextSource, ContextSourceReads, ContextSourceReader } from "./registry";
+export type {
+  ContextSource,
+  ContextSourceExpander,
+  ContextSourceReads,
+  ContextSourceReader,
+} from "./registry";
 
 export {
   EVIDENCE_PACK_DEFAULT_MAX_CHARS,

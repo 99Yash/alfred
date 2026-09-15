@@ -5,6 +5,7 @@ import {
   sanitizeErrorMessage,
   sourceAuthorityFromManifest,
   sourceRefFromManifest,
+  type BuiltInExpansionKind,
   type ContextSearchRequest,
   type EvidenceCard,
   type RetrievalSourceManifest,
@@ -166,7 +167,7 @@ function documentHitToEvidenceCard(hit: ModelFacingHit): EvidenceCard {
     ],
     expansion: {
       sourceId: DOCUMENT_CONTEXT_SOURCE_ID,
-      kind: "document",
+      kind: "document" satisfies BuiltInExpansionKind,
       ref: hit.documentId,
       ...(title ? { hint: title } : {}),
     },

@@ -7,6 +7,7 @@ import {
   type ContextSearchRequest,
   type EvidenceCard,
 } from "@alfred/contracts";
+import { expandEvidence, type EvidenceExpansion } from "./expand";
 import {
   contextSourcePriorities,
   selectContextSources,
@@ -31,7 +32,24 @@ import { listContextSources, type ContextSource, type ContextSourceResult } from
  * `pack.ts` here (model-facing rendering). This file only collects and bounds.
  */
 
-/** A source that answered: `ok` with cards, `empty` without. Never carries a reason. */
+/**
+ * A source that answered: `ok` with cards, `empty` without. Never carries a
+ * reason.
+ *
+ * `evidenceCount` is the source's own PRE-LIMIT count — what it returned, not
+ * what survived `request.limit` — so the difference from the cards in the
+ * result names what the read dropped. The expansion phase (#1077) is the one
+ * thing that moves it after the fact: a card a live source refreshed is
+ * contributed by that live source and no longer by the source it replaced, so
+ * the phase decrements the origin's count as it credits the expander. Without
+ * that transfer the two sources would both claim one card and the packer would
+ * report a refreshed card as an item it had dropped. The `ok` STATUS never
+ * moves: a source that answered still reports `ok` even when every card it
+ * contributed was refreshed away, because it did answer. The mirror holds for
+ * `empty`: a source that answered with nothing and then contributed a refresh
+ * reports `ok`, because it now has a card in the pack — an `empty` beside its
+ * own refreshed card would be the same lie in reverse.
+ */
 export interface ContextSourceOkReport {
   readonly sourceId: string;
   readonly status: "ok" | "empty";
@@ -87,8 +105,15 @@ export interface ContextSearchResult {
    */
   readonly sources: readonly ContextSourceReport[];
   /**
-   * The ranker's per-card working, parallel to `evidence` and in the same
-   * order (#427).
+   * The ranker's per-card working, parallel to `evidence` BY RANK POSITION and
+   * in the same order (#427).
+   *
+   * It records the cards AS RANKED. The expansion phase runs after the rank and
+   * replaces a card in place without re-ranking, so a refreshed position's row
+   * still names the card the refresh replaced (#1077) — which is what makes the
+   * refresh visible in a trace rather than invisible. After expansion,
+   * `ranking[i].cardId` may therefore differ from `evidence[i].id`: join by
+   * index, never by card id.
    *
    * It is a sibling of the evidence, never a field on a card, because the card
    * is what `packEvidenceCards` renders for the model and this is Alfred's
@@ -126,6 +151,20 @@ export interface ContextSearchResult {
  * the cards, and the one signal it cannot derive from a card or a manifest —
  * the ADR-0067 user-model weight (#431) — arrives as a caller-supplied map and
  * is absent today, which drops that feature rather than defaulting it.
+ *
+ * Cards are EXPANDED after the truncation (#1077), in a second phase this file
+ * delegates to `expand.ts`. Only a surviving card is worth a provider round
+ * trip, and only a decided rank can hand a refresh a position to take.
+ * `request.expand: false` turns the phase off for a caller that cannot pay it.
+ * The phase runs its expanders in parallel under a deadline
+ * (`CONTEXT_SEARCH_EXPANSION_TIMEOUT_MS`): the count cap bounds how many round
+ * trips the read pays for, the deadline bounds how long it waits for them, and
+ * every expander receives the phase's abort signal. The phase's one effect on
+ * this file is on the REPORTS: an `expansion-only` skip the phase consulted
+ * reports its real outcome in its registration position, and every other
+ * report keeps the status it earned on the query with only its count moved, so
+ * the result still holds exactly one report per registered source in
+ * registration order.
  */
 export async function searchContext(request: unknown): Promise<ContextSearchResult> {
   const parsed = contextSearchRequestSchema.parse(request);
@@ -237,12 +276,99 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
     sourcePriority: contextSourcePriorities(consulted),
   });
 
+  const evidence = ranked.evidence.slice(0, parsed.limit);
+  const ranking = ranked.ranking.slice(0, parsed.limit);
+
+  if (!parsed.expand) return { request: parsed, evidence, sources: reports, ranking };
+
+  const expansion = await expandEvidence({ sources, evidence, request: parsed });
+
   return {
     request: parsed,
-    evidence: ranked.evidence.slice(0, parsed.limit),
-    sources: reports,
-    ranking: ranked.ranking.slice(0, parsed.limit),
+    evidence: expansion.evidence,
+    sources: reports.map((report) => reportAfterExpansion(report, expansion)),
+    ranking,
   };
+}
+
+/**
+ * One source's report once the expansion phase has run (#1077).
+ *
+ * The phase touches a report in two ways, and a source can take both at once (a
+ * source that expands its OWN handles is both the origin and the expander, and
+ * the two adjustments then cancel):
+ *
+ * - it CONSULTED the source, so an `expansion-only` skip reports the real
+ *   outcome of its only consultation — `ok` with the refreshed cards, `error`
+ *   on failure. A skip consulted but returning nothing stays a skip: the
+ *   source was never asked the query, so `empty` would claim it was asked and
+ *   had nothing;
+ * - it REPLACED a card the source contributed, so that card now belongs to the
+ *   expander and the origin's count drops by one.
+ *
+ * A source that already answered the query keeps the status it earned there.
+ * An expansion answers a different question ("read the record behind this
+ * card"), so its failure must not rewrite a healthy `ok` into an `error`
+ * beside the source's own cards — the failure is local, the original card
+ * stays, and only the count moves. The one mirror: an `empty` source whose
+ * refresh landed now contributes, so it becomes `ok` rather than sitting
+ * `empty` beside its own card.
+ *
+ * A source the phase did neither to is returned untouched, so the common read —
+ * no expander registered — rebuilds nothing.
+ */
+function reportAfterExpansion(
+  report: ContextSourceReport,
+  expansion: EvidenceExpansion,
+): ContextSourceReport {
+  const outcome = expansion.expanders.get(report.sourceId);
+  const replaced = expansion.replaced.get(report.sourceId) ?? 0;
+
+  if (outcome === undefined && replaced === 0) return report;
+
+  const contributed = report.status === "skipped" ? 0 : report.evidenceCount;
+  const evidenceCount = Math.max(0, contributed - replaced) + (outcome?.refreshed ?? 0);
+
+  // A first-phase failure still stands: the expansion answered a different
+  // question, and hiding the earlier error behind it would lose the fact that
+  // the source could not answer the query. When the expansion failed too, its
+  // failure is chained onto the reason rather than silently dropped, so both
+  // facts survive in the one `reason` the report shape carries.
+  if (report.status === "error") {
+    if (outcome?.failure !== undefined) {
+      return {
+        ...report,
+        evidenceCount,
+        reason: `${report.reason} | expansion: ${outcome.failure}`,
+      };
+    }
+
+    return { ...report, evidenceCount };
+  }
+
+  // The phase's only consultation of this source was the expansion. A failure
+  // there is a real `error`; a refresh is a real contribution (`ok`); but a
+  // consultation that returned nothing leaves the skip standing, because the
+  // source was never asked the query and `empty` would claim it was.
+  if (report.status === "skipped") {
+    if (outcome?.failure !== undefined) {
+      return { sourceId: report.sourceId, status: "error", evidenceCount, reason: outcome.failure };
+    }
+
+    if ((outcome?.refreshed ?? 0) === 0) return report;
+
+    return { sourceId: report.sourceId, status: "ok", evidenceCount };
+  }
+
+  // A source that answered the query keeps its status: an expansion failure is
+  // local (the original card stays) and must not rewrite `ok` into `error`
+  // beside the source's own cards. The mirror moves the other way: an `empty`
+  // source whose refresh landed now contributes, so it becomes `ok`.
+  if (report.status === "empty" && evidenceCount > 0) {
+    return { sourceId: report.sourceId, status: "ok", evidenceCount };
+  }
+
+  return { ...report, evidenceCount };
 }
 
 /**
