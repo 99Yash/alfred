@@ -21,6 +21,13 @@ import { serverEnv } from "@alfred/env/server";
 import { renderBriefingEmail } from "@alfred/mailer";
 import { eq } from "drizzle-orm";
 import { runBriefingAgent } from "./agent/agent";
+import {
+  auditComposedBriefing,
+  describeOpenAskViolation,
+  downgradeOpenAsks,
+  type ComposedBriefingBody,
+  type OpenAskViolation,
+} from "./open-ask-guard";
 
 /**
  * Daily briefing workflow — LLM-composed prose, two slots ('morning' |
@@ -298,27 +305,71 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   await markBriefingComposing(briefingId);
 
   let result: Awaited<ReturnType<typeof runBriefingAgent>>;
+  let body: ComposedBriefingBody;
 
   try {
-    result = await runBriefingAgent({
-      userId: ctx.userId,
-      slot: ctx.state.slot,
-      recipientFirstName: ctx.state.recipientName ?? null,
-      sinceIngestedAt: since,
-      untilIngestedAt: until,
-      briefingDate,
-      timezone,
-      runId: ctx.runId,
-      stepId: "compose",
-      closedLoops: ctx.state.closedLoops,
-    });
+    const compose = async (openAskViolations?: readonly OpenAskViolation[]) => {
+      return runBriefingAgent({
+        userId: ctx.userId,
+        slot: ctx.state.slot,
+        recipientFirstName: ctx.state.recipientName ?? null,
+        sinceIngestedAt: since,
+        untilIngestedAt: until,
+        briefingDate,
+        timezone,
+        runId: ctx.runId,
+        stepId: "compose",
+        closedLoops: ctx.state.closedLoops,
+        ...(openAskViolations ? { openAskViolations } : {}),
+      });
+    };
+
+    const audit = async (draft: ComposedBriefingBody) => {
+      return auditComposedBriefing({
+        userId: ctx.userId,
+        composed: draft,
+        closedLoops: ctx.state.closedLoops,
+      });
+    };
+
+    result = await compose();
+    body = result.briefing;
+
+    // Pre-send open-ask guard (#1082). The prompt rule from #1080 asks the
+    // composer not to present a closed object as an open ask; this proves it.
+    // One aimed re-prompt, then a deterministic downgrade, then failure — the
+    // guard may block or drop, never author.
+    let violations = await audit(body);
+
+    if (violations.length > 0) {
+      await ctx.log(`compose: open-ask guard rejected draft 1 — ${describeViolations(violations)}`);
+      result = await compose(violations);
+      body = result.briefing;
+      violations = await audit(body);
+    }
+
+    if (violations.length > 0) {
+      const downgraded = downgradeOpenAsks(body, violations);
+
+      if (!downgraded) {
+        throw new Error(
+          `[daily-briefing] open-ask guard blocked compose: ${describeViolations(violations)}`,
+        );
+      }
+
+      await ctx.log(
+        `compose: open-ask guard downgraded draft 2 — ${describeViolations(violations)}`,
+      );
+      body = { ...body, ...downgraded };
+    }
+
     await markBriefingComposed({
       briefingId,
       // Prose body → breaking_summary; headline ← subject; no structured
       // sections (the model emits one markdown body, not buckets).
-      breakingSummary: result.briefing.bodyMarkdown,
+      breakingSummary: body.bodyMarkdown,
       fullBriefing: {
-        headline: result.briefing.subject,
+        headline: body.subject,
         sections: [],
         surfacedDocumentIds: uniqueStrings(result.briefing.citedDocumentIds),
       },
@@ -337,7 +388,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   await ctx.log(
     `compose: steps=${result.steps} model=${result.modelId} ` +
       `in=${result.usage.inputTokens ?? 0} out=${result.usage.outputTokens ?? 0} ` +
-      `subject="${result.briefing.subject}"`,
+      `subject="${body.subject}"`,
   );
 
   return {
@@ -345,15 +396,19 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
     state: {
       ...ctx.state,
       composed: {
-        subject: result.briefing.subject,
-        bodyText: result.briefing.bodyText,
-        bodyMarkdown: result.briefing.bodyMarkdown,
+        subject: body.subject,
+        bodyText: body.bodyText,
+        bodyMarkdown: body.bodyMarkdown,
         citedDocumentIds: result.briefing.citedDocumentIds,
         modelId: result.modelId,
       },
     },
     nextStep: "send",
   };
+}
+
+function describeViolations(violations: readonly OpenAskViolation[]): string {
+  return violations.map(describeOpenAskViolation).join(" | ");
 }
 
 export async function runDailyBriefingSend<State extends DailyBriefingOperationState>(
