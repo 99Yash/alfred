@@ -306,7 +306,7 @@ async function expandDriveFile(args: {
 
   if (read.text === undefined) return undefined;
 
-  return driveFileToEvidenceCard(file, read);
+  return driveExpandedCard(file, read, args.handle);
 }
 
 /** What one text read produced: the text, or the reason there is none. */
@@ -347,21 +347,14 @@ async function readFileText(
 }
 
 /**
- * One Drive file as a canonical card.
+ * One Drive file as a canonical card, without any expansion handle.
  *
- * The card always declares `live`, because everything on it — the name, the
- * owner, the modified instant, and the text when there is any — was read from
- * Drive on this request. The `snippet` is what says whether the RECORD was
- * read: a card with text holds the file, a card with only a note holds the
- * fact that the file exists. The expansion phase reads exactly that
- * distinction, which is why the handle rides only on a card whose text can
- * still be reached.
- *
- * It carries no `score`. Drive returns no relevance number, and inventing one
- * would be the self-reported score ADR-0101 spends a registration rule closing.
- * The ranker drops the feature rather than defaulting it.
+ * Shared base for both phases: everything except the handle is identical, so
+ * the search and the expansion cannot drift on name, time, citation, or the
+ * snippet/note distinction. The callers own the handle because the two phases
+ * mean different things by it.
  */
-function driveFileToEvidenceCard(file: DriveFile, read: FileText): EvidenceCard {
+function driveFileBaseCard(file: DriveFile, read: FileText): EvidenceCard {
   const manifest = driveManifest();
   const authority = sourceAuthorityFromManifest(manifest);
   const name = fileLabel(file);
@@ -392,20 +385,74 @@ function driveFileToEvidenceCard(file: DriveFile, read: FileText): EvidenceCard 
           : {}),
       },
     ],
-    // A handle only where a later read could actually add something: the file
-    // has a text path and this card does not already carry the text. A file
-    // Drive can never return as text would otherwise buy a provider call on
-    // every read to learn the same thing again.
-    ...(path !== "none" && snippet.length === 0
-      ? {
-          expansion: {
-            sourceId: DRIVE_CONTEXT_SOURCE_ID,
-            kind: "drive_file" satisfies BuiltInExpansionKind,
-            ref: file.id,
-            hint: name,
-          },
-        }
-      : {}),
+  };
+}
+
+/**
+ * Search-phase card.
+ *
+ * The card always declares `live`, because everything on it — the name, the
+ * owner, the modified instant, and the text when there is any — was read from
+ * Drive on this request. The `snippet` is what says whether the RECORD was
+ * read: a card with text holds the file, a card with only a note holds the
+ * fact that the file exists. The expansion phase reads exactly that
+ * distinction, which is why the handle rides only on a card whose text can
+ * still be reached.
+ *
+ * It carries no `score`. Drive returns no relevance number, and inventing one
+ * would be the self-reported score ADR-0101 spends a registration rule closing.
+ * The ranker drops the feature rather than defaulting it.
+ */
+function driveFileToEvidenceCard(file: DriveFile, read: FileText): EvidenceCard {
+  const base = driveFileBaseCard(file, read);
+  const name = fileLabel(file);
+  const path = textPath(file.mimeType);
+
+  // A handle only where a later read could actually add something: the file
+  // has a text path and this card does not already carry the text. A file
+  // Drive can never return as text would otherwise buy a provider call on
+  // every read to learn the same thing again.
+  if (path !== "none" && base.snippet === undefined) {
+    return {
+      ...base,
+      expansion: {
+        sourceId: DRIVE_CONTEXT_SOURCE_ID,
+        kind: "drive_file" satisfies BuiltInExpansionKind,
+        ref: file.id,
+        hint: name,
+      },
+    };
+  }
+
+  return base;
+}
+
+/**
+ * Expansion-phase card.
+ *
+ * The handle is a required input — not a condition on the snippet — so the
+ * refreshed card always echoes the requested `(kind, ref)` the phase validates
+ * against. A refreshed card carries the text by construction (the caller
+ * returns early when there is none), so deriving the handle from
+ * `snippet.length === 0` here would drop it on every success. Echoing
+ * `handle.kind`/`handle.ref` rather than re-minting from the file keeps the
+ * echo exact even if the file's id and the requested ref ever differ in case.
+ */
+function driveExpandedCard(
+  file: DriveFile,
+  read: FileText,
+  handle: EvidenceExpansionHandle,
+): EvidenceCard {
+  const base = driveFileBaseCard(file, read);
+
+  return {
+    ...base,
+    expansion: {
+      sourceId: DRIVE_CONTEXT_SOURCE_ID,
+      kind: handle.kind,
+      ref: handle.ref,
+      ...(handle.hint !== undefined ? { hint: handle.hint } : { hint: fileLabel(file) }),
+    },
   };
 }
 

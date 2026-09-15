@@ -322,13 +322,16 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
  * - it REPLACED a card the source contributed, so that card now belongs to the
  *   expander and the origin's count drops by one.
  *
- * A source that already answered the query keeps the status it earned there.
- * An expansion answers a different question ("read the record behind this
- * card"), so its failure must not rewrite a healthy `ok` into an `error`
- * beside the source's own cards — the failure is local, the original card
- * stays, and only the count moves. The one mirror: an `empty` source whose
- * refresh landed now contributes, so it becomes `ok` rather than sitting
- * `empty` beside its own card.
+ * A source that already answered the query keeps the status it earned there,
+ * except that an expansion failure is never dropped. An expansion answers a
+ * different question ("read the record behind this card"), so its failure
+ * stays local — the original card stays and only the count moves — but the
+ * failure itself is reported: an `ok` or `empty` source the phase consulted
+ * and that failed reports `error` with the expansion failure as its reason,
+ * so the next expander that mints a bad refresh is visible rather than
+ * silent. The one mirror: an `empty` source whose refresh landed now
+ * contributes, so it becomes `ok` rather than sitting `empty` beside its own
+ * card.
  *
  * A source the phase did neither to is returned untouched, so the common read —
  * no expander registered — rebuilds nothing.
@@ -376,12 +379,24 @@ function reportAfterExpansion(
     return { sourceId: report.sourceId, status: "ok", evidenceCount };
   }
 
-  // A source that answered the query keeps its status: an expansion failure is
-  // local (the original card stays) and must not rewrite `ok` into `error`
-  // beside the source's own cards. The mirror moves the other way: an `empty`
-  // source whose refresh landed now contributes, so it becomes `ok`.
-  if (report.status === "empty" && evidenceCount > 0) {
-    return { sourceId: report.sourceId, status: "ok", evidenceCount };
+  // A source that answered the query keeps its status, except that an
+  // expansion failure is never silently dropped: without this, an expander
+  // that returns a card the phase rejects would leave the original card in
+  // place, keep the `ok`, and report nothing anywhere. The failure stays
+  // local (the original card stays) but the report becomes `error` so the
+  // failure is visible beside the source's own cards. The mirror moves the
+  // other way: an `empty` source whose refresh landed now contributes, so it
+  // becomes `ok`.
+  if (report.status === "ok" || report.status === "empty") {
+    if (outcome?.failure !== undefined) {
+      return { sourceId: report.sourceId, status: "error", evidenceCount, reason: outcome.failure };
+    }
+
+    if (report.status === "empty" && evidenceCount > 0) {
+      return { sourceId: report.sourceId, status: "ok", evidenceCount };
+    }
+
+    return { ...report, evidenceCount };
   }
 
   return { ...report, evidenceCount };
