@@ -27,6 +27,7 @@ export const fetchBriefings = syncEntity(SYNC_MODEL.briefing, {
     sendDecision: b.sendDecision,
     gateReason: b.gateReason,
     gather: b.gather,
+    closedLoops: b.closedLoops,
     breakingSummary: b.breakingSummary,
     fullBriefing: b.fullBriefing,
     model: b.model,

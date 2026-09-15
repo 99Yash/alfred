@@ -100,10 +100,9 @@ export const integrationObjects = pgTable(
 
 /**
  * Sidecar key index: `(user_id, provider, key_kind, key_value) → object_id`.
- * `head_sha → PR`, `run_id → PR`, `task_id → task` all resolve
- * uniformly. The `head_sha → PR` lookup is the exact thing prod recon proved
- * necessary — a GitHub CI email carries a head-sha and *no* PR number, so the
- * loop can only close by resolving the sha back to its PR.
+ * `head_sha → PR`, `pull_request_url → PR`, `run_id → PR`, and `task_id → task`
+ * all resolve uniformly. Actions mail carries the sha; review, comment, and
+ * merge mail carries the PR URL or repository + number.
  */
 export const integrationObjectKeys = pgTable(
   "integration_object_keys",
@@ -118,7 +117,7 @@ export const integrationObjectKeys = pgTable(
       .notNull()
       .references(() => integrationObjects.id, { onDelete: "cascade" }),
     provider: text("provider").notNull(),
-    /** Key kind within the provider — `head_sha` (v1 github). */
+    /** Key kind within the provider — `head_sha` or `pull_request_url` for GitHub. */
     keyKind: text("key_kind").notNull(),
     keyValue: text("key_value").notNull(),
     ...lifecycle_dates,

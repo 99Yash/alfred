@@ -1,4 +1,10 @@
-import type { BriefingGather, BriefingSlot, FullBriefing, IanaTimezone } from "@alfred/contracts";
+import type {
+  BriefingClosedLoop,
+  BriefingGather,
+  BriefingSlot,
+  FullBriefing,
+  IanaTimezone,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, type Briefing, type NewBriefing } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
@@ -61,6 +67,7 @@ export async function beginBriefing(args: {
       timezone: args.timezone,
       watermarkAt: null,
       gather: null,
+      closedLoops: [],
       breakingSummary: null,
       fullBriefing: null,
       model: null,
@@ -80,10 +87,12 @@ export async function beginBriefing(args: {
 export async function markBriefingGathering(args: {
   briefingId: string;
   gather: BriefingGather;
+  closedLoops: BriefingClosedLoop[];
 }): Promise<BriefingRow> {
   return updateBriefing(args.briefingId, {
     status: "gathering",
     gather: args.gather,
+    closedLoops: args.closedLoops,
   });
 }
 
@@ -205,6 +214,7 @@ function rowToBriefing(row: Briefing): BriefingRow {
     status: row.status,
     watermarkAt: row.watermarkAt,
     gather: row.gather ?? null,
+    closedLoops: row.closedLoops,
     breakingSummary: row.breakingSummary,
     fullBriefing: row.fullBriefing ?? null,
     model: row.model,

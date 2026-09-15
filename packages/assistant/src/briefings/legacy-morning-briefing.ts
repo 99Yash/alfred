@@ -199,7 +199,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
 
           gather = gathered.gather;
           suppressedByInstruction = gathered.suppressedByInstruction;
-          await markBriefingGathering({ briefingId: begun.row.id, gather });
+          await markBriefingGathering({ briefingId: begun.row.id, gather, closedLoops: [] });
         } catch (err) {
           await markBriefingFailed(begun.row.id);
           throw err;

@@ -13,6 +13,7 @@
  */
 
 import { enumGuard } from "./guards";
+import { canonicalizeIdentityValue } from "./user-model";
 
 /** Provider-agnostic lifecycle bucket. Generic consumers (briefing reconciliation) read this. */
 export const OBJECT_STATE_CATEGORIES = ["active", "resolved", "failed", "abandoned"] as const;
@@ -77,6 +78,46 @@ export const OBJECT_STATE_PROVIDERS = ["github"] as const;
 
 export type ObjectStateProvider = (typeof OBJECT_STATE_PROVIDERS)[number];
 
+const GITHUB_PULL_REQUEST_URL_RE =
+  /^https?:\/\/github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/pull\/(\d+)(?:[/?#].*)?$/i;
+
+/**
+ * Canonical value stored for GitHub's `pull_request_url` object key.
+ *
+ * GitHub repository names are case-insensitive, so both webhook URLs and
+ * notification-email references fold to the same lower-case URL. Invalid or
+ * non-PR inputs return `null`; callers then preserve the object as unresolved.
+ */
+export function canonicalizeGithubPullRequestUrl(
+  input: { url: string } | { repoFullName: string; number: number },
+): string | null {
+  let repoFullName: string;
+  let number: number;
+
+  if ("url" in input) {
+    const match = input.url.trim().match(GITHUB_PULL_REQUEST_URL_RE);
+
+    if (!match?.[1] || !match[2]) return null;
+    repoFullName = match[1];
+    number = Number(match[2]);
+  } else {
+    repoFullName = input.repoFullName;
+    number = input.number;
+  }
+
+  if (!Number.isSafeInteger(number) || number < 1) return null;
+
+  const repoParts = repoFullName.trim().split("/");
+
+  if (repoParts.length !== 2 || repoParts.some((part) => !/^[A-Za-z0-9._-]+$/.test(part))) {
+    return null;
+  }
+
+  const repo = canonicalizeIdentityValue("github_repository_full_name", repoFullName);
+
+  return `https://github.com/${repo}/pull/${number}`;
+}
+
 /**
  * Narrow an arbitrary (contract-bounded but provider-open) string to a provider
  * the object-state registry knows. A caller-supplied reference can name a
@@ -97,8 +138,8 @@ export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
 export const INTEGRATION_OBJECT_DEFS = {
   github: {
     kinds: ["pull_request"],
-    keyKinds: ["head_sha"],
-    keyResolvesTo: { head_sha: "pull_request" },
+    keyKinds: ["head_sha", "pull_request_url"],
+    keyResolvesTo: { head_sha: "pull_request", pull_request_url: "pull_request" },
     normalize(_kind, nativeState) {
       switch (nativeState) {
         case "merged":
