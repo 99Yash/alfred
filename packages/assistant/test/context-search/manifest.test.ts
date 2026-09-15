@@ -128,7 +128,15 @@ const EXACT_ONLY: RetrievalSourceManifest = {
   authority: { level: "high" },
 };
 
-const QUERY: ContextSearchRequest = { userId: "user-1", query: "anything", limit: 10 };
+const QUERY: ContextSearchRequest = {
+  userId: "user-1",
+  query: "anything",
+  // The expansion phase (#1077) is on by default. These tests register no
+  // expander, so it routes nothing; stating it keeps the selection assertions
+  // about the FIRST phase alone.
+  expand: true,
+  limit: 10,
+};
 
 function select(
   manifests: readonly RetrievalSourceManifest[],

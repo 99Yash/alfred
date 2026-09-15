@@ -1,5 +1,6 @@
 import {
   declaresReadSemantics,
+  sourceManifestExpansionKinds,
   sourceManifestSupportsRead,
   type ContextSearchRequest,
   type RetrievalSourceManifest,
@@ -24,6 +25,11 @@ import type { ContextSource } from "./registry";
  * 2. **How much does each candidate's declaration weigh?**
  *    {@link contextSourcePriorities} folds each candidate's manifest into the
  *    per-source priority the deterministic ranker (#427) already had a seam for.
+ * 3. **Which source can dereference a given handle?**
+ *    {@link expansionRoutes} folds the declared expansion handle kinds into one
+ *    kind-to-source table for the expansion phase (#1077). It reads the
+ *    declared KIND and never the handle's own `sourceId`, so a card cannot
+ *    choose who reads it.
  *
  * The reason exclusion is reported rather than hidden: "this source was not
  * asked" and "this source found nothing" are different facts, and ADR-0101's
@@ -40,14 +46,25 @@ import type { ContextSource } from "./registry";
  */
 
 /**
- * Why the boundary did not consult a source for one request.
+ * Why the boundary did not consult a source in the FIRST phase of one request.
  *
  * A closed set, not prose: registration guarantees every source declares read
- * semantics and an authority above `unknown`, so only two exclusions remain.
- * A third member is a deliberate schema-plus-code change, never a new string
+ * semantics and an authority above `unknown`, so only three exclusions remain.
+ * A fourth member is a deliberate schema-plus-code change, never a new string
  * at one call site.
+ *
+ * `expansion-only` is not a weaker `no-answering-read` — it is a different
+ * fact, and telling them apart is the point (#1077). A source that cannot
+ * answer this question will not be asked at all. A source that only expands
+ * answers a DIFFERENT question, and the read may still consult it in the
+ * second phase once a surviving card hands it a handle; when it does, the real
+ * outcome replaces this skip in place.
  */
-export const SOURCE_EXCLUSION_REASONS = ["unavailable", "no-answering-read"] as const;
+export const SOURCE_EXCLUSION_REASONS = [
+  "unavailable",
+  "no-answering-read",
+  "expansion-only",
+] as const;
 
 export type SourceExclusionReason = (typeof SOURCE_EXCLUSION_REASONS)[number];
 
@@ -124,6 +141,41 @@ export function contextSourcePriorities(
   return priorities;
 }
 
+/**
+ * The expansion routing table: handle kind to the source that dereferences it
+ * (#1077).
+ *
+ * Built from declared `expansionKinds` alone, so a handle reaches a source by
+ * what that source says it can read and never by the `sourceId` the handle
+ * carries. A card that named its own expander would be a source choosing its
+ * own reader, which is the name switch this module exists to remove; the
+ * handle's `sourceId` stays a debugging fact.
+ *
+ * Two sources declaring one kind is a composition-root ambiguity, not a read
+ * failure: the first REGISTERED source wins, which keeps the route stable
+ * across reads and matches the registration-order rule the reports already
+ * follow. An `unavailable` source routes nothing — a boot-time admission that
+ * it cannot be read applies to both phases.
+ */
+export function expansionRoutes(
+  sources: readonly ContextSource[],
+  excluded: ReadonlyMap<string, SourceExclusionReason>,
+): ReadonlyMap<string, ContextSource> {
+  const routes = new Map<string, ContextSource>();
+
+  for (const source of sources) {
+    if (excluded.get(source.id) === "unavailable") continue;
+
+    if (!sourceManifestSupportsRead(source.manifest, "expand")) continue;
+
+    for (const kind of sourceManifestExpansionKinds(source.manifest)) {
+      if (!routes.has(kind)) routes.set(kind, source);
+    }
+  }
+
+  return routes;
+}
+
 /** Why this request cannot usefully ask this source, or `undefined` if it can. */
 function exclusionReason(
   manifest: RetrievalSourceManifest,
@@ -137,6 +189,13 @@ function exclusionReason(
 
   if (wantsObjects && sourceManifestSupportsRead(manifest, "exact_lookup")) return undefined;
 
+  // The source may still be reached by a handle in the second phase, so the
+  // skip states WHY it was not asked the question rather than claiming it could
+  // not have helped. An `exact_lookup` source that also expands lands here on a
+  // request with no `objects`: the expansion route is the one way this read can
+  // still reach it, and that is what the reason has to say.
+  if (sourceManifestSupportsRead(manifest, "expand")) return "expansion-only";
+
   return "no-answering-read";
 }
 
@@ -145,10 +204,10 @@ function exclusionReason(
  *
  * `query` is required on every request, so a source that searches text is
  * always a candidate. `enumerate` and `expand` do not qualify: listing recent
- * records ignores the question, and expansion needs a handle from a card that
- * does not exist yet (#428). They remain valid declarations for that future
- * slice; in this slice a source declaring only them is excluded as
- * unanswerable, not consulted.
+ * records ignores the question, and expansion needs a handle that no card has
+ * produced yet at selection time. `enumerate` remains declared vocabulary with
+ * no phase behind it; `expand` has its own phase and its own
+ * `expansion-only` skip reason (#1077).
  */
 function answersFreeText(manifest: RetrievalSourceManifest): boolean {
   return (

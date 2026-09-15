@@ -1,7 +1,9 @@
 import {
   retrievalSourceManifestSchema,
+  sourceManifestExpansionKinds,
   type ContextSearchRequest,
   type EvidenceCard,
+  type EvidenceExpansionHandle,
   type RetrievalSourceManifest,
   type SourceReadCapability,
 } from "@alfred/contracts";
@@ -40,6 +42,25 @@ export interface ContextSourceResult {
 export type ContextSourceReader = (request: ContextSearchRequest) => Promise<ContextSourceResult>;
 
 /**
+ * The `expand` reader: how this source dereferences one handle (#1077).
+ *
+ * It takes a handle as well as the request, because expansion answers a
+ * different question from the other four capabilities. They answer
+ * `request.query` (or `request.objects`); this one answers "read the record
+ * behind this card". A reader that could not see the handle would have to infer
+ * the record from the query, which is the fuzzy guess the handle exists to
+ * replace.
+ *
+ * It must return the refreshed card and nothing else: the expansion phase
+ * REPLACES a ranked card rather than appending evidence, so a second card has
+ * no position to take and is dropped.
+ */
+export type ContextSourceExpander = (args: {
+  readonly request: ContextSearchRequest;
+  readonly handle: EvidenceExpansionHandle;
+}) => Promise<ContextSourceResult>;
+
+/**
  * What a source can actually do, keyed by capability.
  *
  * This is the implementation side of `manifest.read`. A source that teaches
@@ -50,8 +71,16 @@ export type ContextSourceReader = (request: ContextSearchRequest) => Promise<Con
  * rejects any other drift. A declared capability with no reader, and a reader
  * with no declaration, both fail at boot rather than shipping a dead
  * capability or an undeclared read.
+ *
+ * `expand` carries {@link ContextSourceExpander} and every other capability
+ * carries {@link ContextSourceReader}, so the mapped type is what stops a
+ * handle-blind function from being installed as an expander.
  */
-export type ContextSourceReads = Partial<Record<SourceReadCapability, ContextSourceReader>>;
+export type ContextSourceReads = {
+  readonly [K in SourceReadCapability]?: K extends "expand"
+    ? ContextSourceExpander
+    : ContextSourceReader;
+};
 
 /**
  * A read-only evidence source. Implementations are registered by id, so the
@@ -125,6 +154,7 @@ export function defineContextSource(args: {
   const manifest = retrievalSourceManifestSchema.parse({ ...args.manifest, id: args.id, read });
 
   assertReadsMatchManifest(args.reads, manifest);
+  assertExpansionDeclaration(manifest);
 
   return { id: args.id, manifest: deepFreezeManifest(manifest), reads: args.reads };
 }
@@ -168,6 +198,7 @@ export function registerContextSource(source: ContextSource): () => void {
   }
 
   assertReadsMatchManifest(source.reads, manifest);
+  assertExpansionDeclaration(manifest);
 
   registeredSources.set(source.id, { instance: source, manifest: deepFreezeManifest(manifest) });
 
@@ -211,6 +242,36 @@ function assertReadsMatchManifest(
         `Context search source "${manifest.id}" implements read capability "${capability}" with no declaration`,
       );
     }
+  }
+}
+
+/**
+ * Bind the `expand` capability to the handle kinds it dereferences, in both
+ * directions (#1077).
+ *
+ * Each half without the other is a source that registers and then routes
+ * nothing, and neither half can be inferred from the other. A source that
+ * claims `expand` and names no kind is unreachable: the expansion phase routes
+ * by kind alone, so no handle ever reaches it. A source that names kinds and
+ * does not claim `expand` has no reader to run, because the capability is
+ * derived from the readers that exist. Both are silent dead declarations, which
+ * is exactly the failure the manifest contract exists to stop, so both stop the
+ * boot instead.
+ */
+function assertExpansionDeclaration(manifest: RetrievalSourceManifest): void {
+  const declaresExpand = manifest.read.includes("expand");
+  const kinds = sourceManifestExpansionKinds(manifest);
+
+  if (declaresExpand && kinds.length === 0) {
+    throw new Error(
+      `Context search source "${manifest.id}" declares read capability "expand" with no expansion handle kinds`,
+    );
+  }
+
+  if (!declaresExpand && kinds.length > 0) {
+    throw new Error(
+      `Context search source "${manifest.id}" declares expansion handle kinds with no "expand" read capability`,
+    );
   }
 }
 
