@@ -86,10 +86,6 @@ const DRIVE_CONTEXT_SOURCE_ID = "drive";
  * Alfred could not read its contents. Narrowing the list to what Alfred can
  * extract would make the boundary drop those cards instead, which would report
  * "no such file" for a file the user owns (#429).
- *
- * `page` is absent, and its absence is the declaration doing its job. A page is
- * proven by extractor page structure (ADR-0091) and this source runs no
- * extractor, so a page anchor could only be invented here.
  */
 const DRIVE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" | "read"> = {
   kind: "native",
@@ -716,7 +712,7 @@ function unreadNote(file: DriveFile, read: FileText, mediaKind: EvidenceMediaKin
  * silence to the generic tail sentence. `undefined` is the deliberate answer
  * for the three that cannot reach this branch:
  *
- * - `text` and `page`: a file of either kind has a `download` or `export`
+ * - `text`: a file of this kind has a `download` or `export`
  *   path, so a card with no snippet failed or went unread and took an earlier
  *   branch.
  * - `unknown`: there is no noun for a thing Alfred cannot name, which is what
@@ -725,7 +721,6 @@ function unreadNote(file: DriveFile, read: FileText, mediaKind: EvidenceMediaKin
 const UNREADABLE_MEDIA_NOUNS = {
   text: undefined,
   document: "a document Drive stores as bytes rather than as editable text",
-  page: undefined,
   image: "an image",
   audio: "an audio recording",
   video: "a video",

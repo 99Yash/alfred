@@ -64,13 +64,14 @@ const DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" 
   authority: { level: "high", label: "verbatim slice of an ingested provider record" },
   cost: { class: "metered" },
   availability: "available",
-  // Exactly the three modalities `documentMediaKind` can mint, and the boundary
+  // Exactly the two modalities `documentMediaKind` can mint, and the boundary
   // holds every card to this list (#429). The corpus ingests a message body
-  // (`text`), a file (`document`), and a page of a file whose page structure the
-  // extractor proved (`page`, ADR-0091). It ingests no picture and no recording:
-  // a `needs_ocr` PDF never becomes a row at all, so declaring `image` here
-  // would name a card this source cannot produce.
-  mediaKinds: ["text", "document", "page"],
+  // (`text`) and a file (`document`). A hit whose page structure the extractor
+  // proved (ADR-0091) stays a `document`: the page is granularity, so it rides
+  // the `page` anchor rather than taking the modality slot. The corpus ingests
+  // no picture and no recording: a `needs_ocr` PDF never becomes a row at all,
+  // so declaring `image` here would name a card this source cannot produce.
+  mediaKinds: ["text", "document"],
 };
 
 /**
@@ -203,24 +204,24 @@ function isUsableAuthoredAt(value: Date | null): value is Date {
 /**
  * The modality of one corpus hit (#429).
  *
- * Three readings, in the order of what each one PROVES:
+ * Two readings, in the order of what each one PROVES:
  *
- * 1. A proven page beats everything else. `chunks.metadata.page` is written
- *    only from page structure the extractor emitted (ADR-0091), and the chunker
- *    bounds a chunk to one page, so a hit that carries one IS a page of a
- *    document — the strongest thing this source can say about a record.
- * 2. A file row without a proven page is a `document`. The file is a document
- *    whose pages were never proven (a text attachment, a PDF that extracted as
- *    text without offsets), and claiming `page` would state a page nobody
- *    proved.
- * 3. Everything else is a message body or a webhook receipt: `text`.
+ * 1. A file row is a `document`, whether or not its page structure was proven.
+ *    `chunks.metadata.page` is written only from page structure the extractor
+ *    emitted (ADR-0091), and the chunker bounds a chunk to one page, so a hit
+ *    that carries one is one page of a document — but the page is granularity,
+ *    so it rides the `page` anchor while the modality stays `document`. A file
+ *    row without a proven page is the same modality: a document whose pages
+ *    were never proven (a text attachment, a PDF that extracted as text
+ *    without offsets).
+ * 2. Everything else is a message body or a webhook receipt: `text`.
  *
  * It never reads a MIME type, because the corpus row does not carry one — the
  * ingest lane already turned the bytes into text, and the modality of the
  * evidence is the modality of that text, not of the file it came from.
  */
 function documentMediaKind(hit: ModelFacingHit): EvidenceMediaKind {
-  if (hit.page !== null) return "page";
+  if (hit.page !== null) return "document";
 
   return isFileDocumentSource(hit.source) ? "document" : "text";
 }
