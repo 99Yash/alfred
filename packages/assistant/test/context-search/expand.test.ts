@@ -442,7 +442,7 @@ describe("registration binds the expand capability to its handle kinds", () => {
       () =>
         defineContextSource({
           id: "expand-test:kindless",
-          manifest: { kind: "native", authority: { level: "medium" } },
+          manifest: { kind: "native", authority: { level: "medium" }, mediaKinds: ["text"] },
           reads: { expand: async () => undefined },
         }),
       /declares read capability "expand" with no expansion handle kinds/,
@@ -457,6 +457,7 @@ describe("registration binds the expand capability to its handle kinds", () => {
           manifest: {
             kind: "native",
             authority: { level: "medium" },
+            mediaKinds: ["text"],
             expansionKinds: ["test_record"],
           },
           reads: { semantic_search: async () => ({ evidence: [] }) },

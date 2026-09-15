@@ -23,18 +23,24 @@ import type { RetrievalSourceManifest } from "@alfred/contracts";
  * The manifest fragment of an ordinary searchable test source (#466).
  *
  * Registration requires a manifest, and selection consults only a source that
- * declared read semantics and an authority. A test about something else — card
- * validation, ranking, the tool adapter — should not have to restate that
- * declaration nine times, and a copied literal would drift. The stable id is
- * stated once per test (see {@link defineTestContextSource}); the registry
- * mints it into the manifest. A test that is ABOUT the manifest writes its
- * own literal instead, so the degraded cases stay visible in the test that
- * asserts them.
+ * declared read semantics, an authority, and at least one media kind (#429). A
+ * test about something else — card validation, ranking, the tool adapter —
+ * should not have to restate that declaration nine times, and a copied literal
+ * would drift. The stable id is stated once per test (see
+ * {@link defineTestContextSource}); the registry mints it into the manifest. A
+ * test that is ABOUT the manifest writes its own literal instead, so the
+ * degraded cases stay visible in the test that asserts them.
+ *
+ * `mediaKinds` is `["text"]` because the boundary now holds each card to its
+ * source's declaration: a fixture that declared every modality would make the
+ * check vacuous for every test that borrows this manifest. A test that returns
+ * a media card declares the kind it returns.
  */
 export function searchableTestSourceManifest(): Omit<RetrievalSourceManifest, "id" | "read"> {
   return {
     kind: "native",
     authority: { level: "medium" },
+    mediaKinds: ["text"],
   };
 }
 

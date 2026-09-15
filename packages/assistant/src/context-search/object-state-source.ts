@@ -76,6 +76,11 @@ const OBJECT_STATE_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "
   authority: { level: "high", label: "deterministic projection of provider webhook deliveries" },
   cost: { class: "local" },
   availability: "available",
+  // One modality (#429). A card here renders a projected state row — a title,
+  // a state category, a few fields — as text, and the row holds no file and no
+  // media. A card that could not be built says so in a note, which is still
+  // `text`: the degraded case never changes the modality.
+  mediaKinds: ["text"],
 };
 
 /**

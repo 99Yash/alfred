@@ -16,7 +16,9 @@ import {
 } from "./manifest";
 import { rankEvidenceCards, type EvidenceRanking } from "./rank";
 import {
+  cardManifestViolation,
   listContextSources,
+  type CardManifestViolation,
   type ContextSource,
   type ContextSourceResult,
   type ReaderDeclinedReason,
@@ -225,18 +227,28 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
 
       // A card is a contract, not a type-only promise: validate each card at
       // the boundary so a source cannot smuggle in an unbounded snippet, a
-      // non-canonical entity value, an empty card, or a `source.id` that does
-      // not match the id it registered as (the manifest join key, #466). A
-      // rejected card is dropped without discarding its siblings: one bad card
-      // must not erase the good evidence a source returned.
+      // non-canonical entity value, an empty card, a `source.id` that does not
+      // match the id it registered as (the manifest join key, #466), or a
+      // modality its own manifest never declared (#429). A rejected card is
+      // dropped without discarding its siblings: one bad card must not erase
+      // the good evidence a source returned.
       let rejected = 0;
+      const rejectedReasons = new Set<CardManifestViolation>();
 
       try {
         for (const candidate of result.evidence) {
           const parsedCard = evidenceCardSchema.safeParse(candidate);
 
-          if (!parsedCard.success || parsedCard.data.source.id !== source.id) {
+          if (!parsedCard.success) {
             rejected += 1;
+            continue;
+          }
+
+          const violation = cardManifestViolation(parsedCard.data, source);
+
+          if (violation !== undefined) {
+            rejected += 1;
+            rejectedReasons.add(violation);
             continue;
           }
 
@@ -250,7 +262,9 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
       }
 
       if (rejected > 0) {
-        failure = `${rejected} evidence card(s) violated the contract`;
+        const detail = rejectedReasons.size > 0 ? `: ${[...rejectedReasons].join(", ")}` : "";
+
+        failure = `${rejected} evidence card(s) violated the contract${detail}`;
       }
 
       // The source itself said it could not be asked, for a per-read reason no

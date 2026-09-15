@@ -35,16 +35,17 @@ export const EVIDENCE_SNIPPET_MAX_CHARS = 2_000;
 /**
  * The modality of the evidence payload.
  *
- * `text` is the only kind producible end to end today. `document` and `page`
- * are an ingested document and one page of it; `image`/`audio`/`video` are
- * media that may arrive as placeholders before extraction exists; `unknown` is
- * the honest tail for a source that cannot say. A media card need not carry a
- * snippet — a `note` explains the degraded case instead.
+ * `text` is a message body or another record with no file behind it.
+ * `document` is an ingested document, including one page of it — the page is
+ * granularity, so it rides the `page` anchor rather than taking the modality
+ * slot. `image`/`audio`/`video` are media that may arrive as placeholders
+ * before extraction exists; `unknown` is the honest tail for a source that
+ * cannot say. A media card need not carry a snippet — a `note` explains the
+ * degraded case instead.
  */
 export const EVIDENCE_MEDIA_KINDS = [
   "text",
   "document",
-  "page",
   "image",
   "audio",
   "video",
@@ -193,9 +194,10 @@ export const EVIDENCE_CITATION_URL_MAX_CHARS = 2_048;
 /**
  * A citation the model may render as a source link. `url` is optional because
  * an internal record (a memory chunk, an object row) has no public address;
- * `locator` carries a human-facing pointer instead (a page, a message id, a
- * repo path). A card with neither still cites its `source.id` through the
- * header.
+ * `locator` carries a human-facing pointer instead (a message id, a repo
+ * path, a section heading). A page number never rides here: a proven page
+ * rides the `page` anchor, so one fact keeps one spelling. A card with
+ * neither still cites its `source.id` through the header.
  */
 export const evidenceCitationSchema = z.object({
   label: z.string().min(1).max(EVIDENCE_CITATION_LABEL_MAX_CHARS),
@@ -234,17 +236,51 @@ export type EvidenceVisualRegion = z.infer<typeof evidenceVisualRegionSchema>;
  * A likely extraction confidence, never a promise. `0` is "probably wrong",
  * `1` is "verified"; an absent value is not a claim either way.
  */
-export const evidenceAnchorSchema = z.object({
-  kind: evidenceAnchorKindSchema,
-  /** 1-based page number for `page` anchors. */
-  page: z.number().int().positive().optional(),
-  /** Region for `visual` anchors. */
-  region: evidenceVisualRegionSchema.optional(),
-  /** Extraction confidence in `[0, 1]`, when the extractor reports one. */
-  confidence: z.number().min(0).max(1).optional(),
-  /** An honest degraded-media note, e.g. "OCR unavailable". */
-  note: z.string().min(1).max(500).optional(),
+const evidenceAnchorConfidenceSchema = z.number().min(0).max(1).optional();
+
+/** An honest degraded-media note, e.g. "OCR unavailable". */
+const evidenceAnchorNoteSchema = z.string().min(1).max(500).optional();
+
+/** A proven page in a document. Carries no confidence: the page is proven. */
+export const evidencePageAnchorSchema = z.object({
+  kind: z.literal("page"),
+  /** 1-based page number. */
+  page: z.number().int().positive(),
+  confidence: evidenceAnchorConfidenceSchema,
+  note: evidenceAnchorNoteSchema,
 });
+
+/** A visual region in an image/scan. */
+export const evidenceVisualAnchorSchema = z.object({
+  kind: z.literal("visual"),
+  region: evidenceVisualRegionSchema,
+  confidence: evidenceAnchorConfidenceSchema,
+  note: evidenceAnchorNoteSchema,
+});
+
+/** The honest tail: an anchor kind no reader proves yet. */
+export const evidenceUnknownAnchorSchema = z.object({
+  kind: z.literal("unknown"),
+  confidence: evidenceAnchorConfidenceSchema,
+  note: evidenceAnchorNoteSchema,
+});
+
+/**
+ * One place a piece of evidence points at.
+ *
+ * A discriminated union on `kind`, so each member carries exactly the fields
+ * its kind proves: a `page` anchor always carries its page, a `visual` anchor
+ * always carries its region, and `unknown` carries neither. A future anchor
+ * kind (an audio timestamp) is an additive union member, not a new card
+ * shape — that is the "media later without churn" property #429 relies on.
+ * Renderers switch on `kind` exhaustively, so a new member fails the
+ * typecheck at every reader instead of degrading in silence.
+ */
+export const evidenceAnchorSchema = z.discriminatedUnion("kind", [
+  evidencePageAnchorSchema,
+  evidenceVisualAnchorSchema,
+  evidenceUnknownAnchorSchema,
+]);
 
 export type EvidenceAnchor = z.infer<typeof evidenceAnchorSchema>;
 

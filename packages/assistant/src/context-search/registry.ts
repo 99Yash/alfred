@@ -1,5 +1,6 @@
 import {
   retrievalSourceManifestSchema,
+  sourceManifestDeclaresMediaKind,
   sourceManifestExpansionKinds,
   type ContextSearchRequest,
   type EvidenceCard,
@@ -175,6 +176,63 @@ export interface ContextSource {
   readonly manifest: RetrievalSourceManifest;
   /** The readers this source implements, keyed by the capability each answers. */
   readonly reads: ContextSourceReads;
+}
+
+/**
+ * Why a card fails the manifest join, when it does.
+ *
+ * `source-id-mismatch` means the card names a source id it did not come from;
+ * `undeclared-media-kind` means its modality is one its own source never
+ * declared. The predicate below stays boolean for callers that only branch,
+ * while readers that report use this to name the cause.
+ */
+export const CARD_MANIFEST_VIOLATIONS = ["source-id-mismatch", "undeclared-media-kind"] as const;
+
+export type CardManifestViolation = (typeof CARD_MANIFEST_VIOLATIONS)[number];
+
+/** The manifest-join violation a card carries, or `undefined` when it obeys. */
+export function cardManifestViolation(
+  card: EvidenceCard,
+  source: ContextSource,
+): CardManifestViolation | undefined {
+  if (card.source.id !== source.id) return "source-id-mismatch";
+
+  if (!sourceManifestDeclaresMediaKind(source.manifest, card.mediaKind)) {
+    return "undeclared-media-kind";
+  }
+
+  return undefined;
+}
+
+/**
+ * Whether a card keeps the two promises its producing source made about it.
+ *
+ * Both are manifest joins, and both are checked HERE rather than in the card
+ * schema, because neither is a property of a card alone: each compares the card
+ * against the declaration of the source that returned it.
+ *
+ * - **Identity.** `source.id` must equal the id the source registered as, which
+ *   is the join key the manifest and the ranker both address (#466). A card
+ *   that names another source would credit that source's authority and
+ *   priority to evidence it never produced.
+ * - **Modality.** `mediaKind` must be one the manifest declares (#429).
+ *   `RetrievalSourceManifest` requires at least one, so this check is total: no
+ *   source reaches it having said nothing, and silence cannot admit every
+ *   modality by default. A source that starts returning a kind it never
+ *   declared — a future MCP source returning an image where its manifest names
+ *   only documents — becomes a visible `error` report rather than an
+ *   unnoticed widening of what the model is told the source holds. The
+ *   first-party manifests today declare exactly what their adapters mint, so
+ *   the check passes there and guards drift and future sources.
+ *
+ * The same `error` path carries both, because the recovery is the same: a
+ * source and its declaration disagree, and one of the two is wrong. Readers
+ * that report the failure use {@link cardManifestViolation} to name which
+ * half disagreed, so a wrong `source.id` and a wrong modality do not share
+ * one operator sentence.
+ */
+export function cardObeysManifest(card: EvidenceCard, source: ContextSource): boolean {
+  return cardManifestViolation(card, source) === undefined;
 }
 
 interface RegisteredSlot {
