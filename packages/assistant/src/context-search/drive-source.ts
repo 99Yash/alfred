@@ -14,9 +14,18 @@ import {
   type RetrievalSourceManifest,
   type SourceManifest,
 } from "@alfred/contracts";
-import { GoogleCredentialSelectionError, type DriveFile } from "@alfred/integrations/google";
+import {
+  GoogleCredentialSelectionError,
+  GoogleReauthRequiredError,
+  type DriveFile,
+} from "@alfred/integrations/google";
 import { integrations } from "@alfred/integrations";
-import { defineContextSource, type ContextSource, type ContextSourceResult } from "./registry";
+import {
+  defineContextSource,
+  type ContextSource,
+  type ContextSourceResult,
+  type ReaderDeclinedReason,
+} from "./registry";
 
 /**
  * The Drive and Docs adapter (#1078; epic #422; ADR-0101, ADR-0104).
@@ -253,11 +262,18 @@ export function createDriveContextSource(): ContextSource {
 /**
  * Search Drive, then read the text of the strongest few matches.
  *
- * A disconnected or under-scoped account returns a `skipped` result rather than
- * an error: the user has not connected Drive, which is a fact about their
- * account and not a failure of this read. `GoogleCredentialSelectionError` is
- * the typed statement of it, so the catch is narrow — every other failure is
- * still a real `error` report and is never disguised as a routine skip.
+ * An unusable account returns a `skipped` result rather than an error: it is a
+ * fact about the user's account, not a failure of this read. The mapping keeps
+ * the three facts apart because the recovery differs — no credential means
+ * connect, a credential without the Drive grant means widen the grant, and a
+ * dead refresh grant means reconnect — and every other failure is still a real
+ * `error` report, never disguised as a routine skip.
+ *
+ * The catch covers the whole read, not just the credential probe: the
+ * per-call token resolver revalidates ownership on every Drive call, so the
+ * same selection error (and a mid-read token death) can surface from
+ * `listFiles` or an export long after the probe succeeded. Catching only the
+ * probe would report one fact as `skipped` on one path and `error` on another.
  */
 async function readDrive(
   request: ContextSearchRequest,
@@ -270,9 +286,9 @@ async function readDrive(
   try {
     credentialId = (await drive.credential()).id;
   } catch (error) {
-    if (error instanceof GoogleCredentialSelectionError) {
-      return { evidence: [], skipped: "not-connected" };
-    }
+    const declined = readerDeclinedReason(error);
+
+    if (declined !== undefined) return { evidence: [], skipped: declined };
 
     throw error;
   }
@@ -283,41 +299,67 @@ async function readDrive(
 
   // Every term was a stop word or too short to narrow anything. Asking Drive
   // for `trashed = false` alone would return the user's most recent files
-  // regardless of the question, which is evidence about nothing. Decline as
-  // `no-answering-read` rather than `empty`: `empty` claims the source was
-  // asked and had nothing, which would let a consumer close a loop on
-  // evidence that was never sought.
-  if (q === undefined) return { evidence: [], skipped: "no-answering-read" };
+  // regardless of the question, which is evidence about nothing — so the
+  // source answers empty rather than spending a provider call. This is NOT a
+  // `skipped` report: the selection-owned reasons belong to the manifest
+  // reader, and a reader cannot mint them.
+  if (q === undefined) return { evidence: [] };
 
-  const { files } = await drive.listFiles({
-    credentialId,
-    q,
-    pageSize: DRIVE_SEARCH_PAGE_SIZE,
-    signal,
-  });
+  try {
+    const { files } = await drive.listFiles({
+      credentialId,
+      q,
+      pageSize: DRIVE_SEARCH_PAGE_SIZE,
+      signal,
+    });
 
-  // A folder matches a full-text query and holds no text; it is a container,
-  // not evidence. Dropping it here keeps it out of the inline-read budget too.
-  const candidates = files.filter(
-    (file) => file.id.length > 0 && !GOOGLE_NATIVE_NON_DOCUMENTS.has(file.mimeType ?? ""),
-  );
+    // A folder matches a full-text query and holds no text; it is a container,
+    // not evidence. Dropping it here keeps it out of the inline-read budget too.
+    const candidates = files.filter(
+      (file) => file.id.length > 0 && !GOOGLE_NATIVE_NON_DOCUMENTS.has(file.mimeType ?? ""),
+    );
 
-  // Parallel on purpose, and bounded by the count above: the reads are the
-  // read's latency, and running them in series would make one search cost the
-  // SUM of three exports. Each settles on its own, so one unreadable file
-  // cannot cost the others their text. The collect signal travels with every
-  // read, so a deadline cancels the Drive fetches rather than abandoning them.
-  const texts = await Promise.all(
-    candidates
-      .slice(0, DRIVE_INLINE_TEXT_READS)
-      .map((file) => readFileText(drive, credentialId, file, signal)),
-  );
+    // Parallel on purpose, and bounded by the count above: the reads are the
+    // read's latency, and running them in series would make one search cost the
+    // SUM of three exports. Each settles on its own, so one unreadable file
+    // cannot cost the others their text. The collect signal travels with every
+    // read, so a deadline cancels the Drive fetches rather than abandoning them.
+    const texts = await Promise.all(
+      candidates
+        .slice(0, DRIVE_INLINE_TEXT_READS)
+        .map((file) => readFileText(drive, credentialId, file, signal)),
+    );
 
-  const evidence = candidates.map((file, index) =>
-    driveFileToEvidenceCard(file, texts[index] ?? { text: undefined, failure: undefined }),
-  );
+    const evidence = candidates.map((file, index) =>
+      driveFileToEvidenceCard(file, texts[index] ?? { text: undefined, failure: undefined }),
+    );
 
-  return { evidence };
+    return { evidence };
+  } catch (error) {
+    // The caller's deadline is not a skip: rethrow so the collect race reports
+    // the timeout instead of a routine account line.
+    if (signal.aborted) throw error;
+
+    const declined = readerDeclinedReason(error);
+
+    if (declined !== undefined) return { evidence: [], skipped: declined };
+
+    throw error;
+  }
+}
+
+/**
+ * Map a credential/reauth throw to the reader-owned skip it is, or `undefined`
+ * when the throw is a real failure.
+ */
+function readerDeclinedReason(error: unknown): ReaderDeclinedReason | undefined {
+  if (error instanceof GoogleCredentialSelectionError) {
+    return error.reason === "connection_required" ? "not-connected" : "missing-scope";
+  }
+
+  if (error instanceof GoogleReauthRequiredError) return "needs-reauth";
+
+  return undefined;
 }
 
 /**
@@ -344,22 +386,28 @@ async function expandDriveFile(args: {
   try {
     credentialId = (await drive.credential()).id;
   } catch (error) {
-    if (error instanceof GoogleCredentialSelectionError) return undefined;
+    if (readerDeclinedReason(error) !== undefined) return undefined;
 
     throw error;
   }
 
   if (args.signal.aborted) return undefined;
 
-  const file = await drive.getFile({ credentialId, fileId: args.handle.ref, signal: args.signal });
+  try {
+    const file = await drive.getFile({ credentialId, fileId: args.handle.ref, signal: args.signal });
 
-  if (args.signal.aborted || textPath(file.mimeType) === "none") return undefined;
+    if (args.signal.aborted || textPath(file.mimeType) === "none") return undefined;
 
-  const read = await readFileText(drive, credentialId, file, args.signal);
+    const read = await readFileText(drive, credentialId, file, args.signal);
 
-  if (read.text === undefined) return undefined;
+    if (read.text === undefined) return undefined;
 
-  return driveExpandedCard(file, read, args.handle);
+    return driveExpandedCard(file, read, args.handle);
+  } catch (error) {
+    if (readerDeclinedReason(error) !== undefined) return undefined;
+
+    throw error;
+  }
 }
 
 /** What one text read produced: the text, or the reason there is none. */
@@ -411,6 +459,11 @@ async function readFileText(
     // collect race reports the timeout instead of minting a per-file failure
     // note about a call that was cancelled, not refused.
     if (signal.aborted) throw error;
+
+    // A credential that died mid-read is the source declining, not one file
+    // failing: rethrow so the caller reports the skip instead of minting a
+    // per-file note about an account fact.
+    if (readerDeclinedReason(error) !== undefined) throw error;
 
     return { text: undefined, failure: sanitizeErrorMessage(toMessage(error)) };
   }

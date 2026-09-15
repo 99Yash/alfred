@@ -15,7 +15,12 @@ import {
   type SourceExclusionReason,
 } from "./manifest";
 import { rankEvidenceCards, type EvidenceRanking } from "./rank";
-import { listContextSources, type ContextSource, type ContextSourceResult } from "./registry";
+import {
+  listContextSources,
+  type ContextSource,
+  type ContextSourceResult,
+  type ReaderDeclinedReason,
+} from "./registry";
 
 /**
  * The read-side answer shapes (#422; ADR-0101).
@@ -206,7 +211,7 @@ export async function searchContext(request: unknown): Promise<ContextSearchResu
 
     const accepted: EvidenceCard[] = [];
     let failure: string | undefined;
-    let declined: SourceExclusionReason | undefined;
+    let declined: ReaderDeclinedReason | undefined;
 
     for (const read of readers) {
       let result: ContextSourceResult;
