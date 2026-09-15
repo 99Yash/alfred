@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeMimeType } from "./mime";
 
 /**
  * Chat file uploads (ADR-0065). The load-bearing invariant: the boss model only
@@ -170,14 +171,14 @@ export const SUPPORTED_FILE_TYPES = Object.keys(INGEST_POLICY);
 
 /** True when a Content-Type identifies a PDF, after MIME normalization. */
 export function isPdfContentType(mime: string): boolean {
-  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  const normalized = normalizeMimeType(mime);
 
   return classifyUpload(normalized)?.contentFormat === "pdf";
 }
 
 /** Content format for a MIME type after normalization, or null when outside the whitelist. */
 export function getContentFormat(mime: string): ContentFormat | null {
-  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  const normalized = normalizeMimeType(mime);
 
   return classifyUpload(normalized)?.contentFormat ?? null;
 }
@@ -222,14 +223,14 @@ export const MAX_ATTACHMENT_BYTES = Math.max(
  * lower-cased and stripped of any `; charset=…` suffix before lookup.
  */
 export function classifyUpload(mime: string): IngestPolicyEntry | null {
-  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  const normalized = normalizeMimeType(mime);
 
   return ingestPolicyByMime[normalized] ?? null;
 }
 
 /** True when chat can accept and normalize this upload today. */
 export function isChatUploadAllowed(mime: string): boolean {
-  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  const normalized = normalizeMimeType(mime);
 
   return CHAT_UPLOAD_ALLOWED_TYPES.has(normalized);
 }

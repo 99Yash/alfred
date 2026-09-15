@@ -179,6 +179,32 @@ export interface ContextSource {
 }
 
 /**
+ * Why a card fails the manifest join, when it does.
+ *
+ * `source-id-mismatch` means the card names a source id it did not come from;
+ * `undeclared-media-kind` means its modality is one its own source never
+ * declared. The predicate below stays boolean for callers that only branch,
+ * while readers that report use this to name the cause.
+ */
+export const CARD_MANIFEST_VIOLATIONS = ["source-id-mismatch", "undeclared-media-kind"] as const;
+
+export type CardManifestViolation = (typeof CARD_MANIFEST_VIOLATIONS)[number];
+
+/** The manifest-join violation a card carries, or `undefined` when it obeys. */
+export function cardManifestViolation(
+  card: EvidenceCard,
+  source: ContextSource,
+): CardManifestViolation | undefined {
+  if (card.source.id !== source.id) return "source-id-mismatch";
+
+  if (!sourceManifestDeclaresMediaKind(source.manifest, card.mediaKind)) {
+    return "undeclared-media-kind";
+  }
+
+  return undefined;
+}
+
+/**
  * Whether a card keeps the two promises its producing source made about it.
  *
  * Both are manifest joins, and both are checked HERE rather than in the card
@@ -200,12 +226,13 @@ export interface ContextSource {
  *   the check passes there and guards drift and future sources.
  *
  * The same `error` path carries both, because the recovery is the same: a
- * source and its declaration disagree, and one of the two is wrong.
+ * source and its declaration disagree, and one of the two is wrong. Readers
+ * that report the failure use {@link cardManifestViolation} to name which
+ * half disagreed, so a wrong `source.id` and a wrong modality do not share
+ * one operator sentence.
  */
 export function cardObeysManifest(card: EvidenceCard, source: ContextSource): boolean {
-  if (card.source.id !== source.id) return false;
-
-  return sourceManifestDeclaresMediaKind(source.manifest, card.mediaKind);
+  return cardManifestViolation(card, source) === undefined;
 }
 
 interface RegisteredSlot {

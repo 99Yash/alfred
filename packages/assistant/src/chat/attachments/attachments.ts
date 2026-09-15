@@ -8,6 +8,7 @@ import {
   isPdfContentType,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
+  normalizeMimeType,
   type IngestPolicyEntry,
 } from "@alfred/contracts";
 import type { NewChatAttachment } from "@alfred/db/schemas";
@@ -36,7 +37,7 @@ const MAX_MODEL_IMAGE_EDGE_PX = 8_000;
 const MAX_MODEL_IMAGE_PIXELS = 40_000_000;
 
 function normalizedMime(mime: string): string {
-  return mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  return normalizeMimeType(mime);
 }
 
 /**
