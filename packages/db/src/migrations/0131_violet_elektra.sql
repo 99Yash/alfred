@@ -27,5 +27,8 @@ CROSS JOIN LATERAL regexp_match(
 WHERE o."provider" = 'github'
 	AND o."kind" = 'pull_request'
 	AND o."url" IS NOT NULL
+	AND parts[1] IS NOT NULL
+	AND parts[2] IS NOT NULL
+	AND parts[2]::numeric BETWEEN 1 AND 9007199254740991
 ON CONFLICT ("user_id", "provider", "key_kind", "key_value")
 DO UPDATE SET "object_id" = EXCLUDED."object_id";

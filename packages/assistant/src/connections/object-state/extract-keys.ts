@@ -7,11 +7,10 @@ import {
 /**
  * Deterministic key extraction (ADR-0062 v1; ADR-0063 is the rich replacement).
  *
- * GitHub notifications identify a PR through a 40-hex `head_sha`, a canonical
- * pull-request URL, or the repository + PR number in the subject. These are
- * legitimate dumb proposers behind the stable `extractKeys` interface: even a
- * wrong match resolves to nothing (the propose/dispose invariant makes a bad
- * key safe — it cannot fake a merge).
+ * GitHub notifications identify a PR through the subject's repository + PR
+ * number, a pull-request URL, or a 40-hex `head_sha`. Use a single PR identity
+ * when possible: a link to a different PR in a comment body cannot close the
+ * notification's own loop. Ambiguous PR references leave the loop live.
  */
 
 export interface ExtractedKey {
@@ -39,10 +38,10 @@ export function isGithubNotificationSender(from: string | null | undefined): boo
 }
 
 /**
- * Pull GitHub candidate keys out of an email's text. Scans subject + body,
- * understands GitHub's `[owner/repo] ... (PR #123)` subject form, dedupes, and
- * returns `[]` when nothing matches. Pure and deterministic: no network and no
- * model.
+ * Pull the email's GitHub object key. The subject owns a PR identity when it
+ * names one; otherwise Actions mail can use its existing head-sha path. A body
+ * PR reference is used only when it is the sole PR identity in that body.
+ * Pure and deterministic: no network and no model.
  */
 export function extractGithubKeys(input: {
   subject?: string | null;
@@ -60,41 +59,69 @@ export function extractGithubKeys(input: {
     keys.push({ keyKind, keyValue });
   };
 
-  for (const match of haystack.matchAll(HEAD_SHA_RE)) {
-    const sha = match[0].toLowerCase();
+  const pullRequestUrls = (text: string): Set<string> => {
+    const urls = new Set<string>();
 
-    addKey("head_sha", sha);
-  }
+    for (const match of text.matchAll(PULL_REQUEST_URL_RE)) {
+      const repoFullName = match[1];
+      const number = Number(match[2]);
 
-  for (const match of haystack.matchAll(PULL_REQUEST_URL_RE)) {
-    const repoFullName = match[1];
-    const number = Number(match[2]);
+      if (!repoFullName) continue;
+      const url = canonicalizeGithubPullRequestUrl({ repoFullName, number });
 
-    if (!repoFullName) continue;
-    const url = canonicalizeGithubPullRequestUrl({ repoFullName, number });
+      if (url) urls.add(url);
+    }
 
-    if (url) addKey("pull_request_url", url);
-  }
+    for (const match of text.matchAll(REPO_PULL_REQUEST_RE)) {
+      const repoFullName = match[1];
+      const number = Number(match[2]);
 
-  for (const match of haystack.matchAll(REPO_PULL_REQUEST_RE)) {
-    const repoFullName = match[1];
-    const number = Number(match[2]);
+      if (!repoFullName) continue;
+      const url = canonicalizeGithubPullRequestUrl({ repoFullName, number });
 
-    if (!repoFullName) continue;
-    const url = canonicalizeGithubPullRequestUrl({ repoFullName, number });
+      if (url) urls.add(url);
+    }
 
-    if (url) addKey("pull_request_url", url);
-  }
+    return urls;
+  };
 
   const subjectRef = deriveLoopEntityRef(input.subject);
 
-  if (subjectRef?.provider === "github" && subjectRef.kind === "pull_request") {
+  if (subjectRef?.provider === "github") {
+    if (subjectRef.kind !== "pull_request") return [];
+
     const separator = subjectRef.id.lastIndexOf("#");
     const repoFullName = subjectRef.id.slice(0, separator);
     const number = Number(subjectRef.id.slice(separator + 1));
     const url = canonicalizeGithubPullRequestUrl({ repoFullName, number });
 
     if (url) addKey("pull_request_url", url);
+
+    return keys;
+  }
+
+  const subjectUrls = pullRequestUrls(input.subject ?? "");
+
+  if (subjectUrls.size > 0) {
+    if (subjectUrls.size === 1) {
+      for (const url of subjectUrls) addKey("pull_request_url", url);
+    }
+
+    return keys;
+  }
+
+  for (const match of haystack.matchAll(HEAD_SHA_RE)) {
+    const sha = match[0].toLowerCase();
+
+    addKey("head_sha", sha);
+  }
+
+  if (keys.length > 0) return keys;
+
+  const bodyUrls = pullRequestUrls(input.content ?? "");
+
+  if (bodyUrls.size === 1) {
+    for (const url of bodyUrls) addKey("pull_request_url", url);
   }
 
   return keys;
