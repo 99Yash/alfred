@@ -200,7 +200,7 @@ export const syncedBriefingSchema = z.object({
   sendDecision: briefingSendDecisionSchema.nullable(),
   gateReason: z.string().nullable(),
   gather: briefingGatherSchema.nullable(),
-  closedLoops: z.array(briefingClosedLoopSchema),
+  closedLoops: z.array(briefingClosedLoopSchema).default([]),
   breakingSummary: z.string().nullable(),
   fullBriefing: fullBriefingSchema.nullable(),
   model: z.string().nullable(),
