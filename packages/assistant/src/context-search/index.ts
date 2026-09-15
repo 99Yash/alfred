@@ -124,15 +124,17 @@
  * Every source registers with a `RetrievalSourceManifest`
  * (`@alfred/contracts`): how it can be read (read capabilities, freshness,
  * availability), and how far to trust and how much to spend (authority, cost).
- * The contract reserves a wider catalog surface (`objectKinds`, `mediaKinds`,
+ * The contract reserves a wider catalog surface (`objectKinds`,
  * `identityKeys`, `indexability`, `freshness.windowMinutes`,
  * `cost.typicalLatencyMs`, `discovery`, and the `enumerate` capability); the
  * boundary does not branch on those yet and production manifests leave them
  * unset. `expand` and its `expansionKinds` left that reserved set with #1077
- * and now drive the expansion phase. `SourceManifest` stays loose for the
- * catalog case, but registration takes the strict retrieval subtype — at
- * least one read capability and an authority above `unknown` — so a
- * forgotten declaration fails at boot rather than going dark. The ADR-0093
+ * and now drive the expansion phase; `mediaKinds` left it with #429 and now
+ * bounds the modality each source's cards may carry. `SourceManifest` stays
+ * loose for the catalog case, but registration takes the strict retrieval
+ * subtype — at least one read capability, an authority above `unknown`, and at
+ * least one media kind — so a forgotten declaration fails at boot rather than
+ * going dark. The ADR-0093
  * integration join (`integration` slug in, `sourceManifestDisplayName` /
  * `sourceManifestDomains` out) is implemented and covered from a fixture, but
  * no built-in source names a slug today: `documents`, `memory`, and

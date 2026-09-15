@@ -9,7 +9,7 @@ import {
   type EvidenceExpansionHandle,
 } from "@alfred/contracts";
 import { expansionRoutes } from "./manifest";
-import type { ContextSource, ContextSourceExpander } from "./registry";
+import { cardObeysManifest, type ContextSource, type ContextSourceExpander } from "./registry";
 
 /**
  * The expansion phase (#428/#1077; epic #422; ADR-0101 sub-decisions 17-18).
@@ -347,7 +347,12 @@ async function runExpansion(
 
   const parsed = evidenceCardSchema.safeParse(result);
 
-  if (!parsed.success || parsed.data.source.id !== plan.source.id) {
+  // The same two manifest joins a collected card must keep (#429): a refreshed
+  // card names its own source, and its modality is one that source declared.
+  // Checking the refresh with the same predicate is what stops the expansion
+  // phase from being the back door into the pack for a card the collect phase
+  // would have rejected.
+  if (!parsed.success || !cardObeysManifest(parsed.data, plan.source)) {
     return { plan, card: undefined, failure: "the expanded evidence card violated the contract" };
   }
 

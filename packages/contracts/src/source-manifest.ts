@@ -7,6 +7,7 @@ import {
   evidenceMediaKindSchema,
   evidenceSourceKindSchema,
   type EvidenceAuthority,
+  type EvidenceMediaKind,
   type EvidenceSourceRef,
 } from "./evidence-card";
 import { INTEGRATION_DISPLAY_NAMES, INTEGRATION_SLUGS, integrationEntry } from "./integrations";
@@ -218,15 +219,15 @@ function uniqueValues(values: readonly string[]): boolean {
  *
  * The boundary acts on a subset in this slice: `read` and `availability` drive
  * selection, `read` + `expansionKinds` route a card's expansion handle (#1077),
- * `authority` / `freshness.typical` / `cost.class` fold into the ranker's
- * `sourcePriority`, and `id` / `kind` / `displayName` (+ `domains` via the
- * integration join) stamp each card's source ref. The rest —
- * `objectKinds`, `mediaKinds`, `identityKeys`, `indexability`,
- * `freshness.windowMinutes`, `cost.typicalLatencyMs`, `discovery`, and the
- * `enumerate` read capability — are catalog-reserved declarations for a future
- * catalog slice. Nothing in the boundary branches on them yet, and production
- * manifests leave them unset rather than paying for a derivation no reader
- * consumes.
+ * `mediaKinds` bounds the modality a card may carry (#429), `authority` /
+ * `freshness.typical` / `cost.class` fold into the ranker's `sourcePriority`,
+ * and `id` / `kind` / `displayName` (+ `domains` via the integration join)
+ * stamp each card's source ref. The rest — `objectKinds`, `identityKeys`,
+ * `indexability`, `freshness.windowMinutes`, `cost.typicalLatencyMs`,
+ * `discovery`, and the `enumerate` read capability — are catalog-reserved
+ * declarations for a future catalog slice. Nothing in the boundary branches on
+ * them yet, and production manifests leave them unset rather than paying for a
+ * derivation no reader consumes.
  */
 export const sourceManifestSchema = z.object({
   /** The join key: the producing `ContextSource.id` and `EvidenceCard.source.id`. */
@@ -257,7 +258,21 @@ export const sourceManifestSchema = z.object({
     .max(SOURCE_MANIFEST_MAX_LIST)
     .refine(uniqueValues, "must not contain duplicates")
     .optional(),
-  /** Payload modalities this source can return. */
+  /**
+   * The payload modalities this source can return (#429).
+   *
+   * The card side of the modality vocabulary and the manifest side name the
+   * same enum from the two ends: a card mints one `mediaKind`, and a source
+   * declares every kind its cards may carry. It stays optional HERE for the
+   * catalog case — an MCP server that describes itself in one field says
+   * nothing about what it holds — and becomes required on
+   * {@link retrievalSourceManifestSchema}, which a registered source takes.
+   *
+   * It is a statement about the RECORDS, never about extraction: a source that
+   * declares `image` says it can return a picture as evidence, not that Alfred
+   * can read the picture. What a card could not extract rides on the card's own
+   * `note`.
+   */
   mediaKinds: z
     .array(evidenceMediaKindSchema)
     .max(EVIDENCE_MEDIA_KINDS.length)
@@ -315,10 +330,17 @@ export type SourceManifest = z.infer<typeof sourceManifestSchema>;
  * `SourceManifest` stays loose for the catalog case — an undescribed MCP
  * server is still describable as `{ id, kind: "mcp" }` and the reader treats
  * that silence conservatively. A `ContextSource` registration takes this
- * strict subtype instead: at least one read capability and an authority above
- * `unknown`. A source that forgets either then fails at boot (a compile error
- * for a literal, a parse throw otherwise) rather than going dark for the life
- * of the process with only a `skipped` line as evidence.
+ * strict subtype instead: at least one read capability, an authority above
+ * `unknown`, and at least one media kind (#429). A source that forgets any of
+ * the three then fails at boot (a compile error for a literal, a parse throw
+ * otherwise) rather than going dark for the life of the process with only a
+ * `skipped` line as evidence.
+ *
+ * `mediaKinds` is required here for the reason the other two are, read through
+ * the modality: the boundary rejects a card whose modality its own source never
+ * declared, so an optional list would make silence the one declaration that
+ * admits everything. A source states what it can return, and the cards it
+ * returns are then held to that statement.
  */
 export const retrievalSourceManifestSchema = sourceManifestSchema.extend({
   read: z
@@ -327,6 +349,11 @@ export const retrievalSourceManifestSchema = sourceManifestSchema.extend({
     .max(SOURCE_READ_CAPABILITIES.length)
     .refine(uniqueValues, "must not contain duplicates"),
   authority: evidenceAuthoritySchema.extend({ level: z.enum(["high", "medium", "low"]) }),
+  mediaKinds: z
+    .array(evidenceMediaKindSchema)
+    .min(1)
+    .max(EVIDENCE_MEDIA_KINDS.length)
+    .refine(uniqueValues, "must not contain duplicates"),
 });
 
 export type RetrievalSourceManifest = z.infer<typeof retrievalSourceManifestSchema>;
@@ -373,6 +400,21 @@ export function sourceManifestDomains(manifest: SourceManifest): readonly string
  */
 export function sourceManifestExpansionKinds(manifest: SourceManifest): readonly string[] {
   return manifest.expansionKinds ?? [];
+}
+
+/**
+ * Whether the source declared it can return evidence of this modality (#429).
+ *
+ * The single owner of the modality join, so the boundary's per-card check and a
+ * future catalog read the declaration the same way. Silence answers `false`:
+ * a manifest that names no modality has not declared this one, and the whole
+ * point of the declaration is that it buys nothing by omission.
+ */
+export function sourceManifestDeclaresMediaKind(
+  manifest: SourceManifest,
+  mediaKind: EvidenceMediaKind,
+): boolean {
+  return manifest.mediaKinds?.includes(mediaKind) === true;
 }
 
 /** Whether the source declared it can be read this way. */

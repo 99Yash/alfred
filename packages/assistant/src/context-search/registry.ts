@@ -1,5 +1,6 @@
 import {
   retrievalSourceManifestSchema,
+  sourceManifestDeclaresMediaKind,
   sourceManifestExpansionKinds,
   type ContextSearchRequest,
   type EvidenceCard,
@@ -175,6 +176,34 @@ export interface ContextSource {
   readonly manifest: RetrievalSourceManifest;
   /** The readers this source implements, keyed by the capability each answers. */
   readonly reads: ContextSourceReads;
+}
+
+/**
+ * Whether a card keeps the two promises its producing source made about it.
+ *
+ * Both are manifest joins, and both are checked HERE rather than in the card
+ * schema, because neither is a property of a card alone: each compares the card
+ * against the declaration of the source that returned it.
+ *
+ * - **Identity.** `source.id` must equal the id the source registered as, which
+ *   is the join key the manifest and the ranker both address (#466). A card
+ *   that names another source would credit that source's authority and
+ *   priority to evidence it never produced.
+ * - **Modality.** `mediaKind` must be one the manifest declares (#429).
+ *   `RetrievalSourceManifest` requires at least one, so this check is total: no
+ *   source reaches it having said nothing, and silence cannot admit every
+ *   modality by default. A source that starts returning a kind it never
+ *   declared — a Drive image where the manifest names only documents — becomes
+ *   a visible `error` report rather than an unnoticed widening of what the
+ *   model is told the source holds.
+ *
+ * The same `error` path carries both, because the recovery is the same: a
+ * source and its declaration disagree, and one of the two is wrong.
+ */
+export function cardObeysManifest(card: EvidenceCard, source: ContextSource): boolean {
+  if (card.source.id !== source.id) return false;
+
+  return sourceManifestDeclaresMediaKind(source.manifest, card.mediaKind);
 }
 
 interface RegisteredSlot {
