@@ -128,6 +128,20 @@ const EXACT_ONLY: RetrievalSourceManifest = {
   authority: { level: "high" },
 };
 
+/**
+ * Deterministic lookups plus expansion — more than an expander, so it never
+ * takes the `expansion-only` reason even though it declares `expand`. The
+ * packer must not call it a source that "only re-reads records other sources
+ * found" when it also does exact lookups.
+ */
+const EXACT_AND_EXPAND: RetrievalSourceManifest = {
+  id: "manifest-test:exact-and-expand",
+  kind: "internal",
+  read: ["exact_lookup", "expand"],
+  expansionKinds: ["test_record"],
+  authority: { level: "high" },
+};
+
 const QUERY: ContextSearchRequest = {
   userId: "user-1",
   query: "anything",
@@ -210,6 +224,24 @@ describe("selectContextSources — who gets asked", () => {
 
   test("the same exact-lookup source is a candidate once the request declares an object", () => {
     const selection = select([EXACT_ONLY], {
+      ...QUERY,
+      objects: [{ by: "identity", provider: "github", kind: "pull_request", externalId: "1" }],
+    });
+
+    assert.equal(selection.size, 0);
+  });
+
+  test("an exact-lookup source that also expands is no-answering-read, not expansion-only, for a query with no object", () => {
+    // `expansion-only` names a source that ONLY expands. This source answers a
+    // different question on other requests, so collapsing it into the expander
+    // reason would misdescribe it to the model.
+    const selection = select([EXACT_AND_EXPAND]);
+
+    assert.equal(reasonFor(selection, EXACT_AND_EXPAND.id), "no-answering-read");
+  });
+
+  test("the same expanding exact-lookup source is a candidate once the request declares an object", () => {
+    const selection = select([EXACT_AND_EXPAND], {
       ...QUERY,
       objects: [{ by: "identity", provider: "github", kind: "pull_request", externalId: "1" }],
     });

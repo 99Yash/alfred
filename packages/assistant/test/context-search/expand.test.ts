@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { EvidenceCard, EvidenceExpansionHandle } from "@alfred/contracts";
+import { CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS } from "@alfred/contracts";
 import {
   packEvidenceCards,
   registerContextSource,
@@ -232,21 +233,13 @@ describe("the expansion phase — routing reads the declaration alone", () => {
     }
   });
 
-  test("two cards sharing one handle cost one expansion, and both sources run in parallel", async () => {
-    let inFlight = 0;
-    let maxInFlight = 0;
+  test("two cards sharing one handle cost one expansion, and each kind reaches its declarant", async () => {
     const expanded: string[] = [];
 
-    /** Records overlap: a serial phase can never push `maxInFlight` past one. */
+    /** One call per routed handle: the shared handle must cost one call. */
     function tracked(sourceId: string, cardId: string) {
       return async ({ handle }: { readonly handle: EvidenceExpansionHandle }) => {
-        inFlight += 1;
-        maxInFlight = Math.max(maxInFlight, inFlight);
         expanded.push(handle.ref);
-
-        await Promise.resolve();
-
-        inFlight -= 1;
 
         return { evidence: [liveCard(sourceId, cardId, handle)] };
       };
@@ -281,17 +274,74 @@ describe("the expansion phase — routing reads the declaration alone", () => {
       const result = await searchContext({ userId: "user-1", query: "anything" });
 
       assert.deepEqual(expanded.toSorted(), ["record-1", "record-2"]);
-      assert.equal(maxInFlight, 2);
 
-      // The refresh takes the better-ranked of the two positions; the other
-      // card keeps its own content rather than becoming a second copy.
+      // The refresh takes the better-ranked of the two positions — order
+      // matters, so this pins the exact sequence rather than set membership:
+      // the shared handle's refresh at the first position, the unshared
+      // sibling untouched in the middle, the other kind's refresh last.
       const ids = result.evidence.map((card) => card.id);
 
-      assert.equal(ids.length, 3);
-      assert.ok(ids.includes("live:a"));
-      assert.ok(ids.includes("live:b"));
-      assert.ok(ids.includes("stale:2"));
-      assert.equal(new Set(ids).size, 3);
+      assert.deepEqual(ids, ["live:a", "stale:2", "live:b"]);
+    } finally {
+      for (const dispose of disposers.reverse()) dispose();
+    }
+  });
+});
+
+describe("the expansion phase — the budget cap", () => {
+  test("the phase spends CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS on the best-ranked handles and leaves the rest", async () => {
+    const expanded: string[] = [];
+    const cardCount = CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS + 2;
+
+    // Distinct records, strictly descending scores: rank order is input order,
+    // so the cap must spend its budget on the first handles and pass over the
+    // weakest two. Every id below is unique, so a replacement can only land
+    // where the assertion says it does.
+    const cards = Array.from({ length: cardCount }, (_, index) => ({
+      ...staleCard(`stale:${index + 1}`, { ...STALE_HANDLE, ref: `record-${index + 1}` }),
+      score: 1 - index * 0.01,
+    }));
+
+    const disposers = [
+      registerContextSource(staleSource(cards)),
+      registerContextSource(
+        defineTestExpansionSource("expand-test:live", ["test_record"], async ({ handle }) => {
+          expanded.push(handle.ref);
+
+          return { evidence: [liveCard("expand-test:live", `live:${handle.ref}`, handle)] };
+        }),
+      ),
+    ];
+
+    try {
+      const result = await searchContext({ userId: "user-1", query: "anything" });
+
+      // The count cap bounds how many round trips the read pays for: exactly
+      // the cap, on the best-ranked handles.
+      assert.equal(expanded.length, CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS);
+      assert.deepEqual(
+        expanded,
+        Array.from(
+          { length: CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS },
+          (_, index) => `record-${index + 1}`,
+        ),
+      );
+
+      // Replaced in place, never appended: the refreshed cards take the first
+      // positions and the passed-over cards keep their stale content last.
+      assert.deepEqual(
+        result.evidence.map((card) => card.id),
+        [
+          ...Array.from(
+            { length: CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS },
+            (_, index) => `live:record-${index + 1}`,
+          ),
+          ...Array.from(
+            { length: cardCount - CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS },
+            (_, index) => `stale:${CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS + index + 1}`,
+          ),
+        ],
+      );
     } finally {
       for (const dispose of disposers.reverse()) dispose();
     }
@@ -389,26 +439,30 @@ describe("the expansion phase — a failure costs the read nothing", () => {
 
 describe("registration binds the expand capability to its handle kinds", () => {
   test("a source that declares `expand` with no kind fails at boot", () => {
-    assert.throws(() =>
-      defineContextSource({
-        id: "expand-test:kindless",
-        manifest: { kind: "native", authority: { level: "medium" } },
-        reads: { expand: async () => ({ evidence: [] }) },
-      }),
+    assert.throws(
+      () =>
+        defineContextSource({
+          id: "expand-test:kindless",
+          manifest: { kind: "native", authority: { level: "medium" } },
+          reads: { expand: async () => ({ evidence: [] }) },
+        }),
+      /declares read capability "expand" with no expansion handle kinds/,
     );
   });
 
   test("a source that names kinds with no `expand` reader fails at boot", () => {
-    assert.throws(() =>
-      defineContextSource({
-        id: "expand-test:readerless",
-        manifest: {
-          kind: "native",
-          authority: { level: "medium" },
-          expansionKinds: ["test_record"],
-        },
-        reads: { semantic_search: async () => ({ evidence: [] }) },
-      }),
+    assert.throws(
+      () =>
+        defineContextSource({
+          id: "expand-test:readerless",
+          manifest: {
+            kind: "native",
+            authority: { level: "medium" },
+            expansionKinds: ["test_record"],
+          },
+          reads: { semantic_search: async () => ({ evidence: [] }) },
+        }),
+      /declares expansion handle kinds with no "expand" read capability/,
     );
   });
 });
