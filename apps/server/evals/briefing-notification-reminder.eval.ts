@@ -1,5 +1,5 @@
 import path from "node:path";
-import { route, googleLeg, type LanguageModel } from "@alfred/ai";
+import { route, probeRoute, googleLeg, type LanguageModel } from "@alfred/ai";
 import type { EmailListItem, PriorBriefingSummary } from "@alfred/assistant/briefings";
 import type { DayShape } from "@alfred/contracts";
 import { generateText, isStepCount, tool } from "ai";
@@ -234,7 +234,7 @@ function modelForLane(lane: ModelLane): LanguageModel {
     case "boss":
       return route("boss").model();
     case "forced-gemini":
-      return route(googleLeg("gemini-3.5-flash"), "medium").model();
+      return probeRoute(googleLeg("gemini-3.5-flash"), "medium").model();
     default: {
       const _exhaustive: never = lane;
 

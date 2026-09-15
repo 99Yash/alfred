@@ -146,32 +146,26 @@ function createRouteHandle(definition: ModelRoute): ModelRouteHandle {
 
 const namedRouteHandles = new Map<ModelRouteName, ModelRouteHandle>();
 
-/**
- * Resolve a named product route, or build a one-model probe/eval route from an
- * already-validated {@link RouteLeg}. The probe form takes the leg triple so
- * identity is carried, not reconstructed from a handwritten model-to-provider
- * table.
- */
-export function route(name: ModelRouteName): ModelRouteHandle;
-export function route(leg: RouteLeg, reasoning: RouteReasoning): ModelRouteHandle;
-export function route(
-  nameOrLeg: ModelRouteName | RouteLeg,
-  reasoning?: RouteReasoning,
-): ModelRouteHandle {
-  if (typeof nameOrLeg === "string") {
-    let handle = namedRouteHandles.get(nameOrLeg);
+/** Resolve a named product route. Handles are memoized per name. */
+export function route(name: ModelRouteName): ModelRouteHandle {
+  let handle = namedRouteHandles.get(name);
 
-    if (!handle) {
-      handle = createRouteHandle(MODEL_ROUTES[nameOrLeg]);
-      namedRouteHandles.set(nameOrLeg, handle);
-    }
-
-    return handle;
+  if (!handle) {
+    handle = createRouteHandle(MODEL_ROUTES[name]);
+    namedRouteHandles.set(name, handle);
   }
 
-  if (!reasoning) throw new Error("a one-model probe route needs a reasoning policy");
+  return handle;
+}
 
-  return createRouteHandle({ legs: [() => nameOrLeg], reasoning });
+/**
+ * Build a one-model probe/eval route from an already-validated {@link RouteLeg}.
+ * Takes the leg triple so identity is carried, not reconstructed from a
+ * handwritten model-to-provider table. Not memoized — probe callers pick a
+ * fresh leg each time.
+ */
+export function probeRoute(leg: RouteLeg, reasoning: RouteReasoning): ModelRouteHandle {
+  return createRouteHandle({ legs: [() => leg], reasoning });
 }
 
 /**
