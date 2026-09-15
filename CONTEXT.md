@@ -348,6 +348,14 @@ The structured, exact-keyed, reducer-computed sibling of _semantic user-memory_.
 
 **Integration object.** One external work object tracked in object-state memory, identified by `(user_id, provider, kind, external_id)`.
 
+**Work-object evidence (designed, not built).** A document or durable referent identity that proposes which integration object an ask concerns. It can identify an object but cannot assert its state.
+
+**Closure fact (designed, not built).** A positive, current-state finding that a specific ask refers to an object whose reviewed provider policy closes that ask. It carries the provider's state and the trusted receipt that set it.
+
+**Transition policy (designed, not built).** The provider-and-object-kind rule for which lifecycle changes are valid. A merged GitHub PR stays merged; a resolved Sentry issue can become unresolved.
+
+**Closure relation (designed, not built).** An explicit link that says one work object closes another under a reviewed target policy. A shared referent or a mention is not a closure relation.
+
 **`state_category`.** The normalized lifecycle bucket every provider's native state maps into: `active | resolved | failed | abandoned`. Provider-agnostic consumers read this.
 
 **Native state.** A provider's own state string (`open`/`merged`/`closed`, `in_progress`/`done`, …), retained on the object row for fidelity and audit alongside the normalized `state_category`.
