@@ -12,6 +12,7 @@ import {
   driveExportFileInput,
   driveGetFileInput,
   driveSearchInput,
+  GOOGLE_WORKSPACE_MIME_PREFIX,
   restPassthroughInput,
 } from "@alfred/contracts";
 import { surfaceExternalFileArtifact } from "@alfred/assistant/artifacts";
@@ -24,7 +25,7 @@ import {
 
 /** Google-editable file (Doc/Sheet/Slide) — the only kind `export_file` can read as text. */
 function isGoogleNativeMimeType(mimeType: string | undefined): boolean {
-  return mimeType?.startsWith("application/vnd.google-apps.") ?? false;
+  return mimeType?.startsWith(GOOGLE_WORKSPACE_MIME_PREFIX) ?? false;
 }
 
 /** Result the read tools return once a file has been surfaced inline instead of read. */

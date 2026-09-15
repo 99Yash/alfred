@@ -4,6 +4,7 @@ import {
   EVIDENCE_NOTE_MAX_CHARS,
   EVIDENCE_SNIPPET_MAX_CHARS,
   GOOGLE_WORKSPACE_MIME_PREFIX,
+  MIME_MEDIA_KINDS,
   mediaKindForMimeType,
   sanitizeErrorMessage,
   toMessage,
@@ -77,10 +78,10 @@ const DRIVE_CONTEXT_SOURCE_ID = "drive";
  * name nor the host: `sourceRefFromManifest` reads both back out of
  * `INTEGRATIONS`, so renaming the integration renames the source.
  *
- * `mediaKinds` is every modality `mediaKindForMimeType` can read out of a Drive
- * MIME type, and the list is wide because a Drive is wide: the user keeps a
- * picture, a recording and a film beside the memo, and Drive's own index
- * matches all of them. A card for one of those is real evidence — it says the
+ * `mediaKinds` spreads `MIME_MEDIA_KINDS`, the return set of
+ * `mediaKindForMimeType`, and the list is wide because a Drive is wide: the
+ * user keeps a picture, a recording and a film beside the memo, and Drive's
+ * own index matches all of them. A card for one of those is real evidence — it says the
  * file exists, under this name, changed at this instant — and the note says
  * Alfred could not read its contents. Narrowing the list to what Alfred can
  * extract would make the boundary drop those cards instead, which would report
@@ -98,7 +99,10 @@ const DRIVE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" | "read"> = {
   cost: { class: "remote", typicalLatencyMs: 1_500 },
   availability: "available",
   expansionKinds: ["drive_file" satisfies BuiltInExpansionKind],
-  mediaKinds: ["text", "document", "image", "audio", "video", "unknown"],
+  // The manifest cannot name a modality the adapter cannot mint, and the
+  // adapter cannot mint one the manifest omits: both read MIME_MEDIA_KINDS,
+  // so the two drift only by a compile error, never by a sentence.
+  mediaKinds: [...MIME_MEDIA_KINDS],
 };
 
 /**

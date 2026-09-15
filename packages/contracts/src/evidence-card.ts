@@ -56,6 +56,26 @@ export type EvidenceMediaKind = (typeof EVIDENCE_MEDIA_KINDS)[number];
 export const evidenceMediaKindSchema = z.enum(EVIDENCE_MEDIA_KINDS);
 
 /**
+ * Every modality `mediaKindForMimeType` can read out of a MIME type.
+ *
+ * The function's return set, stated once so the Drive manifest cannot drift
+ * from it: the full {@link EVIDENCE_MEDIA_KINDS} vocabulary minus `page`. A
+ * page is proven by page structure the extractor emitted, never by a MIME
+ * type, so no MIME type proves one. Spread this into a manifest whose cards
+ * derive `mediaKind` from a MIME type rather than restating the six members.
+ */
+export const MIME_MEDIA_KINDS = [
+  "text",
+  "document",
+  "image",
+  "audio",
+  "video",
+  "unknown",
+] as const;
+
+export type MimeMediaKind = (typeof MIME_MEDIA_KINDS)[number];
+
+/**
  * MIME type prefixes that name a modality on their own.
  *
  * The IANA top-level type IS the modality for these four, so a prefix test is
@@ -68,15 +88,15 @@ const MEDIA_KIND_BY_TYPE_PREFIX = [
   ["audio/", "audio"],
   ["video/", "video"],
   ["text/", "text"],
-] as const satisfies readonly (readonly [string, EvidenceMediaKind])[];
+] as const satisfies readonly (readonly [string, MimeMediaKind])[];
 
 /**
  * The Google Workspace MIME namespace, e.g. `application/vnd.google-apps.document`.
  *
  * A native Workspace file has no bytes of its own: Drive holds it as editable
- * state and renders it to a format on export. Exported here because the Drive
- * context source reads the same namespace to decide whether Drive can export a
- * file as text, and one namespace under two spellings drifts.
+ * state and renders it to a format on export. Exported here because the MIME
+ * table above, the Drive context source, the Drive action tools, and the web
+ * evidence panel all read the same namespace — one spelling, not five.
  */
 export const GOOGLE_WORKSPACE_MIME_PREFIX = "application/vnd.google-apps.";
 
@@ -85,7 +105,7 @@ export const GOOGLE_WORKSPACE_MIME_PREFIX = "application/vnd.google-apps.";
  * `application/*` is the grab-bag of the MIME registry, so this half of the
  * table is a list rather than a prefix.
  */
-const MEDIA_KIND_BY_FULL_TYPE = new Map<string, EvidenceMediaKind>([
+const MEDIA_KIND_BY_FULL_TYPE = new Map<string, MimeMediaKind>([
   ["application/json", "text"],
   ["application/xml", "text"],
   ["application/yaml", "text"],
@@ -127,16 +147,15 @@ const TEXTUAL_MIME_SUFFIXES = ["+json", "+xml", "+yaml"] as const;
  * answer says the record is a picture, not that an OCR lane exists. The
  * degraded-media note on the card carries that second fact.
  *
- * It never returns `page`. A page is proven by page structure the extractor
- * emitted (ADR-0091 `chunks.metadata.page`), and no MIME type proves one — a
- * PDF whose pages were never extracted is a `document`, not a `page`.
+ * Its return set is {@link MIME_MEDIA_KINDS}: every member of the evidence
+ * vocabulary except `page`.
  *
  * `unknown` is the honest tail, and it covers two different silences on
  * purpose: a type this table does not name, and a record whose type the
  * provider never sent. Both mean "Alfred cannot say what this is", which is
  * exactly what `unknown` declares.
  */
-export function mediaKindForMimeType(mimeType: string | undefined): EvidenceMediaKind {
+export function mediaKindForMimeType(mimeType: string | undefined): MimeMediaKind {
   if (mimeType === undefined) return "unknown";
 
   // A MIME type may carry parameters (`text/plain; charset=utf-8`) and is

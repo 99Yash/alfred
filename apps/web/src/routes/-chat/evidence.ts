@@ -1,4 +1,4 @@
-import { INTEGRATIONS, isToolName, type ToolName } from "@alfred/contracts";
+import { GOOGLE_WORKSPACE_MIME_PREFIX, INTEGRATIONS, isToolName, type ToolName } from "@alfred/contracts";
 import { domainOf } from "~/lib/favicon";
 import { formatRelative } from "~/lib/strings";
 import { asRecord, asString, parseJsonRecord, type JsonRecord } from "~/lib/json-record";
@@ -240,13 +240,13 @@ const RAILWAY_TONES = new Map<string, EvidenceBadge["tone"]>([
 function driveKind(mimeType: string | undefined): string | undefined {
   if (!mimeType) return undefined;
 
-  if (mimeType === "application/vnd.google-apps.folder") return "Folder";
+  if (mimeType === `${GOOGLE_WORKSPACE_MIME_PREFIX}folder`) return "Folder";
 
-  if (mimeType === "application/vnd.google-apps.document") return "Doc";
+  if (mimeType === `${GOOGLE_WORKSPACE_MIME_PREFIX}document`) return "Doc";
 
-  if (mimeType === "application/vnd.google-apps.spreadsheet") return "Sheet";
+  if (mimeType === `${GOOGLE_WORKSPACE_MIME_PREFIX}spreadsheet`) return "Sheet";
 
-  if (mimeType === "application/vnd.google-apps.presentation") return "Slides";
+  if (mimeType === `${GOOGLE_WORKSPACE_MIME_PREFIX}presentation`) return "Slides";
 
   if (mimeType === "application/pdf") return "PDF";
   const sub = mimeType.split("/")[1];

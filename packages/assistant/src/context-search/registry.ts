@@ -193,9 +193,11 @@ export interface ContextSource {
  *   `RetrievalSourceManifest` requires at least one, so this check is total: no
  *   source reaches it having said nothing, and silence cannot admit every
  *   modality by default. A source that starts returning a kind it never
- *   declared — a Drive image where the manifest names only documents — becomes
- *   a visible `error` report rather than an unnoticed widening of what the
- *   model is told the source holds.
+ *   declared — a future MCP source returning an image where its manifest names
+ *   only documents — becomes a visible `error` report rather than an
+ *   unnoticed widening of what the model is told the source holds. The
+ *   first-party manifests today declare exactly what their adapters mint, so
+ *   the check passes there and guards drift and future sources.
  *
  * The same `error` path carries both, because the recovery is the same: a
  * source and its declaration disagree, and one of the two is wrong.
