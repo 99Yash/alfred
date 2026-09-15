@@ -59,13 +59,18 @@ function staleSource(cards: readonly EvidenceCard[]): ContextSource {
 }
 
 /** A refreshed card from `sourceId`, declared live as the contract requires. */
-function liveCard(sourceId: string, id: string): EvidenceCard {
+function liveCard(
+  sourceId: string,
+  id: string,
+  handle: EvidenceExpansionHandle = STALE_HANDLE,
+): EvidenceCard {
   return {
     id,
     source: { id: sourceId, kind: "native" },
     mediaKind: "text",
     snippet: "The live copy.",
     time: { freshness: "live" },
+    expansion: { sourceId, kind: handle.kind, ref: handle.ref },
   };
 }
 
@@ -243,7 +248,7 @@ describe("the expansion phase — routing reads the declaration alone", () => {
 
         inFlight -= 1;
 
-        return { evidence: [liveCard(sourceId, cardId)] };
+        return { evidence: [liveCard(sourceId, cardId, handle)] };
       };
     }
 
