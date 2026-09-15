@@ -40,11 +40,15 @@ export interface SearchHit {
   source: Document["source"];
   /**
    * The parent document's `source_id` — the record identity the ingest lane
-   * keyed the row by. For a direct-ingest source it is the provider's own id (a
-   * Gmail message id, a `messageId:attachmentId` pair); for an inbound-webhook
-   * source it is Alfred's receipt id. Ask `documentRecordKind(source)` which one
-   * this is: it answers `null` for the ids no provider can dereference, so a
-   * consumer never reads an Alfred id as a provider address (#1076).
+   * keyed the row by (#1076, prefactor for #428). For a direct-ingest source
+   * it is the provider's own id (a Gmail message id, a
+   * `messageId:attachmentId` pair); for an inbound-webhook source it is
+   * Alfred's receipt id. A `gmail_attachment` row folds every byte-identical
+   * carrier into one row whose id names the first carrier only, so the folded
+   * id is not a faithful per-carrier address — per-carrier provenance rides
+   * `occurrences` instead. A future #428 expander mints the canonical
+   * `(provider, kind, externalId)` `objectIdentitySchema` from this, never a
+   * fused kind string beside it.
    */
   sourceId: string;
   /**
