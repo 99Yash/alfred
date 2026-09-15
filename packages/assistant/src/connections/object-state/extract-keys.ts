@@ -1,5 +1,6 @@
 import {
   canonicalizeGithubPullRequestUrl,
+  collectGithubPullRequestUrls,
   deriveLoopEntityRef,
   parseEmailAddress,
 } from "@alfred/contracts";
@@ -22,11 +23,6 @@ export interface ExtractedKey {
 const GITHUB_NOTIFICATION_DOMAINS = ["github.com"];
 
 const HEAD_SHA_RE = /\b[0-9a-f]{40}\b/gi;
-
-const PULL_REQUEST_URL_RE =
-  /\bhttps?:\/\/github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/pull\/(\d+)\b/gi;
-
-const REPO_PULL_REQUEST_RE = /\b([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)#(\d+)\b/g;
 
 export function isGithubNotificationSender(from: string | null | undefined): boolean {
   const address = parseEmailAddress(from);
@@ -59,32 +55,6 @@ export function extractGithubKeys(input: {
     keys.push({ keyKind, keyValue });
   };
 
-  const pullRequestUrls = (text: string): Set<string> => {
-    const urls = new Set<string>();
-
-    for (const match of text.matchAll(PULL_REQUEST_URL_RE)) {
-      const repoFullName = match[1];
-      const number = Number(match[2]);
-
-      if (!repoFullName) continue;
-      const url = canonicalizeGithubPullRequestUrl({ repoFullName, number });
-
-      if (url) urls.add(url);
-    }
-
-    for (const match of text.matchAll(REPO_PULL_REQUEST_RE)) {
-      const repoFullName = match[1];
-      const number = Number(match[2]);
-
-      if (!repoFullName) continue;
-      const url = canonicalizeGithubPullRequestUrl({ repoFullName, number });
-
-      if (url) urls.add(url);
-    }
-
-    return urls;
-  };
-
   const subjectRef = deriveLoopEntityRef(input.subject);
 
   if (subjectRef?.provider === "github") {
@@ -100,10 +70,12 @@ export function extractGithubKeys(input: {
     return keys;
   }
 
-  const subjectUrls = pullRequestUrls(input.subject ?? "");
+  const subjectUrls = collectGithubPullRequestUrls(input.subject ?? "");
 
-  if (subjectUrls.size > 0) {
-    if (subjectUrls.size === 1) {
+  if (subjectUrls.length > 0) {
+    // Two PRs in one subject is an ambiguous identity; neither one may close
+    // the notification's loop.
+    if (subjectUrls.length === 1) {
       for (const url of subjectUrls) addKey("pull_request_url", url);
     }
 
@@ -118,9 +90,9 @@ export function extractGithubKeys(input: {
 
   if (keys.length > 0) return keys;
 
-  const bodyUrls = pullRequestUrls(input.content ?? "");
+  const bodyUrls = collectGithubPullRequestUrls(input.content ?? "");
 
-  if (bodyUrls.size === 1) {
+  if (bodyUrls.length === 1) {
     for (const url of bodyUrls) addKey("pull_request_url", url);
   }
 
