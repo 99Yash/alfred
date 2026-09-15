@@ -49,12 +49,15 @@ export interface SearchHit {
   sourceId: string;
   /**
    * The provider's thread/conversation grouping for the record — a Gmail
-   * `threadId`. Absent for a stand-alone record.
+   * `threadId`. Absent for a stand-alone record. Carries the same first-carrier
+   * caveat as {@link SearchHit.sourceId} on a folded row.
    */
   sourceThreadId?: string;
   /**
    * The connected account the record arrived on, matching
    * `integration_credentials.account_id`. Absent when the lane records none.
+   * Carries the same first-carrier caveat as {@link SearchHit.sourceId} on a
+   * folded row.
    */
   accountId?: string;
   title: string | null;
