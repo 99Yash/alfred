@@ -153,18 +153,22 @@ function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
 /**
  * The handle a later live drill-down (#428) dereferences (#1076).
  *
- * A hit whose source writes the provider's own id into `documents.source_id`
- * gets a PROVIDER-scoped handle: the `kind` is the record shape the source
- * declares, the `ref` is the provider's id, and the account and thread ride
- * along so an expander can pick credentials and widen to the conversation
- * without a second read of Alfred's store. Both the shape and the branch come
- * from `documentRecordKind`, so a newly ingested source states its record shape
- * once in `@alfred/contracts` and this file never grows a case for it.
+ * A hit whose source addresses exactly one provider record through
+ * `documents.source_id` gets a PROVIDER-scoped handle: the `kind` is the record
+ * shape the source declares, the `ref` is the provider's id, and the account and
+ * thread ride along so an expander can pick credentials and widen to the
+ * conversation without a second read of Alfred's store.
  *
  * Every other hit keeps the DOCUMENT-scoped handle it has today — an Alfred
- * document id under `kind: "document"` — because an inbound-webhook row is
- * keyed by Alfred's own receipt id, which no provider can resolve. No card
- * loses its handle either way.
+ * document id under `kind: "document"`. Two different facts put a source on that
+ * branch: an inbound-webhook row is keyed by Alfred's own receipt id, which no
+ * provider can resolve, and a `gmail_attachment` row folds every byte-identical
+ * carrier into one row whose id names the first carrier only, so a provider
+ * handle minted from it can address the wrong message on the wrong account. Both
+ * answers come from `documentRecordKind`, which states the reason per source, so
+ * this file never grows a case for either and a newly ingested lane declares its
+ * answer once in `@alfred/contracts`. No card loses its handle either way; an
+ * expander that wants an attachment's carrier reads `SearchHit.occurrences`.
  */
 function documentHitExpansion(hit: SearchHit, title: string | undefined): EvidenceExpansionHandle {
   const recordKind = documentRecordKind(hit.source);

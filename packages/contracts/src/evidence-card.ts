@@ -259,8 +259,14 @@ export type EvidenceAnchor = z.infer<typeof evidenceAnchorSchema>;
  * an opaque `ref` (#1076): which connected account owns the record, and which
  * conversation it belongs to. They stay separate fields rather than being
  * packed into `ref`, because a packed `ref` is a string a consumer must parse,
- * and the contract promises exactly the opposite. `packEvidenceCards` renders
- * neither: they address a provider read, and the model never performs one.
+ * and the contract promises exactly the opposite.
+ *
+ * `kind` and `ref` are MODEL-FACING — `packEvidenceCards` renders them as the
+ * card's `Expand:` line — so a producer must not put a secret in either. Since
+ * #1076 a document card's `ref` can be the provider's own record id (a Gmail
+ * message id), which is the user's own data and which `system.corpus_search`
+ * already returns. `accountId` and `threadId` are not rendered; they exist for
+ * the expander, not the prompt.
  */
 export const evidenceExpansionHandleSchema = z.object({
   /** The `ContextSource.id` that can expand this handle. */
