@@ -258,6 +258,18 @@ export type EvidenceAnchor = z.infer<typeof evidenceAnchorSchema>;
 export const EVIDENCE_EXPANSION_HANDLE_KIND_MAX_CHARS = 100;
 
 /**
+ * Character ceiling on an evidence card's `note`.
+ *
+ * The single owner for the bound the card schema enforces, so adapters that
+ * mint a note and the contract that validates it cannot drift into different
+ * maxima. A note built from provider text (a Drive export failure, an object
+ * reading) bounds its final string to this, because the schema rejects the
+ * whole card when one field runs over — and a rejected card deletes the real
+ * provider reason it was built to carry.
+ */
+export const EVIDENCE_NOTE_MAX_CHARS = 1_000;
+
+/**
  * The expansion handle kinds the built-in sources mint (#1077).
  *
  * The card side of the kind vocabulary is statically joined: each built-in
@@ -267,7 +279,12 @@ export const EVIDENCE_EXPANSION_HANDLE_KIND_MAX_CHARS = 100;
  * MCP sources, whose kinds no compile-time list can name — only MCP remains
  * at the ADR-0101 residual risk.
  */
-export const BUILT_IN_EXPANSION_KINDS = ["document", "memory_chunk", "integration_object"] as const;
+export const BUILT_IN_EXPANSION_KINDS = [
+  "document",
+  "memory_chunk",
+  "integration_object",
+  "drive_file",
+] as const;
 
 export type BuiltInExpansionKind = (typeof BUILT_IN_EXPANSION_KINDS)[number];
 
@@ -318,7 +335,7 @@ export const evidenceCardSchema = z
      */
     score: z.number().finite().optional(),
     /** Honest degraded/missing explanation — extraction gaps, missing state. */
-    note: z.string().min(1).max(1_000).optional(),
+    note: z.string().min(1).max(EVIDENCE_NOTE_MAX_CHARS).optional(),
     /** Deterministic object-state identity (#425). */
     object: evidenceObjectRefSchema.optional(),
     /** Entities the evidence is about, canonical per `kind`. */

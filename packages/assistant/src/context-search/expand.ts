@@ -98,7 +98,7 @@ export async function expandEvidence(args: {
   readonly evidence: readonly EvidenceCard[];
   readonly request: ContextSearchRequest;
 }): Promise<EvidenceExpansion> {
-  const routes = expansionRoutes(args.sources);
+  const routes = expansionRoutes(args.sources, args.request);
 
   if (routes.size === 0) return unchanged(args.evidence);
 
@@ -187,7 +187,14 @@ function unchanged(evidence: readonly EvidenceCard[]): EvidenceExpansion {
  * {@link CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS}, so the cap always spends its
  * budget on the strongest evidence. Three cards are passed over:
  *
- * - one that already declares itself `live` — there is nothing to refresh;
+ * - one that is already READ: it declares itself `live` and carries a snippet,
+ *   so there is nothing to refresh. A live card with only a `note` is not that
+ *   card (#1078). A live source can find a record and still not have read it —
+ *   a Drive search matches more files than one read can afford to export — and
+ *   for that card the phase is not refreshing stale content, it is fetching
+ *   content for the first time. `live` says WHEN the card was made, and a
+ *   snippet says whether it holds the record; skipping on the first alone would
+ *   make every live source's unread hits permanently unreadable;
  * - one whose handle kind no source declared — routing is by declaration, and
  *   an unrouted handle is a card that stays exactly as it was;
  * - one whose `(kind, ref)` a better-ranked card already claimed — two cards
@@ -207,7 +214,7 @@ function planExpansions(
 
     const handle = card.expansion;
 
-    if (handle === undefined || card.time?.freshness === "live") continue;
+    if (handle === undefined || isAlreadyRead(card)) continue;
 
     const source = routes.get(handle.kind);
 
@@ -232,6 +239,19 @@ function planExpansions(
   }
 
   return plans;
+}
+
+/**
+ * Whether this card already holds the record, so a round trip would buy nothing
+ * (#1078).
+ *
+ * Both halves are needed. `live` alone says the card was made on this request,
+ * which a search hit is even when the search read no content; a snippet alone
+ * says the card holds text, which an ingested card also does and which the
+ * phase exists to refresh. Only the two together mean "read, now".
+ */
+function isAlreadyRead(card: EvidenceCard): boolean {
+  return card.time?.freshness === "live" && card.snippet !== undefined;
 }
 
 /** What a timed-out expansion reports: our own words, never provider text. */

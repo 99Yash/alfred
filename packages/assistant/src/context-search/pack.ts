@@ -72,6 +72,15 @@ const SKIPPED_NOTE = {
   // question, it only re-reads a record another card already pointed at. The
   // model must not read its absence as "this source had nothing on the topic".
   "expansion-only": "only re-reads records other sources found",
+  // Three more distinct facts (#1078). Each says the source was never asked,
+  // and each says something the model can act on: one is a budget this read
+  // chose, one is an account the user can connect, one is a grant the user can
+  // widen, and one is a grant the user must re-run. None is a statement about
+  // the topic, and none is a failure.
+  "over-budget": "costs more than this read pays for",
+  "not-connected": "the account is not connected",
+  "missing-scope": "the account has not granted access",
+  "needs-reauth": "the account needs reconnecting",
 } as const satisfies Record<SourceExclusionReason, string>;
 
 /** Cap on a card's `note` in the packed output. */

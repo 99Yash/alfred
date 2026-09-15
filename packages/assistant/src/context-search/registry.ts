@@ -9,6 +9,25 @@ import {
 } from "@alfred/contracts";
 
 /**
+ * Why a READER declined to be asked on one read (#1078).
+ *
+ * The registry owns this half of the exclusion union because readers are the
+ * registry's side of the boundary: only the source itself can know these
+ * per-user, per-read facts, and no boot-time manifest can carry them.
+ * `manifest.ts` owns the other half (what selection excludes from declared
+ * capability) and joins the two as `SourceExclusionReason` for reports.
+ *
+ * - `not-connected`: no active credential exists — the user never connected.
+ * - `missing-scope`: a credential exists but grants none of the scopes this
+ *   source needs — the user connected but did not grant access.
+ * - `needs-reauth`: the credential's refresh grant is dead (revoked, withdrawn
+ *   consent) — the user must reconnect.
+ */
+export const READER_DECLINED_REASONS = ["not-connected", "missing-scope", "needs-reauth"] as const;
+
+export type ReaderDeclinedReason = (typeof READER_DECLINED_REASONS)[number];
+
+/**
  * The source-side shapes (#422; ADR-0101).
  *
  * These live here — not in a `types.ts` grab-bag — because the registry is
@@ -36,10 +55,36 @@ import {
 export interface ContextSourceResult {
   /** Canonical evidence cards, bounded by the source. */
   readonly evidence: readonly EvidenceCard[];
+  /**
+   * The source declining to be asked at all, for a reason only it could know
+   * (#1078).
+   *
+   * `selectContextSources` prices and screens a source from its manifest, which
+   * is parsed once at boot and is the same for every read. Some reasons are not
+   * like that: whether the user has connected the account behind a native
+   * source is a per-user, per-read fact, and no boot-time declaration can carry
+   * it. A reader that learns such a reason BEFORE it calls its provider returns
+   * it here, and the boundary reports `skipped` with it.
+   *
+   * It exists so that fact does not have to wear one of the two wrong words it
+   * would otherwise take. `empty` claims the source was asked and had nothing,
+   * which would let a consumer close a loop on evidence that was never sought;
+   * `error` claims a failure, which would put a routine disconnected account in
+   * the packer's urgent notes beside a real outage. Both are the honesty rule
+   * of ADR-0101 sub-decision 4 read backwards.
+   *
+   * It is honored only when the source returned no evidence and no reader
+   * failed, so a source that declined one read and answered another reports
+   * what it actually produced.
+   */
+  readonly skipped?: ReaderDeclinedReason | undefined;
 }
 
 /** One capability's reader: how this source answers one declared read. */
-export type ContextSourceReader = (request: ContextSearchRequest) => Promise<ContextSourceResult>;
+export type ContextSourceReader = (
+  request: ContextSearchRequest,
+  signal: AbortSignal,
+) => Promise<ContextSourceResult>;
 
 /**
  * The `expand` reader: how this source dereferences one handle (#1077).

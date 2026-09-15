@@ -123,6 +123,7 @@ export {
   detectPersona,
   exchangeCode,
   getGoogleOAuthConfig,
+  GoogleReauthRequiredError,
   refreshAccessToken,
   scopesForFeatures,
 } from "./oauth";
