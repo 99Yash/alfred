@@ -155,15 +155,17 @@ const AUTHORITY_SCORES = {
  * What one read of a source costs, as a ranking reading (#466).
  *
  * Cost is the weakest of the three manifest readings and it only ever breaks a
- * tie: a local store is preferred over a metered provider call when nothing
- * else separates them, and never over relevance. `unknown` again sits above the
- * honest bad case, so a source is not punished for silence.
+ * tie: a local store is preferred over a provider call when nothing else
+ * separates them, and never over relevance. The ordering is the selection
+ * ladder in the other direction (`manifest.ts`): a provider call costs money
+ * AND the read's latency, so `remote` is the honest bad case and `unknown`
+ * again sits above it, so a source is not punished for silence.
  */
 const COST_SCORES = {
   local: 1,
-  remote: 0.6,
+  metered: 0.6,
   unknown: 0.5,
-  metered: 0.35,
+  remote: 0.35,
 } as const satisfies Record<SourceCostClass, number>;
 
 /**

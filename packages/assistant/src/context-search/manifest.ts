@@ -103,19 +103,30 @@ export const SOURCE_EXCLUSION_REASONS: readonly SourceExclusionReason[] = [
  * same split ADR-0101 sub-decision 16 draws for the ranker's weights. A read
  * that reads a local table is the cheapest thing Alfred can do; an embedding
  * costs money but no provider; a provider call costs money AND the read's
- * latency, which is why it sits at the top.
+ * latency, which is why it sits at the top. This is the same ordering the
+ * ranker's `COST_SCORES` reads in the other direction: one vocabulary, one
+ * ladder.
  *
  * An undeclared cost scores the top rung, not the bottom. This is the same rule
  * the ranker's fold applies in the other direction: silence must never BUY
  * anything. A source that declines to price itself, priced as free, would be the
- * one source a budget could never exclude.
+ * one source a budget could never exclude. The unpriced rank derives from the
+ * table with `Math.max`, so a new class above `remote` moves it without a
+ * second literal to remember.
  */
 const COST_RANK = {
   local: 0,
   metered: 1,
   remote: 2,
-  unknown: 2,
-} as const satisfies Record<SourceCostClass, number>;
+} as const satisfies Record<SourceCostBudget, number>;
+
+/** The rank an undeclared cost reads as: the top rung, whatever it is today. */
+const UNPRICED_COST_RANK: number = Math.max(...Object.values(COST_RANK));
+
+/** The spending rank of one declared class, or of silence about the class. */
+function costRank(costClass: SourceCostClass): number {
+  return costClass === "unknown" ? UNPRICED_COST_RANK : COST_RANK[costClass];
+}
 
 /**
  * Whether this source costs more than the caller agreed to pay (#1078).
@@ -126,7 +137,7 @@ const COST_RANK = {
  * would drift.
  */
 export function exceedsCostBudget(manifest: SourceManifest, budget: SourceCostBudget): boolean {
-  return COST_RANK[manifest.cost?.class ?? "unknown"] > COST_RANK[budget];
+  return costRank(manifest.cost?.class ?? "unknown") > costRank(budget);
 }
 
 /**
