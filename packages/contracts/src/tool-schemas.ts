@@ -1740,14 +1740,22 @@ export const corpusSearchInput = z
  * `system.search_context` input (epic #422; ADR-0101). The model supplies the
  * query envelope; the server binds `userId` from the call context, exactly as
  * `searchContext` expects. Derived from the boundary's own
- * {@link contextSearchRequestSchema} by dropping `userId` and tightening the
- * object to `.strict()`, so the model-facing shape cannot drift from the
- * envelope the boundary parses — there is one set of bounds and one cap.
+ * {@link contextSearchRequestSchema} by dropping the server-owned fields and
+ * tightening the object to `.strict()`, so the model-facing shape cannot drift
+ * from the envelope the boundary parses — there is one set of bounds and one
+ * cap.
+ *
+ * Two fields are dropped. `userId` is the caller's identity, which the model
+ * never states. `expand` (#1077) is a latency and money budget: whether the
+ * read may pay for live provider round trips is the server's call, not a knob
+ * the model can price, and exposing it would cost schema bytes on a kernel tool
+ * for a choice the model cannot reason about. The boundary's default (expansion
+ * on) therefore applies to every model-issued read.
  */
 export const searchContextInput = coerceJsonArrayFields(
   ["objects"],
   contextSearchRequestSchema
-    .omit({ userId: true })
+    .omit({ userId: true, expand: true })
     .strict()
     .describe(
       "One read across Alfred's registered evidence sources for a query. Use it to assemble first-pass evidence, then drill into provider-specific tools for actions or exact records.",

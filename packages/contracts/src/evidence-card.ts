@@ -249,6 +249,29 @@ export const evidenceAnchorSchema = z.object({
 export type EvidenceAnchor = z.infer<typeof evidenceAnchorSchema>;
 
 /**
+ * Character ceiling on an expansion handle's `kind`.
+ *
+ * Shared by {@link evidenceExpansionHandleSchema} and the manifest's
+ * `expansionKinds` element bound, so the two ends of the kind vocabulary
+ * cannot drift into different maxima.
+ */
+export const EVIDENCE_EXPANSION_HANDLE_KIND_MAX_CHARS = 100;
+
+/**
+ * The expansion handle kinds the built-in sources mint (#1077).
+ *
+ * The card side of the kind vocabulary is statically joined: each built-in
+ * adapter mints its `expansion.kind` from this tuple (via
+ * {@link BuiltInExpansionKind}), so a misspelled first-party kind fails
+ * compilation. The manifest side stays open (`expansionKinds: string[]`) for
+ * MCP sources, whose kinds no compile-time list can name — only MCP remains
+ * at the ADR-0101 residual risk.
+ */
+export const BUILT_IN_EXPANSION_KINDS = ["document", "memory_chunk", "integration_object"] as const;
+
+export type BuiltInExpansionKind = (typeof BUILT_IN_EXPANSION_KINDS)[number];
+
+/**
  * An opaque handle the fabric can later expand into live provider data (#428).
  * The boundary itself never dereferences it; `ref` is meaningful only to the
  * named `sourceId`, and `kind` is a source-declared read shape (a document, a
@@ -259,7 +282,7 @@ export const evidenceExpansionHandleSchema = z.object({
   /** The `ContextSource.id` that can expand this handle. */
   sourceId: z.string().min(1).max(200),
   /** Source-declared read shape — `document`, `gmail_message`, `mcp_tool`. */
-  kind: z.string().min(1).max(100),
+  kind: z.string().min(1).max(EVIDENCE_EXPANSION_HANDLE_KIND_MAX_CHARS),
   /** Opaque reference, interpreted only by `sourceId`. */
   ref: z.string().min(1).max(1_024),
   /** Human hint for debugging, never a dereference instruction. */
