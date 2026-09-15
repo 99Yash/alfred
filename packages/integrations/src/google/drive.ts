@@ -166,6 +166,7 @@ export async function downloadFile(
   const url = new URL(`${API_BASE}/${encodeURIComponent(args.fileId)}`);
   url.searchParams.set("alt", "media");
   url.searchParams.set("supportsAllDrives", "true");
+
   const { text, truncated, mimeType } = await getText(
     url.toString(),
     args.accessToken,
