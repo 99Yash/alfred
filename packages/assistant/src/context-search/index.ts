@@ -178,7 +178,6 @@ export { registerContextSource } from "./registry";
 
 export {
   contextSourcePriorities,
-  expansionRoutes,
   isTrustedRetrievalSource,
   selectContextSources,
   SOURCE_EXCLUSION_REASONS,

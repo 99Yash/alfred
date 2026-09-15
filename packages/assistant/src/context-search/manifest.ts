@@ -38,11 +38,15 @@ import type { ContextSource } from "./registry";
  * misdeclared manifest shows up as a visible line rather than as a source that
  * quietly stopped contributing.
  *
- * What this file is NOT: a router. It never reads `discovery.topics`, never
- * matches the query text against a source, and never orders the candidates.
- * Choosing sources by guessing at query intent is the hard-coded switch this
- * whole contract replaces; the boundary asks every source that CAN answer and
- * lets the ranker sort the answers.
+ * What this file is NOT: a query-intent router. It never reads
+ * `discovery.topics`, never matches the query text against a source, and never
+ * orders the candidates. Choosing sources by guessing at query intent is the
+ * hard-coded switch this whole contract replaces; the boundary asks every
+ * source that CAN answer and lets the ranker sort the answers.
+ *
+ * It DOES route expansions by declared handle kind ({@link expansionRoutes}):
+ * that is kind routing from a manifest declaration, not query-intent routing,
+ * and it never names a source.
  */
 
 /**
@@ -155,16 +159,18 @@ export function contextSourcePriorities(
  * failure: the first REGISTERED source wins, which keeps the route stable
  * across reads and matches the registration-order rule the reports already
  * follow. An `unavailable` source routes nothing — a boot-time admission that
- * it cannot be read applies to both phases.
+ * it cannot be read applies to both phases. The check reads
+ * `manifest.availability` directly rather than the first-phase exclusion map,
+ * so a future exclusion reason cannot silently become routable by forgetting
+ * a second edit here.
  */
 export function expansionRoutes(
   sources: readonly ContextSource[],
-  excluded: ReadonlyMap<string, SourceExclusionReason>,
 ): ReadonlyMap<string, ContextSource> {
   const routes = new Map<string, ContextSource>();
 
   for (const source of sources) {
-    if (excluded.get(source.id) === "unavailable") continue;
+    if (source.manifest.availability === "unavailable") continue;
 
     if (!sourceManifestSupportsRead(source.manifest, "expand")) continue;
 

@@ -2,6 +2,7 @@ import {
   humanizeSlug,
   sourceAuthorityFromManifest,
   sourceRefFromManifest,
+  type BuiltInExpansionKind,
   type ContextSearchRequest,
   type EvidenceCard,
   type RetrievalSourceManifest,
@@ -115,7 +116,7 @@ function memoryHitToEvidenceCard(hit: RecallMemoryHit): EvidenceCard {
     citations: [{ label, locator: `memory chunk ${hit.chunkId}` }],
     expansion: {
       sourceId: MEMORY_CONTEXT_SOURCE_ID,
-      kind: "memory_chunk",
+      kind: "memory_chunk" satisfies BuiltInExpansionKind,
       ref: hit.chunkId,
       hint: label,
     },

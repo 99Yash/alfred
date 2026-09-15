@@ -57,15 +57,17 @@ export type ContextSourceReader = (request: ContextSearchRequest) => Promise<Con
  * waiting for stragglers, so an expander should cancel cheaply on abort
  * rather than finish a doomed round trip.
  *
- * It must return the refreshed card and nothing else: the expansion phase
- * REPLACES a ranked card rather than appending evidence, so a second card has
- * no position to take and is dropped.
+ * It returns the refreshed card or `undefined`: the expansion phase REPLACES
+ * a ranked card rather than appending evidence, so the domain is 0-or-1 and a
+ * list return would let a second card silently drop. `undefined` is the honest
+ * empty answer — the record behind the handle is gone, or the provider had
+ * nothing to add — and the original card stays.
  */
 export type ContextSourceExpander = (args: {
   readonly request: ContextSearchRequest;
   readonly handle: EvidenceExpansionHandle;
   readonly signal: AbortSignal;
-}) => Promise<ContextSourceResult>;
+}) => Promise<EvidenceCard | undefined>;
 
 /**
  * What a source can actually do, keyed by capability.

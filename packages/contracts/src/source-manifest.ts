@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  EVIDENCE_EXPANSION_HANDLE_KIND_MAX_CHARS,
   EVIDENCE_MEDIA_KINDS,
   evidenceAuthoritySchema,
   evidenceFreshnessSchema,
@@ -256,7 +257,8 @@ export const sourceManifestSchema = z.object({
    * The `EvidenceCard.expansion` handle kinds this source can dereference
    * (#1077).
    *
-   * Open strings bounded exactly like `EvidenceExpansionHandle.kind`, because
+   * Open strings bounded by {@link EVIDENCE_EXPANSION_HANDLE_KIND_MAX_CHARS},
+   * the same constant as `EvidenceExpansionHandle.kind`, because
    * they name the same vocabulary from the two ends: a card mints `kind`, and a
    * source declares the kinds it reads. The expansion phase routes a handle by
    * this list ALONE — it never reads the handle's `sourceId` and never names a
@@ -269,7 +271,7 @@ export const sourceManifestSchema = z.object({
    * reader can dereference.
    */
   expansionKinds: z
-    .array(z.string().min(1).max(100))
+    .array(z.string().min(1).max(EVIDENCE_EXPANSION_HANDLE_KIND_MAX_CHARS))
     .max(SOURCE_MANIFEST_MAX_LIST)
     .refine(uniqueValues, "must not contain duplicates")
     .optional(),

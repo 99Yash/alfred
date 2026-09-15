@@ -92,7 +92,7 @@ describe("the expansion phase — a stale card is upgraded in place", () => {
         defineTestExpansionSource("expand-test:live", ["test_record"], async ({ handle }) => {
           handles.push(handle);
 
-          return { evidence: [liveCard("expand-test:live", "live:1")] };
+          return liveCard("expand-test:live", "live:1");
         }),
       ),
     ];
@@ -150,7 +150,7 @@ describe("the expansion phase — a stale card is upgraded in place", () => {
         defineTestExpansionSource("expand-test:live", ["test_record"], async () => {
           calls += 1;
 
-          return { evidence: [liveCard("expand-test:live", "live:1")] };
+          return liveCard("expand-test:live", "live:1");
         }),
       ),
     ];
@@ -181,7 +181,7 @@ describe("the expansion phase — a stale card is upgraded in place", () => {
         defineTestExpansionSource("expand-test:live", ["test_record"], async () => {
           calls += 1;
 
-          return { evidence: [liveCard("expand-test:live", "live:1")] };
+          return liveCard("expand-test:live", "live:1");
         }),
       ),
     ];
@@ -212,7 +212,7 @@ describe("the expansion phase — routing reads the declaration alone", () => {
         defineTestExpansionSource("expand-test:live", ["test_record"], async () => {
           calls += 1;
 
-          return { evidence: [liveCard("expand-test:live", "live:1")] };
+          return liveCard("expand-test:live", "live:1");
         }),
       ),
     ];
@@ -241,7 +241,7 @@ describe("the expansion phase — routing reads the declaration alone", () => {
       return async ({ handle }: { readonly handle: EvidenceExpansionHandle }) => {
         expanded.push(handle.ref);
 
-        return { evidence: [liveCard(sourceId, cardId, handle)] };
+        return liveCard(sourceId, cardId, handle);
       };
     }
 
@@ -308,7 +308,7 @@ describe("the expansion phase — the budget cap", () => {
         defineTestExpansionSource("expand-test:live", ["test_record"], async ({ handle }) => {
           expanded.push(handle.ref);
 
-          return { evidence: [liveCard("expand-test:live", `live:${handle.ref}`, handle)] };
+          return liveCard("expand-test:live", `live:${handle.ref}`, handle);
         }),
       ),
     ];
@@ -389,13 +389,14 @@ describe("the expansion phase — a failure costs the read nothing", () => {
     const disposers = [
       registerContextSource(staleSource([staleCard("stale:1")])),
       registerContextSource(
-        defineTestExpansionSource("expand-test:live", ["test_record"], async () => ({
-          // Structurally a card, and it makes no freshness claim. The boundary
-          // must not stamp `live` on the source's behalf.
-          evidence: [
-            { ...liveCard("expand-test:live", "live:1"), time: { freshness: "ingested" } },
-          ],
-        })),
+        defineTestExpansionSource(
+          "expand-test:live",
+          ["test_record"],
+          async () =>
+            // Structurally a card, and it makes no freshness claim. The boundary
+            // must not stamp `live` on the source's behalf.
+            ({ ...liveCard("expand-test:live", "live:1"), time: { freshness: "ingested" } }),
+        ),
       ),
     ];
 
@@ -413,9 +414,7 @@ describe("the expansion phase — a failure costs the read nothing", () => {
     const disposers = [
       registerContextSource(staleSource([staleCard("stale:1")])),
       registerContextSource(
-        defineTestExpansionSource("expand-test:live", ["test_record"], async () => ({
-          evidence: [],
-        })),
+        defineTestExpansionSource("expand-test:live", ["test_record"], async () => undefined),
       ),
     ];
 
@@ -444,7 +443,7 @@ describe("registration binds the expand capability to its handle kinds", () => {
         defineContextSource({
           id: "expand-test:kindless",
           manifest: { kind: "native", authority: { level: "medium" } },
-          reads: { expand: async () => ({ evidence: [] }) },
+          reads: { expand: async () => undefined },
         }),
       /declares read capability "expand" with no expansion handle kinds/,
     );

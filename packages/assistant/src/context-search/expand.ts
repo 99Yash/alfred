@@ -8,8 +8,8 @@ import {
   type EvidenceCard,
   type EvidenceExpansionHandle,
 } from "@alfred/contracts";
-import { expansionRoutes, type SourceExclusionReason } from "./manifest";
-import type { ContextSource, ContextSourceExpander, ContextSourceResult } from "./registry";
+import { expansionRoutes } from "./manifest";
+import type { ContextSource, ContextSourceExpander } from "./registry";
 
 /**
  * The expansion phase (#428/#1077; epic #422; ADR-0101 sub-decisions 17-18).
@@ -95,11 +95,10 @@ interface ExpansionAttempt {
  */
 export async function expandEvidence(args: {
   readonly sources: readonly ContextSource[];
-  readonly excluded: ReadonlyMap<string, SourceExclusionReason>;
   readonly evidence: readonly EvidenceCard[];
   readonly request: ContextSearchRequest;
 }): Promise<EvidenceExpansion> {
-  const routes = expansionRoutes(args.sources, args.excluded);
+  const routes = expansionRoutes(args.sources);
 
   if (routes.size === 0) return unchanged(args.evidence);
 
@@ -308,7 +307,7 @@ async function runExpansion(
 ): Promise<ExpansionAttempt> {
   if (signal.aborted) return { plan, card: undefined, failure: EXPANSION_TIMEOUT_FAILURE };
 
-  let result: ContextSourceResult;
+  let result: EvidenceCard | undefined;
 
   try {
     result = await plan.expander({ request, handle: plan.handle, signal });
@@ -320,22 +319,12 @@ async function runExpansion(
 
   if (signal.aborted) return { plan, card: undefined, failure: EXPANSION_TIMEOUT_FAILURE };
 
-  let first: unknown;
-
-  try {
-    // A source that returned a non-array `evidence` fails here rather than
-    // rejecting the batch, exactly as a collected read does.
-    [first] = result.evidence;
-  } catch (error) {
-    return { plan, card: undefined, failure: sanitizeErrorMessage(toMessage(error)) };
-  }
-
   // No card is an honest answer: the record behind the handle is gone, or the
   // provider had nothing to add. The original card stays and the source reports
   // `empty`, never `error`.
-  if (first === undefined) return { plan, card: undefined, failure: undefined };
+  if (result === undefined) return { plan, card: undefined, failure: undefined };
 
-  const parsed = evidenceCardSchema.safeParse(first);
+  const parsed = evidenceCardSchema.safeParse(result);
 
   if (!parsed.success || parsed.data.source.id !== plan.source.id) {
     return { plan, card: undefined, failure: "the expanded evidence card violated the contract" };
