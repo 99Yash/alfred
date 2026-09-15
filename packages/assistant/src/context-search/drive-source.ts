@@ -234,18 +234,18 @@ const GOOGLE_NATIVE_PREFIX = "application/vnd.google-apps.";
  * `export?mimeType=text/plain` fails by construction and would burn an inline
  * read on a call Drive cannot answer.
  */
-const GOOGLE_NATIVE_TEXT_EXPORTS: Readonly<Record<string, string>> = {
-  [`${GOOGLE_NATIVE_PREFIX}document`]: "text/plain",
-  [`${GOOGLE_NATIVE_PREFIX}presentation`]: "text/plain",
-  [`${GOOGLE_NATIVE_PREFIX}spreadsheet`]: "text/csv",
-};
+const GOOGLE_NATIVE_TEXT_EXPORTS = new Map([
+  [`${GOOGLE_NATIVE_PREFIX}document`, "text/plain"],
+  [`${GOOGLE_NATIVE_PREFIX}presentation`, "text/plain"],
+  [`${GOOGLE_NATIVE_PREFIX}spreadsheet`, "text/csv"],
+]);
 
 /**
  * The export MIME type for one Google-native MIME type, or `undefined` when
  * Drive cannot export it as text.
  */
 function nativeExportMimeType(mimeType: string): string | undefined {
-  return GOOGLE_NATIVE_TEXT_EXPORTS[mimeType];
+  return GOOGLE_NATIVE_TEXT_EXPORTS.get(mimeType);
 }
 
 /** Google-native types that are not documents and hold no text of their own. */
