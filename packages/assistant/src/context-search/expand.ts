@@ -140,6 +140,7 @@ export async function expandEvidence(args: {
       // id is therefore accepted only when it is the origin's own id or
       // fresh against every origin id and every already-accepted refresh.
       const origin = args.evidence[attempt.plan.index];
+
       const collides =
         origin === undefined ||
         (card.id !== origin.id && (originIds.has(card.id) || acceptedIds.has(card.id)));
