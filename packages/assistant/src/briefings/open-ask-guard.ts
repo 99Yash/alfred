@@ -324,7 +324,15 @@ interface SentenceSpan {
   end: number;
 }
 
-const SENTENCE_BOUNDARY_RE = /(?<=[.!?])\s+/g;
+/**
+ * Split a composed field into independently-droppable spans: sentences, blank-line
+ * paragraphs, and markdown list items. A bullet carries no end punctuation, so
+ * punctuation alone fuses a whole list (plus the sign-off) into one span — one
+ * violating bullet would then delete every sibling and still ship the greeting
+ * (#1082 B1). A lone `\n` inside a paragraph does NOT split, so a soft-wrapped
+ * sentence keeps its marker and its object reference in the same span.
+ */
+const SENTENCE_BOUNDARY_RE = /(?<=[.!?])\s+|\n\s*\n+|\n(?=\s*(?:[-*•>]|\d+[.)])\s)/g;
 
 function splitSentences(text: string): SentenceSpan[] {
   const spans: SentenceSpan[] = [];

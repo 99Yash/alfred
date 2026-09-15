@@ -420,6 +420,44 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     throw new Error("[daily-briefing] send entered without composed output");
   }
 
+  // Pre-send open-ask guard (#1082; ADR-0103): the compose-time audit can go
+  // stale before send. A resume reuses persisted prose without recomposing, and
+  // an object open at compose can close before send — so check live state again
+  // here, where the payload is final. No re-prompt this late (send owns no model
+  // call): downgrade the payload, or block the send when nothing shippable
+  // remains. The compose-time guard stays — it is the only path that can aim a
+  // re-prompt at the composer. Objects absent from `closedLoops` (always the
+  // case on the resume path) fall through to the live `integration_objects`
+  // read inside the audit, which is what catches a merge that landed after
+  // compose.
+  let body: ComposedBriefingBody = {
+    subject: composed.subject,
+    bodyText: composed.bodyText,
+    bodyMarkdown: composed.bodyMarkdown,
+  };
+
+  const sendViolations = await auditComposedBriefing({
+    userId: ctx.userId,
+    composed: body,
+    closedLoops: ctx.state.closedLoops,
+  });
+
+  if (sendViolations.length > 0) {
+    const downgraded = downgradeOpenAsks(body, sendViolations);
+
+    if (!downgraded) {
+      await markBriefingFailed(briefingId);
+      throw new Error(
+        `[daily-briefing] open-ask guard blocked send: ${describeViolations(sendViolations)}`,
+      );
+    }
+
+    await ctx.log(
+      `send: open-ask guard downgraded payload — ${describeViolations(sendViolations)}`,
+    );
+    body = { ...body, ...downgraded };
+  }
+
   // Dry run short-circuit: skip Resend. The `composed` briefings row
   // from `compose` is the inspection artifact; output mirrors a real
   // send so the smoke script doesn't need a special path.
@@ -447,11 +485,11 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   const webOrigin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
 
   const html = await renderBriefingEmail({
-    content: composed.bodyMarkdown,
+    content: body.bodyMarkdown,
     createdAt: new Date().toISOString(),
     timezone: ctx.state.timezone,
     logoUrl: emailLogoUrl(webOrigin),
-    previewText: composed.subject,
+    previewText: body.subject,
     // Both slots get the CTA, pointed at the full briefing for that day
     // (`/briefings/{YYYY-MM-DD}`, ADR-0049) rather than the chat surface.
     ctaUrl: `${webOrigin}/briefings/${briefingDate}`,
@@ -462,9 +500,9 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     userId: ctx.userId,
     kind: ctx.state.slot === "morning" ? "briefing" : "evening_recap",
     idempotencyKey,
-    subject: composed.subject,
+    subject: body.subject,
     html,
-    text: composed.bodyText,
+    text: body.bodyText,
     payload: {
       briefingId,
       briefingDate,
