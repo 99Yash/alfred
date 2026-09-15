@@ -10,7 +10,7 @@ import {
   type RetrievalSourceManifest,
   type SourceManifest,
 } from "@alfred/contracts";
-import { search, type SearchHit } from "@alfred/corpus";
+import { search, toModelFacingHit, type ModelFacingHit } from "@alfred/corpus";
 import { defineContextSource, type ContextSource } from "./registry";
 import { compareByScoreThenId, renderContent } from "./vector-source";
 
@@ -96,17 +96,37 @@ async function readDocuments(request: ContextSearchRequest) {
     limit: request.limit,
   });
 
-  const evidence = [...hits].sort(compareByScoreThenId).map(documentHitToEvidenceCard);
+  // Cards are model-facing: strip the corpus `record` before mapping so the
+  // mapper below cannot see dereference plumbing and the handle it mints
+  // stays inside Alfred's own store (an Alfred document id, like
+  // `memory_chunk` → chunk id and `integration_object` → object id).
+  const evidence = [...hits]
+    .map(toModelFacingHit)
+    .sort(compareByScoreThenId)
+    .map(documentHitToEvidenceCard);
 
   return { evidence };
 }
 
 /**
- * Map one corpus hit to a canonical card. The id is the chunk id — the same
- * chunk retrieved twice is the same card — and the expansion handle points at
- * the parent document, the unit a later live drill-down (#428) fetches.
+ * Map one model-facing corpus hit to a canonical card. The id is the chunk
+ * id — the same chunk retrieved twice is the same card — and the expansion
+ * handle points at the parent document, the unit a later live drill-down
+ * (#428) fetches.
+ *
+ * The parameter is deliberately `ModelFacingHit`, not `SearchHit`: the
+ * corpus `record` (provider id, account, thread in `@alfred/corpus`, #1076)
+ * is for the future expander, and this mapper must not see it. A provider
+ * address must ride the canonical `(provider, kind, externalId)`
+ * `objectIdentitySchema` in `@alfred/contracts` — the shape the request
+ * envelope, the evidence card `object`, and the object-state store read
+ * already derive from — never a fused `gmail_message` kind beside it, and a
+ * handle's `sourceId` must name the `ContextSource` that can actually expand
+ * its `ref` (S1/S2 on #1076). `documents` declares only `semantic_search`
+ * today, and its `ref` stays inside its own store until #428 declares
+ * `expand` plus the `objectKinds` it can dereference.
  */
-function documentHitToEvidenceCard(hit: SearchHit): EvidenceCard {
+function documentHitToEvidenceCard(hit: ModelFacingHit): EvidenceCard {
   // `sanitizeErrorMessage` bounds and strips poison; an all-poison title
   // collapses to empty, which is not a citation, so it falls back to undefined.
   // The label cap is the tighter bound shared with the citation schema.

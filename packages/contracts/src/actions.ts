@@ -67,5 +67,5 @@ export const unknownEffectEnvelopeSchema = z.object({
 export type UnknownEffectEnvelope = z.infer<typeof unknownEffectEnvelopeSchema>;
 
 export function isUnknownEffectEnvelope(value: unknown): value is UnknownEffectEnvelope {
-  return unknownEffectEnvelopeSchema.safeParse(value).success;
+  return unknownEffectEnvelopeSchema.validate(value);
 }
