@@ -6,7 +6,7 @@ import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { isStepCount, tool } from "ai";
 import { z } from "zod";
 import {
-  route,
+  probeRoute,
   flushMeteringWrites,
   meteredGenerateObject,
   meteredGenerateText,
@@ -17,7 +17,7 @@ import { openAiLeg } from "../provider-adapter";
 const MODEL_IDS = ["gpt-5.6-sol", "gpt-5.6-luna"] as const;
 
 async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
-  const modelRoute = route(openAiLeg(modelId), "medium");
+  const modelRoute = probeRoute(openAiLeg(modelId), "medium");
   const model = modelRoute.model();
   const providerOptions = modelRoute.providerOptions();
   const attribution = { requestMeta: { smoke: "gpt-5.6", surface: modelId } } as const;
