@@ -35,16 +35,17 @@ export const EVIDENCE_SNIPPET_MAX_CHARS = 2_000;
 /**
  * The modality of the evidence payload.
  *
- * `text` is the only kind producible end to end today. `document` and `page`
- * are an ingested document and one page of it; `image`/`audio`/`video` are
- * media that may arrive as placeholders before extraction exists; `unknown` is
- * the honest tail for a source that cannot say. A media card need not carry a
- * snippet — a `note` explains the degraded case instead.
+ * `text` is a message body or another record with no file behind it.
+ * `document` is an ingested document, including one page of it — the page is
+ * granularity, so it rides the `page` anchor rather than taking the modality
+ * slot. `image`/`audio`/`video` are media that may arrive as placeholders
+ * before extraction exists; `unknown` is the honest tail for a source that
+ * cannot say. A media card need not carry a snippet — a `note` explains the
+ * degraded case instead.
  */
 export const EVIDENCE_MEDIA_KINDS = [
   "text",
   "document",
-  "page",
   "image",
   "audio",
   "video",
@@ -59,10 +60,10 @@ export const evidenceMediaKindSchema = z.enum(EVIDENCE_MEDIA_KINDS);
  * Every modality `mediaKindForMimeType` can read out of a MIME type.
  *
  * The function's return set, stated once so the Drive manifest cannot drift
- * from it: the full {@link EVIDENCE_MEDIA_KINDS} vocabulary minus `page`. A
- * page is proven by page structure the extractor emitted, never by a MIME
- * type, so no MIME type proves one. Spread this into a manifest whose cards
- * derive `mediaKind` from a MIME type rather than restating the six members.
+ * from it: the full {@link EVIDENCE_MEDIA_KINDS} vocabulary. A page is
+ * granularity rather than modality, so it rides the `page` anchor and no MIME
+ * type needs to prove one. Spread this into a manifest whose cards derive
+ * `mediaKind` from a MIME type rather than restating the six members.
  */
 export const MIME_MEDIA_KINDS = [
   "text",
@@ -147,8 +148,7 @@ const TEXTUAL_MIME_SUFFIXES = ["+json", "+xml", "+yaml"] as const;
  * answer says the record is a picture, not that an OCR lane exists. The
  * degraded-media note on the card carries that second fact.
  *
- * Its return set is {@link MIME_MEDIA_KINDS}: every member of the evidence
- * vocabulary except `page`.
+ * Its return set is {@link MIME_MEDIA_KINDS}: the full evidence vocabulary.
  *
  * `unknown` is the honest tail, and it covers two different silences on
  * purpose: a type this table does not name, and a record whose type the

@@ -16,7 +16,7 @@ This decision closes the production half. It does not add an extraction lane. Th
 | ----------------------------------------- | ---------------------- | ---------------------------------------------- |
 | A message body in the corpus              | `text`                 | The extracted slice                            |
 | A file row in the corpus, pages unproven  | `document`             | The extracted slice                            |
-| A file row in the corpus, page proven     | `page` + a page anchor | The extracted slice and the page number        |
+| A file row in the corpus, page proven     | `document` + a page anchor | The extracted slice and the page number    |
 | A Drive file Drive exports as text        | `text` or `document`   | The exported text                              |
 | A Drive PDF                               | `document`             | The file, plus a note about the absent lane    |
 | A Drive image, recording or film          | `image`/`audio`/`video`| The file, plus a note about the absent lane    |
@@ -31,7 +31,7 @@ This decision closes the production half. It does not add an extraction lane. Th
 
 3. **Both phases call the same predicate.** The collect loop in `search.ts` called the identity half inline. `runExpansion` in `expand.ts` called it too. Both now call `cardObeysManifest`. The expansion phase mints a replacement card after the rank, so a check in the collect loop alone would leave the refresh as a way into the pack for a card the collect loop would have rejected.
 
-4. **One owner derives a modality from a MIME type.** `mediaKindForMimeType(mime)` in `@alfred/contracts` reads the IANA top-level type as the modality for `image`, `audio`, `video` and `text`, keeps a list for the `application/*` grab-bag and the Google Workspace namespace, reads the RFC 6838 structured-syntax suffixes (`+json`, `+xml`, `+yaml`) as text, and answers `unknown` for everything else. It is a reading of the TYPE and never a claim about extraction: an `image` answer says the record is a picture, not that an OCR lane exists. It never returns `page`.
+4. **One owner derives a modality from a MIME type.** `mediaKindForMimeType(mime)` in `@alfred/contracts` reads the IANA top-level type as the modality for `image`, `audio`, `video` and `text`, keeps a list for the `application/*` grab-bag and the Google Workspace namespace, reads the RFC 6838 structured-syntax suffixes (`+json`, `+xml`, `+yaml`) as text, and answers `unknown` for everything else. It is a reading of the TYPE and never a claim about extraction: an `image` answer says the record is a picture, not that an OCR lane exists. A page is granularity rather than modality, so it rides the `page` anchor and the MIME reader never needs to name one.
 
     `unknown` covers two silences on purpose, and a Google Form is the case that shows why. A Form is a named type, but it is not text, not a document, and not media: the evidence vocabulary has no member for it, so `unknown` is the honest answer rather than a wrong one. The other silence is a record whose type the provider never sent. Both mean "Alfred cannot say what this is".
 
@@ -49,7 +49,7 @@ This decision closes the production half. It does not add an extraction lane. Th
 
 10. **A visual anchor and an extraction confidence stay contract-only.** `EVIDENCE_ANCHOR_KINDS` admits `visual`, and `evidenceAnchorSchema` admits a region and a confidence. Nothing proves a region today, so nothing mints one. The contract holds the vocabulary for the extraction slice that follows; this slice writes no value it cannot prove.
 
-11. **The document adapter reads its corpus row, never a MIME type.** A corpus row carries no MIME type, because the ingest lane already turned the bytes into text. The modality of the evidence is the modality of that text and not of the file behind it. So `documentMediaKind` reads a proven page first, then `isFileDocumentSource(hit.source)` for a file row against a message row, and answers `text` otherwise. `isFileDocumentSource` lives in `@alfred/contracts` beside `DOCUMENT_SOURCES`, so "a file row against a message row" is stated one time rather than re-derived from the `gmail_attachment` slug at each reader.
+11. **The document adapter reads its corpus row, never a MIME type.** A corpus row carries no MIME type, because the ingest lane already turned the bytes into text. The modality of the evidence is the modality of that text and not of the file behind it. So `documentMediaKind` answers `document` for a file row — including one whose page structure the extractor proved (ADR-0091), where the page rides the `page` anchor while the modality stays `document` — and `text` otherwise. `isFileDocumentSource` lives in `@alfred/contracts` beside `DOCUMENT_SOURCES`, so "a file row against a message row" is stated one time rather than re-derived from the `gmail_attachment` slug at each reader.
 
 **Amends ADR-0101** (Context Search is a read-boundary module): `mediaKinds` leaves the catalog-reserved set, exactly as `expansionKinds` did with #1077, and sub-decision 14 now names three required declarations. **Extends ADR-0091** (document extraction), which supplies the proven page. **Relates to ADR-0104** (Drive is a live source), whose adapter this changes most. **Slice #429 of epic #422.**
 
