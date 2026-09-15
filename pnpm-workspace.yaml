@@ -89,7 +89,7 @@ catalog:
   typescript: ^7.0.2
   vaul: ^1.1.2
   vite: ^6.4.3
-  zod: 4.5.2
+  zod: 4.6.5
 
 # The AI SDK publishes several releases a day, so a deliberate bump of the `ai`
 # catalog pin is almost always younger than pnpm's release-age floor. Each entry
@@ -103,4 +103,4 @@ minimumReleaseAgeExclude:
   - "@ai-sdk/provider-utils@5.0.40"
   - "@ai-sdk/provider@4.0.14"
   - ai@7.0.99
-  - zod@4.5.2
+  - zod@4.6.5
