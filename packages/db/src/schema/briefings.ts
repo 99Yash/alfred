@@ -1,5 +1,6 @@
 import type {
   BriefingGather,
+  BriefingClosedLoop,
   BriefingSendDecision,
   BriefingSlot,
   BriefingStatus,
@@ -72,6 +73,11 @@ export const briefings = pgTable(
      * the `BriefingGather` shape itself, distinct from this column-level NULL.
      */
     gather: jsonb("gather").$type<BriefingGather>(),
+    /** Positive object-state closure facts supplied to the composer for this run. */
+    closedLoops: jsonb("closed_loops")
+      .notNull()
+      .default(sql`'[]'::jsonb`)
+      .$type<BriefingClosedLoop[]>(),
     /** Short above-the-fold prose (composer output). Null until status is 'composed' or 'sent'. */
     breakingSummary: text("breaking_summary"),
     /** Full briefing prose + section structure (composer output). Null until status is 'composed' or 'sent'. */

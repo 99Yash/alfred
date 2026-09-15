@@ -9,7 +9,12 @@ import {
 } from "../read";
 import { sanitizeVoice } from "@alfred/ai/voice";
 import { tool, type ToolSet } from "@alfred/ai";
-import type { CalendarContribution, DayShape, IanaTimezone } from "@alfred/contracts";
+import type {
+  BriefingClosedLoop,
+  CalendarContribution,
+  DayShape,
+  IanaTimezone,
+} from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { z } from "zod";
 
@@ -67,6 +72,8 @@ interface BuildArgs {
   briefingDate: LocalDateKey;
   /** User's IANA timezone — defines local day boundaries for the calendar window. */
   timezone: IanaTimezone;
+  /** Positive object-state closure facts computed by the gather step. */
+  closedLoops: BriefingClosedLoop[];
 }
 
 /** Fallback day-shape window when this slot has no prior watermark (first run). */
@@ -172,6 +179,13 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
           windowEnd: args.untilIngestedAt,
         });
       },
+    }),
+
+    list_closed_loops: tool({
+      description:
+        "List priority-email loops that the deterministic object-state projection positively proved closed. Every object in this result is closed and must never be presented as an open ask or as work that needs the user. An email absent from this result is not proved closed and stays live unless get_day_shape.shipped identifies the same object as shipped.",
+      inputSchema: z.object({}),
+      execute: async (): Promise<BriefingClosedLoop[]> => args.closedLoops,
     }),
 
     list_action_items: tool({

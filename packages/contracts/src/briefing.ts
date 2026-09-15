@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { attentionBandSchema } from "./attention";
+import { LOOP_CLOSING_STATE_CATEGORIES } from "./integration-objects";
 import { triageCategorySchema } from "./triage";
 import { isIntegrationSlug, type IntegrationSlug } from "./integrations";
 
@@ -256,6 +257,24 @@ export const dayShapeSchema = z.object({
 });
 
 export type DayShape = z.infer<typeof dayShapeSchema>;
+
+/**
+ * A priority email removed from the live briefing lanes because a deterministic
+ * integration-object projection positively proved that its work loop closed.
+ * Persisted separately from `gather` so replays and operators can inspect the
+ * exact closure facts supplied to the composer.
+ */
+export const briefingClosedLoopSchema = z.object({
+  documentId: z.string().min(1),
+  category: triageCategorySchema,
+  subject: z.string().nullable(),
+  objectTitle: z.string().nullable(),
+  objectUrl: z.url().nullable(),
+  stateCategory: z.enum(LOOP_CLOSING_STATE_CATEGORIES),
+  nativeState: z.string().nullable(),
+});
+
+export type BriefingClosedLoop = z.infer<typeof briefingClosedLoopSchema>;
 
 /**
  * Output of the gather step. Sources split into guaranteed vs optional:

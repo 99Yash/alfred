@@ -1,4 +1,4 @@
-import { isRecord } from "@alfred/contracts";
+import { canonicalizeGithubPullRequestUrl, isRecord } from "@alfred/contracts";
 import type { ObjectStateDelta } from "./store";
 
 /**
@@ -52,12 +52,23 @@ export function reduceGithubEvent(
 
   if (headSha) keys.push({ keyKind: "head_sha", keyValue: headSha });
 
+  const pullRequestUrl =
+    repoFullName && number !== null
+      ? canonicalizeGithubPullRequestUrl({ repoFullName, number })
+      : typeof pr.html_url === "string"
+        ? canonicalizeGithubPullRequestUrl({ url: pr.html_url })
+        : null;
+
+  if (pullRequestUrl) {
+    keys.push({ keyKind: "pull_request_url", keyValue: pullRequestUrl });
+  }
+
   return {
     kind: "pull_request",
     externalId: String(githubId),
     nativeState,
     title: typeof pr.title === "string" ? pr.title : undefined,
-    url: typeof pr.html_url === "string" ? pr.html_url : undefined,
+    url: pullRequestUrl ?? undefined,
     repo: repoFullName ?? undefined,
     attributes: {
       ...(headSha ? { head_sha: headSha } : {}),

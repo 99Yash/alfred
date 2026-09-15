@@ -14,7 +14,7 @@ import {
 import { send } from "@alfred/assistant/delivery";
 import { emailLogoUrl } from "@alfred/assistant/settings";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
-import { parseIanaTimezone, type BriefingGather } from "@alfred/contracts";
+import { parseIanaTimezone, type BriefingClosedLoop, type BriefingGather } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -72,6 +72,7 @@ export interface DailyBriefingOperationState {
   untilIngestedAt?: string;
   briefingId?: string;
   quietDay?: boolean;
+  closedLoops: BriefingClosedLoop[];
   composed?: {
     subject: string;
     bodyText: string;
@@ -182,6 +183,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
 
   let gather: BriefingGather;
   let suppressedByInstruction: BriefingInstructionSuppression[] = [];
+  let closedLoops: BriefingClosedLoop[] = [];
 
   try {
     // Deterministic structured gather over the same watermark window the
@@ -199,7 +201,8 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
 
     gather = gathered.gather;
     suppressedByInstruction = gathered.suppressedByInstruction;
-    await markBriefingGathering({ briefingId: begun.row.id, gather });
+    closedLoops = gathered.closedLoops;
+    await markBriefingGathering({ briefingId: begun.row.id, gather, closedLoops });
   } catch (err) {
     await markBriefingFailed(begun.row.id);
     throw err;
@@ -239,6 +242,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       sinceIngestedAt: since ? since.toISOString() : null,
       untilIngestedAt: until.toISOString(),
       quietDay,
+      closedLoops,
     },
     nextStep: "compose",
   };
@@ -306,6 +310,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
       timezone,
       runId: ctx.runId,
       stepId: "compose",
+      closedLoops: ctx.state.closedLoops,
     });
     await markBriefingComposed({
       briefingId,

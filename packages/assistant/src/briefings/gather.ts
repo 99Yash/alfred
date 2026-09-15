@@ -1,11 +1,12 @@
 import type {
+  BriefingClosedLoop,
   BriefingGather,
   BriefingSlot,
   CalendarContribution,
   DayShape,
   IanaTimezone,
   IntegrationActivityItem,
-  StateCategory,
+  LoopClosingStateCategory,
   WeatherContribution,
   WeatherFallbackLocation,
 } from "@alfred/contracts";
@@ -137,19 +138,6 @@ export interface BriefingInstructionSuppression {
   effect: "exclude_briefing_priority";
 }
 
-interface BriefingClosedLoop {
-  documentId: string;
-  category: PriorityCategory;
-  subject: string | null;
-  /** The work object that closed the loop. */
-  objectTitle: string | null;
-  objectUrl: string | null;
-  /** Agnostic terminal bucket — `resolved | abandoned | failed`. */
-  stateCategory: StateCategory;
-  /** Native provider state for display — `merged`/`closed`/… */
-  nativeState: string | null;
-}
-
 export interface GatherBriefingDigestArgs {
   userId: string;
   /** Defaults to 24h before `windowEnd`. */
@@ -258,11 +246,11 @@ export async function gatherBriefingDigest(
   };
 
   const suppressedByInstruction: BriefingInstructionSuppression[] = [];
-  // documentId → candidate GitHub `head_sha`s, for the post-partition
+  // documentId → candidate GitHub object keys, for the post-partition
   // loop-reconciliation pass (ADR-0062). Only GitHub-notification priority
   // rows land here. Priority buckets stay uncapped until after reconciliation
   // so closed loops do not consume one of the visible slots.
-  const githubShasByDoc = new Map<string, string[]>();
+  const githubKeysByDoc = new Map<string, ExtractedGithubKey[]>();
 
   for (const r of rows) {
     const cat = r.category;
@@ -306,21 +294,20 @@ export async function gatherBriefingDigest(
       threadUrl: r.sourceThreadId ? gmailThreadUrl(r.sourceThreadId) : null,
     });
 
-    // A GitHub CI/notification email carries a head_sha but no PR number; pull
-    // the sha so the reconciliation pass can resolve it back to its PR's state.
+    // Extract every deterministic GitHub identity the notification carries.
+    // Actions failures usually carry a head sha; review/comment/merge mail
+    // carries the PR URL or repository + number instead.
     if (isGithubNotificationSender(from)) {
-      const shas = extractGithubKeys({ subject: r.title, content: r.content }).map(
-        (k) => k.keyValue,
-      );
+      const keys = extractGithubKeys({ subject: r.title, content: r.content });
 
-      if (shas.length > 0) githubShasByDoc.set(r.documentId, shas);
+      if (keys.length > 0) githubKeysByDoc.set(r.documentId, keys);
     }
   }
 
   // Loop reconciliation (ADR-0062): drop any priority item whose underlying
   // GitHub PR has reached a loop-closing state. State unknown ⇒ the loop stays
   // live (absence never closes — ADR-0048-D).
-  const closedLoops = await reconcileGithubLoops(args.userId, buckets, githubShasByDoc);
+  const closedLoops = await reconcileGithubLoops(args.userId, buckets, githubKeysByDoc);
 
   for (const category of PRIORITY_CATEGORIES) {
     buckets[category] = buckets[category].slice(0, maxPerBucket);
@@ -349,28 +336,34 @@ export async function gatherBriefingDigest(
  * the closed ones from the priority buckets (mutates `buckets`), returning the
  * dropped set for the evening "closed today" recap.
  *
- * Shas are resolved in parallel — at single-user scale a briefing window holds
+ * Keys are resolved in parallel — at single-user scale a briefing window holds
  * only a handful of GitHub-notification emails, and `resolveByKey` is a single
- * indexed lookup. A sha that resolves to nothing, or to a non-terminal state,
+ * indexed lookup. A key that resolves to nothing, or to a non-terminal state,
  * leaves its loop live (the determinism contract: absence never closes).
  */
 async function reconcileGithubLoops(
   userId: string,
   buckets: Record<PriorityCategory, BriefingItem[]>,
-  shasByDoc: Map<string, string[]>,
+  keysByDoc: Map<string, ExtractedGithubKey[]>,
 ): Promise<BriefingClosedLoop[]> {
-  if (shasByDoc.size === 0) return [];
+  if (keysByDoc.size === 0) return [];
 
-  const distinctShas = [...new Set([...shasByDoc.values()].flat())];
-  const stateBySha = new Map<string, ObjectState>();
+  const distinctKeys = [
+    ...new Map(
+      [...keysByDoc.values()].flat().map((key) => [`${key.keyKind}\u0000${key.keyValue}`, key]),
+    ).values(),
+  ];
+
+  const stateByKey = new Map<string, ObjectState>();
   await Promise.all(
-    distinctShas.map(async (sha) => {
-      const ref = await objectStateStore.resolveByKey(userId, "github", "head_sha", sha);
+    distinctKeys.map(async (key) => {
+      const identity = `${key.keyKind}\u0000${key.keyValue}`;
+      const ref = await objectStateStore.resolveByKey(userId, "github", key.keyKind, key.keyValue);
 
       if (!ref) return; // unknown PR → loop stays live
       const state = await objectStateStore.getState(userId, ref);
 
-      if (state) stateBySha.set(sha, state);
+      if (state) stateByKey.set(identity, state);
     }),
   );
 
@@ -380,10 +373,11 @@ async function reconcileGithubLoops(
     const kept: BriefingItem[] = [];
 
     for (const item of buckets[category]) {
-      const terminal = (shasByDoc.get(item.documentId) ?? [])
-        .map((sha) => stateBySha.get(sha))
+      const terminal = (keysByDoc.get(item.documentId) ?? [])
+        .map((key) => stateByKey.get(`${key.keyKind}\u0000${key.keyValue}`))
         .find(
-          (state): state is ObjectState => !!state && isLoopClosingCategory(state.stateCategory),
+          (state): state is ObjectState & { stateCategory: LoopClosingStateCategory } =>
+            !!state && isLoopClosingCategory(state.stateCategory),
         );
 
       if (terminal) {
@@ -406,6 +400,8 @@ async function reconcileGithubLoops(
 
   return closedLoops;
 }
+
+type ExtractedGithubKey = ReturnType<typeof extractGithubKeys>[number];
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
   return (await gatherBriefingWithSuppressionAudit(args)).gather;
