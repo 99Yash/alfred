@@ -11,7 +11,8 @@ import {
   integrationObjectKeys,
   integrationObjects,
 } from "@alfred/db/schemas";
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { escapeLike } from "@alfred/db/helpers";
+import { and, desc, eq, gte, like, lt, lte } from "drizzle-orm";
 import { reduceGithubEvent } from "./github-reducer";
 
 /**
@@ -98,6 +99,23 @@ export interface ObjectStateStore {
     keyValue: string,
   ): Promise<ObjectStateRef | null>;
   /**
+   * Same lookup for an ABBREVIATED `head_sha`: the stored key must START WITH
+   * `keyPrefix`. GitHub Actions failure mail names the run's commit in the
+   * 7-hex short form, so the exact lookup can never find it (#1092).
+   *
+   * Only `head_sha` supports prefix matching; any other `keyKind` returns
+   * `null`. Returns `null` when the prefix matches no object AND when it
+   * matches more than one — an ambiguous prefix is not an identity, so it may
+   * close nothing. A prefix shorter than the abbreviation floor is rejected
+   * outright.
+   */
+  resolveByKeyPrefix(
+    userId: string,
+    provider: ObjectStateProvider,
+    keyKind: string,
+    keyPrefix: string,
+  ): Promise<ObjectStateRef | null>;
+  /**
    * Current state for a ref. `at` is reserved for point-in-time reads once
    * supersession rows are written (a fast-follow); v1 mutates a single row in
    * place, so it always returns the live state.
@@ -131,6 +149,16 @@ const REDUCERS = {
 const DEFAULT_OBJECT_LIST_LIMIT = 100;
 
 const MAX_OBJECT_LIST_LIMIT = 250;
+
+/**
+ * Shortest prefix that may identify a commit. The store owns this floor: it
+ * guards the `LIKE 'prefix%'` lookup, so it must not follow the mail
+ * extractor (scheduled for replacement by ADR-0063). Only `head_sha` lookups
+ * may use it — any other key kind resolves exactly or not at all.
+ */
+const MIN_HEAD_SHA_PREFIX_LENGTH = 7;
+
+const HEAD_SHA_PREFIXABLE_KEY_KIND = "head_sha";
 
 function rowToObjectState(row: IntegrationObject): ObjectState {
   return {
@@ -287,6 +315,51 @@ export const objectStateStore: ObjectStateStore = {
       .limit(1);
 
     if (!row) return null;
+
+    return { objectId: row.objectId, provider, kind: row.kind, externalId: row.externalId };
+  },
+
+  async resolveByKeyPrefix(userId, provider, keyKind, keyPrefix) {
+    // Prefix semantics belong to `head_sha` only. A short non-sha prefix such
+    // as `"https:/"` would otherwise clear the length floor and match every
+    // stored PR URL of its kind.
+    if (keyKind !== HEAD_SHA_PREFIXABLE_KEY_KIND) return null;
+
+    if (keyPrefix.length < MIN_HEAD_SHA_PREFIX_LENGTH) return null;
+
+    // `LIKE 'prefix%'` alone cannot use the btree under a non-C collation —
+    // the equality columns select every head_sha row, so the filter scans the
+    // table. The range beside it is what the index answers (LIKE stays as the
+    // residual filter): prefix values are [0-9a-f], which en_US.utf8 orders
+    // like C, so [prefix, nextPrefix) holds exactly the rows LIKE matches.
+    const nextPrefix =
+      keyPrefix.slice(0, -1) + String.fromCharCode(keyPrefix.charCodeAt(keyPrefix.length - 1) + 1);
+
+    const rows = await db()
+      .selectDistinct({
+        objectId: integrationObjectKeys.objectId,
+        kind: integrationObjects.kind,
+        externalId: integrationObjects.externalId,
+      })
+      .from(integrationObjectKeys)
+      .innerJoin(integrationObjects, eq(integrationObjectKeys.objectId, integrationObjects.id))
+      .where(
+        and(
+          eq(integrationObjectKeys.userId, userId),
+          eq(integrationObjectKeys.provider, provider),
+          eq(integrationObjectKeys.keyKind, keyKind),
+          gte(integrationObjectKeys.keyValue, keyPrefix),
+          lt(integrationObjectKeys.keyValue, nextPrefix),
+          like(integrationObjectKeys.keyValue, `${escapeLike(keyPrefix)}%`),
+        ),
+      )
+      // Two rows is already proof of ambiguity; the third would tell us nothing
+      // more. Several keys of one object collapse in the DISTINCT.
+      .limit(2);
+
+    const [row, second] = rows;
+
+    if (!row || second) return null;
 
     return { objectId: row.objectId, provider, kind: row.kind, externalId: row.externalId };
   },

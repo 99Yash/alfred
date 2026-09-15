@@ -55,6 +55,15 @@ export const inList = (values: readonly string[]): SQL =>
       .join(", "),
   );
 
+/**
+ * Escape the LIKE/ILIKE wildcards in a value that is a literal, not a pattern.
+ * A raw `%` or `_` from user text (or from a key value) silently widens the
+ * match; `\\` is escaped first so it cannot re-enable the other two.
+ */
+export function escapeLike(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+}
+
 export function generateRandomCode(length: number = 8) {
   return customAlphabet("123456789", length)();
 }
