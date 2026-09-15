@@ -1,4 +1,9 @@
-import { GOOGLE_WORKSPACE_MIME_PREFIX, INTEGRATIONS, isToolName, type ToolName } from "@alfred/contracts";
+import {
+  GOOGLE_WORKSPACE_MIME_PREFIX,
+  INTEGRATIONS,
+  isToolName,
+  type ToolName,
+} from "@alfred/contracts";
 import { domainOf } from "~/lib/favicon";
 import { formatRelative } from "~/lib/strings";
 import { asRecord, asString, parseJsonRecord, type JsonRecord } from "~/lib/json-record";
