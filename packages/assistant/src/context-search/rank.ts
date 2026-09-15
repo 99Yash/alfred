@@ -19,10 +19,12 @@ import { clamp01 } from "@alfred/contracts";
  * Contract (ADR-0101 sub-decision 12 is the source of truth — this header
  * states only the shape so the two cannot drift): pure function over declared
  * card fields, no model call, `now` is an input; an absent signal drops its
- * feature from the card's weighted average rather than defaulting to zero
- * (`freshness`/`authority` read silence as `unknown`); `score` normalizes
- * WITHIN its source; the per-card working rides parallel to the evidence and
- * never reaches the packer. The ranker never reads `snippet` or `note` text.
+ * feature from the card's weighted average rather than defaulting to zero —
+ * except `freshness`, `authority`, and `semantic`, which read silence as a
+ * defined row (`unknown` for the first two, low relevance for `semantic`,
+ * #1078); `score` normalizes WITHIN its source; the per-card working rides
+ * parallel to the evidence and never reaches the packer. The ranker never
+ * reads `snippet` or `note` text.
  */
 
 /**
@@ -48,8 +50,12 @@ export type EvidenceRankFeature = (typeof EVIDENCE_RANK_FEATURES)[number];
 
 /**
  * Relative pull of each feature. They are weights in a weighted AVERAGE, not a
- * sum, so they need not total 1 and a card missing a feature is not penalized
- * for the missing weight.
+ * sum, so they need not total 1. A card missing an OPTIONAL feature
+ * (`exactMatch`, `recency`, `sourcePriority`, `objectState`, `focus`,
+ * `userModel`) is not penalized for the missing weight — the average runs over
+ * what it supplies. `semantic`, `freshness`, and `authority` are never missing
+ * (each reads silence as a defined row), so the lead relevance feature cannot
+ * drop out of the average it leads.
  *
  * The ordering of the numbers is the actual decision here:
  *
@@ -159,6 +165,28 @@ const COST_SCORES = {
   unknown: 0.5,
   metered: 0.35,
 } as const satisfies Record<SourceCostClass, number>;
+
+/**
+ * Relevance reading for a card whose source measured none (#1078).
+ *
+ * Drive is the first source that cannot score its own hits: `fullText
+ * contains` either matches or it does not, so every Drive card arrives with no
+ * `score` and `normalizeSemanticScores` yields no entry. Dropping the feature
+ * there did not treat the card neutrally — it removed the only feature that
+ * could lower the card, and the average over the remaining trust signals
+ * (`live`, `high`) promoted a text-less pointer above measured evidence. This
+ * is the same omission-reward the manifest fold already refuses: its divisor
+ * is the fixed total weight for exactly this reason.
+ *
+ * The floor reads as LOW relevance: above an explicit non-match (`score: 0`,
+ * the object-state MISS that resolved nothing — a keyword match did match),
+ * and below the `unknown` trust rows (0.35), because relevance leads the
+ * average and unknown relevance must not outpull weak measured relevance. The
+ * exact number is a judgement for the retrieval eval (#430) to tune, like the
+ * other weights; the structural promise is only that the lead feature is
+ * always present, so omission can never again read as a declared maximum.
+ */
+const SEMANTIC_UNKNOWN_SCORE = 0.3;
 
 /**
  * Relative pull of the three manifest readings inside one source's priority.
@@ -296,10 +324,11 @@ export interface EvidenceRanking {
   /** Combined score in `[0, 1]`, rounded to {@link SCORE_PRECISION}. */
   readonly score: number;
   /**
-   * The features that were present, with their normalized readings. A feature
-   * the card could not supply is absent from this record rather than present
-   * with a zero, so a trace shows the difference between "scored badly" and
-   * "could not be scored".
+   * The features that were present, with their normalized readings.
+   * `freshness`, `authority`, and `semantic` are always present (each reads
+   * silence as a defined row); any other feature the card could not supply is
+   * absent from this record rather than present with a zero, so a trace shows
+   * the difference between "scored badly" and "could not be scored".
    */
   readonly features: Readonly<Partial<Record<EvidenceRankFeature, number>>>;
 }
@@ -390,17 +419,19 @@ interface FeatureInputs {
 }
 
 /**
- * Every feature one card can supply. A feature is omitted — not zeroed — when
- * the card carries nothing to read it from.
+ * Every feature one card can supply. `freshness`, `authority`, and `semantic`
+ * are always present, because each has a defined reading for the silent case
+ * (`unknown` freshness, `unknown` authority, low relevance for an unscored
+ * card). Those floors matter: a card whose only present features scored 1
+ * would otherwise take the top slot on lucky signals — which is exactly how a
+ * text-less Drive card outranked measured evidence before `semantic` gained
+ * its row. Every other feature is omitted — not zeroed — when the card carries
+ * nothing to read it from.
  *
- * `freshness` and `authority` are always present, because each has a defined
- * reading for the silent case (`unknown` freshness, `unknown` authority). That
- * floor matters: a card whose only present feature scored 1 would otherwise
- * take the top slot on one lucky signal. `exactMatch` and `focus` are present
- * only on cards that carry an `object`: a documents or memory card cannot
- * carry one, so scoring it 0 would park a fifth of its average at zero
- * permanently. An object-state MISS card (no `object`) is demoted through its
- * `score: 0`, not through these features.
+ * `exactMatch` and `focus` are present only on cards that carry an `object`:
+ * a documents or memory card cannot carry one, so scoring it 0 would park a
+ * fifth of its average at zero permanently. An object-state MISS card (no
+ * `object`) is demoted through its `score: 0`, not through these features.
  */
 function cardFeatures(card: EvidenceCard, { context, semantic, focus }: FeatureInputs) {
   // The bag starts empty and every feature writes itself in. A feature here is
@@ -417,7 +448,10 @@ function cardFeatures(card: EvidenceCard, { context, semantic, focus }: FeatureI
 
   const semanticScore = semantic.get(card);
 
-  if (semanticScore !== undefined) features.semantic = semanticScore;
+  // Always present: an unscored card reads as low relevance rather than
+  // dropping the lead feature (see SEMANTIC_UNKNOWN_SCORE). Only a measured
+  // non-match scores below it.
+  features.semantic = semanticScore ?? SEMANTIC_UNKNOWN_SCORE;
 
   const recency = recencyScore(card, context.now);
 
@@ -463,8 +497,9 @@ function weightedAverage(features: Partial<Record<EvidenceRankFeature, number>>)
     totalWeight += weight;
   }
 
-  // Unreachable while `freshness` and `authority` stay always-present; it is
-  // the honest answer rather than a division by zero if that changes.
+  // Unreachable while `freshness`, `authority`, and `semantic` stay
+  // always-present; it is the honest answer rather than a division by zero if
+  // that changes.
   if (totalWeight === 0) return 0;
 
   return roundScore(weighted / totalWeight);
@@ -505,9 +540,12 @@ function roundScore(value: number): number {
  *   capability manifest's job (#466), not this function's — see the residual
  *   risk on self-reported `score`.
  *
- * A card with no `score` gets no entry, so its `semantic` feature is absent and
- * its other features decide its place. That is the "ranker degrades rather than
- * inventing a number" rule the card contract writes down.
+ * A card with no `score` gets no entry, so the caller reads it as
+ * {@link SEMANTIC_UNKNOWN_SCORE} rather than dropping the lead feature. That
+ * is the "ranker degrades rather than inventing a number" rule narrowed to
+ * its honest shape: the ranker invents no ORDER (an unscored card claims no
+ * place above a weak measured hit), but it refuses to reward the omission
+ * with the mean of the card's trust signals.
  */
 function normalizeSemanticScores(
   cards: readonly EvidenceCard[],
