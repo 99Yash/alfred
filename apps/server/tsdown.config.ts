@@ -31,6 +31,12 @@ export default defineConfig({
     "./src/scripts/dry-runs/dry-run-triage-recategorize-committed.ts",
     "./src/scripts/dry-runs/dry-run-reply-reeval-reconcile.ts",
     "./src/scripts/repairs/repair-sent-mislabeled-triage-committed.ts",
+    // Thread-scoped re-triage for the sender-not-phrases fix (#1099). Enqueues
+    // onto prod BullMQ, so it must run inside the image that holds the current
+    // prompt. Its read-only sibling `dry-runs/triage-classification-watch.ts`
+    // gets NO entry on purpose: it makes no model call, so a local tsx over the
+    // Railway tunnel reaches it.
+    "./src/scripts/repairs/repair-triage-sender-miss-committed.ts",
     "./src/scripts/backfills/backfill-purge-document-facts-committed.ts",
     "./src/scripts/backfills/backfill-purge-relationship-junk-committed.ts",
     "./src/scripts/backfills/backfill-org-affiliation-committed.ts",

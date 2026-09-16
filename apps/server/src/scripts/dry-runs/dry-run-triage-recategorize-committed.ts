@@ -17,7 +17,12 @@
  *
  *   # how many threads per mailbox (default 60):
  *   RECAT_LIMIT=80 node dist/scripts/dry-runs/dry-run-triage-recategorize-committed.js
+ *   # or name the threads instead of taking a window — the preview a thread-scoped
+ *   # repair (`../repairs/repair-triage-sender-miss-committed.ts`) runs before it commits:
+ *   RECAT_THREAD_IDS=19a1b2c3d4e5f6a7,19b2c3d4e5f6a7b8 \
+ *     node dist/scripts/dry-runs/dry-run-triage-recategorize-committed.js
  */
+import type { ClassifyAudit } from "@alfred/assistant/triage";
 import {
   assembleObservations,
   classifyEmail,
@@ -42,13 +47,63 @@ const TARGET_EMAILS = ["yash.k@oliv.ai", "yashgouravkar@gmail.com"];
 
 const RECAT_LIMIT = Number(process.env.RECAT_LIMIT) || 60;
 
+/**
+ * Named Gmail thread ids. When set, these REPLACE the `RECAT_LIMIT` recency
+ * window: the run scopes to exactly these threads in whichever mailbox owns
+ * them. This is the preview half of a thread-scoped repair — see
+ * `../repairs/repair-triage-sender-miss-committed.ts`, which enqueues the real
+ * workflow for the same ids and must never do so unpreviewed.
+ *
+ * The `source = 'auto'` filter below still applies, so a user-overridden thread
+ * named here drops out on its own — the same exclusion the repair script makes
+ * explicit.
+ */
+const RECAT_THREAD_IDS = (process.env.RECAT_THREAD_IDS ?? "")
+  .split(",")
+  .map((id) => id.trim())
+  .filter(Boolean);
+
 interface TargetUser {
   userId: string;
   email: string;
 }
 
+/**
+ * Name WHICH mechanism moved the answer, not just that it moved.
+ *
+ * `model` carries one `+tag` per deterministic floor that fired plus the
+ * second-pass tag, so it is the authoritative attribution. Split it on `+` and
+ * match WHOLE tags: `'+2pass_failed'` CONTAINS `'+2pass'`, so a substring test
+ * reads a failed re-check as a successful one.
+ *
+ * The audit fields beside it say what the tags cannot: `conflict` names the net
+ * that asked for a second pass even when the second pass changed nothing, and
+ * `spamFloorOutcome` distinguishes the spam floor holding a demand lane (the
+ * softened path, no tag) from the floor being inert.
+ */
+function describeMechanism(model: string, audit: ClassifyAudit): string {
+  const tags = model.split("+").slice(1);
+  const parts = tags.map((tag) => `+${tag}`);
+
+  if (audit.conflict) parts.push(`conflict=${audit.conflict.kind}`);
+
+  if (audit.secondPassFailure) parts.push("2pass=threw");
+
+  if (audit.floors.spam.outcome) parts.push(`spam=${audit.floors.spam.outcome}`);
+
+  return parts.length > 0 ? parts.join(" ") : "model";
+}
+
 async function processUser(u: TargetUser): Promise<void> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
+
+  const scope = and(
+    eq(emailTriage.userId, u.userId),
+    eq(emailTriage.source, "auto"),
+    isNotNull(emailTriage.documentId),
+    // Named threads replace the window; no ids means the whole recency window.
+    RECAT_THREAD_IDS.length > 0 ? inArray(emailTriage.sourceThreadId, RECAT_THREAD_IDS) : undefined,
+  );
 
   const rows = await db()
     .select({
@@ -57,15 +112,10 @@ async function processUser(u: TargetUser): Promise<void> {
       threadId: emailTriage.sourceThreadId,
     })
     .from(emailTriage)
-    .where(
-      and(
-        eq(emailTriage.userId, u.userId),
-        eq(emailTriage.source, "auto"),
-        isNotNull(emailTriage.documentId),
-      ),
-    )
+    .where(scope)
     .orderBy(desc(emailTriage.classifiedAt))
-    .limit(RECAT_LIMIT);
+    // A named-thread run must not be truncated by the window's limit.
+    .limit(RECAT_THREAD_IDS.length > 0 ? RECAT_THREAD_IDS.length : RECAT_LIMIT);
 
   // old→new transition tally; `changed` keeps the human-readable diffs.
   const transitions = new Map<string, number>();
@@ -159,9 +209,10 @@ async function processUser(u: TargetUser): Promise<void> {
     });
 
     let newCategory: string;
+    let mechanism: string;
 
     try {
-      const { classification } = await classifyEmail({
+      const { classification, model, audit } = await classifyEmail({
         userId: u.userId,
         document: {
           id: ctxData.document.id,
@@ -176,6 +227,7 @@ async function processUser(u: TargetUser): Promise<void> {
       });
 
       newCategory = classification.category;
+      mechanism = describeMechanism(model, audit);
     } catch (err) {
       console.log(`  ! classify error (skipped): ${toMessage(err)}`);
       skipped++;
@@ -189,7 +241,10 @@ async function processUser(u: TargetUser): Promise<void> {
 
     if (oldCategory !== newCategory) {
       const from = meta.from ?? "?";
-      changed.push(`  ${key} | ${from} | ${(ctxData.document.title ?? "").slice(0, 60)}`);
+
+      changed.push(
+        `  ${key} | ${mechanism} | ${from} | ${(ctxData.document.title ?? "").slice(0, 60)}`,
+      );
     }
   }
 
@@ -211,7 +266,10 @@ async function processUser(u: TargetUser): Promise<void> {
 async function main() {
   await warmPool();
   console.log(
-    `# Dry-run re-categorize — READ-ONLY | auto rows only | limit=${RECAT_LIMIT}/mailbox`,
+    `# Dry-run re-categorize — READ-ONLY | auto rows only | ` +
+      (RECAT_THREAD_IDS.length > 0
+        ? `scoped to ${RECAT_THREAD_IDS.length} named thread(s)`
+        : `limit=${RECAT_LIMIT}/mailbox`),
   );
 
   const users = await db()
