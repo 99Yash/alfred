@@ -39,7 +39,10 @@ import { llmJudgeScorer } from "./lib/llm-judge";
  *   2. Todo mint decision        — did a rail todo mint? deterministic, mirrors
  *                                  production (resolveTodoSuggestion + the
  *                                  structural suppression guard).
- *   3. Classification defensible — LLM judge grading rationale soundness (the
+ *   3. CollabActivity match      — deterministic, and only for a case that
+ *                                  asserts `collabActivity`: compares the
+ *                                  PARTITION, not the literal kind.
+ *   4. Classification defensible — LLM judge grading rationale soundness (the
  *                                  subjective dimension a deterministic check
  *                                  can't see). See ./lib/llm-judge.ts.
  *
@@ -78,13 +81,24 @@ interface Expected {
    */
   category: readonly [TriageCategory, ...TriageCategory[]];
   /**
-   * Substrings of `classifyEmail`'s assembled `model` tag string that MUST be
-   * present — `+spamfloor`, `+kindfloor`, `+floor`, `+2pass`. This is what makes
-   * a case pin a DETERMINISTIC guard rather than the prompt: a category that the
-   * first pass already gets right scores 1 whether the floor fires or is deleted,
-   * because the accept set holds both answers. Naming the tag here reddens the
-   * row when the branch that was supposed to decide never ran. Omit it when the
-   * case is only pinning the rubric.
+   * WHOLE tags from `classifyEmail`'s assembled `model` tag string that MUST be
+   * present. The scorer splits that string on `+` and compares whole tags, so a
+   * prefix never matches its longer sibling: `+2pass` does NOT match a row that
+   * only ran `+2pass_failed`. Write one full tag per entry, leading `+` included.
+   *
+   * Six tags exist. Two come from this module's own passes, in
+   * `classify.ts:1162-1165`: `+2pass` (the re-ask completed) and `+2pass_failed`
+   * (the re-ask THREW — `classify.ts` sets this tag only in the `catch` arm, so
+   * there is no second answer at all; the first pass is kept instead). Four come from the floor
+   * fold, one per floor, in `floors/index.ts:140,155,160,172`: `+floor`
+   * (override escalate), `+kindfloor`, `+spamfloor` and `+meetingfloor` (each a
+   * demote). A floor that keeps the classification contributes no tag.
+   *
+   * This is what makes a case pin a DETERMINISTIC guard rather than the prompt:
+   * a category that the first pass already gets right scores 1 whether the floor
+   * fires or is deleted, because the accept set holds both answers. Naming the
+   * tag here reddens the row when the branch that was supposed to decide never
+   * ran. Omit it when the case is only pinning the rubric.
    */
   guards?: readonly string[];
   /** Whether a rail todo should mint. */
@@ -383,12 +397,26 @@ const CASES: Case[] = [
     },
   },
   {
+    // Pins the `linkedin.com` entry of `KNOWN_SERVICE_DOMAINS` ALONE. `invitations`
+    // is not a strong or weak service local and matches neither the prefix nor the
+    // `…-noreply` suffix rule, so the domain entry is the only door to `service`
+    // here: drop the entry and this envelope parses `unknown`. NO hand-set
+    // `sender` — the parse is the thing under test. See `linkedin-invite-reminder-
+    // relay` (the prod miss, either door) and `circle-relay-noreply-suffix` (the
+    // suffix rule alone).
+    //
+    // That is a claim about the PARSE, not a promise that this row reddens. The
+    // only scorer here reads `output.category`, and the system prompt already
+    // names this envelope in an exemplar (`classify.ts:338`,
+    // `invitations@linkedin.com → fyi`) that never reads `SenderContext`. So a
+    // dropped domain entry most probably still scores 1 here. Of the two rows,
+    // only `circle-relay-noreply-suffix` has a MEASURED revert proxy: its
+    // envelope flips to `person`, which disarms rule 8a.
     label: "linkedin-senior-ic-connect",
     from: "LinkedIn <invitations@linkedin.com>",
     subject: "Ankur Singh wants to connect",
     body: "Ankur Singh, Senior Software Developer at Sosuv, would like to connect with you on LinkedIn. Accept or ignore.",
     senderKey: "invitations@linkedin.com",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -749,13 +777,35 @@ const CASES: Case[] = [
     subject: "Reminder: Vaibhav Sharma invited you to connect",
     body: "Vaibhav Sharma: Hi Yash, I'm still waiting for your response. Accept my invitation to connect on LinkedIn.",
     // NO hand-set `sender`: the LinkedIn half of #1097 lives entirely in
-    // `extractSenderContext` (the `…-noreply` local, the `linkedin.com` domain),
-    // so writing `{ fromKind: "service" }` here would assert the precondition the
-    // fix produces and stay green after the fix is reverted. Derived instead.
+    // `extractSenderContext`, so writing `{ fromKind: "service" }` here would
+    // assert the precondition the fix produces and stay green after the fix is
+    // reverted. Derived instead. This EXACT envelope carries BOTH new rules — the
+    // `…-noreply` suffix and the `linkedin.com` domain — and `classifyFromKind`
+    // tests the suffix first, so this row proves their OR and neither one alone.
+    // That is on purpose: it is the prod envelope, kept verbatim. The two rows
+    // that separate the rules are `linkedin-senior-ic-connect` (domain alone) and
+    // `circle-relay-noreply-suffix` (suffix alone).
     expected: {
       category: ["fyi"],
       todo: "suppress",
       note: "A platform relay, not a person: the `…-noreply@linkedin.com` envelope parses as a service, so rule 8a governs and the reminder copy is invitation boilerplate. Passive social activity → fyi, never awaiting_reply; no todo (16a-i no_obligation).",
+    },
+  },
+  {
+    // Pins the `…-noreply` SUFFIX rule alone: a platform relay on a domain that is
+    // NOT in `KNOWN_SERVICE_DOMAINS`, so `NO_REPLY_SUFFIX_RE` is the only door to
+    // `service`. Rename the local to `community-digest@` and the same header
+    // parses `person` — measured against the production function. Generalizes the
+    // #1097 fix past LinkedIn: every relay platform sends reminder copy in the
+    // first person from an envelope it owns. NO hand-set `sender`.
+    label: "circle-relay-noreply-suffix",
+    from: "Rhea Kapoor (via Circle) <community-noreply@circle-community-mail.com>",
+    subject: "Reminder: Rhea Kapoor is waiting for your reply in Build Club",
+    body: "Rhea Kapoor: I'm still waiting for your response to my post in Build Club. Reply in the community to continue the thread.",
+    expected: {
+      category: ["fyi"],
+      todo: "suppress",
+      note: "The envelope is the platform's, not Rhea's, so rule 8a governs: passive social activity → fyi, never awaiting_reply off the relayed reminder copy. No todo (16a-i no_obligation).",
     },
   },
   {
@@ -803,6 +853,57 @@ const CASES: Case[] = [
       guards: ["+spamfloor"],
       todo: "suppress",
       note: "Gmail filed this as spam, so the scary words are phish copy, not a real deadline (rule 20). The spam floor demotes the demand lane to fyi and clears the proposed todo — demote, never bury.",
+    },
+  },
+  {
+    // Pins conflict net C (over-classification C) ALONE, the way
+    // `spam-filed-phish-demotes` pins the spam floor. Every other relay row
+    // reaches `fyi` on the FIRST pass, because rule 8a already answers a relayed
+    // invitation — so deleting net C leaves all of them green and the net
+    // unpinned. A canned first pass removes the prompt from the path entirely.
+    //
+    // The row satisfies every net-C gate deterministically: `awaiting_reply`,
+    // no exposed-secret match (`floorMatches` is `matchesExposedSecret` only),
+    // not Gmail IMPORTANT, `senderKind` null (no `senderKey`, so the projection
+    // never scored this sender), `effectiveAuthor: "service"` DERIVED from the
+    // `…-noreply` suffix, and no ownership `collabActivity`. Delete the net and
+    // the first pass persists: the category reverts to `awaiting_reply` and
+    // `+2pass` disappears. A double red, measured, with no classifier tokens.
+    //
+    // On the Circle envelope, not a LinkedIn one, because `classify.ts:338`
+    // names the LinkedIn reminder verbatim — a LinkedIn row would prove the
+    // exemplar as much as the net.
+    label: "circle-relay-net-c-reask",
+    from: "Rhea Kapoor (via Circle) <community-noreply@circle-community-mail.com>",
+    subject: "Rhea Kapoor is still waiting for your reply in Build Club",
+    body: "Rhea Kapoor: I'm still waiting for your response. Reply in the community to continue the thread.",
+    runPass: ({ pass }) =>
+      Promise.resolve(
+        pass === "first"
+          ? {
+              category: "awaiting_reply",
+              confidence: 0.8,
+              rationale:
+                "The sender says they are still waiting for a response, so a reply is owed.",
+              todoSuggestion: null,
+              todoDecision: { outcome: "no_obligation", note: "No concrete deliverable." },
+              collabActivity: null,
+            }
+          : {
+              category: "fyi",
+              confidence: 0.9,
+              rationale:
+                "The envelope belongs to the platform, so rule 8a governs: relayed community activity is passive, and the waiting phrase is engagement boilerplate.",
+              todoSuggestion: null,
+              todoDecision: { outcome: "no_obligation", note: "No user-owned obligation." },
+              collabActivity: null,
+            },
+      ),
+    expected: {
+      category: ["fyi"],
+      guards: ["+2pass"],
+      todo: "suppress",
+      note: "A deterministic service envelope cannot owe a reply, so net C re-asks once and the second pass returns the passive answer rule 8a requires. The `+2pass` tag proves the re-ask ran rather than threw.",
     },
   },
 ];
@@ -1097,7 +1198,20 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
         if (!expected) return { score: 0, metadata: "no expectation" };
 
         const categoryOk = expected.category.includes(output.category);
-        const missingGuards = (expected.guards ?? []).filter((tag) => !output.model.includes(tag));
+
+        // Whole-tag match, never a substring: `model` is one CONCATENATED tag list
+        // (`<base>+2pass+spamfloor`), and one tag is a prefix of another —
+        // `"+2pass_failed".includes("+2pass")` is true, so a substring test would
+        // score a discarded re-ask as a completed one. Split on the separator the
+        // assembler joins with and compare whole tags.
+        const ranTags = new Set(
+          output.model
+            .split("+")
+            .slice(1)
+            .map((tag) => `+${tag}`),
+        );
+
+        const missingGuards = (expected.guards ?? []).filter((tag) => !ranTags.has(tag));
 
         const got =
           `got ${output.category} (conf ${output.confidence.toFixed(2)}) via ${output.model}, ` +

@@ -138,8 +138,11 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
     llmJudgeScorer<Case, TaskOutput, undefined>({
       name: "Useful and natural",
       rubric: QUALITY_RUBRIC,
-      // Generation is Claude; use cheap Gemini as the judge to reduce spend and
-      // avoid same-model-family preference.
+      // Generation is `route("standard")` (`gpt-5.6-luna`, an OpenAI leg); use
+      // cheap Gemini as the judge to reduce spend and to keep the grader in
+      // another model family. This RESTATES the current default in
+      // `lib/llm-judge.ts`; keep it, because it is what stops this suite from
+      // following that default if the default ever moves to OpenAI.
       model: route("cheap").model(),
       skipWhen: ({ output }) => (output.text.trim().length === 0 ? "empty output" : null),
       prompt: ({ input, output }) =>
