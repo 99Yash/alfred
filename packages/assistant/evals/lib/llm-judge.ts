@@ -29,15 +29,19 @@ import { z } from "zod";
  * decision` and `CollabActivity match` all grade without a judge.
  *
  * It is NOT every suite's shape, so the default is a default and not a policy.
- * Two suites override `model` today and both must keep doing so:
+ * ONE suite overrides the default today and must keep doing so:
  *
- *  - `passthrough-honesty` pins `route("standard")`. Its only other scorer checks
- *    that a tool was called, so the judge alone carries the ADR-0071 honesty
- *    claim — grading "did the assistant report a failed read honestly" is the
- *    judgment a cheap grader is worst at, and there is no deterministic scorer
- *    behind it to catch a lenient grade.
- *  - `voice-ai-tells` pins `route("cheap")` explicitly, because ITS generation is
- *    Claude and the point is a cross-family grader.
+ *  - `passthrough-honesty` pins `route("standard")` (`gpt-5.6-luna`). Its only
+ *    other scorer checks that a tool was called, so the judge alone carries the
+ *    ADR-0071 honesty claim — grading "did the assistant report a failed read
+ *    honestly" is the judgment a cheap grader is worst at, and there is no
+ *    deterministic scorer behind it to catch a lenient grade.
+ *
+ * `voice-ai-tells` also passes `model`, but it passes `route("cheap")` — since
+ * this default moved there, that call RESTATES the default and changes nothing.
+ * Keep it anyway: that suite generates on `route("standard")`, an OpenAI leg, and
+ * its claim needs a grader from another family, so the pin is what stops the
+ * judge from following this default if the default ever moves to OpenAI.
  *
  * Before moving a suite onto this default, check what would still be red if the
  * judge graded everything A.
