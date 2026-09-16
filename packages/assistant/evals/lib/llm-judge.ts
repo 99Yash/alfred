@@ -5,7 +5,7 @@ import { z } from "zod";
 
 /**
  * LLM-as-a-judge scorer factory (ADR-0055). Deterministic scorers cover the
- * hard signals — exact category match, "did a todo mint" — but the things we
+ * hard signals — category membership, "did a todo mint" — but the things we
  * keep hand-tuning the triage rubric for (is the *reasoning* sound? is the todo
  * title written the way a human would jot it?) are subjective, and that is what
  * a judge is for.
@@ -20,14 +20,27 @@ import { z } from "zod";
  *    debuggable. The judge must explain itself; that explanation shows up in the
  *    evalite UI's per-case panel so a regression is legible at a glance.
  *
- * The judge runs on `route("cheap")` — the same Gemini Flash-Lite the classifier
- * under test runs on. That is a deliberate cost trade, not an oversight. A
- * stronger judge is the textbook defence against the self-preference trap, but
- * the eval lane grades deterministically first: `Category match` and the floor
- * assertions carry the proof, and the judge is a secondary readability signal.
- * Paying chat-tier rates on every case to soften a bias the deterministic
- * scorers already bound was the worse trade. Pass `model` to override per
- * scorer when a case genuinely needs a stronger grader.
+ * The DEFAULT judge runs on `route("cheap")` (Gemini Flash-Lite). That is a
+ * deliberate cost trade, not an oversight: a stronger judge is the textbook
+ * defence against the self-preference trap, and the trade only holds for a suite
+ * whose proof is carried by its DETERMINISTIC scorers, with the judge as a
+ * secondary readability signal. `triage-classify` is that shape — `Category
+ * match` (set membership plus a named floor/second-pass guard tag), `Todo mint
+ * decision` and `CollabActivity match` all grade without a judge.
+ *
+ * It is NOT every suite's shape, so the default is a default and not a policy.
+ * Two suites override `model` today and both must keep doing so:
+ *
+ *  - `passthrough-honesty` pins `route("standard")`. Its only other scorer checks
+ *    that a tool was called, so the judge alone carries the ADR-0071 honesty
+ *    claim — grading "did the assistant report a failed read honestly" is the
+ *    judgment a cheap grader is worst at, and there is no deterministic scorer
+ *    behind it to catch a lenient grade.
+ *  - `voice-ai-tells` pins `route("cheap")` explicitly, because ITS generation is
+ *    Claude and the point is a cross-family grader.
+ *
+ * Before moving a suite onto this default, check what would still be red if the
+ * judge graded everything A.
  */
 
 const JUDGE_PREAMBLE =
