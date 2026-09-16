@@ -81,13 +81,23 @@ interface Expected {
    */
   category: readonly [TriageCategory, ...TriageCategory[]];
   /**
-   * Substrings of `classifyEmail`'s assembled `model` tag string that MUST be
-   * present — `+spamfloor`, `+kindfloor`, `+floor`, `+2pass`. This is what makes
-   * a case pin a DETERMINISTIC guard rather than the prompt: a category that the
-   * first pass already gets right scores 1 whether the floor fires or is deleted,
-   * because the accept set holds both answers. Naming the tag here reddens the
-   * row when the branch that was supposed to decide never ran. Omit it when the
-   * case is only pinning the rubric.
+   * WHOLE tags from `classifyEmail`'s assembled `model` tag string that MUST be
+   * present. The scorer splits that string on `+` and compares whole tags, so a
+   * prefix never matches its longer sibling: `+2pass` does NOT match a row that
+   * only ran `+2pass_failed`. Write one full tag per entry, leading `+` included.
+   *
+   * Six tags exist. Two come from this module's own passes, in
+   * `classify.ts:1162-1165`: `+2pass` (the re-ask completed) and `+2pass_failed`
+   * (the re-ask ran and its answer was discarded). Four come from the floor
+   * fold, one per floor, in `floors/index.ts:140,155,160,172`: `+floor`
+   * (override escalate), `+kindfloor`, `+spamfloor` and `+meetingfloor` (each a
+   * demote). A floor that keeps the classification contributes no tag.
+   *
+   * This is what makes a case pin a DETERMINISTIC guard rather than the prompt:
+   * a category that the first pass already gets right scores 1 whether the floor
+   * fires or is deleted, because the accept set holds both answers. Naming the
+   * tag here reddens the row when the branch that was supposed to decide never
+   * ran. Omit it when the case is only pinning the rubric.
    */
   guards?: readonly string[];
   /** Whether a rail todo should mint. */
@@ -393,6 +403,14 @@ const CASES: Case[] = [
     // `sender` — the parse is the thing under test. See `linkedin-invite-reminder-
     // relay` (the prod miss, either door) and `circle-relay-noreply-suffix` (the
     // suffix rule alone).
+    //
+    // That is a claim about the PARSE, not a promise that this row reddens. The
+    // only scorer here reads `output.category`, and the system prompt already
+    // names this envelope in an exemplar (`classify.ts:338`,
+    // `invitations@linkedin.com → fyi`) that never reads `SenderContext`. So a
+    // dropped domain entry most probably still scores 1 here. Of the two rows,
+    // only `circle-relay-noreply-suffix` has a MEASURED revert proxy: its
+    // envelope flips to `person`, which disarms rule 8a.
     label: "linkedin-senior-ic-connect",
     from: "LinkedIn <invitations@linkedin.com>",
     subject: "Ankur Singh wants to connect",
