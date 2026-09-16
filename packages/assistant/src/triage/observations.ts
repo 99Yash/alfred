@@ -29,12 +29,16 @@ export interface GmailSignals {
   starred: boolean;
   inInbox: boolean;
   /**
-   * Gmail filed the message as spam. The strongest deterministic de-demand
-   * signal available: Gmail's own verdict that the mail is unsolicited. Fed to
-   * the model as a hint AND enforced by the spam floor, so a spam-filed message
-   * can never hold a demanding category no matter which phrase the model fixated
-   * on. (Observed in prod: a spam-filed promo with "Would love your thoughts!"
-   * tagged `awaiting_reply`.)
+   * Gmail filed the message as spam: a THIRD PARTY'S verdict that the mail is
+   * unsolicited, and a fallible one, so #1098 split what it buys. On the reply
+   * lanes it is an absolute — the spam floor demotes `awaiting_reply`/
+   * `follow_up` to `fyi`, because those lanes claim the SENDER is owed a reply,
+   * which is exactly what the verdict denies. (Observed in prod: a spam-filed
+   * promo with "Would love your thoughts!" tagged `awaiting_reply`.) On
+   * `urgent`/`action_needed` it is only a strong PRIOR, carried by rule 20 in
+   * the prompt: the model keeps the demand lane when the body names an
+   * obligation the user already owns, and no floor overrides that. So a
+   * spam-filed message CAN hold a demanding category.
    */
   spam: boolean;
   /** Gmail filed the message as trash (user-deleted). A hint only — no floor keys on it. */

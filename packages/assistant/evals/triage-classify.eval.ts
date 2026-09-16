@@ -821,7 +821,7 @@ const CASES: Case[] = [
     expected: {
       category: ["marketing", "fyi", "newsletter"],
       todo: "suppress",
-      note: "Gmail filed this as spam — its own verdict that the mail is unsolicited (rule 20). Judge the gist, not the phrasing: an unsolicited pitch is right as any passive tag and wrong only in a demand lane, which the spam floor demotes to fyi if the model emits one.",
+      note: "Gmail filed this as spam — a third party's verdict that the mail is unsolicited (rule 20). Judge the gist, not the phrasing: an unsolicited pitch is right as any passive tag and wrong in a reply lane, which the spam floor demotes to fyi if the model emits one.",
     },
   },
   {
@@ -829,10 +829,57 @@ const CASES: Case[] = [
     // that case's accept set holds both `marketing` (the first pass's own answer,
     // floor silent) and `fyi` (the floor's answer), so its row scores 1 whether
     // `applySpamDemotionFloor` fires or is deleted. Nothing else in the repo runs
-    // the demote branch. So this case CANS both passes into `urgent` — the shape
-    // a phish actually produces — and asserts the tag: `+spamfloor` is absent and
-    // the category is `urgent` the moment the floor stops demoting.
-    label: "spam-filed-phish-demotes",
+    // the demote branch. So this case CANS both passes into `awaiting_reply` and
+    // asserts the tag: `+spamfloor` disappears and the category reverts to
+    // `awaiting_reply` the moment the floor stops demoting.
+    //
+    // A REPLY lane, not the `urgent` this case used to inject, because #1098
+    // narrowed the floor to `awaiting_reply`/`follow_up`. The shape is the
+    // measured prod true positive: a spam-filed event pitch whose "thoughts?"
+    // copy the cheap model reads as an owed reply.
+    label: "spam-filed-reply-lane-demotes",
+    from: "Mira Sethi <mira@agentbuild-summit.com>",
+    subject: "Re: AgentBuild Summit <> Yash!",
+    body: "Hey Yash — following up on the summit. Would love your thoughts on the blog post we published last week. Registration closes soon, grab a spot here.",
+    labelIds: ["SPAM"],
+    sender: { fromKind: "person", effectiveAuthor: "person" },
+    runPass: () =>
+      Promise.resolve({
+        category: "awaiting_reply",
+        confidence: 0.8,
+        rationale: "The sender asks for the user's thoughts on a post and is waiting on a reply.",
+        todoSuggestion: { name: "Reply with thoughts on the blog post", assist: null },
+        todoDecision: { outcome: "proposed", note: "The sender is waiting on a response." },
+        collabActivity: null,
+      }),
+    expected: {
+      category: ["fyi"],
+      guards: ["+spamfloor"],
+      todo: "suppress",
+      note: 'Gmail filed this as spam, so "would love your thoughts" is engagement copy, not an owed reply (rule 20). A reply lane claims the SENDER is owed something, which is exactly what the spam verdict denies, so the floor demotes it to fyi and clears the proposed todo — demote, never bury.',
+    },
+  },
+  {
+    // The other half of the narrowed floor (#1098): a spam-filed DEMAND lane is
+    // now the final answer to keep. It injects both passes like the row above,
+    // so the prompt is out of the path entirely and only the floor decides — the
+    // category reverts to `fyi` and `+spamfloor` appears the moment the floor
+    // goes back to gating all four demand lanes.
+    //
+    // Everything else about the pair DIFFERS, and the difference is the point:
+    // that row injects `awaiting_reply` behind a person envelope (the lane the
+    // floor still gates), this one injects `urgent` behind a service envelope
+    // (the lane it released). One canned shape either side of the new gate line.
+    //
+    // `+spamfloor` is asserted by ABSENCE, through the category: `Expected.guards`
+    // has no negative form, and it needs none here. A fired floor lands on `fyi`,
+    // which is not in this accept set.
+    //
+    // Deliberately the PHISH body, not a genuine ask, because that is the cost
+    // #1098 accepted: Gmail's verdict is fallible, so a spam-filed `urgent` now
+    // reaches the rail on the model's word. DEMOTE, NEVER BURY cuts the other way
+    // here — a false `urgent` is dismissible, a buried rotation ask is not.
+    label: "spam-filed-phish-keeps-model-answer",
     from: "Billing Support <secure-billing@acme-invoices-verify.com>",
     subject: "URGENT: your account will be suspended in 24 hours",
     body: "We could not process your last payment. Verify your billing details within 24 hours or your account and all data will be permanently suspended.",
@@ -849,15 +896,56 @@ const CASES: Case[] = [
         collabActivity: null,
       }),
     expected: {
-      category: ["fyi"],
-      guards: ["+spamfloor"],
-      todo: "suppress",
-      note: "Gmail filed this as spam, so the scary words are phish copy, not a real deadline (rule 20). The spam floor demotes the demand lane to fyi and clears the proposed todo — demote, never bury.",
+      category: ["urgent"],
+      todo: "mint",
+      note: "The spam floor no longer gates `urgent`/`action_needed` (#1098): Gmail's spam verdict is a fallible third party's, so on the demand lanes it is a prompt-side prior and the model owns the call. This row cans the model away, so it pins the floor's silence alone — and the surviving todo is the accepted cost, since the floor no longer clears one here.",
+    },
+  },
+  {
+    // Acceptance criterion 2, and the only row in the file that can prove rule
+    // 20's EXCEPTION: a spam-filed mail carrying an obligation the USER already
+    // owns keeps its demand lane. The shape is the prod miss of 2026-09-16 — a
+    // recruiter asking the user to finish a job application the USER opened,
+    // filed `SPAM` by Gmail, one of five spam-labelled documents in ten days.
+    //
+    // NO `runPass` and NO hand-set `sender`, on purpose. The rule-20 prose IS the
+    // thing under test, so the real classifier must answer it, and the envelope
+    // must derive `person` through the production parse. Revert the rule-20
+    // exception and this row reddens: the old text said a spam-filed mail is
+    // NEVER a demand lane, and the model obeyed it.
+    //
+    // READ THIS ROW'S WARRANT NARROWLY. The subject, the sender and the domain
+    // match nothing in the system prompt, which is why the row is a support
+    // ticket rather than the prod recruiter mail it is modelled on. But the
+    // OBLIGATION does match: the worked example at classify.ts:338 — added by
+    // this same PR — names "a case or ticket the user opened themselves", and
+    // this row is ticket HD-4471. So the row instantiates the arm the example
+    // names. It proves COMPLIANCE inside rule 20's rubric, not generalization
+    // past it; a row that generalizes needs an obligation shape the example
+    // does not name. Keep that distinction when this row is cited as proof —
+    // a strengthened prompt masking the rule beneath it is the third instance
+    // of this class in the campaign, see
+    // .lessons/a-strengthened-prompt-masks-the-deterministic-branch-under-it.md.
+    //
+    // The discriminator against `spam-filed-phish-keeps-model-answer` above is
+    // whether the demand survives WITHOUT trusting the sender. This ticket is
+    // the user's own; the phish deadline exists only in the sender's claim. The
+    // ask is an upload rather than a written answer, so rule 3's reply-shape
+    // preference does not pull it into the lane the floor still gates.
+    label: "spam-filed-owned-ticket-keeps-demand-lane",
+    from: "Deepa Raman <deepa.raman@northbeam-support.com>",
+    subject: "Ticket HD-4471 needs your diagnostics upload before Friday",
+    body: "Hi Yash — your ticket HD-4471 is open with our engineering team. They cannot reproduce the fault until you upload the diagnostics bundle to the support portal and set the firmware version on the ticket. The ticket auto-closes on Friday if the upload is still missing.",
+    labelIds: ["SPAM"],
+    expected: {
+      category: ["action_needed", "urgent"],
+      todo: "mint",
+      note: "Gmail filed this as spam and Gmail is wrong: the user opened ticket HD-4471 themselves, so the upload is an obligation the user ALREADY owns and it does not depend on trusting the sender (rule 20's exception). A hard spam bound would bury a real ask — demote, never bury, cuts the other way on the demand lanes.",
     },
   },
   {
     // Pins conflict net C (over-classification C) ALONE, the way
-    // `spam-filed-phish-demotes` pins the spam floor. Every other relay row
+    // `spam-filed-reply-lane-demotes` pins the spam floor. Every other relay row
     // reaches `fyi` on the FIRST pass, because rule 8a already answers a relayed
     // invitation — so deleting net C leaves all of them green and the net
     // unpinned. A canned first pass removes the prompt from the path entirely.
