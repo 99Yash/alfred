@@ -914,13 +914,18 @@ const CASES: Case[] = [
     // exception and this row reddens: the old text said a spam-filed mail is
     // NEVER a demand lane, and the model obeyed it.
     //
-    // The subject, the obligation and the sender domain match NOTHING in the
-    // system prompt — deliberately, and it is why the row is a support ticket
-    // rather than the prod recruiter mail it is modelled on. Rule 20's exception
-    // is stated as a rubric and its one worked example is a credential rotation,
-    // so a model that answers this row read the rubric; an exemplar naming the
-    // row would let it score by copying. Third time this class has fired in this
-    // campaign — see .lessons/a-strengthened-prompt-masks-the-deterministic-branch-under-it.md.
+    // READ THIS ROW'S WARRANT NARROWLY. The subject, the sender and the domain
+    // match nothing in the system prompt, which is why the row is a support
+    // ticket rather than the prod recruiter mail it is modelled on. But the
+    // OBLIGATION does match: the worked example at classify.ts:338 — added by
+    // this same PR — names "a case or ticket the user opened themselves", and
+    // this row is ticket HD-4471. So the row instantiates the arm the example
+    // names. It proves COMPLIANCE inside rule 20's rubric, not generalization
+    // past it; a row that generalizes needs an obligation shape the example
+    // does not name. Keep that distinction when this row is cited as proof —
+    // a strengthened prompt masking the rule beneath it is the third instance
+    // of this class in the campaign, see
+    // .lessons/a-strengthened-prompt-masks-the-deterministic-branch-under-it.md.
     //
     // The discriminator against `spam-filed-phish-keeps-model-answer` above is
     // whether the demand survives WITHOUT trusting the sender. This ticket is
