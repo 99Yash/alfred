@@ -61,9 +61,16 @@ export const FLOOR_TRACE_PROJECTIONS = {
     meetingDemotionReason: audit?.reason ?? null,
   }),
   spam: (audit) => ({
-    /** True when the spam floor demoted a demand lane → `fyi` (rule 20). */
+    /** True when the spam floor demoted a REPLY lane → `fyi` (rule 20). */
     spamDemotedCategory: audit?.verdict.kind === "demote",
-    /** Structured reason for a spam demotion, if one fired. */
+    /**
+     * What the spam floor concluded: `"demoted_reply_lane"` when it demoted,
+     * `"prior_only_demand_lane"` when Gmail filed the mail as spam and the model
+     * still answered `urgent`/`action_needed` — the softened path (#1098), where
+     * the model decided and no floor moved the answer. `null` when the floor was
+     * inert. An over-tag audit reads THIS to tell a softened spam apart from a
+     * sender-kind demotion.
+     */
     spamDemotionReason: audit?.reason ?? null,
   }),
 } satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
