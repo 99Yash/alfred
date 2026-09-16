@@ -51,10 +51,16 @@
 import { randomUUID } from "node:crypto";
 import { closeAgentQueue, startRun } from "@alfred/assistant/execution";
 import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
-import { TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage";
+import { TRIAGE_WORKFLOW_SLUG, type TriageWorkflowInput } from "@alfred/assistant/triage";
 import { toMessage } from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
-import { documents, emailTriage, todos, user as userTable } from "@alfred/db/schemas";
+import {
+  documents,
+  emailTriage,
+  todos,
+  user as userTable,
+  type EmailTriage,
+} from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
@@ -71,13 +77,21 @@ const THREAD_IDS = (process.env.TRIAGE_REPAIR_THREAD_IDS ?? "")
   .map((id) => id.trim())
   .filter(Boolean);
 
-/** One selected thread, with everything needed to decide whether it can be re-run. */
+/**
+ * One selected thread, with everything needed to decide whether it can be re-run.
+ *
+ * `category` and `source` are read off {@link EmailTriage}, not re-typed as
+ * `string`. `source` carries the whole user-authority invariant this script
+ * claims to honour, so `plan.source === "user"` must be a comparison the
+ * compiler checks: widened to `string` it would keep compiling after the member
+ * is renamed, and the skip would silently stop firing.
+ */
 interface ThreadPlan {
   threadId: string;
   userId: string;
   email: string;
-  category: string;
-  source: string;
+  category: EmailTriage["category"];
+  source: EmailTriage["source"];
   documentId: string | null;
   appliedLabelId: string | null;
   model: string;
@@ -198,8 +212,10 @@ async function main() {
     if (!plan.documentPresent) {
       console.log(
         `    → SKIP: no live document behind this row, so there is nothing to re-classify. ` +
-          `Gmail-filed spam never reaches the local store at all (messages.list excludes SPAM), ` +
-          `so a spam-filed thread is expected to land here.`,
+          `This is a PURGE, not a routine gap: upsertTriage is the only writer of email_triage ` +
+          `and it always stores the classify step's documentId, so this row proves a document ` +
+          `once existed. (A thread that was never ingested prints 'NO email_triage row' above.) ` +
+          `Re-ingest the thread if you need it re-classified.`,
       );
       continue;
     }
@@ -257,7 +273,16 @@ async function main() {
         // `force`: bypass the already-tagged skip guard (the ONLY thing it
         // bypasses). Without it a thread still sitting on the message it was
         // last classified from skips and the repair is a no-op.
-        input: { documentId: plan.documentId, reason: "manual", force: true },
+        //
+        // `satisfies` is load-bearing. `WorkflowInput.input` is `unknown` and
+        // `force` is OPTIONAL in `triageWorkflowInputSchema`, so a misspelt key
+        // would parse, drop, and make the whole repair a silent no-op that
+        // still prints `enqueued`. The excess-property check rejects it here.
+        input: {
+          documentId: plan.documentId,
+          reason: "manual",
+          force: true,
+        } satisfies TriageWorkflowInput,
         metadata: { source: "repair-triage-sender-miss-committed" },
         trigger: { kind: "manual" },
         occurrence: { kind: "manual", requestId: randomUUID() },
