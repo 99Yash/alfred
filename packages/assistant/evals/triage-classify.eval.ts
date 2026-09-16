@@ -39,7 +39,10 @@ import { llmJudgeScorer } from "./lib/llm-judge";
  *   2. Todo mint decision        — did a rail todo mint? deterministic, mirrors
  *                                  production (resolveTodoSuggestion + the
  *                                  structural suppression guard).
- *   3. Classification defensible — LLM judge grading rationale soundness (the
+ *   3. CollabActivity match      — deterministic, and only for a case that
+ *                                  asserts `collabActivity`: compares the
+ *                                  PARTITION, not the literal kind.
+ *   4. Classification defensible — LLM judge grading rationale soundness (the
  *                                  subjective dimension a deterministic check
  *                                  can't see). See ./lib/llm-judge.ts.
  *
@@ -383,12 +386,18 @@ const CASES: Case[] = [
     },
   },
   {
+    // Pins the `linkedin.com` entry of `KNOWN_SERVICE_DOMAINS` ALONE. `invitations`
+    // is not a strong or weak service local and matches neither the prefix nor the
+    // `…-noreply` suffix rule, so the domain entry is the only door to `service`
+    // here: drop the entry and this envelope parses `unknown`. NO hand-set
+    // `sender` — the parse is the thing under test. See `linkedin-invite-reminder-
+    // relay` (the prod miss, either door) and `circle-relay-noreply-suffix` (the
+    // suffix rule alone).
     label: "linkedin-senior-ic-connect",
     from: "LinkedIn <invitations@linkedin.com>",
     subject: "Ankur Singh wants to connect",
     body: "Ankur Singh, Senior Software Developer at Sosuv, would like to connect with you on LinkedIn. Accept or ignore.",
     senderKey: "invitations@linkedin.com",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -749,13 +758,35 @@ const CASES: Case[] = [
     subject: "Reminder: Vaibhav Sharma invited you to connect",
     body: "Vaibhav Sharma: Hi Yash, I'm still waiting for your response. Accept my invitation to connect on LinkedIn.",
     // NO hand-set `sender`: the LinkedIn half of #1097 lives entirely in
-    // `extractSenderContext` (the `…-noreply` local, the `linkedin.com` domain),
-    // so writing `{ fromKind: "service" }` here would assert the precondition the
-    // fix produces and stay green after the fix is reverted. Derived instead.
+    // `extractSenderContext`, so writing `{ fromKind: "service" }` here would
+    // assert the precondition the fix produces and stay green after the fix is
+    // reverted. Derived instead. This EXACT envelope carries BOTH new rules — the
+    // `…-noreply` suffix and the `linkedin.com` domain — and `classifyFromKind`
+    // tests the suffix first, so this row proves their OR and neither one alone.
+    // That is on purpose: it is the prod envelope, kept verbatim. The two rows
+    // that separate the rules are `linkedin-senior-ic-connect` (domain alone) and
+    // `circle-relay-noreply-suffix` (suffix alone).
     expected: {
       category: ["fyi"],
       todo: "suppress",
       note: "A platform relay, not a person: the `…-noreply@linkedin.com` envelope parses as a service, so rule 8a governs and the reminder copy is invitation boilerplate. Passive social activity → fyi, never awaiting_reply; no todo (16a-i no_obligation).",
+    },
+  },
+  {
+    // Pins the `…-noreply` SUFFIX rule alone: a platform relay on a domain that is
+    // NOT in `KNOWN_SERVICE_DOMAINS`, so `NO_REPLY_SUFFIX_RE` is the only door to
+    // `service`. Rename the local to `community-digest@` and the same header
+    // parses `person` — measured against the production function. Generalizes the
+    // #1097 fix past LinkedIn: every relay platform sends reminder copy in the
+    // first person from an envelope it owns. NO hand-set `sender`.
+    label: "circle-relay-noreply-suffix",
+    from: "Rhea Kapoor (via Circle) <community-noreply@circle-community-mail.com>",
+    subject: "Reminder: Rhea Kapoor is waiting for your reply in Build Club",
+    body: "Rhea Kapoor: I'm still waiting for your response to my post in Build Club. Reply in the community to continue the thread.",
+    expected: {
+      category: ["fyi"],
+      todo: "suppress",
+      note: "The envelope is the platform's, not Rhea's, so rule 8a governs: passive social activity → fyi, never awaiting_reply off the relayed reminder copy. No todo (16a-i no_obligation).",
     },
   },
   {
@@ -1097,7 +1128,20 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
         if (!expected) return { score: 0, metadata: "no expectation" };
 
         const categoryOk = expected.category.includes(output.category);
-        const missingGuards = (expected.guards ?? []).filter((tag) => !output.model.includes(tag));
+
+        // Whole-tag match, never a substring: `model` is one CONCATENATED tag list
+        // (`<base>+2pass+spamfloor`), and one tag is a prefix of another —
+        // `"+2pass_failed".includes("+2pass")` is true, so a substring test would
+        // score a discarded re-ask as a completed one. Split on the separator the
+        // assembler joins with and compare whole tags.
+        const ranTags = new Set(
+          output.model
+            .split("+")
+            .slice(1)
+            .map((tag) => `+${tag}`),
+        );
+
+        const missingGuards = (expected.guards ?? []).filter((tag) => !ranTags.has(tag));
 
         const got =
           `got ${output.category} (conf ${output.confidence.toFixed(2)}) via ${output.model}, ` +

@@ -16,10 +16,16 @@ costs real tokens. Name one suite to run one:
 Env (loaded from `apps/server/.env`):
 
 - `GOOGLE_GENERATIVE_AI_API_KEY` — the cheap classifier under test, and the
-  DEFAULT LLM judge. Both are `route("cheap")` (Gemini Flash-Lite).
-- Whatever `route("standard")` needs — only for `passthrough-honesty`, the one
-  suite that pins a chat-tier judge because no deterministic scorer stands
-  behind it. Every other suite runs on the cheap default.
+  DEFAULT LLM judge. Both are `route("cheap")` (Gemini Flash-Lite). It covers
+  `triage-classify` end to end, and the judge of every other suite.
+- Whatever `route("standard")` needs (`gpt-5.6-luna`, so `OPENAI_API_KEY`) — eight
+  of the nine suites GENERATE on that route, because the system under test there is
+  the chat agent itself: `boss-judgment`, `calendar-grounding`, `date-grounding`,
+  `github-grounding`, `passthrough-honesty`, `sender-suppression-grounding`,
+  `tool-selection-bloat` and `voice-ai-tells`. Provision this too, or a bare
+  `evalite run` fails everything except `triage-classify`. Only ONE suite also
+  JUDGES on that route — `passthrough-honesty`, because no deterministic scorer
+  stands behind its judge.
 
 The default judge model lives in ONE place, `lib/llm-judge.ts`. A suite that
 needs a stronger grader passes `model` to `llmJudgeScorer`; nothing else states
@@ -67,8 +73,13 @@ Two kinds, both used:
   the way a human would jot it?). The judge returns a LETTER grade (A/B/C/D)
   against an explicit rubric, mapped to a number in code — LLMs grade letters far
   more consistently than they grade 0–100 — and must explain itself; the
-  explanation surfaces in the evalite per-case panel. The judge runs on a
-  different, stronger model than the system under test to avoid self-preference.
+  explanation surfaces in the evalite per-case panel. The judge model is a
+  per-suite choice, not one rule: a stronger, different-family judge is the
+  textbook defence against self-preference, and `passthrough-honesty` pays for it
+  because its judge is the only thing grading the claim. `triage-classify` does
+  the opposite on purpose — it judges on `route("cheap")`, the classifier's own
+  route, because its three deterministic scorers carry the proof and the judge is
+  a readability signal. See `lib/llm-judge.ts` for the trade.
 
 ## Dataset tiers
 
