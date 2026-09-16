@@ -57,13 +57,30 @@ const NOW = new Date("2026-06-10T12:00:00Z");
 const USER = { name: "Yash", email: "yash@example.com" };
 
 interface Expected {
-  category: TriageCategory;
+  /**
+   * The SET of categories that score 1. A bare label is the one-member set.
+   * A case whose correct answer is genuinely a set — a spam-filed promo is right
+   * as any passive tag and wrong only in a demand lane — pins the set instead of
+   * a coin flip between `marketing` and `fyi`. The list form is non-empty by
+   * construction, so the judge prompt reads a primary member without a guard.
+   */
+  category: TriageCategory | readonly [TriageCategory, ...TriageCategory[]];
   /** Whether a rail todo should mint. */
   todo: "mint" | "suppress";
   /** Expected model-emitted collaboration activity kind when the case exercises rule 19. */
   collabActivity?: CollabActivityKind | null;
   /** Human note on the decision — context for the judge and the reader. */
   note: string;
+}
+
+/**
+ * The categories a case accepts, always as a set. `Expected.category` widens to a
+ * list only where the correct answer genuinely is one, so every reader — the
+ * score, its metadata, the judge prompt — goes through here rather than an
+ * equality check that reddens a legitimate answer.
+ */
+function acceptedCategories(expected: Expected): readonly [TriageCategory, ...TriageCategory[]] {
+  return typeof expected.category === "string" ? [expected.category] : expected.category;
 }
 
 interface Case {
@@ -682,6 +699,38 @@ const CASES: Case[] = [
       note: "Rule 15 BOUNDARY: not a code — could be unsolicited compromise and the email can't tell. Keep surfaced at action_needed (not urgent absent a same-day breach, not fyi). No todo: verifying is a mechanical check, not a memorable obligation.",
     },
   },
+  {
+    // Prod miss #1097: tagged `awaiting_reply` off the reminder copy alone.
+    // `senderKind` stays null ON PURPOSE — an unscored projection keeps the
+    // sender-kind floor silent, so nothing but rule 8a and the third conflict
+    // net stands between this envelope and the miss.
+    label: "linkedin-invite-reminder-relay",
+    from: "Vaibhav Sharma (via LinkedIn) <messages-noreply@linkedin.com>",
+    subject: "Reminder: Vaibhav Sharma invited you to connect",
+    body: "Vaibhav Sharma: Hi Yash, I'm still waiting for your response. Accept my invitation to connect on LinkedIn.",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "fyi",
+      todo: "suppress",
+      note: "A platform relay, not a person: the `…-noreply@linkedin.com` envelope parses as a service, so rule 8a governs and the reminder copy is invitation boilerplate. Passive social activity → fyi, never awaiting_reply; no todo (16a-i no_obligation).",
+    },
+  },
+  {
+    // Prod miss #1097: tagged `awaiting_reply` off "Would love your thoughts!".
+    // Person-shaped ON PURPOSE — no service envelope and no sender prior help
+    // here, so the case proves the Gmail SPAM label alone carries the outcome.
+    label: "spam-filed-cold-promo",
+    from: "Arjun Mehta <arjun@growthloop-outreach.com>",
+    subject: "A quick idea for your onboarding funnel",
+    body: "Hi Yash — I put together a short teardown of your onboarding funnel and found three drop-off points you could close in a week. Would love your thoughts!",
+    labelIds: ["SPAM"],
+    sender: { fromKind: "person", effectiveAuthor: "person" },
+    expected: {
+      category: ["marketing", "fyi", "newsletter"],
+      todo: "suppress",
+      note: "Gmail filed this as spam — its own verdict that the mail is unsolicited (rule 20). Judge the gist, not the phrasing: an unsolicited pitch is right as any passive tag and wrong only in a demand lane, which the spam floor demotes to fyi if the model emits one.",
+    },
+  },
 ];
 
 interface TaskOutput {
@@ -821,6 +870,13 @@ function renderJudgeContext(c: Case): string {
     `Known contact: ${c.knownContact ? "yes" : "no"}`,
   ];
 
+  // The classifier reads the Gmail label set (SPAM/TRASH/IMPORTANT/CATEGORY_*),
+  // so the judge must see it too — otherwise a rationale that cites Gmail's own
+  // spam verdict looks like a fabricated cue and grades D.
+  if (c.labelIds) {
+    lines.push(`Gmail labels: ${c.labelIds.join(", ")}`);
+  }
+
   if (c.senderRelationship) {
     lines.push(`Sender relationship: ${c.senderRelationship}`);
   }
@@ -942,11 +998,13 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
 
+        if (!expected) return { score: 0, metadata: "no expectation" };
+
+        const accepted = acceptedCategories(expected);
+
         return {
-          score: expected && output.category === expected.category ? 1 : 0,
-          metadata: expected
-            ? `got ${output.category} (conf ${output.confidence.toFixed(2)}), want ${expected.category}`
-            : "no expectation",
+          score: accepted.includes(output.category) ? 1 : 0,
+          metadata: `got ${output.category} (conf ${output.confidence.toFixed(2)}), want ${accepted.join("/")}`,
         };
       },
     },
@@ -1014,7 +1072,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
           `- rationale: ${output.rationale}`,
           "",
           expected
-            ? `For reference, the expected category is "${expected.category}" because: ${expected.note}`
+            ? `For reference, the expected category is "${acceptedCategories(expected)[0]}" because: ${expected.note}`
             : "",
           "",
           "Grade the classifier's category + rationale against the rubric.",
