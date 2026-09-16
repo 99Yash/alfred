@@ -20,9 +20,14 @@ import { z } from "zod";
  *    debuggable. The judge must explain itself; that explanation shows up in the
  *    evalite UI's per-case panel so a regression is legible at a glance.
  *
- * The judge runs on the standard chat model (Sonnet), deliberately a DIFFERENT
- * and stronger model than the cheap classifier under test (Gemini Flash-Lite) —
- * a judge grading its own family's output is the classic self-preference trap.
+ * The judge runs on `route("cheap")` — the same Gemini Flash-Lite the classifier
+ * under test runs on. That is a deliberate cost trade, not an oversight. A
+ * stronger judge is the textbook defence against the self-preference trap, but
+ * the eval lane grades deterministically first: `Category match` and the floor
+ * assertions carry the proof, and the judge is a secondary readability signal.
+ * Paying chat-tier rates on every case to soften a bias the deterministic
+ * scorers already bound was the worse trade. Pass `model` to override per
+ * scorer when a case genuinely needs a stronger grader.
  */
 
 const JUDGE_PREAMBLE =
@@ -56,7 +61,7 @@ export interface LlmJudgeOptions<TInput, TOutput, TExpected> {
   rubric: string;
   /** Builds the user-facing judge prompt (the thing to grade) from the eval triple. */
   prompt: (args: { input: TInput; output: TOutput; expected: TExpected | undefined }) => string;
-  /** Override the judge model. Defaults to the standard chat model (Sonnet). */
+  /** Override the judge model. Defaults to `route("cheap")` (Gemini Flash-Lite). */
   model?: LanguageModel;
   /**
    * Short-circuit predicate. When it returns a string, the judge is NOT called:
@@ -87,7 +92,7 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
 
       try {
         const result = await generateObject({
-          model: opts.model ?? route("standard").model(),
+          model: opts.model ?? route("cheap").model(),
           schema: judgeOutputSchema,
           instructions: `${JUDGE_PREAMBLE}\n\nRubric:\n${opts.rubric}`,
           prompt: opts.prompt({ input, output, expected }),
