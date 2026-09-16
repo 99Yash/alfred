@@ -4,8 +4,14 @@
  * The merged `dry-run-triage-backfill.ts` is READ-ONLY — it re-classifies the
  * source email of every agent todo and prints KEEP/KILL. This is its committing
  * sibling: it actually re-runs the production `email-triage` workflow (classify
- * → upsertTriage + suggestTodo + sender-prior → apply-label / Gmail re-tag) over
- * a target set of threads, after first deleting the stale agent-authored todos.
+ * → upsertTriage + suggestTodo → apply-label / Gmail re-tag) over a target set
+ * of threads, after first deleting the stale agent-authored todos.
+ *
+ * It does NOT re-teach the sender prior. `incrementSenderPrior` only adds, so a
+ * second bump on the same mail would give the sender two votes. The classify
+ * step skips the bump when the stored row was written by an earlier run and
+ * names the same document, which is every thread this script re-triages that
+ * Alfred already tagged. A thread with no stored row still teaches normally.
  *
  * Scope (per target user):
  *   - DELETE every `created_by='agent'` todo (suggested + open + done).
