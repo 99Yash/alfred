@@ -27,12 +27,34 @@ import type { FloorResult } from "./floor";
  * `held_demand_lane` does NOT say the model chose the lane. Two deterministic
  * producers can write a demand lane no model voted on, and an over-tag audit
  * (#210/#354) separates them on the same flat trace row:
- * `floorForced === true` means the override floor force-escalated an
- * exposed-secret body to `urgent` at sequence position 1, and
- * `secondPassFailure !== null` on an under-classification conflict means
- * `conservativeUnderClassificationFallback` wrote `action_needed` after the
- * second pass threw. A `held_demand_lane` row with both columns empty is the
- * model's own judgment.
+ *
+ *  - `floorForced = true` — the override floor force-escalated an
+ *    exposed-secret body to `urgent` at sequence position 1. Exact: the field
+ *    keys on `verdict.kind === "escalate"`, not on a match.
+ *  - `secondPassFailure IS NOT NULL AND conflict = 'under_classification' AND
+ *    firstPassCategory IN ('fyi','done','newsletter','marketing')` —
+ *    `conservativeUnderClassificationFallback` wrote `action_needed` after the
+ *    second pass threw. ALL THREE clauses are required. `secondPassFailure` is
+ *    set on ANY second-pass throw, before the conflict kind is read, so alone
+ *    it over-attributes: on an over-classification conflict the throw keeps the
+ *    model's own first-pass `urgent`, which the shorter join misreads as
+ *    deterministic. That pairing is the likely case, not the exotic one —
+ *    over-classification net A gates on a demand lane plus a bulk-prior sender
+ *    and no Gmail IMPORTANT, which describes a spam-filed demand lane almost by
+ *    definition. The passive list is `PASSIVE_CATEGORIES` in `../classify.ts`,
+ *    the fallback's own gate.
+ *
+ * A `held_demand_lane` row that matches neither join is the model's own
+ * judgment.
+ *
+ * The trace key is `spamFloorOutcome`, NOT `spamDemotionReason`. The three
+ * sibling floors project `<floor>DemotedCategory`/`<floor>DemotionReason`; this
+ * floor breaks that convention ON PURPOSE, because one of its two values means
+ * "no demotion" and the conventional `IS NOT NULL` over-counts the floor. The
+ * price is a SILENT one: `trace->>'spamDemotionReason'` reads as SQL NULL
+ * rather than failing, so a cross-floor audit written to the convention reports
+ * ZERO spam-floor activity and no error. An audit of this floor must read
+ * `spamFloorOutcome` and compare it to a member.
  *
  * Runs AFTER the override floor. That escalation now SURVIVES a spam verdict —
  * the deliberate price of keeping a rotation ask that Gmail misfiled. See the
@@ -87,14 +109,14 @@ const SPAM_FLOOR_LANE_OUTCOMES = {
 export function applySpamDemotionFloor(
   classification: TriageClassification,
   isSpam: boolean,
-): FloorResult & { reason: SpamFloorOutcome | null } {
+): FloorResult & { outcome: SpamFloorOutcome | null } {
   const outcome = isSpam ? SPAM_FLOOR_LANE_OUTCOMES[classification.category] : null;
 
   switch (outcome) {
     case null:
-      return { verdict: { kind: "keep" }, reason: null };
+      return { verdict: { kind: "keep" }, outcome: null };
     case "held_demand_lane":
-      return { verdict: { kind: "keep" }, reason: outcome };
+      return { verdict: { kind: "keep" }, outcome };
     case "demoted_reply_lane":
       return {
         verdict: {
@@ -104,7 +126,7 @@ export function applySpamDemotionFloor(
           reason:
             "Spam floor: Gmail filed this message as spam, so it cannot hold a reply-shaped category",
         },
-        reason: outcome,
+        outcome,
       };
   }
 }

@@ -72,7 +72,7 @@ describe("applyFloors — sequence order", () => {
     assert.equal(outcome.classification.category, "fyi");
     assert.deepEqual(outcome.audits.override, { verdict: { kind: "keep" }, matched: false });
     assert.deepEqual(outcome.audits.senderKind, { verdict: { kind: "keep" }, reason: null });
-    assert.deepEqual(outcome.audits.spam, { verdict: { kind: "keep" }, reason: null });
+    assert.deepEqual(outcome.audits.spam, { verdict: { kind: "keep" }, outcome: null });
     assert.deepEqual(outcome.audits.meeting, { verdict: { kind: "keep" }, reason: null });
   });
 

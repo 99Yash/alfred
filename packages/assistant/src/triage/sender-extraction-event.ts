@@ -73,15 +73,27 @@ export const FLOOR_TRACE_PROJECTIONS = {
      *
      * `spamFloorOutcome`, not `…DemotionReason`, because one of its two values
      * means "no demotion": an audit counting the floor's demotions must query
-     * `= 'demoted_reply_lane'`, and `IS NOT NULL` over-counts it.
+     * `= 'demoted_reply_lane'`, and `IS NOT NULL` over-counts it. The three
+     * sibling floors keep the `<floor>DemotionReason` convention and this one
+     * breaks it ON PURPOSE, so the break is SILENT to a cross-floor audit:
+     * `trace->>'spamDemotionReason'` reads as SQL NULL rather than failing, and
+     * the conventional query reports ZERO spam-floor activity with no error.
+     * The key an audit of this floor must read is `spamFloorOutcome`.
      *
      * `held_demand_lane` does not name WHO chose the lane — the floor cannot
-     * observe that. Join it on this same flat row: `floorForced === true` is the
-     * override floor's forced `urgent`, and `secondPassFailure !== null` is
-     * `conservativeUnderClassificationFallback` writing `action_needed` after a
-     * second pass threw. Both columns empty means the model's own judgment.
+     * observe that. Join it on this same flat row:
+     *
+     *  - `floorForced = true` — the override floor's forced `urgent`. Exact.
+     *  - `secondPassFailure IS NOT NULL AND conflict = 'under_classification'
+     *    AND firstPassCategory IN ('fyi','done','newsletter','marketing')` —
+     *    `conservativeUnderClassificationFallback` wrote `action_needed` after a
+     *    second pass threw. All three clauses are required: `secondPassFailure`
+     *    is set on ANY second-pass throw, before the conflict kind is read, so
+     *    alone it reads a model's own first-pass `urgent` as deterministic.
+     *
+     * A row that matches neither join is the model's own judgment.
      */
-    spamFloorOutcome: audit?.reason ?? null,
+    spamFloorOutcome: audit?.outcome ?? null,
   }),
 } satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
 
