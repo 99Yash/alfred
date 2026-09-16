@@ -396,50 +396,12 @@ export async function editStandingInstruction(
     };
   }
 
-  const edited = await db().transaction(async (tx) => {
-    const [row] = await tx
-      .update(userFacts)
-      .set({
-        status: "edited",
-        validUntil: sql`now()`,
-        rowVersion: sql`${userFacts.rowVersion} + 1`,
-      })
-      .where(activeStandingInstructionWhere(parsed.userId, parsed.factId))
-      .returning({ id: userFacts.id });
-
-    if (!row) return null;
-
-    const [inserted] = await tx
-      .insert(userFacts)
-      .values({
-        userId: parsed.userId,
-        key: STANDING_INSTRUCTION_KEY,
-        value: nextValue,
-        confidence: 1,
-        status: "confirmed",
-        source: parsed.source ?? { kind: "user" },
-        validFrom: sql`now()`,
-        validUntil: null,
-        supersedesId: parsed.factId,
-      })
-      .returning({ id: userFacts.id });
-
-    if (!inserted) return null;
-
-    await appendStandingInstructionObservation(
-      {
-        userId: parsed.userId,
-        operation: "edit",
-        factId: inserted.id,
-        previousFactId: parsed.factId,
-        instruction: nextValue,
-        previousInstruction: existing.value,
-        source: parsed.source,
-      },
-      tx,
-    );
-
-    return inserted;
+  const edited = await supersedeStandingInstruction({
+    userId: parsed.userId,
+    factId: parsed.factId,
+    nextValue,
+    previousValue: existing.value,
+    source: parsed.source,
   });
 
   if (!edited) return { ok: false, status: "not_found" };
@@ -479,7 +441,7 @@ export async function editStandingInstruction(
  */
 export async function adoptRegisteredSuppressionEffects(args: {
   userId: string;
-  source?: MemorySource;
+  source?: MemorySource | undefined;
 }): Promise<{ upgraded: string[]; skipped: number }> {
   const active = await listActiveSuppressionInstructions(args.userId);
   const upgraded: string[] = [];
@@ -502,50 +464,12 @@ export async function adoptRegisteredSuppressionEffects(args: {
 
     const source: MemorySource = args.source ?? { kind: "user" };
 
-    const inserted = await db().transaction(async (tx) => {
-      const [closed] = await tx
-        .update(userFacts)
-        .set({
-          status: "edited",
-          validUntil: sql`now()`,
-          rowVersion: sql`${userFacts.rowVersion} + 1`,
-        })
-        .where(activeStandingInstructionWhere(args.userId, instruction.factId))
-        .returning({ id: userFacts.id });
-
-      if (!closed) return null;
-
-      const [row] = await tx
-        .insert(userFacts)
-        .values({
-          userId: args.userId,
-          key: STANDING_INSTRUCTION_KEY,
-          value: nextValue,
-          confidence: 1,
-          status: "confirmed",
-          source,
-          validFrom: sql`now()`,
-          validUntil: null,
-          supersedesId: instruction.factId,
-        })
-        .returning({ id: userFacts.id });
-
-      if (!row) return null;
-
-      await appendStandingInstructionObservation(
-        {
-          userId: args.userId,
-          operation: "edit",
-          factId: row.id,
-          previousFactId: instruction.factId,
-          instruction: nextValue,
-          previousInstruction: instruction.value,
-          source,
-        },
-        tx,
-      );
-
-      return row;
+    const inserted = await supersedeStandingInstruction({
+      userId: args.userId,
+      factId: instruction.factId,
+      nextValue,
+      previousValue: instruction.value,
+      source,
     });
 
     if (inserted) upgraded.push(inserted.id);
@@ -554,6 +478,66 @@ export async function adoptRegisteredSuppressionEffects(args: {
   if (upgraded.length > 0) emitReplicachePokes([args.userId]);
 
   return { upgraded, skipped };
+}
+
+/**
+ * The single supersede body behind `editStandingInstruction` and
+ * `adoptRegisteredSuppressionEffects`: close the active row (`edited`), insert
+ * the successor (`supersedesId`), and append the `user_standing_instruction`
+ * observation in one transaction so the widening stays auditable and reversible.
+ */
+async function supersedeStandingInstruction(args: {
+  userId: string;
+  factId: string;
+  nextValue: StandingInstructionValue;
+  previousValue: StandingInstructionValue;
+  source?: MemorySource | undefined;
+}): Promise<{ id: string } | null> {
+  return db().transaction(async (tx) => {
+    const [closed] = await tx
+      .update(userFacts)
+      .set({
+        status: "edited",
+        validUntil: sql`now()`,
+        rowVersion: sql`${userFacts.rowVersion} + 1`,
+      })
+      .where(activeStandingInstructionWhere(args.userId, args.factId))
+      .returning({ id: userFacts.id });
+
+    if (!closed) return null;
+
+    const [inserted] = await tx
+      .insert(userFacts)
+      .values({
+        userId: args.userId,
+        key: STANDING_INSTRUCTION_KEY,
+        value: args.nextValue,
+        confidence: 1,
+        status: "confirmed",
+        source: args.source ?? { kind: "user" },
+        validFrom: sql`now()`,
+        validUntil: null,
+        supersedesId: args.factId,
+      })
+      .returning({ id: userFacts.id });
+
+    if (!inserted) return null;
+
+    await appendStandingInstructionObservation(
+      {
+        userId: args.userId,
+        operation: "edit",
+        factId: inserted.id,
+        previousFactId: args.factId,
+        instruction: args.nextValue,
+        previousInstruction: args.previousValue,
+        source: args.source,
+      },
+      tx,
+    );
+
+    return inserted;
+  });
 }
 
 export function findSenderSuppression(
