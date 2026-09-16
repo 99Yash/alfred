@@ -7,14 +7,14 @@
  *
  *   1. How often does the spam floor demote a reply lane, and how often does it
  *      hold a demand lane? (`spamFloorOutcome` over Gmail-filed spam.)
- *   2. How often does an over-classification conflict send a SERVICE envelope to
- *      a second pass, and how often does that second pass throw?
+ *   2. How often does an over-classification conflict send a NON-PERSON
+ *      envelope to a second pass, and how often does that second pass throw?
  *   3. Which senders are landing in `awaiting_reply`? A relay or service
  *      envelope in a reply lane is the exact shape of the miss #1097 fixed.
  *
  * WHY THIS IS TYPESCRIPT AND NOT SQL IN A DOC. A Postgres `->>` against a JSON
  * key that does not exist reads as SQL NULL — it does not fail. So a hand-written
- * query is a SILENT duplicate of {@link SenderExtractionEvent}: when a key is
+ * query is a SILENT duplicate of {@link TraceRecord}: when a key is
  * renamed, the query keeps running and reports zero forever. That is not
  * hypothetical. While #1098 was in review the spam audit key moved from
  * `spamDemotionReason` to `spamFloorOutcome`, and the conventional
@@ -29,10 +29,13 @@
  * means an empty window; zero out of 300 means the mechanism is dead. Neither
  * reads as "fine".
  *
- * NOT bundled by tsdown, unlike its siblings in this directory. Those re-run the
- * classifier and so must execute inside the prod image that holds the current
- * prompt. This one makes no model call — it reads `agent_decision_traces` — so a
- * local `tsx` over the documented prod tunnel reaches it:
+ * NOT bundled by tsdown: it makes no model call — it reads
+ * `agent_decision_traces` — so a local `tsx` over the documented prod tunnel
+ * reaches it. Do not read that as "a script that classifies must be bundled":
+ * three siblings in this directory (`dry-run-triage-backfill.ts`,
+ * `triage-prompt-replay.ts`, `dry-run-attribution-fixtures.ts`) call
+ * `classifyEmail` and are unbundled too. A bundle entry buys a prod `node`
+ * command, nothing else:
  *
  *   # prod, in one terminal:
  *   railway connect --tunnel-only            # DATABASE_PUBLIC_URL is broken; use the tunnel
@@ -42,9 +45,11 @@
  *   # widen or narrow the window (days, default 14):
  *   TRIAGE_WATCH_DAYS=30 pnpm exec tsx --env-file=.env src/scripts/dry-runs/triage-classification-watch.ts
  */
-import type { SenderExtractionEvent } from "@alfred/assistant/triage";
 import { TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage";
-import type { DecisionTraceKind } from "@alfred/assistant/execution/decision-traces";
+import type {
+  DecisionTraceFor,
+  DecisionTraceKind,
+} from "@alfred/assistant/execution/decision-traces";
 import { toMessage } from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
 import { sql, type SQL } from "drizzle-orm";
@@ -55,17 +60,33 @@ import { closeScriptResources } from "../script-runtime";
 const WATCH_DAYS = Number(process.env.TRIAGE_WATCH_DAYS) || 14;
 
 /**
- * The trace kind this watch reads. Typed against execution's open registry, so
- * renaming the kind triage declares (`sender-extraction-event.ts`) fails here.
+ * The trace kind this watch reads. `satisfies` (not an annotation) keeps the
+ * literal type, so {@link TraceRecord} can read the payload back out of the
+ * SAME registry entry. Renaming the kind triage declares
+ * (`sender-extraction-event.ts`) fails here.
  */
-const TRACE_KIND: DecisionTraceKind = "triage.classification";
+const TRACE_KIND = "triage.classification" satisfies DecisionTraceKind;
+
+/**
+ * The payload {@link TRACE_KIND} carries, resolved through execution's open
+ * registry rather than imported by name.
+ *
+ * This correlation is the point. `DecisionTraceKind` is a UNION — today
+ * `triage.classification` plus `reply_drafting.decision` — so a hand-typed kind
+ * beside a hand-imported payload type lets a person repoint one and leave the
+ * other. Every key below then still compiles, every query still runs,
+ * and every section reports zero. Reading both out of one registry entry makes
+ * the repoint a compile error instead. Today this resolves to triage's
+ * `SenderExtractionEvent`.
+ */
+type TraceRecord = DecisionTraceFor<typeof TRACE_KIND>;
 
 /**
  * Name a `triage.classification` trace key so a rename breaks the build, not the
  * query. This is the whole tier-1 claim of this file: a bare string literal in a
  * `->>` position is the one thing a reviewer must reject here.
  */
-const traceKey = (key: keyof SenderExtractionEvent & string): string => key;
+const traceKey = (key: keyof TraceRecord & string): string => key;
 
 /**
  * `trace ->> '<key>'` as text, with the key routed through {@link traceKey}. The
@@ -73,22 +94,20 @@ const traceKey = (key: keyof SenderExtractionEvent & string): string => key;
  * no declared type, and Postgres has both `jsonb ->> text` and `jsonb ->> int`,
  * so an uncast parameter is an ambiguous-operator error.
  */
-const traceText = (key: keyof SenderExtractionEvent & string): SQL =>
+const traceText = (key: keyof TraceRecord & string): SQL =>
   sql`(t.trace ->> ${traceKey(key)}::text)`;
 
 // Member strings, each annotated with the type that owns it. A renamed MEMBER
 // (not just a renamed key) is a compile error at these five lines.
-const SPAM_DEMOTED_REPLY_LANE: NonNullable<SenderExtractionEvent["spamFloorOutcome"]> =
-  "demoted_reply_lane";
+const SPAM_DEMOTED_REPLY_LANE: NonNullable<TraceRecord["spamFloorOutcome"]> = "demoted_reply_lane";
 
-const SPAM_HELD_DEMAND_LANE: NonNullable<SenderExtractionEvent["spamFloorOutcome"]> =
-  "held_demand_lane";
+const SPAM_HELD_DEMAND_LANE: NonNullable<TraceRecord["spamFloorOutcome"]> = "held_demand_lane";
 
-const OVER_CLASSIFICATION: NonNullable<SenderExtractionEvent["conflict"]> = "over_classification";
+const OVER_CLASSIFICATION: NonNullable<TraceRecord["conflict"]> = "over_classification";
 
-const PERSON_AUTHOR: SenderExtractionEvent["effectiveAuthor"] = "person";
+const PERSON_AUTHOR: TraceRecord["effectiveAuthor"] = "person";
 
-const AWAITING_REPLY: SenderExtractionEvent["finalCategory"] = "awaiting_reply";
+const AWAITING_REPLY: TraceRecord["finalCategory"] = "awaiting_reply";
 
 /**
  * Latest attempt per run inside the window, as a CTE every section selects from.
@@ -183,7 +202,14 @@ async function watchSpamFloor(total: number): Promise<void> {
 }
 
 /**
- * Watch 2 — over-classification second passes on service envelopes.
+ * Watch 2 — over-classification second passes on non-person authors.
+ *
+ * "Non-person", not "service": the filter is `effectiveAuthor <> 'person'`, and
+ * `effectiveAuthor` is `bot | person | service | unknown`, so this counts `bot`
+ * and `unknown` beside `service`. Widening it that way is deliberate — an
+ * envelope the extractor could not attribute is exactly as suspicious in a
+ * demand lane as one it named a service — but the name must not read as
+ * `= 'service'`.
  *
  * Reads the trace's own `conflict` key, NOT the `email_triage.model` tag. Two
  * reasons: the tag is not in the trace at all, and matching it by substring is a
@@ -196,7 +222,7 @@ async function watchSpamFloor(total: number): Promise<void> {
  * names a failed re-check and nothing more.
  */
 async function watchOverClassification(total: number): Promise<void> {
-  console.log(`\n## 2. Over-classification second passes on service envelopes`);
+  console.log(`\n## 2. Over-classification second passes on non-person authors`);
 
   const rows = await query(
     withLatest(sql`
@@ -208,36 +234,36 @@ async function watchOverClassification(total: number): Promise<void> {
         count(*) FILTER (
           WHERE ${traceText("conflict")} = ${OVER_CLASSIFICATION}
             AND ${traceText("effectiveAuthor")} <> ${PERSON_AUTHOR}
-        )::int AS service_envelopes,
+        )::int AS non_person_authors,
         count(*) FILTER (
           WHERE ${traceText("conflict")} = ${OVER_CLASSIFICATION}
             AND ${traceText("effectiveAuthor")} <> ${PERSON_AUTHOR}
             AND ${traceText("secondPassFailure")} IS NOT NULL
-        )::int AS service_envelope_failures
+        )::int AS non_person_author_failures
       FROM t
     `),
     z.object({
       any_conflict: z.number(),
       over_classification: z.number(),
-      service_envelopes: z.number(),
-      service_envelope_failures: z.number(),
+      non_person_authors: z.number(),
+      non_person_author_failures: z.number(),
     }),
   );
 
   const row = rows[0] ?? {
     any_conflict: 0,
     over_classification: 0,
-    service_envelopes: 0,
-    service_envelope_failures: 0,
+    non_person_authors: 0,
+    non_person_author_failures: 0,
   };
 
   console.log(`   second pass attempted (any conflict): ${share(row.any_conflict, total)}`);
   console.log(`   ${OVER_CLASSIFICATION}: ${share(row.over_classification, total)}`);
   console.log(
-    `   …of which the author is not '${PERSON_AUTHOR}': ${share(row.service_envelopes, row.over_classification)}`,
+    `   …of which the author is not '${PERSON_AUTHOR}' (bot/service/unknown): ${share(row.non_person_authors, row.over_classification)}`,
   );
   console.log(
-    `   …and the second pass threw: ${share(row.service_envelope_failures, row.service_envelopes)}`,
+    `   …and the second pass threw: ${share(row.non_person_author_failures, row.non_person_authors)}`,
   );
 }
 
