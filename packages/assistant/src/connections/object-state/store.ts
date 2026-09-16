@@ -1,5 +1,6 @@
 import {
   getObjectDef,
+  isAbsorbingState,
   type ObjectIdentity,
   type ObjectStateProvider,
   type StateCategory,
@@ -246,15 +247,20 @@ export const objectStateStore: ObjectStateStore = {
         objectId = existing.id;
 
         // Monotonicity: only advance state when this delivery is at least as
-        // recent as the one that last set it. Resolved PRs are absorbing, so a
+        // recent as the one that last set it. A merged PR is absorbing, so a
         // delayed open/synchronize delivery can't regress a merge back to active.
         const isNewer =
           existing.stateDeliveredAt === null || args.deliveredAt >= existing.stateDeliveredAt;
 
-        const wouldReopenResolved =
-          existing.stateCategory === "resolved" && stateCategory !== "resolved";
+        // Which states are final is the KIND's declaration, not this file's
+        // rule. Work that closes by succession rather than by transition — a CI
+        // run, a deployment — declares no absorbing state at all, and then a
+        // later failure after a success lands here as ordinary traffic (#1093).
+        const wouldLeaveAbsorbingState =
+          stateCategory !== existing.stateCategory &&
+          isAbsorbingState(args.provider, delta.kind, existing.stateCategory);
 
-        if (isNewer && !wouldReopenResolved) {
+        if (isNewer && !wouldLeaveAbsorbingState) {
           await tx
             .update(integrationObjects)
             .set({

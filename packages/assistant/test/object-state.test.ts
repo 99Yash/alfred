@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { getObjectDef, isLoopClosingCategory, isTerminalCategory } from "@alfred/contracts";
+import { closesOpenAsk, getObjectDef, isTerminalCategory } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -119,11 +119,15 @@ describe("github registry normalize", () => {
     assert.equal(isTerminalCategory("active"), false);
   });
 
-  test("briefing loop closure excludes failed because failed is usually the opener", () => {
-    assert.equal(isLoopClosingCategory("resolved"), true);
-    assert.equal(isLoopClosingCategory("abandoned"), true);
-    assert.equal(isLoopClosingCategory("failed"), false);
-    assert.equal(isLoopClosingCategory("active"), false);
+  test("a pull request closes an ask on merged/closed, never on failed", () => {
+    assert.equal(closesOpenAsk("github", "pull_request", "resolved"), true);
+    assert.equal(closesOpenAsk("github", "pull_request", "abandoned"), true);
+    assert.equal(closesOpenAsk("github", "pull_request", "failed"), false);
+    assert.equal(closesOpenAsk("github", "pull_request", "active"), false);
+  });
+
+  test("an undeclared kind closes nothing: absence never closes", () => {
+    assert.equal(closesOpenAsk("github", "deployment", "resolved"), false);
   });
 });
 
