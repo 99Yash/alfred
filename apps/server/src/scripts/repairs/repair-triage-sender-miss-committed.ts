@@ -20,6 +20,15 @@
  *    `../dry-runs/dry-run-triage-recategorize-committed.ts`, which already
  *    assembles the classify context; set `RECAT_THREAD_IDS` to the same thread
  *    ids to see the old→new diff BEFORE committing here.
+ *  - It does not re-teach the sender prior, and it does not correct the vote
+ *    the first classification cast. `incrementSenderPrior` only adds, so a
+ *    second bump would leave the old category's vote standing beside the new
+ *    one and give the sender two votes from one mail. The classify step now
+ *    skips the bump when the stored row was written by an earlier run and
+ *    names the same document (`workflow-operations.ts`), which is exactly the
+ *    case a repair creates. The consequence to accept: a sender this script
+ *    repairs keeps the WRONG vote in its histogram. The histogram is a prior,
+ *    not a verdict, and later mail from that sender outvotes it.
  *  - It does not delete a stale todo. A forced re-run re-runs `suggestTodo` but
  *    does NOT remove the todo the previous classification minted, so a thread
  *    moving out of a demand lane can leave one behind. This script PRINTS every

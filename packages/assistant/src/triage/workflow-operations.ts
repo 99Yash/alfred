@@ -600,7 +600,34 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // (issue #282, `reason: "reply"`) re-classifies the same inbound doc to
   // refresh the thread tag after the user replies; it is NOT a fresh
   // observation, so it must not re-bump the sender prior either.
-  if (!reusedExistingRow && written && ctx.state.reason !== "reply") {
+  //
+  // ONE DOCUMENT TEACHES ONCE. `force` bypasses the already-tagged skip
+  // guard above, which is the only guard that stops a second classify of a
+  // thread Alfred already tagged. A repair or backfill therefore re-runs a
+  // document that already taught the prior, and the bump is a monotone
+  // counter with no per-message dedup: the old category keeps its vote and
+  // the new category adds one, so the sender ends up with two votes from a
+  // single mail. Nothing reverses that — `incrementSenderPrior` only adds.
+  // The stored row settles the case without a new column: it was written by
+  // an EARLIER run and it names THIS document, so this document has already
+  // voted. A genuine reply carries a different `documentId`, so it still
+  // teaches.
+  //
+  // This is conservative by design. When the earlier run wrote the row but
+  // taught nothing — a `fallback` label, a null sender key, or a throw
+  // between the two writes — this skips a teach that would have been
+  // legitimate. A missing vote costs one sample out of a histogram that
+  // keeps growing; a duplicate vote is permanent.
+  const documentAlreadyTaughtPrior = Boolean(
+    existing && existing.runId !== ctx.runId && existing.documentId === ctx.state.documentId,
+  );
+
+  if (
+    !reusedExistingRow &&
+    written &&
+    ctx.state.reason !== "reply" &&
+    !documentAlreadyTaughtPrior
+  ) {
     const docIsSent = isSentGmailMetadata(ctxData.document.metadata);
 
     const baseSenderKey = senderPriorWriteKeyFor({
