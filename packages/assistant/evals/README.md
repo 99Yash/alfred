@@ -17,9 +17,10 @@ Env (loaded from `apps/server/.env`):
 
 - `GOOGLE_GENERATIVE_AI_API_KEY` — the cheap classifier under test, and the
   DEFAULT LLM judge. Both are `route("cheap")` (Gemini Flash-Lite). It covers
-  `triage-classify` end to end, and it judges every other suite EXCEPT
-  `passthrough-honesty`, which pins a `route("standard")` judge (see the next
-  bullet).
+  `triage-classify` end to end. Only three suites call `llmJudgeScorer` at all:
+  `triage-classify` and `voice-ai-tells` take the cheap default, and
+  `passthrough-honesty` pins a `route("standard")` judge (see the next bullet).
+  The other six suites score deterministically and need no judge.
 - Whatever `route("standard")` needs (`gpt-5.6-luna`, so `OPENAI_API_KEY`) — eight
   of the nine suites GENERATE on that route, because the system under test there is
   the chat agent itself: `boss-judgment`, `calendar-grounding`, `date-grounding`,

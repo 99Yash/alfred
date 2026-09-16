@@ -88,7 +88,8 @@ interface Expected {
    *
    * Six tags exist. Two come from this module's own passes, in
    * `classify.ts:1162-1165`: `+2pass` (the re-ask completed) and `+2pass_failed`
-   * (the re-ask ran and its answer was discarded). Four come from the floor
+   * (the re-ask THREW — `classify.ts` sets this tag only in the `catch` arm, so
+   * there is no second answer at all; the first pass is kept instead). Four come from the floor
    * fold, one per floor, in `floors/index.ts:140,155,160,172`: `+floor`
    * (override escalate), `+kindfloor`, `+spamfloor` and `+meetingfloor` (each a
    * demote). A floor that keeps the classification contributes no tag.
@@ -852,6 +853,57 @@ const CASES: Case[] = [
       guards: ["+spamfloor"],
       todo: "suppress",
       note: "Gmail filed this as spam, so the scary words are phish copy, not a real deadline (rule 20). The spam floor demotes the demand lane to fyi and clears the proposed todo — demote, never bury.",
+    },
+  },
+  {
+    // Pins conflict net C (over-classification C) ALONE, the way
+    // `spam-filed-phish-demotes` pins the spam floor. Every other relay row
+    // reaches `fyi` on the FIRST pass, because rule 8a already answers a relayed
+    // invitation — so deleting net C leaves all of them green and the net
+    // unpinned. A canned first pass removes the prompt from the path entirely.
+    //
+    // The row satisfies every net-C gate deterministically: `awaiting_reply`,
+    // no exposed-secret match (`floorMatches` is `matchesExposedSecret` only),
+    // not Gmail IMPORTANT, `senderKind` null (no `senderKey`, so the projection
+    // never scored this sender), `effectiveAuthor: "service"` DERIVED from the
+    // `…-noreply` suffix, and no ownership `collabActivity`. Delete the net and
+    // the first pass persists: the category reverts to `awaiting_reply` and
+    // `+2pass` disappears. A double red, measured, with no classifier tokens.
+    //
+    // On the Circle envelope, not a LinkedIn one, because `classify.ts:338`
+    // names the LinkedIn reminder verbatim — a LinkedIn row would prove the
+    // exemplar as much as the net.
+    label: "circle-relay-net-c-reask",
+    from: "Rhea Kapoor (via Circle) <community-noreply@circle-community-mail.com>",
+    subject: "Rhea Kapoor is still waiting for your reply in Build Club",
+    body: "Rhea Kapoor: I'm still waiting for your response. Reply in the community to continue the thread.",
+    runPass: ({ pass }) =>
+      Promise.resolve(
+        pass === "first"
+          ? {
+              category: "awaiting_reply",
+              confidence: 0.8,
+              rationale:
+                "The sender says they are still waiting for a response, so a reply is owed.",
+              todoSuggestion: null,
+              todoDecision: { outcome: "no_obligation", note: "No concrete deliverable." },
+              collabActivity: null,
+            }
+          : {
+              category: "fyi",
+              confidence: 0.9,
+              rationale:
+                "The envelope belongs to the platform, so rule 8a governs: relayed community activity is passive, and the waiting phrase is engagement boilerplate.",
+              todoSuggestion: null,
+              todoDecision: { outcome: "no_obligation", note: "No user-owned obligation." },
+              collabActivity: null,
+            },
+      ),
+    expected: {
+      category: ["fyi"],
+      guards: ["+2pass"],
+      todo: "suppress",
+      note: "A deterministic service envelope cannot owe a reply, so net C re-asks once and the second pass returns the passive answer rule 8a requires. The `+2pass` tag proves the re-ask ran rather than threw.",
     },
   },
 ];
