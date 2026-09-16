@@ -63,7 +63,17 @@ export {
   type HostedDispatcherTimeouts,
 } from "./hosted-endpoint";
 
-export * from "./object-state";
+export {
+  firstClosingObject,
+  githubActivityTriggerConsumer,
+  objectStateStore,
+  proposeObjectKeys,
+  reconcileEvidence,
+  type ObjectState,
+  type ObjectStateStore,
+  type ReconcileCandidates,
+  type ReconciledObject,
+} from "./object-state";
 
 export {
   consumeOAuthNonce,

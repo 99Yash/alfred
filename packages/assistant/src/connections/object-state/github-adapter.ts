@@ -2,41 +2,33 @@ import {
   canonicalizeGithubPullRequestUrl,
   collectGithubPullRequestUrls,
   deriveLoopEntityRef,
+  INTEGRATION_OBJECT_DEFS,
   parseEmailAddress,
 } from "@alfred/contracts";
+import { keyIdentity } from "./adapter";
+import type {
+  ExtractedKey,
+  KeyProposal,
+  ObjectKeyMatch,
+  ObjectStateAdapter,
+  ReconcileSubject,
+  SubjectText,
+} from "./adapter";
 
 /**
- * Deterministic key extraction (ADR-0062 v1; ADR-0063 is the rich replacement).
+ * The GitHub object-state adapter (ADR-0062 v1; ADR-0063 is the rich
+ * replacement) — GitHub's irreducible half of reconciliation (#1088).
  *
  * GitHub notifications identify a PR through the subject's repository + PR
  * number, a pull-request URL, a 40-hex `head_sha`, or the abbreviated sha that
  * Actions failure mail carries in its subject. Use a single PR identity when
  * possible: a link to a different PR in a comment body cannot close the
  * notification's own loop. Ambiguous PR references leave the loop live.
+ *
+ * Everything past the proposal is generic and lives elsewhere: `reconcile.ts`
+ * resolves and ranks the candidates, the store asserts state, and the
+ * registry's per-kind definition declares what closes an ask.
  */
-
-/**
- * How the store must compare a candidate value against the stored key. `prefix`
- * exists for an abbreviated sha: the value is a leading fragment of the stored
- * 40-hex key, so an exact lookup can never find it.
- */
-export type ObjectKeyMatch = "exact" | "prefix";
-
-export interface ExtractedKey {
-  keyKind: string;
-  keyValue: string;
-  match: ObjectKeyMatch;
-}
-
-/**
- * Map key for one candidate. The match mode belongs in it: the same value read
- * exactly and read as a prefix are two different lookups. Owned here beside
- * `ExtractedKey` so a fourth field cannot silently collapse two candidates in
- * a consumer's dedup map.
- */
-export function keyIdentity(key: ExtractedKey): string {
-  return [key.keyKind, key.keyValue, key.match].join("\u0000");
-}
 
 /** Senders whose mail we treat as GitHub CI/notification traffic. */
 const GITHUB_NOTIFICATION_DOMAINS = ["github.com"];
@@ -45,11 +37,11 @@ const HEAD_SHA_RE = /\b[0-9a-f]{40}\b/gi;
 
 /**
  * Shortest abbreviation that may name a commit. Git's default and GitHub's mail
- * both use 7 hex; below that a fragment is a guess, not an identity. The store
- * enforces its own floor on the prefix lookup, because a shorter prefix that
- * happens to match one row would close a loop on almost no evidence.
+ * both use 7 hex; below that a fragment is a guess, not an identity. Read off
+ * the registry's `prefixableKeys` beside the closure policy — the store reads
+ * the same entry for its prefix lookup, so the two floors cannot drift.
  */
-const MIN_ABBREVIATED_SHA_LENGTH = 7;
+const MIN_ABBREVIATED_SHA_LENGTH = INTEGRATION_OBJECT_DEFS.github.prefixableKeys.head_sha;
 
 /**
  * The abbreviated sha an Actions failure mail carries, for example
@@ -68,7 +60,14 @@ const SUBJECT_ABBREVIATED_SHA_RE = new RegExp(
   "i",
 );
 
-export function isGithubNotificationSender(from: string | null | undefined): boolean {
+/**
+ * Whether the sender is GitHub traffic by domain. Module-private: the gated
+ * extraction below is the only caller, and the name deliberately differs from
+ * triage's `isGithubNotificationSender` — that one matches the
+ * `notifications@github.com` address, this one gates the whole `github.com`
+ * sender domain (so `noreply@github.com` passes here and fails there).
+ */
+function isGithubSenderDomain(from: string | null | undefined): boolean {
   const address = parseEmailAddress(from);
 
   if (!address) return false;
@@ -82,13 +81,12 @@ export function isGithubNotificationSender(from: string | null | undefined): boo
  * names one; otherwise the full 40-hex form anywhere in the mail wins, then a
  * body PR reference when it is the sole PR identity in that body, then the
  * abbreviation in its own subject. Pure and deterministic: no network and no
- * model.
+ * model. Module-private: callers go through the adapter's `proposeKeys`, which
+ * applies the sender-domain gate first — this raw extraction alone would let
+ * any spoofed mail propose a loop-closing identity.
  */
-export function extractGithubKeys(input: {
-  subject?: string | null;
-  content?: string | null;
-}): ExtractedKey[] {
-  const haystack = `${input.subject ?? ""}\n${input.content ?? ""}`;
+function extractGithubKeys(input: SubjectText): ExtractedKey[] {
+  const haystack = `${input.subject}\n${input.content}`;
   const seen = new Set<string>();
   const keys: ExtractedKey[] = [];
 
@@ -116,7 +114,7 @@ export function extractGithubKeys(input: {
     return keys;
   }
 
-  const subjectUrls = collectGithubPullRequestUrls(input.subject ?? "");
+  const subjectUrls = collectGithubPullRequestUrls(input.subject);
 
   if (subjectUrls.length > 0) {
     // Two PRs in one subject is an ambiguous identity; neither one may close
@@ -140,7 +138,7 @@ export function extractGithubKeys(input: {
 
   if (keys.length > 0) return keys;
 
-  const bodyUrls = collectGithubPullRequestUrls(input.content ?? "");
+  const bodyUrls = collectGithubPullRequestUrls(input.content);
 
   if (bodyUrls.length === 1) {
     for (const url of bodyUrls) addKey("pull_request_url", url, "exact");
@@ -150,7 +148,7 @@ export function extractGithubKeys(input: {
 
   // One abbreviation in the subject names the failed run's own commit. Two is
   // an ambiguous identity, so neither may close the loop.
-  const abbreviated = collectSubjectAbbreviatedShas(input.subject ?? "");
+  const abbreviated = collectSubjectAbbreviatedShas(input.subject);
   const onlyAbbreviated = abbreviated.length === 1 ? abbreviated[0] : undefined;
 
   if (onlyAbbreviated) addKey("head_sha", onlyAbbreviated, "prefix");
@@ -170,3 +168,30 @@ function collectSubjectAbbreviatedShas(subject: string): string[] {
 
   return [sha];
 }
+
+/**
+ * GitHub's adapter. The two readings differ in what they are allowed to
+ * assume, not in how safe they are:
+ *
+ * - `about` requires the `github.com` sender-domain gate and returns the mail's own
+ *   single PR identity, because the briefing uses it to DROP an item and a
+ *   wrong identity would drop the wrong one.
+ * - `mentions` returns every pull request the text names, with no provenance
+ *   demand, because a caller uses it to annotate what it already has. The
+ *   canonical URL is the only written form that survives: a bare `head_sha` in
+ *   arbitrary prose is a commit, not a claim about a pull request.
+ */
+export const githubObjectStateAdapter: ObjectStateAdapter = {
+  provider: "github",
+  proposeKeys(subject: ReconcileSubject, proposal: KeyProposal): ExtractedKey[] {
+    if (proposal.reading === "mentions") {
+      return collectGithubPullRequestUrls(`${subject.text.subject}\n${subject.text.content}`).map(
+        (url) => ({ keyKind: "pull_request_url", keyValue: url, match: "exact" }),
+      );
+    }
+
+    if (!isGithubSenderDomain(proposal.sender)) return [];
+
+    return extractGithubKeys(subject.text);
+  },
+};

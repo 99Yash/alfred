@@ -6,14 +6,12 @@ import type {
   DayShape,
   IanaTimezone,
   IntegrationActivityItem,
-  LoopClosingStateCategory,
   WeatherContribution,
   WeatherFallbackLocation,
 } from "@alfred/contracts";
 import {
   GOOGLE_SCOPE,
   getStringPath,
-  isLoopClosingCategory,
   isRecord,
   parseEventTypeName,
   parseGmailDocumentMetadata,
@@ -38,12 +36,12 @@ import {
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
-  extractGithubKeys,
-  isGithubNotificationSender,
-  keyIdentity,
-  type ObjectKeyMatch,
-  type ObjectState,
+  firstClosingObject,
   objectStateStore,
+  proposeObjectKeys,
+  reconcileEvidence,
+  type ObjectState,
+  type ReconcileCandidates,
 } from "@alfred/assistant/connections";
 import { getPreference } from "@alfred/assistant/settings";
 import { findSenderSuppression, listActiveSuppressionInstructions } from "../knowledge";
@@ -248,11 +246,11 @@ export async function gatherBriefingDigest(
   };
 
   const suppressedByInstruction: BriefingInstructionSuppression[] = [];
-  // documentId → candidate GitHub object keys, for the post-partition
-  // loop-reconciliation pass (ADR-0062). Only GitHub-notification priority
-  // rows land here. Priority buckets stay uncapped until after reconciliation
-  // so closed loops do not consume one of the visible slots.
-  const githubKeysByDoc = new Map<string, ExtractedGithubKey[]>();
+  // One entry per priority row whose text proposes a work-object key, for the
+  // post-partition loop-reconciliation pass (ADR-0062). Priority buckets stay
+  // uncapped until after reconciliation so closed loops do not consume one of
+  // the visible slots.
+  const keyCandidates: ReconcileCandidates[] = [];
 
   for (const r of rows) {
     const cat = r.category;
@@ -296,21 +294,23 @@ export async function gatherBriefingDigest(
       threadUrl: r.sourceThreadId ? gmailThreadUrl(r.sourceThreadId) : null,
     });
 
-    // Extract every deterministic GitHub identity the notification carries.
-    // An Actions failure names its commit — the full sha in the body, or the
-    // 7-hex abbreviation in the subject; review/comment/merge mail carries the
-    // PR URL or repository + number instead.
-    if (isGithubNotificationSender(from)) {
-      const keys = extractGithubKeys({ subject: r.title, content: r.content });
+    // Every deterministic work-object identity this notification carries, as
+    // its provider's adapter reads it. The mail is ABOUT one object, so the
+    // adapter demands the sender-domain gate and refuses an ambiguous
+    // reference. Proposed here, inside the loop that already holds the body,
+    // so the row's content is never carried into the resolve phase.
+    const keys = proposeObjectKeys(
+      { id: r.documentId, text: { subject: r.title ?? "", content: r.content } },
+      { reading: "about", sender: from },
+    );
 
-      if (keys.length > 0) githubKeysByDoc.set(r.documentId, keys);
-    }
+    if (keys.length > 0) keyCandidates.push({ id: r.documentId, keys });
   }
 
   // Loop reconciliation (ADR-0062): drop any priority item whose underlying
   // GitHub PR has reached a loop-closing state. State unknown ⇒ the loop stays
   // live (absence never closes — ADR-0048-D).
-  const closedLoops = await reconcileGithubLoops(args.userId, buckets, githubKeysByDoc);
+  const closedLoops = await dropClosedLoops(args.userId, buckets, keyCandidates);
 
   for (const category of PRIORITY_CATEGORIES) {
     buckets[category] = buckets[category].slice(0, maxPerBucket);
@@ -335,90 +335,25 @@ export async function gatherBriefingDigest(
 }
 
 /**
- * Resolve each candidate GitHub CI loop to its PR's projected state and drop
- * the closed ones from the priority buckets (mutates `buckets`), returning the
+ * Resolve each candidate loop to its work object's projected state and drop the
+ * closed ones from the priority buckets (mutates `buckets`), returning the
  * dropped set for the evening "closed today" recap.
  *
- * Keys are resolved in parallel — at single-user scale a briefing window holds
- * only a handful of GitHub-notification emails, and each lookup reads one
- * index. A key that resolves to nothing, to more than one object, or to a
- * non-terminal state leaves its loop live (the determinism contract: absence
- * never closes).
+ * The resolve, the exact-beats-prefix precedence, and the closure test are the
+ * shared `reconcileEvidence` operation (#1088); this function owns only what is
+ * briefing-specific — which bucket an item sits in, and what a closed loop
+ * reports. A key that resolves to nothing, to more than one object, or to a
+ * state its kind does not treat as closing leaves its loop live (the
+ * determinism contract: absence never closes).
  */
-async function reconcileGithubLoops(
+async function dropClosedLoops(
   userId: string,
   buckets: Record<PriorityCategory, BriefingItem[]>,
-  keysByDoc: Map<string, ExtractedGithubKey[]>,
+  candidates: readonly ReconcileCandidates[],
 ): Promise<BriefingClosedLoop[]> {
-  if (keysByDoc.size === 0) return [];
+  if (candidates.length === 0) return [];
 
-  const distinctKeys = [
-    ...new Map([...keysByDoc.values()].flat().map((key) => [keyIdentity(key), key])).values(),
-  ];
-
-  // An exact key is proof of identity; a prefix key is a guess. Resolve every
-  // exact candidate first and consult a prefix only for documents where no
-  // exact candidate produced a state — otherwise a coincidental abbreviation
-  // can report the wrong object's title and url.
-  const exactKeys = distinctKeys.filter((key) => key.match === "exact");
-  const prefixKeys = distinctKeys.filter((key) => key.match === "prefix");
-
-  const stateByKey = new Map<string, ObjectState>();
-
-  // Resolver per match mode. `satisfies Record<ObjectKeyMatch, …>` keeps a
-  // third mode a compile error here instead of a silent exact lookup.
-  const keyResolvers = {
-    exact: (key: ExtractedGithubKey) =>
-      objectStateStore.resolveByKey(userId, "github", key.keyKind, key.keyValue),
-    prefix: (key: ExtractedGithubKey) =>
-      objectStateStore.resolveByKeyPrefix(userId, "github", key.keyKind, key.keyValue),
-  } satisfies Record<
-    ObjectKeyMatch,
-    (key: ExtractedGithubKey) => Promise<Awaited<ReturnType<typeof objectStateStore.resolveByKey>>>
-  >;
-
-  const resolveKey = async (key: ExtractedGithubKey) => {
-    const identity = keyIdentity(key);
-
-    // An abbreviated sha is a leading fragment of the stored key, so it
-    // resolves by prefix; an ambiguous prefix resolves to nothing.
-    const resolve = keyResolvers[key.match];
-    const ref = await resolve(key);
-
-    if (!ref) return; // unknown PR → loop stays live
-    const state = await objectStateStore.getState(userId, ref);
-
-    if (state) stateByKey.set(identity, state);
-  };
-
-  await Promise.all(exactKeys.map((key) => resolveKey(key)));
-
-  const docHasExactState = (documentId: string): boolean =>
-    (keysByDoc.get(documentId) ?? []).some(
-      (key) => key.match === "exact" && stateByKey.has(keyIdentity(key)),
-    );
-
-  const docsByKey = new Map<string, string[]>();
-
-  for (const [documentId, keys] of keysByDoc) {
-    for (const key of keys) {
-      const list = docsByKey.get(keyIdentity(key)) ?? [];
-      list.push(documentId);
-      docsByKey.set(keyIdentity(key), list);
-    }
-  }
-
-  await Promise.all(
-    prefixKeys
-      .filter((key) =>
-        (docsByKey.get(keyIdentity(key)) ?? []).some((documentId) => !docHasExactState(documentId)),
-      )
-      .map((key) => resolveKey(key)),
-  );
-
-  // Exact identities outrank prefix guesses. Exhaustive so a third match
-  // mode is a compile error, not a silent tie with exact.
-  const matchRank = { exact: 0, prefix: 1 } satisfies Record<ObjectKeyMatch, number>;
+  const reconciled = await reconcileEvidence({ userId, subjects: candidates });
 
   const closedLoops: BriefingClosedLoop[] = [];
 
@@ -426,25 +361,17 @@ async function reconcileGithubLoops(
     const kept: BriefingItem[] = [];
 
     for (const item of buckets[category]) {
-      // Exact identities outrank prefix guesses: a resolved prefix shared
-      // with another document must not shadow this document's own proof.
-      const terminal = [...(keysByDoc.get(item.documentId) ?? [])]
-        .sort((a, b) => matchRank[a.match] - matchRank[b.match])
-        .map((key) => stateByKey.get(keyIdentity(key)))
-        .find(
-          (state): state is ObjectState & { stateCategory: LoopClosingStateCategory } =>
-            !!state && isLoopClosingCategory(state.stateCategory),
-        );
+      const closed = firstClosingObject(reconciled.get(item.documentId));
 
-      if (terminal) {
+      if (closed) {
         closedLoops.push({
           documentId: item.documentId,
           category,
           subject: item.subject,
-          objectTitle: terminal.title,
-          objectUrl: terminal.url,
-          stateCategory: terminal.stateCategory,
-          nativeState: terminal.nativeState,
+          objectTitle: closed.state.title,
+          objectUrl: closed.state.url,
+          stateCategory: closed.closesAskAs,
+          nativeState: closed.state.nativeState,
         });
       } else {
         kept.push(item);
@@ -456,8 +383,6 @@ async function reconcileGithubLoops(
 
   return closedLoops;
 }
-
-type ExtractedGithubKey = ReturnType<typeof extractGithubKeys>[number];
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
   return (await gatherBriefingWithSuppressionAudit(args)).gather;

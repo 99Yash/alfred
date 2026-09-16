@@ -11,6 +11,7 @@ import {
   collabActivitySchema,
   confidenceSchema,
   extractGmailDocumentBody,
+  isOwnershipCollabActivity,
   isPassiveCollabActivity,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
@@ -272,6 +273,7 @@ How to use the Observations block:
 - Sender relationship (when present) describes the user's correspondence history WITH this sender: significance (strong/moderate/weak, or \`unscored\` when there IS history but it has not been scored yet — then judge from reciprocity, do NOT treat \`unscored\` as cold), reciprocity (two-way / you reached out / one-way inbound — the user never replied), same-org, and the user's own role. \`no prior contact on record\` means a cold sender with NO history. This is the ONLY way to judge whether a real PERSON is waiting on the user (todo rubric 16b): a weak / one-way / no-prior-contact sender is a cold contact, NOT a real stakeholder, however the email is phrased; a two-way relationship (even \`unscored\`) is a real one. Never infer a relationship beyond what this line states. It does NOT change the category — a cold ask is still an honest awaiting_reply; it only gates the todo.
 - Sender kind (when present) is an active user-model projection's confident non-person classification for the sender address: \`group\` means a distribution list/shared mailbox; \`service\` means automated or product-originated mail. Absence of this line means no active/confident projection opinion. When present, do NOT treat the address as a known person or infer a personal relationship from display name alone.
 - Gmail signals (categories, IMPORTANT, STARRED) are Gmail's own priors — lean on them when they align.
+- Gmail's spam/trash filing is a VERDICT, not a hint: \`spam=true\` means Gmail itself judged the mail unsolicited (rule 20). A spam-filed message is never a demand lane, however direct its phrasing. \`trash=true\` means the user already deleted it — same read, weaker signal.
 - Content flags are cheap regex tells: unsubscribe → newsletter/marketing; currency → payment; security → look harder at severity; calendar → meeting; investorNotice → rule 9; publicEvent → rule 8. They are signals to weigh, not commands.
 
 Rules:
@@ -283,7 +285,7 @@ Rules:
 6. Promo split: prefer 'marketing' over 'newsletter' for unsolicited promotional blasts, sales pitches, cold outbound, public product launches, brand events, webinars, and keynotes. 'newsletter' is for subscribed editorial/digest content the user opted into.
 7. Meeting gate: choose 'meeting' only when the user is a participant (or likely participant) in a LIVE personal/work calendar-style meeting AND there is a concrete scheduling/attendance action for them — an invite to accept, a time to confirm, availability to answer, or an imminent join. The words "meeting", "event", "offsite", "standup", "conference", "webinar", "keynote", "AGM", or "annual general meeting" are NOT enough by themselves. A meeting that ALREADY happened (its notes/recap/minutes/summary), a prep/agenda brief for a meeting, and an event merely ANNOUNCED for the future with no invite or set date are NOT 'meeting' → they are 'fyi' (a recap that explicitly closes a loop may be 'done'). A calendar meeting the user attends arrives from a real organizer or a calendar invite, not as a task-tracker/product-notification relay.
 8. Bulk/public event rule: public events, brand announcements, product launches, webinars, conferences, keynotes, and "save the date" blasts are marketing/newsletter/fyi, not meeting, unless the email is a direct calendar invite or scheduling thread for the user. (The publicEvent content flag marks this language.)
-    8a. Social-network activity rule: connection / invitation requests ("X wants to connect", "I want to connect", "would like to join your network"), network-growth nudges ("people you may know", "add X to your network"), and profile-activity notifications ("you appeared in N searches", "N people viewed your profile", "your post got N reactions") relayed by a social platform (LinkedIn, X, Instagram, etc.) are passive social activity → 'fyi'. They are NOT 'awaiting_reply'/'action_needed'/'urgent': accepting or ignoring an invitation is the SENDER'S want, not a question the user must answer or a task the user owns (rule 16a-i no_obligation), however senior the requester's stated title. EXCEPTION: an actual personal message a real correspondent sent the user THROUGH the platform — where the body carries a genuine ask, not a templated invite — is judged on its content (awaiting_reply/follow_up), gated as always by the Sender relationship observation; a digest relaying a cold/unknown sender's message stays 'fyi'.
+    8a. Social-network activity rule: connection / invitation requests ("X wants to connect", "I want to connect", "would like to join your network"), network-growth nudges ("people you may know", "add X to your network"), and profile-activity notifications ("you appeared in N searches", "N people viewed your profile", "your post got N reactions") relayed by a social platform (LinkedIn, X, Instagram, etc.) are passive social activity → 'fyi'. They are NOT 'awaiting_reply'/'action_needed'/'urgent': accepting or ignoring an invitation is the SENDER'S want, not a question the user must answer or a task the user owns (rule 16a-i no_obligation), however senior the requester's stated title. This holds ESPECIALLY for reminder/nudge copies — "still waiting for your response", "is waiting for your response", "you haven't responded", "reminder: X invited you" — which restate the same passive invitation in reply-shaped words. The reminder wording is the PLATFORM's engagement copy, not a new ask from the person named inside; judge by the SENDER (the platform envelope relaying it — SenderContext.effectiveAuthor='service'), not by the literal "waiting for your response" phrase, which never overrides this rule or rules 3/4. EXCEPTION: an actual personal message a real correspondent sent the user THROUGH the platform — where the body carries a genuine ask, not a templated invite — is judged on its content (awaiting_reply/follow_up), gated as always by the Sender relationship observation; a digest relaying a cold/unknown sender's message stays 'fyi'.
 9. Investor/legal notice rule: stock-market, shareholder, AGM, proxy/e-voting, annual report, exchange filing, and registrar/depository notices are usually 'fyi'. Use 'action_needed' only when the email asks the user to vote, register, submit a form, make a decision, or meet a concrete deadline. Do not use 'meeting' for a corporate AGM notice just because the notice says "meeting". (The investorNotice content flag marks this language.) More broadly — manufactured or ceremonial urgency (engagement/gamification nudges, "save the date" galas, AGMs) is 'fyi' (or 'marketing') unless it imposes a concrete action + deadline on the user; never 'meeting'/'urgent' on ceremony or a manufactured stake alone.
 10. 'meeting' takes precedence over 'action_needed' / 'awaiting_reply' only after the Meeting gate is satisfied.
 11. 'payment' takes precedence over 'fyi' / 'done' for any financial transaction notice.
@@ -326,6 +328,7 @@ Rules:
     - \`other_activity\`: activity on an item the user only watches or is CC'd on — a third-party comment, a newly created item, someone else's edit — NOT directed at the user.
     - \`digest\`: a periodic activity roundup ("N updates in your workspace this week").
     Emit \`null\` for ANY email that is not a collaboration-tool notification (ordinary person-to-person mail, newsletters, marketing, security/auth, payments, calendar invites, social networks, vendor status pages). This is a FACTUAL read of the notification and is independent of the category — set it even when the category is fyi/done. It does not change your category choice; it records the ownership you already judged.
+20. Gmail spam verdict — \`spam=true\` in Observations means Gmail itself filed the message as spam: the mail is unsolicited by Gmail's own verdict. It is NEVER 'urgent'/'action_needed'/'awaiting_reply'/'follow_up', however direct its phrasing ("Would love your thoughts!", "action required", a question mark). Judge the gist — a promo, a phish, bulk outreach → 'marketing'/'fyi'/'newsletter' — not the literal ask: a spam-filed question is still spam. (A deterministic floor enforces the demand-lane half of this; this rule is its prompt half.)
 
 Examples (subject → category):
 - "Sign in to Anthropic" / "Your login code is 123456" / "Verify your email address" the user just requested → fyi (self-initiated auth, expires harmlessly, action is moot by the time it surfaces — rule 15, NOT action_needed, NOT urgent), and no todo (rule 16c memorability — nothing to remember).
@@ -423,7 +426,7 @@ function renderObservations(obs: Observations): string {
 
   const g = obs.gmail;
   lines.push(
-    `Gmail signals: categories=[${g.categories.join(", ")}]; important=${g.important}; starred=${g.starred}; inbox=${g.inInbox}`,
+    `Gmail signals: categories=[${g.categories.join(", ")}]; important=${g.important}; starred=${g.starred}; inbox=${g.inInbox}; spam=${g.spam}; trash=${g.trash}`,
   );
 
   const c = obs.content;
@@ -674,6 +677,43 @@ export function detectConflict(
       return {
         kind: "over_classification",
         message: `You classified this as "action_needed", but this is an automated collaboration/task-tracker service and its prior is ${Math.round(actionShare * 100)}% action_needed across ${total} messages — a self-reinforcing histogram, not evidence. Re-read the BODY per rule 12e: action_needed requires the item to be ASSIGNED to the user, the user @-mentioned with a concrete ask, or a reply owed BY the user. A third-party comment, a status change ("set status to X", "moved to Done", "re-opened QA"), or activity on an item the user merely watches is 'fyi'. If the body genuinely assigns it to the user, KEEP action_needed and name the line that shows it.`,
+      };
+    }
+  }
+
+  // Over-classification C: the model tagged a DETERMINISTIC service envelope's
+  // mail `awaiting_reply` — a platform relay, notification address, or bot
+  // envelope (`effectiveAuthor: 'service'`) that no user owes a reply to. The
+  // recurring shape is reply-worded platform copy ("I'm still waiting for your
+  // response" on a LinkedIn invite reminder, "we need your input" on a product
+  // digest): the model reads the literal phrase as an ask and never weighs the
+  // sender. Re-ask ONCE with rules 8a/12 spelled out; the model KEEPS
+  // `awaiting_reply` when the body carries a genuine personal ask relayed
+  // through the platform (the 8a exception). Gated to deterministic service
+  // envelopes so a real person's direct ask is never challenged here, to
+  // non-IMPORTANT mail like nets A/B, and to senders the projection never
+  // scored (`senderKind == null`): a confident group/service signal is either
+  // demoted by the sender-kind floor regardless of what a second pass says
+  // (a wasted re-ask) or already had its sender-kind line in the prompt. An
+  // ownership `collabActivity` is the model's own explicit "directed at the
+  // user" read — the same veto the sender-kind floor honors — so it exempts
+  // the re-ask entirely. (The sender-kind floor demotes only
+  // projection-confident group/service senders; this net is the backstop for
+  // the deterministic envelope the projection never scored.)
+  if (
+    classification.category === "awaiting_reply" &&
+    !floorMatches &&
+    !observations.gmail.important &&
+    observations.senderKind == null
+  ) {
+    const isServiceEnvelope = senderContext?.effectiveAuthor === "service";
+    const collab = classification.collabActivity ?? null;
+    const ownershipVeto = collab != null && isOwnershipCollabActivity(collab);
+
+    if (isServiceEnvelope && !ownershipVeto) {
+      return {
+        kind: "over_classification",
+        message: `You classified this as "awaiting_reply", but the sender is a deterministic SERVICE envelope (SenderContext.effectiveAuthor='service') — a platform relay, notification address, or automated sender, not a person waiting on the user. Reply-shaped platform copy ("still waiting for your response", "we'd love your thoughts", "action required") is engagement boilerplate, not a direct question owed a reply. Re-read per rules 8a/12: a social-network invitation/reminder relayed by the platform is 'fyi' even when it says someone is "waiting"; automated/service mail is judged from body content alone. KEEP awaiting_reply ONLY when the body carries a genuine personal ask from a real correspondent (the rule-8a exception) — and name the line that shows it.`,
       };
     }
   }
@@ -1092,8 +1132,8 @@ export async function classifyEmail(
     }
   }
 
-  // Deterministic post-classification floors (override → sender-kind → meeting),
-  // owned by the `floors/` module. `classifyEmail` only assembles the context;
+  // Deterministic post-classification floors (override → sender-kind → spam →
+  // meeting), owned by the `floors/` module. `classifyEmail` only assembles the context;
   // the outcome then travels onto the audit and the model id unflattened.
   const meta = args.document.metadata;
   const { from, to, cc } = meta;
@@ -1109,6 +1149,7 @@ export async function classifyEmail(
     cc: cc ?? null,
     accountEmail: args.identity?.email ?? null,
     contentFlags: args.observations.content,
+    isSpam: args.observations.gmail.spam,
   });
 
   const classification = floors.classification;

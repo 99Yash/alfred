@@ -37,34 +37,61 @@ export function isTerminalCategory(category: StateCategory): category is Termina
 }
 
 /**
- * Categories that close an already-open briefing loop. A `failed` object state
- * is terminal for the work object, but it is usually the alert/opener for a CI
- * loop, not evidence that the loop is fixed.
+ * The vocabulary of closure: the categories that MAY close an already-open ask
+ * about a work object. A `failed` object state is terminal for the work object,
+ * but it is usually the alert/opener for a CI loop, not evidence that the loop
+ * is fixed, so it is not in this list.
+ *
+ * Which of these actually close an ask is per OBJECT KIND, not global — read
+ * {@link closesOpenAsk}, never this tuple, to decide a closure. The tuple is
+ * the bound a kind declares within (`briefingClosedLoopSchema` types its rows
+ * from it), not the rule.
  */
 export const LOOP_CLOSING_STATE_CATEGORIES = ["resolved", "abandoned"] as const;
 
 export type LoopClosingStateCategory = (typeof LOOP_CLOSING_STATE_CATEGORIES)[number];
 
-export function isLoopClosingCategory(
-  category: StateCategory,
-): category is LoopClosingStateCategory {
-  // SAFETY: the tuple is a const list of StateCategory literals; widening to
-  // readonly string[] only types the .includes receiver for this narrowing
-  // predicate.
-  return (LOOP_CLOSING_STATE_CATEGORIES as readonly string[]).includes(category);
+/**
+ * Per-KIND lifecycle policy. Two rules that generic code must not hard-code,
+ * because they differ per kind rather than per provider (#1088, #1093):
+ *
+ * - `closesAskOn` — which categories close an already-open ask about an object
+ *   of this kind. A pull request closes on `resolved` (merged) and `abandoned`
+ *   (closed unmerged).
+ * - `absorbing` — which categories, once reached, no later delivery may move
+ *   the object out of. A merged pull request stays merged, so a delayed
+ *   `synchronize` delivery cannot regress it to `active`.
+ *
+ * `absorbing` is deliberately a per-kind LIST and not the global rule
+ * "`resolved` absorbs". Work that closes by SUCCESSION rather than by
+ * transition — a CI run, a deployment — is never monotonic: a success does not
+ * absorb, and a later failure is normal traffic (#1093). Such a kind declares
+ * `absorbing: []`, and neither the store nor a consumer needs a second branch
+ * for it.
+ */
+export interface ObjectKindDef {
+  readonly closesAskOn: readonly LoopClosingStateCategory[];
+  readonly absorbing: readonly StateCategory[];
 }
 
 /**
- * Per-provider definition. `kinds` / `keyKinds` enumerate the legal `text`
- * values the DB columns hold; `keyResolvesTo` declares which kind a key kind
- * points at (`head_sha → pull_request`, never `→ issue`); `normalize` maps a
- * reducer-computed native state token to the agnostic bucket.
+ * Per-provider definition. `kinds` enumerates the legal `kind` values the DB
+ * column holds, and each kind carries its own {@link ObjectKindDef} lifecycle
+ * policy, so a kind cannot be added without declaring how it closes;
+ * `normalize` maps a reducer-computed native state token to the agnostic
+ * bucket.
  */
 export interface IntegrationObjectDef {
-  readonly kinds: readonly string[];
-  readonly keyKinds: readonly string[];
-  /** key_kind → the object kind it resolves to. */
-  readonly keyResolvesTo: Readonly<Record<string, string>>;
+  readonly kinds: Readonly<Record<string, ObjectKindDef>>;
+  /**
+   * Prefix-match policy per key kind: the minimum prefix length that may
+   * identify an object, for key kinds that support abbreviated lookup (an
+   * Actions failure mail's 7-hex short sha). A key kind absent here resolves
+   * exactly or not at all. Lives beside the closure policy so a second
+   * provider declares it once — the store and the adapters read it rather
+   * than each hard-coding their own floor.
+   */
+  readonly prefixableKeys: Readonly<Record<string, number>>;
   /**
    * Map a provider-native state token (the reducer collapses booleans like
    * `merged` into the token, e.g. `merged`/`closed`/`open` for a github PR) to
@@ -137,9 +164,18 @@ export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
  */
 export const INTEGRATION_OBJECT_DEFS = {
   github: {
-    kinds: ["pull_request"],
-    keyKinds: ["head_sha", "pull_request_url"],
-    keyResolvesTo: { head_sha: "pull_request", pull_request_url: "pull_request" },
+    kinds: {
+      // A pull request closes by TRANSITION on itself. Only `resolved`
+      // (merged) absorbs: a merged PR can never reopen, so even a newer
+      // delivery cannot move it out. `abandoned` (closed unmerged) does NOT
+      // absorb — a genuine reopen is newer and lands — so recency alone holds
+      // it closed against stale redeliveries.
+      pull_request: {
+        closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
+        absorbing: ["resolved"],
+      },
+    },
+    prefixableKeys: { head_sha: 7 },
     normalize(_kind, nativeState) {
       switch (nativeState) {
         case "merged":
@@ -157,6 +193,69 @@ export const INTEGRATION_OBJECT_DEFS = {
 
 export function getObjectDef(provider: ObjectStateProvider): IntegrationObjectDef {
   return INTEGRATION_OBJECT_DEFS[provider];
+}
+
+/**
+ * The lifecycle policy for one object kind, or `null` when the provider does
+ * not declare that kind. A stored row always names a declared kind; the `null`
+ * arm exists because `kind` is a `text` column, so a row written by an older
+ * build can name a kind this build no longer has.
+ */
+export function getObjectKindDef(
+  provider: ObjectStateProvider,
+  kind: string,
+): ObjectKindDef | null {
+  return getObjectDef(provider).kinds[kind] ?? null;
+}
+
+/**
+ * The closing category for an already-open ask about an object of this kind,
+ * or `null` when this state closes nothing.
+ *
+ * The single reading reconciliation uses — `reconcileEvidence` calls this
+ * rather than testing the category against a global list. An undeclared kind
+ * closes nothing: absence never closes (ADR-0048-D).
+ *
+ * Returns the category rather than a boolean so a caller can record WHICH
+ * closure it saw without re-deriving it. A boolean predicate would be unsound
+ * here: a kind declaring `closesAskOn: []` returns `false` for `resolved`,
+ * and a caller's `else` would then narrow to `"active" | "failed"`.
+ */
+export function closesOpenAsk(
+  provider: ObjectStateProvider,
+  kind: string,
+  category: StateCategory,
+): LoopClosingStateCategory | null {
+  const def = getObjectKindDef(provider, kind);
+
+  if (!def) return null;
+
+  for (const closing of def.closesAskOn) {
+    if (closing === category) return closing;
+  }
+
+  return null;
+}
+
+/**
+ * Is this state final for an object of this kind — a state no later delivery
+ * may move it out of?
+ *
+ * The store's write guard reads this instead of hard-coding "`resolved`
+ * absorbs", so a kind whose state is the outcome of its latest attempt
+ * declares `absorbing: []` and reopens normally (#1093). `category` is the raw
+ * `text` column value, so an unrecognized token absorbs nothing.
+ */
+export function isAbsorbingState(
+  provider: ObjectStateProvider,
+  kind: string,
+  category: string,
+): boolean {
+  const def = getObjectKindDef(provider, kind);
+
+  if (!def) return false;
+
+  return def.absorbing.some((c) => c === category);
 }
 
 /**

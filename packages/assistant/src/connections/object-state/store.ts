@@ -1,5 +1,7 @@
 import {
   getObjectDef,
+  getObjectKindDef,
+  isAbsorbingState,
   type ObjectIdentity,
   type ObjectStateProvider,
   type StateCategory,
@@ -99,15 +101,15 @@ export interface ObjectStateStore {
     keyValue: string,
   ): Promise<ObjectStateRef | null>;
   /**
-   * Same lookup for an ABBREVIATED `head_sha`: the stored key must START WITH
+   * Same lookup for an ABBREVIATED key: the stored key must START WITH
    * `keyPrefix`. GitHub Actions failure mail names the run's commit in the
    * 7-hex short form, so the exact lookup can never find it (#1092).
    *
-   * Only `head_sha` supports prefix matching; any other `keyKind` returns
-   * `null`. Returns `null` when the prefix matches no object AND when it
-   * matches more than one — an ambiguous prefix is not an identity, so it may
-   * close nothing. A prefix shorter than the abbreviation floor is rejected
-   * outright.
+   * Only key kinds the registry declares prefixable (with their minimum
+   * length) support this; any other `keyKind` returns `null`. Returns `null`
+   * when the prefix matches no object AND when it matches more than one — an
+   * ambiguous prefix is not an identity, so it may close nothing. A prefix
+   * shorter than the declared floor is rejected outright.
    */
   resolveByKeyPrefix(
     userId: string,
@@ -150,16 +152,6 @@ const DEFAULT_OBJECT_LIST_LIMIT = 100;
 
 const MAX_OBJECT_LIST_LIMIT = 250;
 
-/**
- * Shortest prefix that may identify a commit. The store owns this floor: it
- * guards the `LIKE 'prefix%'` lookup, so it must not follow the mail
- * extractor (scheduled for replacement by ADR-0063). Only `head_sha` lookups
- * may use it — any other key kind resolves exactly or not at all.
- */
-const MIN_HEAD_SHA_PREFIX_LENGTH = 7;
-
-const HEAD_SHA_PREFIXABLE_KEY_KIND = "head_sha";
-
 function rowToObjectState(row: IntegrationObject): ObjectState {
   return {
     objectId: row.id,
@@ -200,6 +192,11 @@ export const objectStateStore: ObjectStateStore = {
     const delta = reduce(args.eventType, args.action, args.payload);
 
     if (!delta) return;
+
+    // Unknown kinds never write: without a kind def there is no absorbing
+    // policy, so the monotonicity guard below would fail open and let a later
+    // delivery regress a resolved row back to active.
+    if (!getObjectKindDef(args.provider, delta.kind)) return;
 
     // Native → agnostic bucket. An unrecognized token is a no-op, never a
     // guessed state (absence never closes).
@@ -246,15 +243,20 @@ export const objectStateStore: ObjectStateStore = {
         objectId = existing.id;
 
         // Monotonicity: only advance state when this delivery is at least as
-        // recent as the one that last set it. Resolved PRs are absorbing, so a
+        // recent as the one that last set it. A merged PR is absorbing, so a
         // delayed open/synchronize delivery can't regress a merge back to active.
         const isNewer =
           existing.stateDeliveredAt === null || args.deliveredAt >= existing.stateDeliveredAt;
 
-        const wouldReopenResolved =
-          existing.stateCategory === "resolved" && stateCategory !== "resolved";
+        // Which states are final is the KIND's declaration, not this file's
+        // rule. Work that closes by succession rather than by transition — a CI
+        // run, a deployment — declares no absorbing state at all, and then a
+        // later failure after a success lands here as ordinary traffic (#1093).
+        const wouldLeaveAbsorbingState =
+          stateCategory !== existing.stateCategory &&
+          isAbsorbingState(args.provider, delta.kind, existing.stateCategory);
 
-        if (isNewer && !wouldReopenResolved) {
+        if (isNewer && !wouldLeaveAbsorbingState) {
           await tx
             .update(integrationObjects)
             .set({
@@ -320,12 +322,14 @@ export const objectStateStore: ObjectStateStore = {
   },
 
   async resolveByKeyPrefix(userId, provider, keyKind, keyPrefix) {
-    // Prefix semantics belong to `head_sha` only. A short non-sha prefix such
-    // as `"https:/"` would otherwise clear the length floor and match every
-    // stored PR URL of its kind.
-    if (keyKind !== HEAD_SHA_PREFIXABLE_KEY_KIND) return null;
+    // Prefix semantics are the registry's per-provider declaration
+    // (`prefixableKeys` beside the closure policy), not this file's rule: a
+    // second provider declares its own prefixable key kinds without touching
+    // the store. A short non-sha prefix such as `"https:/"` would otherwise
+    // clear the length floor and match every stored PR URL of its kind.
+    const minPrefixLength = getObjectDef(provider).prefixableKeys[keyKind];
 
-    if (keyPrefix.length < MIN_HEAD_SHA_PREFIX_LENGTH) return null;
+    if (minPrefixLength === undefined || keyPrefix.length < minPrefixLength) return null;
 
     // `LIKE 'prefix%'` alone cannot use the btree under a non-C collation —
     // the equality columns select every head_sha row, so the filter scans the

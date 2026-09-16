@@ -1,0 +1,126 @@
+import type { ObjectStateProvider } from "@alfred/contracts";
+
+/**
+ * The provider-agnostic half of object-state reconciliation (#1088).
+ *
+ * ADR-0062's load-bearing invariant is propose / dispose: text may only
+ * PROPOSE a candidate key, and only the reducer-owned projection may DISPOSE
+ * of the question "is this work finished". This file owns the propose side's
+ * vocabulary — what a candidate key is, what a subject is, and what a provider
+ * adapter must supply — so the two halves can live in different files without
+ * either one restating the other's shape.
+ *
+ * It is types and two pure helpers. The resolve half is `reconcile.ts`, the
+ * GitHub adapter is `github-adapter.ts`, and this file imports neither —
+ * `reconcile.ts` wires the adapters to the resolve operation.
+ */
+
+/**
+ * How the store must compare a candidate value against the stored key. `prefix`
+ * exists for an abbreviated sha: the value is a leading fragment of the stored
+ * 40-hex key, so an exact lookup can never find it.
+ */
+export type ObjectKeyMatch = "exact" | "prefix";
+
+export interface ExtractedKey {
+  keyKind: string;
+  keyValue: string;
+  match: ObjectKeyMatch;
+  /**
+   * Never present on an extracted key: the provider is what makes the key
+   * resolvable, so it is attached at claim time ({@link CandidateKey}), not
+   * at extraction. Without this, `keyIdentity` accepts a `CandidateKey` and
+   * silently collapses two providers' keys into one dedup entry.
+   */
+  provider?: never;
+}
+
+/**
+ * An extracted key once an adapter has claimed it. The provider is what makes
+ * the key resolvable — `head_sha` means nothing without the projection it is
+ * keyed in — so the reconcile operation carries it rather than taking one
+ * provider for a whole batch.
+ */
+export interface CandidateKey extends Omit<ExtractedKey, "provider"> {
+  provider: ObjectStateProvider;
+}
+
+/**
+ * Map key for one candidate. The match mode belongs in it: the same value read
+ * exactly and read as a prefix are two different lookups. Owned here beside
+ * {@link ExtractedKey} so a fourth field cannot silently collapse two
+ * candidates in a consumer's dedup map.
+ */
+export function keyIdentity(key: ExtractedKey): string {
+  return [key.keyKind, key.keyValue, key.match].join("\u0000");
+}
+
+/** The same identity across providers, for a batch that spans more than one. */
+export function candidateIdentity(key: CandidateKey): string {
+  const { provider, ...extracted } = key;
+
+  return [provider, keyIdentity(extracted)].join("\u0000");
+}
+
+/** The text a subject carries. Both halves are required strings (possibly empty) and both are untrusted. */
+export interface SubjectText {
+  subject: string;
+  content: string;
+}
+
+/**
+ * One thing a caller wants reconciled: an email, a composed briefing body, an
+ * evidence card. `id` is the caller's own — a document id, a card id — and the
+ * reconcile result is keyed back on it.
+ */
+export interface ReconcileSubject {
+  id: string;
+  text: SubjectText;
+}
+
+/**
+ * What the caller claims the text IS, which decides how an adapter reads it.
+ *
+ * - `about` — the text is a notification about ONE work object (a GitHub
+ *   Actions failure mail, a review request). The adapter may demand provenance
+ *   before it proposes anything, and an ambiguous reference proposes nothing:
+ *   a wrong identity here would drop the wrong item from a briefing.
+ * - `mentions` — the text merely NAMES work objects (composed briefing prose,
+ *   an indexed document). Every named object is proposed, provenance is not
+ *   claimed, and a caller uses the result to annotate rather than to drop.
+ *
+ * Both readings are equally safe, because neither one asserts state: a wrong
+ * or hallucinated key resolves to nothing and closes nothing.
+ */
+export type KeyProposalReading = "about" | "mentions";
+
+/**
+ * What the caller asks an adapter to read, with the provenance the reading
+ * demands folded in. `about` carries its sender because the adapter gates on
+ * it: the field is required (possibly `null`) so a caller that omits it is a
+ * compile error rather than a subject that silently proposes nothing forever.
+ * `mentions` claims no provenance. It is provenance, never state.
+ */
+export type KeyProposal = { reading: "about"; sender: string | null } | { reading: "mentions" };
+
+/**
+ * One provider's irreducible half of reconciliation.
+ *
+ * It owns key PROPOSAL (which written forms name one of its objects, and what
+ * the canonical value of each one is) and nothing else. State, closure policy,
+ * and the exact-beats-prefix precedence are generic: the store asserts state,
+ * the registry's per-kind {@link import("@alfred/contracts").ObjectKindDef}
+ * declares closure, and `reconcile.ts` owns precedence. A second provider is
+ * therefore one adapter file plus its registry entry and reducer — not a
+ * second copy of the reconciliation.
+ */
+export interface ObjectStateAdapter {
+  readonly provider: ObjectStateProvider;
+  /**
+   * Every key this subject's text proposes under `proposal`, canonical and in
+   * precedence order. Pure, deterministic, and free to return nothing — an
+   * adapter that does not recognize the text proposes nothing rather than
+   * guessing.
+   */
+  proposeKeys(subject: ReconcileSubject, proposal: KeyProposal): ExtractedKey[];
+}
