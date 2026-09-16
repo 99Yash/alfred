@@ -210,6 +210,15 @@ export interface SenderExtractionEvent extends FloorTraceFields {
   standingInstructionFactId: string | null;
   standingInstructionEffect: string | null;
   standingInstructionReadFailed: boolean;
+  /**
+   * A `deprioritize_triage_category` instruction was in the prompt for this
+   * mail. DISTINCT from the three fields above, which report the post-classify
+   * todo read: this one fires before the model runs and is the only standing
+   * field that can explain `finalCategory`. Join it against `finalCategory` to
+   * measure whether the directive is actually landing — a row with a fact id
+   * and a demand lane is the model declining the prior, not a missing read.
+   */
+  standingInstructionCategoryFactId: string | null;
   /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
   todoOutcome: string | null;
   todoNote: string | null;
@@ -277,6 +286,7 @@ export function senderExtractionEvent(args: {
     standingInstructionFactId: args.standingSuppression?.factId ?? null,
     standingInstructionEffect: args.standingSuppression?.effect ?? null,
     standingInstructionReadFailed: args.standingSuppressionReadFailed,
+    standingInstructionCategoryFactId: obs.standingInstruction?.factId ?? null,
     todoOutcome: args.classification.todoDecision?.outcome ?? null,
     todoNote: args.classification.todoDecision?.note ?? null,
   };

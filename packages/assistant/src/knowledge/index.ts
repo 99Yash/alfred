@@ -190,6 +190,7 @@ export {
 export { type Significance } from "./entity-metadata";
 
 export {
+  adoptRegisteredSuppressionEffects,
   editStandingInstruction,
   forgetStandingInstruction,
   listStandingInstructions,

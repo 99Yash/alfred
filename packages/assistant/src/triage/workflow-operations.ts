@@ -374,6 +374,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       documentId: ctx.state.documentId,
       sourceThreadId,
       document: ctxData.document,
+      accountId: ctxData.document.accountId,
       persona: ctxData.persona,
       senderContext,
       senderAddress: senderContextResult.senderAddress,
@@ -908,6 +909,8 @@ async function gatherObservations(args: {
   documentId: string;
   sourceThreadId: string;
   document: { title: string | null; content: string; metadata: GmailDocumentMetadata };
+  /** Mailbox the document arrived on — scopes a per-account standing instruction. */
+  accountId: string | null;
   persona: AccountPersona | null;
   senderContext: SenderContext;
   senderAddress: string | null;
@@ -920,7 +923,7 @@ async function gatherObservations(args: {
   // received mail anyway.
   const isHumanSender = args.senderContext.effectiveAuthor === "person";
 
-  const [thread, senderKindEnabled] = await Promise.all([
+  const [thread, senderKindEnabled, standingInstruction] = await Promise.all([
     getThreadState({
       userId: args.userId,
       sourceThreadId: args.sourceThreadId,
@@ -932,6 +935,23 @@ async function gatherObservations(args: {
       recentMessages: [],
     })),
     triageSenderKindProjectionEnabled(args.userId).catch(() => false),
+    // The user's own words about this sender, when they carry the category
+    // effect. Read BEFORE the model call, unlike the `block_todo_suggestion`
+    // read further up this file, which runs after classify because a todo only
+    // exists once a category does. It rides this first batch because it needs
+    // nothing but `args` — a serial await here would add a round trip to the
+    // triage hot path for every mail, including the ones with no instruction.
+    // Best-effort like every sibling read here: a blip yields `null`, which is
+    // exactly "no instruction", so a database hiccup can never invent one. The
+    // reverse failure — a real instruction that a blip hides — costs the user
+    // one mis-tagged mail and is repaired by the next classify of the thread.
+    findActiveSenderSuppression(args.userId, {
+      senderEmail: args.senderAddress ?? meta.from ?? null,
+      accountId: args.accountId,
+      effect: "deprioritize_triage_category",
+    })
+      .then((match) => (match ? { factId: match.factId, directive: match.value.directive } : null))
+      .catch(() => null),
   ]);
 
   const senderKind =
@@ -986,6 +1006,7 @@ async function gatherObservations(args: {
     senderRelationship: relationship.descriptor,
     senderRelationshipIsCold: relationship.isColdContact,
     senderKind,
+    standingInstruction,
     labelIds,
     signalText,
   });
