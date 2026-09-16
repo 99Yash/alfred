@@ -455,6 +455,107 @@ export async function editStandingInstruction(
   };
 }
 
+/**
+ * Adopt every registered {@link SUPPRESSION_EFFECTS} member on an active
+ * standing instruction that predates one.
+ *
+ * This is a REPAIR, not a policy change, and the reason is in the write path:
+ * `rememberSenderSuppression` stores `effects: [...SUPPRESSION_EFFECTS]`
+ * unconditionally, so the stored array is a snapshot of the registry at write
+ * time — never a choice the user made between effects. An instruction written
+ * before an effect existed therefore under-states what the user asked for, and
+ * the gap widens every time a new consumer registers. Measured on prod
+ * 2026-09-16: twelve investment-sender suppressions whose `phrasing` says "do
+ * not tag stock-related emails as urgent" carried no effect that could reach a
+ * category, so the label kept saying `action_needed`.
+ *
+ * Supersedes rather than updates in place — same chain, same observation, same
+ * reversibility as {@link editStandingInstruction} — so the widening is
+ * auditable and undoable. `directive` and `phrasing` are carried VERBATIM: this
+ * never reinterprets the user's words, it only widens which consumers read them.
+ *
+ * Idempotent: an instruction already carrying every registered effect is
+ * skipped, so a re-run after a third effect lands repairs only the new gap.
+ */
+export async function adoptRegisteredSuppressionEffects(args: {
+  userId: string;
+  source?: MemorySource;
+}): Promise<{ upgraded: string[]; skipped: number }> {
+  const active = await listActiveSuppressionInstructions(args.userId);
+  const upgraded: string[] = [];
+  let skipped = 0;
+
+  for (const instruction of active) {
+    const missing = SUPPRESSION_EFFECTS.filter(
+      (effect) => !hasSuppressionEffect(instruction.value, effect),
+    );
+
+    if (missing.length === 0) {
+      skipped += 1;
+      continue;
+    }
+
+    const nextValue = standingInstructionValueSchema.parse({
+      ...instruction.value,
+      effects: [...SUPPRESSION_EFFECTS],
+    });
+
+    const source: MemorySource = args.source ?? { kind: "user" };
+
+    const inserted = await db().transaction(async (tx) => {
+      const [closed] = await tx
+        .update(userFacts)
+        .set({
+          status: "edited",
+          validUntil: sql`now()`,
+          rowVersion: sql`${userFacts.rowVersion} + 1`,
+        })
+        .where(activeStandingInstructionWhere(args.userId, instruction.factId))
+        .returning({ id: userFacts.id });
+
+      if (!closed) return null;
+
+      const [row] = await tx
+        .insert(userFacts)
+        .values({
+          userId: args.userId,
+          key: STANDING_INSTRUCTION_KEY,
+          value: nextValue,
+          confidence: 1,
+          status: "confirmed",
+          source,
+          validFrom: sql`now()`,
+          validUntil: null,
+          supersedesId: instruction.factId,
+        })
+        .returning({ id: userFacts.id });
+
+      if (!row) return null;
+
+      await appendStandingInstructionObservation(
+        {
+          userId: args.userId,
+          operation: "edit",
+          factId: row.id,
+          previousFactId: instruction.factId,
+          instruction: nextValue,
+          previousInstruction: instruction.value,
+          source,
+        },
+        tx,
+      );
+
+      return row;
+    });
+
+    if (inserted) upgraded.push(inserted.id);
+  }
+
+  if (upgraded.length > 0) emitReplicachePokes([args.userId]);
+
+  return { upgraded, skipped };
+}
+
 export function findSenderSuppression(
   instructions: readonly ActiveSuppressionInstruction[],
   lookup: SenderSuppressionLookup,
