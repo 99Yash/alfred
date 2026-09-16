@@ -267,7 +267,6 @@ export const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classi
 How to use the Observations block:
 - The observations are DETERMINISTIC CONTEXT — hints to focus your attention, never verdicts. You still decide the category from the email itself.
 - Sender prior is this sender's past category histogram. A 99%-newsletter sender can still send one genuinely urgent message — trust the message over the prior when they disagree. The prior breaks routine ties, it does not override a clear signal.
-- The user's standing instruction (when present) is the ONE observation the USER wrote, in the user's own words, about THIS sender. Every other line here is Alfred's inference and can be wrong about what the user wants; this line cannot. Weigh it ABOVE the sender prior, above the Gmail signals, and above your own reading of urgency in the body. It is still a prior, not a command: these directives typically say routine notices from the sender are low priority AND that a genuinely urgent one may still surface, so honor BOTH halves — route the routine notice to 'fyi' even when it carries a deadline or an instruction addressed to the user, and keep a demand lane only when the body names an obligation that would matter to the user independently of this sender's routine traffic. A dated boilerplate deadline in a recurring notice is routine; a real loss of access or money at risk is not.
 - Account persona (work/personal) frames what "urgent"/"action_needed" mean for this account.
 - Thread state ("you last replied on <date>") and the recent-thread-messages excerpts are context for follow_up vs awaiting_reply vs done — not a deterministic mapping. You classify the WHOLE THREAD and a new message OVERWRITES the thread's single tag, so read the recent messages: if an earlier one carries a live, unanswered ask or assignment to the user, a trailing low-signal line (a bot confirming it filed a task, an acknowledgement, a reaction) must NOT bury it.
 - Known contact = the sender is in the user's contacts. A direct ask from a known contact is more likely a real awaiting_reply/action_needed.
@@ -398,11 +397,22 @@ function renderObservations(obs: Observations): string {
   // FIRST, above every derived signal, and deliberately so. Each sibling
   // observation is Alfred's own inference from the corpus, so each can be wrong
   // about what the user wants; this line is the user's own sentence, so it
-  // cannot be. It stays inside the Observations block rather than moving to the
-  // system prompt because it is per-SENDER context, not policy: a directive in
-  // the system prompt would apply to every email the classifier ever sees.
+  // cannot be.
+  //
+  // The HANDLING RULE ships here, beside the directive, and NOT as a bullet in
+  // SYSTEM_PROMPT. That is measured, not stylistic. A first version put it in
+  // the system prompt, where it is present for every email; a paired eval run
+  // (two runs per side, byte-identical totals) moved four unrelated rows, and
+  // `clickup-bot-done-buries-live` flipped action_needed → fyi — the exact
+  // burial the thread-state rule exists to prevent. The rule generalizes, so a
+  // permanent copy taught the model to demote routine-looking mail from senders
+  // the user never named. Rendered here it costs zero bytes and zero behavior
+  // change when no instruction matches, which is almost every email.
   if (obs.standingInstruction) {
-    lines.push(`User's standing instruction for this sender: ${obs.standingInstruction.directive}`);
+    lines.push(
+      `User's standing instruction for THIS SENDER — the one line here the USER wrote, in the user's own words: ${obs.standingInstruction.directive}`,
+      `  How to weigh that line, for THIS SENDER ONLY: it outranks this sender's prior, the Gmail signals, and your own reading of urgency in the body, because every one of those is Alfred's inference and this is not. It is still a prior, not a command. Honor both halves: route this sender's routine notices to 'fyi' even when one carries a dated boilerplate deadline, and keep a demand lane only when the body names a real loss of access or money at risk. Apply none of this to any other sender.`,
+    );
   }
 
   lines.push(`Account persona: ${obs.persona ?? "unknown"}`);
