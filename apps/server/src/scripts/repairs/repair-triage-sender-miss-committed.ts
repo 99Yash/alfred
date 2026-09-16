@@ -50,7 +50,6 @@
  */
 import { randomUUID } from "node:crypto";
 import { closeAgentQueue, startRun } from "@alfred/assistant/execution";
-import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { TRIAGE_WORKFLOW_SLUG, type TriageWorkflowInput } from "@alfred/assistant/triage";
 import { toMessage } from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
@@ -174,7 +173,12 @@ async function main() {
 
   await warmPool();
   registerBuiltinWorkflows(); // createRun resolves builtins from the in-process registry
-  registerReplicachePokeAdapter(); // the enqueued run's todo writes emit pokes
+  // NO poke adapter is registered here, unlike the sibling committed scripts.
+  // `startRun` is `createRun` + `enqueueRun`; neither emits a Replicache poke
+  // (the only `pokeWorkflowOwner` call in execution's service sits in
+  // `cancelRunInTx`). The enqueued run's own writes happen in the prod `server`
+  // worker, which registers its adapter at boot. Registering one in this
+  // short-lived process would be dead code.
 
   console.log(
     `# Sender-miss triage repair (#1099) — mode=${COMMIT ? "COMMIT" : "DRY"} | ` +
@@ -212,10 +216,14 @@ async function main() {
     if (!plan.documentPresent) {
       console.log(
         `    → SKIP: no live document behind this row, so there is nothing to re-classify. ` +
-          `This is a PURGE, not a routine gap: upsertTriage is the only writer of email_triage ` +
-          `and it always stores the classify step's documentId, so this row proves a document ` +
-          `once existed. (A thread that was never ingested prints 'NO email_triage row' above.) ` +
-          `Re-ingest the thread if you need it re-classified.`,
+          `This is a PURGE, not a routine gap: upsertTriage is the only INSERTER of ` +
+          `email_triage and UpsertTriageArgs.documentId is a required string, so every row was ` +
+          `born naming a document. (Four other production writers UPDATE the table — the Gmail ` +
+          `reconcile repoint, setAppliedLabelId, setTriageReconciledTarget and the user tag ` +
+          `override. Two of them move document_id; none can create a row, and none can null ` +
+          `the column.) A thread that was ` +
+          `never ingested prints 'NO email_triage row' above. Re-ingest the thread if you need ` +
+          `it re-classified.`,
       );
       continue;
     }
