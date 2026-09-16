@@ -55,8 +55,9 @@ const RECAT_LIMIT = Number(process.env.RECAT_LIMIT) || 60;
  * workflow for the same ids and must never do so unpreviewed.
  *
  * The `source = 'auto'` filter below still applies, so a user-overridden thread
- * named here drops out on its own — the same exclusion the repair script makes
- * explicit.
+ * named here drops out of the re-classify loop. It does NOT drop out of the
+ * report: {@link reportUncoveredThreads} names every requested id this run did
+ * not re-classify, and why. A silent drop here would be read as "no change".
  */
 const RECAT_THREAD_IDS = (process.env.RECAT_THREAD_IDS ?? "")
   .split(",")
@@ -72,9 +73,12 @@ interface TargetUser {
  * Name WHICH mechanism moved the answer, not just that it moved.
  *
  * `model` carries one `+tag` per deterministic floor that fired plus the
- * second-pass tag, so it is the authoritative attribution. Split it on `+` and
- * match WHOLE tags: `'+2pass_failed'` CONTAINS `'+2pass'`, so a substring test
- * reads a failed re-check as a successful one.
+ * second-pass tag, so it is the authoritative attribution. This function TESTS
+ * NO TAG: it splits `model` on `+` and re-prints every tag it finds. Enumerating
+ * is deliberate. A tag test would have to match whole tags, because
+ * `'+2pass_failed'` CONTAINS `'+2pass'` and a substring test therefore reads a
+ * failed re-check as a successful one. Printing the split avoids the question
+ * and keeps a tag this function has never heard of visible in the output.
  *
  * The audit fields beside it say what the tags cannot: `conflict` names the net
  * that asked for a second pass even when the second pass changed nothing, and
@@ -94,7 +98,12 @@ function describeMechanism(model: string, audit: ClassifyAudit): string {
   return parts.length > 0 ? parts.join(" ") : "model";
 }
 
-async function processUser(u: TargetUser): Promise<void> {
+/**
+ * Re-classify this mailbox's rows and print the diff. Returns the thread ids it
+ * actually re-classified, so {@link reportUncoveredThreads} can name every
+ * requested id that never reached a classify call.
+ */
+async function processUser(u: TargetUser): Promise<Set<string>> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
 
   const scope = and(
@@ -118,6 +127,7 @@ async function processUser(u: TargetUser): Promise<void> {
     .limit(RECAT_THREAD_IDS.length > 0 ? RECAT_THREAD_IDS.length : RECAT_LIMIT);
 
   // old→new transition tally; `changed` keeps the human-readable diffs.
+  const previewed = new Set<string>();
   const transitions = new Map<string, number>();
   const changed: string[] = [];
   let scored = 0;
@@ -235,6 +245,7 @@ async function processUser(u: TargetUser): Promise<void> {
     }
 
     scored++;
+    previewed.add(row.threadId);
     const oldCategory = row.oldCategory;
     const key = `${oldCategory} → ${newCategory}`;
     transitions.set(key, (transitions.get(key) ?? 0) + 1);
@@ -261,6 +272,72 @@ async function processUser(u: TargetUser): Promise<void> {
 
     for (const line of changed) console.log(line);
   }
+
+  return previewed;
+}
+
+/**
+ * Name every requested thread id this preview did not re-classify, and say which
+ * filter dropped it.
+ *
+ * The operator procedure for a sender-miss repair runs THIS preview, shows it to
+ * the human, and then runs `../repairs/repair-triage-sender-miss-committed.ts`
+ * with `--commit`, which enqueues the real workflow and ends in a live Gmail
+ * label write. So a requested id the preview drops in silence gets approved on
+ * the strength of a preview that never mentioned it. The repair script prints a
+ * loud line for every id it cannot run; the preview half must do the same, or
+ * the two halves of one procedure disagree about what the human saw.
+ */
+async function reportUncoveredThreads(previewed: Set<string>): Promise<void> {
+  const uncovered = RECAT_THREAD_IDS.filter((id) => !previewed.has(id));
+
+  console.log(`\n# previewed ${previewed.size} of ${RECAT_THREAD_IDS.length} requested thread(s)`);
+
+  if (uncovered.length === 0) return;
+
+  // Deliberately UNSCOPED — no user, no `source = 'auto'`, no document filter.
+  // The point is to name which of the scope filters above dropped the id, so
+  // this read must see the rows those filters hid.
+  const rows = await db()
+    .select({
+      threadId: emailTriage.sourceThreadId,
+      source: emailTriage.source,
+      documentId: emailTriage.documentId,
+      email: userTable.email,
+    })
+    .from(emailTriage)
+    .innerJoin(userTable, eq(userTable.id, emailTriage.userId))
+    .where(inArray(emailTriage.sourceThreadId, uncovered));
+
+  const byThread = new Map<string, (typeof rows)[number][]>();
+
+  for (const row of rows) {
+    const found = byThread.get(row.threadId) ?? [];
+
+    found.push(row);
+    byThread.set(row.threadId, found);
+  }
+
+  for (const threadId of uncovered) {
+    const found = byThread.get(threadId) ?? [];
+
+    if (found.length === 0) {
+      console.log(`  ! ${threadId}: NOT PREVIEWED — no email_triage row in any mailbox`);
+      continue;
+    }
+
+    for (const row of found) {
+      const reason = !TARGET_EMAILS.includes(row.email)
+        ? `its mailbox ${row.email} is outside TARGET_EMAILS`
+        : row.source !== "auto"
+          ? `source='${row.source}' — this preview reads auto rows only`
+          : !row.documentId
+            ? `the row names no document_id`
+            : `it was selected, then dropped — see the skips printed for ${row.email} above`;
+
+      console.log(`  ! ${threadId}: NOT PREVIEWED — ${reason}`);
+    }
+  }
 }
 
 async function main() {
@@ -283,7 +360,14 @@ async function main() {
     if (!found.has(email)) console.log(`! no user row for ${email} — skipping`);
   }
 
-  for (const u of users) await processUser(u);
+  const previewed = new Set<string>();
+
+  for (const u of users) {
+    for (const threadId of await processUser(u)) previewed.add(threadId);
+  }
+
+  if (RECAT_THREAD_IDS.length > 0) await reportUncoveredThreads(previewed);
+
   console.log("\n# done (nothing written)");
 }
 

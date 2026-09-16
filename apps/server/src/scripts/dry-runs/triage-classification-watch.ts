@@ -23,11 +23,19 @@
  * through {@link traceKey}, and every member string is annotated with the type
  * that owns it, so a rename breaks `pnpm check-types` instead of the watch.
  *
- * A compiler cannot see the SECOND failure mode: a key that still exists but
- * stops being WRITTEN. So every section prints its numerator against the
- * window's total distinct-run `triage.classification` count. Zero out of zero
- * means an empty window; zero out of 300 means the mechanism is dead. Neither
- * reads as "fine".
+ * WHAT THE COMPILER DOES NOT CATCH, AND THIS FILE DOES NOT EITHER. The tier-1
+ * claim above covers exactly one failure mode: a RENAMED key. It does not cover
+ * a key that still exists but carries no value in the window. Every section
+ * therefore prints its numerator against the window's total distinct-run
+ * `triage.classification` count, which separates an empty window (0/0) from a
+ * populated one — but a populated window still prints the SAME zero for three
+ * different situations: a key younger than the window, a key that stopped being
+ * written, and a mechanism that simply stayed quiet. Measured, not argued: a
+ * local run printed `spam-filed mail in window: 0/160`, and the cause was that
+ * `gmailSpam` was one day old, not that Gmail filed no spam. So read a zero here
+ * as "no answer", never as "dead". Telling those apart needs a presence count
+ * (`t.trace ? '<key>'`, i.e. how many rows carry the key at all) beside each
+ * numerator; this file does not have one yet.
  *
  * NOT bundled by tsdown: it makes no model call — it reads
  * `agent_decision_traces` — so a local `tsx` over the documented prod tunnel
@@ -97,12 +105,32 @@ const traceKey = (key: keyof TraceRecord & string): string => key;
 const traceText = (key: keyof TraceRecord & string): SQL =>
   sql`(t.trace ->> ${traceKey(key)}::text)`;
 
+/**
+ * Every `spamFloorOutcome` member, with the line this report prints for it.
+ *
+ * The `satisfies Record<…>` is the point; the labels are incidental. Each member
+ * SPELLING was already tier 1 as a lone annotated const, but the member SET was
+ * tier 4: a third member would fall into no bucket, the printed shares would
+ * stop summing to the spam total, and nothing would fail. That add case is live
+ * — #1098 introduced the second member. With the table exhaustive, a new member
+ * is a compile error here, and {@link watchSpamFloor} derives its buckets from
+ * these keys, so the report grows with the union instead of drifting from it.
+ */
+const SPAM_FLOOR_OUTCOMES = {
+  demoted_reply_lane: "the floor pulled a reply lane down to fyi",
+  held_demand_lane: "the floor let a demand lane stand (the softened path)",
+} satisfies Record<NonNullable<TraceRecord["spamFloorOutcome"]>, string>;
+
+/**
+ * Bucket for a spam row whose `spamFloorOutcome` reads as SQL NULL. That is
+ * either a real inert floor (the mail was not in a lane the floor governs) or a
+ * row written before the key existed; `->>` cannot tell an absent key from a
+ * JSON null, which is the same limit the header states.
+ */
+const SPAM_FLOOR_INERT = "(null)";
+
 // Member strings, each annotated with the type that owns it. A renamed MEMBER
-// (not just a renamed key) is a compile error at these five lines.
-const SPAM_DEMOTED_REPLY_LANE: NonNullable<TraceRecord["spamFloorOutcome"]> = "demoted_reply_lane";
-
-const SPAM_HELD_DEMAND_LANE: NonNullable<TraceRecord["spamFloorOutcome"]> = "held_demand_lane";
-
+// (not just a renamed key) is a compile error at these lines.
 const OVER_CLASSIFICATION: NonNullable<TraceRecord["conflict"]> = "over_classification";
 
 const PERSON_AUTHOR: TraceRecord["effectiveAuthor"] = "person";
@@ -169,36 +197,44 @@ async function totalClassifications(): Promise<number> {
 async function watchSpamFloor(total: number): Promise<void> {
   console.log(`\n## 1. Spam floor — outcomes over Gmail-filed spam`);
 
-  const [spam] = await query(
-    withLatest(sql`SELECT count(*)::int AS n FROM t WHERE ${traceText("gmailSpam")} = 'true'`),
-    countRow,
-  );
-
-  const spamTotal = spam?.n ?? 0;
-
-  console.log(`   spam-filed mail in window: ${share(spamTotal, total)} of all classifications`);
-
+  // GROUP BY, not one FILTER per member: the group keys come back from the data,
+  // so every spam row lands in exactly one printed bucket and the shares sum to
+  // the spam total. A value outside SPAM_FLOOR_OUTCOMES then has nowhere to hide
+  // — it prints as UNKNOWN below instead of vanishing from the report.
   const rows = await query(
     withLatest(sql`
       SELECT
-        count(*) FILTER (
-          WHERE ${traceText("spamFloorOutcome")} = ${SPAM_DEMOTED_REPLY_LANE}
-        )::int AS demoted,
-        count(*) FILTER (
-          WHERE ${traceText("spamFloorOutcome")} = ${SPAM_HELD_DEMAND_LANE}
-        )::int AS held,
-        count(*) FILTER (WHERE ${traceText("spamFloorOutcome")} IS NULL)::int AS inert
+        coalesce(${traceText("spamFloorOutcome")}, ${SPAM_FLOOR_INERT}) AS outcome,
+        count(*)::int AS n
       FROM t
       WHERE ${traceText("gmailSpam")} = 'true'
+      GROUP BY 1
     `),
-    z.object({ demoted: z.number(), held: z.number(), inert: z.number() }),
+    z.object({ outcome: z.string(), n: z.number() }),
   );
 
-  const outcome = rows[0] ?? { demoted: 0, held: 0, inert: 0 };
+  const counts = new Map(rows.map((row) => [row.outcome, row.n]));
+  const spamTotal = rows.reduce((sum, row) => sum + row.n, 0);
 
-  console.log(`   ${SPAM_DEMOTED_REPLY_LANE}: ${share(outcome.demoted, spamTotal)}`);
-  console.log(`   ${SPAM_HELD_DEMAND_LANE}:  ${share(outcome.held, spamTotal)}`);
-  console.log(`   floor inert (passive lane): ${share(outcome.inert, spamTotal)}`);
+  console.log(`   spam-filed mail in window: ${share(spamTotal, total)} of all classifications`);
+
+  for (const [outcome, label] of Object.entries(SPAM_FLOOR_OUTCOMES)) {
+    console.log(`   ${outcome} — ${label}: ${share(counts.get(outcome) ?? 0, spamTotal)}`);
+  }
+
+  console.log(
+    `   ${SPAM_FLOOR_INERT} — floor inert, or the key predates the row: ` +
+      `${share(counts.get(SPAM_FLOOR_INERT) ?? 0, spamTotal)}`,
+  );
+
+  for (const row of rows) {
+    if (row.outcome === SPAM_FLOOR_INERT || row.outcome in SPAM_FLOOR_OUTCOMES) continue;
+
+    console.log(
+      `   ! UNKNOWN spamFloorOutcome '${row.outcome}': ${share(row.n, spamTotal)} — the floor ` +
+        `writes a member SPAM_FLOOR_OUTCOMES does not list; add it there.`,
+    );
+  }
 }
 
 /**
@@ -217,9 +253,12 @@ async function watchSpamFloor(total: number): Promise<void> {
  * FAILED second pass as a successful one. `conflict` answers the same question
  * with neither problem.
  *
- * `secondPassFailure IS NOT NULL` sits beside the count rather than under it: it
- * is set on ANY second-pass throw, before the conflict kind is consulted, so it
- * names a failed re-check and nothing more.
+ * The `secondPassFailure IS NOT NULL` count is NESTED under the
+ * over-classification non-person count — a third conjunct in the SQL, and a
+ * `d/c` share printed under `c/b`. That nesting is what makes it readable: the
+ * column itself is set on ANY second-pass throw, before the conflict kind is
+ * consulted, so on its own it names a failed re-check and nothing more. Read
+ * under the conflict filter it names a failed re-check of THIS class.
  */
 async function watchOverClassification(total: number): Promise<void> {
   console.log(`\n## 2. Over-classification second passes on non-person authors`);
