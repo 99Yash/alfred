@@ -73,9 +73,12 @@ export const FLOOR_TRACE_PROJECTIONS = {
      *
      * `spamFloorOutcome`, not `…DemotionReason`, because one of its two values
      * means "no demotion": an audit counting the floor's demotions must query
-     * `= 'demoted_reply_lane'`, and `IS NOT NULL` over-counts it. The three
-     * sibling floors keep the `<floor>DemotionReason` convention and this one
-     * breaks it ON PURPOSE, so the break is SILENT to a cross-floor audit:
+     * `= 'demoted_reply_lane'`, and `IS NOT NULL` over-counts it. TWO of the
+     * three sibling floors keep the `<floor>DemotionReason` convention —
+     * `senderKind` and `meeting`; `override` projects `floorMatched`/
+     * `floorForced` instead. This floor breaks only the `DemotionReason` half
+     * and still projects `spamDemotedCategory` above. The break is SILENT to a
+     * cross-floor audit:
      * `trace->>'spamDemotionReason'` reads as SQL NULL rather than failing, and
      * the conventional query reports ZERO spam-floor activity with no error.
      * The key an audit of this floor must read is `spamFloorOutcome`.

@@ -47,10 +47,13 @@ import type { FloorResult } from "./floor";
  * A `held_demand_lane` row that matches neither join is the model's own
  * judgment.
  *
- * The trace key is `spamFloorOutcome`, NOT `spamDemotionReason`. The three
- * sibling floors project `<floor>DemotedCategory`/`<floor>DemotionReason`; this
- * floor breaks that convention ON PURPOSE, because one of its two values means
- * "no demotion" and the conventional `IS NOT NULL` over-counts the floor. The
+ * The trace key is `spamFloorOutcome`, NOT `spamDemotionReason`. TWO of the
+ * three sibling floors — `senderKind` and `meeting` — project
+ * `<floor>DemotedCategory`/`<floor>DemotionReason`; the `override` floor keeps
+ * neither half and projects `floorMatched`/`floorForced`. This floor breaks the
+ * `DemotionReason` half ON PURPOSE, because one of its two values means "no
+ * demotion" and the conventional `IS NOT NULL` over-counts the floor. It keeps
+ * the other half: `spamDemotedCategory` is projected under the usual name. The
  * price is a SILENT one: `trace->>'spamDemotionReason'` reads as SQL NULL
  * rather than failing, so a cross-floor audit written to the convention reports
  * ZERO spam-floor activity and no error. An audit of this floor must read
