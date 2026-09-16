@@ -6,7 +6,7 @@ import {
 import {
   candidateIdentity,
   type CandidateKey,
-  type KeyProposalReading,
+  type KeyProposal,
   type ObjectKeyMatch,
   type ObjectStateAdapter,
   type ReconcileSubject,
@@ -17,13 +17,13 @@ import { objectStateStore, type ObjectState, type ObjectStateStore } from "./sto
 /**
  * The one reconciliation operation (#1088) — ADR-0062's dispose half.
  *
- * Three callers ask the same question of the same projection: the briefing's
- * loop reconciliation ("has the PR this mail is about been merged?"), the
- * pre-send open-ask guard ("does the prose ask me to act on finished work?"),
- * and Context Search enrichment ("what became of the work this document
- * names?"). Before this file each of them owned its own copy of the resolve,
- * the exact-beats-prefix precedence, and the closure test, so a fourth
- * provider or a second object shape would have landed three times.
+ * Two callers ask the same question of the same projection today: the
+ * briefing's loop reconciliation ("has the PR this mail is about been
+ * merged?") and the pre-send open-ask guard ("does the prose ask me to act on
+ * finished work?"). Before this file both of them owned their own copy of the
+ * resolve, the exact-beats-prefix precedence, and the closure test, so a
+ * second object shape would have landed twice. Context Search enrichment
+ * (#1087) becomes the third caller; it owned no copy.
  *
  * What is generic and lives here:
  *   - resolving a candidate key to an object, exactly or by prefix;
@@ -39,15 +39,6 @@ import { objectStateStore, type ObjectState, type ObjectStateStore } from "./sto
  * does not treat as closing leaves the subject alone. Absence never closes
  * (ADR-0048-D).
  */
-
-/**
- * The read surface reconciliation needs. Narrower than `ObjectStateStore` so
- * this operation cannot write, and so a caller can drive it against a fake.
- */
-export type ObjectStateResolver = Pick<
-  ObjectStateStore,
-  "resolveByKey" | "resolveByKeyPrefix" | "getState"
->;
 
 /** One resolved object, with what this build says its state does to an ask. */
 export interface ReconciledObject {
@@ -92,12 +83,12 @@ const OBJECT_STATE_ADAPTERS = {
  */
 export function proposeObjectKeys(
   subject: ReconcileSubject,
-  reading: KeyProposalReading,
+  proposal: KeyProposal,
 ): CandidateKey[] {
   const keys: CandidateKey[] = [];
 
   for (const adapter of Object.values(OBJECT_STATE_ADAPTERS)) {
-    for (const key of adapter.proposeKeys(subject, reading)) {
+    for (const key of adapter.proposeKeys(subject, proposal)) {
       keys.push({ ...key, provider: adapter.provider });
     }
   }
@@ -118,9 +109,8 @@ export function proposeObjectKeys(
 export async function reconcileEvidence(args: {
   userId: string;
   subjects: readonly ReconcileCandidates[];
-  store?: ObjectStateResolver;
 }): Promise<ReconcileResult> {
-  const store = args.store ?? objectStateStore;
+  const store = objectStateStore;
   const subjects = args.subjects.filter((subject) => subject.keys.length > 0);
 
   if (subjects.length === 0) return new Map();
@@ -173,22 +163,30 @@ export async function reconcileEvidence(args: {
 
   for (const subject of subjects) {
     const resolved: ReconciledObject[] = [];
-    const seenObjects = new Set<string>();
+    const seenKeys = new Set<string>();
+    // A subject whose own exact identity resolved ignores every prefix guess —
+    // including a prefix another subject's lookup resolved into the shared
+    // map — so a coincidental abbreviation can never shadow this subject's
+    // own proof.
+    const hasExactState = subjectHasExactState(subject);
 
-    // Exact identities outrank prefix guesses, so a resolved prefix shared
-    // with another subject can never shadow this subject's own proof. Stable
-    // within a rank: the adapter proposed the keys in its own precedence order.
+    // Exact identities outrank prefix guesses. Stable within a rank: the
+    // adapter proposed the keys in its own precedence order.
+    // Dedup is by candidate key, not by object: two written forms can name the
+    // same row (a repository rename mints a second pull_request_url key on one
+    // object), and a caller that maps back by key — the open-ask guard's
+    // closedByUrl — needs every key, not one survivor per object (#1082).
     for (const key of [...subject.keys].sort((a, b) => MATCH_RANK[a.match] - MATCH_RANK[b.match])) {
-      const state = stateByKey.get(candidateIdentity(key));
+      if (key.match === "prefix" && hasExactState) continue;
+      const identity = candidateIdentity(key);
+      const state = stateByKey.get(identity);
 
-      if (!state || seenObjects.has(state.objectId)) continue;
-      seenObjects.add(state.objectId);
+      if (!state || seenKeys.has(identity)) continue;
+      seenKeys.add(identity);
       resolved.push({
         key,
         state,
-        closesAskAs: closesOpenAsk(state.provider, state.kind, state.stateCategory)
-          ? state.stateCategory
-          : null,
+        closesAskAs: closesOpenAsk(state.provider, state.kind, state.stateCategory),
       });
     }
 
@@ -213,17 +211,17 @@ export function firstClosingObject(
  * mode is a compile error here instead of a silent exact lookup.
  */
 const KEY_RESOLVERS = {
-  exact: (store: ObjectStateResolver, userId: string, key: CandidateKey) =>
+  exact: (store: ObjectStateStore, userId: string, key: CandidateKey) =>
     store.resolveByKey(userId, key.provider, key.keyKind, key.keyValue),
-  prefix: (store: ObjectStateResolver, userId: string, key: CandidateKey) =>
+  prefix: (store: ObjectStateStore, userId: string, key: CandidateKey) =>
     store.resolveByKeyPrefix(userId, key.provider, key.keyKind, key.keyValue),
 } satisfies Record<
   ObjectKeyMatch,
   (
-    store: ObjectStateResolver,
+    store: ObjectStateStore,
     userId: string,
     key: CandidateKey,
-  ) => Promise<Awaited<ReturnType<ObjectStateResolver["resolveByKey"]>>>
+  ) => Promise<Awaited<ReturnType<ObjectStateStore["resolveByKey"]>>>
 >;
 
 /** Exact identities outrank prefix guesses. Exhaustive for the same reason. */

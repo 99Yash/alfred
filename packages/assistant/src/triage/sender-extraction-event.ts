@@ -60,6 +60,12 @@ export const FLOOR_TRACE_PROJECTIONS = {
     /** Structured reason for a meeting-gate demotion, if one fired. */
     meetingDemotionReason: audit?.reason ?? null,
   }),
+  spam: (audit) => ({
+    /** True when the spam floor demoted a demand lane → `fyi` (rule 20). */
+    spamDemotedCategory: audit?.verdict.kind === "demote",
+    /** Structured reason for a spam demotion, if one fired. */
+    spamDemotionReason: audit?.reason ?? null,
+  }),
 } satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
 
 /**
@@ -154,6 +160,8 @@ export interface SenderExtractionEvent extends FloorTraceFields {
   threadNewest: Observations["thread"]["newestDirection"];
   gmailImportant: boolean;
   gmailCategories: string[];
+  /** Gmail filed the message as spam (`SPAM` labelId) — the spam floor's trigger. */
+  gmailSpam: boolean;
   contentFlags: Observations["content"];
   firstPassCategory: TriageCategory | null;
   firstPassConfidence: number | null;
@@ -218,6 +226,7 @@ export function senderExtractionEvent(args: {
     threadNewest: obs.thread.newestDirection,
     gmailImportant: obs.gmail.important,
     gmailCategories: obs.gmail.categories,
+    gmailSpam: obs.gmail.spam,
     contentFlags: obs.content,
     // classify audit (null on the fallback/default path)
     firstPassCategory: audit?.firstPass.category ?? null,

@@ -266,10 +266,46 @@ const KNOWN_SERVICE_DOMAINS = new Set<string>([
   "atlassian.net",
   "notion.so",
   "amazonses.com",
+  // Social-network relays send every notification (invites, reminders, digests)
+  // from platform envelopes such as `messages-noreply@`, `invitations@`, and
+  // `notifications-noreply@` — the actual human (if any) lives in the display
+  // name ("Vaibhav (via LinkedIn)"), never in the envelope. Observed in prod:
+  // a LinkedIn invite reminder relayed this way parsed as `person` and was
+  // tagged `awaiting_reply` off the reminder copy ("I'm still waiting for your
+  // response"). The envelope is the platform's, so it is `service`.
+  "linkedin.com",
 ]);
 
 const SERVICE_LOCAL_PREFIX_RE =
   /^(no[-_.]?reply|donotreply|do[-_]not[-_]reply|notification|notifications|alerts?|security[-_]|billing[-_]|account[-_]|calendar[-_])/;
+
+/**
+ * Locals that END in an unambiguous no-reply envelope (`messages-noreply`,
+ * `invitations-noreply`, `jobalerts-noreply`, `notifications-noreply`, …).
+ * The mirror of the `no[-_.]?reply` PREFIX branch above: providers prefix
+ * (`noreply-accounts@`) and suffix (`messages-noreply@`) interchangeably, and
+ * the suffix form used to fall through to `person`/`unknown` — which is how a
+ * LinkedIn invite reminder relay reached the classifier as a person and was
+ * tagged `awaiting_reply` off the reminder copy. A bare trailing `reply`
+ * alone (`reply@`, `replies@`) is deliberately NOT matched: those can be
+ * staffed mailboxes.
+ */
+const NO_REPLY_SUFFIX_RE = /(?:^|[-_.])(?:no[-_]?reply|donotreply|do[-_]not[-_]reply)$/i;
+
+/**
+ * An unambiguous automated envelope local part — the exact `noreply` set, the
+ * `notification…`/`security-`/`billing-`/`account-`/`calendar-` prefixes, or a
+ * `…-noreply` suffix. Shared by the classifier verdict below and the
+ * team-graph human-likeness rescue: an automated envelope is never rescued as
+ * a person, even behind a person-like display name.
+ */
+function isAutomatedEnvelopeLocal(localPart: string): boolean {
+  return (
+    STRONG_SERVICE_LOCAL.has(localPart) ||
+    SERVICE_LOCAL_PREFIX_RE.test(localPart) ||
+    NO_REPLY_SUFFIX_RE.test(localPart)
+  );
+}
 
 const FIRST_LAST_LOCAL_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i;
 
@@ -280,11 +316,9 @@ function classifyFromKind(parsed: ParsedFrom | null): SenderKind {
   if (!parsed) return "unknown";
   const { localPart, domain, displayName } = parsed;
 
-  if (STRONG_SERVICE_LOCAL.has(localPart)) return "service";
+  if (isAutomatedEnvelopeLocal(localPart)) return "service";
 
-  if (SERVICE_LOCAL_PREFIX_RE.test(localPart)) return "service";
-
-  if (KNOWN_SERVICE_DOMAINS.has(domain)) return "service";
+  if (KNOWN_SERVICE_DOMAINS.has(domain) || domain.endsWith(".linkedin.com")) return "service";
 
   // Weak service markers (`info`, `team`, `support`) on an *unknown* domain
   // are genuinely ambiguous — could be a small-company staffed mailbox or a
@@ -323,9 +357,7 @@ function isLikelyPersonDisplayName(displayName: string | null): boolean {
  * only the graph extractor opts into the rescue.
  */
 export function isHumanLikeSender(localPart: string, displayName: string | null): boolean {
-  if (STRONG_SERVICE_LOCAL.has(localPart)) return false;
-
-  if (SERVICE_LOCAL_PREFIX_RE.test(localPart)) return false;
+  if (isAutomatedEnvelopeLocal(localPart)) return false;
 
   return isLikelyPersonDisplayName(displayName) || FIRST_LAST_LOCAL_RE.test(localPart);
 }

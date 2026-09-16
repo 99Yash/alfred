@@ -118,14 +118,18 @@ export async function auditComposedBriefing(args: {
   // propose every named object and claim no provenance. Resolution and closure
   // are then the shared `reconcileEvidence` operation (#1088), which is what
   // keeps this guard's reading of "closed" identical to the gather's.
-  const subject = { id: GUARD_SUBJECT_ID, text: { content: text } };
+  const subject = { id: GUARD_SUBJECT_ID, text: { subject: "", content: text } };
 
   const reconciled = await reconcileEvidence({
     userId: args.userId,
-    subjects: [{ id: GUARD_SUBJECT_ID, keys: proposeObjectKeys(subject, "mentions") }],
+    subjects: [{ id: GUARD_SUBJECT_ID, keys: proposeObjectKeys(subject, { reading: "mentions" }) }],
   });
 
   for (const object of reconciled.get(GUARD_SUBJECT_ID) ?? []) {
+    // Only canonical PR-URL keys can be URL facts. Today `mentions` proposes
+    // nothing else, but a second adapter's key kinds must not land in a
+    // URL-keyed map unread — read the key only for the kind that IS a URL.
+    if (object.key.keyKind !== "pull_request_url") continue;
     const url = object.key.keyValue;
 
     // A gather-proved closure already in the map wins: it is the same row read
