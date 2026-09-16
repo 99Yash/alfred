@@ -23,19 +23,25 @@
  *  - It does not delete a stale todo. A forced re-run re-runs `suggestTodo` but
  *    does NOT remove the todo the previous classification minted, so a thread
  *    moving out of a demand lane can leave one behind. This script PRINTS every
- *    agent-authored todo behind a selected thread and leaves the delete to the
- *    human — that is the one judgment a repair script must not take.
- *  - It does not touch a user-overridden row. `upsertTriage` refuses a
- *    `source = 'user'` row on both the read and the write side, and
- *    `reconcileThreadLabel` re-reads the stored row inside the thread lock, so
- *    Gmail would converge on the USER's category anyway. Enqueueing such a
- *    thread would still burn a classify call and re-mint a todo, so this script
- *    skips it loudly instead.
+ *    agent-authored todo behind a RE-TRIAGEABLE thread and leaves the delete to
+ *    the human — that is the one judgment a repair script must not take.
+ *  - It does not touch a user-overridden row. `upsertTriage` returns at its
+ *    read side with `written: false` on a `source = 'user'` row
+ *    (`store.ts:197`), and `reconcileThreadLabel` re-reads the stored row inside
+ *    the thread lock, so Gmail would converge on the USER's category anyway.
+ *    Every post-classification side effect is `written`-gated, the todo branch
+ *    included, so the enqueue costs exactly one wasted model call: no todo, no
+ *    `inbox.updated`, no `email-triage.classified`, no sender prior and no
+ *    decision trace. This script still skips it loudly — a model call the
+ *    operator cannot see the point of is worth naming.
  *
  * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
  * `node dist/scripts/repairs/repair-triage-sender-miss-committed.js` — the prod
- * image has no `tsx`/loose `@alfred/*` sources, and the enqueued run must
- * execute inside the image that holds the current prompt.
+ * image has no `tsx`/loose `@alfred/*` sources. It must run WHERE prod Redis is
+ * reachable, and `startRun` runs the workflow's `initialState` in-process before
+ * it enqueues. It does NOT need the current prompt: `createRun` writes
+ * `workflowRevisionId: null` for a builtin, so the prod worker supplies the
+ * prompt at execute time whatever machine enqueued the run.
  *
  * Dry by default: it reads, prints the plan, and writes nothing. `--commit`
  * enqueues, and REFUSES when Gmail mailbox writes are disabled — the enqueued
@@ -81,9 +87,15 @@ const THREAD_IDS = (process.env.TRIAGE_REPAIR_THREAD_IDS ?? "")
  *
  * `category` and `source` are read off {@link EmailTriage}, not re-typed as
  * `string`. `source` carries the whole user-authority invariant this script
- * claims to honour, so `plan.source === "user"` must be a comparison the
+ * claims to honour, so `plan.source !== "auto"` must be a comparison the
  * compiler checks: widened to `string` it would keep compiling after the member
  * is renamed, and the skip would silently stop firing.
+ *
+ * The test is an ALLOW-list, matching the preview's `eq(emailTriage.source,
+ * "auto")` in `../dry-runs/dry-run-triage-recategorize-committed.ts`. A deny-list
+ * (`=== "user"`) agrees with the preview only while `TRIAGE_TAG_SOURCES` has two
+ * members: add a third and the preview would drop that row and report it while
+ * this script enqueued it in silence, into a live Gmail label write.
  */
 interface ThreadPlan {
   threadId: string;
@@ -204,11 +216,13 @@ async function main() {
         `label=${plan.appliedLabelId ?? "(none)"}`,
     );
 
-    if (plan.source === "user") {
+    if (plan.source !== "auto") {
       console.log(
-        `    → SKIP: the user overrode this tag. upsertTriage refuses a source='user' row and ` +
-          `reconcileThreadLabel re-reads it under the lock, so a re-run cannot move the label — ` +
-          `it would only burn a classify call and re-mint a todo.`,
+        `    → SKIP: source='${plan.source}', and this repair re-runs auto rows only — the same ` +
+          `allow-list the preview reads. On the 'user' row that means the user overrode this ` +
+          `tag: upsertTriage returns written=false on it and reconcileThreadLabel re-reads it ` +
+          `under the lock, so a re-run cannot move the label. Every side effect is ` +
+          `written-gated, so the enqueue would cost one wasted model call and nothing else.`,
       );
       continue;
     }
@@ -234,9 +248,14 @@ async function main() {
 
   // Stale agent todos: a forced re-run re-mints, it never deletes. Print them so
   // the human can decide; deleting one is not this script's call.
+  //
+  // Scoped to `runnable`, not `plans`. A SKIPPED thread never reaches classify,
+  // or reaches it and lands on a `written: false` row, so nothing re-mints its
+  // todos — printing them under this banner would claim a risk that path does
+  // not carry.
   const byUser = new Map<string, Set<string>>();
 
-  for (const plan of plans) {
+  for (const plan of runnable) {
     const threads = byUser.get(plan.userId) ?? new Set<string>();
 
     threads.add(plan.threadId);
