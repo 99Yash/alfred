@@ -4,39 +4,30 @@ import {
   deriveLoopEntityRef,
   parseEmailAddress,
 } from "@alfred/contracts";
+import { keyIdentity } from "./adapter";
+import type {
+  ExtractedKey,
+  KeyProposalReading,
+  ObjectKeyMatch,
+  ObjectStateAdapter,
+  ReconcileSubject,
+  SubjectText,
+} from "./adapter";
 
 /**
- * Deterministic key extraction (ADR-0062 v1; ADR-0063 is the rich replacement).
+ * The GitHub object-state adapter (ADR-0062 v1; ADR-0063 is the rich
+ * replacement) — GitHub's irreducible half of reconciliation (#1088).
  *
  * GitHub notifications identify a PR through the subject's repository + PR
  * number, a pull-request URL, a 40-hex `head_sha`, or the abbreviated sha that
  * Actions failure mail carries in its subject. Use a single PR identity when
  * possible: a link to a different PR in a comment body cannot close the
  * notification's own loop. Ambiguous PR references leave the loop live.
+ *
+ * Everything past the proposal is generic and lives elsewhere: `reconcile.ts`
+ * resolves and ranks the candidates, the store asserts state, and the
+ * registry's per-kind definition declares what closes an ask.
  */
-
-/**
- * How the store must compare a candidate value against the stored key. `prefix`
- * exists for an abbreviated sha: the value is a leading fragment of the stored
- * 40-hex key, so an exact lookup can never find it.
- */
-export type ObjectKeyMatch = "exact" | "prefix";
-
-export interface ExtractedKey {
-  keyKind: string;
-  keyValue: string;
-  match: ObjectKeyMatch;
-}
-
-/**
- * Map key for one candidate. The match mode belongs in it: the same value read
- * exactly and read as a prefix are two different lookups. Owned here beside
- * `ExtractedKey` so a fourth field cannot silently collapse two candidates in
- * a consumer's dedup map.
- */
-export function keyIdentity(key: ExtractedKey): string {
-  return [key.keyKind, key.keyValue, key.match].join("\u0000");
-}
 
 /** Senders whose mail we treat as GitHub CI/notification traffic. */
 const GITHUB_NOTIFICATION_DOMAINS = ["github.com"];
@@ -84,10 +75,7 @@ export function isGithubNotificationSender(from: string | null | undefined): boo
  * abbreviation in its own subject. Pure and deterministic: no network and no
  * model.
  */
-export function extractGithubKeys(input: {
-  subject?: string | null;
-  content?: string | null;
-}): ExtractedKey[] {
+export function extractGithubKeys(input: SubjectText): ExtractedKey[] {
   const haystack = `${input.subject ?? ""}\n${input.content ?? ""}`;
   const seen = new Set<string>();
   const keys: ExtractedKey[] = [];
@@ -170,3 +158,30 @@ function collectSubjectAbbreviatedShas(subject: string): string[] {
 
   return [sha];
 }
+
+/**
+ * GitHub's adapter. The two readings differ in what they are allowed to
+ * assume, not in how safe they are:
+ *
+ * - `about` requires GitHub-notification provenance and returns the mail's own
+ *   single PR identity, because the briefing uses it to DROP an item and a
+ *   wrong identity would drop the wrong one.
+ * - `mentions` returns every pull request the text names, with no provenance
+ *   demand, because a caller uses it to annotate what it already has. The
+ *   canonical URL is the only written form that survives: a bare `head_sha` in
+ *   arbitrary prose is a commit, not a claim about a pull request.
+ */
+export const githubObjectStateAdapter: ObjectStateAdapter = {
+  provider: "github",
+  proposeKeys(subject: ReconcileSubject, reading: KeyProposalReading): ExtractedKey[] {
+    if (reading === "mentions") {
+      return collectGithubPullRequestUrls(
+        `${subject.text.subject ?? ""}\n${subject.text.content ?? ""}`,
+      ).map((url) => ({ keyKind: "pull_request_url", keyValue: url, match: "exact" }));
+    }
+
+    if (!isGithubNotificationSender(subject.sender)) return [];
+
+    return extractGithubKeys(subject.text);
+  },
+};

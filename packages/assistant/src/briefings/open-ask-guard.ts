@@ -1,11 +1,10 @@
 import {
   canonicalizeGithubPullRequestUrl,
   collectGithubPullRequestUrls,
-  isLoopClosingCategory,
   type BriefingClosedLoop,
   type LoopClosingStateCategory,
 } from "@alfred/contracts";
-import { objectStateStore } from "@alfred/assistant/connections";
+import { proposeObjectKeys, reconcileEvidence } from "@alfred/assistant/connections";
 
 /**
  * Pre-send open-ask guard (#1082) — the deterministic half of the closed-loop
@@ -30,6 +29,15 @@ import { objectStateStore } from "@alfred/assistant/connections";
  *     a provider this build does not project, or a state category that is not
  *     loop-closing all leave the draft alone.
  */
+
+/**
+ * The one subject the guard reconciles: the whole composed briefing, read as
+ * one blob. The guard binds an object to a SENTENCE itself (a bare `#51` needs
+ * the briefing-wide list to bind), so splitting the text into a subject per
+ * sentence would propose the same keys many times and answer a question the
+ * guard does not ask.
+ */
+const GUARD_SUBJECT_ID = "composed-briefing";
 
 /** The three composed strings that reach the user. The guard checks all three. */
 export interface ComposedBriefingBody {
@@ -77,16 +85,18 @@ export interface OpenAskViolation {
  *
  * Two closure sources, and both are positive facts:
  *   1. `closedLoops` — what this run's gather already proved closed.
- *   2. A live `integration_objects` read for every other object the prose names.
- *      This is how a `get_day_shape.shipped` object is covered: it shipped
- *      because its row says `resolved`, and that row is what the guard reads.
+ *   2. A live `integration_objects` read, through the shared reconciliation
+ *      operation, for every object the prose names. This is how a
+ *      `get_day_shape.shipped` object is covered: it shipped because its row
+ *      says `resolved`, and that row is what the guard reads.
  */
 export async function auditComposedBriefing(args: {
   userId: string;
   composed: ComposedBriefingBody;
   closedLoops: readonly BriefingClosedLoop[];
 }): Promise<OpenAskViolation[]> {
-  const named = collectGithubPullRequestUrls(fullText(args.composed));
+  const text = fullText(args.composed);
+  const named = collectGithubPullRequestUrls(text);
 
   if (named.length === 0) return [];
 
@@ -104,29 +114,30 @@ export async function auditComposedBriefing(args: {
     });
   }
 
-  await Promise.all(
-    named
-      .filter((url) => !closedByUrl.has(url))
-      .map(async (url) => {
-        const ref = await objectStateStore.resolveByKey(
-          args.userId,
-          "github",
-          "pull_request_url",
-          url,
-        );
+  // The prose MENTIONS objects rather than being about one, so the adapters
+  // propose every named object and claim no provenance. Resolution and closure
+  // are then the shared `reconcileEvidence` operation (#1088), which is what
+  // keeps this guard's reading of "closed" identical to the gather's.
+  const subject = { id: GUARD_SUBJECT_ID, text: { content: text } };
 
-        if (!ref) return; // no row → the object is not proved closed
-        const state = await objectStateStore.getState(args.userId, ref);
+  const reconciled = await reconcileEvidence({
+    userId: args.userId,
+    subjects: [{ id: GUARD_SUBJECT_ID, keys: proposeObjectKeys(subject, "mentions") }],
+  });
 
-        if (!state || !isLoopClosingCategory(state.stateCategory)) return;
-        closedByUrl.set(url, {
-          url,
-          stateCategory: state.stateCategory,
-          title: state.title,
-          documentId: null,
-        });
-      }),
-  );
+  for (const object of reconciled.get(GUARD_SUBJECT_ID) ?? []) {
+    const url = object.key.keyValue;
+
+    // A gather-proved closure already in the map wins: it is the same row read
+    // minutes earlier, and only it knows which email opened the loop.
+    if (object.closesAskAs === null || closedByUrl.has(url)) continue;
+    closedByUrl.set(url, {
+      url,
+      stateCategory: object.closesAskAs,
+      title: object.state.title,
+      documentId: null,
+    });
+  }
 
   if (closedByUrl.size === 0) return [];
 
