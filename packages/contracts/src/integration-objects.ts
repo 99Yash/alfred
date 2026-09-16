@@ -75,18 +75,23 @@ export interface ObjectKindDef {
 }
 
 /**
- * Per-provider definition. `kinds` / `keyKinds` enumerate the legal `text`
- * values the DB columns hold, and each kind carries its own
- * {@link ObjectKindDef} lifecycle policy, so a kind cannot be added without
- * declaring how it closes; `keyResolvesTo` declares which kind a key kind
- * points at (`head_sha → pull_request`, never `→ issue`); `normalize` maps a
- * reducer-computed native state token to the agnostic bucket.
+ * Per-provider definition. `kinds` enumerates the legal `kind` values the DB
+ * column holds, and each kind carries its own {@link ObjectKindDef} lifecycle
+ * policy, so a kind cannot be added without declaring how it closes;
+ * `normalize` maps a reducer-computed native state token to the agnostic
+ * bucket.
  */
 export interface IntegrationObjectDef {
   readonly kinds: Readonly<Record<string, ObjectKindDef>>;
-  readonly keyKinds: readonly string[];
-  /** key_kind → the object kind it resolves to. */
-  readonly keyResolvesTo: Readonly<Record<string, string>>;
+  /**
+   * Prefix-match policy per key kind: the minimum prefix length that may
+   * identify an object, for key kinds that support abbreviated lookup (an
+   * Actions failure mail's 7-hex short sha). A key kind absent here resolves
+   * exactly or not at all. Lives beside the closure policy so a second
+   * provider declares it once — the store and the adapters read it rather
+   * than each hard-coding their own floor.
+   */
+  readonly prefixableKeys: Readonly<Record<string, number>>;
   /**
    * Map a provider-native state token (the reducer collapses booleans like
    * `merged` into the token, e.g. `merged`/`closed`/`open` for a github PR) to
@@ -160,16 +165,17 @@ export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
 export const INTEGRATION_OBJECT_DEFS = {
   github: {
     kinds: {
-      // A pull request closes by TRANSITION on itself, and its terminal states
-      // are final: merged stays merged, closed stays closed until a reopen
-      // delivery says otherwise (`open` is not absorbing, so a reopen lands).
+      // A pull request closes by TRANSITION on itself. Only `resolved`
+      // (merged) absorbs: a merged PR can never reopen, so even a newer
+      // delivery cannot move it out. `abandoned` (closed unmerged) does NOT
+      // absorb — a genuine reopen is newer and lands — so recency alone holds
+      // it closed against stale redeliveries.
       pull_request: {
         closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
         absorbing: ["resolved"],
       },
     },
-    keyKinds: ["head_sha", "pull_request_url"],
-    keyResolvesTo: { head_sha: "pull_request", pull_request_url: "pull_request" },
+    prefixableKeys: { head_sha: 7 },
     normalize(_kind, nativeState) {
       switch (nativeState) {
         case "merged":
@@ -203,26 +209,32 @@ export function getObjectKindDef(
 }
 
 /**
- * Does this state close an already-open ask about an object of this kind?
+ * The closing category for an already-open ask about an object of this kind,
+ * or `null` when this state closes nothing.
  *
- * The single reading every consumer uses — the briefing loop reconciliation,
- * the pre-send open-ask guard, and Context Search enrichment all call this
+ * The single reading reconciliation uses — `reconcileEvidence` calls this
  * rather than testing the category against a global list. An undeclared kind
  * closes nothing: absence never closes (ADR-0048-D).
+ *
+ * Returns the category rather than a boolean so a caller can record WHICH
+ * closure it saw without re-deriving it. A boolean predicate would be unsound
+ * here: a kind declaring `closesAskOn: []` returns `false` for `resolved`,
+ * and a caller's `else` would then narrow to `"active" | "failed"`.
  */
 export function closesOpenAsk(
   provider: ObjectStateProvider,
   kind: string,
   category: StateCategory,
-): category is LoopClosingStateCategory {
+): LoopClosingStateCategory | null {
   const def = getObjectKindDef(provider, kind);
 
-  if (!def) return false;
+  if (!def) return null;
 
-  // SAFETY: the declared list is a const list of LoopClosingStateCategory
-  // literals; widening to readonly string[] only types the .includes receiver
-  // for this narrowing predicate.
-  return (def.closesAskOn as readonly string[]).includes(category);
+  for (const closing of def.closesAskOn) {
+    if (closing === category) return closing;
+  }
+
+  return null;
 }
 
 /**
@@ -243,7 +255,7 @@ export function isAbsorbingState(
 
   if (!def) return false;
 
-  return (def.absorbing as readonly string[]).includes(category);
+  return def.absorbing.some((c) => c === category);
 }
 
 /**

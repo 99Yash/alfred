@@ -1,11 +1,29 @@
-export * from "./store";
+export {
+  objectStateStore,
+  type ApplyEventArgs,
+  type ObjectListFilter,
+  type ObjectState,
+  type ObjectStateDelta,
+  type ObjectStateRef,
+  type ObjectStateStore,
+} from "./store";
 
-export * from "./github-reducer";
+export { reduceGithubEvent } from "./github-reducer";
 
-export * from "./adapter";
+export {
+  type CandidateKey,
+  type KeyProposal,
+  type ReconcileSubject,
+  type SubjectText,
+} from "./adapter";
 
-export * from "./github-adapter";
+export {
+  firstClosingObject,
+  proposeObjectKeys,
+  reconcileEvidence,
+  type ReconcileCandidates,
+  type ReconcileResult,
+  type ReconciledObject,
+} from "./reconcile";
 
-export * from "./reconcile";
-
-export * from "./github-activity-consumer";
+export { githubActivityTriggerConsumer } from "./github-activity-consumer";

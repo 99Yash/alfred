@@ -24,6 +24,8 @@ describe("extractGmailSignals", () => {
       important: true,
       starred: true,
       inInbox: true,
+      spam: false,
+      trash: false,
     });
   });
 
@@ -33,6 +35,8 @@ describe("extractGmailSignals", () => {
       important: false,
       starred: false,
       inInbox: false,
+      spam: false,
+      trash: false,
     });
   });
 });
@@ -177,7 +181,14 @@ describe("assembleObservations", () => {
         entityId: "ent_group",
         displayName: "Engineering",
       },
-      gmail: { categories: ["updates"], important: false, starred: false, inInbox: true },
+      gmail: {
+        categories: ["updates"],
+        important: false,
+        starred: false,
+        inInbox: true,
+        spam: false,
+        trash: false,
+      },
       content: {
         hasUnsubscribe: true,
         hasCurrencyAmount: true,

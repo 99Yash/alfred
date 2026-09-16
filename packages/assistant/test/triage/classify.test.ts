@@ -79,7 +79,14 @@ function observations(overrides: Partial<Observations> = {}): Observations {
     senderRelationship: null,
     senderRelationshipIsCold: false,
     senderKind: null,
-    gmail: { categories: [], important: false, starred: false, inInbox: true },
+    gmail: {
+      categories: [],
+      important: false,
+      starred: false,
+      inInbox: true,
+      spam: false,
+      trash: false,
+    },
     content: {
       hasUnsubscribe: false,
       hasCurrencyAmount: false,
@@ -1042,7 +1049,14 @@ describe("detectConflict", () => {
           categoryCounts: { newsletter: 9, marketing: 1 },
           lastCategory: "newsletter",
         },
-        gmail: { categories: [], important: true, starred: false, inInbox: true },
+        gmail: {
+          categories: [],
+          important: true,
+          starred: false,
+          inInbox: true,
+          spam: false,
+          trash: false,
+        },
       }),
       false,
     );

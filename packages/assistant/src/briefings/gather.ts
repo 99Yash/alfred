@@ -40,8 +40,8 @@ import {
   objectStateStore,
   proposeObjectKeys,
   reconcileEvidence,
-  type CandidateKey,
   type ObjectState,
+  type ReconcileCandidates,
 } from "@alfred/assistant/connections";
 import { getPreference } from "@alfred/assistant/settings";
 import { findSenderSuppression, listActiveSuppressionInstructions } from "../knowledge";
@@ -250,7 +250,7 @@ export async function gatherBriefingDigest(
   // post-partition loop-reconciliation pass (ADR-0062). Priority buckets stay
   // uncapped until after reconciliation so closed loops do not consume one of
   // the visible slots.
-  const keyCandidates: { id: string; keys: CandidateKey[] }[] = [];
+  const keyCandidates: ReconcileCandidates[] = [];
 
   for (const r of rows) {
     const cat = r.category;
@@ -296,12 +296,12 @@ export async function gatherBriefingDigest(
 
     // Every deterministic work-object identity this notification carries, as
     // its provider's adapter reads it. The mail is ABOUT one object, so the
-    // adapter demands provenance and refuses an ambiguous reference. Proposed
-    // here, inside the loop that already holds the body, so the row's content
-    // is never carried into the resolve phase.
+    // adapter demands the sender-domain gate and refuses an ambiguous
+    // reference. Proposed here, inside the loop that already holds the body,
+    // so the row's content is never carried into the resolve phase.
     const keys = proposeObjectKeys(
-      { id: r.documentId, text: { subject: r.title, content: r.content }, sender: from },
-      "about",
+      { id: r.documentId, text: { subject: r.title ?? "", content: r.content } },
+      { reading: "about", sender: from },
     );
 
     if (keys.length > 0) keyCandidates.push({ id: r.documentId, keys });
@@ -349,7 +349,7 @@ export async function gatherBriefingDigest(
 async function dropClosedLoops(
   userId: string,
   buckets: Record<PriorityCategory, BriefingItem[]>,
-  candidates: readonly { id: string; keys: CandidateKey[] }[],
+  candidates: readonly ReconcileCandidates[],
 ): Promise<BriefingClosedLoop[]> {
   if (candidates.length === 0) return [];
 
