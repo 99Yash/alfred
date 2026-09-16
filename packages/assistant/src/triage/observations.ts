@@ -28,6 +28,17 @@ export interface GmailSignals {
   important: boolean;
   starred: boolean;
   inInbox: boolean;
+  /**
+   * Gmail filed the message as spam. The strongest deterministic de-demand
+   * signal available: Gmail's own verdict that the mail is unsolicited. Fed to
+   * the model as a hint AND enforced by the spam floor, so a spam-filed message
+   * can never hold a demanding category no matter which phrase the model fixated
+   * on. (Observed in prod: a spam-filed promo with "Would love your thoughts!"
+   * tagged `awaiting_reply`.)
+   */
+  spam: boolean;
+  /** Gmail filed the message as trash (user-deleted). A hint only — no floor keys on it. */
+  trash: boolean;
 }
 
 const GMAIL_CATEGORY_PREFIX = "CATEGORY_";
@@ -38,6 +49,8 @@ export function extractGmailSignals(labelIds: readonly string[]): GmailSignals {
   let important = false;
   let starred = false;
   let inInbox = false;
+  let spam = false;
+  let trash = false;
 
   for (const id of labelIds) {
     if (id.startsWith(GMAIL_CATEGORY_PREFIX)) {
@@ -45,11 +58,13 @@ export function extractGmailSignals(labelIds: readonly string[]): GmailSignals {
     } else if (id === "IMPORTANT") important = true;
     else if (id === "STARRED") starred = true;
     else if (id === "INBOX") inInbox = true;
+    else if (id === "SPAM") spam = true;
+    else if (id === "TRASH") trash = true;
   }
 
   categories.sort(); // stable order for snapshot tests
 
-  return { categories, important, starred, inInbox };
+  return { categories, important, starred, inInbox, spam, trash };
 }
 
 // ---------------------------------------------------------------------------

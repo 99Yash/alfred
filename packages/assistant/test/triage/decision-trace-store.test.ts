@@ -47,10 +47,13 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     senderKindDemotionReason: null,
     meetingDemotedCategory: false,
     meetingDemotionReason: null,
+    spamDemotedCategory: false,
+    spamDemotionReason: null,
     threadMessages: 1,
     threadNewest: "received",
     gmailImportant: false,
     gmailCategories: [],
+    gmailSpam: false,
     contentFlags: {
       hasUnsubscribe: false,
       hasCurrencyAmount: false,

@@ -43,6 +43,7 @@ function context(over: Partial<FloorContext> = {}): FloorContext {
     cc: null,
     accountEmail: null,
     contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: false },
+    isSpam: false,
     ...over,
   } satisfies FloorContext;
 }
@@ -54,16 +55,16 @@ const SECRET_TEXT = "an api key was leaked in the public repo";
 // existed, floor order was covered by exactly one end-to-end assertion in
 // classify.test.ts — every other floor test called a single floor directly, so
 // a reordered `FLOOR_SEQUENCE` was invisible. These cases are chosen so that
-// running the same three floors in a different order gives a DIFFERENT audit;
+// running the same four floors in a different order gives a DIFFERENT audit;
 // asserting the final category alone would not catch a swap.
 // ---------------------------------------------------------------------------
 
 describe("applyFloors — sequence order", () => {
-  test("audits arrive in sequence order: override → senderKind → meeting", () => {
+  test("audits arrive in sequence order: override → senderKind → spam → meeting", () => {
     // `applyFloors` inserts one audit key per `FLOOR_SEQUENCE` entry as it folds,
     // so key order IS sequence order.
     const { audits } = applyFloors(classification(), context());
-    assert.deepEqual(Object.keys(audits), ["override", "senderKind", "meeting"]);
+    assert.deepEqual(Object.keys(audits), ["override", "senderKind", "spam", "meeting"]);
   });
 
   test("every floor reports an audit even when none of them fire", () => {
@@ -71,6 +72,7 @@ describe("applyFloors — sequence order", () => {
     assert.equal(outcome.classification.category, "fyi");
     assert.deepEqual(outcome.audits.override, { verdict: { kind: "keep" }, matched: false });
     assert.deepEqual(outcome.audits.senderKind, { verdict: { kind: "keep" }, reason: null });
+    assert.deepEqual(outcome.audits.spam, { verdict: { kind: "keep" }, reason: null });
     assert.deepEqual(outcome.audits.meeting, { verdict: { kind: "keep" }, reason: null });
   });
 

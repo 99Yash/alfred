@@ -138,6 +138,7 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
           reason: "collab_passive_activity",
         },
         meeting: { verdict: { kind: "keep" }, reason: null },
+        spam: { verdict: { kind: "keep" }, reason: null },
       },
     },
     classification: classification({ collabActivity: "other_activity" }),
@@ -239,6 +240,7 @@ function floorContext(): FloorContext {
     cc: null,
     accountEmail: null,
     contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: false },
+    isSpam: false,
   };
 }
 
@@ -294,7 +296,14 @@ function observations(): Observations {
       entityId: "ent_group",
       displayName: "Engineering",
     },
-    gmail: { categories: [], important: false, starred: false, inInbox: true },
+    gmail: {
+      categories: [],
+      important: false,
+      starred: false,
+      inInbox: true,
+      spam: false,
+      trash: false,
+    },
     content: {
       hasUnsubscribe: false,
       hasCurrencyAmount: false,

@@ -2,17 +2,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { getObjectDef, isLoopClosingCategory, isTerminalCategory } from "@alfred/contracts";
+import { closesOpenAsk, getObjectDef, isTerminalCategory } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 
-import {
-  extractGithubKeys,
-  isGithubNotificationSender,
-  objectStateStore,
-  reduceGithubEvent,
-} from "../src/connections/object-state";
+import { objectStateStore } from "../src/connections/object-state";
+import { githubObjectStateAdapter } from "../src/connections/object-state/github-adapter";
+import { reduceGithubEvent } from "../src/connections/object-state/github-reducer";
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
@@ -119,20 +116,30 @@ describe("github registry normalize", () => {
     assert.equal(isTerminalCategory("active"), false);
   });
 
-  test("briefing loop closure excludes failed because failed is usually the opener", () => {
-    assert.equal(isLoopClosingCategory("resolved"), true);
-    assert.equal(isLoopClosingCategory("abandoned"), true);
-    assert.equal(isLoopClosingCategory("failed"), false);
-    assert.equal(isLoopClosingCategory("active"), false);
+  test("a pull request closes an ask on merged/closed, never on failed", () => {
+    assert.equal(closesOpenAsk("github", "pull_request", "resolved"), "resolved");
+    assert.equal(closesOpenAsk("github", "pull_request", "abandoned"), "abandoned");
+    assert.equal(closesOpenAsk("github", "pull_request", "failed"), null);
+    assert.equal(closesOpenAsk("github", "pull_request", "active"), null);
+  });
+
+  test("an undeclared kind closes nothing: absence never closes", () => {
+    assert.equal(closesOpenAsk("github", "deployment", "resolved"), null);
   });
 });
 
-describe("extractGithubKeys", () => {
-  test("pulls and dedupes 40-hex head shas from subject + body", () => {
-    const keys = extractGithubKeys({
-      subject: `Run failed for ${SHA_A}`,
-      content: `commit ${SHA_A} on branch; see ${SHA_B}`,
-    });
+describe("githubObjectStateAdapter.proposeKeys", () => {
+  test("about: pulls and dedupes 40-hex head shas from subject + body", () => {
+    const keys = githubObjectStateAdapter.proposeKeys(
+      {
+        id: "mail-1",
+        text: {
+          subject: `Run failed for ${SHA_A}`,
+          content: `commit ${SHA_A} on branch; see ${SHA_B}`,
+        },
+      },
+      { reading: "about", sender: "notifications@github.com" },
+    );
 
     assert.deepEqual(
       keys.map((k) => k.keyValue),
@@ -140,16 +147,42 @@ describe("extractGithubKeys", () => {
     );
   });
 
-  test("ignores short / non-hex tokens", () => {
-    assert.deepEqual(extractGithubKeys({ subject: "deadbeef", content: "no sha here" }), []);
+  test("about: ignores short / non-hex tokens", () => {
+    assert.deepEqual(
+      githubObjectStateAdapter.proposeKeys(
+        { id: "mail-2", text: { subject: "deadbeef", content: "no sha here" } },
+        { reading: "about", sender: "notifications@github.com" },
+      ),
+      [],
+    );
   });
-});
 
-describe("isGithubNotificationSender", () => {
-  test("requires an exact github.com sender domain", () => {
-    assert.equal(isGithubNotificationSender("GitHub <notifications@github.com>"), true);
-    assert.equal(isGithubNotificationSender("spoof@notgithub.com"), false);
-    assert.equal(isGithubNotificationSender("GitHub <notifications@github.com.evil.test>"), false);
+  test("about: demands the github.com sender-domain gate", () => {
+    const subject = {
+      id: "mail-3",
+      text: { subject: `Run failed for ${SHA_A}`, content: "" },
+    };
+
+    assert.ok(
+      githubObjectStateAdapter.proposeKeys(subject, {
+        reading: "about",
+        sender: "GitHub <notifications@github.com>",
+      }).length > 0,
+    );
+    assert.deepEqual(
+      githubObjectStateAdapter.proposeKeys(subject, {
+        reading: "about",
+        sender: "spoof@notgithub.com",
+      }),
+      [],
+    );
+    assert.deepEqual(
+      githubObjectStateAdapter.proposeKeys(subject, {
+        reading: "about",
+        sender: "GitHub <notifications@github.com.evil.test>",
+      }),
+      [],
+    );
   });
 });
 
