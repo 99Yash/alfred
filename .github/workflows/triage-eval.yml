@@ -5,12 +5,14 @@
 # drops below the threshold. The dataset deliberately includes documented
 # misses, so the bar is below 100 — start at 70 and tune as real runs land.
 #
-# Spends real Gemini (classifier) + Sonnet (judge) tokens, so it is scoped to
-# PRs that touch the classifier or the eval fixtures, plus manual dispatch.
+# Spends real Gemini tokens, so it is scoped to PRs that touch the classifier or
+# the eval fixtures, plus manual dispatch. The classifier under test and the
+# LLM-as-judge scorer BOTH run on `route("cheap")` (Gemini Flash-Lite), so one
+# key covers the whole job — see packages/assistant/evals/lib/llm-judge.ts for
+# why the judge is cheap here and which suite pins a stronger grader instead.
 #
 # Required repo secrets:
-#   - GOOGLE_GENERATIVE_AI_API_KEY  (the cheap-tier classifier under test)
-#   - ANTHROPIC_API_KEY             (the LLM-as-judge scorer, claude-sonnet-4-6)
+#   - GOOGLE_GENERATIVE_AI_API_KEY  (the cheap-tier classifier AND the judge)
 #
 # The classifier itself is DB-free, but the metering wrapper that every model
 # call goes through (cost attribution, ADR-0015) looks up `model_prices` and
@@ -20,11 +22,11 @@
 # `model_prices` stays empty: getPrice returns null, cost computes to 0, and
 # the api_call_log insert still succeeds. Every other env var is a
 # format-valid dummy — serverEnv() validates the whole schema, but the
-# classifier and judge only ever reach for the two real keys above.
+# classifier and judge only ever reach for the one real key above.
 name: triage-eval
 
 on:
-  # The PR trigger is parked: this gate spends real Gemini + Sonnet tokens on
+  # The PR trigger is parked: this gate spends real Gemini tokens on
   # every classifier/fixture touch, and its score is coupled to live provider
   # health (an empty provider response scores 0 rather than skipping, so a blip
   # reddens a PR with no code defect). Manual dispatch only for now; restore the
@@ -65,9 +67,8 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      # Real secrets — the only external services the eval actually calls.
+      # Real secret — the only external service this eval actually calls.
       GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       # Throwaway Postgres for the metering writes (migrated below, empty data).
       DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
       # Format-valid dummies so serverEnv() passes; never used to connect.
