@@ -65,13 +65,23 @@ export const FLOOR_TRACE_PROJECTIONS = {
     spamDemotedCategory: audit?.verdict.kind === "demote",
     /**
      * What the spam floor concluded: `"demoted_reply_lane"` when it demoted,
-     * `"prior_only_demand_lane"` when Gmail filed the mail as spam and the model
-     * still answered `urgent`/`action_needed` — the softened path (#1098), where
-     * the model decided and no floor moved the answer. `null` when the floor was
-     * inert. An over-tag audit reads THIS to tell a softened spam apart from a
-     * sender-kind demotion.
+     * `"held_demand_lane"` when Gmail filed the mail as spam and the final
+     * category was still `urgent`/`action_needed` — the softened path (#1098),
+     * where the floor deliberately did not move the answer. `null` when the
+     * floor was inert. An over-tag audit reads THIS to tell a softened spam
+     * apart from a sender-kind demotion.
+     *
+     * `spamFloorOutcome`, not `…DemotionReason`, because one of its two values
+     * means "no demotion": an audit counting the floor's demotions must query
+     * `= 'demoted_reply_lane'`, and `IS NOT NULL` over-counts it.
+     *
+     * `held_demand_lane` does not name WHO chose the lane — the floor cannot
+     * observe that. Join it on this same flat row: `floorForced === true` is the
+     * override floor's forced `urgent`, and `secondPassFailure !== null` is
+     * `conservativeUnderClassificationFallback` writing `action_needed` after a
+     * second pass threw. Both columns empty means the model's own judgment.
      */
-    spamDemotionReason: audit?.reason ?? null,
+    spamFloorOutcome: audit?.reason ?? null,
   }),
 } satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
 

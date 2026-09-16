@@ -861,10 +861,15 @@ const CASES: Case[] = [
   },
   {
     // The other half of the narrowed floor (#1098): a spam-filed DEMAND lane is
-    // now the model's answer to keep. Same injected shape as the row above, so
-    // the prompt is out of the path entirely and only the floor decides — the
+    // now the final answer to keep. It injects both passes like the row above,
+    // so the prompt is out of the path entirely and only the floor decides — the
     // category reverts to `fyi` and `+spamfloor` appears the moment the floor
     // goes back to gating all four demand lanes.
+    //
+    // Everything else about the pair DIFFERS, and the difference is the point:
+    // that row injects `awaiting_reply` behind a person envelope (the lane the
+    // floor still gates), this one injects `urgent` behind a service envelope
+    // (the lane it released). One canned shape either side of the new gate line.
     //
     // `+spamfloor` is asserted by ABSENCE, through the category: `Expected.guards`
     // has no negative form, and it needs none here. A fired floor lands on `fyi`,
@@ -899,9 +904,9 @@ const CASES: Case[] = [
   {
     // Acceptance criterion 2, and the only row in the file that can prove rule
     // 20's EXCEPTION: a spam-filed mail carrying an obligation the USER already
-    // owns keeps its demand lane. Observed in prod (2026-09-16): a recruiter
-    // asking the user to complete a job application the USER opened, filed
-    // `SPAM` by Gmail, one of five spam-labelled documents in ten days.
+    // owns keeps its demand lane. The shape is the prod miss of 2026-09-16 — a
+    // recruiter asking the user to finish a job application the USER opened,
+    // filed `SPAM` by Gmail, one of five spam-labelled documents in ten days.
     //
     // NO `runPass` and NO hand-set `sender`, on purpose. The rule-20 prose IS the
     // thing under test, so the real classifier must answer it, and the envelope
@@ -909,18 +914,28 @@ const CASES: Case[] = [
     // exception and this row reddens: the old text said a spam-filed mail is
     // NEVER a demand lane, and the model obeyed it.
     //
+    // The subject, the obligation and the sender domain match NOTHING in the
+    // system prompt — deliberately, and it is why the row is a support ticket
+    // rather than the prod recruiter mail it is modelled on. Rule 20's exception
+    // is stated as a rubric and its one worked example is a credential rotation,
+    // so a model that answers this row read the rubric; an exemplar naming the
+    // row would let it score by copying. Third time this class has fired in this
+    // campaign — see .lessons/a-strengthened-prompt-masks-the-deterministic-branch-under-it.md.
+    //
     // The discriminator against `spam-filed-phish-keeps-model-answer` above is
-    // whether the demand survives WITHOUT trusting the sender. This application
-    // id is the user's own; the phish deadline exists only in the sender's claim.
-    label: "spam-filed-recruiter-ask-keeps-demand-lane",
-    from: "Priya Nair <priya.nair@northwind-staffing.com>",
-    subject: "Additional information needed for the position of 26-1620",
-    body: "Hi Yash — thanks for submitting your application 26-1620 last week. Before we can move it to the next stage, we need your work-authorization details and your notice period. Please send them across by Friday or the application is closed out.",
+    // whether the demand survives WITHOUT trusting the sender. This ticket is
+    // the user's own; the phish deadline exists only in the sender's claim. The
+    // ask is an upload rather than a written answer, so rule 3's reply-shape
+    // preference does not pull it into the lane the floor still gates.
+    label: "spam-filed-owned-ticket-keeps-demand-lane",
+    from: "Deepa Raman <deepa.raman@northbeam-support.com>",
+    subject: "Ticket HD-4471 needs your diagnostics upload before Friday",
+    body: "Hi Yash — your ticket HD-4471 is open with our engineering team. They cannot reproduce the fault until you upload the diagnostics bundle to the support portal and set the firmware version on the ticket. The ticket auto-closes on Friday if the upload is still missing.",
     labelIds: ["SPAM"],
     expected: {
       category: ["action_needed", "urgent"],
       todo: "mint",
-      note: "Gmail filed this as spam and Gmail is wrong: the user opened application 26-1620 themselves, so the ask is an obligation the user ALREADY owns and it does not depend on trusting the sender (rule 20's exception). A hard spam bound would bury a real ask — demote, never bury, cuts the other way on the demand lanes.",
+      note: "Gmail filed this as spam and Gmail is wrong: the user opened ticket HD-4471 themselves, so the upload is an obligation the user ALREADY owns and it does not depend on trusting the sender (rule 20's exception). A hard spam bound would bury a real ask — demote, never bury, cuts the other way on the demand lanes.",
     },
   },
   {
