@@ -1,6 +1,10 @@
 # ADR-0103 — Work-object reconciliation projects receipts and resolves evidence
 
-**Status.** Proposed. PR #1083 supplies the GitHub foundation; this decision describes the next slice.
+**Status.** Proposed; partly delivered. PR #1083 supplies the GitHub foundation, and #1088 delivered the resolve half — see ADR-0062's `Amended 2026-09-15 (#1088)`.
+
+What #1088 landed: one shared reconciliation operation in `@alfred/assistant/connections/object-state`, a provider adapter that owns evidence-key proposals and canonicalization, and the move of closure and absorption from a global rule to a per-provider-and-kind policy (`ObjectKindDef.closesAskOn` / `ObjectKindDef.absorbing`). It takes a caller-supplied subject rather than the `reconcileDocuments(userId, documentIds)` signature below, because the pre-send guard reconciles composed prose and has no document, and the briefing gather already holds each row's text.
+
+What remains open: the receipt half (`projectReceipt`, durable state-receipt provenance, one-to-many deltas in one transaction), the Sentry adapter and its transition-order proof, and the adapter's legal-transition rule. The five adapter duties below are therefore still the target; #1088 implemented two of them.
 
 ## Decision
 
