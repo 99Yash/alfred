@@ -244,7 +244,7 @@ export interface AssembleObservationsArgs {
    * `null`) so eval and smoke harnesses that do not exercise it need not thread
    * it; production `gatherObservations` always passes it.
    */
-  standingInstruction?: TriageStandingDirective | null;
+  standingInstruction?: TriageStandingDirective | null | undefined;
   labelIds: readonly string[];
   /** Concatenated signal text (subject + body + headers), lowercased or not. */
   signalText: string;

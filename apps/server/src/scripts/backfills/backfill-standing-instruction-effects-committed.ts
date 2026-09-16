@@ -31,7 +31,12 @@ import {
   adoptRegisteredSuppressionEffects,
   listActiveSuppressionInstructions,
 } from "@alfred/assistant/knowledge";
-import { SUPPRESSION_EFFECTS, toMessage } from "@alfred/contracts";
+import {
+  SUPPRESSION_EFFECTS,
+  hasSuppressionEffect,
+  parseEmailAddress,
+  toMessage,
+} from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { inArray } from "drizzle-orm";
@@ -47,8 +52,8 @@ function emailsArg(): string[] {
   return raw
     .slice("--emails=".length)
     .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
+    .map((value) => parseEmailAddress(value))
+    .filter((value): value is string => value !== null);
 }
 
 async function main(): Promise<void> {
@@ -71,14 +76,14 @@ async function main(): Promise<void> {
     const active = await listActiveSuppressionInstructions(row.id);
 
     const stale = active.filter((instruction) =>
-      SUPPRESSION_EFFECTS.some((effect) => !instruction.value.effects.includes(effect)),
+      SUPPRESSION_EFFECTS.some((effect) => !hasSuppressionEffect(instruction.value, effect)),
     );
 
     console.log(`\n${row.email}: ${active.length} active, ${stale.length} missing an effect`);
 
     for (const instruction of stale) {
       const missing = SUPPRESSION_EFFECTS.filter(
-        (effect) => !instruction.value.effects.includes(effect),
+        (effect) => !hasSuppressionEffect(instruction.value, effect),
       );
 
       console.log(`  ${instruction.value.target.email} += [${missing.join(", ")}]`);
