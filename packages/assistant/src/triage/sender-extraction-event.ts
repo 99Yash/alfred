@@ -61,10 +61,42 @@ export const FLOOR_TRACE_PROJECTIONS = {
     meetingDemotionReason: audit?.reason ?? null,
   }),
   spam: (audit) => ({
-    /** True when the spam floor demoted a demand lane → `fyi` (rule 20). */
+    /** True when the spam floor demoted a REPLY lane → `fyi` (rule 20). */
     spamDemotedCategory: audit?.verdict.kind === "demote",
-    /** Structured reason for a spam demotion, if one fired. */
-    spamDemotionReason: audit?.reason ?? null,
+    /**
+     * What the spam floor concluded: `"demoted_reply_lane"` when it demoted,
+     * `"held_demand_lane"` when Gmail filed the mail as spam and the final
+     * category was still `urgent`/`action_needed` — the softened path (#1098),
+     * where the floor deliberately did not move the answer. `null` when the
+     * floor was inert. An over-tag audit reads THIS to tell a softened spam
+     * apart from a sender-kind demotion.
+     *
+     * `spamFloorOutcome`, not `…DemotionReason`, because one of its two values
+     * means "no demotion": an audit counting the floor's demotions must query
+     * `= 'demoted_reply_lane'`, and `IS NOT NULL` over-counts it. TWO of the
+     * three sibling floors keep the `<floor>DemotionReason` convention —
+     * `senderKind` and `meeting`; `override` projects `floorMatched`/
+     * `floorForced` instead. This floor breaks only the `DemotionReason` half
+     * and still projects `spamDemotedCategory` above. The break is SILENT to a
+     * cross-floor audit:
+     * `trace->>'spamDemotionReason'` reads as SQL NULL rather than failing, and
+     * the conventional query reports ZERO spam-floor activity with no error.
+     * The key an audit of this floor must read is `spamFloorOutcome`.
+     *
+     * `held_demand_lane` does not name WHO chose the lane — the floor cannot
+     * observe that. Join it on this same flat row:
+     *
+     *  - `floorForced = true` — the override floor's forced `urgent`. Exact.
+     *  - `secondPassFailure IS NOT NULL AND conflict = 'under_classification'
+     *    AND firstPassCategory IN ('fyi','done','newsletter','marketing')` —
+     *    `conservativeUnderClassificationFallback` wrote `action_needed` after a
+     *    second pass threw. All three clauses are required: `secondPassFailure`
+     *    is set on ANY second-pass throw, before the conflict kind is read, so
+     *    alone it reads a model's own first-pass `urgent` as deterministic.
+     *
+     * A row that matches neither join is the model's own judgment.
+     */
+    spamFloorOutcome: audit?.outcome ?? null,
   }),
 } satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
 
