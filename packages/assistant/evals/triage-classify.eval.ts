@@ -793,7 +793,7 @@ const CASES: Case[] = [
   },
   {
     // Pins the `…-noreply` SUFFIX rule alone: a platform relay on a domain that is
-    // NOT in `KNOWN_SERVICE_DOMAINS`, so `NO_REPLY_SUFFIX_RE` is the only door to
+    // NOT in `KNOWN_SERVICE_DOMAINS`, so `SERVICE_LOCAL_SUFFIX_RE` is the only door to
     // `service`. Rename the local to `community-digest@` and the same header
     // parses `person` — measured against the production function. Generalizes the
     // #1097 fix past LinkedIn: every relay platform sends reminder copy in the

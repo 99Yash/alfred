@@ -280,22 +280,47 @@ const SERVICE_LOCAL_PREFIX_RE =
   /^(no[-_.]?reply|donotreply|do[-_]not[-_]reply|notification|notifications|alerts?|security[-_]|billing[-_]|account[-_]|calendar[-_])/;
 
 /**
- * Locals that END in an unambiguous no-reply envelope (`messages-noreply`,
- * `invitations-noreply`, `jobalerts-noreply`, `notifications-noreply`, …).
- * The mirror of the `no[-_.]?reply` PREFIX branch above: providers prefix
- * (`noreply-accounts@`) and suffix (`messages-noreply@`) interchangeably, and
- * the suffix form used to fall through to `person`/`unknown` — which is how a
- * LinkedIn invite reminder relay reached the classifier as a person and was
- * tagged `awaiting_reply` off the reminder copy. A bare trailing `reply`
- * alone (`reply@`, `replies@`) is deliberately NOT matched: those can be
- * staffed mailboxes.
+ * Locals whose LAST separated token is a service word: the no-reply family
+ * (`messages-noreply`, `jobalerts-noreply`, `notifications-noreply`) plus the
+ * alert/notice family (`nse_alerts`, `waareeenergies.update`, `store-news`).
+ * The mirror of the `SERVICE_LOCAL_PREFIX_RE` branch above: providers prefix
+ * (`noreply-accounts@`) and suffix (`messages-noreply@`) interchangeably.
+ *
+ * The suffix form used to fall through to `person`/`unknown`, because a local
+ * part joined by `.`/`_`/`-` also matches `FIRST_LAST_LOCAL_RE` and reads as a
+ * human name. Three prod misses, measured over 319 `triage.classification`
+ * runs (2026-09-06..16):
+ *   - `messages-noreply@linkedin.com`, "Reminder: … invited you to connect" —
+ *     parsed `person`, tagged `awaiting_reply` off the reminder copy (#1097).
+ *   - `waareeenergies.update@in.mpms.mufg.com`, "Waaree Energies Limited -
+ *     Communication of deduction of Tax at Source on Dividend" — parsed
+ *     `person`, tagged `action_needed`. MUFG Intime is a share registrar: the
+ *     envelope is the registrar's and the ACTOR is the local part (#1100).
+ *   - `nse_alerts@nse.co.in`, "Funds/Securities Balance" — parsed `person`,
+ *     first pass `fyi`, escalated to `action_needed` by the
+ *     `under_classification` net (#1100).
+ *
+ * A SEPARATOR is required, so a bare `news@`/`newsletter@`/`updates@` local
+ * stays in `WEAK_SERVICE_LOCAL` and a staffed `news@` mailbox at a small
+ * company is not force-typed. A bare trailing `reply` (`reply@`, `replies@`)
+ * is not matched for the same reason.
+ *
+ * This union has no `^` alternative, unlike the `NO_REPLY_SUFFIX_RE` it
+ * replaces. Dropping it preserves behaviour: every bare form that branch
+ * matched (`noreply`, `no-reply`, `no_reply`, `donotreply`, `do-not-reply`,
+ * `do_not_reply`) is an exact member of `STRONG_SERVICE_LOCAL`, which
+ * `isAutomatedEnvelopeLocal` tests first. Measured over the 116-address prod
+ * corpus: the whole-corpus `fromKind` diff is 3 addresses, 0 of them in the
+ * no-reply family and 0 of them a person.
  */
-const NO_REPLY_SUFFIX_RE = /(?:^|[-_.])(?:no[-_]?reply|donotreply|do[-_]not[-_]reply)$/i;
+const SERVICE_LOCAL_SUFFIX_RE =
+  /[-_.](?:no[-_]?reply|donotreply|do[-_]not[-_]reply|alerts?|notifications?|newsletters?|news|updates?)$/i;
 
 /**
  * An unambiguous automated envelope local part — the exact `noreply` set, the
  * `notification…`/`security-`/`billing-`/`account-`/`calendar-` prefixes, or a
- * `…-noreply` suffix. Shared by the classifier verdict below and the
+ * separated service-word suffix (`…-noreply`, `…_alerts`, `….update`). Shared
+ * by the classifier verdict below and the
  * team-graph human-likeness rescue: an automated envelope is never rescued as
  * a person, even behind a person-like display name.
  */
@@ -303,7 +328,7 @@ function isAutomatedEnvelopeLocal(localPart: string): boolean {
   return (
     STRONG_SERVICE_LOCAL.has(localPart) ||
     SERVICE_LOCAL_PREFIX_RE.test(localPart) ||
-    NO_REPLY_SUFFIX_RE.test(localPart)
+    SERVICE_LOCAL_SUFFIX_RE.test(localPart)
   );
 }
 
