@@ -98,9 +98,11 @@ const traceKey = (key: keyof TraceRecord & string): string => key;
 
 /**
  * `trace ->> '<key>'` as text, with the key routed through {@link traceKey}. The
- * explicit `::text` cast is required: the key is sent as a bound parameter with
- * no declared type, and Postgres has both `jsonb ->> text` and `jsonb ->> int`,
- * so an uncast parameter is an ambiguous-operator error.
+ * explicit `::text` cast is deliberate but NOT required. Postgres resolves an
+ * unknown parameter to `text` by itself, so the uncast form runs: probed with
+ * `PREPARE p1 AS SELECT '{"a":"x"}'::jsonb ->> $1`, which prepares and returns
+ * `x`. The cast is kept because it names the operator this report means —
+ * `jsonb ->> text`, never `jsonb ->> int` — at the call site.
  */
 const traceText = (key: keyof TraceRecord & string): SQL =>
   sql`(t.trace ->> ${traceKey(key)}::text)`;
@@ -122,10 +124,14 @@ const SPAM_FLOOR_OUTCOMES = {
 } satisfies Record<NonNullable<TraceRecord["spamFloorOutcome"]>, string>;
 
 /**
- * Bucket for a spam row whose `spamFloorOutcome` reads as SQL NULL. That is
- * either a real inert floor (the mail was not in a lane the floor governs) or a
- * row written before the key existed; `->>` cannot tell an absent key from a
- * JSON null, which is the same limit the header states.
+ * Bucket for a spam row whose `spamFloorOutcome` reads as SQL NULL. THREE causes
+ * land here, not two: a real inert floor (the mail was not in a lane the floor
+ * governs), a row written before the key existed, and a classify that THREW.
+ * On the throw path `workflow-operations.ts` keeps `observations` and leaves
+ * `audit` null, so the trace is still written with `gmailSpam: true` and no
+ * outcome — a FAILED classify prints here as "floor inert", which is this
+ * report's worst reading. `->>` cannot tell an absent key from a JSON null,
+ * which is the same limit the header states. Item 37 owns the discriminator.
  */
 const SPAM_FLOOR_INERT = "(null)";
 
@@ -223,7 +229,7 @@ async function watchSpamFloor(total: number): Promise<void> {
   }
 
   console.log(
-    `   ${SPAM_FLOOR_INERT} — floor inert, or the key predates the row: ` +
+    `   ${SPAM_FLOOR_INERT} — floor inert, or the key predates the row, or classify threw: ` +
       `${share(counts.get(SPAM_FLOOR_INERT) ?? 0, spamTotal)}`,
   );
 

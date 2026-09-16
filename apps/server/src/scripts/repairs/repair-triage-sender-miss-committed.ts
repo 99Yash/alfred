@@ -28,12 +28,20 @@
  *  - It does not touch a user-overridden row. `upsertTriage` returns at its
  *    read side with `written: false` on a `source = 'user'` row
  *    (`store.ts:197`), and `reconcileThreadLabel` re-reads the stored row inside
- *    the thread lock, so Gmail would converge on the USER's category anyway.
- *    Every post-classification side effect is `written`-gated, the todo branch
- *    included, so the enqueue costs exactly one wasted model call: no todo, no
- *    `inbox.updated`, no `email-triage.classified`, no sender prior and no
- *    decision trace. This script still skips it loudly — a model call the
- *    operator cannot see the point of is worth naming.
+ *    the thread lock, so Gmail converges on the USER's category either way.
+ *    The `written` gate covers the classify step's own side effects: no todo,
+ *    no `inbox.updated`, no `email-triage.classified`, no sender prior and no
+ *    decision trace. It does NOT cover the Gmail write. `classify` returns
+ *    `nextStep: "apply-label"` unconditionally (`workflow-operations.ts:739`),
+ *    and `apply-label` is a SIBLING step that reads neither `written` nor
+ *    `source`. It re-applies the stored row's category to the target message,
+ *    strips every Alfred label off the thread's siblings
+ *    (`stripAllAlfredLabels: true`, `tags.ts:146`), and bumps `row_version`
+ *    through `setAppliedLabelId` / `setTriageReconciledTarget`. Two gates stop
+ *    that write and neither of them reads `source`: the `emailTagging` feature
+ *    flag, and `gmailMailboxWritesEnabled()`. So on prod the enqueue costs one
+ *    wasted model call AND a live mailbox write of the category the user
+ *    already chose. That is why this script skips the row loudly.
  *
  * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
  * `node dist/scripts/repairs/repair-triage-sender-miss-committed.js` — the prod
@@ -221,8 +229,10 @@ async function main() {
         `    → SKIP: source='${plan.source}', and this repair re-runs auto rows only — the same ` +
           `allow-list the preview reads. On the 'user' row that means the user overrode this ` +
           `tag: upsertTriage returns written=false on it and reconcileThreadLabel re-reads it ` +
-          `under the lock, so a re-run cannot move the label. Every side effect is ` +
-          `written-gated, so the enqueue would cost one wasted model call and nothing else.`,
+          `under the lock, so a re-run cannot move the label. The classify step's own side ` +
+          `effects are written-gated, but apply-label is a sibling step that reads neither ` +
+          `written nor source: on prod the enqueue costs one wasted model call AND a live ` +
+          `Gmail write that re-applies the user's own category and bumps row_version.`,
       );
       continue;
     }

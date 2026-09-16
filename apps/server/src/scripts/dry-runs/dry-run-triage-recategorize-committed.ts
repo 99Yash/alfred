@@ -49,8 +49,10 @@ const RECAT_LIMIT = Number(process.env.RECAT_LIMIT) || 60;
 
 /**
  * Named Gmail thread ids. When set, these REPLACE the `RECAT_LIMIT` recency
- * window: the run scopes to exactly these threads in whichever mailbox owns
- * them. This is the preview half of a thread-scoped repair — see
+ * window: the run scopes to exactly these threads, inside the `TARGET_EMAILS`
+ * mailboxes. `main()` selects its users by `TARGET_EMAILS`, so a named thread
+ * that lives in any other mailbox is never previewed — `reportUncoveredThreads`
+ * prints it as `its mailbox … is outside TARGET_EMAILS`. This is the preview half of a thread-scoped repair — see
  * `../repairs/repair-triage-sender-miss-committed.ts`, which enqueues the real
  * workflow for the same ids and must never do so unpreviewed.
  *
