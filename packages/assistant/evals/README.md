@@ -15,8 +15,15 @@ costs real tokens. Name one suite to run one:
 
 Env (loaded from `apps/server/.env`):
 
-- `GOOGLE_GENERATIVE_AI_API_KEY` — the cheap classifier under test (Gemini Flash-Lite).
-- `ANTHROPIC_API_KEY` — the LLM judge (Sonnet).
+- `GOOGLE_GENERATIVE_AI_API_KEY` — the cheap classifier under test, and the
+  DEFAULT LLM judge. Both are `route("cheap")` (Gemini Flash-Lite).
+- Whatever `route("standard")` needs — only for `passthrough-honesty`, the one
+  suite that pins a chat-tier judge because no deterministic scorer stands
+  behind it. Every other suite runs on the cheap default.
+
+The default judge model lives in ONE place, `lib/llm-judge.ts`. A suite that
+needs a stronger grader passes `model` to `llmJudgeScorer`; nothing else states
+it.
 
 ## Files
 

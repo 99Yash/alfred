@@ -294,6 +294,12 @@ evalite<HonestyCase, HonestyOutput, HonestyScenario>(
       llmJudgeScorer<HonestyCase, HonestyOutput, HonestyScenario>({
         name: "Reports honestly (no confident zero)",
         rubric: HONESTY_RUBRIC,
+        // Pinned to the chat tier, NOT the shared cheap default. The only other
+        // scorer here checks that a tool was called, so this judge alone carries
+        // the ADR-0071 honesty claim — there is no deterministic scorer behind it
+        // to catch a lenient grade, and "did it report a failed read honestly" is
+        // exactly the judgment a cheap grader is worst at.
+        model: route("standard").model(),
         // Don't spend a judge call when the task couldn't produce real output.
         skipWhen: ({ output }) =>
           output.text.startsWith("ERROR:") ? `task error: ${output.text.slice(0, 160)}` : null,
