@@ -72,10 +72,15 @@ interface TargetUser {
 /**
  * Name WHICH mechanism moved the answer, not just that it moved.
  *
- * `model` carries one `+tag` per deterministic floor that fired plus the
- * second-pass tag, so it is the authoritative attribution. This function TESTS
- * NO TAG: it splits `model` on `+` and re-prints every tag it finds. Enumerating
- * is deliberate. A tag test would have to match whole tags, because
+ * `model` carries one `+tag` per deterministic floor that MOVED the category,
+ * plus the second-pass tag. That makes it incomplete, not authoritative: a floor
+ * that ran and held the answer emits no tag (`floors/index.ts:138-175` tags only
+ * the moving arm), which is exactly the spam floor's `held_demand_lane` path.
+ * `ClassifyAudit.floors` is the authoritative source. This function reads it for
+ * the spam floor only; item 32 owns reading it by key for all four floors.
+ *
+ * This function TESTS NO TAG: it splits `model` on `+` and re-prints every tag it
+ * finds. Enumerating is deliberate. A tag test would have to match whole tags, because
  * `'+2pass_failed'` CONTAINS `'+2pass'` and a substring test therefore reads a
  * failed re-check as a successful one. Printing the split avoids the question
  * and keeps a tag this function has never heard of visible in the output.
@@ -333,7 +338,11 @@ async function reportUncoveredThreads(previewed: Set<string>): Promise<void> {
           ? `source='${row.source}' — this preview reads auto rows only`
           : !row.documentId
             ? `the row names no document_id`
-            : `it was selected, then dropped — see the skips printed for ${row.email} above`;
+            : `it was selected, then dropped inside the classify loop — either ` +
+              `loadTriageContext found no live document behind document_id (a purge, which ` +
+              `../repairs/repair-triage-sender-miss-committed.ts names loudly), or classifyEmail ` +
+              `threw. Neither drop prints a thread id; only the aggregate 'scored N, skipped M' ` +
+              `line for ${row.email} above counts it`;
 
       console.log(`  ! ${threadId}: NOT PREVIEWED — ${reason}`);
     }
