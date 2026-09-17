@@ -389,51 +389,40 @@ function entityKindForNodeKind(kind: EntityNodeKind): EntityKind {
 }
 
 /**
- * True when `value` could be a human's name. A DENY test, not an allow test:
- * it rejects only the two shapes a human name cannot carry, so a single-token
- * name ("Sanyam"), a role suffix ("Jane Doe | Marketing") and a dotted local
- * part used as a display name ("sarah.chen") all still pass.
+ * True when `value` is a hostname that is the contact's own domain, or a
+ * parent or child of it. The ONE rule the VALUE side of the kind bar holds,
+ * and a DENY test: a single-token name ("Sanyam"), a role suffix ("Jane Doe |
+ * Marketing"), a pronoun parenthesis ("Jane Doe (she/her)") and a dotted local
+ * part used as a display name ("sarah.chen") all pass it.
  *
- * Rule 2 is the cross-kind duplicate rule stated exactly. `collectOrgDomains`
- * mints ONE `organization` row per non-free-mail sender domain, so a contact
- * whose display value IS its own mail domain is that organization restated
+ * It states the cross-kind duplicate rule exactly. `collectOrgDomains` mints
+ * ONE `organization` row per non-free-mail sender domain, so a contact whose
+ * display value IS its own mail domain is that organization restated
  * (`Amazon.in` from `order-update@amazon.in`). It asks `classifyEmailDomain`
  * with a bare `{ domain }` first, so "is this string a hostname at all" reuses
  * the ONE DNS grammar in `@alfred/contracts` (`hostname.ts`) rather than a
  * fourth hand-rolled regex.
  *
- * The VALUE side deliberately does NOT reuse `NON_PERSON_DISPLAY_RE`. That
- * regex is an AND-partner of the positive `PERSON_DISPLAY_RE`; standalone it
- * rejects the surnames Jobs, Sales and Service and every "Name | Function"
+ * A second value rule rejected a name holding `/`, for
+ * `99Yash/GHSA-xwg4-73v4-xw9w`. It is deleted (#1108 round 3). It matched the
+ * character anywhere in the string, so it demoted `Jane Doe (she/her)` and
+ * `Anna Müller / ACME GmbH`, and it bought nothing: every row it was written
+ * for arrives on `noreply@` or `notifications@`, which {@link
+ * isHardNonPersonClaim} already demotes from the address alone.
+ *
+ * The VALUE side deliberately does NOT reuse `NON_PERSON_DISPLAY_RE` either.
+ * That regex is an AND-partner of the positive `PERSON_DISPLAY_RE`; standalone
+ * it rejects the surnames Jobs, Sales and Service and every "Name | Function"
  * display convention, and a wrong demotion is not cosmetic —
  * `gmail-recipient-policy` filters `kind = 'person'` and fails a live send
  * closed. The ADDRESS side still reaches that regex through
  * `isLikelyPersonDisplayName`, but only to WITHHOLD the person fast path,
  * never to demote on its own: {@link isHardNonPersonClaim} decides that.
  */
-function isPersonNameShaped(input: PersonNameShapeInput): boolean {
-  const value = input.value.trim();
-
-  if (!value) return false;
-
-  // No human name carries a path segment (`99Yash/GHSA-xwg4-73v4-xw9w`).
-  if (value.includes("/")) return false;
-
-  return !restatesOwnDomain(value, input.domain);
-}
-
-interface PersonNameShapeInput {
-  /** The display value under test — what the writer stores as `canonical_name`. */
-  readonly value: string;
-  /** The contact's own mail domain, lowercased. Empty when the address had none. */
-  readonly domain: string;
-}
-
-/** True when `value` is a hostname that is the contact's own domain, or a parent or child of it. */
 function restatesOwnDomain(value: string, domain: string): boolean {
-  const candidate = value.toLowerCase();
+  const candidate = value.trim().toLowerCase();
 
-  if (!domain) return false;
+  if (!candidate || !domain) return false;
 
   if (classifyEmailDomain({ domain: candidate }) === null) return false;
 
@@ -500,7 +489,7 @@ function isHardNonPersonClaim(classified: EntityKindClassification, localPart: s
  *   - the ADDRESS side delegates to {@link classifyEntityKind} and then to
  *     {@link isHardNonPersonClaim}, so a `noreply@`/`notifications@` envelope
  *     is never a person and a soft guess never demotes one;
- *   - the VALUE side runs {@link isPersonNameShaped} over the stored canonical
+ *   - the VALUE side runs {@link restatesOwnDomain} over the stored canonical
  *     name.
  *
  * A canonical name equal to the address carries no display evidence — the
@@ -539,5 +528,5 @@ export function classifyContactKind(input: ClassifyContactKindInput): EntityKind
   // restated (`Amazon.in` from `order-update@amazon.in`).
   if (!displayName) return "person";
 
-  return isPersonNameShaped({ value: displayName, domain: parsed.domain }) ? "person" : "other";
+  return restatesOwnDomain(displayName, parsed.domain) ? "other" : "person";
 }
