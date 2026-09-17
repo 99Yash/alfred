@@ -47,3 +47,22 @@ export function mcpConnectionSubtitle(
 
   return `${status} · ${connection.toolCount} ${connection.toolCount === 1 ? "tool" : "tools"}`;
 }
+
+/**
+ * The card's health line: status, tool count, and when the connection last
+ * succeeded.
+ *
+ * The last-connected time is the one fact that separates a healthy connection
+ * from one that has not answered since long before the last catalog read. It is
+ * absent until the first successful connect, so it is appended only when it
+ * exists rather than rendered as a placeholder.
+ */
+export function mcpConnectionHealthText(
+  connection: Pick<McpConnection, "status" | "lastError" | "toolCount" | "lastConnectedAt">,
+): string {
+  const base = mcpConnectionSubtitle(connection);
+
+  if (connection.lastConnectedAt === null) return base;
+
+  return `${base} · Last connected ${connection.lastConnectedAt.toLocaleString()}`;
+}
