@@ -3,7 +3,6 @@ import {
   EVIDENCE_CITATION_URL_MAX_CHARS,
   integrationDisplayName,
   isFileDocumentSource,
-  sanitizeErrorMessage,
   sourceAuthorityFromManifest,
   sourceRefFromManifest,
   type BuiltInExpansionKind,
@@ -21,8 +20,8 @@ import {
   type ReconcileCandidates,
 } from "@alfred/assistant/connections";
 import { search, toModelFacingHit, type ModelFacingHit } from "@alfred/corpus";
-import { logger, safeErrorDiagnostic } from "@alfred/logging";
-import { evidenceObjectRefFromState } from "./object-ref";
+import { logger } from "@alfred/logging";
+import { boundCardText, cardNamesObjectRef } from "./object-ref";
 import { defineContextSource, type ContextSource } from "./registry";
 import { compareByScoreThenId, renderContent } from "./vector-source";
 
@@ -54,8 +53,10 @@ import { compareByScoreThenId, renderContent } from "./vector-source";
  * candidate key; only the projection may say what the work's state is. So the
  * card never reads a lifecycle out of prose, an unresolvable or ambiguous
  * reference leaves the card exactly as it was, and the object declares
- * `relation: "mentions"` — the chunk was still reached by similarity, and the
- * ranker must not read the annotation as an exact-key retrieval.
+ * `relation: "names"` — the chunk was still reached by similarity, so the
+ * ranker must not read the annotation as an exact-key retrieval, must not read
+ * a missed annotation as evidence the chunk is off-focus, and the packer must
+ * label the line so the model cannot read the chunk AS the object.
  */
 
 /**
@@ -130,7 +131,7 @@ async function readDocuments(request: ContextSearchRequest) {
   // stays inside Alfred's own store (an Alfred document id, like
   // `memory_chunk` → chunk id and `integration_object` → object id).
   const modelFacing = [...hits].map(toModelFacingHit).sort(compareByScoreThenId);
-  const objects = await mentionedObjectByCardId(request.userId, modelFacing);
+  const objects = await namedObjectByCardId(request.userId, modelFacing);
 
   const evidence = modelFacing.map((hit) =>
     documentHitToEvidenceCard(hit, objects.get(documentCardId(hit))),
@@ -165,44 +166,57 @@ function documentCardId(hit: ModelFacingHit): string {
  * into an error report and drop EVERY document card for this search — far worse
  * than losing an annotation. The catch logs, because a silent catch of exactly
  * this shape once hid a total briefing failure for seven weeks.
+ *
+ * The `try` covers the PROPOSE loop as well as the resolve. An adapter runs
+ * regexes over sender-controlled indexed text, so it is a throw site too, and a
+ * throw from it would drop every card by the same path the resolve's catch
+ * exists to fence.
+ *
+ * The raw error goes to `logger`, never a pre-rendered string: pino's `err`
+ * serializer reads an `Error` and writes the type, the message, and the stack,
+ * and a string reaches the sink as `{"type":"string"}` instead. That is how a
+ * catch that looks like it speaks says nothing.
  */
-async function mentionedObjectByCardId(
+async function namedObjectByCardId(
   userId: string,
   hits: readonly ModelFacingHit[],
 ): Promise<ReadonlyMap<string, EvidenceObjectRef>> {
   const found = new Map<string, EvidenceObjectRef>();
-  const subjects: ReconcileCandidates[] = [];
-
-  for (const hit of hits) {
-    const id = documentCardId(hit);
-    const subject = { id, text: { subject: hit.title ?? "", content: hit.preview } };
-    const keys = proposeObjectKeys(subject, { reading: "annotates" });
-
-    if (keys.length > 0) subjects.push({ id, keys });
-  }
-
-  if (subjects.length === 0) return found;
 
   try {
+    const subjects: ReconcileCandidates[] = [];
+
+    for (const hit of hits) {
+      const id = documentCardId(hit);
+      const subject = { id, text: { subject: hit.title ?? "", content: hit.preview } };
+      const keys = proposeObjectKeys(subject, { reading: "annotates" });
+
+      if (keys.length > 0) subjects.push({ id, keys });
+    }
+
+    if (subjects.length === 0) return found;
+
     const reconciled = await reconcileEvidence({ userId, subjects });
 
     for (const [id, resolved] of reconciled) {
-      const byObjectId = new Map(resolved.map((object) => [object.state.objectId, object.state]));
+      const byObjectId = new Map(resolved.map((object) => [object.state.objectId, object]));
 
       if (byObjectId.size !== 1) continue;
-      const [state] = [...byObjectId.values()];
+      const [object] = [...byObjectId.values()];
 
-      if (!state) continue;
-      // The chunk NAMES this object; it is not the object. The relation is what
-      // keeps the ranker's exact-retrieval feature off a semantic hit.
-      const ref = evidenceObjectRefFromState(state, "mentions");
+      if (!object) continue;
+      // The chunk NAMES this object; it is not the object. `cardNamesObjectRef`
+      // takes the reconcile seam's own result, so the `names` relation — the
+      // one that keeps the ranker's exact-retrieval feature off a semantic
+      // hit — cannot be claimed by a producer that never went through the seam.
+      const ref = cardNamesObjectRef(object);
 
       if (ref) found.set(id, ref);
     }
   } catch (err) {
     logger.error(
-      { err: safeErrorDiagnostic(err), event: "context_search_object_annotation_failed", userId },
-      "Resolving mentioned object state for document cards failed; cards are unannotated",
+      { err, event: "context_search_object_annotation_failed", userId },
+      "Resolving named object state for document cards failed; cards are unannotated",
     );
 
     return new Map();
@@ -234,12 +248,10 @@ async function mentionedObjectByCardId(
  * store: the one resolve runs once for the whole page in `readDocuments`.
  */
 function documentHitToEvidenceCard(hit: ModelFacingHit, object?: EvidenceObjectRef): EvidenceCard {
-  // `sanitizeErrorMessage` bounds and strips poison; an all-poison title
-  // collapses to empty, which is not a citation, so it falls back to undefined.
-  // The label cap is the tighter bound shared with the citation schema.
-  const title = hit.title
-    ? sanitizeErrorMessage(hit.title, EVIDENCE_CITATION_LABEL_MAX_CHARS) || undefined
-    : undefined;
+  // `boundCardText` bounds and strips poison; an all-poison title collapses to
+  // empty, which is not a citation, so it falls back to undefined. The label cap
+  // is the tighter bound shared with the citation schema.
+  const title = boundCardText(hit.title, EVIDENCE_CITATION_LABEL_MAX_CHARS);
 
   const authority = sourceAuthorityFromManifest(documentManifest());
   const anchors = pageAnchors(hit.page);

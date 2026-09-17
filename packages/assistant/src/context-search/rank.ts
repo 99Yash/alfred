@@ -435,11 +435,18 @@ interface FeatureInputs {
  * average at zero permanently. An object-state MISS card (no `object`) is
  * demoted through its `score: 0`, not through these features.
  *
- * `exactMatch` reads one field further. A document card may now carry an object
- * its own text NAMED (#1087), and that card was still reached by similarity, so
- * only `relation: "is"` earns the feature. `focus` and `objectState` stay
- * ungated: a chunk that mentions the object the caller asked about is genuinely
- * on-focus, and the projection's lifecycle reads the same either way.
+ * Two features read `relation` (#1087), because a document card may now carry
+ * an object its own text NAMED and that card was still reached by similarity:
+ *
+ * - `exactMatch` asserts a retrieval mode, so only `relation: "is"` earns it.
+ * - `focus` scores a measured miss as `0`, and only an `is` card can measure
+ *   one; see {@link focusMatcher}. A `names` card that matches still scores,
+ *   because a chunk naming the object the caller asked about is genuinely
+ *   on-focus.
+ *
+ * `objectState` stays ungated by design. It is the feature this slice exists to
+ * feed, and the projection's lifecycle reads the same whichever way the card
+ * reached the object: a chunk about merged work is about merged work.
  */
 function cardFeatures(card: EvidenceCard, { context, semantic, focus }: FeatureInputs) {
   // The bag starts empty and every feature writes itself in. A feature here is
@@ -678,12 +685,23 @@ function focusMatcher(
 
     // A card that carries no `object` cannot be about the caller's declared
     // focus, but most sources cannot carry one — so the feature is absent,
-    // not zero. Only a card with an object expresses focus either way.
+    // not zero.
     if (object === undefined) return undefined;
 
     if (identities.has(`${object.provider}:${object.kind}:${object.externalId}`)) return 1;
 
-    return providers.has(object.provider) ? 0.5 : 0;
+    if (providers.has(object.provider)) return 0.5;
+
+    // Zero is a MEASURED miss, and only an `is` card can supply one: it carries
+    // the one identity the caller resolved, and that identity is not a declared
+    // one. A `names` card cannot. Its object is whatever key the chunk's own
+    // rendered preview happened to hold, so a non-match says the annotation
+    // missed — the declared object may sit past the preview's cut, or in a
+    // written form no adapter parses — never that the chunk is off-focus.
+    // Absent, not zero: `weightedAverage` divides by the weights the card
+    // supplied, so a zero here would demote the annotated card below the
+    // unannotated one beside it on a reading the annotation cannot support.
+    return object.relation === "is" ? 0 : undefined;
   };
 }
 
