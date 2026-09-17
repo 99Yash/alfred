@@ -83,6 +83,90 @@ describe("mcpIntegrationRoutes", () => {
     assert.equal(remove.status, 401);
   });
 
+  test("keeps the connection catalog reads behind authentication", async () => {
+    const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
+
+    const requests = [
+      new Request("http://localhost/api/integrations/mcp/connections/conn_1/tools"),
+      new Request(
+        "http://localhost/api/integrations/mcp/connections/conn_1/tools/inspect?remoteName=create_issue&catalogRevision=rev_1",
+      ),
+    ];
+
+    for (const request of requests) {
+      const response = await app.handle(request);
+      assert.equal(response.status, 401);
+    }
+  });
+
+  test("binds the catalog read to the path connection id", async () => {
+    const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
+
+    const toolsRoute = app.routes.find(
+      (candidate) =>
+        candidate.method === "GET" &&
+        candidate.path === "/api/integrations/mcp/connections/:id/tools",
+    );
+
+    const inspectRoute = app.routes.find(
+      (candidate) =>
+        candidate.method === "GET" &&
+        candidate.path === "/api/integrations/mcp/connections/:id/tools/inspect",
+    );
+
+    assert.ok(toolsRoute);
+    assert.ok(inspectRoute);
+
+    const toolsProbe = new Elysia().get("/tools", ({ query }) => query, {
+      query: toolsRoute.hooks.query,
+    });
+
+    const toolsAccepted = await toolsProbe.handle(
+      new Request("http://localhost/tools?query=issue&detail=summary&cursor=cursor-2&limit=5"),
+    );
+
+    assert.equal(toolsAccepted.status, 200);
+    assert.deepEqual(await toolsAccepted.json(), {
+      query: "issue",
+      detail: "summary",
+      cursor: "cursor-2",
+      limit: 5,
+    });
+
+    // The connection identity is the path segment alone. A client that names a
+    // different `connectionId` — or the owner-wide `namespace` — is refused
+    // before the handler runs, so the read can only ever target `params.id`.
+    for (const query of ["connectionId=conn_2", "namespace=server_2", "ref=anything"]) {
+      const rejected = await toolsProbe.handle(new Request(`http://localhost/tools?${query}`));
+
+      assert.equal(rejected.status, 422, query);
+    }
+
+    const inspectProbe = new Elysia().get("/inspect", ({ query }) => query, {
+      query: inspectRoute.hooks.query,
+    });
+
+    const inspectAccepted = await inspectProbe.handle(
+      new Request("http://localhost/inspect?remoteName=create_issue&catalogRevision=rev_1"),
+    );
+
+    assert.equal(inspectAccepted.status, 200);
+    assert.deepEqual(await inspectAccepted.json(), {
+      remoteName: "create_issue",
+      catalogRevision: "rev_1",
+    });
+
+    for (const query of [
+      "connectionId=conn_2&remoteName=create_issue&catalogRevision=rev_1",
+      "kind=mcp&remoteName=create_issue&catalogRevision=rev_1",
+      "remoteName=create_issue",
+    ]) {
+      const rejected = await inspectProbe.handle(new Request(`http://localhost/inspect?${query}`));
+
+      assert.equal(rejected.status, 422, query);
+    }
+  });
+
   test("publishes only the optional recovery cursor", async () => {
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
 

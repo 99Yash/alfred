@@ -128,28 +128,32 @@ export function MCPServerSection() {
         <McpAddServerForm />
       </div>
 
-      <McpRecoveryList
-        operations={recoveryOperations}
-        awaitingRepair={awaitingRepair}
-        loading={recoveryQuery.isPending}
-        readError={recoveryQuery.isError}
-        hasNextPage={recoveryQuery.hasNextPage}
-        loadingMore={recoveryQuery.isFetchingNextPage}
-        mutationPending={recoveryMutation.isPending}
-        mutationError={recoveryMutation.isError}
-        onReadRetry={() => {
-          void recoveryQuery.refetch();
-        }}
-        onLoadMore={() => {
-          void recoveryQuery.fetchNextPage();
-        }}
-        onResolve={(invocationId, decision) => {
-          recoveryMutation.mutate({ kind: "resolve", invocationId, decision });
-        }}
-        onRetry={(invocationId) => {
-          recoveryMutation.mutate({ kind: "successor", invocationId });
-        }}
-      />
+      {/* The remove-refusal anchor: a DELETE refused for an unresolved
+          invocation links here, so the owner resolves first. */}
+      <div id="mcp-recovery">
+        <McpRecoveryList
+          operations={recoveryOperations}
+          awaitingRepair={awaitingRepair}
+          loading={recoveryQuery.isPending}
+          readError={recoveryQuery.isError}
+          hasNextPage={recoveryQuery.hasNextPage}
+          loadingMore={recoveryQuery.isFetchingNextPage}
+          mutationPending={recoveryMutation.isPending}
+          mutationError={recoveryMutation.isError}
+          onReadRetry={() => {
+            void recoveryQuery.refetch();
+          }}
+          onLoadMore={() => {
+            void recoveryQuery.fetchNextPage();
+          }}
+          onResolve={(invocationId, decision) => {
+            recoveryMutation.mutate({ kind: "resolve", invocationId, decision });
+          }}
+          onRetry={(invocationId) => {
+            recoveryMutation.mutate({ kind: "successor", invocationId });
+          }}
+        />
+      </div>
     </section>
   );
 }
