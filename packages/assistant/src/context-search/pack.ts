@@ -374,10 +374,18 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
  *   that said "this is handled" would invite the model to call the EMAIL
  *   handled — the exact confusion the two labels exist to prevent, one line
  *   lower.
- * - **It rides the same string as the lifecycle**, not a second `lines.push`.
- *   A separate line is a thing a later edit can reorder, drop, or budget away
- *   on its own; one string makes "the note survives beside the lifecycle"
- *   structural rather than conventional.
+ * - **It rides the same rendered LINE as the lifecycle**, not a second
+ *   `lines.push`. A separate line is a thing a later edit can reorder, drop, or
+ *   budget away on its own. One returned string is not by itself one line,
+ *   because every field this function interpolates is an open provider string:
+ *   `evidenceObjectRefSchema` bounds `title`, `repo`, `nativeState`, `url`,
+ *   `provider`, and `kind` by length alone, and the GitHub reducer copies a
+ *   pull-request title verbatim. A title that carried a newline used to split
+ *   the render, and the first line then stated a `resolved` lifecycle with no
+ *   clause after it — the exact honesty failure this clause exists to prevent.
+ *   So the assembled line goes through {@link oneLine} before it is returned.
+ *   That is what makes "the note survives beside the lifecycle" structural
+ *   rather than conventional, and it holds for a field added later too.
  * - **It never goes through `bound()`.** The clause is one of two constant
  *   strings (`closesOpenAsk` returns `LoopClosingStateCategory`), 63 characters
  *   at most, and `packEvidenceCards` measures the whole rendered card before
@@ -403,7 +411,23 @@ function renderObject(object: EvidenceObjectRef): string {
   const closing = evidenceObjectClosesAsk(object);
   const closed = closing ? ` — closed work: this object is ${closing}; it is not an open ask` : "";
 
-  return `${object.provider}/${object.kind} ${state} (${category})${title}${repo}${url}${closed}`;
+  return oneLine(
+    `${object.provider}/${object.kind} ${state} (${category})${title}${repo}${url}${closed}`,
+  );
+}
+
+/**
+ * Folds every run of whitespace — a newline included — into one space.
+ *
+ * Applied to a whole rendered line, never to a field, so a field added to
+ * {@link renderObject} later inherits the property instead of needing its own
+ * call. The pack format is line-oriented: `renderCard` joins with `\n`, and a
+ * consumer that reads one line expects one card fact. A provider string that
+ * carried a line break would make a suffix of that fact unreachable to such a
+ * reader, so the render, not the producer, is where the break is removed.
+ */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 /**
