@@ -59,7 +59,7 @@ export const integrationObjects = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     /** Integration slug — `github`, later `clickup`, `claude-code`. */
     provider: text("provider").notNull(),
-    /** Object kind within the provider — `pull_request` (v1). */
+    /** Object kind within the provider — `pull_request`, `ci_attempt`, `ci_target` for github. */
     kind: text("kind").notNull(),
     /** Provider-native stable id — github PR `id` as a string for v1. */
     externalId: text("external_id").notNull(),
@@ -81,6 +81,16 @@ export const integrationObjects = pgTable(
      * state (the reducer's monotonicity guarantee).
      */
     stateDeliveredAt: timestamp("state_delivered_at", { withTimezone: true }),
+    /**
+     * Provider-clock instant of the state this row holds (a suite's
+     * `updated_at`, #1093). Target rows order by the
+     * (`provider_event_at`, `state_delivered_at`) pair, so the row holds the
+     * outcome of the latest attempt by provider event time, not by receipt
+     * time. Null for rows that predate provider-time tracking and for rows
+     * whose deltas carry no provider instant (PRs, attempts) — those keep the
+     * receipt-clock guard alone.
+     */
+    providerEventAt: timestamp("provider_event_at", { withTimezone: true }),
     /** Temporal validity window (ADR-0012 machinery; see `user_facts`). */
     validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
     validUntil: timestamp("valid_until", { withTimezone: true }),

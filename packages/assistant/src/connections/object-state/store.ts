@@ -37,6 +37,14 @@ export interface ObjectStateDelta {
   externalId: string;
   /** Native-state token the registry's `normalize` maps to a `StateCategory`. */
   nativeState: string;
+  /**
+   * Provider-clock instant for this delta (a suite's `updated_at`). A delta
+   * that carries one orders its row by provider event time; a delta without
+   * one (every PR delta, every attempt row) keeps the receipt-clock guard.
+   * Absent or invalid at the reducer means absent here — never a smuggled
+   * null — and the store falls back to `deliveredAt` for the ordering.
+   */
+  providerEventTime?: Date | undefined;
   title?: string | undefined;
   url?: string | undefined;
   repo?: string | undefined;
@@ -138,11 +146,7 @@ export interface ObjectStateStore {
   ): Promise<ObjectState[]>;
 }
 
-type ReduceFn = (
-  eventType: string,
-  action: string | null,
-  payload: unknown,
-) => ObjectStateDelta | null;
+type ReduceFn = (eventType: string, action: string | null, payload: unknown) => ObjectStateDelta[];
 
 /** Per-provider reducers. The only per-provider code; everything else is generic. */
 const REDUCERS = {
@@ -191,110 +195,132 @@ function objectIdentityWhere(userId: string, identity: ObjectIdentity) {
 export const objectStateStore: ObjectStateStore = {
   async applyEvent(args) {
     const reduce = REDUCERS[args.provider];
-    const delta = reduce(args.eventType, args.action, args.payload);
+    const deltas = reduce(args.eventType, args.action, args.payload);
 
-    if (!delta) return;
-
-    // Unknown kinds never write: without a kind def there is no absorbing
-    // policy, so the monotonicity guard below would fail open and let a later
-    // delivery regress a resolved row back to active.
-    if (!getObjectKindDef(args.provider, delta.kind)) return;
-
-    // Native → agnostic bucket. An unrecognized token is a no-op, never a
-    // guessed state (absence never closes).
-    const stateCategory = getObjectDef(args.provider).normalize(delta.kind, delta.nativeState);
-
-    if (!stateCategory) return;
+    if (deltas.length === 0) return;
 
     await db().transaction(async (tx) => {
-      const [existing] = await tx
-        .select()
-        .from(integrationObjects)
-        .where(
-          objectIdentityWhere(args.userId, {
-            provider: args.provider,
-            kind: delta.kind,
-            externalId: delta.externalId,
-          }),
-        )
-        .limit(1);
+      for (const delta of deltas) {
+        // Unknown kinds never write: without a kind def there is no absorbing
+        // policy, so the monotonicity guard below would fail open and let a later
+        // delivery regress a resolved row back to active.
+        if (!getObjectKindDef(args.provider, delta.kind)) continue;
 
-      let objectId: string;
+        // Native → agnostic bucket. An unrecognized token is a no-op, never a
+        // guessed state (absence never closes).
+        const stateCategory = getObjectDef(args.provider).normalize(delta.kind, delta.nativeState);
 
-      if (!existing) {
-        const [row] = await tx
-          .insert(integrationObjects)
-          .values({
-            userId: args.userId,
-            provider: args.provider,
-            kind: delta.kind,
-            externalId: delta.externalId,
-            stateCategory,
-            nativeState: delta.nativeState,
-            title: delta.title ?? null,
-            url: delta.url ?? null,
-            repo: delta.repo ?? null,
-            attributes: delta.attributes ?? {},
-            stateDeliveredAt: args.deliveredAt,
-          })
-          .returning({ id: integrationObjects.id });
+        if (!stateCategory) continue;
 
-        if (!row) throw new Error("[object-state] applyEvent insert returned no row");
-        objectId = row.id;
-      } else {
-        objectId = existing.id;
+        // The provider-clock instant this delta speaks for: the reducer's own
+        // timestamp when valid, else the receipt clock. Attempt rows never
+        // carry one and keep the deliveredAt-only guard below.
+        const eventTime =
+          delta.providerEventTime instanceof Date &&
+          !Number.isNaN(delta.providerEventTime.getTime())
+            ? delta.providerEventTime
+            : null;
 
-        // Monotonicity: only advance state when this delivery is at least as
-        // recent as the one that last set it. A merged PR is absorbing, so a
-        // delayed open/synchronize delivery can't regress a merge back to active.
-        const isNewer =
-          existing.stateDeliveredAt === null || args.deliveredAt >= existing.stateDeliveredAt;
+        const [existing] = await tx
+          .select()
+          .from(integrationObjects)
+          .where(
+            objectIdentityWhere(args.userId, {
+              provider: args.provider,
+              kind: delta.kind,
+              externalId: delta.externalId,
+            }),
+          )
+          .limit(1);
 
-        // Which states are final is the KIND's declaration, not this file's
-        // rule. Work that closes by succession rather than by transition — a CI
-        // run, a deployment — declares no absorbing state at all, and then a
-        // later failure after a success lands here as ordinary traffic (#1093).
-        const wouldLeaveAbsorbingState =
-          stateCategory !== existing.stateCategory &&
-          isAbsorbingState(args.provider, delta.kind, existing.stateCategory);
+        let objectId: string;
 
-        if (isNewer && !wouldLeaveAbsorbingState) {
-          await tx
-            .update(integrationObjects)
-            .set({
+        if (!existing) {
+          const [row] = await tx
+            .insert(integrationObjects)
+            .values({
+              userId: args.userId,
+              provider: args.provider,
+              kind: delta.kind,
+              externalId: delta.externalId,
               stateCategory,
               nativeState: delta.nativeState,
-              title: delta.title ?? existing.title,
-              url: delta.url ?? existing.url,
-              repo: delta.repo ?? existing.repo,
-              attributes: { ...toRecord(existing.attributes), ...delta.attributes },
+              title: delta.title ?? null,
+              url: delta.url ?? null,
+              repo: delta.repo ?? null,
+              attributes: delta.attributes ?? {},
               stateDeliveredAt: args.deliveredAt,
+              providerEventAt: eventTime,
             })
-            .where(eq(integrationObjects.id, objectId));
-        }
-      }
+            .returning({ id: integrationObjects.id });
 
-      // Keys are additive identity facts about the object — upsert regardless
-      // of event order (the same head_sha always maps to the same PR).
-      for (const key of delta.keys) {
-        await tx
-          .insert(integrationObjectKeys)
-          .values({
-            userId: args.userId,
-            objectId,
-            provider: args.provider,
-            keyKind: key.keyKind,
-            keyValue: key.keyValue,
-          })
-          .onConflictDoUpdate({
-            target: [
-              integrationObjectKeys.userId,
-              integrationObjectKeys.provider,
-              integrationObjectKeys.keyKind,
-              integrationObjectKeys.keyValue,
-            ],
-            set: { objectId },
-          });
+          if (!row) throw new Error("[object-state] applyEvent insert returned no row");
+          objectId = row.id;
+        } else {
+          objectId = existing.id;
+
+          // Recency is the provider clock first, the receipt clock second: the
+          // row holds the outcome of the attempt with the greatest
+          // (providerEventTime, deliveredAt) pair (#1093). A row that predates
+          // provider-time tracking (null) always yields to a timestamped
+          // delta; a delta without a timestamp falls back to the deliveredAt
+          // guard the PR rows always used.
+          const isNewer =
+            eventTime === null
+              ? existing.stateDeliveredAt === null || args.deliveredAt >= existing.stateDeliveredAt
+              : existing.providerEventAt === null ||
+                eventTime.getTime() > existing.providerEventAt.getTime() ||
+                (eventTime.getTime() === existing.providerEventAt.getTime() &&
+                  (existing.stateDeliveredAt === null ||
+                    args.deliveredAt >= existing.stateDeliveredAt));
+
+          // Which states are final is the KIND's declaration, not this file's
+          // rule. Work that closes by succession rather than by transition — a CI
+          // run, a deployment — declares no absorbing state at all, and then a
+          // later failure after a success lands here as ordinary traffic (#1093).
+          const wouldLeaveAbsorbingState =
+            stateCategory !== existing.stateCategory &&
+            isAbsorbingState(args.provider, delta.kind, existing.stateCategory);
+
+          if (isNewer && !wouldLeaveAbsorbingState) {
+            await tx
+              .update(integrationObjects)
+              .set({
+                stateCategory,
+                nativeState: delta.nativeState,
+                title: delta.title ?? existing.title,
+                url: delta.url ?? existing.url,
+                repo: delta.repo ?? existing.repo,
+                attributes: { ...toRecord(existing.attributes), ...delta.attributes },
+                stateDeliveredAt: args.deliveredAt,
+                ...(eventTime === null ? {} : { providerEventAt: eventTime }),
+              })
+              .where(eq(integrationObjects.id, objectId));
+          }
+        }
+
+        // Keys are additive identity facts about the object — upsert regardless
+        // of event order (the same head_sha always maps to the same PR).
+        for (const key of delta.keys) {
+          await tx
+            .insert(integrationObjectKeys)
+            .values({
+              userId: args.userId,
+              objectId,
+              provider: args.provider,
+              keyKind: key.keyKind,
+              keyValue: key.keyValue,
+            })
+            .onConflictDoUpdate({
+              target: [
+                integrationObjectKeys.userId,
+                integrationObjectKeys.provider,
+                integrationObjectKeys.keyKind,
+                integrationObjectKeys.keyValue,
+              ],
+              set: { objectId },
+            });
+        }
       }
     });
   },
