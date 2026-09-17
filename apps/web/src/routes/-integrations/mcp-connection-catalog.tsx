@@ -1,6 +1,6 @@
 import { getStringPath } from "@alfred/contracts";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { AppButton, AppCard } from "~/components/ui/v2";
 import { client } from "~/lib/eden";
 import {
@@ -10,6 +10,7 @@ import {
   type McpConnectionToolInspection,
 } from "./helpers";
 import { mcpConnectionStatusText } from "./mcp-server-status";
+import { McpToolPolicyReview } from "./mcp-tool-policy";
 
 type SelectedToolRef = { readonly remoteName: string; readonly catalogRevision: string };
 
@@ -72,6 +73,12 @@ export interface McpCatalogViewProps {
   selectedRemoteName: string | null;
   inspection: McpConnectionToolInspection | null;
   inspectionLoading: boolean;
+  /**
+   * The exact-descriptor review surface for the selected tool, or null when no
+   * descriptor is selected. It is a node rather than a prop bag so the view
+   * stays hook-free and the container owns the review's read and writes.
+   */
+  policyReview: ReactNode;
   onSelect: (tool: McpConnectionTool) => void;
   onDismissInspection: () => void;
 }
@@ -98,6 +105,7 @@ export function McpCatalogView({
   selectedRemoteName,
   inspection,
   inspectionLoading,
+  policyReview,
   onSelect,
   onDismissInspection,
 }: McpCatalogViewProps) {
@@ -122,6 +130,8 @@ export function McpCatalogView({
       ) : inspection ? (
         <McpInspectionDetail inspection={inspection} onDismiss={onDismissInspection} />
       ) : null}
+
+      {policyReview}
 
       {loading ? (
         <p className="text-xs text-app-fg-3" role="status">
@@ -233,6 +243,15 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
   });
 
   const tools = toolsQuery.data?.pages.flatMap((page) => page.tools) ?? [];
+  const inspection = inspectQuery.data ?? null;
+
+  // The review mounts only for a descriptor that actually resolved. A
+  // `catalog_stale` or `not_found` inspection has no current descriptor to bind
+  // a review to, so the refusal is the whole surface for that selection.
+  const policyReview =
+    inspection?.status === "tool" ? (
+      <McpToolPolicyReview connectionId={connectionId} toolRef={inspection.ref} />
+    ) : null;
 
   return (
     <McpCatalogView
@@ -250,8 +269,9 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
         void toolsQuery.refetch();
       }}
       selectedRemoteName={selected?.remoteName ?? null}
-      inspection={inspectQuery.data ?? null}
+      inspection={inspection}
       inspectionLoading={inspectQuery.isFetching}
+      policyReview={policyReview}
       onSelect={(tool) =>
         setSelected({
           remoteName: tool.ref.remoteName,
