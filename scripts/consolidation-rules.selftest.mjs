@@ -317,6 +317,112 @@ const row = await db().transaction(async (tx) => {
     // drift-ok: Better-Auth adapter interface — its transaction wraps db().transaction internally
     adapter.transaction((trx) => callback(decorateOperations(trx, resolved) as typeof trx)),`,
   },
+  // `hand-rolled-object-closure`, one fixture per spelling the rule covers.
+  // The rule is chain-scoped for the `switch` arm alone, so every other arm is
+  // still a one-line fixture — it just lives in this lane because a rule
+  // belongs to exactly one lane.
+  {
+    name: "hand-rolled-object-closure — the category tested against the closing literals",
+    caught: true,
+    code: `if (card.object.stateCategory === "resolved") return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the same test written the other way round",
+    caught: true,
+    code: `if ("abandoned" === object.stateCategory) markHandled(object);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the local rename the sanctioned reader itself makes",
+    caught: true,
+    code: `if (category === "resolved") return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the inversion, which calls a failed build closed",
+    caught: true,
+    code: `if (stateCategory !== "active") markHandled(object);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the membership test re-implemented over the tuple",
+    caught: true,
+    code: `const closed = LOOP_CLOSING_STATE_CATEGORIES.includes(row.stateCategory);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the same membership test spelled with some()",
+    caught: true,
+    code: `const closed = LOOP_CLOSING_STATE_CATEGORIES.some((c) => c === row.category);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the tuple reaching includes() through a cast",
+    caught: true,
+    code: `  return (LOOP_CLOSING_STATE_CATEGORIES as readonly string[]).includes(category);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the tuple spelled out inline as an array literal",
+    caught: true,
+    code: `const closed = ["resolved", "abandoned"].includes(category);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the switch a closed union invites, whose case is a later line",
+    caught: true,
+    code: `
+switch (stateCategory) {
+  case "active":
+    return null;
+  case "resolved":
+    return "closed";
+}`,
+  },
+  {
+    name: "the tuple as a schema enum is a declaration, not a closure reading",
+    caught: false,
+    code: `  stateCategory: z.enum(LOOP_CLOSING_STATE_CATEGORIES),`,
+  },
+  {
+    name: "the registry declaring which categories a kind closes on is the owner of the policy",
+    caught: false,
+    code: `        closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,`,
+  },
+  {
+    name: "the closing tuple's own declaration names both literals and reads nothing",
+    caught: false,
+    code: `export const LOOP_CLOSING_STATE_CATEGORIES = ["resolved", "abandoned"] as const;`,
+  },
+  {
+    name: "isTerminalCategory reads a DIFFERENT tuple, and terminal is not closed",
+    caught: false,
+    code: `  return (TERMINAL_STATE_CATEGORIES as readonly string[]).includes(category);`,
+  },
+  {
+    name: "the sanctioned reader's own absent-category guard is not a closure reading",
+    caught: false,
+    code: `  if (object.stateCategory === undefined) return null;`,
+  },
+  {
+    name: "an honest activeness test is not the inversion",
+    caught: false,
+    code: `  if (stateCategory === "active") return renderOpenAsk(object);`,
+  },
+  {
+    name: "a triage category tested against a triage word is a different vocabulary",
+    caught: false,
+    code: `  if (classification.category !== "action_needed") return false;`,
+  },
+  {
+    name: "a switch on a category whose cases are triage words",
+    caught: false,
+    code: `
+switch (category) {
+  case "chat":
+    return "Chat turn";
+  case "triage":
+    return "Email triage";
+}`,
+  },
+  {
+    name: "delegating to the registry is the intended form",
+    caught: false,
+    code: `  return closesOpenAsk(object.provider, object.kind, object.stateCategory);`,
+  },
 ];
 
 // Line-scope fixtures. `boot-error-plain-extends` is a per-line rule, so it is
@@ -351,46 +457,6 @@ const LINE_CASES = [
     name: "an unrelated *NotFound* error extending Error is not a registry boot error",
     caught: false,
     code: `export class GoogleCredentialNotFoundError extends Error {`,
-  },
-  {
-    name: "hand-rolled-object-closure — the category tested against the closing literals",
-    caught: true,
-    code: `if (card.object.stateCategory === "resolved") return "closed";`,
-  },
-  {
-    name: "hand-rolled-object-closure — the same test written the other way round",
-    caught: true,
-    code: `if ("abandoned" === object.stateCategory) markHandled(object);`,
-  },
-  {
-    name: "hand-rolled-object-closure — the membership test re-implemented over the tuple",
-    caught: true,
-    code: `const closed = LOOP_CLOSING_STATE_CATEGORIES.includes(row.stateCategory);`,
-  },
-  {
-    name: "hand-rolled-object-closure — the same membership test spelled with some()",
-    caught: true,
-    code: `const closed = LOOP_CLOSING_STATE_CATEGORIES.some((c) => c === row.category);`,
-  },
-  {
-    name: "the tuple as a schema enum is a declaration, not a closure reading",
-    caught: false,
-    code: `  stateCategory: z.enum(LOOP_CLOSING_STATE_CATEGORIES),`,
-  },
-  {
-    name: "the registry declaring which categories a kind closes on is the owner of the policy",
-    caught: false,
-    code: `        closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,`,
-  },
-  {
-    name: "the sanctioned reader's own absent-category guard is not a closure reading",
-    caught: false,
-    code: `  if (object.stateCategory === undefined) return null;`,
-  },
-  {
-    name: "delegating to the registry is the intended form",
-    caught: false,
-    code: `  return closesOpenAsk(object.provider, object.kind, object.stateCategory);`,
   },
   {
     name: "partial-integration-slug-record — a sparse slug-keyed table (the PR #943 shape)",

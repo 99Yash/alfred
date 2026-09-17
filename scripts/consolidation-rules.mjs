@@ -135,7 +135,37 @@ export const RULES = [
     // `failed` is the trap that makes this sharp: it is terminal for the
     // object but it OPENS a CI loop, so a hand-rolled "terminal means closed"
     // inverts the meaning of every failing build.
-    re: /\bstateCategory\b[^;\n]*(?:===|!==)[^;\n]*"(?:resolved|abandoned)"|"(?:resolved|abandoned)"[^;\n]*(?:===|!==)[^;\n]*\bstateCategory\b|\bLOOP_CLOSING_STATE_CATEGORIES\b\s*\.\s*(?:includes|indexOf|some)\(/,
+    //
+    // The anchor is `\w*[Cc]ategory`, not `stateCategory`, because a local
+    // rename is enough to walk out of the fence: the sanctioned reader itself
+    // binds `const category = object.stateCategory ?? …` one line before it
+    // asks the registry. The anchor is never DROPPED, though — `"resolved"`
+    // alone is overloaded about ten times in this tree by an MCP identity
+    // status and a join result kind. Every live `*category` comparison tests a
+    // triage word (`action_needed`, `awaiting_reply`, `meeting`, `payment`,
+    // `urgent`) or a tool lane (`source`, `action`), so the widened anchor
+    // costs zero false positives today.
+    //
+    // Five spellings, because each is a plausible thing to write and each used
+    // to pass:
+    //   1. `category === "resolved"`, either operand order.
+    //   2. `category !== "active"` — the inversion, and the worst reading of
+    //      the five: it calls a FAILED build closed. Only the negated form is
+    //      matched; `=== "active"` is an honest activeness test.
+    //   3. the tuple fed to a membership test THROUGH A CAST —
+    //      `(LOOP_CLOSING_STATE_CATEGORIES as readonly string[]).includes(x)`
+    //      is verbatim the idiom `isTerminalCategory` uses next to the tuple,
+    //      so it is the spelling a reader copies first.
+    //   4. an inline array holding BOTH closing literals, fed to the same
+    //      membership test. Both literals are required, so the tuple
+    //      declarations stay legal.
+    //   5. `switch (category) { case "resolved": }`, which code-style.md §2
+    //      actively prefers for a closed union. This one is why the rule is
+    //      `scope: "chain"`: the header and the case land on separate lines,
+    //      which a per-line regex cannot see. The span is bounded at 600
+    //      characters so a match cannot swallow an unrelated later `switch`.
+    scope: "chain",
+    re: /\b\w*[Cc]ategory\b[^;\n]*(?:===|!==)[^;\n]*"(?:resolved|abandoned)"|"(?:resolved|abandoned)"[^;\n]*(?:===|!==)[^;\n]*\b\w*[Cc]ategory\b|\b\w*[Cc]ategory\b\s*!==\s*"active"|"active"\s*!==\s*\w*[Cc]ategory\b|\bLOOP_CLOSING_STATE_CATEGORIES\b[^;\n]*\.\s*(?:includes|indexOf|some)\(|\[[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*\][^;\n]*\.\s*(?:includes|indexOf|some)\(|switch\s*\([^)\n]*\b\w*[Cc]ategory\b[^)\n]*\)\s*\{[\s\S]{0,600}?\bcase\s+"(?:resolved|abandoned)"\s*:/,
     severity: "gate",
     fix: "Call closesOpenAsk(provider, kind, category) from @alfred/contracts for a projection row, or evidenceObjectClosesAsk(card.object) for an evidence card. Both read the registry's per-kind closesAskOn, so a kind that closes on neither category stays correct, and both return the closing category rather than a boolean. `failed` closes nothing: it is terminal for the object but it opens a CI loop.",
   },
