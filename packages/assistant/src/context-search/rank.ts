@@ -447,6 +447,16 @@ interface FeatureInputs {
  * `objectState` stays ungated by design. It is the feature this slice exists to
  * feed, and the projection's lifecycle reads the same whichever way the card
  * reached the object: a chunk about merged work is about merged work.
+ *
+ * Known consequence, measured. {@link weightedAverage} divides by the weights
+ * the card SUPPLIED, so a card that gains a feature scored below its own mean
+ * ends below an equal card that gained nothing. A card naming a `resolved`
+ * pull request therefore sits below an unannotated equal whenever that card's
+ * mean is above the mean of the values it gained. The drop is at most about
+ * `0.07`, and about `0.10` when `focus` also scores `0.5`. That is the
+ * ranker's model rather than a property of this feature; removing it needs
+ * either a score for the absent case, which would be a lie, or taking
+ * `objectState` out of the weighted average, which is a ranker redesign.
  */
 function cardFeatures(card: EvidenceCard, { context, semantic, focus }: FeatureInputs) {
   // The bag starts empty and every feature writes itself in. A feature here is
@@ -690,6 +700,11 @@ function focusMatcher(
 
     if (identities.has(`${object.provider}:${object.kind}:${object.externalId}`)) return 1;
 
+    // Known gap: this arm returns BEFORE the relation gate below, so a `names`
+    // card that annotates a DIFFERENT object of a declared provider scores
+    // 0.5 on the same reading the next comment refuses to score zero on. It
+    // costs such a card about 0.03 to 0.04 against an unannotated equal.
+    // Gating this arm is a separate change, not this slice.
     if (providers.has(object.provider)) return 0.5;
 
     // Zero is a MEASURED miss, and only an `is` card can supply one: it carries
