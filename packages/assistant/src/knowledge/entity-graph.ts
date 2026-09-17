@@ -1,18 +1,17 @@
 import { db, type DbTransaction } from "@alfred/db";
-import {
-  entities,
-  entityInsertSchema,
-  entityRelationInsertSchema,
-  entityRelations,
-  type Entity,
-  type NewEntity,
-  type NewEntityRelation,
-} from "@alfred/db/schemas";
-import { and, eq, sql } from "drizzle-orm";
+import { entities, entityInsertSchema, type Entity, type NewEntity } from "@alfred/db/schemas";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
+import { classifyContactKind } from "./entity-kind-classifier";
 import { entityKindSchema, type EntityKind, jsonRecordSchema } from "./types";
 
 const aliasesSchema = z.array(z.string());
+
+/**
+ * The two kinds the mail-contact writer owns. The alias match spans both so a
+ * re-classified contact is UPDATED in place rather than duplicated (#1108).
+ */
+const CONTACT_KINDS: readonly EntityKind[] = ["person", "other"];
 
 export const upsertEntityArgsSchema = entityInsertSchema
   .pick({ userId: true, kind: true, canonicalName: true, aliases: true, metadata: true })
@@ -27,21 +26,6 @@ export const upsertEntityArgsSchema = entityInsertSchema
 >;
 
 export type UpsertEntityArgs = z.infer<typeof upsertEntityArgsSchema>;
-
-export const linkEntitiesArgsSchema = entityRelationInsertSchema
-  .pick({ userId: true, fromEntityId: true, toEntityId: true, relation: true, metadata: true })
-  .extend({
-    userId: z.string().min(1),
-    fromEntityId: z.string().min(1),
-    toEntityId: z.string().min(1),
-    /** `manager_of`, `reports_to`, `works_at`, `colleague_of`, `invested_in`, … */
-    relation: z.string().min(1).max(80),
-    metadata: jsonRecordSchema.optional(),
-  }) satisfies z.ZodType<
-  Pick<NewEntityRelation, "userId" | "fromEntityId" | "toEntityId" | "relation" | "metadata">
->;
-
-export type LinkEntitiesArgs = z.infer<typeof linkEntitiesArgsSchema>;
 
 /**
  * DB row with the jsonb/enum columns narrowed to their parsed shapes. Other
@@ -86,7 +70,7 @@ function rowToEntity(r: Entity): EntityRow {
  *
  * NOTE — keying on `canonical_name` means a `person` whose display name
  * collides with a *different* existing person merges onto that row. For people,
- * whose stable identity is the email, prefer {@link upsertPersonByAlias}.
+ * whose stable identity is the email, prefer {@link upsertContactByAlias}.
  */
 export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): Promise<EntityRow> {
   const parsed = upsertEntityArgsSchema.parse(args);
@@ -150,7 +134,7 @@ export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): 
   return tx ? run(tx) : db().transaction(run);
 }
 
-export interface UpsertPersonByAliasArgs {
+export interface UpsertContactByAliasArgs {
   userId: string;
   /** The email alias the row is matched on (lowercased before matching). */
   address: string;
@@ -168,23 +152,39 @@ export interface UpsertPersonByAliasArgs {
 }
 
 /**
- * Upsert a `person` matched by EMAIL ALIAS rather than canonical name.
+ * Upsert ONE mail contact matched by EMAIL ALIAS rather than canonical name.
  *
- * A person's stable identity is the email; the display name drifts and collides
- * (two different "John Smith"s). {@link upsertEntity}'s `canonical_name` key
- * would merge a second John onto the first and clobber his correspondence, so
- * the team-graph writer keys on the alias instead. An existing row keeps its
- * established `canonicalName` — only a brand-new contact takes
- * `canonicalNameIfNew`. Aliases union; metadata merges last-writes-wins.
+ * A contact's stable identity is the email; the display name drifts and
+ * collides (two different "John Smith"s). {@link upsertEntity}'s
+ * `canonical_name` key would merge a second John onto the first and clobber his
+ * correspondence, so the team-graph writer keys on the alias instead. An
+ * existing row keeps its established `canonicalName` — only a brand-new contact
+ * takes `canonicalNameIfNew`. Aliases union; metadata merges
+ * last-writes-wins.
+ *
+ * The match covers BOTH kinds this writer owns (`person` and `other`) and the
+ * update SETS the kind, so a contact the bar re-classifies moves in place on the
+ * next capture run instead of minting a duplicate under the new kind. An
+ * `organization` row can never be caught by accident: its only alias is a bare
+ * domain, and a domain never contains `@`.
+ *
+ * The kind is DERIVED here, inside the match's transaction, from the canonical
+ * name the row carries (or, for a new row, the one it is about to carry) —
+ * never from the caller's per-run display name. The caller sees only the
+ * documents of its own run, so a run whose headers carried a bare address used
+ * to promote a demoted row straight back to `person`. Classifying the stored
+ * value makes the writer, the purge script and a dry run agree by construction,
+ * and keeps the bar self-healing: change the bar and the next run re-kinds the
+ * same row in place (#1108 round 1).
  */
-export async function upsertPersonByAlias(
-  args: UpsertPersonByAliasArgs,
+export async function upsertContactByAlias(
+  args: UpsertContactByAliasArgs,
   tx?: DbTransaction,
 ): Promise<EntityRow> {
   const address = args.address.trim().toLowerCase();
 
   if (!address) {
-    throw new Error("[memory.entities] upsertPersonByAlias requires a non-empty address");
+    throw new Error("[memory.entities] upsertContactByAlias requires a non-empty address");
   }
 
   const run = async (ex: DbTransaction): Promise<EntityRow> => {
@@ -194,7 +194,7 @@ export async function upsertPersonByAlias(
       .where(
         and(
           eq(entities.userId, args.userId),
-          eq(entities.kind, "person"),
+          inArray(entities.kind, CONTACT_KINDS),
           sql`EXISTS (
             SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
             WHERE lower(alias) = ${address}
@@ -203,19 +203,27 @@ export async function upsertPersonByAlias(
       )
       .limit(1);
 
+    // One classification per write, from the value this row stores.
+    const kind = entityKindSchema.parse(
+      classifyContactKind({
+        address,
+        canonicalName: existing?.canonicalName ?? args.canonicalNameIfNew,
+      }),
+    );
+
     if (!existing) {
       const [row] = await ex
         .insert(entities)
         .values({
           userId: args.userId,
-          kind: "person",
+          kind,
           canonicalName: args.canonicalNameIfNew,
           aliases: args.aliases,
           metadata: args.buildMetadata({}),
         })
         .returning();
 
-      if (!row) throw new Error("[memory.entities] upsertPersonByAlias insert returned no row");
+      if (!row) throw new Error("[memory.entities] upsertContactByAlias insert returned no row");
 
       return rowToEntity(row);
     }
@@ -231,6 +239,7 @@ export async function upsertPersonByAlias(
     const [row] = await ex
       .update(entities)
       .set({
+        kind: await resolveKindForUpdate(ex, existing, kind),
         aliases: mergedAliases,
         metadata: mergedMetadata,
         rowVersion: sql`${entities.rowVersion} + 1`,
@@ -238,7 +247,7 @@ export async function upsertPersonByAlias(
       .where(eq(entities.id, existing.id))
       .returning();
 
-    if (!row) throw new Error("[memory.entities] upsertPersonByAlias update returned no row");
+    if (!row) throw new Error("[memory.entities] upsertContactByAlias update returned no row");
 
     return rowToEntity(row);
   };
@@ -246,80 +255,104 @@ export async function upsertPersonByAlias(
   return tx ? run(tx) : db().transaction(run);
 }
 
-/** Add a relation. Idempotent — duplicate `(from, to, relation)` is a no-op. */
-export async function linkEntities(args: LinkEntitiesArgs, tx?: DbTransaction): Promise<void> {
-  const parsed = linkEntitiesArgsSchema.parse(args);
-  await (tx ?? db())
-    .insert(entityRelations)
-    .values({
-      userId: parsed.userId,
-      fromEntityId: parsed.fromEntityId,
-      toEntityId: parsed.toEntityId,
-      relation: parsed.relation,
-      metadata: parsed.metadata ?? {},
-    })
-    .onConflictDoNothing();
+export interface ReKindCollisionArgs {
+  readonly userId: string;
+  /** The kind the caller wants to move the row TO. */
+  readonly kind: EntityKind;
+  /** The canonical name of the row being moved. */
+  readonly canonicalName: string;
 }
 
-/** Look up by canonical name. */
-export async function findEntity(
-  userId: string,
-  kind: EntityKind,
-  canonicalName: string,
-): Promise<EntityRow | null> {
-  const [row] = await db()
-    .select()
+/**
+ * True when moving a contact row to `kind` would land on a row that already
+ * holds that `(user_id, kind, canonical_name)` coordinate — the columns of the
+ * `entities` unique index.
+ *
+ * The collision is not a re-kinder's to resolve: a merge would pick a winner
+ * and silently drop one contact's correspondence aggregate, so both callers
+ * keep the row's current kind and report it. A stale kind is recoverable; a
+ * dropped aggregate is not.
+ *
+ * ONE definition, for the same reason {@link classifyContactKind} is one: the
+ * live writer below and the committed purge backfill re-kind the same rows
+ * under the same index, and a second copy of this rule would drift (#1108,
+ * the #493 precedent).
+ */
+export async function reKindWouldCollide(
+  args: ReKindCollisionArgs,
+  tx?: DbTransaction,
+): Promise<boolean> {
+  const [clash] = await (tx ?? db())
+    .select({ id: entities.id })
     .from(entities)
     .where(
       and(
-        eq(entities.userId, userId),
-        eq(entities.kind, kind),
-        eq(entities.canonicalName, canonicalName),
+        eq(entities.userId, args.userId),
+        eq(entities.kind, args.kind),
+        eq(entities.canonicalName, args.canonicalName),
       ),
     )
     .limit(1);
 
-  return row ? rowToEntity(row) : null;
+  return Boolean(clash);
 }
 
-export interface RelatedEntity {
-  entity: EntityRow;
-  relation: string;
-  /** Direction of the edge from the input entity's perspective. */
-  direction: "out" | "in";
+/** The kind to write on an EXISTING contact row — see {@link reKindWouldCollide}. */
+async function resolveKindForUpdate(
+  ex: DbTransaction,
+  existing: Entity,
+  kind: EntityKind,
+): Promise<string> {
+  if (existing.kind === kind) return existing.kind;
+
+  const collides = await reKindWouldCollide(
+    { userId: existing.userId, kind, canonicalName: existing.canonicalName },
+    ex,
+  );
+
+  return collides ? existing.kind : kind;
 }
 
 /**
- * One-hop neighbors. Recursive multi-hop traversal can be a separate
- * helper later (recursive CTE) — single-hop is enough for the v1 use
- * cases (audience-bucket assignment, "who is alice's manager").
+ * The canonical name every stored contact row holds, keyed by its lowercased
+ * email alias.
+ *
+ * A DRY backfill persists nothing, so it has no written row to read the kind
+ * back from. It still has to report the kind a real write WOULD produce, and
+ * {@link classifyContactKind} is defined over the STORED canonical name — the
+ * value an existing row keeps and no writer ever updates. Without this read a
+ * preview classifies the display name this scan's headers happened to carry,
+ * which is exactly the per-run value the kind bar was moved off.
  */
-export async function getRelatedEntities(
+export async function readStoredContactNames(
   userId: string,
-  entityId: string,
-): Promise<RelatedEntity[]> {
-  const outgoing = await db()
-    .select({ rel: entityRelations, ent: entities })
-    .from(entityRelations)
-    .innerJoin(entities, eq(entityRelations.toEntityId, entities.id))
-    .where(and(eq(entityRelations.userId, userId), eq(entityRelations.fromEntityId, entityId)));
+  addresses: readonly string[],
+): Promise<Map<string, string>> {
+  const wanted = [...new Set(addresses.map((a) => a.trim().toLowerCase()).filter(Boolean))];
 
-  const incoming = await db()
-    .select({ rel: entityRelations, ent: entities })
-    .from(entityRelations)
-    .innerJoin(entities, eq(entityRelations.fromEntityId, entities.id))
-    .where(and(eq(entityRelations.userId, userId), eq(entityRelations.toEntityId, entityId)));
+  const names = new Map<string, string>();
 
-  return [
-    ...outgoing.map((r) => ({
-      entity: rowToEntity(r.ent),
-      relation: r.rel.relation,
-      direction: "out" as const,
-    })),
-    ...incoming.map((r) => ({
-      entity: rowToEntity(r.ent),
-      relation: r.rel.relation,
-      direction: "in" as const,
-    })),
-  ];
+  if (wanted.length === 0) return names;
+
+  const rows = await db()
+    .select({ canonicalName: entities.canonicalName, aliases: entities.aliases })
+    .from(entities)
+    .where(
+      and(
+        eq(entities.userId, userId),
+        inArray(entities.kind, CONTACT_KINDS),
+        sql`EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
+          WHERE ${inArray(sql`lower(alias)`, wanted)}
+        )`,
+      ),
+    );
+
+  for (const row of rows) {
+    for (const alias of aliasesSchema.parse(row.aliases ?? [])) {
+      names.set(alias.trim().toLowerCase(), row.canonicalName);
+    }
+  }
+
+  return names;
 }

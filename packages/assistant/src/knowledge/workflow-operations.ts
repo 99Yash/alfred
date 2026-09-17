@@ -318,7 +318,8 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
 
       await ctx.log(
         `team-graph capture: ${capturedThisRun.length} new doc(s) → ` +
-          `${applied.contacts} contact(s), ${applied.organizations} org(s), ${applied.relations} edge(s)`,
+          `${applied.contacts} contact(s), ${applied.organizations} org(s), ` +
+          `${applied.nonPersonContacts} non-person`,
       );
     } catch (err) {
       await ctx.log(
