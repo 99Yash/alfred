@@ -423,6 +423,63 @@ switch (category) {
     caught: false,
     code: `  return closesOpenAsk(object.provider, object.kind, object.stateCategory);`,
   },
+  {
+    name: "hand-rolled-object-closure — the sibling export that answers the same question in one argument",
+    caught: true,
+    code: `if (isTerminalCategory(object.stateCategory)) return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the sharper spelling of the same wrong reading",
+    caught: true,
+    code: `const closed = isTerminalCategory(category) && category !== "failed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the membership test spelled through a Set",
+    caught: true,
+    code: `const closed = new Set(LOOP_CLOSING_STATE_CATEGORIES).has(category);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the membership test spelled with find()",
+    caught: true,
+    code: `const hit = LOOP_CLOSING_STATE_CATEGORIES.find((c) => c === row.category);`,
+  },
+  {
+    name: "isTerminalCategory's own declaration is the definition, not a call",
+    caught: false,
+    code: `export function isTerminalCategory(category: StateCategory): category is TerminalStateCategory {`,
+  },
+  {
+    name: "a second switch standing next to the first owns its own cases",
+    caught: false,
+    code: `
+switch (toolCategory) {
+  case "source":
+    return "Source";
+}
+
+switch (mergeStatus) {
+  case "resolved":
+    return "Merged";
+}`,
+  },
+  {
+    name: "a switch nested inside a category switch owns its own cases",
+    caught: false,
+    code: `
+switch (resultCategory) {
+  case "join": {
+    switch (identity.status) {
+      case "resolved":
+        return "Joined";
+    }
+  }
+}`,
+  },
+  {
+    name: "two unrelated comparisons on one ternary line are not one reading",
+    caught: false,
+    code: `const label = category === "triage" ? "Email" : identity.status === "resolved" ? "Done" : "";`,
+  },
 ];
 
 // Line-scope fixtures. `boot-error-plain-extends` is a per-line rule, so it is
