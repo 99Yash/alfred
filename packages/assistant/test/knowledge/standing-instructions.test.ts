@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   SUPPRESSION_EFFECTS,
   rememberInput,
+  standingInstructionTargetKey,
   standingInstructionValueSchema,
   type StandingInstructionValue,
 } from "@alfred/contracts";
@@ -133,7 +134,7 @@ describe("system.remember input vs persisted standing instruction schema", () =>
       },
     });
 
-    assert.equal(parsed.target.email, "ben@example.com");
+    assert.equal(standingInstructionTargetKey(parsed.target), "sender_email:ben@example.com");
     assert.equal(
       standingInstructionValueSchema.safeParse({
         ...instruction(),

@@ -100,6 +100,7 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     standingInstructionSuppressedTodo: false,
     standingInstructionFactId: null,
     standingInstructionEffect: null,
+    standingInstructionMatchedVia: null,
     standingInstructionReadFailed: false,
     standingInstructionCategoryFactId: null,
     standingInstructionCategoryReadFailed: false,
