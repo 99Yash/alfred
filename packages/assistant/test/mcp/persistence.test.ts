@@ -201,7 +201,11 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const connId = await seedConnection(ownerId);
 
     assert.equal(
-      await deleteOwnedConnection({ connectionId: connId, userId: otherUserId }),
+      await deleteOwnedConnection({
+        connectionId: connId,
+        userId: otherUserId,
+        gate: mcpUnresolvedInvocationGate,
+      }),
       "not_found",
     );
     assert.ok(await readConnection(connId), "a foreign removal leaves the row");
@@ -262,11 +266,11 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     });
 
     assert.equal(
-      await deleteOwnedConnection({ connectionId: oauthConnectionId, userId }),
+      await deleteOwnedConnection({ connectionId: oauthConnectionId, userId, gate: "none" }),
       "removed",
     );
     assert.equal(
-      await deleteOwnedConnection({ connectionId: apiKeyConnectionId, userId }),
+      await deleteOwnedConnection({ connectionId: apiKeyConnectionId, userId, gate: "none" }),
       "removed",
     );
 

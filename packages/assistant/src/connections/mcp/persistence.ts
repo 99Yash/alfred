@@ -672,9 +672,13 @@ export type McpConnectionRemovalOutcome = "removed" | "not_found" | "blocked";
  * a concurrent `mcp_invocation` insert takes `FOR KEY SHARE` on the same parent
  * row, so it either commits before the lock (and the gate sees it) or blocks
  * until after the delete (and its foreign key then fails).
+ *
+ * `gate` is required and cannot be omitted: skipping the ambiguity barrier is
+ * spelled `"none"` at the call site, so the decision is visible and reviewable
+ * rather than implied by a missing field (`retry: RetryPolicy | "none"`).
  */
 export async function deleteOwnedConnection(
-  input: { connectionId: string; userId: string; gate?: McpConnectionRemovalGate },
+  input: { connectionId: string; userId: string; gate: McpConnectionRemovalGate | "none" },
   runner: DbRunner = db(),
 ): Promise<McpConnectionRemovalOutcome> {
   return runAtomic(runner, async (tx) => {
@@ -690,7 +694,7 @@ export async function deleteOwnedConnection(
     if (!locked) return "not_found";
 
     if (
-      input.gate &&
+      input.gate !== "none" &&
       (await input.gate.blocks(tx, {
         connectionId: input.connectionId,
         userId: input.userId,
