@@ -5,6 +5,7 @@ import {
   mcpAddServerBodySchema,
   mcpRecoveryDecisionBodySchema,
   mcpRecoveryOperationsPageQuerySchema,
+  mcpRenameConnectionBodySchema,
 } from "@alfred/contracts";
 import type { McpConnection } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -37,6 +38,7 @@ import {
 } from "@alfred/assistant/connections/mcp";
 import {
   listMcpRecoveryOperations,
+  mcpUnresolvedInvocationGate,
   resolveMcpRecoveryOperation,
   retryMcpRecoveryOperation,
 } from "@alfred/assistant/tool-runtime/mcp";
@@ -464,6 +466,57 @@ export const mcpIntegrationRoutes = new Elysia({
           if (!disconnected) throw Errors.NotFoundError("MCP connection not found");
 
           return { status: "disconnected" as const };
+        },
+        { params: t.Object({ id: t.String({ minLength: 1 }) }) },
+      )
+      // Rename changes only the display label. A built-in is a 400 rather than a
+      // silent no-op: its label is reclaimed from the catalog on the next
+      // connect, so the write would report success and then revert. The manager
+      // owns the owner-scoped, built-in-aware decision; the route only maps it.
+      .patch(
+        "/connections/:id",
+        async ({ body, params, user }) => {
+          const renamed = await getMcpConnectionManager().rename(params.id, user.id, body.label);
+
+          if (renamed.outcome === "built_in") {
+            throw Errors.BadRequestError("A built-in MCP connection cannot be renamed");
+          }
+
+          if (renamed.outcome === "not_found") {
+            throw Errors.NotFoundError("MCP connection not found");
+          }
+
+          return { id: renamed.id, label: renamed.label };
+        },
+        {
+          params: t.Object({ id: t.String({ minLength: 1 }) }),
+          body: mcpRenameConnectionBodySchema,
+        },
+      )
+      // Removal closes the live client and deletes the row plus its credential
+      // rows. It is refused while an unresolved invocation exists, so the
+      // ambiguity barrier is only discarded through the recovery facade: the
+      // owner resolves first, then removes.
+      .delete(
+        "/connections/:id",
+        async ({ params, user }) => {
+          const outcome = await getMcpConnectionManager().remove(
+            params.id,
+            user.id,
+            mcpUnresolvedInvocationGate,
+          );
+
+          if (outcome === "blocked") {
+            throw Errors.ConflictError(
+              "Resolve the pending MCP operation before removing this connection",
+            );
+          }
+
+          if (outcome === "not_found") {
+            throw Errors.NotFoundError("MCP connection not found");
+          }
+
+          return { id: params.id, ok: true as const };
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       ),

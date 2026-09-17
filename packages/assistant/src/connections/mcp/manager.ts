@@ -36,15 +36,19 @@ import {
   type McpPreparedToolCall,
 } from "./client";
 import { readApiKeyAuthForConnection } from "./api-key";
-import { builtInClientPolicy } from "./built-ins";
+import { builtInClientPolicy, builtInProviderForEndpoint } from "./built-ins";
 import { getMcpEndpointAuthorizer } from "./endpoint-authorization";
 import { boundedMcpErrorText, McpClientError } from "./errors";
 import {
   compareAndSetCatalogRevision,
+  deleteOwnedConnection,
   insertCatalogRevision,
   readConnection,
   readOwnedConnection,
+  renameOwnedConnection,
   updateConnection,
+  type McpConnectionRemovalGate,
+  type McpConnectionRemovalOutcome,
   type McpConnectionWithServer,
   type McpConnectionUpdate,
 } from "./persistence";
@@ -60,6 +64,8 @@ export interface McpConnectionManagerPersistence {
   readConnection: typeof readConnection;
   readOwnedConnection: typeof readOwnedConnection;
   updateConnection: typeof updateConnection;
+  renameOwnedConnection: typeof renameOwnedConnection;
+  deleteOwnedConnection: typeof deleteOwnedConnection;
   insertCatalogRevision: typeof insertCatalogRevision;
   compareAndSetCatalogRevision: typeof compareAndSetCatalogRevision;
 }
@@ -73,9 +79,17 @@ const DEFAULT_PERSISTENCE: McpConnectionManagerPersistence = {
   readConnection,
   readOwnedConnection,
   updateConnection,
+  renameOwnedConnection,
+  deleteOwnedConnection,
   insertCatalogRevision,
   compareAndSetCatalogRevision,
 };
+
+/** The closed answer a rename returns, mirroring the HTTP route's three branches. */
+export type McpConnectionRenameOutcome =
+  | { outcome: "renamed"; id: string; label: string }
+  | { outcome: "not_found" }
+  | { outcome: "built_in" };
 
 const MAX_CATALOG_STABILIZATION_ATTEMPTS = 3;
 
@@ -106,6 +120,9 @@ type McpManagerCloseIntent =
   | "shutdown"
   | "failure"
   | "disconnect"
+  // Closes the client and writes no durable state: the row was just deleted, so
+  // there is nothing left to write and a status patch would target no row.
+  | "removal"
   // Closes the client and writes no durable state: the caller replaced the
   // credential and immediately asks for a fresh generation, which writes the
   // next status itself.
@@ -195,6 +212,13 @@ export class McpConnectionManager {
   readonly #activeRevisionIds = new Map<string, string>();
   readonly #clientFactory: McpClientFactory;
   readonly #persistence: McpConnectionManagerPersistence;
+  /**
+   * Connection ids whose durable row deletion has begun. The fence is checked by
+   * BOTH `#assertAdmission` (at the entry of a request) and `#isOpenGeneration`
+   * (after every awaited step of a startup that already passed the entry check),
+   * so a client can never be opened for a row that is being deleted.
+   */
+  readonly #removals = new Set<string>();
   #shuttingDown = false;
 
   constructor(options: McpConnectionManagerOptions = {}) {
@@ -439,6 +463,73 @@ export class McpConnectionManager {
     }
 
     return true;
+  }
+
+  /**
+   * Change only the display label of a connection the caller owns.
+   *
+   * A built-in connection is refused. Its label is reclaimed from
+   * `BUILT_IN_MCP_CATALOG` by `ensureBuiltInConnection` on every connect, so a
+   * rename would report success and then silently revert on the next connect.
+   * `not_found` covers both a nonexistent id and another owner's connection with
+   * no side effect.
+   */
+  async rename(
+    connectionId: string,
+    userId: string,
+    label: string,
+  ): Promise<McpConnectionRenameOutcome> {
+    const owned = await this.#persistence.readOwnedConnection(connectionId, userId);
+
+    if (!owned) return { outcome: "not_found" };
+
+    if (builtInProviderForEndpoint(owned.server.endpointUrl) !== undefined) {
+      return { outcome: "built_in" };
+    }
+
+    const renamed = await this.#persistence.renameOwnedConnection({
+      connectionId,
+      userId,
+      label,
+    });
+
+    if (!renamed) return { outcome: "not_found" };
+
+    return { outcome: "renamed", id: renamed.id, label: renamed.label };
+  }
+
+  /**
+   * Delete a connection the caller owns and close its live client.
+   *
+   * The removal fence is raised BEFORE the durable delete, so a `getReadyClient`
+   * already in flight cannot open a client for a row that is about to disappear.
+   * The client is closed (and no durable state written) only when the delete
+   * actually removed the row; `not_found` and `blocked` leave a working
+   * connection completely alone.
+   */
+  async remove(
+    connectionId: string,
+    userId: string,
+    gate?: McpConnectionRemovalGate,
+  ): Promise<McpConnectionRemovalOutcome> {
+    this.#removals.add(connectionId);
+
+    try {
+      const outcome = await this.#persistence.deleteOwnedConnection({
+        connectionId,
+        userId,
+        ...(gate ? { gate } : {}),
+      });
+
+      if (outcome !== "removed") return outcome;
+
+      const generation = this.#beginClosing(connectionId);
+      await this.#closeGeneration(generation, "removal");
+
+      return "removed";
+    } finally {
+      this.#removals.delete(connectionId);
+    }
   }
 
   /**
@@ -756,7 +847,11 @@ export class McpConnectionManager {
   }
 
   #assertAdmission(connectionId: string): void {
-    if (this.#shuttingDown || this.#generations.get(connectionId)?.phase === "closing") {
+    if (
+      this.#shuttingDown ||
+      this.#removals.has(connectionId) ||
+      this.#generations.get(connectionId)?.phase === "closing"
+    ) {
       throw this.#notConnected(connectionId);
     }
   }
@@ -771,6 +866,7 @@ export class McpConnectionManager {
   #isOpenGeneration(generation: McpManagerGeneration): boolean {
     return (
       !this.#shuttingDown &&
+      !this.#removals.has(generation.connectionId) &&
       this.#generations.get(generation.connectionId) === generation &&
       generation.phase !== "closing"
     );
@@ -829,9 +925,16 @@ export class McpConnectionManager {
   ): Promise<void> {
     generation.phase = "closing";
 
+    // `disconnect` and `removal` are terminal owner instructions, so they always
+    // win; a `failure` may not overwrite either (removal's row is already gone,
+    // and a late `failed` write would target no row). A `shutdown` or
+    // `credential_replaced` only takes hold when nothing more terminal is set.
     if (
       intent === "disconnect" ||
-      (intent === "failure" && generation.closeIntent !== "disconnect") ||
+      intent === "removal" ||
+      (intent === "failure" &&
+        generation.closeIntent !== "disconnect" &&
+        generation.closeIntent !== "removal") ||
       generation.closeIntent === null
     ) {
       generation.closeIntent = intent;

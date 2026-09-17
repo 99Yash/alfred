@@ -6,6 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
+  mcpApiKeyCredentials,
   mcpConnections,
   mcpInvocation,
   mcpOauthCredentials,
@@ -15,10 +16,12 @@ import {
 import type { Tool } from "@modelcontextprotocol/client";
 import { eq, inArray, like } from "drizzle-orm";
 
+import { persistApiKeyCredential } from "../../src/connections/mcp/api-key";
 import { GITHUB_MCP_ENDPOINT_HREF } from "../../src/connections/mcp/constants";
 import { descriptorHash } from "../../src/connections/mcp/hash";
 import {
   compareAndSetCatalogRevision,
+  deleteOwnedConnection,
   ensureBuiltInConnection,
   ensureConnection,
   insertCatalogRevision,
@@ -26,10 +29,12 @@ import {
   readConnection,
   readCurrentRevision,
   readRevisionByHash,
+  renameOwnedConnection,
   updateConnection,
 } from "../../src/connections/mcp/persistence";
 import {
   findUnresolvedBarrier,
+  mcpUnresolvedInvocationGate,
   reconcileInflightInvocations,
   readToolPolicy,
   resolveMcpToolIdentity,
@@ -164,6 +169,122 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     const updated = await updateConnection(connId, { status: "ready", lastError: null });
     assert.equal(updated?.status, "ready");
+  });
+
+  test("renameOwnedConnection is owner-scoped and changes only the label", async () => {
+    const ownerId = await seedUser();
+    const otherUserId = await seedUser();
+    const connId = await seedConnection(ownerId);
+    await updateConnection(connId, { status: "ready", lastError: "kept" });
+
+    assert.equal(
+      await renameOwnedConnection({ connectionId: connId, userId: otherUserId, label: "Hijacked" }),
+      undefined,
+    );
+    assert.equal((await readConnection(connId))?.label, "Test MCP");
+
+    const renamed = await renameOwnedConnection({
+      connectionId: connId,
+      userId: ownerId,
+      label: "Renamed",
+    });
+
+    assert.equal(renamed?.label, "Renamed");
+    assert.equal(renamed?.instanceKey, "default");
+    assert.equal(renamed?.status, "ready");
+    assert.equal(renamed?.lastError, "kept");
+  });
+
+  test("deleteOwnedConnection is owner-scoped and refuses an unresolved invocation", async () => {
+    const ownerId = await seedUser();
+    const otherUserId = await seedUser();
+    const connId = await seedConnection(ownerId);
+
+    assert.equal(
+      await deleteOwnedConnection({ connectionId: connId, userId: otherUserId }),
+      "not_found",
+    );
+    assert.ok(await readConnection(connId), "a foreign removal leaves the row");
+
+    const invocation = await reserveMcpInvocationForTests({
+      userId: ownerId,
+      connectionId: connId,
+      remoteName: "send_invoice",
+      argsHash: "sha256:removal-gate",
+      stagingId: await seedStaging(ownerId),
+      effectClass: "write",
+    });
+
+    assert.equal(invocation.ok, true);
+
+    assert.equal(
+      await deleteOwnedConnection({
+        connectionId: connId,
+        userId: ownerId,
+        gate: mcpUnresolvedInvocationGate,
+      }),
+      "blocked",
+    );
+    assert.ok(await readConnection(connId), "a blocked removal leaves the row");
+
+    assert.ok(invocation.ok);
+
+    const [stillUnresolved] = await db()
+      .select({ id: mcpInvocation.id })
+      .from(mcpInvocation)
+      .where(eq(mcpInvocation.id, invocation.invocation.id));
+
+    assert.ok(stillUnresolved, "a blocked removal leaves its unresolved invocation");
+  });
+
+  test("a successful removal cascades both credential tables", async () => {
+    const userId = await seedUser();
+    const oauthConnectionId = await seedConnection(userId);
+    const apiKeyConnectionId = await seedConnection(userId);
+
+    const [oauthCredential] = await db()
+      .insert(mcpOauthCredentials)
+      .values({
+        userId,
+        connectionId: oauthConnectionId,
+        issuer: "https://auth.removal.example.test",
+      })
+      .returning();
+
+    assert.ok(oauthCredential);
+    await selectCredentialForTest(oauthConnectionId, oauthCredential.id);
+
+    await persistApiKeyCredential({
+      connectionId: apiKeyConnectionId,
+      userId,
+      placement: { in: "header", name: "x-api-key" },
+      value: "test-removal-key",
+    });
+
+    assert.equal(
+      await deleteOwnedConnection({ connectionId: oauthConnectionId, userId }),
+      "removed",
+    );
+    assert.equal(
+      await deleteOwnedConnection({ connectionId: apiKeyConnectionId, userId }),
+      "removed",
+    );
+
+    const oauthRows = await db()
+      .select({ id: mcpOauthCredentials.id })
+      .from(mcpOauthCredentials)
+      .where(eq(mcpOauthCredentials.connectionId, oauthConnectionId));
+
+    assert.deepEqual(oauthRows, []);
+
+    const apiKeyRows = await db()
+      .select({ id: mcpApiKeyCredentials.id })
+      .from(mcpApiKeyCredentials)
+      .where(eq(mcpApiKeyCredentials.connectionId, apiKeyConnectionId));
+
+    assert.deepEqual(apiKeyRows, []);
+    assert.equal(await readConnection(oauthConnectionId), undefined);
+    assert.equal(await readConnection(apiKeyConnectionId), undefined);
   });
 
   test("named connection instances share one server and keep separate state", async () => {

@@ -39,7 +39,10 @@ import {
   type McpToolPolicyRow,
   type NewMcpToolPolicyRow,
 } from "@alfred/db/schemas";
-import { builtInReadOnlyResource } from "@alfred/assistant/connections/mcp";
+import {
+  builtInReadOnlyResource,
+  type McpConnectionRemovalGate,
+} from "@alfred/assistant/connections/mcp";
 import { and, eq, exists, inArray, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -324,6 +327,37 @@ export async function findUnresolvedBarrier(
 
   return row;
 }
+
+/**
+ * The one place allowed to read the invocation ledger while the connection row
+ * is locked for removal. `tool-runtime -> connections` is the allowed import
+ * direction, so the connection half injects this gate rather than importing the
+ * ledger itself.
+ *
+ * An unresolved invocation — including a `delivery_possible` write whose outcome
+ * is still unknown — means removing the connection would silently discard
+ * ambiguous-write evidence and bypass the recovery facade. The gate refuses
+ * until the owner resolves the operation through that facade. The
+ * `FOR UPDATE` row lock taken before this runs is what closes the race with a
+ * concurrent invocation insert.
+ */
+export const mcpUnresolvedInvocationGate: McpConnectionRemovalGate = {
+  async blocks(tx, { connectionId, userId }) {
+    const [row] = await tx
+      .select({ id: mcpInvocation.id })
+      .from(mcpInvocation)
+      .where(
+        and(
+          eq(mcpInvocation.userId, userId),
+          eq(mcpInvocation.connectionId, connectionId),
+          isNull(mcpInvocation.resolvedAt),
+        ),
+      )
+      .limit(1);
+
+    return row !== undefined;
+  },
+};
 
 export interface ReconcileSummary {
   /** `prepared` rows that never reached delivery — safe, resolved. */

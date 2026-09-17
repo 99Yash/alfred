@@ -90,6 +90,7 @@ export {
   listOwnedConnections,
   readOwnedConnection,
   updateConnection,
+  type McpConnectionRemovalGate,
   type McpConnectionSummary,
 } from "./persistence";
 

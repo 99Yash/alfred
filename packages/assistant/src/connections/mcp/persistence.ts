@@ -20,7 +20,7 @@
  */
 
 import { BUILT_IN_MCP_CATALOG } from "@alfred/contracts";
-import { db, rowsFromExecute } from "@alfred/db";
+import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
   mcpCatalogRevisions,
@@ -629,6 +629,85 @@ export async function updateConnection(
     .returning();
 
   return row;
+}
+
+/**
+ * Rename one connection the caller owns. Owner scoping is inside the `WHERE`,
+ * not a read-then-write, so a foreign id cannot be renamed and `instanceKey`,
+ * the server definition, credentials, status, scopes, and the catalog pointer
+ * are untouched — only `label` is written.
+ */
+export async function renameOwnedConnection(
+  input: { connectionId: string; userId: string; label: string },
+  runner: DbRunner = db(),
+): Promise<McpConnection | undefined> {
+  const [row] = await runner
+    .update(mcpConnections)
+    .set({ label: input.label })
+    .where(and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)))
+    .returning();
+
+  return row;
+}
+
+/**
+ * A refusal injected into the removal transaction, after the owner row lock and
+ * before the delete. It runs on the transaction handle so it can read the
+ * invocation ledger in the same transaction that holds the row lock; this module
+ * deliberately never imports that ledger, so the caller supplies the gate.
+ */
+export interface McpConnectionRemovalGate {
+  /** Runs inside the removal transaction, after the owner row lock. True = refuse. */
+  blocks(tx: DbTransaction, input: { connectionId: string; userId: string }): Promise<boolean>;
+}
+
+export type McpConnectionRemovalOutcome = "removed" | "not_found" | "blocked";
+
+/**
+ * Delete one connection the caller owns, and every credential row bound to it
+ * (the credential tables cascade from `mcp_connections`).
+ *
+ * One transaction: the owner row is locked `FOR UPDATE` first, then the injected
+ * gate runs, then the row is deleted. The lock is what makes the gate race-free —
+ * a concurrent `mcp_invocation` insert takes `FOR KEY SHARE` on the same parent
+ * row, so it either commits before the lock (and the gate sees it) or blocks
+ * until after the delete (and its foreign key then fails).
+ */
+export async function deleteOwnedConnection(
+  input: { connectionId: string; userId: string; gate?: McpConnectionRemovalGate },
+  runner: DbRunner = db(),
+): Promise<McpConnectionRemovalOutcome> {
+  return runAtomic(runner, async (tx) => {
+    const [locked] = await tx
+      .select({ id: mcpConnections.id })
+      .from(mcpConnections)
+      .where(
+        and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)),
+      )
+      .for("update")
+      .limit(1);
+
+    if (!locked) return "not_found";
+
+    if (
+      input.gate &&
+      (await input.gate.blocks(tx, {
+        connectionId: input.connectionId,
+        userId: input.userId,
+      }))
+    ) {
+      return "blocked";
+    }
+
+    const deleted = await tx
+      .delete(mcpConnections)
+      .where(
+        and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)),
+      )
+      .returning({ id: mcpConnections.id });
+
+    return deleted.length > 0 ? "removed" : "not_found";
+  });
 }
 
 export interface CompareAndSetCatalogRevisionInput {
