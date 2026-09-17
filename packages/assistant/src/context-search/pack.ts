@@ -1,4 +1,5 @@
 import {
+  evidenceObjectClosesAsk,
   EVIDENCE_SNIPPET_MAX_CHARS,
   sanitizeErrorMessage,
   type EvidenceAnchor,
@@ -310,6 +311,8 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
   // packs byte for byte like the card that IS pull request 42, and the model
   // can read the document as merged or cite the document as proof of the pull
   // request's state. The lifecycle belongs to the object, never to the chunk.
+  // `renderObject` adds the closed-underlying clause to the same line, so the
+  // clause and the lifecycle it qualifies cannot be separated (#1089).
   if (card.object !== undefined) {
     const label = card.object.relation === "is" ? "Object" : "Object named in this text";
 
@@ -353,14 +356,114 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
   return { text: lines.join("\n"), truncated };
 }
 
+/**
+ * Renders one object reference, plus the closed-underlying clause when the
+ * object's lifecycle closes an open ask (#1089).
+ *
+ * The clause exists because a category word alone does not tell the model what
+ * to DO. A card rendered `merged (resolved)` still reads as work in flight, and
+ * the model then asks the user to finish a pull request that shipped — the
+ * failure the briefing already had before its own open-ask guard landed. The
+ * clause states the consequence in words, so no reading of the lifecycle is
+ * required.
+ *
+ * Three properties, each deliberate:
+ *
+ * - **It names the OBJECT, never the card, and never a BARE demonstrative.**
+ *   The clause says `this object is resolved`; it never says "this is
+ *   handled". On a `names` card the line above reads `Object named in this
+ *   text`, so a bare "this" would invite the model to call the EMAIL handled —
+ *   the exact confusion the two labels exist to prevent, one line lower.
+ * - **It rides the same rendered LINE as the lifecycle**, not a second
+ *   `lines.push`. A separate line is a thing a later edit can reorder, drop, or
+ *   budget away on its own. One returned string is not by itself one line,
+ *   because every field this function interpolates is an open provider string:
+ *   `evidenceObjectRefSchema` bounds `title`, `repo`, `nativeState`, `url`,
+ *   `provider`, and `kind` by length alone, and the GitHub reducer copies a
+ *   pull-request title verbatim. A title that carried a newline used to split
+ *   the render, and the first line then stated a `resolved` lifecycle with no
+ *   clause after it — the exact honesty failure this clause exists to prevent.
+ *   So the assembled line goes through {@link oneLine} before it is returned.
+ *   That is what makes "the note survives beside the lifecycle" structural
+ *   rather than conventional, and it holds for a field added later too.
+ * - **It never goes through `bound()`.** The clause is one of two constant
+ *   strings (`closesOpenAsk` returns `LoopClosingStateCategory`), 63 characters
+ *   at most, and `packEvidenceCards` measures the whole rendered card before
+ *   admitting it and drops a card whole. So the clause is inside the budget by
+ *   construction, and `bound()` would set `truncated` for a cut that cannot
+ *   happen.
+ *
+ * It is also not appended to `card.note`: the packer bounds a note at
+ * {@link EVIDENCE_PACK_NOTE_MAX_CHARS} while the contract allows twice that, so
+ * a long producer note would delete the clause with no signal. A derived clause
+ * cannot be forgotten by a producer either.
+ *
+ * A card whose object closes nothing — active, failed, state-unknown, or an
+ * unprojected provider — carries no clause at all, because
+ * `evidenceObjectClosesAsk` answers all four with one `null`.
+ *
+ * It does NOT follow that such a card renders the same bytes it rendered before
+ * this change. {@link oneLine} runs on every population, closing or not, and it
+ * reads the ASSEMBLED line, never a field. So state the property of that line,
+ * which names no field and therefore inherits when a field is added: the render
+ * is byte for byte as before exactly when the assembled line holds no line
+ * terminator, holds no run of two or more spaces or tabs, and equals its own
+ * `trim()`.
+ *
+ * The same property read field by field is FALSE, and that is the trap. The
+ * template writes a fixed single space after `${object.kind}` and around
+ * `${state}`, and those two fields render bare. One space at such a field's edge
+ * joins a template separator, makes a run of two in the assembled line, and is
+ * folded — while no field carries a run, a line terminator, or leading
+ * whitespace. `title`, `repo`, and `url` render inside `"`, `[`, and `<`, so
+ * their own edges never touch a separator. A lone TAB, `U+00A0`, `U+3000`, and
+ * `U+FEFF` inside a field all survive the fold.
+ */
 function renderObject(object: EvidenceObjectRef): string {
   const state = object.nativeState ?? "state unknown";
   const category = object.stateCategory ?? "uncategorized";
   const title = object.title ? ` "${object.title}"` : "";
   const repo = object.repo ? ` [${object.repo}]` : "";
   const url = object.url ? ` <${object.url}>` : "";
+  const closing = evidenceObjectClosesAsk(object);
+  const closed = closing ? ` — closed work: this object is ${closing}; it is not an open ask` : "";
 
-  return `${object.provider}/${object.kind} ${state} (${category})${title}${repo}${url}`;
+  return oneLine(
+    `${object.provider}/${object.kind} ${state} (${category})${title}${repo}${url}${closed}`,
+  );
+}
+
+/**
+ * Removes the line terminators from an assembled line, then collapses the space
+ * run each removal leaves behind.
+ *
+ * Applied to a whole rendered line, never to a field, so a field added to
+ * {@link renderObject} later inherits the property instead of needing its own
+ * call. `renderCard` joins its lines with `\n`, and a consumer that reads one
+ * line expects one card fact. A provider string that carried a line break would
+ * make a suffix of that fact unreachable to such a reader, so the render, not
+ * the producer, is where the break is removed.
+ *
+ * The fold is deliberately narrow, and a wide `\s+` fold is wrong here. It
+ * takes the four ECMAScript line terminators — `\n`, `\r`, `U+2028`, `U+2029`
+ * — because those are the code points that can put a suffix of one card fact on
+ * a line of its own. Every other whitespace-like code point inside a field
+ * stays: `U+00A0` and `U+3000` are deliberate provider typography, and a CJK
+ * title that loses its word separator loses meaning, while `U+FEFF` is zero
+ * width, so folding it would show a character the provider never showed. The
+ * `.trim()` reaches one thing only for this line's single caller: a `provider`
+ * slug that starts with whitespace. The assembled line always ends with `)`,
+ * `"`, `]`, `>`, or the clause.
+ *
+ * This is the object line only. `renderCard` renders nine kinds of line and
+ * folds exactly this one, so "one line, one card fact" is this line's property,
+ * not a format rule of the pack.
+ */
+function oneLine(text: string): string {
+  return text
+    .replace(/[\r\n\u2028\u2029]+/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 /**
