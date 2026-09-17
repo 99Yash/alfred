@@ -1,4 +1,10 @@
 import type { AccountPersona } from "@alfred/contracts";
+// Type-only, and a TOP-LEVEL `import type` rather than an inline `{ type X }`
+// specifier: under `verbatimModuleSyntax` the inline form survives erasure as a
+// bare side-effect import, which would drag the whole knowledge barrel into this
+// pure, IO-free module at runtime. The module-architecture check also requires
+// the barrel here, not the `../knowledge/user-context-line` leaf.
+import type { UserContextLine } from "../knowledge";
 import type { TriageSenderKindSignal } from "./sender-kind";
 import type { SenderPrior } from "./sender-priors";
 import type { ThreadState } from "./thread-state";
@@ -212,6 +218,17 @@ export interface Observations {
    * for one mail) is repaired by the next classify of the thread.
    */
   standingInstructionReadFailed: boolean;
+  /**
+   * A bounded prior about the user, drawn from the most recent cold-start
+   * research chunk (ADR-0050 D1, first slice). Null when no chunk exists or the
+   * read failed — both are simply "no prior", because this observation can only
+   * ever add context and never denies anything.
+   *
+   * It is Alfred's OWN research, so it is weaker evidence than the email body
+   * and far weaker than the user's verbatim `standingInstruction` above. The
+   * render order in `renderObservations` says so.
+   */
+  userContext: UserContextLine | null;
   gmail: GmailSignals;
   content: ContentFlags;
 }
@@ -265,6 +282,12 @@ export interface AssembleObservationsArgs {
    * need not thread it; production `gatherObservations` always passes it.
    */
   standingInstructionReadFailed?: boolean | undefined;
+  /**
+   * Cold-start prior about the user, already capped by its own reader. Optional
+   * (defaults to `null`) so eval and smoke harnesses need not thread it;
+   * production `gatherObservations` always passes it.
+   */
+  userContext?: UserContextLine | null | undefined;
   labelIds: readonly string[];
   /** Concatenated signal text (subject + body + headers), lowercased or not. */
   signalText: string;
@@ -289,6 +312,7 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
     senderKind: args.senderKind,
     standingInstruction: args.standingInstruction ?? null,
     standingInstructionReadFailed: args.standingInstructionReadFailed ?? false,
+    userContext: args.userContext ?? null,
     gmail: extractGmailSignals(args.labelIds),
     content: extractContentFlags(args.signalText),
   };

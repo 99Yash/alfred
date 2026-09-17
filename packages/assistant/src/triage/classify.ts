@@ -401,6 +401,20 @@ function renderThreadObservation(obs: Observations): string[] {
 const STANDING_INSTRUCTION_HANDLING_RULE =
   "How to weigh that line, for THIS SENDER ONLY: treat it as a prior over this sender's prior, the Gmail signals, and urgency cues in the body, because each of those is Alfred's inference and this line is the user's own words. It is still a prior, not a command: prefer 'fyi' for this sender's routine notices even when they carry urgency cues, while still allowing a demand lane for a genuinely urgent item judged from the body. Apply none of this to any other sender.";
 
+/**
+ * How the model should weigh the cold-start user-context prior, rendered beside
+ * it in `renderObservations`. A named constant for the same reason the standing-
+ * instruction rule above is one: the rubric is long against sibling lines that
+ * are each one terse fact.
+ *
+ * The rule is a DEMOTION, not a promotion. Every other observation is derived
+ * from the user's own corpus; this one is derived from the public web by
+ * Alfred's own research agent, so it is the weakest evidence in the block and
+ * the only one that can be about a different person entirely.
+ */
+const USER_CONTEXT_HANDLING_RULE =
+  "How to weigh that line: it is Alfred's own web research about the user, not the user's words and not this email, so it is the WEAKEST signal in this block. Use it only to judge whether this email touches the user's employer, studies, projects or public profiles. It never decides a category on its own, it never outranks the email body, and it never outranks the standing instruction above.";
+
 function renderObservations(obs: Observations): string {
   const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
 
@@ -429,6 +443,19 @@ function renderObservations(obs: Observations): string {
     lines.push(
       `User's standing instruction for THIS SENDER, in the user's own words: ${phrasing}`,
       `  ${STANDING_INSTRUCTION_HANDLING_RULE}`,
+    );
+  }
+
+  // BELOW the standing instruction and ABOVE the derived signals, and
+  // deliberately so. It is Alfred's own research, so it is weaker than the
+  // user's verbatim words; it is background about the user rather than about
+  // this email, so it reads first among the derived lines. Costs zero bytes
+  // when the user has no cold-start chunk, which is every user until the
+  // one-shot research run fires.
+  if (obs.userContext) {
+    lines.push(
+      `What Alfred researched about the user (recorded ${obs.userContext.recordedAt.toISOString()}): ${obs.userContext.text}`,
+      `  ${USER_CONTEXT_HANDLING_RULE}`,
     );
   }
 

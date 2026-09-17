@@ -214,6 +214,25 @@ export { scheduleRepeatableMemoryJobs } from "./repeatable";
 // with the injected Gmail sender adapter (ADR-0089) and registers the result.
 export { buildMemoryExtractionWorkflow } from "./memory-extraction";
 
+// What a memory-extraction run did, as ONE discriminated value (#1109). Read by
+// the extraction smoke, which parses `agent_runs.output` back out of jsonb.
+export {
+  describeMemoryExtractionOutcome,
+  memoryExtractionOutcomeSchema,
+  summarizeMemoryExtractionRun,
+  type MemoryExtractionOutcome,
+  type MemoryExtractionRunCounts,
+} from "./memory-extraction-outcome";
+
+// The cold-start prior the triage classifier renders into its observations block
+// (ADR-0050 D1, first slice). One indexed point read; no query parameter, so no
+// memory search is expressible on the triage hot path.
+export {
+  readUserContextLine,
+  USER_CONTEXT_LINE_MAX_CHARS,
+  type UserContextLine,
+} from "./user-context-line";
+
 /**
  * ── memory acquisition sub-areas folded into knowledge (item 07) ─────────────
  *

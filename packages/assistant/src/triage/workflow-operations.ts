@@ -9,6 +9,7 @@ import {
   findSenderSuppression,
   getSenderSignificance,
   listActiveSuppressionInstructions,
+  readUserContextLine,
 } from "../knowledge";
 import { suggestTodo } from "@alfred/assistant/tasks";
 import {
@@ -928,7 +929,7 @@ async function gatherObservations(args: {
   // received mail anyway.
   const isHumanSender = args.senderContext.effectiveAuthor === "person";
 
-  const [thread, senderKindEnabled, standing] = await Promise.all([
+  const [thread, senderKindEnabled, standing, userContext] = await Promise.all([
     getThreadState({
       userId: args.userId,
       sourceThreadId: args.sourceThreadId,
@@ -978,6 +979,15 @@ async function gatherObservations(args: {
         };
       })
       .catch(() => ({ instruction: null, readFailed: true })),
+    // The cold-start prior about the user (ADR-0050 D1, first slice). It rides
+    // this first batch for the same reason the standing-instruction read does:
+    // it needs nothing but `args`, so a serial await would add a round trip to
+    // every classify. ONE indexed point read by chunk kind, never a memory
+    // search — #435 owns the triage latency budget and `readUserContextLine`
+    // takes no query argument, so no search is expressible here. Best-effort:
+    // a blip yields `null`, which renders as no line at all, so a database
+    // hiccup can only lose context, never invent it.
+    readUserContextLine(args.userId).catch(() => null),
   ]);
 
   const senderKind =
@@ -1034,6 +1044,7 @@ async function gatherObservations(args: {
     senderKind,
     standingInstruction: standing.instruction,
     standingInstructionReadFailed: standing.readFailed,
+    userContext,
     labelIds,
     signalText,
   });
