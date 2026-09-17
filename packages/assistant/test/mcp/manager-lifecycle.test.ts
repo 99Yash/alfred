@@ -15,6 +15,7 @@ import {
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
 import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/connections/mcp/test-support";
+import { GITHUB_MCP_ENDPOINT_HREF } from "../../src/connections/mcp/constants";
 import { projectCatalogRevision } from "../../src/connections/mcp/hash";
 import type { McpConnectionWithServer } from "../../src/connections/mcp/persistence";
 
@@ -91,10 +92,12 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
   readonly connection = connection();
   readonly revisions = new Map<string, string[]>();
   publications = 0;
+  deleted = false;
   readonly updates: Array<Partial<McpConnection>> = [];
   onPublish: (() => void | Promise<void>) | null = null;
   onReadOwned: (() => void | Promise<void>) | null = null;
   onUpdate: ((patch: Partial<McpConnection>) => void | Promise<void>) | null = null;
+  onDelete: (() => void | Promise<void>) | null = null;
   onActivate:
     | ((
         input: Parameters<McpConnectionManagerPersistence["compareAndSetCatalogRevision"]>[0],
@@ -102,7 +105,7 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
     | null = null;
 
   readConnection: McpConnectionManagerPersistence["readConnection"] = async (id) =>
-    id === this.connection.id ? this.connection : undefined;
+    !this.deleted && id === this.connection.id ? this.connection : undefined;
 
   readOwnedConnection: McpConnectionManagerPersistence["readOwnedConnection"] = async (
     id,
@@ -110,7 +113,7 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
   ) => {
     await this.onReadOwned?.();
 
-    return id === this.connection.id && userId === this.connection.userId
+    return !this.deleted && id === this.connection.id && userId === this.connection.userId
       ? this.connection
       : undefined;
   };
@@ -122,6 +125,40 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
     Object.assign(this.connection, patch, { updatedAt: new Date() });
 
     return this.connection;
+  };
+
+  renameOwnedConnection: McpConnectionManagerPersistence["renameOwnedConnection"] = async (
+    input,
+  ) => {
+    if (
+      this.deleted ||
+      input.connectionId !== this.connection.id ||
+      input.userId !== this.connection.userId
+    ) {
+      return undefined;
+    }
+
+    this.connection.label = input.label;
+    this.connection.updatedAt = new Date();
+
+    return this.connection;
+  };
+
+  deleteOwnedConnection: McpConnectionManagerPersistence["deleteOwnedConnection"] = async (
+    input,
+  ) => {
+    if (
+      this.deleted ||
+      input.connectionId !== this.connection.id ||
+      input.userId !== this.connection.userId
+    ) {
+      return "not_found";
+    }
+
+    await this.onDelete?.();
+    this.deleted = true;
+
+    return "removed";
   };
 
   insertCatalogRevision: McpConnectionManagerPersistence["insertCatalogRevision"] = async (
@@ -643,6 +680,77 @@ describe("mcp connection manager lifecycle", () => {
     assert.equal(disconnected, false);
     assert.equal(persistence.connection.status, "ready");
     assert.equal(protocol.connectCount, 1);
+  });
+
+  test("rename a connection owned by another user is not found and writes nothing", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+
+    const outcome = await manager.rename(persistence.connection.id, "another-user", "Renamed");
+
+    assert.deepEqual(outcome, { outcome: "not_found" });
+    assert.equal(persistence.connection.label, "Lifecycle test");
+  });
+
+  test("rename refuses a built-in connection", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    persistence.connection.server.endpointUrl = GITHUB_MCP_ENDPOINT_HREF;
+    persistence.connection.server.endpointOrigin = "https://api.githubcopilot.com";
+    const manager = managerWith(protocol, persistence);
+
+    const outcome = await manager.rename(
+      persistence.connection.id,
+      persistence.connection.userId,
+      "Renamed",
+    );
+
+    assert.deepEqual(outcome, { outcome: "built_in" });
+    assert.equal(persistence.connection.label, "Lifecycle test");
+  });
+
+  test("removal refuses a connection owned by another user and closes no live client", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+
+    await manager.getReadyClient(persistence.connection.id);
+    const outcome = await manager.remove(persistence.connection.id, "another-user");
+
+    assert.equal(outcome, "not_found");
+    assert.equal(persistence.deleted, false);
+    assert.equal(protocol.closeCount, 0);
+    assert.equal(persistence.connection.status, "ready");
+  });
+
+  test("removal fences admission before the delete completes, then closes the client", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    await manager.getReadyClient(persistence.connection.id);
+    const deleteStarted = deferred();
+    const releaseDelete = deferred();
+    persistence.onDelete = async () => {
+      deleteStarted.resolve();
+      await releaseDelete.promise;
+    };
+
+    const removal = manager.remove(persistence.connection.id, persistence.connection.userId);
+    await deleteStarted.promise;
+
+    await assert.rejects(
+      manager.getReadyClient(persistence.connection.id),
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
+
+    releaseDelete.resolve();
+    assert.equal(await removal, "removed");
+    assert.equal(persistence.deleted, true);
+    assert.equal(protocol.closeCount, 1);
+    // The removal close intent writes no durable row: the deleted row stays
+    // exactly as it was in the fake.
+    assert.equal(persistence.connection.status, "ready");
   });
 
   test("cold connect and catalog refresh inherit the invocation trace", async () => {
