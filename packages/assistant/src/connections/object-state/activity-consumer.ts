@@ -24,8 +24,9 @@ import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assi
  * `propagate`: a fold failure fails the `ingress.deliver` job, the receipt
  * reads `failed`, and the queue retries. Every reducer is idempotent —
  * monotonic on `stateDeliveredAt` with the per-kind absorbing guard, keyed on
- * the receipt's own `delivered_at` — so a retry re-applies the same event with
- * the same timestamp and cannot regress object state. Redelivery dedup lives
+ * the receipt's own `delivered_at`, while a CI target row orders by the
+ * `(providerEventTime, deliveredAt)` pair — so a retry re-applies the same
+ * event with the same timestamps and cannot regress object state. Redelivery dedup lives
  * one layer up: the receive path inserts the receipt `onConflictDoNothing` on
  * `(provider, provider_delivery_id)`, and the deliver job skips a `completed`
  * row, so a replayed delivery never reaches this consumer twice.

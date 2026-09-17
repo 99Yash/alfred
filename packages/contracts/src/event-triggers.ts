@@ -99,8 +99,10 @@ export const EVENT_SOURCE_ENTRIES = {
     producer: "inbound_webhook",
     delivery: { grain: "source" },
     authoring: "raw",
-    // Mirrors the GitHub App's subscribed `default_events`.
-    eventTypes: ["pull_request", "push", "issues", "pull_request_review"],
+    // Mirrors the GitHub App's subscribed `default_events`, plus `check_suite`
+    // for the CI succession shape (#1093). The App-subscription mirror is a
+    // human flip (see the PR body) — until then the kinds stay empty, safely.
+    eventTypes: ["pull_request", "push", "issues", "pull_request_review", "check_suite"],
   },
   /**
    * Sentry internal-integration webhooks, one type per `<resource>_<action>`
