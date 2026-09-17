@@ -4,7 +4,12 @@ import {
   type EmailTriageClassifiedPayload,
 } from "@alfred/assistant/triggers";
 import { resolveFeatureFlags, resolveTimezone } from "@alfred/assistant/settings";
-import { findActiveSenderSuppression, getSenderSignificance } from "../knowledge";
+import {
+  findActiveSenderSuppression,
+  findSenderSuppression,
+  getSenderSignificance,
+  listActiveSuppressionInstructions,
+} from "../knowledge";
 import { suggestTodo } from "@alfred/assistant/tasks";
 import {
   classifyEmail,
@@ -935,8 +940,10 @@ async function gatherObservations(args: {
       recentMessages: [],
     })),
     triageSenderKindProjectionEnabled(args.userId).catch(() => false),
-    // The user's own words about this sender, when they carry the category
-    // effect. Read BEFORE the model call, unlike the `block_todo_suggestion`
+    // The standing instruction for this sender, when one exists. Membership
+    // is derived at read time — any active suppression binds its sender — so
+    // there is no per-effect miss and no stale-row state. Read BEFORE the
+    // model call, unlike the `block_todo_suggestion`
     // read further up this file, which runs after classify because a todo only
     // exists once a category does. It rides this first batch because it needs
     // nothing but `args` — a serial await here would add a round trip to the
@@ -948,15 +955,28 @@ async function gatherObservations(args: {
     // Either way the outcome is recorded on `readFailed` (mirroring the
     // `standingSuppressionReadFailed` sibling), so the decision trace can tell
     // "no instruction" apart from "unknown".
-    findActiveSenderSuppression(args.userId, {
-      senderEmail: args.senderAddress ?? meta.from ?? null,
-      accountId: args.accountId,
-      effect: "deprioritize_triage_category",
-    })
-      .then((match) => ({
-        instruction: match ? { factId: match.factId, directive: match.value.directive } : null,
-        readFailed: false,
-      }))
+    //
+    // One unfiltered list, one in-memory match over the caller-supplied
+    // snapshot, so the prompt input costs no extra round trip.
+    listActiveSuppressionInstructions(args.userId)
+      .then((all) => {
+        const match = findSenderSuppression(all, {
+          senderEmail: args.senderAddress ?? meta.from ?? null,
+          accountId: args.accountId,
+          effect: "deprioritize_triage_category",
+        });
+
+        return {
+          instruction: match
+            ? {
+                factId: match.factId,
+                directive: match.value.directive,
+                phrasing: match.value.phrasing,
+              }
+            : null,
+          readFailed: false,
+        };
+      })
       .catch(() => ({ instruction: null, readFailed: true })),
   ]);
 

@@ -53,15 +53,25 @@ export const standingInstructionSurfaceSchema = z.enum(STANDING_INSTRUCTION_SURF
 // ─── Effects (the closed operational contract consumers branch on) ──────────
 
 /**
- * The concrete, registered effects of a standing instruction. Each consumer
- * checks for its own effect — it never asks "does this `surface` include me?".
- * Register a new effect here before a new consumer reads it.
+ * The concrete, registered effects of a standing instruction.
+ *
+ * LEGACY WRITE SNAPSHOT — readers must NOT branch on the stored array.
+ * Every writer stores the full registry (`effects: [...SUPPRESSION_EFFECTS]`)
+ * and no writer ever picks a subset, so the column encodes the registry
+ * length at write time, never a decision the user made. Membership is
+ * derived at read time: any active sender suppression binds its sender for
+ * every consumer. A fifth effect therefore needs no backfill, no repair
+ * function, and no per-row widening — it reads the same rows.
+ *
+ * `SUPPRESSION_EFFECTS` remains as the closed registry new consumers register
+ * in (and writers stamp for schema compat), but it is not the operational
+ * contract. The operational contract is "an active suppression exists for
+ * this sender".
  *
  * `block_todo_suggestion`     — triage `classify` mints no `todoSuggestion` for a matching email.
  * `exclude_briefing_priority` — briefing `gather` drops the match from the priority buckets.
  * `block_reply_draft`         — the reply-drafting gate returns `no_draft` for a matching sender
- *                               (ADR-0098). Suppressions written before this effect existed do
- *                               not carry it; they keep suppressing todos and briefings only.
+ *                               (ADR-0098).
  * `deprioritize_triage_category` — triage `classify` weighs the instruction as a
  *                               category prior when it picks the label. This is the ONLY
  *                               effect that can change the Gmail label the user sees. It is
@@ -69,7 +79,10 @@ export const standingInstructionSurfaceSchema = z.enum(STANDING_INSTRUCTION_SURF
  *                               notices are low priority" AND "a genuinely urgent one may
  *                               still surface", so only a model can separate the two. A
  *                               deterministic demotion would honor the first clause by
- *                               breaking the second.
+ *                               breaking the second. Implements ADR-0066 signal 3
+ *                               (standing instructions extended to the category);
+ *                               rendered per ADR-0051 §5's anti-brittleness line — a
+ *                               deterministic fact fed as a hint, never a rewrite.
  */
 export const SUPPRESSION_EFFECTS = [
   "block_todo_suggestion",
@@ -125,19 +138,15 @@ export const standingInstructionValueSchema = z.object({
 
 export type StandingInstructionValue = z.infer<typeof standingInstructionValueSchema>;
 
-/** True iff this instruction carries the given effect. */
+/**
+ * Legacy membership probe. Readers must NOT call this on the hot path:
+ * membership is derived at read time (an active suppression binds its sender
+ * for every consumer), so a stored-array check reintroduces the snapshot bug
+ * this registry replaced. Kept for tooling that inspects a raw row.
+ */
 export function hasSuppressionEffect(
   value: StandingInstructionValue,
   effect: SuppressionEffect,
 ): boolean {
   return value.effects.includes(effect);
-}
-
-/**
- * Registered effects this instruction does not yet carry. Empty when it is
- * current. The single definition behind the backfill preview and the adopt
- * repair, so the two cannot disagree on what "stale" means.
- */
-export function missingSuppressionEffects(value: StandingInstructionValue): SuppressionEffect[] {
-  return SUPPRESSION_EFFECTS.filter((effect) => !hasSuppressionEffect(value, effect));
 }

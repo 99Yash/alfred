@@ -2,8 +2,6 @@ import {
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   SUPPRESSION_EFFECTS,
-  hasSuppressionEffect,
-  missingSuppressionEffects,
   standingInstructionValueSchema,
   type ObservationSource,
   type StandingInstructionValue,
@@ -33,6 +31,11 @@ export interface ActiveSuppressionInstruction {
 export interface SenderSuppressionLookup {
   senderEmail: string | null | undefined;
   accountId?: string | null;
+  /**
+   * Audit echo only — membership is derived at read time, so this never
+   * filters. An active suppression for the sender binds every consumer.
+   * Kept so traces can name which consumer asked.
+   */
   effect: SuppressionEffect;
 }
 
@@ -94,6 +97,12 @@ export async function rememberSenderSuppression(
       label,
       accountId,
     },
+    // Legacy write snapshot, stamped for schema compat: readers derive
+    // membership at read time (any active suppression binds its sender for
+    // every consumer), so this array is never branched on. Stated, not
+    // hidden: the `system.remember` tool description discloses the category
+    // prior, and the user can narrow or drop the instruction via
+    // list/edit/forget.
     effects: [...SUPPRESSION_EFFECTS],
     directive,
     phrasing: normalizeOptionalLabel(parsed.phrasing) ?? directive,
@@ -108,10 +117,7 @@ export async function rememberSenderSuppression(
     effect: "block_todo_suggestion",
   });
 
-  if (
-    existing &&
-    SUPPRESSION_EFFECTS.every((effect) => hasSuppressionEffect(existing.value, effect))
-  ) {
+  if (existing) {
     return {
       ok: true,
       status: "already_exists",
@@ -163,8 +169,13 @@ export async function rememberSenderSuppression(
 
 export async function listActiveSuppressionInstructions(
   userId: string,
+  // Audit echo only — membership is derived at read time, so the filter is
+  // gone. Kept as an optional arg so existing call sites keep compiling while
+  // they migrate off the per-effect read.
   effect?: SuppressionEffect,
 ): Promise<ActiveSuppressionInstruction[]> {
+  void effect;
+
   const facts = await db()
     .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
     .from(userFacts)
@@ -178,7 +189,7 @@ export async function listActiveSuppressionInstructions(
 
       if (instruction.value.action !== "suppress") return false;
 
-      return effect ? hasSuppressionEffect(instruction.value, effect) : true;
+      return true;
     });
 }
 
@@ -419,77 +430,10 @@ export async function editStandingInstruction(
 }
 
 /**
- * Adopt every registered {@link SUPPRESSION_EFFECTS} member on an active
- * standing instruction that predates one.
- *
- * This is a REPAIR, not a policy change, and the reason is in the write path:
- * `rememberSenderSuppression` stores `effects: [...SUPPRESSION_EFFECTS]`
- * unconditionally, so the stored array is a snapshot of the registry at write
- * time — never a choice the user made between effects. An instruction written
- * before an effect existed therefore under-states what the user asked for, and
- * the gap widens every time a new consumer registers. Measured on prod
- * 2026-09-16: twelve investment-sender suppressions whose `phrasing` says "do
- * not tag stock-related emails as urgent" carried no effect that could reach a
- * category, so the label kept saying `action_needed`.
- *
- * Supersedes rather than updates in place — same chain, same observation, same
- * reversibility as {@link editStandingInstruction} — so the widening is
- * auditable and undoable. `directive` and `phrasing` are carried VERBATIM: this
- * never reinterprets the user's words, it only widens which consumers read them.
- *
- * Idempotent: an instruction already carrying every registered effect is
- * skipped, so a re-run after a third effect lands repairs only the new gap.
- */
-export async function adoptRegisteredSuppressionEffects(args: {
-  userId: string;
-  source?: MemorySource | undefined;
-  /**
-   * Preloaded active snapshot (e.g. the caller's preview list). When given the
-   * repair upgrades from THIS snapshot instead of re-reading, so a preview
-   * printed from the same list cannot disagree with the write.
-   */
-  active?: readonly ActiveSuppressionInstruction[] | undefined;
-}): Promise<{ upgraded: string[]; skipped: number }> {
-  const active = args.active ?? (await listActiveSuppressionInstructions(args.userId));
-  const upgraded: string[] = [];
-  let skipped = 0;
-
-  for (const instruction of active) {
-    const missing = missingSuppressionEffects(instruction.value);
-
-    if (missing.length === 0) {
-      skipped += 1;
-      continue;
-    }
-
-    const nextValue = standingInstructionValueSchema.parse({
-      ...instruction.value,
-      effects: [...SUPPRESSION_EFFECTS],
-    });
-
-    const source: MemorySource = args.source ?? { kind: "user" };
-
-    const inserted = await supersedeStandingInstruction({
-      userId: args.userId,
-      factId: instruction.factId,
-      nextValue,
-      previousValue: instruction.value,
-      source,
-    });
-
-    if (inserted) upgraded.push(inserted.id);
-  }
-
-  if (upgraded.length > 0) emitReplicachePokes([args.userId]);
-
-  return { upgraded, skipped };
-}
-
-/**
- * The single supersede body behind `editStandingInstruction` and
- * `adoptRegisteredSuppressionEffects`: close the active row (`edited`), insert
- * the successor (`supersedesId`), and append the `user_standing_instruction`
- * observation in one transaction so the widening stays auditable and reversible.
+ * The single supersede body behind `editStandingInstruction`: close the active
+ * row (`edited`), insert the successor (`supersedesId`), and append the
+ * `user_standing_instruction` observation in one transaction so the edit stays
+ * auditable and reversible.
  */
 async function supersedeStandingInstruction(args: {
   userId: string;
@@ -558,8 +502,10 @@ export function findSenderSuppression(
   for (const instruction of instructions) {
     const { value } = instruction;
 
-    if (!hasSuppressionEffect(value, lookup.effect)) continue;
-
+    // Derived membership: an active suppression binds its sender for every
+    // consumer. The stored `effects` array is never consulted — it is a
+    // write-time snapshot, not a decision. `lookup.effect` is echoed on the
+    // match for audit only.
     if (value.target.kind !== "sender_email") continue;
 
     if (value.target.email !== email) continue;

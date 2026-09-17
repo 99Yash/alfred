@@ -193,13 +193,15 @@ export interface Observations {
    */
   senderKind: TriageSenderKindSignal | null;
   /**
-   * The user's OWN standing instruction for this sender, when one carries
-   * `deprioritize_triage_category`. Null when no instruction matches, when the
-   * matching one predates the effect, or when the read failed.
+   * The matched standing instruction for this sender, when one exists. Null
+   * when no instruction matches or when the read failed — the sibling flag
+   * below tells those two apart. Membership is derived at read time: any
+   * active suppression binds its sender, so there is no stale-row state.
    *
-   * This is the only observation the USER authored. Every sibling is derived
-   * from the corpus, so a sibling can be wrong about what the user wants and
-   * this one cannot — see the ordering note in `renderObservations`.
+   * This is the only observation that carries the user's verbatim words
+   * (`phrasing`). Every sibling is derived from the corpus, so a sibling can
+   * be wrong about what the user wants and this one outranks them on that
+   * question — see the ordering note in `renderObservations`.
    */
   standingInstruction: TriageStandingDirective | null;
   /**
@@ -215,14 +217,18 @@ export interface Observations {
 }
 
 /**
- * One matched standing instruction, flattened for the classifier. `directive`
- * is the resolved, prompt-ready sentence the instruction already stores for a
- * prose consumer; the classifier is the first one. `factId` is carried so the
- * decision trace can join a category back to the instruction that biased it.
+ * One matched standing instruction, flattened for the classifier. `phrasing`
+ * is the user's verbatim words — the only string that can outrank derived
+ * signals on what the user wants. `directive` is the resolved, prompt-ready
+ * sentence and is NOT rendered for ordering: it is model-composed at capture
+ * time, so a claim that it "cannot be wrong" would rest on Alfred's own
+ * inference. `factId` is carried so the decision trace can join a category
+ * back to the instruction that biased it.
  */
 export interface TriageStandingDirective {
   factId: string;
   directive: string;
+  phrasing: string;
 }
 
 export interface AssembleObservationsArgs {
@@ -248,7 +254,7 @@ export interface AssembleObservationsArgs {
   /** Active projection-backed non-person sender kind, if confidently known. */
   senderKind: TriageSenderKindSignal | null;
   /**
-   * Matched `deprioritize_triage_category` instruction. Optional (defaults to
+   * Matched suppression instruction. Optional (defaults to
    * `null`) so eval and smoke harnesses that do not exercise it need not thread
    * it; production `gatherObservations` always passes it.
    */

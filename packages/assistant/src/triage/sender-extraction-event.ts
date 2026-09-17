@@ -211,16 +211,18 @@ export interface SenderExtractionEvent extends FloorTraceFields {
   standingInstructionEffect: string | null;
   standingInstructionReadFailed: boolean;
   /**
-   * A `deprioritize_triage_category` instruction was in the prompt for this
+   * A standing instruction was in the prompt for this
    * mail. DISTINCT from the three fields above, which report the post-classify
    * todo read: this one fires before the model runs and is the only standing
-   * field that can explain `finalCategory`. Join it against `finalCategory` to
-   * measure whether the directive is actually landing — a row with a fact id
-   * and a demand lane is the model declining the prior, not a missing read.
+   * field that can explain `finalCategory`. A null here is two-way ambiguous
+   * on its own — "no instruction" vs "the read threw" — so read it with its
+   * flag: `readFailed = true` means "unknown"; false means "no instruction".
+   * A row with a fact id and a demand lane is the
+   * model declining the prior, not a missing read.
    */
   standingInstructionCategoryFactId: string | null;
   /**
-   * The pre-classify `deprioritize_triage_category` read failed, so a null
+   * The pre-classify standing-instruction read failed, so a null
    * `standingInstructionCategoryFactId` means "unknown", not "no instruction".
    * DISTINCT from `standingInstructionReadFailed`, which reports the
    * post-classify todo read.
