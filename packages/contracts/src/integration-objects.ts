@@ -244,17 +244,23 @@ export const INTEGRATION_OBJECT_DEFS = {
         }
       }
 
-      // Both CI kinds share the attempt-outcome vocabulary; absence never closes.
-      switch (nativeState) {
-        case "success":
-          return "resolved";
-        case "failure":
-          return "failed";
-        case "pending":
-          return "active";
-        default:
-          return null;
+      // Both CI kinds share the attempt-outcome vocabulary. The kind arm is
+      // explicit so a future kind (e.g. a deployment) cannot silently inherit
+      // it: an unlisted kind reads as unknown, and absence never closes.
+      if (kind === "ci_attempt" || kind === "ci_target") {
+        switch (nativeState) {
+          case "success":
+            return "resolved";
+          case "failure":
+            return "failed";
+          case "pending":
+            return "active";
+          default:
+            return null;
+        }
       }
+
+      return null;
     },
   },
   sentry: {
