@@ -73,10 +73,11 @@ type RememberInput = RememberRequest["input"];
 
 /**
  * One sender to remember: the single-sender fields of the tool input. A
- * `senders[]` entry is the same pair with the email required, so it is
- * assignable here without a second name.
+ * `senders[]` entry is the same shape with the email required, so it is
+ * assignable here without a second name. `scope` is per entry; the top-level
+ * `scope` is the default, the same rule `accountId` already follows.
  */
-type SenderEntry = Pick<RememberInput, "senderEmail" | "senderLabel">;
+type SenderEntry = Pick<RememberInput, "senderEmail" | "senderLabel" | "scope">;
 
 /**
  * Persist one sender suppression and dismiss its live todos. The
@@ -95,6 +96,7 @@ async function rememberOneSender(
     accountId: input.accountId ?? null,
     directive: input.directive,
     phrasing: input.phrasing,
+    scope: sender.scope ?? input.scope,
     source: {
       kind: "tool_call",
       id: context.toolCallId,
@@ -106,7 +108,10 @@ async function rememberOneSender(
 
   const resolvedTodos = await dependencies.dismissTodos({
     userId: context.userId,
-    senderEmail: result.instruction.target.email,
+    // The write reports the address it resolved. A domain-scoped instruction
+    // stores no address, and todo dismissal still works on the one sender the
+    // user named — a domain-wide sweep of open todos is separate work.
+    senderEmail: result.resolvedSenderEmail,
     accountId: result.instruction.target.accountId,
     reason: SENDER_SUPPRESSION_REASON,
   });
@@ -133,6 +138,7 @@ export function createRememberSenderSuppressionCoordinator(
       return rememberOneSender(dependencies, args, {
         senderEmail: input.senderEmail,
         senderLabel: input.senderLabel,
+        scope: input.scope,
       });
     }
 
@@ -142,6 +148,7 @@ export function createRememberSenderSuppressionCoordinator(
 
     if (input.senderEmail) {
       entries.set(input.senderEmail, {
+        scope: input.scope,
         senderEmail: input.senderEmail,
         senderLabel: input.senderLabel,
       });

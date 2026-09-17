@@ -5,6 +5,7 @@ import { after, before, describe, test } from "node:test";
 import {
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
+  standingInstructionTargetKey,
   SUPPRESSION_EFFECTS,
   standingInstructionValueSchema,
   type MemorySource,
@@ -102,7 +103,10 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(listed.truncated, false);
     assert.equal(instructions.length, 1);
     assert.equal(instructions[0]?.factId, factId);
-    assert.equal(instructions[0]?.target.email, "noisy@example.com");
+    assert.equal(
+      instructions[0] && standingInstructionTargetKey(instructions[0].target),
+      "sender_email:noisy@example.com",
+    );
     assert.deepEqual([...instructions[0].effects].sort(), [...SUPPRESSION_EFFECTS].sort());
   });
 
@@ -128,8 +132,16 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(listed.totalActive, STANDING_INSTRUCTION_LIST_LIMIT + 101);
     assert.equal(listed.truncated, true);
     assert.equal(listed.limit, STANDING_INSTRUCTION_LIST_LIMIT);
-    assert.ok(listed.instructions.some((i) => i.target.email === "sender-200@example.com"));
-    assert.ok(!listed.instructions.some((i) => i.target.email === "sender-0@example.com"));
+    assert.ok(
+      listed.instructions.some(
+        (i) => standingInstructionTargetKey(i.target) === "sender_email:sender-200@example.com",
+      ),
+    );
+    assert.ok(
+      !listed.instructions.some(
+        (i) => standingInstructionTargetKey(i.target) === "sender_email:sender-0@example.com",
+      ),
+    );
   });
 
   test("forget soft-removes the instruction so it drops out of the active list", async () => {
@@ -201,7 +213,10 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(active[0]?.directive, "Quietly ignore the reframed sender.");
     assert.equal(active[0]?.target.label, "New Label");
     // Target sender is unchanged by a reframe.
-    assert.equal(active[0]?.target.email, "reframe@example.com");
+    assert.equal(
+      active[0] && standingInstructionTargetKey(active[0].target),
+      "sender_email:reframe@example.com",
+    );
   });
 
   test("management mutations append replayable standing-instruction observations", async () => {
@@ -288,7 +303,10 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     if (!result.ok) throw new Error("unreachable");
     assert.equal(result.status, "unchanged");
     assert.equal(result.factId, factId);
-    assert.equal(result.instruction.target.email, "same@example.com");
+    assert.equal(
+      standingInstructionTargetKey(result.instruction.target),
+      "sender_email:same@example.com",
+    );
 
     const rows = await db()
       .select({ id: userFacts.id })

@@ -45,6 +45,7 @@ describe("sender suppression coordinator", () => {
       status: "remembered",
       factId: "fact_1",
       instruction,
+      resolvedSenderEmail: "sender@example.com",
     };
 
     const dismissed: ResolveTodosForGmailSenderResult = {
@@ -79,6 +80,7 @@ describe("sender suppression coordinator", () => {
           accountId: null,
           directive: undefined,
           phrasing: undefined,
+          scope: undefined,
           source: {
             kind: "tool_call",
             id: "call_1",
