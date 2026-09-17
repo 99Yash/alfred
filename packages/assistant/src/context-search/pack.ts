@@ -369,11 +369,11 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
  *
  * Three properties, each deliberate:
  *
- * - **It names the OBJECT, never the card, and never says "this".** On a
- *   `names` card the line above reads `Object named in this text`, so a clause
- *   that said "this is handled" would invite the model to call the EMAIL
- *   handled — the exact confusion the two labels exist to prevent, one line
- *   lower.
+ * - **It names the OBJECT, never the card, and never a BARE demonstrative.**
+ *   The clause says `this object is resolved`; it never says "this is
+ *   handled". On a `names` card the line above reads `Object named in this
+ *   text`, so a bare "this" would invite the model to call the EMAIL handled —
+ *   the exact confusion the two labels exist to prevent, one line lower.
  * - **It rides the same rendered LINE as the lifecycle**, not a second
  *   `lines.push`. A separate line is a thing a later edit can reorder, drop, or
  *   budget away on its own. One returned string is not by itself one line,
@@ -399,8 +399,15 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
  * cannot be forgotten by a producer either.
  *
  * A card whose object closes nothing — active, failed, state-unknown, or an
- * unprojected provider — renders exactly the bytes it rendered before, because
+ * unprojected provider — carries no clause at all, because
  * `evidenceObjectClosesAsk` answers all four with one `null`.
+ *
+ * It does NOT follow that such a card renders the same bytes it rendered before
+ * this change. {@link oneLine} runs on every population, closing or not, so a
+ * card renders byte for byte as before unless one of its fields carries a line
+ * terminator, a run of two or more spaces or tabs, or — on `provider` alone —
+ * leading whitespace. Those three are the whole difference. A lone TAB,
+ * `U+00A0`, `U+3000`, and `U+FEFF` inside a field all survive.
  */
 function renderObject(object: EvidenceObjectRef): string {
   const state = object.nativeState ?? "state unknown";
@@ -417,17 +424,36 @@ function renderObject(object: EvidenceObjectRef): string {
 }
 
 /**
- * Folds every run of whitespace — a newline included — into one space.
+ * Removes the line terminators from an assembled line, then collapses the space
+ * run each removal leaves behind.
  *
  * Applied to a whole rendered line, never to a field, so a field added to
  * {@link renderObject} later inherits the property instead of needing its own
- * call. The pack format is line-oriented: `renderCard` joins with `\n`, and a
- * consumer that reads one line expects one card fact. A provider string that
- * carried a line break would make a suffix of that fact unreachable to such a
- * reader, so the render, not the producer, is where the break is removed.
+ * call. `renderCard` joins its lines with `\n`, and a consumer that reads one
+ * line expects one card fact. A provider string that carried a line break would
+ * make a suffix of that fact unreachable to such a reader, so the render, not
+ * the producer, is where the break is removed.
+ *
+ * The fold is deliberately narrow, and a wide `\s+` fold is wrong here. It
+ * takes the four ECMAScript line terminators — `\n`, `\r`, `U+2028`, `U+2029`
+ * — because those are the code points that can put a suffix of one card fact on
+ * a line of its own. Every other whitespace-like code point inside a field
+ * stays: `U+00A0` and `U+3000` are deliberate provider typography, and a CJK
+ * title that loses its word separator loses meaning, while `U+FEFF` is zero
+ * width, so folding it would show a character the provider never showed. The
+ * `.trim()` reaches one thing only for this line's single caller: a `provider`
+ * slug that starts with whitespace. The assembled line always ends with `)`,
+ * `"`, `]`, `>`, or the clause.
+ *
+ * This is the object line only. `renderCard` renders nine kinds of line and
+ * folds exactly this one, so "one line, one card fact" is this line's property,
+ * not a format rule of the pack.
  */
 function oneLine(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return text
+    .replace(/[\r\n\u2028\u2029]+/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 /**
