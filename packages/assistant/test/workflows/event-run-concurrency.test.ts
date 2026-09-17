@@ -369,13 +369,14 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
 
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
 
-    // Composition registers seven consumers: `workflow-event-trigger`, the four
-    // `gmail.documents_ingested` batch consumers, the `github-activity-fold`
-    // consumer, and the reply-drafting post-triage consumer (ADR-0098). The
-    // last six no-op on this `message_received` event but still accept it. The
-    // duplicate-run guard is the run count below, not the consumer count.
-    assert.deepEqual(a, { acceptedConsumers: 7 });
-    assert.deepEqual(b, { acceptedConsumers: 7 });
+    // Composition registers eight consumers: `workflow-event-trigger`, the four
+    // `gmail.documents_ingested` batch consumers, one object-state fold per
+    // provider (`github-activity-fold` and `sentry-activity-fold`, #1090), and
+    // the reply-drafting post-triage consumer (ADR-0098). The last seven no-op
+    // on this `message_received` event but still accept it. The duplicate-run
+    // guard is the run count below, not the consumer count.
+    assert.deepEqual(a, { acceptedConsumers: 8 });
+    assert.deepEqual(b, { acceptedConsumers: 8 });
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
   });
 
@@ -396,11 +397,13 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
         payload,
       });
 
-    // Same seven consumers as the typed case above: the six that are not the
+    // Same eight consumers as the typed case above: the seven that are not the
     // workflow trigger no-op on a Sentry source but still accept the event.
+    // `sentry-activity-fold` returns on `isRawEventType` before any read, so a
+    // raw kind reaches no reducer.
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
-    assert.deepEqual(a, { acceptedConsumers: 7 });
-    assert.deepEqual(b, { acceptedConsumers: 7 });
+    assert.deepEqual(a, { acceptedConsumers: 8 });
+    assert.deepEqual(b, { acceptedConsumers: 8 });
     assert.equal(await countActiveEventRuns(userId, eventId, RAW_WORKFLOW_SLUG), 1);
 
     // A different kind of the same source is not this workflow's event.
