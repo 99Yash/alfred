@@ -1,11 +1,9 @@
 import {
   EVIDENCE_CITATION_LABEL_MAX_CHARS,
-  EVIDENCE_CITATION_URL_MAX_CHARS,
   EVIDENCE_NOTE_MAX_CHARS,
   EVIDENCE_SNIPPET_MAX_CHARS,
   integrationDisplayName,
   isObjectStateProvider,
-  sanitizeErrorMessage,
   sourceAuthorityFromManifest,
   sourceRefFromManifest,
   type BuiltInExpansionKind,
@@ -13,7 +11,6 @@ import {
   type ContextSearchRequest,
   type EvidenceCard,
   type EvidenceCitation,
-  type EvidenceObjectRef,
   type RetrievalSourceManifest,
   type SourceManifest,
 } from "@alfred/contracts";
@@ -23,6 +20,7 @@ import {
   type ObjectStateStore,
 } from "@alfred/assistant/connections";
 import { sha256Canonical } from "@alfred/db/hash";
+import { boundCardText, cardIsObjectRef } from "./object-ref";
 import { defineContextSource, type ContextSource } from "./registry";
 
 /**
@@ -189,10 +187,11 @@ async function resolveObjectRef(
  * confidence `1` (this is a deterministic hit, not a similarity).
  */
 function objectStateCard(state: ObjectState): EvidenceCard {
-  const kind = bound(state.kind, 100);
-  const externalId = bound(state.externalId, 512);
+  // This source resolved the caller's own exact reference, so the card IS the
+  // object rather than a piece of evidence that names one.
+  const object = cardIsObjectRef(state);
 
-  if (!kind || !externalId) {
+  if (!object) {
     // A stored row whose identity text sanitizes to nothing cannot be cited.
     // Degrade rather than mint a card with an empty identity.
     return missingObjectCard(
@@ -201,36 +200,17 @@ function objectStateCard(state: ObjectState): EvidenceCard {
     );
   }
 
-  const nativeState = bound(state.nativeState, 200);
-  const title = bound(state.title, 500);
-  const repo = bound(state.repo, 300);
-
-  // A URL longer than the citation cap is not cited rather than truncated into a
-  // link that no longer resolves (the document adapter's rule). It still goes
-  // through `bound` so NUL/surrogate poison cannot ride the raw field into the
-  // card, the one field that previously skipped the strip.
-  const url =
-    state.url !== null && state.url.length <= EVIDENCE_CITATION_URL_MAX_CHARS
-      ? bound(state.url, EVIDENCE_CITATION_URL_MAX_CHARS)
-      : undefined;
-
-  const object: EvidenceObjectRef = {
-    provider: state.provider,
-    kind,
-    externalId,
-    stateCategory: state.stateCategory,
-    ...(nativeState ? { nativeState } : {}),
-    ...(title ? { title } : {}),
-    ...(url ? { url } : {}),
-    ...(repo ? { repo } : {}),
-  };
+  // Every string below is read back off the ref, so each bound is applied in
+  // exactly one place and the citation can never cite a value the `object`
+  // field did not admit.
+  const { kind, externalId, nativeState, title, url, repo } = object;
 
   const citation: EvidenceCitation = {
     label:
-      bound(title, EVIDENCE_CITATION_LABEL_MAX_CHARS) ??
+      boundCardText(title, EVIDENCE_CITATION_LABEL_MAX_CHARS) ??
       `${integrationDisplayName(state.provider)} ${kind}`,
     ...(url ? { url } : {}),
-    locator: bound(repo ?? `${kind} ${externalId}`, 500) ?? state.objectId,
+    locator: boundCardText(repo ?? `${kind} ${externalId}`, 500) ?? state.objectId,
   };
 
   const authority = sourceAuthorityFromManifest(objectStateManifest());
@@ -253,7 +233,7 @@ function objectStateCard(state: ObjectState): EvidenceCard {
       sourceId: OBJECT_STATE_CONTEXT_SOURCE_ID,
       kind: "integration_object" satisfies BuiltInExpansionKind,
       ref: state.objectId,
-      ...(title ? { hint: bound(title, 300) } : {}),
+      ...(title ? { hint: boundCardText(title, 300) } : {}),
     },
   };
 }
@@ -290,12 +270,12 @@ function missingCard(id: string, note: string): EvidenceCard {
     // Callers either pass an object id or a fixed-length hash; `bound` is the
     // defensive strip/truncate for an unexpectedly long value, not the identity
     // guarantee (the hash is what keeps distinct refs distinct).
-    id: bound(id, 512) ?? `${OBJECT_STATE_CONTEXT_SOURCE_ID}:unresolved`,
+    id: boundCardText(id, 512) ?? `${OBJECT_STATE_CONTEXT_SOURCE_ID}:unresolved`,
     source: sourceRefFromManifest(objectStateManifest()),
     mediaKind: "text",
     score: 0,
     ...(authority !== undefined ? { authority } : {}),
-    note: bound(note, EVIDENCE_NOTE_MAX_CHARS) ?? "Object state is unavailable.",
+    note: boundCardText(note, EVIDENCE_NOTE_MAX_CHARS) ?? "Object state is unavailable.",
     time: { freshness: "unknown" },
   };
 }
@@ -311,15 +291,7 @@ function objectStateSnippet(
   const where = repo ? ` (${repo})` : "";
   const reading = nativeState ?? "state unknown";
 
-  return bound(`${label}${where}: ${reading}`, EVIDENCE_SNIPPET_MAX_CHARS) ?? "Object state";
-}
-
-/**
- * Bound and strip poison from one provider string, collapsing an empty result
- * to `undefined` so it is omitted rather than emitted as `""`.
- */
-function bound(value: string | null | undefined, maxChars: number): string | undefined {
-  if (value === null || value === undefined) return undefined;
-
-  return sanitizeErrorMessage(value, maxChars) || undefined;
+  return (
+    boundCardText(`${label}${where}: ${reading}`, EVIDENCE_SNIPPET_MAX_CHARS) ?? "Object state"
+  );
 }
