@@ -108,6 +108,7 @@ function reducePullRequest(action: string | null, payload: unknown): ObjectState
       kind: "pull_request",
       externalId: String(githubId),
       nativeState,
+      closureSource: "verified_push",
       title: typeof pr.title === "string" ? pr.title : undefined,
       url: pullRequestUrl ?? undefined,
       repo: repoFullName ?? undefined,
@@ -173,6 +174,7 @@ function reduceCheckSuite(action: string | null, payload: unknown): ObjectStateD
     kind: "ci_attempt",
     externalId: `check_suite:${suiteId}`,
     nativeState: token,
+    closureSource: "verified_push",
     repo: repoFullName ?? undefined,
     attributes: {
       suite_id: suiteId,
@@ -197,6 +199,7 @@ function reduceCheckSuite(action: string | null, payload: unknown): ObjectStateD
     kind: "ci_target",
     externalId: targetId,
     nativeState: token,
+    closureSource: "verified_push",
     repo: repoFullName,
     attributes: {
       suite_id: suiteId,

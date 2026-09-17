@@ -14,6 +14,7 @@ import {
   type ReconcileSubject,
 } from "./adapter";
 import { githubObjectStateAdapter } from "./github-adapter";
+import { railwayObjectStateAdapter } from "./railway-adapter";
 import { sentryObjectStateAdapter } from "./sentry-adapter";
 import {
   objectStateStore,
@@ -94,6 +95,10 @@ export interface ReconcileCandidates<Reading extends KeyProposalReading> {
 const OBJECT_STATE_ADAPTERS = {
   github: githubObjectStateAdapter,
   sentry: sentryObjectStateAdapter,
+  // Railway v1 proposes no keys from text (no deployment-URL grammar yet —
+  // the structured follow-up). The row exists because the table is the
+  // completeness proof, not because the adapter knows a written form.
+  railway: railwayObjectStateAdapter,
 } satisfies Record<ObjectStateProvider, ObjectStateAdapter>;
 
 /**

@@ -1,4 +1,5 @@
 import {
+  type ClosureSource,
   getObjectDef,
   getObjectKindDef,
   isAbsorbingState,
@@ -17,6 +18,7 @@ import {
 import { escapeLike } from "@alfred/db/helpers";
 import { and, desc, eq, gte, inArray, like, lt, lte } from "drizzle-orm";
 import { reduceGithubEvent } from "./github-reducer";
+import { reduceRailwayEvent } from "./railway-reducer";
 import { reduceSentryEvent } from "./sentry-reducer";
 
 /**
@@ -38,6 +40,14 @@ export interface ObjectStateDelta {
   externalId: string;
   /** Native-state token the registry's `normalize` maps to a `StateCategory`. */
   nativeState: string;
+  /**
+   * How this delta knows what it asserts: a verified push receipt, or a
+   * verified pull (an authenticated read of current state). Required with no
+   * default, so a new producer cannot silently inherit one — the declaration
+   * is the tier-3 proof every assertion path names its source. The store
+   * never branches on it; closure policy stays per-kind in `closesOpenAsk`.
+   */
+  closureSource: ClosureSource;
   /**
    * Provider-clock instant for this delta (a suite's `updated_at`). A delta
    * that carries one orders its row by provider event time; a delta without
@@ -182,6 +192,7 @@ type ReduceFn = (eventType: string, action: string | null, payload: unknown) => 
 const REDUCERS = {
   github: reduceGithubEvent,
   sentry: reduceSentryEvent,
+  railway: reduceRailwayEvent,
 } satisfies Record<ObjectStateProvider, ReduceFn>;
 
 const DEFAULT_OBJECT_LIST_LIMIT = 100;
