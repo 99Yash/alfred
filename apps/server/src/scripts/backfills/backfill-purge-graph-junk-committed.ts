@@ -22,7 +22,9 @@
  *
  * `entities` is unique on `(user_id, kind, canonical_name)`, so a re-kind can
  * collide with a row already at the target coordinate. Such a row is REPORTED
- * and left alone — this script never merges two contacts.
+ * and left alone — this script never merges two contacts. The predicate is
+ * `reKindWouldCollide`, the one the live writer applies, imported through the
+ * same door as the classifier so the policy has a single home.
  *
  * Bundled by tsdown (`noExternal: @alfred/*`, registered in `tsdown.config.ts`)
  * so it runs on prod with plain `node dist/...`.
@@ -44,12 +46,16 @@
 import {
   classifyContactKind,
   parsePersonEntityMetadata,
+  reKindWouldCollide,
 } from "@alfred/assistant/knowledge/internal";
 import { isNonEmptyString, parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
 import { entities, entityRelations, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { closeScriptResources } from "../script-runtime";
+
+/** The legacy `entities.kind` vocabulary, derived from the one classifier that answers it. */
+type ContactKind = ReturnType<typeof classifyContactKind>;
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -212,7 +218,7 @@ async function rekindContacts(userId: string): Promise<void> {
     .from(entities)
     .where(and(eq(entities.userId, userId), eq(entities.kind, "person")));
 
-  const demotions: Array<{ id: string; canonicalName: string; kind: string }> = [];
+  const demotions: Array<{ id: string; canonicalName: string; kind: ContactKind }> = [];
   let unclassifiable = 0;
 
   for (const row of rows) {
@@ -249,21 +255,10 @@ async function rekindContacts(userId: string): Promise<void> {
   let blocked = 0;
 
   for (const d of demotions) {
-    // `(user_id, kind, canonical_name)` is unique. A row already sitting at the
-    // target coordinate is a different contact, so leave both alone and say so.
-    const [clash] = await db()
-      .select({ id: entities.id })
-      .from(entities)
-      .where(
-        and(
-          eq(entities.userId, userId),
-          eq(entities.kind, d.kind),
-          eq(entities.canonicalName, d.canonicalName),
-        ),
-      )
-      .limit(1);
-
-    if (clash) {
+    // The SAME predicate the live writer applies, through the same door as the
+    // classifier: a row already at the target coordinate is a different
+    // contact, so leave both alone and say so. Never merge.
+    if (await reKindWouldCollide({ userId, kind: d.kind, canonicalName: d.canonicalName })) {
       blocked += 1;
       console.log(`    ! name clash, left as person: ${maskName(d.canonicalName)}`);
       continue;

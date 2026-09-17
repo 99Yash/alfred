@@ -255,16 +255,49 @@ export async function upsertContactByAlias(
   return tx ? run(tx) : db().transaction(run);
 }
 
+export interface ReKindCollisionArgs {
+  readonly userId: string;
+  /** The kind the caller wants to move the row TO. */
+  readonly kind: EntityKind;
+  /** The canonical name of the row being moved. */
+  readonly canonicalName: string;
+}
+
 /**
- * The kind to write on an EXISTING contact row.
+ * True when moving a contact row to `kind` would land on a row that already
+ * holds that `(user_id, kind, canonical_name)` coordinate — the columns of the
+ * `entities` unique index.
  *
- * `entities` is unique on `(user_id, kind, canonical_name)`, so moving a row to
- * a new kind can collide with a row that already sits at that coordinate. The
- * collision is not the writer's to resolve — a merge would pick a winner and
- * silently drop one contact's correspondence aggregate — so the row keeps the
- * kind it has and the next run tries again once the other row moves. A stale
- * kind is recoverable; a dropped aggregate is not.
+ * The collision is not a re-kinder's to resolve: a merge would pick a winner
+ * and silently drop one contact's correspondence aggregate, so both callers
+ * keep the row's current kind and report it. A stale kind is recoverable; a
+ * dropped aggregate is not.
+ *
+ * ONE definition, for the same reason {@link classifyContactKind} is one: the
+ * live writer below and the committed purge backfill re-kind the same rows
+ * under the same index, and a second copy of this rule would drift (#1108,
+ * the #493 precedent).
  */
+export async function reKindWouldCollide(
+  args: ReKindCollisionArgs,
+  tx?: DbTransaction,
+): Promise<boolean> {
+  const [clash] = await (tx ?? db())
+    .select({ id: entities.id })
+    .from(entities)
+    .where(
+      and(
+        eq(entities.userId, args.userId),
+        eq(entities.kind, args.kind),
+        eq(entities.canonicalName, args.canonicalName),
+      ),
+    )
+    .limit(1);
+
+  return Boolean(clash);
+}
+
+/** The kind to write on an EXISTING contact row — see {@link reKindWouldCollide}. */
 async function resolveKindForUpdate(
   ex: DbTransaction,
   existing: Entity,
@@ -272,17 +305,54 @@ async function resolveKindForUpdate(
 ): Promise<string> {
   if (existing.kind === kind) return existing.kind;
 
-  const [clash] = await ex
-    .select({ id: entities.id })
+  const collides = await reKindWouldCollide(
+    { userId: existing.userId, kind, canonicalName: existing.canonicalName },
+    ex,
+  );
+
+  return collides ? existing.kind : kind;
+}
+
+/**
+ * The canonical name every stored contact row holds, keyed by its lowercased
+ * email alias.
+ *
+ * A DRY backfill persists nothing, so it has no written row to read the kind
+ * back from. It still has to report the kind a real write WOULD produce, and
+ * {@link classifyContactKind} is defined over the STORED canonical name — the
+ * value an existing row keeps and no writer ever updates. Without this read a
+ * preview classifies the display name this scan's headers happened to carry,
+ * which is exactly the per-run value the kind bar was moved off.
+ */
+export async function readStoredContactNames(
+  userId: string,
+  addresses: readonly string[],
+): Promise<Map<string, string>> {
+  const wanted = [...new Set(addresses.map((a) => a.trim().toLowerCase()).filter(Boolean))];
+
+  const names = new Map<string, string>();
+
+  if (wanted.length === 0) return names;
+
+  const rows = await db()
+    .select({ canonicalName: entities.canonicalName, aliases: entities.aliases })
     .from(entities)
     .where(
       and(
-        eq(entities.userId, existing.userId),
-        eq(entities.kind, kind),
-        eq(entities.canonicalName, existing.canonicalName),
+        eq(entities.userId, userId),
+        inArray(entities.kind, CONTACT_KINDS),
+        sql`EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
+          WHERE ${inArray(sql`lower(alias)`, wanted)}
+        )`,
       ),
-    )
-    .limit(1);
+    );
 
-  return clash ? existing.kind : kind;
+  for (const row of rows) {
+    for (const alias of aliasesSchema.parse(row.aliases ?? [])) {
+      names.set(alias.trim().toLowerCase(), row.canonicalName);
+    }
+  }
+
+  return names;
 }
