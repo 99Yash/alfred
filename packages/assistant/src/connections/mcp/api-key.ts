@@ -6,15 +6,15 @@
  * parameter. Like the OAuth grant, the connection row is the storage authority
  * and the secret uses the shared authenticated credential envelope — the plain
  * key exists only as a `SealedCredentialSecret` in
- * `mcp_api_key_credentials.secret`, and only ever as a local string for the one
- * request that opens it.
+ * `mcp_api_key_credentials.secret`, and once opened it is carried as a
+ * {@link Redacted} and unwrapped only where the transport sets the placement.
  *
  * `readApiKeyAuthForConnection` returns a reader rather than a value: the sealed
  * row is read once, the non-secret placement once with it, and the secret is
  * opened once per HTTP request inside `withApiKey`. Nothing caches an opened key.
  */
 
-import { mcpApiKeyPlacementSchema, type McpApiKeyPlacement } from "@alfred/contracts";
+import { mcpApiKeyPlacementSchema, redacted, type McpApiKeyPlacement } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { mcpApiKeyCredentials, mcpConnections } from "@alfred/db/schemas";
@@ -61,7 +61,7 @@ export async function readApiKeyAuthForConnection(
 
   return {
     placement: async () => mcpApiKeyPlacementSchema.parse(row.placement),
-    secret: async () => credentialVault().open(row.secret),
+    secret: async () => redacted(credentialVault().open(row.secret)),
   };
 }
 
