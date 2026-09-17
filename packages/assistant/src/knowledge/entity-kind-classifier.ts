@@ -390,36 +390,69 @@ function entityKindForNodeKind(kind: EntityNodeKind): EntityKind {
 
 /**
  * True when `value` could be a human's name. A DENY test, not an allow test:
- * it rejects the shapes no human name has, so a single-token name ("Sanyam")
- * still passes.
+ * it rejects only the two shapes a human name cannot carry, so a single-token
+ * name ("Sanyam"), a role suffix ("Jane Doe | Marketing") and a dotted local
+ * part used as a display name ("sarah.chen") all still pass.
  *
- * Rule 2 asks `classifyEmailDomain` with a bare `{ domain }`, so a non-null
- * answer means "this string is a syntactically valid hostname" — the ONE DNS
- * grammar in `@alfred/contracts` (`hostname.ts`), not a fourth hand-rolled
- * regex. It is also what makes a cross-kind duplicate impossible without a
- * separate rule: every `organization` row this module writes has a domain for
- * its canonical name, so a domain-shaped person value is that organization
- * restated.
+ * Rule 2 is the cross-kind duplicate rule stated exactly. `collectOrgDomains`
+ * mints ONE `organization` row per non-free-mail sender domain, so a contact
+ * whose display value IS its own mail domain is that organization restated
+ * (`Amazon.in` from `order-update@amazon.in`). It asks `classifyEmailDomain`
+ * with a bare `{ domain }` first, so "is this string a hostname at all" reuses
+ * the ONE DNS grammar in `@alfred/contracts` (`hostname.ts`) rather than a
+ * fourth hand-rolled regex.
+ *
+ * The bar deliberately does NOT reuse `NON_PERSON_DISPLAY_RE`. That regex is
+ * an AND-partner of the positive `PERSON_DISPLAY_RE`; standalone it rejects
+ * the surnames Jobs, Sales and Service and every "Name | Function" display
+ * convention, and a wrong demotion is not cosmetic — `gmail-recipient-policy`
+ * filters `kind = 'person'` and fails a live send closed.
  */
-export function isPersonNameShaped(value: string): boolean {
-  const trimmed = value.trim();
+export function isPersonNameShaped(input: PersonNameShapeInput): boolean {
+  const value = input.value.trim();
 
-  if (!trimmed) return false;
+  if (!value) return false;
 
   // No human name carries a path segment (`99Yash/GHSA-xwg4-73v4-xw9w`).
-  if (trimmed.includes("/")) return false;
+  if (value.includes("/")) return false;
 
-  // A valid hostname is a domain restated (`Amazon.in`).
-  if (classifyEmailDomain({ domain: trimmed }) !== null) return false;
+  return !restatesOwnDomain(value, input.domain);
+}
 
-  return !NON_PERSON_DISPLAY_RE.test(trimmed);
+export interface PersonNameShapeInput {
+  /** The display value under test — what the writer stores as `canonical_name`. */
+  readonly value: string;
+  /** The contact's own mail domain, lowercased. Empty when the address had none. */
+  readonly domain: string;
+}
+
+/** True when `value` is a hostname that is the contact's own domain, or a parent or child of it. */
+function restatesOwnDomain(value: string, domain: string): boolean {
+  const candidate = value.toLowerCase();
+
+  if (!domain) return false;
+
+  if (classifyEmailDomain({ domain: candidate }) === null) return false;
+
+  return (
+    candidate === domain || domain.endsWith(`.${candidate}`) || candidate.endsWith(`.${domain}`)
+  );
 }
 
 export interface ClassifyContactKindInput {
   /** The contact's primary email address. Canonicalized here, so any case is fine. */
   readonly address: string;
-  /** The best display name seen for the contact, or `null` when the headers carried none. */
-  readonly displayName: string | null;
+  /**
+   * The value that is — or is about to be — stored in `entities.canonical_name`.
+   *
+   * NOT the display name this run's headers carried. `canonical_name` is
+   * written once at insert and never updated, so it is the only display
+   * evidence every reader shares: the live writer, the purge script and a dry
+   * run all classify the same string and cannot disagree. A per-run display
+   * name made the kind flap — one message with a bare `<address>` re-minted
+   * `person` on a row the bar had just demoted (#1108 round 1).
+   */
+  readonly canonicalName: string;
 }
 
 /**
@@ -428,22 +461,29 @@ export interface ClassifyContactKindInput {
  * Two independent bars, because neither one alone clears the prod queue:
  *   - the ADDRESS side delegates to {@link classifyEntityKind}, so a
  *     `noreply@`/`notifications@` envelope is never a person;
- *   - the VALUE side runs {@link isPersonNameShaped} over the display name,
- *     which is what the writer stores as `canonical_name`.
+ *   - the VALUE side runs {@link isPersonNameShaped} over the stored canonical
+ *     name.
+ *
+ * A canonical name equal to the address carries no display evidence — the
+ * writer stores `displayName ?? address` — so the value side is skipped there
+ * and the address side decides alone.
  *
  * An address that is not a well-formed email is not a person either — the
  * identity parse is the owning boundary, and a failure answers `other` rather
  * than throwing, so one malformed header never fails a capture run.
  */
 export function classifyContactKind(input: ClassifyContactKindInput): EntityKind {
-  const identity = identityRefSchema.safeParse({
-    kind: "email",
-    value: canonicalizeIdentityValue("email", input.address),
-  });
+  const address = canonicalizeIdentityValue("email", input.address);
+
+  const identity = identityRefSchema.safeParse({ kind: "email", value: address });
 
   if (!identity.success) return "other";
 
-  const displayName = normalizeDisplayName(input.displayName ?? undefined);
+  const stored = input.canonicalName.trim();
+
+  const displayName = normalizeDisplayName(
+    stored.toLowerCase() === address.toLowerCase() ? undefined : stored,
+  );
 
   const classified = classifyEntityKind({
     identity: identity.data,
@@ -452,7 +492,9 @@ export function classifyContactKind(input: ClassifyContactKindInput): EntityKind
 
   const kind = entityKindForNodeKind(classified.kind);
 
-  if (kind !== "person") return kind;
+  if (kind !== "person" || !displayName) return kind;
 
-  return displayName && !isPersonNameShaped(displayName) ? "other" : "person";
+  return isPersonNameShaped({ value: displayName, domain: parseEmail(address)?.domain ?? "" })
+    ? "person"
+    : "other";
 }
