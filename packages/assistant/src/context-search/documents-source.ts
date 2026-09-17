@@ -119,7 +119,7 @@ export function createDocumentContextSource(): ContextSource {
   });
 }
 
-async function readDocuments(request: ContextSearchRequest) {
+async function readDocuments(request: ContextSearchRequest, signal: AbortSignal) {
   const hits = await search({
     query: request.query,
     userId: request.userId,
@@ -131,7 +131,7 @@ async function readDocuments(request: ContextSearchRequest) {
   // stays inside Alfred's own store (an Alfred document id, like
   // `memory_chunk` → chunk id and `integration_object` → object id).
   const modelFacing = [...hits].map(toModelFacingHit).sort(compareByScoreThenId);
-  const objects = await namedObjectByCardId(request.userId, modelFacing);
+  const objects = await namedObjectByCardId(request.userId, modelFacing, signal);
 
   const evidence = modelFacing.map((hit) =>
     documentHitToEvidenceCard(hit, objects.get(documentCardId(hit))),
@@ -180,6 +180,7 @@ function documentCardId(hit: ModelFacingHit): string {
 async function namedObjectByCardId(
   userId: string,
   hits: readonly ModelFacingHit[],
+  signal: AbortSignal,
 ): Promise<ReadonlyMap<string, EvidenceObjectRef>> {
   const found = new Map<string, EvidenceObjectRef>();
 
@@ -196,7 +197,7 @@ async function namedObjectByCardId(
 
     if (subjects.length === 0) return found;
 
-    const reconciled = await reconcileEvidence({ userId, subjects });
+    const reconciled = await reconcileEvidence({ userId, subjects, abortSignal: signal });
 
     for (const [id, resolved] of reconciled) {
       const byObjectId = new Map(resolved.map((object) => [object.state.objectId, object]));
@@ -216,6 +217,10 @@ async function namedObjectByCardId(
       if (ref) found.set(id, ref);
     }
   } catch (err) {
+    // Cancellation is not a failed resolve: the collect timeout already owns
+    // the degraded outcome, so an abort propagates instead of degrading to
+    // unannotated cards with an error log.
+    if (signal.aborted) throw err;
     logger.error(
       { err, event: "context_search_object_annotation_failed", userId },
       "Resolving named object state for document cards failed; cards are unannotated",
