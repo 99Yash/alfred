@@ -62,15 +62,14 @@ export const standingInstructionSurfaceSchema = z.enum(STANDING_INSTRUCTION_SURF
  * `block_reply_draft`         — the reply-drafting gate returns `no_draft` for a matching sender
  *                               (ADR-0098). Suppressions written before this effect existed do
  *                               not carry it; they keep suppressing todos and briefings only.
- * `deprioritize_triage_category` — triage `classify` renders `directive` verbatim into the
- *                               Observations block, so the cheap model weighs the user's own
- *                               words when it picks the category (ADR-0051 §6: a deterministic
- *                               fact fed as a hint, never a rewrite). This is the ONLY effect
- *                               that can change the Gmail label the user sees. It is a PRIOR,
- *                               not a floor: the directives this reads say "routine notices are
- *                               low priority" AND "a genuinely urgent one may still surface", so
- *                               only a model can separate the two. A deterministic demotion
- *                               would honor the first clause by breaking the second.
+ * `deprioritize_triage_category` — triage `classify` weighs the instruction as a
+ *                               category prior when it picks the label. This is the ONLY
+ *                               effect that can change the Gmail label the user sees. It is
+ *                               a PRIOR, not a floor: the directives this reads say "routine
+ *                               notices are low priority" AND "a genuinely urgent one may
+ *                               still surface", so only a model can separate the two. A
+ *                               deterministic demotion would honor the first clause by
+ *                               breaking the second.
  */
 export const SUPPRESSION_EFFECTS = [
   "block_todo_suggestion",
@@ -132,4 +131,13 @@ export function hasSuppressionEffect(
   effect: SuppressionEffect,
 ): boolean {
   return value.effects.includes(effect);
+}
+
+/**
+ * Registered effects this instruction does not yet carry. Empty when it is
+ * current. The single definition behind the backfill preview and the adopt
+ * repair, so the two cannot disagree on what "stale" means.
+ */
+export function missingSuppressionEffects(value: StandingInstructionValue): SuppressionEffect[] {
+  return SUPPRESSION_EFFECTS.filter((effect) => !hasSuppressionEffect(value, effect));
 }

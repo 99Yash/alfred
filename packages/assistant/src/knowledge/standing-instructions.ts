@@ -3,6 +3,7 @@ import {
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   SUPPRESSION_EFFECTS,
   hasSuppressionEffect,
+  missingSuppressionEffects,
   standingInstructionValueSchema,
   type ObservationSource,
   type StandingInstructionValue,
@@ -442,15 +443,19 @@ export async function editStandingInstruction(
 export async function adoptRegisteredSuppressionEffects(args: {
   userId: string;
   source?: MemorySource | undefined;
+  /**
+   * Preloaded active snapshot (e.g. the caller's preview list). When given the
+   * repair upgrades from THIS snapshot instead of re-reading, so a preview
+   * printed from the same list cannot disagree with the write.
+   */
+  active?: readonly ActiveSuppressionInstruction[] | undefined;
 }): Promise<{ upgraded: string[]; skipped: number }> {
-  const active = await listActiveSuppressionInstructions(args.userId);
+  const active = args.active ?? (await listActiveSuppressionInstructions(args.userId));
   const upgraded: string[] = [];
   let skipped = 0;
 
   for (const instruction of active) {
-    const missing = SUPPRESSION_EFFECTS.filter(
-      (effect) => !hasSuppressionEffect(instruction.value, effect),
-    );
+    const missing = missingSuppressionEffects(instruction.value);
 
     if (missing.length === 0) {
       skipped += 1;

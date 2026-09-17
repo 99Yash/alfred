@@ -219,6 +219,13 @@ export interface SenderExtractionEvent extends FloorTraceFields {
    * and a demand lane is the model declining the prior, not a missing read.
    */
   standingInstructionCategoryFactId: string | null;
+  /**
+   * The pre-classify `deprioritize_triage_category` read failed, so a null
+   * `standingInstructionCategoryFactId` means "unknown", not "no instruction".
+   * DISTINCT from `standingInstructionReadFailed`, which reports the
+   * post-classify todo read.
+   */
+  standingInstructionCategoryReadFailed: boolean;
   /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
   todoOutcome: string | null;
   todoNote: string | null;
@@ -287,6 +294,7 @@ export function senderExtractionEvent(args: {
     standingInstructionEffect: args.standingSuppression?.effect ?? null,
     standingInstructionReadFailed: args.standingSuppressionReadFailed,
     standingInstructionCategoryFactId: obs.standingInstruction?.factId ?? null,
+    standingInstructionCategoryReadFailed: obs.standingInstructionReadFailed,
     todoOutcome: args.classification.todoDecision?.outcome ?? null,
     todoNote: args.classification.todoDecision?.note ?? null,
   };

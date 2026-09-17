@@ -923,7 +923,7 @@ async function gatherObservations(args: {
   // received mail anyway.
   const isHumanSender = args.senderContext.effectiveAuthor === "person";
 
-  const [thread, senderKindEnabled, standingInstruction] = await Promise.all([
+  const [thread, senderKindEnabled, standing] = await Promise.all([
     getThreadState({
       userId: args.userId,
       sourceThreadId: args.sourceThreadId,
@@ -945,13 +945,19 @@ async function gatherObservations(args: {
     // exactly "no instruction", so a database hiccup can never invent one. The
     // reverse failure — a real instruction that a blip hides — costs the user
     // one mis-tagged mail and is repaired by the next classify of the thread.
+    // Either way the outcome is recorded on `readFailed` (mirroring the
+    // `standingSuppressionReadFailed` sibling), so the decision trace can tell
+    // "no instruction" apart from "unknown".
     findActiveSenderSuppression(args.userId, {
       senderEmail: args.senderAddress ?? meta.from ?? null,
       accountId: args.accountId,
       effect: "deprioritize_triage_category",
     })
-      .then((match) => (match ? { factId: match.factId, directive: match.value.directive } : null))
-      .catch(() => null),
+      .then((match) => ({
+        instruction: match ? { factId: match.factId, directive: match.value.directive } : null,
+        readFailed: false,
+      }))
+      .catch(() => ({ instruction: null, readFailed: true })),
   ]);
 
   const senderKind =
@@ -1006,7 +1012,8 @@ async function gatherObservations(args: {
     senderRelationship: relationship.descriptor,
     senderRelationshipIsCold: relationship.isColdContact,
     senderKind,
-    standingInstruction,
+    standingInstruction: standing.instruction,
+    standingInstructionReadFailed: standing.readFailed,
     labelIds,
     signalText,
   });
