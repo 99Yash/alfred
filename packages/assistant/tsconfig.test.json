@@ -64,7 +64,6 @@
     "test/mcp/risk.test.ts",
     "test/mcp/streamable-http.test.ts",
     "test/triage/classify.test.ts",
-    "test/triage/decision-trace-store.test.ts",
     "test/triage/reconcile-thread-label.test.ts",
     "test/triage/sender-kind.test.ts",
     "test/workflows/authoring-tools.test.ts",
