@@ -37,6 +37,7 @@ export {
 } from "./broker";
 
 export {
+  mcpUnresolvedInvocationGate,
   reconcileInflightInvocations,
   resolveMcpToolIdentity,
   type McpToolIdentityResolution,

@@ -61,6 +61,28 @@ describe("mcpIntegrationRoutes", () => {
     }
   });
 
+  test("keeps the connection rename and removal behind authentication", async () => {
+    const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
+
+    const rename = await app.handle(
+      new Request("http://localhost/api/integrations/mcp/connections/conn_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "Renamed" }),
+      }),
+    );
+
+    assert.equal(rename.status, 401);
+
+    const remove = await app.handle(
+      new Request("http://localhost/api/integrations/mcp/connections/conn_1", {
+        method: "DELETE",
+      }),
+    );
+
+    assert.equal(remove.status, 401);
+  });
+
   test("publishes only the optional recovery cursor", async () => {
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
 
