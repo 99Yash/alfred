@@ -324,6 +324,19 @@ export const mcpAddServerBodySchema = z
 
 export type McpAddServerBody = z.infer<typeof mcpAddServerBodySchema>;
 
+/**
+ * The one field a completed connection may be renamed to. Renaming changes the
+ * display label ALONE: `instanceKey`, the endpoint definition, credentials,
+ * status, scopes, and the catalog pointer are facts the owner did not ask to
+ * change. The label shares `MCP_ADD_SERVER_MAX_LABEL_LENGTH` with creation so a
+ * name cannot be legal to create and illegal to rename back to.
+ */
+export const mcpRenameConnectionBodySchema = z
+  .object({ label: z.string().trim().min(1).max(MCP_ADD_SERVER_MAX_LABEL_LENGTH) })
+  .strict();
+
+export type McpRenameConnectionBody = z.infer<typeof mcpRenameConnectionBodySchema>;
+
 // ---------------------------------------------------------------------------
 // First-class remote MCP servers. The record's keys ARE the provider key space,
 // exactly as `INTEGRATIONS` owns the integration slug space (ADR-0093): a
