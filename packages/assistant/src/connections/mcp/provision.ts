@@ -39,7 +39,7 @@
  * session is what would close the hole, and this module does not have one.
  */
 
-import type { McpAddServerAuth } from "@alfred/contracts";
+import { redacted, type McpAddServerAuth } from "@alfred/contracts";
 import { persistApiKeyCredential } from "./api-key";
 import { MCP_DEFAULT_REQUEST_TIMEOUT_MS, McpRawClient } from "./client";
 import { builtInClientPolicy, builtInProviderForEndpoint } from "./built-ins";
@@ -158,7 +158,7 @@ export async function addUserMcpServer(
   const probeApiKey: McpApiKeyAuth | undefined = apiKey
     ? {
         placement: async () => apiKey.placement,
-        secret: async () => apiKey.value,
+        secret: async () => redacted(apiKey.value),
       }
     : undefined;
 

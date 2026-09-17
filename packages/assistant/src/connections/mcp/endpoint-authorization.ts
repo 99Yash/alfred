@@ -1,4 +1,4 @@
-import type { McpApiKeyPlacement } from "@alfred/contracts";
+import type { McpApiKeyPlacement, Redacted } from "@alfred/contracts";
 import type { McpServer } from "@alfred/db/schemas";
 import type { FetchLike } from "@modelcontextprotocol/client";
 import {
@@ -73,8 +73,13 @@ export interface McpAuthorizedEndpoint {
 export interface McpApiKeyAuth {
   /** Placement, read once when the endpoint authorization is built. Not secret. */
   placement(): Promise<McpApiKeyPlacement>;
-  /** The opened secret; read once per HTTP request, never cached by Alfred. */
-  secret(): Promise<string>;
+  /**
+   * The opened secret, carried as a {@link Redacted} so the default string paths
+   * (interpolation, `JSON.stringify`, a log) cannot expose it; read once per
+   * HTTP request, never cached by Alfred. The only `.unwrap()` is at the wire,
+   * where the placement is set.
+   */
+  secret(): Promise<Redacted<string>>;
 }
 
 export interface McpEndpointAuthorizer {
@@ -217,7 +222,7 @@ async function withApiKey(
   return async (input, init) => {
     if (placement.in === "header") {
       const headers = new Headers(init.headers);
-      headers.set(placement.name, await apiKey.secret());
+      headers.set(placement.name, (await apiKey.secret()).unwrap());
 
       return requester(input, { ...init, headers });
     }
@@ -225,7 +230,7 @@ async function withApiKey(
     const url = new URL(input);
 
     if (url.origin !== origin) return requester(input, init);
-    url.searchParams.set(placement.name, await apiKey.secret());
+    url.searchParams.set(placement.name, (await apiKey.secret()).unwrap());
 
     return requester(url.href, init);
   };
