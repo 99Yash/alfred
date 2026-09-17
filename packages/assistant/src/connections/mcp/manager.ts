@@ -102,7 +102,14 @@ interface CatalogRefreshState {
   generation: McpManagerGeneration;
 }
 
-type McpManagerCloseIntent = "shutdown" | "failure" | "disconnect";
+type McpManagerCloseIntent =
+  | "shutdown"
+  | "failure"
+  | "disconnect"
+  // Closes the client and writes no durable state: the caller replaced the
+  // credential and immediately asks for a fresh generation, which writes the
+  // next status itself.
+  | "credential_replaced";
 
 interface McpManagerGeneration {
   readonly connectionId: string;
@@ -432,6 +439,25 @@ export class McpConnectionManager {
     }
 
     return true;
+  }
+
+  /**
+   * Forget the live client for a connection so the next `getReadyClient` reads
+   * its credential again and reconnects. Durable state is untouched.
+   *
+   * A ready generation holds a client whose API-key reader closed over the
+   * sealed row it read at construction, so replacing that row (a re-add with a
+   * new key) stores the new secret while the cache keeps sending the old one.
+   * `addUserMcpServer` calls this between sealing the replacement and asking
+   * for a ready client. It never overrides a disconnect or failure already
+   * closing the generation, so those terminal writes still land.
+   */
+  async invalidateLiveClient(connectionId: string): Promise<void> {
+    const generation = this.#generations.get(connectionId);
+
+    if (!generation) return;
+
+    await this.#closeGeneration(generation, "credential_replaced");
   }
 
   /** Drop all live clients (e.g. on shutdown). Does not touch persisted rows. */

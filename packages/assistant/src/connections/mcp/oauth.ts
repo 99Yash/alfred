@@ -223,6 +223,10 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
         .update(mcpConnections)
         .set({
           credentialId: credential.id,
+          // One credential mode per connection (the CHECK in `schema/mcp.ts`):
+          // a keyed connection that authorizes OAuth drops its key pointer in
+          // this same write, and `persistApiKeyCredential` clears the inverse.
+          apiKeyCredentialId: null,
           authServerIdentity: input.issuer,
           updatedAt: new Date(),
         })
