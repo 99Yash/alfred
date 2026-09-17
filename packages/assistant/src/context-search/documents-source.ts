@@ -205,10 +205,12 @@ async function namedObjectByCardId(
       const [object] = [...byObjectId.values()];
 
       if (!object) continue;
-      // The chunk NAMES this object; it is not the object. `cardNamesObjectRef`
-      // takes the reconcile seam's own result, so the `names` relation — the
-      // one that keeps the ranker's exact-retrieval feature off a semantic
-      // hit — cannot be claimed by a producer that never went through the seam.
+      // The chunk NAMES this object; it is not the object. This source reached
+      // the object through TEXT, so `cardNamesObjectRef` is the only correct
+      // builder here: it keeps the ranker's exact-retrieval feature off a
+      // semantic hit. `cardIsObjectRef(object.state)` would also compile and
+      // would turn that feature on, which is why the rule lives in a comment
+      // and in `object-ref.ts` rather than in a type.
       const ref = cardNamesObjectRef(object);
 
       if (ref) found.set(id, ref);

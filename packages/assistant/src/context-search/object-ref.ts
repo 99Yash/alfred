@@ -25,13 +25,30 @@ import type { ObjectState, ReconciledObject } from "@alfred/assistant/connection
  * **The relation is bound to the entry point, never passed in.** There are two
  * exported builders and no parameter that selects between them, because the
  * relation is the one field a caller cannot be trusted to state: `is` turns on
- * the ranker's exact-retrieval feature, and a producer that reached its object
- * through text would pass the word that claims a retrieval mode it did not
- * use. A free `relation` argument makes that a plausible-looking call; two
- * entry points make it unwritable. {@link cardNamesObjectRef} takes the
- * {@link ReconciledObject} the reconcile seam returns rather than a bare
- * `ObjectState`, so only a caller that actually went through the seam can mint
- * a `names` ref at all.
+ * the ranker's exact-retrieval feature at weight `0.08`, and a producer that
+ * reached its object through text would pass the word that claims a retrieval
+ * mode it did not use. A free `relation` argument makes that a
+ * plausible-looking call. Two entry points make the wrong relation a
+ * deliberately chosen FUNCTION rather than a mistyped argument.
+ *
+ * **That binding is naming plus convention, not the type system. Read this
+ * before you add the third source.** Nothing here is unwritable:
+ *
+ * - {@link ReconciledObject} is a structural type of three public fields, so a
+ *   producer that never called the reconcile seam can still write the literal
+ *   and reach {@link cardNamesObjectRef}. Passing the seam's result buys a
+ *   reviewer's signal, not a compiler's refusal.
+ * - The dangerous direction is the cheaper one. A document builder already
+ *   holds an `ObjectState` inside its {@link ReconciledObject}, so
+ *   `cardIsObjectRef(object.state)` is one import away, compiles, parses, and
+ *   turns `exactMatch = 1` on for a card that similarity reached. The two entry
+ *   points do not close that; only this paragraph and the call-site comments
+ *   do.
+ *
+ * So the rule a new source must carry itself: call {@link cardIsObjectRef} only
+ * when the CALLER supplied the exact reference the lookup used. If the card was
+ * reached by similarity, by a key parsed out of text, or by any other search,
+ * the relation is `names`.
  */
 
 /**
@@ -53,6 +70,11 @@ export function boundCardText(
  * The card IS this object: the caller resolved its own exact reference, so the
  * card was reached by an exact key rather than by similarity.
  *
+ * Call this ONLY from a source whose lookup key came from the request. The
+ * `is` relation turns on the ranker's `exactMatch` feature, which asserts a
+ * retrieval mode rather than a fact about the object, and no type here refuses
+ * the wrong caller — see the module docstring.
+ *
  * `undefined` is the honest return rather than a partially built ref: a card
  * cannot cite an object with an empty `kind` or `externalId`. A caller that
  * owes the reader an explanation emits a note card instead.
@@ -66,11 +88,13 @@ export function cardIsObjectRef(state: ObjectState): EvidenceObjectRef | undefin
  * the object is an annotation on it.
  *
  * The parameter is the reconcile seam's own {@link ReconciledObject} rather
- * than the `ObjectState` inside it. That is the whole point of the second entry
- * point: a producer that reached an object through text has one, and a producer
- * that did not cannot manufacture one, so the `names` relation is unreachable
- * from any other path. `undefined` is returned for the same reason as
- * {@link cardIsObjectRef}; a caller that only annotates attaches nothing.
+ * than the `ObjectState` inside it, so the natural call is the one the seam
+ * already hands you. It is a structural type, so it does not PREVENT a
+ * producer that skipped the seam from writing the literal; it only makes that
+ * producer write three fields it has no honest source for.
+ *
+ * `undefined` is returned for the same reason as {@link cardIsObjectRef}; a
+ * caller that only annotates attaches nothing.
  */
 export function cardNamesObjectRef(object: ReconciledObject): EvidenceObjectRef | undefined {
   return objectRef(object.state, "names");
