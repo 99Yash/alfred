@@ -2,6 +2,7 @@ import { db, type DbTransaction } from "@alfred/db";
 import { entities, entityInsertSchema, type Entity, type NewEntity } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
+import { classifyContactKind } from "./entity-kind-classifier";
 import { entityKindSchema, type EntityKind, jsonRecordSchema } from "./types";
 
 const aliasesSchema = z.array(z.string());
@@ -135,12 +136,6 @@ export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): 
 
 export interface UpsertContactByAliasArgs {
   userId: string;
-  /**
-   * The kind to file the contact under. `classifyContactKind` decides it from
-   * the address and the display name; the writer no longer assumes `person`
-   * (#1108 — a CI workflow name and a retailer were both filed as people).
-   */
-  kind: EntityKind;
   /** The email alias the row is matched on (lowercased before matching). */
   address: string;
   /** Aliases to union onto the row — typically just `[address]`. */
@@ -172,13 +167,21 @@ export interface UpsertContactByAliasArgs {
  * next capture run instead of minting a duplicate under the new kind. An
  * `organization` row can never be caught by accident: its only alias is a bare
  * domain, and a domain never contains `@`.
+ *
+ * The kind is DERIVED here, inside the match's transaction, from the canonical
+ * name the row carries (or, for a new row, the one it is about to carry) —
+ * never from the caller's per-run display name. The caller sees only the
+ * documents of its own run, so a run whose headers carried a bare address used
+ * to promote a demoted row straight back to `person`. Classifying the stored
+ * value makes the writer, the purge script and a dry run agree by construction,
+ * and keeps the bar self-healing: change the bar and the next run re-kinds the
+ * same row in place (#1108 round 1).
  */
 export async function upsertContactByAlias(
   args: UpsertContactByAliasArgs,
   tx?: DbTransaction,
 ): Promise<EntityRow> {
   const address = args.address.trim().toLowerCase();
-  const kind = entityKindSchema.parse(args.kind);
 
   if (!address) {
     throw new Error("[memory.entities] upsertContactByAlias requires a non-empty address");
@@ -199,6 +202,14 @@ export async function upsertContactByAlias(
         ),
       )
       .limit(1);
+
+    // One classification per write, from the value this row stores.
+    const kind = entityKindSchema.parse(
+      classifyContactKind({
+        address,
+        canonicalName: existing?.canonicalName ?? args.canonicalNameIfNew,
+      }),
+    );
 
     if (!existing) {
       const [row] = await ex

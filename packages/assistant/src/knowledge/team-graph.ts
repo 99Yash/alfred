@@ -7,8 +7,9 @@
  * read:
  *   - one contact entity per correspondent (email in `aliases`, so
  *     `isKnownContact` matches; correspondence aggregate in `metadata`). The
- *     kind comes from `classifyContactKind`, so a non-human envelope is filed
- *     as `other` instead of `person` (#1108),
+ *     kind comes from `classifyContactKind`, applied by the writer to the
+ *     row's stored canonical name, so a non-human envelope is filed as
+ *     `other` instead of `person` (#1108),
  *   - one `organization` entity per non-consumer sender domain,
  *   - a first significance pass over the result.
  *
@@ -242,17 +243,14 @@ async function persistContacts(
   let nonPersonContacts = 0;
 
   for (const agg of contacts.values()) {
-    const kind = classifyContactKind({ address: agg.address, displayName: agg.displayName });
-
-    if (kind !== "person") nonPersonContacts += 1;
-
     // Match the existing contact by EMAIL ALIAS so the write lands on the same
     // row even when the display name drifts (and never collides onto a
-    // different contact who happens to share a canonical name).
-    await upsertContactByAlias(
+    // different contact who happens to share a canonical name). The writer
+    // derives the kind from the row's stored canonical name, so the count below
+    // reads the kind that was actually written.
+    const row = await upsertContactByAlias(
       {
         userId,
-        kind,
         address: agg.address,
         aliases: [agg.address],
         // Only a brand-new contact takes the freshly-parsed display name;
@@ -273,6 +271,8 @@ async function persistContacts(
       },
       tx,
     );
+
+    if (row.kind !== "person") nonPersonContacts += 1;
   }
 
   return { contacts: contacts.size, organizations: orgDomains.size, nonPersonContacts };
@@ -405,7 +405,12 @@ export async function backfillTeamGraph(
   let nonPersonContacts = 0;
 
   for (const agg of contacts.values()) {
-    const kind = classifyContactKind({ address: agg.address, displayName: agg.displayName });
+    // Nothing is persisted here, so classify the canonical name a real write
+    // WOULD store for a brand-new row.
+    const kind = classifyContactKind({
+      address: agg.address,
+      canonicalName: agg.displayName ?? agg.address,
+    });
 
     if (kind !== "person") nonPersonContacts += 1;
   }

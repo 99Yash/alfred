@@ -223,12 +223,10 @@ async function rekindContacts(userId: string): Promise<void> {
       continue;
     }
 
-    const kind = classifyContactKind({
-      address,
-      // The writer stores `displayName ?? address` as the canonical name, so a
-      // canonical name equal to the address carries no display-name evidence.
-      displayName: row.canonicalName === address ? null : row.canonicalName,
-    });
+    // The SAME input the live writer classifies: the stored canonical name.
+    // Neither side re-derives a display name, so the script and the next
+    // capture run cannot disagree about this row.
+    const kind = classifyContactKind({ address, canonicalName: row.canonicalName });
 
     if (kind !== "person") demotions.push({ id: row.id, canonicalName: row.canonicalName, kind });
   }
