@@ -44,7 +44,7 @@ import {
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
-import { upsertContactByAlias, upsertEntity } from "./entity-graph";
+import { readStoredContactNames, upsertContactByAlias, upsertEntity } from "./entity-graph";
 import { classifyContactKind } from "./entity-kind-classifier";
 import type { DbTransaction } from "@alfred/db";
 import { type CorrespondenceStats, parsePersonEntityMetadata } from "./entity-metadata";
@@ -404,12 +404,20 @@ export async function backfillTeamGraph(
   const orgDomains = collectOrgDomains(contacts);
   let nonPersonContacts = 0;
 
+  // Nothing is persisted here, so read the canonical name each EXISTING row
+  // already stores. That is the value a real write classifies, and it is the
+  // only one a later run also sees; the scan's own display name is per-run
+  // evidence and belongs to a brand-new row only.
+  const storedNames = await readStoredContactNames(
+    userId,
+    [...contacts.values()].map((agg) => agg.address),
+  );
+
   for (const agg of contacts.values()) {
-    // Nothing is persisted here, so classify the canonical name a real write
-    // WOULD store for a brand-new row.
     const kind = classifyContactKind({
       address: agg.address,
-      canonicalName: agg.displayName ?? agg.address,
+      canonicalName:
+        storedNames.get(agg.address.trim().toLowerCase()) ?? agg.displayName ?? agg.address,
     });
 
     if (kind !== "person") nonPersonContacts += 1;

@@ -402,13 +402,16 @@ function entityKindForNodeKind(kind: EntityNodeKind): EntityKind {
  * the ONE DNS grammar in `@alfred/contracts` (`hostname.ts`) rather than a
  * fourth hand-rolled regex.
  *
- * The bar deliberately does NOT reuse `NON_PERSON_DISPLAY_RE`. That regex is
- * an AND-partner of the positive `PERSON_DISPLAY_RE`; standalone it rejects
- * the surnames Jobs, Sales and Service and every "Name | Function" display
- * convention, and a wrong demotion is not cosmetic — `gmail-recipient-policy`
- * filters `kind = 'person'` and fails a live send closed.
+ * The VALUE side deliberately does NOT reuse `NON_PERSON_DISPLAY_RE`. That
+ * regex is an AND-partner of the positive `PERSON_DISPLAY_RE`; standalone it
+ * rejects the surnames Jobs, Sales and Service and every "Name | Function"
+ * display convention, and a wrong demotion is not cosmetic —
+ * `gmail-recipient-policy` filters `kind = 'person'` and fails a live send
+ * closed. The ADDRESS side still reaches that regex through
+ * `isLikelyPersonDisplayName`, but only to WITHHOLD the person fast path,
+ * never to demote on its own: {@link isHardNonPersonClaim} decides that.
  */
-export function isPersonNameShaped(input: PersonNameShapeInput): boolean {
+function isPersonNameShaped(input: PersonNameShapeInput): boolean {
   const value = input.value.trim();
 
   if (!value) return false;
@@ -419,7 +422,7 @@ export function isPersonNameShaped(input: PersonNameShapeInput): boolean {
   return !restatesOwnDomain(value, input.domain);
 }
 
-export interface PersonNameShapeInput {
+interface PersonNameShapeInput {
   /** The display value under test — what the writer stores as `canonical_name`. */
   readonly value: string;
   /** The contact's own mail domain, lowercased. Empty when the address had none. */
@@ -456,11 +459,47 @@ export interface ClassifyContactKindInput {
 }
 
 /**
+ * True when a non-person answer is a HARD claim — the only kind of claim that
+ * may take `person` away from a mail contact.
+ *
+ * On this graph `kind = 'person'` is a CAPABILITY, not a label.
+ * `gmail-recipient-policy` lets a `gmail.send_draft` reach only an address that
+ * a `person` row already holds, and six more readers score a contact by the
+ * same column. So a wrong demotion refuses a live send to somebody the user
+ * has already emailed, while a missed demotion leaves one noisy row. The two
+ * costs are not symmetric, and the bar sits where the cheaper mistake is.
+ *
+ * {@link classifyEntityKind} answers for `entity_profiles.kind`, where
+ * `service` is a harmless label. Two of its email branches reach a non-person
+ * answer on soft evidence, and neither may demote here:
+ *   - every `unknown` answer — a group-word local part (`hr.priya@`), a
+ *     `SERVICE_DOMAIN_SUFFIXES` domain (`jane@notion.so`), an unparseable
+ *     address. It carries `WEAK_CONFIDENCE` and names its own guess in
+ *     `bestGuess`, so it is a guess by construction.
+ *   - `service` from a SOFT service local (`billing@`, `support@`, `admin@`).
+ *     The person fast path cannot overrule it, because that path is gated on
+ *     `!isServiceLocal(localPart)`, so even an unambiguous human display name
+ *     on a role mailbox still answers `service`.
+ *
+ * Only a STRONG service local (`noreply@`, `notifications@`, `alerts@`,
+ * `bounces@`) or a bulk-list header is a shape no human mailbox carries, and
+ * those are exactly the rows #1108 measured on prod.
+ */
+function isHardNonPersonClaim(classified: EntityKindClassification, localPart: string): boolean {
+  if (classified.kind === "person") return false;
+
+  if (classified.confidence < STRONG_CONFIDENCE) return false;
+
+  return classified.kind !== "service" || isStrongServiceLocal(localPart);
+}
+
+/**
  * The legacy `entities.kind` for ONE mail contact.
  *
  * Two independent bars, because neither one alone clears the prod queue:
- *   - the ADDRESS side delegates to {@link classifyEntityKind}, so a
- *     `noreply@`/`notifications@` envelope is never a person;
+ *   - the ADDRESS side delegates to {@link classifyEntityKind} and then to
+ *     {@link isHardNonPersonClaim}, so a `noreply@`/`notifications@` envelope
+ *     is never a person and a soft guess never demotes one;
  *   - the VALUE side runs {@link isPersonNameShaped} over the stored canonical
  *     name.
  *
@@ -476,8 +515,9 @@ export function classifyContactKind(input: ClassifyContactKindInput): EntityKind
   const address = canonicalizeIdentityValue("email", input.address);
 
   const identity = identityRefSchema.safeParse({ kind: "email", value: address });
+  const parsed = parseEmail(address);
 
-  if (!identity.success) return "other";
+  if (!identity.success || !parsed) return "other";
 
   const stored = input.canonicalName.trim();
 
@@ -490,11 +530,14 @@ export function classifyContactKind(input: ClassifyContactKindInput): EntityKind
     displayNames: displayName ? [displayName] : [],
   });
 
-  const kind = entityKindForNodeKind(classified.kind);
+  if (isHardNonPersonClaim(classified, parsed.localPart)) {
+    return entityKindForNodeKind(classified.kind);
+  }
 
-  if (kind !== "person" || !displayName) return kind;
+  // Every other answer keeps `person`, so the value bar still runs over it: a
+  // contact rescued from a soft service claim can still be its own domain
+  // restated (`Amazon.in` from `order-update@amazon.in`).
+  if (!displayName) return "person";
 
-  return isPersonNameShaped({ value: displayName, domain: parseEmail(address)?.domain ?? "" })
-    ? "person"
-    : "other";
+  return isPersonNameShaped({ value: displayName, domain: parsed.domain }) ? "person" : "other";
 }
