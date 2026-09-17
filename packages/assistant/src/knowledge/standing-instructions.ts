@@ -1,6 +1,6 @@
 import {
+  classifyEmailDomain,
   emailDomain,
-  isFreeMail,
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   standingInstructionTargetKey,
@@ -109,17 +109,34 @@ export async function rememberSenderSuppression(
   //   1. The caller never supplies a domain. The server derives it from an
   //      address the caller already resolved, so `co.in` cannot become a
   //      target — no sender has that address.
-  //   2. A free-mail address narrows back to `sender_email`, so `gmail.com`
-  //      never becomes a target.
-  const domain = parsed.scope === "domain" && !isFreeMail(email) ? emailDomain(email) : null;
+  //   2. Only a `corporate_domain` widens. `classifyEmailDomain` is the one
+  //      place that answers "is this domain one organization's", and it also
+  //      rejects consumer mailboxes, school and alumni domains, shared-hosting
+  //      and disposable hosts, and mail-infrastructure hosts — every class
+  //      where one domain carries unrelated senders. It reads the BARE domain,
+  //      never `{ email }`: the address form demands a verified hosted domain
+  //      the sender side never has, so it would answer `ambiguous_domain` for
+  //      every real sender and no instruction would ever widen.
+  const candidateDomain = parsed.scope === "domain" ? emailDomain(email) : null;
+
+  const domain =
+    candidateDomain && classifyEmailDomain({ domain: candidateDomain }) === "corporate_domain"
+      ? candidateDomain
+      : null;
 
   const target: StandingInstructionTarget = domain
     ? { kind: "sender_domain", domain, label, accountId }
     : { kind: "sender_email", email, label, accountId };
 
+  // A domain rule covers senders the label does not name, so the stored
+  // sentence names the DOMAIN. Phrasing it from the sender label would read
+  // back as "…from Ben Book" for a rule that also binds everyone else at that
+  // host — and the model reads this sentence, not the target.
   const directive =
     normalizeOptionalLabel(parsed.directive) ??
-    `Stop surfacing reminders and briefing items from ${label ?? domain ?? email}.`;
+    (domain
+      ? `Stop surfacing reminders and briefing items from any sender at ${domain}.`
+      : `Stop surfacing reminders and briefing items from ${label ?? email}.`);
 
   const source: MemorySource = parsed.source ?? { kind: "user" };
 
@@ -615,11 +632,6 @@ export function findSenderSuppression(
 
   const accountId = lookup.accountId ?? null;
 
-  // Deterministic: a string comparison per instruction, no model call and no
-  // database read. `@alfred/contracts` owns the per-kind rule, so this loop
-  // never restates what a target kind means.
-  const sender = { email, domain: emailDomain(email) };
-
   for (const instruction of instructions) {
     const { target } = instruction.value;
 
@@ -627,7 +639,12 @@ export function findSenderSuppression(
     // consumer. The stored `effects` array is never consulted — it is a
     // write-time snapshot, not a decision. `lookup.effect` is echoed on the
     // match for audit only.
-    if (!targetMatchesSender(target, sender)) continue;
+    //
+    // Deterministic: a string comparison per instruction, no model call and no
+    // database read. `@alfred/contracts` owns the per-kind rule — including
+    // how a domain comes off the address — so this loop never restates what a
+    // target kind means.
+    if (!targetMatchesSender(target, email)) continue;
 
     if (target.accountId !== null && target.accountId !== accountId) continue;
 

@@ -20,7 +20,7 @@
  */
 
 import { z } from "zod";
-import { domainSchema } from "./domain";
+import { domainSchema, emailDomain } from "./domain";
 
 /** Canonical `user_facts.key` for every standing instruction. */
 export const STANDING_INSTRUCTION_KEY = "standing_instruction";
@@ -173,6 +173,13 @@ export function standingInstructionTargetKey(target: StandingInstructionTarget):
  * it sits beside the union so the compiler ties the two together — a third
  * target kind fails the exhaustive guard until it has a match rule.
  *
+ * The parameter is the sender ADDRESS alone, and the `sender_domain` arm derives
+ * the domain from it through {@link emailDomain}. A caller cannot hand in a
+ * domain that does not belong to the address, because a caller never hands in a
+ * domain at all — the one unrepresentable-state rule this function needs.
+ * `senderEmail` is expected normalized (trimmed, lowercased); `emailDomain`
+ * normalizes again, so a stray capital only affects the `sender_email` arm.
+ *
  * A string comparison alone computes the answer. No model call, no network
  * call, no database read: the triage hot path calls this per message.
  *
@@ -186,13 +193,17 @@ export function standingInstructionTargetKey(target: StandingInstructionTarget):
  */
 export function targetMatchesSender(
   target: StandingInstructionTarget,
-  sender: { email: string; domain: string | null },
+  senderEmail: string,
 ): boolean {
   switch (target.kind) {
     case "sender_email":
-      return target.email === sender.email;
-    case "sender_domain":
-      return sender.domain !== null && target.domain === sender.domain;
+      return target.email === senderEmail;
+    case "sender_domain": {
+      const senderDomain = emailDomain(senderEmail);
+
+      return senderDomain !== null && target.domain === senderDomain;
+    }
+
     default: {
       const exhaustive: never = target;
       void exhaustive;
