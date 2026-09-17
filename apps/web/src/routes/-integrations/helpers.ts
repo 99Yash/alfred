@@ -47,6 +47,35 @@ type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connec
 export type McpConnection = McpConnectionsResponse["connections"][number];
 
 /**
+ * The one cache key for one connection's catalog read.
+ *
+ * The per-connection route nests under the connection path, so the key carries
+ * the connection id. The panel owns its own reads; the connection list does not
+ * pass a catalog in, because a second reader would have to invalidate this key
+ * separately and a caller that forgets leaves a stale list.
+ */
+export const MCP_CONNECTION_TOOLS_QUERY_KEY = [
+  "integrations",
+  "mcp",
+  "connection",
+  "tools",
+] as const;
+
+type McpConnectionRoute = ReturnType<typeof client.api.integrations.mcp.connections>;
+
+/**
+ * One page of a connection's persisted catalog, and the exact descriptor read
+ * behind a hit. Both are derived from the routes rather than restated, so the
+ * panel cannot drift from the wire contract; the route re-parses each arm at
+ * its own boundary.
+ */
+export type McpConnectionToolPage = EdenData<McpConnectionRoute["tools"]["get"]>;
+
+export type McpConnectionTool = McpConnectionToolPage["tools"][number];
+
+export type McpConnectionToolInspection = EdenData<McpConnectionRoute["tools"]["inspect"]["get"]>;
+
+/**
  * The consent door for a STORED connection, and the creation door for a
  * built-in that may have no row yet.
  *
