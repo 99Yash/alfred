@@ -392,24 +392,27 @@ function renderThreadObservation(obs: Observations): string[] {
 }
 
 /**
- * How the model should weigh a matched standing-instruction directive, rendered
- * beside the directive in `renderObservations` (never in SYSTEM_PROMPT — see
+ * How the model should weigh a matched standing-instruction phrasing, rendered
+ * beside the phrasing in `renderObservations` (never in SYSTEM_PROMPT — see
  * the placement note there). A named constant because the rubric reads ~90
  * words against sibling lines that are each one terse fact; the call site keeps
  * the placement, this keeps the text.
  */
 const STANDING_INSTRUCTION_HANDLING_RULE =
-  "How to weigh that line, for THIS SENDER ONLY: it outranks this sender's prior, the Gmail signals, and your own reading of urgency in the body, because every one of those is Alfred's inference and this is not. It is still a prior, not a command. Honor both halves: route this sender's routine notices to 'fyi' even when one carries a dated boilerplate deadline, and keep a demand lane only when the body names a real loss of access or money at risk. Apply none of this to any other sender.";
+  "How to weigh that line, for THIS SENDER ONLY: treat it as a prior over this sender's prior, the Gmail signals, and urgency cues in the body, because each of those is Alfred's inference and this line is the user's own words. It is still a prior, not a command: prefer 'fyi' for this sender's routine notices even when they carry urgency cues, while still allowing a demand lane for a genuinely urgent item judged from the body. Apply none of this to any other sender.";
 
 function renderObservations(obs: Observations): string {
   const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
 
   // FIRST, above every derived signal, and deliberately so. Each sibling
   // observation is Alfred's own inference from the corpus, so each can be wrong
-  // about what the user wants; this line is the user's own sentence, so it
-  // cannot be.
+  // about what the user wants; this line is the user's verbatim words
+  // (`phrasing`), so it outranks them on what the user wants. `directive` is
+  // deliberately NOT rendered here: it is the model-composed, prompt-ready
+  // sentence from capture time, so ordering on it would rest the "cannot be
+  // wrong" claim on Alfred's own inference.
   //
-  // The HANDLING RULE ships here, beside the directive, and NOT as a bullet in
+  // The HANDLING RULE ships here, beside the phrasing, and NOT as a bullet in
   // SYSTEM_PROMPT. That is measured, not stylistic. A first version put it in
   // the system prompt, where it is present for every email; a paired eval run
   // (two runs per side, byte-identical totals) moved four unrelated rows, and
@@ -420,7 +423,7 @@ function renderObservations(obs: Observations): string {
   // change when no instruction matches, which is almost every email.
   if (obs.standingInstruction) {
     lines.push(
-      `User's standing instruction for THIS SENDER — the one line here the USER wrote, in the user's own words: ${obs.standingInstruction.directive}`,
+      `User's standing instruction for THIS SENDER, in the user's own words: ${obs.standingInstruction.phrasing}`,
       `  ${STANDING_INSTRUCTION_HANDLING_RULE}`,
     );
   }

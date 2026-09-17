@@ -90,15 +90,15 @@ describe("findSenderSuppression", () => {
     );
   });
 
-  test("does not match when the requested effect is absent", () => {
+  test("derives membership at read time — the stored effects array never filters", () => {
     const value = instruction({ effects: ["exclude_briefing_priority"] });
     assert.equal(
       findSenderSuppression([active(value)], {
         senderEmail: "ben@example.com",
         accountId: null,
         effect: "block_todo_suggestion",
-      }),
-      null,
+      })?.factId,
+      "fact_1",
     );
   });
 });
