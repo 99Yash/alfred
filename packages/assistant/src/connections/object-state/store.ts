@@ -261,7 +261,10 @@ export const objectStateStore: ObjectStateStore = {
 
           // Recency is the provider clock first, the receipt clock second: the
           // row holds the outcome of the attempt with the greatest
-          // (providerEventTime, deliveredAt) pair (#1093). A row that predates
+          // (providerEventTime, deliveredAt) pair (#1093) — given each
+          // receipt is successfully folded exactly once, with the serial-fold,
+          // 1 ms, no-byte-identical-repeat, and every-receipt-folds
+          // preconditions item 03 hardened. A row that predates
           // provider-time tracking (null) always yields to a timestamped
           // delta; a delta without a timestamp falls back to the deliveredAt
           // guard the PR rows always used.
