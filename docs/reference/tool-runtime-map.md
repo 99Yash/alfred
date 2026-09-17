@@ -39,9 +39,10 @@ a provider or database graph. `system.corpus_search`
 
 Runtime composition follows the same rule for trigger consumers. A consumer
 lives beside the state it drives, and `runtime/adapters/trigger-consumers.ts`
-holds only the registration line. The GitHub object-state fold is the example:
-`packages/assistant/src/connections/object-state/github-activity-consumer.ts`
-sits beside the ADR-0062 reducer and store it calls (#986).
+holds only the registration line. The object-state fold is the example:
+`packages/assistant/src/connections/object-state/activity-consumer.ts` sits
+beside the ADR-0062 reducers and store it calls (#986), and it builds one
+consumer per provider rather than one file per provider (#1090).
 
 ## The nine seams
 

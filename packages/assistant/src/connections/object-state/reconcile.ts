@@ -12,6 +12,7 @@ import {
   type ReconcileSubject,
 } from "./adapter";
 import { githubObjectStateAdapter } from "./github-adapter";
+import { sentryObjectStateAdapter } from "./sentry-adapter";
 import { objectStateStore, type ObjectState, type ObjectStateStore } from "./store";
 
 /**
@@ -71,6 +72,7 @@ export interface ReconcileCandidates {
  */
 const OBJECT_STATE_ADAPTERS = {
   github: githubObjectStateAdapter,
+  sentry: sentryObjectStateAdapter,
 } satisfies Record<ObjectStateProvider, ObjectStateAdapter>;
 
 /**
