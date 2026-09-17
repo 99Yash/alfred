@@ -4,7 +4,7 @@
  * Replays the stored GitHub deliveries in `event_receipts` through the GitHub
  * reducer so the `integration_objects` projection reflects history that
  * predates the real-time fold in
- * `packages/assistant/src/connections/object-state/github-activity-consumer.ts`. Without this,
+ * `packages/assistant/src/connections/object-state/activity-consumer.ts`. Without this,
  * only PRs whose webhooks arrive *after* deploy would ever close a briefing
  * loop — the months of already-stored deliveries (including the merges that
  * should retire today's stuck CI-failure loops) would be invisible.
