@@ -716,7 +716,7 @@ describe("mcp connection manager lifecycle", () => {
     const manager = managerWith(protocol, persistence);
 
     await manager.getReadyClient(persistence.connection.id);
-    const outcome = await manager.remove(persistence.connection.id, "another-user");
+    const outcome = await manager.remove(persistence.connection.id, "another-user", "none");
 
     assert.equal(outcome, "not_found");
     assert.equal(persistence.deleted, false);
@@ -736,7 +736,12 @@ describe("mcp connection manager lifecycle", () => {
       await releaseDelete.promise;
     };
 
-    const removal = manager.remove(persistence.connection.id, persistence.connection.userId);
+    const removal = manager.remove(
+      persistence.connection.id,
+      persistence.connection.userId,
+      "none",
+    );
+
     await deleteStarted.promise;
 
     await assert.rejects(

@@ -506,11 +506,14 @@ export class McpConnectionManager {
    * The client is closed (and no durable state written) only when the delete
    * actually removed the row; `not_found` and `blocked` leave a working
    * connection completely alone.
+   *
+   * `gate` is required: a caller that wants to skip the ambiguity barrier must
+   * spell `"none"`, so a barrier-skipping removal cannot happen by omission.
    */
   async remove(
     connectionId: string,
     userId: string,
-    gate?: McpConnectionRemovalGate,
+    gate: McpConnectionRemovalGate | "none",
   ): Promise<McpConnectionRemovalOutcome> {
     this.#removals.add(connectionId);
 
@@ -518,7 +521,7 @@ export class McpConnectionManager {
       const outcome = await this.#persistence.deleteOwnedConnection({
         connectionId,
         userId,
-        ...(gate ? { gate } : {}),
+        gate,
       });
 
       if (outcome !== "removed") return outcome;
