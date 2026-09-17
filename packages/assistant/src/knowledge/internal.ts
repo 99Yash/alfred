@@ -23,6 +23,13 @@
  */
 export { backfillTeamGraph } from "./team-graph";
 
+// The ONE definition of a mail contact's kind — shared by the live writer
+// (`team-graph.ts`) and the committed cleanup backfill, so "what is a person"
+// cannot drift into a second copy (#1108, the #493 precedent).
+export { classifyContactKind } from "./entity-kind-classifier";
+
+export { parsePersonEntityMetadata } from "./entity-metadata";
+
 export {
   gateDocumentFact,
   isServiceSender,

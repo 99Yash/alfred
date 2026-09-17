@@ -1,5 +1,8 @@
 import {
+  canonicalizeIdentityValue,
+  classifyEmailDomain,
   gmailEmailMessagePayloadSchema,
+  identityRefSchema,
   integrationObjectKeySegment,
   INTEGRATION_OBJECT_KIND_SEGMENTS,
   type EntityKindClassification,
@@ -7,6 +10,7 @@ import {
   type IdentityRef,
 } from "@alfred/contracts";
 import type { Observation } from "@alfred/db/schemas";
+import type { EntityKind } from "./types";
 
 const AUTHORITATIVE_CONFIDENCE = 0.99;
 
@@ -345,4 +349,110 @@ function classification(
     evidenceCodes: [...evidenceCodes],
     researchStatus: "not_needed",
   };
+}
+
+/**
+ * ── the legacy `entities.kind` bar (#1108) ──────────────────────────────────
+ *
+ * The ADR-0067 substrate above answers `EntityNodeKind` (8 members) for
+ * `entity_profiles.kind`. The legacy memory-module graph (`entities.kind`,
+ * ADR-0012) has its own 6-member `EntityKind` vocabulary and, until this bar,
+ * no classification at all: the team-graph writer wrote the literal `"person"`
+ * for every mail contact, so a GitHub advisory id, a CI workflow name and a
+ * retailer all became people. The two graphs keep their own vocabularies, but
+ * person-ness now has ONE definition — this file — for both.
+ */
+
+/**
+ * Total map from the ADR-0067 node kind onto the legacy `entities.kind`. Five
+ * node kinds have no legacy member, so they land on `other` — the ADR's own
+ * answer (alternative (d): non-humans are typed nodes, never suppressed).
+ *
+ * `satisfies` rather than an annotation: an annotation on a const table trips
+ * oxlint `no-known-value-widening`, and a `switch` with a `default` would hide
+ * a new node kind. This way a new `EntityNodeKind` member fails to compile
+ * until it is named here.
+ */
+const NODE_KIND_TO_ENTITY_KIND = {
+  person: "person",
+  organization: "organization",
+  group: "other",
+  service: "other",
+  repository: "other",
+  project: "project",
+  referent: "other",
+  unknown: "other",
+} satisfies Record<EntityNodeKind, EntityKind>;
+
+function entityKindForNodeKind(kind: EntityNodeKind): EntityKind {
+  return NODE_KIND_TO_ENTITY_KIND[kind];
+}
+
+/**
+ * True when `value` could be a human's name. A DENY test, not an allow test:
+ * it rejects the shapes no human name has, so a single-token name ("Sanyam")
+ * still passes.
+ *
+ * Rule 2 asks `classifyEmailDomain` with a bare `{ domain }`, so a non-null
+ * answer means "this string is a syntactically valid hostname" — the ONE DNS
+ * grammar in `@alfred/contracts` (`hostname.ts`), not a fourth hand-rolled
+ * regex. It is also what makes a cross-kind duplicate impossible without a
+ * separate rule: every `organization` row this module writes has a domain for
+ * its canonical name, so a domain-shaped person value is that organization
+ * restated.
+ */
+export function isPersonNameShaped(value: string): boolean {
+  const trimmed = value.trim();
+
+  if (!trimmed) return false;
+
+  // No human name carries a path segment (`99Yash/GHSA-xwg4-73v4-xw9w`).
+  if (trimmed.includes("/")) return false;
+
+  // A valid hostname is a domain restated (`Amazon.in`).
+  if (classifyEmailDomain({ domain: trimmed }) !== null) return false;
+
+  return !NON_PERSON_DISPLAY_RE.test(trimmed);
+}
+
+export interface ClassifyContactKindInput {
+  /** The contact's primary email address. Canonicalized here, so any case is fine. */
+  readonly address: string;
+  /** The best display name seen for the contact, or `null` when the headers carried none. */
+  readonly displayName: string | null;
+}
+
+/**
+ * The legacy `entities.kind` for ONE mail contact.
+ *
+ * Two independent bars, because neither one alone clears the prod queue:
+ *   - the ADDRESS side delegates to {@link classifyEntityKind}, so a
+ *     `noreply@`/`notifications@` envelope is never a person;
+ *   - the VALUE side runs {@link isPersonNameShaped} over the display name,
+ *     which is what the writer stores as `canonical_name`.
+ *
+ * An address that is not a well-formed email is not a person either — the
+ * identity parse is the owning boundary, and a failure answers `other` rather
+ * than throwing, so one malformed header never fails a capture run.
+ */
+export function classifyContactKind(input: ClassifyContactKindInput): EntityKind {
+  const identity = identityRefSchema.safeParse({
+    kind: "email",
+    value: canonicalizeIdentityValue("email", input.address),
+  });
+
+  if (!identity.success) return "other";
+
+  const displayName = normalizeDisplayName(input.displayName ?? undefined);
+
+  const classified = classifyEntityKind({
+    identity: identity.data,
+    displayNames: displayName ? [displayName] : [],
+  });
+
+  const kind = entityKindForNodeKind(classified.kind);
+
+  if (kind !== "person") return kind;
+
+  return displayName && !isPersonNameShaped(displayName) ? "other" : "person";
 }
