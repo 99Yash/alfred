@@ -1,9 +1,16 @@
 import {
+  classifyEmailDomain,
+  emailDomain,
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
-  SUPPRESSION_EFFECTS,
+  standingInstructionTargetKey,
+  standingInstructionTargetSpecificity,
   standingInstructionValueSchema,
+  SUPPRESSION_EFFECTS,
+  targetMatchesSender,
   type ObservationSource,
+  type StandingInstructionTarget,
+  type StandingInstructionTargetKind,
   type StandingInstructionValue,
   type SuppressionEffect,
 } from "@alfred/contracts";
@@ -42,6 +49,12 @@ export interface SenderSuppressionLookup {
 export type SenderSuppressionMatch = ActiveSuppressionInstruction & {
   matchedEmail: string;
   effect: SuppressionEffect;
+  /**
+   * Which target kind decided the match — the one field that tells a trace
+   * whether a domain target ever fires in production. An address match and a
+   * domain match are otherwise indistinguishable downstream.
+   */
+  matchedVia: StandingInstructionTargetKind;
 };
 
 export const rememberSenderSuppressionArgsSchema = z.object({
@@ -51,6 +64,11 @@ export const rememberSenderSuppressionArgsSchema = z.object({
   accountId: z.string().nullable().optional(),
   directive: z.string().nullish(),
   phrasing: z.string().nullish(),
+  /**
+   * How wide the instruction binds. `"sender"` (the default) binds the one
+   * address. `"domain"` binds every address at that address's domain.
+   */
+  scope: z.enum(["sender", "domain"]).optional(),
   source: memorySourceSchema.optional(),
 });
 
@@ -62,6 +80,12 @@ export type RememberSenderSuppressionResult =
       status: "remembered" | "already_exists";
       factId: string;
       instruction: StandingInstructionValue;
+      /**
+       * The address this write resolved, whatever the target kind stores. A
+       * caller that follows up on the sender (todo dismissal) reads this
+       * instead of `instruction.target.email`, which a domain target lacks.
+       */
+      resolvedSenderEmail: string;
     }
   | {
       ok: false;
@@ -81,9 +105,39 @@ export async function rememberSenderSuppression(
   const label = normalizeOptionalLabel(parsed.senderLabel);
   const accountId = normalizeOptionalLabel(parsed.accountId);
 
+  // Two rails keep a domain target from growing too wide, and both make the
+  // bad target unrepresentable rather than merely unlikely:
+  //   1. The caller never supplies a domain. The server derives it from an
+  //      address the caller already resolved, so `co.in` cannot become a
+  //      target — no sender has that address.
+  //   2. Only a `corporate_domain` widens. `classifyEmailDomain` is the one
+  //      place that answers "is this domain one organization's", and it also
+  //      rejects consumer mailboxes, school and alumni domains, shared-hosting
+  //      and disposable hosts, and mail-infrastructure hosts — every class
+  //      where one domain carries unrelated senders. It reads the BARE domain,
+  //      never `{ email }`: the address form demands a verified hosted domain
+  //      the sender side never has, so it would answer `ambiguous_domain` for
+  //      every real sender and no instruction would ever widen.
+  const candidateDomain = parsed.scope === "domain" ? emailDomain(email) : null;
+
+  const domain =
+    candidateDomain && classifyEmailDomain({ domain: candidateDomain }) === "corporate_domain"
+      ? candidateDomain
+      : null;
+
+  const target: StandingInstructionTarget = domain
+    ? { kind: "sender_domain", domain, label, accountId }
+    : { kind: "sender_email", email, label, accountId };
+
+  // A domain rule covers senders the label does not name, so the stored
+  // sentence names the DOMAIN. Phrasing it from the sender label would read
+  // back as "…from Ben Book" for a rule that also binds everyone else at that
+  // host — and the model reads this sentence, not the target.
   const directive =
     normalizeOptionalLabel(parsed.directive) ??
-    `Stop surfacing reminders and briefing items from ${label ?? email}.`;
+    (domain
+      ? `Stop surfacing reminders and briefing items from any sender at ${domain}.`
+      : `Stop surfacing reminders and briefing items from ${label ?? email}.`);
 
   const source: MemorySource = parsed.source ?? { kind: "user" };
 
@@ -91,12 +145,7 @@ export async function rememberSenderSuppression(
     schemaVersion: STANDING_INSTRUCTION_SCHEMA_VERSION,
     action: "suppress",
     surface: "open_loop",
-    target: {
-      kind: "sender_email",
-      email,
-      label,
-      accountId,
-    },
+    target,
     // Legacy write snapshot, stamped for schema compat: readers derive
     // membership at read time (any active suppression binds its sender for
     // every consumer), so this array is never branched on. Stated, not
@@ -111,11 +160,15 @@ export async function rememberSenderSuppression(
   if (!candidate.success) return senderClarification();
   const instruction = candidate.data;
 
-  const existing = await findActiveSenderSuppression(parsed.userId, {
-    senderEmail: instruction.target.email,
-    accountId: instruction.target.accountId,
-    effect: "block_todo_suggestion",
-  });
+  // Identity, not coverage: a second remember collapses only onto an
+  // instruction with THIS EXACT target. The sender matcher answered a
+  // different question (does anything already cover this sender?), and a
+  // domain instruction that covers the sender must not block the user from
+  // also pinning the address.
+  const existing = findInstructionByTarget(
+    await listActiveSuppressionInstructions(parsed.userId),
+    instruction.target,
+  );
 
   if (existing) {
     return {
@@ -123,6 +176,7 @@ export async function rememberSenderSuppression(
       status: "already_exists",
       factId: existing.factId,
       instruction: existing.value,
+      resolvedSenderEmail: email,
     };
   }
 
@@ -132,7 +186,7 @@ export async function rememberSenderSuppression(
     // duplicate active rows. Same per-key advisory-lock pattern as
     // `proposeFact`/`confirmFact` in `facts.ts`.
     await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${parsed.userId}:standing_instruction:${email}`}, 0))`,
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${parsed.userId}:standing_instruction:${standingInstructionTargetKey(instruction.target)}`}, 0))`,
     );
 
     // Re-check inside the lock: the outer `existing` read raced with a
@@ -144,18 +198,14 @@ export async function rememberSenderSuppression(
       .where(activeStandingInstructionsWhere(parsed.userId))
       .orderBy(desc(userFacts.validFrom));
 
-    const rival = findSenderSuppression(
+    const rival = findInstructionByTarget(
       rivals
         .map(instructionFromFact)
         .filter(
-          (instruction): instruction is ActiveSuppressionInstruction =>
-            instruction !== null && instruction.value.action === "suppress",
+          (candidate): candidate is ActiveSuppressionInstruction =>
+            candidate !== null && candidate.value.action === "suppress",
         ),
-      {
-        senderEmail: instruction.target.email,
-        accountId: instruction.target.accountId,
-        effect: "block_todo_suggestion",
-      },
+      instruction.target,
     );
 
     if (rival) return { id: rival.factId, instruction: rival.value, duplicate: true as const };
@@ -197,6 +247,7 @@ export async function rememberSenderSuppression(
       status: "already_exists",
       factId: row.id,
       instruction: row.instruction,
+      resolvedSenderEmail: email,
     };
   }
 
@@ -207,7 +258,30 @@ export async function rememberSenderSuppression(
     status: "remembered",
     factId: row.id,
     instruction,
+    resolvedSenderEmail: email,
   };
+}
+
+/**
+ * Identity read: the active instruction whose target names exactly this thing,
+ * or null. `standingInstructionTargetKey` carries the per-kind match key, so a
+ * new target kind needs no edit here.
+ */
+function findInstructionByTarget(
+  instructions: readonly ActiveSuppressionInstruction[],
+  target: StandingInstructionTarget,
+): ActiveSuppressionInstruction | null {
+  const key = standingInstructionTargetKey(target);
+
+  for (const instruction of instructions) {
+    if (standingInstructionTargetKey(instruction.value.target) !== key) continue;
+
+    if (instruction.value.target.accountId !== target.accountId) continue;
+
+    return instruction;
+  }
+
+  return null;
 }
 
 export async function listActiveSuppressionInstructions(
@@ -559,23 +633,64 @@ export function findSenderSuppression(
 
   const accountId = lookup.accountId ?? null;
 
+  let best: ActiveSuppressionInstruction | null = null;
+  let bestSpecificity = -1;
+
   for (const instruction of instructions) {
-    const { value } = instruction;
+    const { target } = instruction.value;
 
     // Derived membership: an active suppression binds its sender for every
     // consumer. The stored `effects` array is never consulted — it is a
     // write-time snapshot, not a decision. `lookup.effect` is echoed on the
     // match for audit only.
-    if (value.target.kind !== "sender_email") continue;
+    //
+    // Deterministic: a string comparison per instruction, no model call and no
+    // database read. `@alfred/contracts` owns the per-kind rule — including
+    // how a domain comes off the address — so this loop never restates what a
+    // target kind means.
+    if (!targetMatchesSender(target, email)) continue;
 
-    if (value.target.email !== email) continue;
+    if (target.accountId !== null && target.accountId !== accountId) continue;
 
-    if (value.target.accountId !== null && value.target.accountId !== accountId) continue;
+    // ADR-0060 micro-decision 8: several instructions can match one sender, and
+    // the MOST SPECIFIC target wins. Recency only breaks a tie between two
+    // targets of the same kind. `sender_domain` made this reachable: the user
+    // can mute a domain and still pin one address inside it, which
+    // `rememberSenderSuppression` allows on purpose (see the identity-not-
+    // coverage duplicate check above). A pure first-match-wins scan would let
+    // the newer domain mute defeat that pin.
+    //
+    // The scan reads every match instead of returning the first one, so the
+    // answer does not depend on how the caller sorted the array. The array is
+    // one user's active instructions, and the comparison is two numbers, so the
+    // triage hot path pays a bounded per-message cost.
+    const specificity = standingInstructionTargetSpecificity(target);
 
-    return { ...instruction, matchedEmail: email, effect: lookup.effect };
+    if (best !== null) {
+      if (specificity < bestSpecificity) continue;
+
+      // Equal specificity keeps the newer row, and keeps the earlier one on an
+      // exact tie so the result stays stable for a caller that sorted by
+      // `validFrom` descending.
+      if (
+        specificity === bestSpecificity &&
+        instruction.validFrom.getTime() <= best.validFrom.getTime()
+      )
+        continue;
+    }
+
+    best = instruction;
+    bestSpecificity = specificity;
   }
 
-  return null;
+  if (!best) return null;
+
+  return {
+    ...best,
+    matchedEmail: email,
+    effect: lookup.effect,
+    matchedVia: best.value.target.kind,
+  };
 }
 
 function activeStandingInstructionWhere(userId: string, factId: string) {

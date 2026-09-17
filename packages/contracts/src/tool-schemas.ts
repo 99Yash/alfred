@@ -1543,6 +1543,23 @@ const rememberSenderLabel = z
   .nullish()
   .describe("Human display label for the sender, if known.");
 
+const rememberScope = z
+  .enum(["sender", "domain"])
+  .optional()
+  .describe(
+    "How wide the instruction binds. `sender` (default) binds this one address. `domain` binds every " +
+      "address at the sender's domain, including ones that never wrote before; pick it when the user " +
+      "names a class of senders, not one mailbox. Alfred derives the domain from the address, and " +
+      "only a single organization's domain widens: a personal, school, shared-hosting, or " +
+      "mail-service host falls back to `sender`.",
+  );
+
+/** Per-entry override of the top-level `scope`. Same values, shorter prose. */
+const rememberEntryScope = z
+  .enum(["sender", "domain"])
+  .optional()
+  .describe("Overrides the top-level `scope` for this sender.");
+
 export const rememberInput = coerceJsonArrayFields(
   ["senders"],
   z
@@ -1556,17 +1573,25 @@ export const rememberInput = coerceJsonArrayFields(
           "Resolved sender email to suppress. If unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
         ),
       senderLabel: rememberSenderLabel,
+      scope: rememberScope,
       senders: z
         .array(
-          z.object({ senderEmail: rememberSenderEmail, senderLabel: rememberSenderLabel }).strict(),
+          z
+            .object({
+              senderEmail: rememberSenderEmail,
+              senderLabel: rememberSenderLabel,
+              scope: rememberEntryScope,
+            })
+            .strict(),
         )
         .min(1)
         .max(50)
         .optional()
         .describe(
           "Every resolved sender to suppress when the user names more than one. One call persists one " +
-            "instruction per entry; `accountId`, `directive`, and `phrasing` apply to all of them. Use " +
-            "this instead of one call per sender.",
+            "instruction per entry; `accountId`, `directive`, `phrasing`, and the top-level `scope` " +
+            "apply to all of them, and an entry's own `scope` overrides that default. Use this " +
+            "instead of one call per sender.",
         ),
       accountId: z
         .string()

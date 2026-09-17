@@ -57,6 +57,12 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 // to keep the ratchet tight; the exact-object union is still ~1.3 KB of the tool and is the first
 // candidate to move behind a later drill-down if the first-pass query path proves sufficient.
 // Ceilings raised for this deliberate review signal.
+// Measured 2026-09-17: full 93,131 → 94,488 B across 77 tools — the standing-instruction
+// `scope` field (#1107) adds one optional enum to `system.remember`, at the top level and on
+// each `senders` entry, plus the tool prose that steers the domain option and names the
+// domain classes that fall back to `sender`. NO ceiling bump: 94,488 B still sits under
+// 95,000 B, and the ~512 B of margin left is the intended tightness — the next tool addition
+// trips the ceiling and records its own line.
 const KERNEL_SCHEMA_BYTES_CEILING = 10_500;
 
 const KERNEL_SCHEMA_TOKENS_CEILING = 2_600;

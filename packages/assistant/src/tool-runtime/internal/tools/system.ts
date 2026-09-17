@@ -563,13 +563,17 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "remember",
     riskTier: "no_risk",
     description:
-      "Persist a resolved sender-level suppression standing instruction. Only persists when the " +
+      "Persist a resolved sender suppression standing instruction. Only persists when the " +
       "sender email is resolved; otherwise returns a clarification request. The instruction " +
       "suppresses todo suggestions and briefing priority for the sender AND deprioritizes the " +
       "sender's mail as a triage-category prior (it can move the Gmail label toward 'fyi', " +
       "though a genuinely urgent item may still surface) — tell the user both halves. " +
       "When the user names several senders, pass them all in `senders` in ONE call; each " +
-      "gets its own instruction and its own result. Never call this once per sender.",
+      "gets its own instruction and its own result. Never call this once per sender. " +
+      "Set `scope: 'domain'` when the user names a CLASS of senders rather than one mailbox " +
+      "('apply this to all investment senders'): the instruction then covers every address at " +
+      "that sender's domain, including ones that never wrote before. Tell the user which one " +
+      "you stored.",
     inputSchema: rememberInput,
     execute: async (input, ctx) => {
       return await rememberSenderSuppressionAndDismissTodos({
