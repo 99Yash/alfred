@@ -101,7 +101,7 @@ export interface IntegrationObjectDef {
   normalize(kind: string, nativeState: string): StateCategory | null;
 }
 
-export const OBJECT_STATE_PROVIDERS = ["github"] as const;
+export const OBJECT_STATE_PROVIDERS = ["github", "sentry"] as const;
 
 export type ObjectStateProvider = (typeof OBJECT_STATE_PROVIDERS)[number];
 
@@ -154,13 +154,16 @@ export function canonicalizeGithubPullRequestUrl(
 export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
 
 /**
- * The registry. v1 = GitHub PR/CI only. A github PR's native state token is one
- * of `open` | `merged` | `closed` (closed-not-merged), collapsed by the reducer
- * from the `pull_request` payload's `state` + `merged` boolean.
+ * The registry. A github PR's native state token is one of
+ * `open` | `merged` | `closed` (closed-not-merged), collapsed by the reducer
+ * from the `pull_request` payload's `state` + `merged` boolean. A sentry
+ * issue's token is one of `unresolved` | `resolved` | `archived`, collapsed by
+ * the reducer from the delivery's own EVENT TYPE.
  *
- * `failed` is reserved (the agnostic bucket exists) but unreachable in v1: it
+ * `failed` is reserved (the agnostic bucket exists) but unreachable today: it
  * would come from `check_suite` deliveries, which the App does not yet
- * subscribe to. Closure rides on PR merge/close alone — the prod-proven chain.
+ * subscribe to. GitHub closure rides on PR merge/close alone — the prod-proven
+ * chain.
  */
 export const INTEGRATION_OBJECT_DEFS = {
   github: {
@@ -184,6 +187,40 @@ export const INTEGRATION_OBJECT_DEFS = {
           return "abandoned";
         case "open":
           return "active";
+        default:
+          return null;
+      }
+    },
+  },
+  sentry: {
+    kinds: {
+      // A Sentry issue closes by TRANSITION, and every transition is
+      // reversible: a resolved issue regresses, an archived issue escalates or
+      // is unarchived. So NOTHING absorbs (#1093's empty case) and a later
+      // delivery always lands.
+      //
+      // `closesAskOn` is empty on purpose (ADR-0103). The store orders by
+      // OBSERVATION time, Sentry ships no transition version, and a delayed
+      // resolve arriving after an unresolve would falsely restore `resolved`.
+      // Until a transition-order proof or a fresh provider read exists, a
+      // Sentry state may be projected and displayed but may never suppress an
+      // ask. Flip this array when that proof lands; nothing else changes.
+      issue: {
+        closesAskOn: [],
+        absorbing: [],
+      },
+    },
+    // A Sentry issue id is an exact identity or nothing: no abbreviated form
+    // of it is written anywhere, so no key kind here supports a prefix lookup.
+    prefixableKeys: {},
+    normalize(_kind, nativeState) {
+      switch (nativeState) {
+        case "resolved":
+          return "resolved";
+        case "unresolved":
+          return "active";
+        case "archived":
+          return "abandoned";
         default:
           return null;
       }

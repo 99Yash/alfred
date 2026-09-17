@@ -65,7 +65,7 @@ export {
 
 export {
   firstClosingObject,
-  githubActivityTriggerConsumer,
+  objectStateFoldConsumers,
   objectStateStore,
   proposeObjectKeys,
   reconcileEvidence,
