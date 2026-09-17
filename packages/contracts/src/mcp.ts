@@ -226,10 +226,99 @@ export const MCP_ADD_SERVER_MAX_URL_LENGTH = 2_048;
 
 export const MCP_ADD_SERVER_MAX_LABEL_LENGTH = 100;
 
+// ---------------------------------------------------------------------------
+// Owner-supplied API key (third authentication variant, after no-auth and
+// OAuth). The owner names ONE explicit placement — a request header or a query
+// parameter — and the three facts are (kind, placed name, value). The value is
+// the only secret and never appears here after the route boundary parses it: the
+// store seals it and the runtime opens it per request.
+//
+// A placement name that the MCP transport, `fetch`, or the hop-by-hop rules
+// already own is refused, so an owner-supplied key can never shadow a header the
+// transport sets. `authorization` is deliberately NOT refused: a bearer key in
+// the standard header is the most common API-key dialect.
+// ---------------------------------------------------------------------------
+export const MCP_API_KEY_MAX_LENGTH = 4_096;
+
+export const MCP_API_KEY_MAX_PLACEMENT_NAME_LENGTH = 128;
+
+/**
+ * The headers Alfred refuses to let a stored key occupy. `host`, the framing
+ * headers, and the connection headers are owned by `fetch` and the HTTP stack.
+ * The MCP transport owns the rest: `mcp-session-id`, `mcp-protocol-version`,
+ * the body-derived `mcp-method` and `mcp-name` are exactly the names
+ * `@modelcontextprotocol/client`'s reserved set keeps a per-request carrier
+ * from overriding, and `last-event-id` is the SSE resumption header. Putting
+ * the key on any of them would let the transport's own value and the sent key
+ * collide.
+ *
+ * `authorization` is deliberately absent: this variant exists to place an
+ * owner-supplied key there, and no OAuth provider is built on this path to
+ * contest it. Compared case-insensitively because HTTP header names are.
+ */
+export const MCP_API_KEY_REFUSED_HEADERS = [
+  "host",
+  "content-type",
+  "accept",
+  "content-length",
+  "connection",
+  "transfer-encoding",
+  "te",
+  "trailer",
+  "upgrade",
+  "mcp-session-id",
+  "mcp-protocol-version",
+  "mcp-method",
+  "mcp-name",
+  "last-event-id",
+] as const;
+
+const MCP_API_KEY_REFUSED_HEADER_SET: ReadonlySet<string> = new Set(MCP_API_KEY_REFUSED_HEADERS);
+
+const mcpApiKeyPlacementNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MCP_API_KEY_MAX_PLACEMENT_NAME_LENGTH);
+
+export const mcpApiKeyPlacementSchema = z.discriminatedUnion("in", [
+  z
+    .object({ in: z.literal("header"), name: mcpApiKeyPlacementNameSchema })
+    .strict()
+    .refine((placement) => !MCP_API_KEY_REFUSED_HEADER_SET.has(placement.name.toLowerCase()), {
+      path: ["name"],
+      message: "This header is owned by the MCP transport or the HTTP stack",
+    }),
+  z.object({ in: z.literal("query"), name: mcpApiKeyPlacementNameSchema }).strict(),
+]);
+
+export type McpApiKeyPlacement = z.infer<typeof mcpApiKeyPlacementSchema>;
+
+export const mcpApiKeyAuthSchema = z
+  .object({
+    kind: z.literal("api_key"),
+    placement: mcpApiKeyPlacementSchema,
+    value: z.string().min(1).max(MCP_API_KEY_MAX_LENGTH),
+  })
+  .strict();
+
+export type McpApiKeyAuth = z.infer<typeof mcpApiKeyAuthSchema>;
+
+/**
+ * The authentication variants the create route accepts. Today it is the API key
+ * alone; no-auth is the ABSENCE of this field, and OAuth is discovered from the
+ * endpoint rather than supplied. A discriminated union keeps that open for a
+ * future variant without changing the body's shape.
+ */
+export const mcpAddServerAuthSchema = z.discriminatedUnion("kind", [mcpApiKeyAuthSchema]);
+
+export type McpAddServerAuth = z.infer<typeof mcpAddServerAuthSchema>;
+
 export const mcpAddServerBodySchema = z
   .object({
     endpointUrl: z.url().max(MCP_ADD_SERVER_MAX_URL_LENGTH),
     label: z.string().trim().min(1).max(MCP_ADD_SERVER_MAX_LABEL_LENGTH).optional(),
+    auth: mcpAddServerAuthSchema.optional(),
   })
   .strict();
 

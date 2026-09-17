@@ -299,6 +299,7 @@ export const mcpIntegrationRoutes = new Elysia({
               // what bounds a server that answers slowly but forever.
               signal: request.signal,
               ...(body.label !== undefined ? { label: body.label } : {}),
+              ...(body.auth !== undefined ? { auth: body.auth } : {}),
             });
 
             return { outcome: result.outcome, connectionId: result.connectionId };

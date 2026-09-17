@@ -20,6 +20,7 @@ import { InsufficientScopeError } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { McpClientError } from "./errors";
 import type {
+  McpApiKeyAuth,
   McpAuthorizedEndpoint,
   McpAuthorizedProtocol,
   McpEndpointAuthorizer,
@@ -99,6 +100,12 @@ export interface McpRawClientOptions extends McpClientLimits {
   /** The persisted endpoint row projection; the authorizer validates it on every connect. */
   endpoint: McpEndpointConnection;
   endpointAuthorizer: McpEndpointAuthorizer;
+  /**
+   * Owner-supplied API key, read from the connection's sealed credential. When
+   * set, the key rides the protocol requester and NO OAuth provider is built:
+   * a connection has exactly one authentication mode.
+   */
+  apiKey?: McpApiKeyAuth;
   authProvider?: SdkMcpProtocolClientOptions["authProvider"];
   /**
    * Full OAuth provider used only before connect. The HTTP transport receives a
@@ -254,10 +261,18 @@ export class McpRawClient {
     let oauth: McpBoundOAuthSession | null = null;
 
     try {
-      authorized = await this.#options.endpointAuthorizer.authorize(this.#options.endpoint, {
-        requestTimeoutMs: this.#limits.requestTimeoutMs,
-      });
-      oauth = this.#options.oauthProviderFactory?.(authorized.oauth) ?? null;
+      authorized = await this.#options.endpointAuthorizer.authorize(
+        this.#options.endpoint,
+        {
+          requestTimeoutMs: this.#limits.requestTimeoutMs,
+        },
+        this.#options.apiKey,
+      );
+      // An API key and OAuth are mutually exclusive: when the owner supplied a
+      // key, the endpoint's authorization server is never contacted.
+      oauth = this.#options.apiKey
+        ? null
+        : (this.#options.oauthProviderFactory?.(authorized.oauth) ?? null);
 
       if (oauth) await oauth.authorize();
       const boundOAuth = oauth;
