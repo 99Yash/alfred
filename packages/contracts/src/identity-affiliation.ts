@@ -20,7 +20,7 @@
  */
 
 import { z } from "zod";
-import { HOSTNAME } from "./hostname";
+import { isValidDomain, normalizeDomain, splitEmail } from "./domain";
 import { enumGuard } from "./guards";
 import { type FactKey } from "./user-model";
 
@@ -202,46 +202,6 @@ const EDU_SLD_PATTERN = /\.(ac|edu)\.[a-z]{2,}$/;
 
 /** Tokens in a domain that hint at school / alumni / agency / personal — `ambiguous_domain`. */
 const AMBIGUOUS_DOMAIN_TOKENS: readonly string[] = ["alumni", "alum", "students", "student"];
-
-// The DNS hostname grammar is shared with user-model.ts via the `./hostname` leaf
-// (a dependency-free module both import): user-model value-imports
-// `classifyEmailDomain` from here, so importing the grammar from user-model would
-// close a runtime value cycle — the leaf breaks it. `HOSTNAME` is an unanchored
-// fragment; anchor it here for a standalone domain.
-const HOSTNAME_RE = new RegExp(`^${HOSTNAME}$`);
-
-function normalizeDomain(domain: string): string {
-  return domain.trim().toLowerCase().replace(/\.$/, "");
-}
-
-function isValidDomain(domain: string): boolean {
-  return HOSTNAME_RE.test(domain);
-}
-
-function isValidEmailLocalPart(localPart: string): boolean {
-  for (const ch of localPart) {
-    const code = ch.charCodeAt(0);
-
-    if (code <= 0x1f || code === 0x7f || ch === "@" || /\s/u.test(ch)) return false;
-  }
-
-  return true;
-}
-
-/** Split a raw address into `{ localPart, domain }`, lowercased; null if not an address. */
-function splitEmail(email: string): { localPart: string; domain: string } | null {
-  const trimmed = email.trim().toLowerCase();
-  const at = trimmed.indexOf("@");
-
-  if (at <= 0 || at === trimmed.length - 1) return null;
-
-  if (at !== trimmed.lastIndexOf("@")) return null;
-  const localPart = trimmed.slice(0, at);
-
-  if (!isValidEmailLocalPart(localPart)) return null;
-
-  return { localPart, domain: normalizeDomain(trimmed.slice(at + 1)) };
-}
 
 function isFreeMailDomain(domain: string): boolean {
   return FREE_MAIL_DOMAINS.has(domain);

@@ -209,6 +209,13 @@ export interface SenderExtractionEvent extends FloorTraceFields {
   standingInstructionSuppressedTodo: boolean;
   standingInstructionFactId: string | null;
   standingInstructionEffect: string | null;
+  /**
+   * Which target kind matched the sender — `sender_email` or `sender_domain`;
+   * null when nothing matched. This is how production says whether a
+   * domain-scoped instruction ever fires, which no other field can show: a
+   * domain match and an address match produce the same suppression.
+   */
+  standingInstructionMatchedVia: string | null;
   standingInstructionReadFailed: boolean;
   /**
    * A standing instruction was in the prompt for this
@@ -294,6 +301,7 @@ export function senderExtractionEvent(args: {
     standingInstructionSuppressedTodo: Boolean(args.standingSuppression),
     standingInstructionFactId: args.standingSuppression?.factId ?? null,
     standingInstructionEffect: args.standingSuppression?.effect ?? null,
+    standingInstructionMatchedVia: args.standingSuppression?.matchedVia ?? null,
     standingInstructionReadFailed: args.standingSuppressionReadFailed,
     standingInstructionCategoryFactId: obs.standingInstruction?.factId ?? null,
     standingInstructionCategoryReadFailed: obs.standingInstructionReadFailed,

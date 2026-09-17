@@ -12,12 +12,15 @@
  * product-label `surface`), the way `TOOL_LABELS` centralizes tool copy. A new
  * consumer registers its effect here first.
  *
- * v1 slice = sender-scoped suppression (the "Ben Book" loop, see
- * docs/plans/long-term-memory-v1.md). Topic-scope + non-suppress actions are
- * deferred variants of the same shape.
+ * Scope today = a sender address or a sender domain (the "Ben Book" loop, see
+ * docs/plans/long-term-memory-v1.md). The target is a DISCRIMINATED UNION on
+ * `kind`, so each kind carries only the field it matches on and a reader must
+ * narrow before it reads one. Topic-scope targets, subdomain matching, and
+ * non-suppress actions stay deferred variants of the same shape.
  */
 
 import { z } from "zod";
+import { domainSchema } from "./domain";
 
 /** Canonical `user_facts.key` for every standing instruction. */
 export const STANDING_INSTRUCTION_KEY = "standing_instruction";
@@ -97,29 +100,107 @@ export const suppressionEffectSchema = z.enum(SUPPRESSION_EFFECTS);
 
 // ─── Target ────────────────────────────────────────────────────────────────
 
-/** `sender_email` — bind to a sender address. Only target kind at v1. */
-export const STANDING_INSTRUCTION_TARGET_KINDS = ["sender_email"] as const;
+/**
+ * What an instruction binds to.
+ *
+ * `sender_email` — one sender address.
+ * `sender_domain` — every address at one domain. The user's words often name a
+ * class ("all investment senders"), and an address list cannot grow: a sender
+ * the user had not received mail from at capture time never matches. A domain
+ * target covers every mailbox at that host, including future ones.
+ */
+export const STANDING_INSTRUCTION_TARGET_KINDS = ["sender_email", "sender_domain"] as const;
 
 export type StandingInstructionTargetKind = (typeof STANDING_INSTRUCTION_TARGET_KINDS)[number];
 
 export const standingInstructionTargetKindSchema = z.enum(STANDING_INSTRUCTION_TARGET_KINDS);
 
 /**
- * Resolve-at-write: `email` is the canonical match key (resolved from the
- * user's words at capture time — never the display name). The schema itself
- * **normalizes** (trim → lowercase) and **validates** email shape, so a parsed
- * `target.email` is guaranteed canonical — readers can match on it directly
- * without re-normalizing. `accountId` is `null` = cross-account (suppress the
- * sender, not one mailbox); a future per-account scope sets it without a reshape.
+ * Resolve-at-write: the match key is canonical by the time it is stored, so a
+ * reader matches on it directly and never re-normalizes. The `sender_email` arm
+ * **normalizes** (trim → lowercase) and **validates** email shape; the
+ * `sender_domain` arm does the same for a bare DNS domain through
+ * {@link domainSchema}. Both arms were one flat object before `sender_domain`
+ * existed; the union makes an address-less `sender_email` target and a
+ * domain-less `sender_domain` target unrepresentable, and it forces every
+ * reader to narrow on `kind` before it reads a match key.
+ *
+ * `accountId` is `null` = cross-account (suppress the sender, not one mailbox);
+ * a future per-account scope sets it without a reshape.
+ *
+ * The `sender_email` arm keeps every field rule it had at v1, so a stored row
+ * parses unchanged and {@link STANDING_INSTRUCTION_SCHEMA_VERSION} stays 1.
  */
-export const standingInstructionTargetSchema = z.object({
-  kind: standingInstructionTargetKindSchema,
-  email: z.string().trim().toLowerCase().pipe(z.email()),
-  label: z.string().nullish(),
-  accountId: z.string().nullable(),
-});
+export const standingInstructionTargetSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("sender_email"),
+    email: z.string().trim().toLowerCase().pipe(z.email()),
+    label: z.string().nullish(),
+    accountId: z.string().nullable(),
+  }),
+  z.object({
+    kind: z.literal("sender_domain"),
+    domain: domainSchema,
+    label: z.string().nullish(),
+    accountId: z.string().nullable(),
+  }),
+]);
 
 export type StandingInstructionTarget = z.infer<typeof standingInstructionTargetSchema>;
+
+/**
+ * The stable identity of a target — `"sender_email:a@b.com"` or
+ * `"sender_domain:b.com"`. Two targets name the same thing when their keys are
+ * equal, so a duplicate check and an advisory-lock key both read this instead
+ * of reaching for an arm-specific field.
+ */
+export function standingInstructionTargetKey(target: StandingInstructionTarget): string {
+  switch (target.kind) {
+    case "sender_email":
+      return `${target.kind}:${target.email}`;
+    case "sender_domain":
+      return `${target.kind}:${target.domain}`;
+    default: {
+      const exhaustive: never = target;
+
+      return String(exhaustive);
+    }
+  }
+}
+
+/**
+ * THE match rule: does this target cover this sender? One place decides it, and
+ * it sits beside the union so the compiler ties the two together — a third
+ * target kind fails the exhaustive guard until it has a match rule.
+ *
+ * A string comparison alone computes the answer. No model call, no network
+ * call, no database read: the triage hot path calls this per message.
+ *
+ * `sender_domain` matches an EXACT domain, never a subdomain. A correct suffix
+ * rule needs a public-suffix list, and without one a target of `co.in` would
+ * suppress a whole country's mail. Exact equality fails safe: a target that is
+ * too wide matches nothing.
+ *
+ * `accountId` is NOT read here. It scopes the instruction to a mailbox, which
+ * is the caller's question, not the target's.
+ */
+export function targetMatchesSender(
+  target: StandingInstructionTarget,
+  sender: { email: string; domain: string | null },
+): boolean {
+  switch (target.kind) {
+    case "sender_email":
+      return target.email === sender.email;
+    case "sender_domain":
+      return sender.domain !== null && target.domain === sender.domain;
+    default: {
+      const exhaustive: never = target;
+      void exhaustive;
+
+      return false;
+    }
+  }
+}
 
 // ─── The `user_facts.value` shape ───────────────────────────────────────────
 
