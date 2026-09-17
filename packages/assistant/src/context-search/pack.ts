@@ -305,7 +305,16 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
     lines.push(`Content: ${bound(card.snippet, EVIDENCE_SNIPPET_MAX_CHARS)}`);
   }
 
-  if (card.object !== undefined) lines.push(`Object: ${renderObject(card.object)}`);
+  // The label carries the relation, because the rendered object is identical
+  // either way. Without it a quoted email that merely NAMES pull request 42
+  // packs byte for byte like the card that IS pull request 42, and the model
+  // can read the document as merged or cite the document as proof of the pull
+  // request's state. The lifecycle belongs to the object, never to the chunk.
+  if (card.object !== undefined) {
+    const label = card.object.relation === "is" ? "Object" : "Object named in this text";
+
+    lines.push(`${label}: ${renderObject(card.object)}`);
+  }
 
   if (card.entities !== undefined && card.entities.length > 0) {
     lines.push(

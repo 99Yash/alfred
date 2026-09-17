@@ -169,25 +169,58 @@ function collectSubjectAbbreviatedShas(subject: string): string[] {
   return [sha];
 }
 
+/** One subject's whole text, as the un-gated readings scan it. */
+function wholeText(text: SubjectText): string {
+  return `${text.subject}\n${text.content}`;
+}
+
+/** Every pull request the text names, as canonical exact keys. */
+function pullRequestUrlKeys(text: string): ExtractedKey[] {
+  return collectGithubPullRequestUrls(text).map((url) => ({
+    keyKind: "pull_request_url",
+    keyValue: url,
+    match: "exact",
+  }));
+}
+
 /**
- * GitHub's adapter. The two readings differ in what they are allowed to
+ * GitHub's adapter. The three readings differ in what they are allowed to
  * assume, not in how safe they are:
  *
  * - `about` requires the `github.com` sender-domain gate and returns the mail's own
  *   single PR identity, because the briefing uses it to DROP an item and a
  *   wrong identity would drop the wrong one.
  * - `mentions` returns every pull request the text names, with no provenance
- *   demand, because a caller uses it to annotate what it already has. The
- *   canonical URL is the only written form that survives: a bare `head_sha` in
- *   arbitrary prose is a commit, not a claim about a pull request.
+ *   demand, because its caller SUPPRESSES a composed sentence. The canonical
+ *   URL is the only written form that survives: a bare `head_sha` in arbitrary
+ *   prose is a commit, not a claim about a pull request, and silencing a real
+ *   ask over a coincidence costs a human a message they needed.
+ * - `annotates` returns the same pull requests PLUS every full 40-hex
+ *   `head_sha` the text holds. Its caller only decorates evidence it already
+ *   has, so a sha that resolves to the pull request carrying it is a useful
+ *   annotation and a sha that resolves to nothing costs nothing. Only the full
+ *   form counts: indexed text holds hashes of many kinds, so an abbreviated
+ *   prefix there is a coincidence magnet rather than an identity.
  */
 export const githubObjectStateAdapter: ObjectStateAdapter = {
   provider: "github",
   proposeKeys(subject: ReconcileSubject, proposal: KeyProposal): ExtractedKey[] {
-    if (proposal.reading === "mentions") {
-      return collectGithubPullRequestUrls(`${subject.text.subject}\n${subject.text.content}`).map(
-        (url) => ({ keyKind: "pull_request_url", keyValue: url, match: "exact" }),
+    if (proposal.reading === "mentions") return pullRequestUrlKeys(wholeText(subject.text));
+
+    if (proposal.reading === "annotates") {
+      const text = wholeText(subject.text);
+
+      // A repeated sha needs no dedup here: `reconcileEvidence` keys every
+      // candidate by `candidateIdentity` before it resolves one.
+      const shaKeys = [...text.matchAll(HEAD_SHA_RE)].map(
+        (found): ExtractedKey => ({
+          keyKind: "head_sha",
+          keyValue: found[0].toLowerCase(),
+          match: "exact",
+        }),
       );
+
+      return [...pullRequestUrlKeys(text), ...shaKeys];
     }
 
     if (!isGithubSenderDomain(proposal.sender)) return [];

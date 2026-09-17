@@ -64,9 +64,9 @@ export type EvidenceRankFeature = (typeof EVIDENCE_RANK_FEATURES)[number];
  * - `exactMatch` is a tie-breaker, not a second lead: a deterministically
  *   resolved work object outranks a weak fuzzy hit, but a stale resolved object
  *   must not outrank a perfect fresh document on this feature alone. It sits
- *   with `sourcePriority` for that reason, and it is present only on cards that
- *   carry an `object` — a vector card is not penalized for a field it cannot
- *   carry.
+ *   with `sourcePriority` for that reason, and it is present only on cards
+ *   whose object says `relation: "is"` — a vector card is not penalized for a
+ *   retrieval mode it did not use.
  * - `recency` and `freshness` are separate readings and both matter: `recency`
  *   is how old the EVENT is, `freshness` is how stale ALFRED'S COPY of it is. A
  *   live read of an old record and an ingested copy of a new one are different
@@ -431,20 +431,44 @@ interface FeatureInputs {
  * nothing to read it from.
  *
  * `exactMatch` and `focus` are present only on cards that carry an `object`:
- * a documents or memory card cannot carry one, so scoring it 0 would park a
- * fifth of its average at zero permanently. An object-state MISS card (no
- * `object`) is demoted through its `score: 0`, not through these features.
+ * a memory card cannot carry one, so scoring it 0 would park a fifth of its
+ * average at zero permanently. An object-state MISS card (no `object`) is
+ * demoted through its `score: 0`, not through these features.
+ *
+ * Two features read `relation` (#1087), because a document card may now carry
+ * an object its own text NAMED and that card was still reached by similarity:
+ *
+ * - `exactMatch` asserts a retrieval mode, so only `relation: "is"` earns it.
+ * - `focus` scores a measured miss as `0`, and only an `is` card can measure
+ *   one; see {@link focusMatcher}. A `names` card that matches still scores,
+ *   because a chunk naming the object the caller asked about is genuinely
+ *   on-focus.
+ *
+ * `objectState` stays ungated by design. It is the feature this slice exists to
+ * feed, and the projection's lifecycle reads the same whichever way the card
+ * reached the object: a chunk about merged work is about merged work.
+ *
+ * Known consequence, measured. {@link weightedAverage} divides by the weights
+ * the card SUPPLIED, so a card that gains a feature scored below its own mean
+ * ends below an equal card that gained nothing. A card naming a `resolved`
+ * pull request therefore sits below an unannotated equal whenever that card's
+ * mean is above the mean of the values it gained. The drop is at most about
+ * `0.07`, and about `0.10` when `focus` also scores `0.5`. That is the
+ * ranker's model rather than a property of this feature; removing it needs
+ * either a score for the absent case, which would be a lie, or taking
+ * `objectState` out of the weighted average, which is a ranker redesign.
  */
 function cardFeatures(card: EvidenceCard, { context, semantic, focus }: FeatureInputs) {
   // The bag starts empty and every feature writes itself in. A feature here is
   // PRESENT or ABSENT, never neutral, so there is no value to seed it with.
   const features: Partial<Record<EvidenceRankFeature, number>> = {};
 
-  // A card carrying a resolved object identity was reached by an exact
-  // reference, not by similarity. Cards that carry no `object` get no
-  // `exactMatch` feature at all: most sources cannot carry one, and an
-  // object-state MISS card is already demoted through its `score: 0`.
-  if (card.object !== undefined) features.exactMatch = 1;
+  // Only a card that IS the object was reached by an exact reference. A card
+  // that merely MENTIONS one was reached by similarity, so it earns no
+  // exact-retrieval reading. Cards with no `object` get no `exactMatch` feature
+  // at all: most sources cannot carry one, and an object-state MISS card is
+  // already demoted through its `score: 0`.
+  if (card.object?.relation === "is") features.exactMatch = 1;
   features.freshness = FRESHNESS_SCORES[card.time?.freshness ?? "unknown"];
   features.authority = AUTHORITY_SCORES[card.authority?.level ?? "unknown"];
 
@@ -671,12 +695,28 @@ function focusMatcher(
 
     // A card that carries no `object` cannot be about the caller's declared
     // focus, but most sources cannot carry one — so the feature is absent,
-    // not zero. Only a card with an object expresses focus either way.
+    // not zero.
     if (object === undefined) return undefined;
 
     if (identities.has(`${object.provider}:${object.kind}:${object.externalId}`)) return 1;
 
-    return providers.has(object.provider) ? 0.5 : 0;
+    // Known gap: this arm returns BEFORE the relation gate below, so a `names`
+    // card that annotates a DIFFERENT object of a declared provider scores
+    // 0.5 on the same reading the next comment refuses to score zero on. It
+    // costs such a card about 0.03 to 0.04 against an unannotated equal.
+    // Gating this arm is a separate change, not this slice.
+    if (providers.has(object.provider)) return 0.5;
+
+    // Zero is a MEASURED miss, and only an `is` card can supply one: it carries
+    // the one identity the caller resolved, and that identity is not a declared
+    // one. A `names` card cannot. Its object is whatever key the chunk's own
+    // rendered preview happened to hold, so a non-match says the annotation
+    // missed — the declared object may sit past the preview's cut, or in a
+    // written form no adapter parses — never that the chunk is off-focus.
+    // Absent, not zero: `weightedAverage` divides by the weights the card
+    // supplied, so a zero here would demote the annotated card below the
+    // unannotated one beside it on a reading the annotation cannot support.
+    return object.relation === "is" ? 0 : undefined;
   };
 }
 
