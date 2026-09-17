@@ -391,8 +391,47 @@ function renderThreadObservation(obs: Observations): string[] {
   return lines;
 }
 
+/**
+ * How the model should weigh a matched standing-instruction phrasing, rendered
+ * beside the phrasing in `renderObservations` (never in SYSTEM_PROMPT — see
+ * the placement note there). A named constant because the rubric reads ~90
+ * words against sibling lines that are each one terse fact; the call site keeps
+ * the placement, this keeps the text.
+ */
+const STANDING_INSTRUCTION_HANDLING_RULE =
+  "How to weigh that line, for THIS SENDER ONLY: treat it as a prior over this sender's prior, the Gmail signals, and urgency cues in the body, because each of those is Alfred's inference and this line is the user's own words. It is still a prior, not a command: prefer 'fyi' for this sender's routine notices even when they carry urgency cues, while still allowing a demand lane for a genuinely urgent item judged from the body. Apply none of this to any other sender.";
+
 function renderObservations(obs: Observations): string {
   const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
+
+  // FIRST, above every derived signal, and deliberately so. Each sibling
+  // observation is Alfred's own inference from the corpus, so each can be wrong
+  // about what the user wants; this line is the user's verbatim words
+  // (`phrasing`), so it outranks them on what the user wants. `directive` is
+  // deliberately NOT rendered here: it is the model-composed, prompt-ready
+  // sentence from capture time, so ordering on it would rest the "cannot be
+  // wrong" claim on Alfred's own inference.
+  //
+  // The HANDLING RULE ships here, beside the phrasing, and NOT as a bullet in
+  // SYSTEM_PROMPT. That is measured, not stylistic. A first version put it in
+  // the system prompt, where it is present for every email; a paired eval run
+  // (two runs per side, byte-identical totals) moved four unrelated rows, and
+  // `clickup-bot-done-buries-live` flipped action_needed → fyi — the exact
+  // burial the thread-state rule exists to prevent. The rule generalizes, so a
+  // permanent copy taught the model to demote routine-looking mail from senders
+  // the user never named. Rendered here it costs zero bytes and zero behavior
+  // change when no instruction matches, which is almost every email.
+  if (obs.standingInstruction) {
+    // Defense in depth beside the schema single-line rule: legacy rows written
+    // before the rule can still carry a newline, so collapse it here rather
+    // than letting it forge a `===` section above the derived signals.
+    const phrasing = obs.standingInstruction.phrasing.replace(/[\r\n]+/g, " ").trim();
+    lines.push(
+      `User's standing instruction for THIS SENDER, in the user's own words: ${phrasing}`,
+      `  ${STANDING_INSTRUCTION_HANDLING_RULE}`,
+    );
+  }
+
   lines.push(`Account persona: ${obs.persona ?? "unknown"}`);
 
   const counts = obs.senderPrior.categoryCounts;

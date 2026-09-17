@@ -192,8 +192,43 @@ export interface Observations {
    * Null means no active/confident opinion, not "person".
    */
   senderKind: TriageSenderKindSignal | null;
+  /**
+   * The matched standing instruction for this sender, when one exists. Null
+   * when no instruction matches or when the read failed — the sibling flag
+   * below tells those two apart. Membership is derived at read time: any
+   * active suppression binds its sender, so there is no stale-row state.
+   *
+   * This is the only observation that carries the user's verbatim words
+   * (`phrasing`). Every sibling is derived from the corpus, so a sibling can
+   * be wrong about what the user wants and this one outranks them on that
+   * question — see the ordering note in `renderObservations`.
+   */
+  standingInstruction: TriageStandingDirective | null;
+  /**
+   * The pre-classify standing-instruction read failed, so a null
+   * `standingInstruction` above means "unknown", not "no instruction".
+   * Trace-only metadata — never rendered into the prompt. A blip must never
+   * invent an instruction, and the reverse failure (a real instruction hidden
+   * for one mail) is repaired by the next classify of the thread.
+   */
+  standingInstructionReadFailed: boolean;
   gmail: GmailSignals;
   content: ContentFlags;
+}
+
+/**
+ * One matched standing instruction, flattened for the classifier. `phrasing`
+ * is the user's verbatim words — the only string that can outrank derived
+ * signals on what the user wants. `directive` is the resolved, prompt-ready
+ * sentence and is NOT rendered for ordering: it is model-composed at capture
+ * time, so a claim that it "cannot be wrong" would rest on Alfred's own
+ * inference. `factId` is carried so the decision trace can join a category
+ * back to the instruction that biased it.
+ */
+export interface TriageStandingDirective {
+  factId: string;
+  directive: string;
+  phrasing: string;
 }
 
 export interface AssembleObservationsArgs {
@@ -218,6 +253,18 @@ export interface AssembleObservationsArgs {
   senderRelationshipIsCold?: boolean;
   /** Active projection-backed non-person sender kind, if confidently known. */
   senderKind: TriageSenderKindSignal | null;
+  /**
+   * Matched suppression instruction. Optional (defaults to
+   * `null`) so eval and smoke harnesses that do not exercise it need not thread
+   * it; production `gatherObservations` always passes it.
+   */
+  standingInstruction?: TriageStandingDirective | null | undefined;
+  /**
+   * The pre-classify standing-instruction read failed. Optional (defaults to
+   * `false`) so eval and smoke harnesses that do not exercise the failure path
+   * need not thread it; production `gatherObservations` always passes it.
+   */
+  standingInstructionReadFailed?: boolean | undefined;
   labelIds: readonly string[];
   /** Concatenated signal text (subject + body + headers), lowercased or not. */
   signalText: string;
@@ -240,6 +287,8 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
     senderRelationship: args.senderRelationship,
     senderRelationshipIsCold: args.senderRelationshipIsCold ?? false,
     senderKind: args.senderKind,
+    standingInstruction: args.standingInstruction ?? null,
+    standingInstructionReadFailed: args.standingInstructionReadFailed ?? false,
     gmail: extractGmailSignals(args.labelIds),
     content: extractContentFlags(args.signalText),
   };

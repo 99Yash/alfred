@@ -53,20 +53,42 @@ export const standingInstructionSurfaceSchema = z.enum(STANDING_INSTRUCTION_SURF
 // ─── Effects (the closed operational contract consumers branch on) ──────────
 
 /**
- * The concrete, registered effects of a standing instruction. Each consumer
- * checks for its own effect — it never asks "does this `surface` include me?".
- * Register a new effect here before a new consumer reads it.
+ * The concrete, registered effects of a standing instruction.
+ *
+ * LEGACY WRITE SNAPSHOT — readers must NOT branch on the stored array.
+ * Every writer stores the full registry (`effects: [...SUPPRESSION_EFFECTS]`)
+ * and no writer ever picks a subset, so the column encodes the registry
+ * length at write time, never a decision the user made. Membership is
+ * derived at read time: any active sender suppression binds its sender for
+ * every consumer. A fifth effect therefore needs no backfill, no repair
+ * function, and no per-row widening — it reads the same rows.
+ *
+ * `SUPPRESSION_EFFECTS` remains as the closed registry new consumers register
+ * in (and writers stamp for schema compat), but it is not the operational
+ * contract. The operational contract is "an active suppression exists for
+ * this sender".
  *
  * `block_todo_suggestion`     — triage `classify` mints no `todoSuggestion` for a matching email.
  * `exclude_briefing_priority` — briefing `gather` drops the match from the priority buckets.
  * `block_reply_draft`         — the reply-drafting gate returns `no_draft` for a matching sender
- *                               (ADR-0098). Suppressions written before this effect existed do
- *                               not carry it; they keep suppressing todos and briefings only.
+ *                               (ADR-0098).
+ * `deprioritize_triage_category` — triage `classify` weighs the instruction as a
+ *                               category prior when it picks the label. This is the ONLY
+ *                               effect that can change the Gmail label the user sees. It is
+ *                               a PRIOR, not a floor: the directives this reads say "routine
+ *                               notices are low priority" AND "a genuinely urgent one may
+ *                               still surface", so only a model can separate the two. A
+ *                               deterministic demotion would honor the first clause by
+ *                               breaking the second. Implements ADR-0066 signal 3
+ *                               (standing instructions extended to the category);
+ *                               rendered per ADR-0051 §5's anti-brittleness line — a
+ *                               deterministic fact fed as a hint, never a rewrite.
  */
 export const SUPPRESSION_EFFECTS = [
   "block_todo_suggestion",
   "exclude_briefing_priority",
   "block_reply_draft",
+  "deprioritize_triage_category",
 ] as const;
 
 export type SuppressionEffect = (typeof SUPPRESSION_EFFECTS)[number];
@@ -101,6 +123,20 @@ export type StandingInstructionTarget = z.infer<typeof standingInstructionTarget
 
 // ─── The `user_facts.value` shape ───────────────────────────────────────────
 
+/**
+ * Single-line, bounded prose for anything interpolated into a `===` sectioned
+ * prompt. A multi-line value forges a sibling section above the derived
+ * signals, so newlines are rejected at the schema (not stripped — stripping
+ * would silently rewrite the user's words).
+ */
+const singleLineProse = z
+  .string()
+  .min(1)
+  .max(1_000)
+  .refine((s) => !/[\r\n]/.test(s), {
+    message: "must be single-line",
+  });
+
 export const standingInstructionValueSchema = z.object({
   schemaVersion: z.literal(STANDING_INSTRUCTION_SCHEMA_VERSION),
   action: standingInstructionActionSchema,
@@ -109,14 +145,19 @@ export const standingInstructionValueSchema = z.object({
   /** The operational contract. Consumers branch on membership here. */
   effects: z.array(suppressionEffectSchema).min(1),
   /** Resolved, prompt-ready sentence a prose consumer can drop in verbatim. */
-  directive: z.string().min(1),
+  directive: singleLineProse,
   /** Verbatim user words — provenance/UI only. No pipeline ever parses this. */
-  phrasing: z.string().min(1),
+  phrasing: singleLineProse,
 });
 
 export type StandingInstructionValue = z.infer<typeof standingInstructionValueSchema>;
 
-/** True iff this instruction carries the given effect. */
+/**
+ * Legacy membership probe. Readers must NOT call this on the hot path:
+ * membership is derived at read time (an active suppression binds its sender
+ * for every consumer), so a stored-array check reintroduces the snapshot bug
+ * this registry replaced. Kept for tooling that inspects a raw row.
+ */
 export function hasSuppressionEffect(
   value: StandingInstructionValue,
   effect: SuppressionEffect,

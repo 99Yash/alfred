@@ -4,7 +4,12 @@ import {
   type EmailTriageClassifiedPayload,
 } from "@alfred/assistant/triggers";
 import { resolveFeatureFlags, resolveTimezone } from "@alfred/assistant/settings";
-import { findActiveSenderSuppression, getSenderSignificance } from "../knowledge";
+import {
+  findActiveSenderSuppression,
+  findSenderSuppression,
+  getSenderSignificance,
+  listActiveSuppressionInstructions,
+} from "../knowledge";
 import { suggestTodo } from "@alfred/assistant/tasks";
 import {
   classifyEmail,
@@ -374,6 +379,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       documentId: ctx.state.documentId,
       sourceThreadId,
       document: ctxData.document,
+      accountId: ctxData.document.accountId,
       persona: ctxData.persona,
       senderContext,
       senderAddress: senderContextResult.senderAddress,
@@ -908,6 +914,8 @@ async function gatherObservations(args: {
   documentId: string;
   sourceThreadId: string;
   document: { title: string | null; content: string; metadata: GmailDocumentMetadata };
+  /** Mailbox the document arrived on — scopes a per-account standing instruction. */
+  accountId: string | null;
   persona: AccountPersona | null;
   senderContext: SenderContext;
   senderAddress: string | null;
@@ -920,7 +928,7 @@ async function gatherObservations(args: {
   // received mail anyway.
   const isHumanSender = args.senderContext.effectiveAuthor === "person";
 
-  const [thread, senderKindEnabled] = await Promise.all([
+  const [thread, senderKindEnabled, standing] = await Promise.all([
     getThreadState({
       userId: args.userId,
       sourceThreadId: args.sourceThreadId,
@@ -932,6 +940,44 @@ async function gatherObservations(args: {
       recentMessages: [],
     })),
     triageSenderKindProjectionEnabled(args.userId).catch(() => false),
+    // The standing instruction for this sender, when one exists. Membership
+    // is derived at read time — any active suppression binds its sender — so
+    // there is no per-effect miss and no stale-row state. Read BEFORE the
+    // model call, unlike the `block_todo_suggestion`
+    // read further up this file, which runs after classify because a todo only
+    // exists once a category does. It rides this first batch because it needs
+    // nothing but `args` — a serial await here would add a round trip to the
+    // triage hot path for every mail, including the ones with no instruction.
+    // Best-effort like every sibling read here: a blip yields `null`, which is
+    // exactly "no instruction", so a database hiccup can never invent one. The
+    // reverse failure — a real instruction that a blip hides — costs the user
+    // one mis-tagged mail and is repaired by the next classify of the thread.
+    // Either way the outcome is recorded on `readFailed` (mirroring the
+    // `standingSuppressionReadFailed` sibling), so the decision trace can tell
+    // "no instruction" apart from "unknown".
+    //
+    // One unfiltered list, one in-memory match over the caller-supplied
+    // snapshot, so the prompt input costs no extra round trip.
+    listActiveSuppressionInstructions(args.userId)
+      .then((all) => {
+        const match = findSenderSuppression(all, {
+          senderEmail: args.senderAddress ?? meta.from ?? null,
+          accountId: args.accountId,
+          effect: "deprioritize_triage_category",
+        });
+
+        return {
+          instruction: match
+            ? {
+                factId: match.factId,
+                directive: match.value.directive,
+                phrasing: match.value.phrasing,
+              }
+            : null,
+          readFailed: false,
+        };
+      })
+      .catch(() => ({ instruction: null, readFailed: true })),
   ]);
 
   const senderKind =
@@ -986,6 +1032,8 @@ async function gatherObservations(args: {
     senderRelationship: relationship.descriptor,
     senderRelationshipIsCold: relationship.isColdContact,
     senderKind,
+    standingInstruction: standing.instruction,
+    standingInstructionReadFailed: standing.readFailed,
     labelIds,
     signalText,
   });

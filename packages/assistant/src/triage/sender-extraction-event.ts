@@ -210,6 +210,24 @@ export interface SenderExtractionEvent extends FloorTraceFields {
   standingInstructionFactId: string | null;
   standingInstructionEffect: string | null;
   standingInstructionReadFailed: boolean;
+  /**
+   * A standing instruction was in the prompt for this
+   * mail. DISTINCT from the three fields above, which report the post-classify
+   * todo read: this one fires before the model runs and is the only standing
+   * field that can explain `finalCategory`. A null here is two-way ambiguous
+   * on its own — "no instruction" vs "the read threw" — so read it with its
+   * flag: `readFailed = true` means "unknown"; false means "no instruction".
+   * A row with a fact id and a demand lane is the
+   * model declining the prior, not a missing read.
+   */
+  standingInstructionCategoryFactId: string | null;
+  /**
+   * The pre-classify standing-instruction read failed, so a null
+   * `standingInstructionCategoryFactId` means "unknown", not "no instruction".
+   * DISTINCT from `standingInstructionReadFailed`, which reports the
+   * post-classify todo read.
+   */
+  standingInstructionCategoryReadFailed: boolean;
   /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
   todoOutcome: string | null;
   todoNote: string | null;
@@ -277,6 +295,8 @@ export function senderExtractionEvent(args: {
     standingInstructionFactId: args.standingSuppression?.factId ?? null,
     standingInstructionEffect: args.standingSuppression?.effect ?? null,
     standingInstructionReadFailed: args.standingSuppressionReadFailed,
+    standingInstructionCategoryFactId: obs.standingInstruction?.factId ?? null,
+    standingInstructionCategoryReadFailed: obs.standingInstructionReadFailed,
     todoOutcome: args.classification.todoDecision?.outcome ?? null,
     todoNote: args.classification.todoDecision?.note ?? null,
   };

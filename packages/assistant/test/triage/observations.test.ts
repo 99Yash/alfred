@@ -181,6 +181,8 @@ describe("assembleObservations", () => {
         entityId: "ent_group",
         displayName: "Engineering",
       },
+      standingInstruction: null,
+      standingInstructionReadFailed: false,
       gmail: {
         categories: ["updates"],
         important: false,
