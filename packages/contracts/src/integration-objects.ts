@@ -196,8 +196,12 @@ export const INTEGRATION_OBJECT_DEFS = {
     kinds: {
       // A Sentry issue closes by TRANSITION, and every transition is
       // reversible: a resolved issue regresses, an archived issue escalates or
-      // is unarchived. So NOTHING absorbs (#1093's empty case) and a later
-      // delivery always lands.
+      // is unarchived. So NOTHING absorbs (#1093's empty case) and no later
+      // delivery is refused HERE. One delivery can still be dropped upstream:
+      // the lifecycle body carries no timestamp and no transition id, so a
+      // transition that repeats an earlier one byte for byte digests to the
+      // same delivery key and the ingress path answers it `duplicate`. That is
+      // an ingress property shared with GitHub, not a policy this table states.
       //
       // `closesAskOn` is empty on purpose (ADR-0103). The store orders by
       // OBSERVATION time, Sentry ships no transition version, and a delayed
