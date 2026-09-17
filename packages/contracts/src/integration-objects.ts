@@ -95,8 +95,10 @@ export interface IntegrationObjectDef {
   /**
    * Map a provider-native state token (the reducer collapses booleans like
    * `merged` into the token, e.g. `merged`/`closed`/`open` for a github PR) to
-   * the agnostic bucket. Returns `null` for an unrecognized token — the caller
-   * treats unknown as non-closing (absence never closes).
+   * the agnostic bucket, for one object kind. Each kind has its own token
+   * vocabulary (`success`/`failure`/`pending` for a CI attempt or target), so
+   * the mapping reads `kind` first. Returns `null` for an unrecognized token —
+   * the caller treats unknown as non-closing (absence never closes).
    */
   normalize(kind: string, nativeState: string): StateCategory | null;
 }
@@ -146,6 +148,37 @@ export function canonicalizeGithubPullRequestUrl(
 }
 
 /**
+ * Canonical external id for a GitHub CI target — the thing a check suite
+ * closes by succession (`#1093`). The reconciled identity is not the attempt
+ * (a suite run never transitions) but the target: `owner/repo` (folded to
+ * lower case through the shared identity canonicalizer, which already folds
+ * `github_repository_full_name`) plus the head branch, joined by `#`.
+ *
+ * The branch keeps its case (branch names are case-sensitive) and is trimmed;
+ * an empty or over-long branch returns `null`, and callers then fold the
+ * attempt alone. A branch that itself holds `#` is vanishingly rare and reads
+ * back ambiguously — recorded, not solved.
+ */
+export function canonicalizeGithubTargetId(input: {
+  repoFullName: string;
+  branch: string;
+}): string | null {
+  const repoParts = input.repoFullName.trim().split("/");
+
+  if (repoParts.length !== 2 || repoParts.some((part) => !/^[A-Za-z0-9._-]+$/.test(part))) {
+    return null;
+  }
+
+  const branch = input.branch.trim();
+
+  if (branch.length < 1 || branch.length > 255) return null;
+
+  const repo = canonicalizeIdentityValue("github_repository_full_name", input.repoFullName);
+
+  return `${repo}#${branch}`;
+}
+
+/**
  * Narrow an arbitrary (contract-bounded but provider-open) string to a provider
  * the object-state registry knows. A caller-supplied reference can name a
  * provider that this build does not project, and that must degrade to an honest
@@ -154,16 +187,19 @@ export function canonicalizeGithubPullRequestUrl(
 export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
 
 /**
- * The registry. A github PR's native state token is one of
- * `open` | `merged` | `closed` (closed-not-merged), collapsed by the reducer
- * from the `pull_request` payload's `state` + `merged` boolean. A sentry
- * issue's token is one of `unresolved` | `resolved` | `archived`, collapsed by
- * the reducer from the delivery's own EVENT TYPE.
+ * The registry. GitHub PRs plus the CI succession shape (#1093). A github
+ * PR's native state token is one of `open` | `merged` | `closed`
+ * (closed-not-merged), collapsed by the reducer from the `pull_request`
+ * payload's `state` + `merged` boolean. A CI attempt/target token is one of
+ * `success` | `failure` | `pending`, collapsed from the `check_suite`
+ * conclusion. A sentry issue's token is one of `unresolved` | `resolved` |
+ * `archived`, collapsed by the reducer from the delivery's own EVENT TYPE.
  *
- * `failed` is reserved (the agnostic bucket exists) but unreachable today: it
- * would come from `check_suite` deliveries, which the App does not yet
- * subscribe to. GitHub closure rides on PR merge/close alone — the prod-proven
- * chain.
+ * `failed` flows from `check_suite` deliveries, which are a typed event in
+ * this build but reach production only after the human flips the App
+ * subscription (see the PR body): until then the CI kinds stay empty, which
+ * is safe — absence never closes. GitHub PR closure rides on merge/close
+ * alone — the prod-proven chain.
  */
 export const INTEGRATION_OBJECT_DEFS = {
   github: {
@@ -177,15 +213,44 @@ export const INTEGRATION_OBJECT_DEFS = {
         closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
         absorbing: ["resolved"],
       },
+      // A CI attempt closes by SUCCESSION, never by transition: the suite run
+      // itself goes nowhere, so an attempt row never closes an ask (only its
+      // target does) and never absorbs.
+      ci_attempt: {
+        closesAskOn: [],
+        absorbing: [],
+      },
+      // The succession target (`owner/repo#branch`): its state is the outcome
+      // of the latest attempt. A `resolved` target closes an ask opened by an
+      // earlier `failed` target; a later `failed` reopens it; a lone failure
+      // stays open. Nothing absorbs, so the store needs no second branch.
+      ci_target: {
+        closesAskOn: ["resolved"],
+        absorbing: [],
+      },
     },
     prefixableKeys: { head_sha: 7 },
-    normalize(_kind, nativeState) {
+    normalize(kind, nativeState) {
+      if (kind === "pull_request") {
+        switch (nativeState) {
+          case "merged":
+            return "resolved";
+          case "closed":
+            return "abandoned";
+          case "open":
+            return "active";
+          default:
+            return null;
+        }
+      }
+
+      // Both CI kinds share the attempt-outcome vocabulary; absence never closes.
       switch (nativeState) {
-        case "merged":
+        case "success":
           return "resolved";
-        case "closed":
-          return "abandoned";
-        case "open":
+        case "failure":
+          return "failed";
+        case "pending":
           return "active";
         default:
           return null;
@@ -240,13 +305,21 @@ export function getObjectDef(provider: ObjectStateProvider): IntegrationObjectDe
  * The lifecycle policy for one object kind, or `null` when the provider does
  * not declare that kind. A stored row always names a declared kind; the `null`
  * arm exists because `kind` is a `text` column, so a row written by an older
- * build can name a kind this build no longer has.
+ * build can name a kind this build no longer has — and because `kind` arrives
+ * as an open string, so a prototype key (`constructor`, `__proto__`) must read
+ * as undeclared rather than as an `Object.prototype` member (#1093 absorbs
+ * that hole on this lane: `closesOpenAsk` over such a key returns `null`
+ * instead of throwing).
  */
 export function getObjectKindDef(
   provider: ObjectStateProvider,
   kind: string,
 ): ObjectKindDef | null {
-  return getObjectDef(provider).kinds[kind] ?? null;
+  const kinds: Readonly<Record<string, ObjectKindDef>> = getObjectDef(provider).kinds;
+
+  if (!Object.prototype.hasOwnProperty.call(kinds, kind)) return null;
+
+  return kinds[kind] ?? null;
 }
 
 /**

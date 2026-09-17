@@ -50,7 +50,7 @@ function prPayload(
 describe("github reducer (pure)", () => {
   test("opened / synchronize / reopened map to the open native state + head_sha key", () => {
     for (const action of ["opened", "synchronize", "reopened"]) {
-      const delta = reduceGithubEvent("pull_request", action, prPayload(7, SHA_A));
+      const [delta] = reduceGithubEvent("pull_request", action, prPayload(7, SHA_A));
       assert.ok(delta, `${action} should produce a delta`);
       assert.equal(delta?.kind, "pull_request");
       assert.equal(delta?.externalId, "7");
@@ -64,25 +64,25 @@ describe("github reducer (pure)", () => {
 
   test("closed collapses the merged boolean into merged vs closed", () => {
     assert.equal(
-      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: true }))
+      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: true }))[0]
         ?.nativeState,
       "merged",
     );
     assert.equal(
-      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: false }))
+      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: false }))[0]
         ?.nativeState,
       "closed",
     );
   });
 
   test("externalId uses GitHub's global PR id, not the repo-scoped PR number", () => {
-    const first = reduceGithubEvent(
+    const [first] = reduceGithubEvent(
       "pull_request",
       "opened",
       prPayload(1, SHA_A, { id: 111, repo: "o/one" }),
     );
 
-    const second = reduceGithubEvent(
+    const [second] = reduceGithubEvent(
       "pull_request",
       "opened",
       prPayload(1, SHA_B, { id: 222, repo: "o/two" }),
@@ -94,9 +94,9 @@ describe("github reducer (pure)", () => {
   });
 
   test("non-lifecycle actions and non-PR events are no-ops", () => {
-    assert.equal(reduceGithubEvent("pull_request", "labeled", prPayload(7, SHA_A)), null);
-    assert.equal(reduceGithubEvent("push", "created", prPayload(7, SHA_A)), null);
-    assert.equal(reduceGithubEvent("pull_request", "opened", {}), null);
+    assert.deepEqual(reduceGithubEvent("pull_request", "labeled", prPayload(7, SHA_A)), []);
+    assert.deepEqual(reduceGithubEvent("push", "created", prPayload(7, SHA_A)), []);
+    assert.deepEqual(reduceGithubEvent("pull_request", "opened", {}), []);
   });
 });
 
