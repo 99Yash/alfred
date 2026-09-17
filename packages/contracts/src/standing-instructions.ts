@@ -123,6 +123,20 @@ export type StandingInstructionTarget = z.infer<typeof standingInstructionTarget
 
 // ─── The `user_facts.value` shape ───────────────────────────────────────────
 
+/**
+ * Single-line, bounded prose for anything interpolated into a `===` sectioned
+ * prompt. A multi-line value forges a sibling section above the derived
+ * signals, so newlines are rejected at the schema (not stripped — stripping
+ * would silently rewrite the user's words).
+ */
+const singleLineProse = z
+  .string()
+  .min(1)
+  .max(1_000)
+  .refine((s) => !/[\r\n]/.test(s), {
+    message: "must be single-line",
+  });
+
 export const standingInstructionValueSchema = z.object({
   schemaVersion: z.literal(STANDING_INSTRUCTION_SCHEMA_VERSION),
   action: standingInstructionActionSchema,
@@ -131,9 +145,9 @@ export const standingInstructionValueSchema = z.object({
   /** The operational contract. Consumers branch on membership here. */
   effects: z.array(suppressionEffectSchema).min(1),
   /** Resolved, prompt-ready sentence a prose consumer can drop in verbatim. */
-  directive: z.string().min(1),
+  directive: singleLineProse,
   /** Verbatim user words — provenance/UI only. No pipeline ever parses this. */
-  phrasing: z.string().min(1),
+  phrasing: singleLineProse,
 });
 
 export type StandingInstructionValue = z.infer<typeof standingInstructionValueSchema>;

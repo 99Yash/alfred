@@ -422,8 +422,12 @@ function renderObservations(obs: Observations): string {
   // the user never named. Rendered here it costs zero bytes and zero behavior
   // change when no instruction matches, which is almost every email.
   if (obs.standingInstruction) {
+    // Defense in depth beside the schema single-line rule: legacy rows written
+    // before the rule can still carry a newline, so collapse it here rather
+    // than letting it forge a `===` section above the derived signals.
+    const phrasing = obs.standingInstruction.phrasing.replace(/[\r\n]+/g, " ").trim();
     lines.push(
-      `User's standing instruction for THIS SENDER, in the user's own words: ${obs.standingInstruction.phrasing}`,
+      `User's standing instruction for THIS SENDER, in the user's own words: ${phrasing}`,
       `  ${STANDING_INSTRUCTION_HANDLING_RULE}`,
     );
   }
