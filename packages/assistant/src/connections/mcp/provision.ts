@@ -19,6 +19,11 @@
  *    where the authorization server allows it, so a server with no pinned
  *    credential in `built-ins.ts` still connects.
  *
+ * An owner-supplied API key is a third variant, not a third answer: the probe
+ * carries the key, a challenge is the endpoint rejecting it (a refusal, since
+ * no consent screen belongs on this path), and a successful probe seals the key
+ * before the manager opens the live session.
+ *
  * The probe is discarded once it has answered, so the manager opens its own
  * generation. That is one extra handshake per add, and it buys the rule this
  * module keeps: a URL Alfred REFUSES leaves no rows behind. A challenge is not
@@ -34,11 +39,21 @@
  * session is what would close the hole, and this module does not have one.
  */
 
+import type { McpAddServerAuth } from "@alfred/contracts";
+import { persistApiKeyCredential } from "./api-key";
 import { MCP_DEFAULT_REQUEST_TIMEOUT_MS, McpRawClient } from "./client";
 import { builtInClientPolicy, builtInProviderForEndpoint } from "./built-ins";
 import { MCP_OAUTH_PENDING_IDENTITY } from "./constants";
-import { getMcpEndpointAuthorizer, validatePublicHttpsEndpoint } from "./endpoint-authorization";
-import { isMcpAuthorizationChallenge, isMcpEndpointRefusal } from "./errors";
+import {
+  getMcpEndpointAuthorizer,
+  validatePublicHttpsEndpoint,
+  type McpApiKeyAuth,
+} from "./endpoint-authorization";
+import {
+  isMcpAuthorizationChallenge,
+  isMcpEndpointRefusal,
+  McpApiKeyRejectedError,
+} from "./errors";
 import { hostedEndpointKey } from "../hosted-endpoint";
 import { ensureConnection } from "./persistence";
 import { getMcpConnectionManager } from "./runtime";
@@ -100,6 +115,11 @@ export interface AddUserMcpServerInput {
   readonly endpointUrl: string;
   /** Optional display name; defaults to the endpoint host. */
   readonly label?: string;
+  /**
+   * Optional owner-supplied credential. Absence means no-auth, or OAuth if the
+   * endpoint answers with an authorization challenge.
+   */
+  readonly auth?: McpAddServerAuth;
   /** The caller's own deadline, unioned with this module's aggregate bound. */
   readonly signal?: AbortSignal;
 }
@@ -112,6 +132,11 @@ export interface AddUserMcpServerInput {
  * built-in's own endpoint throws {@link BuiltInMcpEndpointError}. All are the
  * caller's to map; none creates a row. `auth_required` is a normal answer, not
  * an error: the row exists and waits for the owner's consent.
+ *
+ * With an owner-supplied API key the probe carries the key, so a challenge is
+ * the endpoint rejecting that key and throws {@link McpApiKeyRejectedError} —
+ * there is no consent screen on this path. A successful probe seals the key in
+ * the same store the live manager reads it back from.
  */
 export async function addUserMcpServer(
   input: AddUserMcpServerInput,
@@ -126,8 +151,23 @@ export async function addUserMcpServer(
   if (builtIn) throw new BuiltInMcpEndpointError(builtIn);
   const deadline = AbortSignal.timeout(ADD_SERVER_DEADLINE_MS);
   const signal = input.signal ? AbortSignal.any([input.signal, deadline]) : deadline;
+  const apiKey = input.auth?.kind === "api_key" ? input.auth : undefined;
 
-  const requiresAuthorization = await probeRequiresAuthorization(endpoint, signal);
+  // The probe reads the owner's key from memory; only the successful path seals
+  // it. The reader shape is the same one the live client gets from the store.
+  const probeApiKey: McpApiKeyAuth | undefined = apiKey
+    ? {
+        placement: async () => apiKey.placement,
+        secret: async () => apiKey.value,
+      }
+    : undefined;
+
+  const requiresAuthorization = await probeRequiresAuthorization(endpoint, signal, probeApiKey);
+
+  // A challenge with a key configured is the endpoint's answer about the KEY.
+  // There is no authorization server to send the browser to, so this refuses
+  // rather than parking a row no consent screen can finish.
+  if (requiresAuthorization && apiKey) throw new McpApiKeyRejectedError();
 
   const connection = await ensureConnection({
     userId: input.userId,
@@ -152,6 +192,15 @@ export async function addUserMcpServer(
   // No credential exists yet, so there is nothing to connect WITH: the consent
   // round trip ends at the OAuth callback, which is what opens the session.
   if (requiresAuthorization) return { outcome: "auth_required", connectionId: connection.id };
+
+  if (apiKey) {
+    await persistApiKeyCredential({
+      connectionId: connection.id,
+      userId: input.userId,
+      placement: apiKey.placement,
+      value: apiKey.value,
+    });
+  }
 
   await getMcpConnectionManager().getReadyClient(connection.id);
 
@@ -180,7 +229,11 @@ function canonicalEndpoint(url: URL): URL {
  * MCP session. The transport throws `UnauthorizedError` on a 401 when no
  * `authProvider` can retry, which is exactly the no-credentials probe below.
  */
-async function probeRequiresAuthorization(endpoint: URL, signal: AbortSignal): Promise<boolean> {
+async function probeRequiresAuthorization(
+  endpoint: URL,
+  signal: AbortSignal,
+  apiKey?: McpApiKeyAuth,
+): Promise<boolean> {
   const client = new McpRawClient({
     connectionId: PROBE_CONNECTION_ID,
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
@@ -189,8 +242,9 @@ async function probeRequiresAuthorization(endpoint: URL, signal: AbortSignal): P
     // The SAME policy the live manager will spread for this endpoint, from the
     // one function that derives it. Restating the shape here is how the probe
     // and the live client come to disagree about an endpoint's protocol era.
-    // No OAuth provider and no auth header: an unauthenticated connect IS the
-    // probe.
+    // No OAuth provider: an unauthenticated connect IS the probe, and an
+    // owner-supplied key rides the protocol requester when one is present.
+    ...(apiKey ? { apiKey } : {}),
     ...builtInClientPolicy(endpoint.href),
   });
 

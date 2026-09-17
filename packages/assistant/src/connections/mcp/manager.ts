@@ -35,6 +35,7 @@ import {
   type McpCatalogSnapshot,
   type McpPreparedToolCall,
 } from "./client";
+import { readApiKeyAuthForConnection } from "./api-key";
 import { builtInClientPolicy } from "./built-ins";
 import { getMcpEndpointAuthorizer } from "./endpoint-authorization";
 import { boundedMcpErrorText, McpClientError } from "./errors";
@@ -51,7 +52,9 @@ import type { McpNegotiatedServer } from "./protocol";
 import { McpOAuthAuthorizationRequiredError, mcpOAuthProviderForConnection } from "./oauth";
 import { startMcpTraceSpan, type McpTraceContext } from "./trace";
 
-export type McpClientFactory = (connection: McpConnectionWithServer) => McpRawClient;
+export type McpClientFactory = (
+  connection: McpConnectionWithServer,
+) => McpRawClient | Promise<McpRawClient>;
 
 export interface McpConnectionManagerPersistence {
   readConnection: typeof readConnection;
@@ -123,17 +126,27 @@ export class McpConnectionNotFoundError extends Error {
  * `authorization`. OAuth discovery runs before transport connect. The transport
  * itself receives only a token reader, so it cannot refresh and replay an
  * in-flight call.
+ *
+ * A connection carries at most one credential source (the database check
+ * constraint), so the owner-supplied API-key reader and the OAuth provider are
+ * mutually exclusive. The presence of a key is what decides, and `usesOAuth`
+ * reads it, so the two modes cannot both arm.
  */
 function liveClientFactory(): McpClientFactory {
   const endpointAuthorizer = getMcpEndpointAuthorizer();
 
-  return (connection) => {
-    const usesOAuth = connection.credentialId !== null || connection.authServerIdentity !== null;
+  return async (connection) => {
+    const apiKey = await readApiKeyAuthForConnection(connection.id, connection.userId);
+
+    const usesOAuth =
+      apiKey === undefined &&
+      (connection.credentialId !== null || connection.authServerIdentity !== null);
 
     return new McpRawClient({
       connectionId: connection.id,
       endpoint: connection.server,
       endpointAuthorizer,
+      ...(apiKey ? { apiKey } : {}),
       // The registry is the only thing that knows an endpoint serves a
       // read-only catalog (ADR-0094) or must be held to the legacy protocol era
       // (ADR-0095). `McpRawClient` owns both refusals; it must not reach the
@@ -234,7 +247,7 @@ export class McpConnectionManager {
     let client: McpRawClient;
 
     try {
-      client = this.#clientFactory(connection);
+      client = await this.#clientFactory(connection);
     } catch (error) {
       if (this.#generations.get(connectionId) === generation) {
         this.#generations.delete(connectionId);
