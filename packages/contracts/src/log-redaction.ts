@@ -21,6 +21,7 @@ export const SENSITIVE_LOG_PATHS = [
   "*.accessToken",
   "*.refreshToken",
   "*.apiKey",
+  "*.auth.value",
   "*.clientSecret",
   "*.password",
 ] as const;

@@ -48,6 +48,7 @@ export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./e
 export {
   getMcpEndpointAuthorizer,
   withMcpEndpointAuthorization,
+  type McpApiKeyAuth,
   type McpAuthorizedEndpoint,
   type McpAuthorizedOAuth,
   type McpAuthorizedOAuthServer,
@@ -56,6 +57,8 @@ export {
   type McpEndpointConnection,
   type McpEndpointNetworkPolicy,
 } from "./endpoint-authorization";
+
+export { persistApiKeyCredential, readApiKeyAuthForConnection } from "./api-key";
 
 export {
   builtInProviderForEndpoint,

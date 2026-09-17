@@ -1,3 +1,4 @@
+import type { McpApiKeyPlacement, Redacted } from "@alfred/contracts";
 import type { McpServer } from "@alfred/db/schemas";
 import type { FetchLike } from "@modelcontextprotocol/client";
 import {
@@ -64,10 +65,28 @@ export interface McpAuthorizedEndpoint {
   close(): Promise<void>;
 }
 
+/**
+ * An owner-supplied API key as the transport reads it: the placement is read
+ * once when the authorization is built, and the secret is opened once per
+ * request and never cached by Alfred.
+ */
+export interface McpApiKeyAuth {
+  /** Placement, read once when the endpoint authorization is built. Not secret. */
+  placement(): Promise<McpApiKeyPlacement>;
+  /**
+   * The opened secret, carried as a {@link Redacted} so the default string paths
+   * (interpolation, `JSON.stringify`, a log) cannot expose it; read once per
+   * HTTP request, never cached by Alfred. The only `.unwrap()` is at the wire,
+   * where the placement is set.
+   */
+  secret(): Promise<Redacted<string>>;
+}
+
 export interface McpEndpointAuthorizer {
   authorize(
     connection: McpEndpointConnection,
     network: McpEndpointNetworkPolicy,
+    apiKey?: McpApiKeyAuth,
   ): Promise<McpAuthorizedEndpoint>;
 }
 
@@ -176,6 +195,47 @@ function createAuthorizedOAuth(
   });
 }
 
+/**
+ * Wrap one requester so an owner-supplied API key rides every protocol request
+ * in its configured placement.
+ *
+ * The placement is resolved once, here, when the authorization is built; only
+ * the secret is read per request. The wrapper runs where `createGuardedFetch`
+ * calls its requester — that is, AFTER the per-hop `validate(...)` on the
+ * request URL — so the URL the guard checks is the owner's URL and never
+ * Alfred's injected parameter. The two arms place the secret differently and
+ * neither mutates the guard's own `Headers`: the header arm clones them, and the
+ * query arm rewrites only the URL.
+ *
+ * The query arm attaches only when the request already targets the pinned
+ * origin. `createGuardedFetch` pins protocol traffic to that origin, so an
+ * off-origin hop is refused before this runs; the origin check keeps the key off
+ * any future caller that wires this wrapper without that pin.
+ */
+async function withApiKey(
+  requester: GuardedFetchRequester,
+  apiKey: McpApiKeyAuth,
+  origin: string,
+): Promise<GuardedFetchRequester> {
+  const placement = await apiKey.placement();
+
+  return async (input, init) => {
+    if (placement.in === "header") {
+      const headers = new Headers(init.headers);
+      headers.set(placement.name, (await apiKey.secret()).unwrap());
+
+      return requester(input, { ...init, headers });
+    }
+
+    const url = new URL(input);
+
+    if (url.origin !== origin) return requester(input, init);
+    url.searchParams.set(placement.name, (await apiKey.secret()).unwrap());
+
+    return requester(url.href, init);
+  };
+}
+
 /** Authorize one persisted MCP endpoint and bind all hosted traffic to its guard. */
 export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
   constructor(private readonly dependencies: HostedMcpEndpointAuthorizerDependencies = {}) {}
@@ -183,6 +243,7 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
   async authorize(
     connection: McpEndpointConnection,
     network: McpEndpointNetworkPolicy,
+    apiKey?: McpApiKeyAuth,
   ): Promise<McpAuthorizedEndpoint> {
     const endpoint = validatePinnedHttpsEndpoint(connection.endpointUrl, connection.endpointOrigin);
 
@@ -201,13 +262,24 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
     });
 
     const requester = this.dependencies.requester ?? dispatcherRequester(dispatcher);
+
+    // Only the PROTOCOL requester is wrapped. OAuth discovery below builds its
+    // own guarded fetch from the unwrapped requester, so the key can never ride
+    // a discovery or token request to the authorization server.
+    const protocolRequester = apiKey
+      ? await withApiKey(requester, apiKey, endpoint.origin)
+      : requester;
+
     let closeFlight: Promise<void> | null = null;
 
     return Object.freeze({
       oauth: createAuthorizedOAuth(endpoint, createGuardedFetch({ requester }), network),
       protocol: Object.freeze({
         endpoint: new URL(endpoint.href),
-        fetch: createGuardedFetch({ requester, expectedOrigin: endpoint.origin }),
+        fetch: createGuardedFetch({
+          requester: protocolRequester,
+          expectedOrigin: endpoint.origin,
+        }),
       }),
       // `destroy`, not `close`: a graceful close waits for in-flight requests,
       // and with body time unbounded a stuck stream would hold `disconnect()`
