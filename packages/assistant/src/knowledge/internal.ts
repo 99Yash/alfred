@@ -23,6 +23,18 @@
  */
 export { backfillTeamGraph } from "./team-graph";
 
+// The ONE definition of a mail contact's kind — shared by the live writer
+// (`team-graph.ts`) and the committed cleanup backfill, so "what is a person"
+// cannot drift into a second copy (#1108, the #493 precedent).
+export { classifyContactKind } from "./entity-kind-classifier";
+
+// The ONE definition of the `entities` unique-index clash a re-kind can hit —
+// shared by the live writer and the committed cleanup backfill, so the "keep
+// the current kind, never merge two contacts" policy has a single home.
+export { reKindWouldCollide } from "./entity-graph";
+
+export { parsePersonEntityMetadata } from "./entity-metadata";
+
 export {
   gateDocumentFact,
   isServiceSender,

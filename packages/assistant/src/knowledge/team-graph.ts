@@ -3,13 +3,20 @@
  *
  * The missing extractor behind "prod `entities` = 0". Scans the user's
  * already-ingested mail (`documents`, `source='gmail'`) and populates the
- * `entities` / `entity_relations` graph the Sender-relationship resolver and
- * `isKnownContact` read:
- *   - one `person` entity per human correspondent (email in `aliases`, so
- *     `isKnownContact` matches; correspondence aggregate in `metadata`),
- *   - one `organization` entity per non-consumer sender domain, with a
- *     `works_at` edge from each contact on that domain,
+ * `entities` graph the Sender-relationship resolver and `isKnownContact`
+ * read:
+ *   - one contact entity per correspondent (email in `aliases`, so
+ *     `isKnownContact` matches; correspondence aggregate in `metadata`). The
+ *     kind comes from `classifyContactKind`, applied by the writer to the
+ *     row's stored canonical name, so a non-human envelope is filed as
+ *     `other` instead of `person` (#1108),
+ *   - one `organization` entity per non-consumer sender domain,
  *   - a first significance pass over the result.
+ *
+ * **No edge is written.** A `works_at` edge minted from `person@domain` only
+ * restates the `From:` header, so the writer that minted one is gone (#1108).
+ * A GROUNDED `works_at` — read out of a signature block or an introduction —
+ * belongs to the ADR-0067 `entity_edges` table, not to this legacy graph.
  *
  * **Header-level only, no LLM.** Direction (inbound/outbound) and reciprocity
  * come straight from `from`/`to`/`cc` + the `isSent` flag. Job *title*
@@ -37,7 +44,8 @@ import {
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
-import { upsertEntity, upsertPersonByAlias, linkEntities } from "./entity-graph";
+import { readStoredContactNames, upsertContactByAlias, upsertEntity } from "./entity-graph";
+import { classifyContactKind } from "./entity-kind-classifier";
 import type { DbTransaction } from "@alfred/db";
 import { type CorrespondenceStats, parsePersonEntityMetadata } from "./entity-metadata";
 import { computeSignificance, loadUserDomains, runSignificancePass } from "./significance";
@@ -174,7 +182,8 @@ function mergeStats(
 export interface ApplyIncrementsResult {
   contacts: number;
   organizations: number;
-  relations: number;
+  /** Contacts the kind bar filed as something other than `person` (#1108). */
+  nonPersonContacts: number;
 }
 
 /** Non-consumer sender domains worth an organization node (≥1 contact). */
@@ -189,7 +198,7 @@ function collectOrgDomains(contacts: Map<string, ContactAggregate>): Set<string>
 }
 
 /**
- * Persist a contacts map onto the `entities` / `entity_relations` graph. Shared
+ * Persist a contacts map onto the `entities` graph. Shared
  * by the daily incremental capture and the from-scratch backfill; the only
  * difference is how each contact's correspondence aggregate combines with what
  * is already stored:
@@ -198,10 +207,12 @@ function collectOrgDomains(contacts: Map<string, ContactAggregate>): Set<string>
  *   - `"overwrite"` (backfill) — REPLACE the aggregate with the full scan, so a
  *     re-run reconciles to the same value.
  *
- * Either way, each person is matched by ADDRESS (alias) via
- * `upsertPersonByAlias` and keeps its established `canonicalName`, so a later
+ * Either way, each contact is matched by ADDRESS (alias) via
+ * `upsertContactByAlias` and keeps its established `canonicalName`, so a later
  * message with a different display name updates the same row instead of minting
- * a duplicate — the property both call sites depend on for safe re-runs.
+ * a duplicate — the property both call sites depend on for safe re-runs. The
+ * same match spans `person` and `other`, so a contact the kind bar
+ * re-classifies moves in place on the next run.
  *
  * Pass `tx` to enlist every write in a caller's transaction (the incremental
  * path does, so the increments commit atomically with its capture marker).
@@ -212,15 +223,12 @@ async function persistContacts(
   mode: "merge" | "overwrite",
   tx?: DbTransaction,
 ): Promise<ApplyIncrementsResult> {
-  if (contacts.size === 0) return { contacts: 0, organizations: 0, relations: 0 };
+  if (contacts.size === 0) return { contacts: 0, organizations: 0, nonPersonContacts: 0 };
 
   const orgDomains = collectOrgDomains(contacts);
 
-  // Organizations first, so we can wire `works_at` as we go.
-  const orgIdByDomain = new Map<string, string>();
-
   for (const domain of orgDomains) {
-    const org = await upsertEntity(
+    await upsertEntity(
       {
         userId,
         kind: "organization",
@@ -230,17 +238,17 @@ async function persistContacts(
       },
       tx,
     );
-
-    orgIdByDomain.set(domain, org.id);
   }
 
-  let relations = 0;
+  let nonPersonContacts = 0;
 
   for (const agg of contacts.values()) {
-    // Match the existing person by EMAIL ALIAS so the write lands on the same
+    // Match the existing contact by EMAIL ALIAS so the write lands on the same
     // row even when the display name drifts (and never collides onto a
-    // different person who happens to share a canonical name).
-    const person = await upsertPersonByAlias(
+    // different contact who happens to share a canonical name). The writer
+    // derives the kind from the row's stored canonical name, so the count below
+    // reads the kind that was actually written.
+    const row = await upsertContactByAlias(
       {
         userId,
         address: agg.address,
@@ -264,29 +272,16 @@ async function persistContacts(
       tx,
     );
 
-    const orgId = agg.domain ? orgIdByDomain.get(agg.domain) : undefined;
-
-    if (orgId) {
-      await linkEntities(
-        {
-          userId,
-          fromEntityId: person.id,
-          toEntityId: orgId,
-          relation: "works_at",
-        },
-        tx,
-      );
-      relations += 1;
-    }
+    if (row.kind !== "person") nonPersonContacts += 1;
   }
 
-  return { contacts: contacts.size, organizations: orgDomains.size, relations };
+  return { contacts: contacts.size, organizations: orgDomains.size, nonPersonContacts };
 }
 
 /**
  * Apply a contacts delta map onto the graph by INCREMENTING each contact's
  * correspondence aggregate (ADR-0059 amendment — daily incremental capture, as
- * opposed to the backfill's overwrite). Each person is matched by ADDRESS
+ * opposed to the backfill's overwrite). Each contact is matched by ADDRESS
  * (alias), not canonical name, so a later message with a different display name
  * merges onto the same row rather than minting a duplicate. Idempotency is the
  * CALLER's responsibility (it must pass only docs not previously captured) —
@@ -319,8 +314,8 @@ export interface BackfillTeamGraphResult {
   contacts: number;
   /** Distinct non-consumer organization domains found. */
   organizations: number;
-  /** `works_at` edges (contacts on a non-consumer domain). */
-  relations: number;
+  /** Contacts the kind bar filed as something other than `person` (#1108). */
+  nonPersonContacts: number;
   persisted: boolean;
   /** Top contacts by significance, for logging. */
   top: Array<{
@@ -369,8 +364,7 @@ export async function aggregateCorrespondence(
  * default; pass `commit: true` to write. Idempotent: `persistContacts` matches
  * each contact by address alias (so a re-run with a drifted display name updates
  * the same row instead of minting a duplicate), overwrites the correspondence
- * aggregate from the scan, and the significance pass overwrites in turn;
- * `linkEntities` is a no-op on conflict.
+ * aggregate from the scan, and the significance pass overwrites in turn.
  */
 export async function backfillTeamGraph(
   userId: string,
@@ -400,7 +394,7 @@ export async function backfillTeamGraph(
       docsScanned,
       contacts: contacts.size,
       organizations: applied.organizations,
-      relations: applied.relations,
+      nonPersonContacts: applied.nonPersonContacts,
       persisted: true,
       top: rankTop(contacts, (addr) => scoreByAddr.get(addr) ?? null, now, userDomains),
     };
@@ -408,17 +402,32 @@ export async function backfillTeamGraph(
 
   // Dry run — compute significance in-memory for the ranking, persist nothing.
   const orgDomains = collectOrgDomains(contacts);
-  let relations = 0;
+  let nonPersonContacts = 0;
+
+  // Nothing is persisted here, so read the canonical name each EXISTING row
+  // already stores. That is the value a real write classifies, and it is the
+  // only one a later run also sees; the scan's own display name is per-run
+  // evidence and belongs to a brand-new row only.
+  const storedNames = await readStoredContactNames(
+    userId,
+    [...contacts.values()].map((agg) => agg.address),
+  );
 
   for (const agg of contacts.values()) {
-    if (agg.domain && orgDomains.has(agg.domain)) relations += 1;
+    const kind = classifyContactKind({
+      address: agg.address,
+      canonicalName:
+        storedNames.get(agg.address.trim().toLowerCase()) ?? agg.displayName ?? agg.address,
+    });
+
+    if (kind !== "person") nonPersonContacts += 1;
   }
 
   return {
     docsScanned,
     contacts: contacts.size,
     organizations: orgDomains.size,
-    relations,
+    nonPersonContacts,
     persisted: false,
     top: rankTop(contacts, () => null, now, userDomains),
   };

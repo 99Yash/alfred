@@ -1,5 +1,8 @@
 import {
+  canonicalizeIdentityValue,
+  classifyEmailDomain,
   gmailEmailMessagePayloadSchema,
+  identityRefSchema,
   integrationObjectKeySegment,
   INTEGRATION_OBJECT_KIND_SEGMENTS,
   type EntityKindClassification,
@@ -7,6 +10,7 @@ import {
   type IdentityRef,
 } from "@alfred/contracts";
 import type { Observation } from "@alfred/db/schemas";
+import type { EntityKind } from "./types";
 
 const AUTHORITATIVE_CONFIDENCE = 0.99;
 
@@ -345,4 +349,184 @@ function classification(
     evidenceCodes: [...evidenceCodes],
     researchStatus: "not_needed",
   };
+}
+
+/**
+ * ── the legacy `entities.kind` bar (#1108) ──────────────────────────────────
+ *
+ * The ADR-0067 substrate above answers `EntityNodeKind` (8 members) for
+ * `entity_profiles.kind`. The legacy memory-module graph (`entities.kind`,
+ * ADR-0012) has its own 6-member `EntityKind` vocabulary and, until this bar,
+ * no classification at all: the team-graph writer wrote the literal `"person"`
+ * for every mail contact, so a GitHub advisory id, a CI workflow name and a
+ * retailer all became people. The two graphs keep their own vocabularies, but
+ * person-ness now has ONE definition — this file — for both.
+ */
+
+/**
+ * Total map from the ADR-0067 node kind onto the legacy `entities.kind`. Five
+ * node kinds have no legacy member, so they land on `other` — the ADR's own
+ * answer (alternative (d): non-humans are typed nodes, never suppressed).
+ *
+ * `satisfies` rather than an annotation: an annotation on a const table trips
+ * oxlint `no-known-value-widening`, and a `switch` with a `default` would hide
+ * a new node kind. This way a new `EntityNodeKind` member fails to compile
+ * until it is named here.
+ */
+const NODE_KIND_TO_ENTITY_KIND = {
+  person: "person",
+  organization: "organization",
+  group: "other",
+  service: "other",
+  repository: "other",
+  project: "project",
+  referent: "other",
+  unknown: "other",
+} satisfies Record<EntityNodeKind, EntityKind>;
+
+function entityKindForNodeKind(kind: EntityNodeKind): EntityKind {
+  return NODE_KIND_TO_ENTITY_KIND[kind];
+}
+
+/**
+ * True when `value` is a hostname that is the contact's own domain, or a
+ * parent or child of it. The ONE rule the VALUE side of the kind bar holds,
+ * and a DENY test: a single-token name ("Sanyam"), a role suffix ("Jane Doe |
+ * Marketing"), a pronoun parenthesis ("Jane Doe (she/her)") and a dotted local
+ * part used as a display name ("sarah.chen") all pass it.
+ *
+ * It states the cross-kind duplicate rule exactly. `collectOrgDomains` mints
+ * ONE `organization` row per non-free-mail sender domain, so a contact whose
+ * display value IS its own mail domain is that organization restated
+ * (`Amazon.in` from `order-update@amazon.in`). It asks `classifyEmailDomain`
+ * with a bare `{ domain }` first, so "is this string a hostname at all" reuses
+ * the ONE DNS grammar in `@alfred/contracts` (`hostname.ts`) rather than a
+ * fourth hand-rolled regex.
+ *
+ * A second value rule rejected a name holding `/`, for
+ * `99Yash/GHSA-xwg4-73v4-xw9w`. It is deleted (#1108 round 3). It matched the
+ * character anywhere in the string, so it demoted `Jane Doe (she/her)` and
+ * `Anna Müller / ACME GmbH`, and it bought nothing: every row it was written
+ * for arrives on `noreply@` or `notifications@`, which {@link
+ * isHardNonPersonClaim} already demotes from the address alone.
+ *
+ * The VALUE side deliberately does NOT reuse `NON_PERSON_DISPLAY_RE` either.
+ * That regex is an AND-partner of the positive `PERSON_DISPLAY_RE`; standalone
+ * it rejects the surnames Jobs, Sales and Service and every "Name | Function"
+ * display convention, and a wrong demotion is not cosmetic —
+ * `gmail-recipient-policy` filters `kind = 'person'` and fails a live send
+ * closed. The ADDRESS side still reaches that regex through
+ * `isLikelyPersonDisplayName`, but only to WITHHOLD the person fast path,
+ * never to demote on its own: {@link isHardNonPersonClaim} decides that.
+ */
+function restatesOwnDomain(value: string, domain: string): boolean {
+  const candidate = value.trim().toLowerCase();
+
+  if (!candidate || !domain) return false;
+
+  if (classifyEmailDomain({ domain: candidate }) === null) return false;
+
+  return (
+    candidate === domain || domain.endsWith(`.${candidate}`) || candidate.endsWith(`.${domain}`)
+  );
+}
+
+export interface ClassifyContactKindInput {
+  /** The contact's primary email address. Canonicalized here, so any case is fine. */
+  readonly address: string;
+  /**
+   * The value that is — or is about to be — stored in `entities.canonical_name`.
+   *
+   * NOT the display name this run's headers carried. `canonical_name` is
+   * written once at insert and never updated, so it is the only display
+   * evidence every reader shares: the live writer, the purge script and a dry
+   * run all classify the same string and cannot disagree. A per-run display
+   * name made the kind flap — one message with a bare `<address>` re-minted
+   * `person` on a row the bar had just demoted (#1108 round 1).
+   */
+  readonly canonicalName: string;
+}
+
+/**
+ * True when a non-person answer is a HARD claim — the only kind of claim that
+ * may take `person` away from a mail contact.
+ *
+ * On this graph `kind = 'person'` is a CAPABILITY, not a label.
+ * `gmail-recipient-policy` lets a `gmail.send_draft` reach only an address that
+ * a `person` row already holds, and six more readers score a contact by the
+ * same column. So a wrong demotion refuses a live send to somebody the user
+ * has already emailed, while a missed demotion leaves one noisy row. The two
+ * costs are not symmetric, and the bar sits where the cheaper mistake is.
+ *
+ * {@link classifyEntityKind} answers for `entity_profiles.kind`, where
+ * `service` is a harmless label. Two of its email branches reach a non-person
+ * answer on soft evidence, and neither may demote here:
+ *   - every `unknown` answer — a group-word local part (`hr.priya@`), a
+ *     `SERVICE_DOMAIN_SUFFIXES` domain (`jane@notion.so`), an unparseable
+ *     address. It carries `WEAK_CONFIDENCE` and names its own guess in
+ *     `bestGuess`, so it is a guess by construction.
+ *   - `service` from a SOFT service local (`billing@`, `support@`, `admin@`).
+ *     The person fast path cannot overrule it, because that path is gated on
+ *     `!isServiceLocal(localPart)`, so even an unambiguous human display name
+ *     on a role mailbox still answers `service`.
+ *
+ * Only a STRONG service local (`noreply@`, `notifications@`, `alerts@`,
+ * `bounces@`) or a bulk-list header is a shape no human mailbox carries, and
+ * those are exactly the rows #1108 measured on prod.
+ */
+function isHardNonPersonClaim(classified: EntityKindClassification, localPart: string): boolean {
+  if (classified.kind === "person") return false;
+
+  if (classified.confidence < STRONG_CONFIDENCE) return false;
+
+  return classified.kind !== "service" || isStrongServiceLocal(localPart);
+}
+
+/**
+ * The legacy `entities.kind` for ONE mail contact.
+ *
+ * Two independent bars, because neither one alone clears the prod queue:
+ *   - the ADDRESS side delegates to {@link classifyEntityKind} and then to
+ *     {@link isHardNonPersonClaim}, so a `noreply@`/`notifications@` envelope
+ *     is never a person and a soft guess never demotes one;
+ *   - the VALUE side runs {@link restatesOwnDomain} over the stored canonical
+ *     name.
+ *
+ * A canonical name equal to the address carries no display evidence — the
+ * writer stores `displayName ?? address` — so the value side is skipped there
+ * and the address side decides alone.
+ *
+ * An address that is not a well-formed email is not a person either — the
+ * identity parse is the owning boundary, and a failure answers `other` rather
+ * than throwing, so one malformed header never fails a capture run.
+ */
+export function classifyContactKind(input: ClassifyContactKindInput): EntityKind {
+  const address = canonicalizeIdentityValue("email", input.address);
+
+  const identity = identityRefSchema.safeParse({ kind: "email", value: address });
+  const parsed = parseEmail(address);
+
+  if (!identity.success || !parsed) return "other";
+
+  const stored = input.canonicalName.trim();
+
+  const displayName = normalizeDisplayName(
+    stored.toLowerCase() === address.toLowerCase() ? undefined : stored,
+  );
+
+  const classified = classifyEntityKind({
+    identity: identity.data,
+    displayNames: displayName ? [displayName] : [],
+  });
+
+  if (isHardNonPersonClaim(classified, parsed.localPart)) {
+    return entityKindForNodeKind(classified.kind);
+  }
+
+  // Every other answer keeps `person`, so the value bar still runs over it: a
+  // contact rescued from a soft service claim can still be its own domain
+  // restated (`Amazon.in` from `order-update@amazon.in`).
+  if (!displayName) return "person";
+
+  return restatesOwnDomain(displayName, parsed.domain) ? "other" : "person";
 }
