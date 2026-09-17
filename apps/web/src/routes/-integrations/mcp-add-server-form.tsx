@@ -147,7 +147,7 @@ export function McpAddServerForm() {
 
   const form = useAppForm({
     defaultValues: DEFAULT_FIELDS,
-    onSubmit: async ({ value, formApi }) => {
+    onSubmit: async ({ value }) => {
       setError(null);
 
       try {
@@ -170,8 +170,11 @@ export function McpAddServerForm() {
           return;
         }
 
-        formApi.reset();
-        setOpen(false);
+        // One reset owner: `close()` clears the API-key mode, the plaintext,
+        // the error and the fields. Resetting the form alone leaves the mode
+        // and the secret in component state, so reopening the modal would show
+        // API-key mode with the previous secret prefilled.
+        close();
       } catch (submitError) {
         setError(toMessage(submitError));
       }

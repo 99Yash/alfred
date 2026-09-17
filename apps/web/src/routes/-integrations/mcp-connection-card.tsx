@@ -41,8 +41,8 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
 
   const subtitle = actions.error ? (
     <span role="alert" className="text-app-red-4">
-      {actions.error}
-      {actions.removeBlocked ? (
+      {actions.error.message}
+      {actions.error.kind === "blocked_remove" ? (
         <>
           {" "}
           <a href="#mcp-recovery" className="underline">
