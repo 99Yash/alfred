@@ -68,7 +68,12 @@ describe("packEvidenceCards — card kinds", () => {
 
     const packed = packEvidenceCards({ evidence: [card], sources: [] });
 
-    assert.match(packed.text, /Object: github\/pull_request merged \(resolved\)/);
+    // The closed-underlying clause rides the SAME line as the lifecycle, so a
+    // budget cut or a line reorder cannot separate them (#1089).
+    assert.match(
+      packed.text,
+      /Object: github\/pull_request merged \(resolved\).* — closed work: this object is resolved; it is not an open ask/,
+    );
     assert.match(packed.text, /"Close the CI loop"/);
     assert.match(packed.text, /\[acme\/repo\]/);
     assert.match(packed.text, /freshness live/);

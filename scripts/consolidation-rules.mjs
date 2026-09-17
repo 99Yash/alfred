@@ -124,6 +124,22 @@ export const RULES = [
     fix: "Use inArray(expr, list) from drizzle-orm inside the template (`WHERE ${inArray(sql`lower(alias)`, list)}`), or pass one array parameter with a cast: `ANY(${sql.param(list)}::text[])`.",
   },
   {
+    id: "hand-rolled-object-closure",
+    // "Did this object's lifecycle close an already-open ask?" is a PER-KIND
+    // policy, not a global category list. A pull request closes on `resolved`
+    // and `abandoned`; a CI run and a deployment close on neither, because
+    // their state is the outcome of the latest attempt (#1093). A call site
+    // that compares `stateCategory` to the two literals, or re-implements the
+    // membership test over LOOP_CLOSING_STATE_CATEGORIES, freezes the
+    // pull-request policy into itself and reads the next kind wrong.
+    // `failed` is the trap that makes this sharp: it is terminal for the
+    // object but it OPENS a CI loop, so a hand-rolled "terminal means closed"
+    // inverts the meaning of every failing build.
+    re: /\bstateCategory\b[^;\n]*(?:===|!==)[^;\n]*"(?:resolved|abandoned)"|"(?:resolved|abandoned)"[^;\n]*(?:===|!==)[^;\n]*\bstateCategory\b|\bLOOP_CLOSING_STATE_CATEGORIES\b\s*\.\s*(?:includes|indexOf|some)\(/,
+    severity: "gate",
+    fix: "Call closesOpenAsk(provider, kind, category) from @alfred/contracts for a projection row, or evidenceObjectClosesAsk(card.object) for an evidence card. Both read the registry's per-kind closesAskOn, so a kind that closes on neither category stays correct, and both return the closing category rather than a boolean. `failed` closes nothing: it is terminal for the object but it opens a CI loop.",
+  },
+  {
     id: "canonical-param-key",
     // The `.toLowerCase().replace(/[_-]/g, "")` key-canonicalization idiom.
     re: /\.toLowerCase\(\)\.replace\(\s*\/\[_-\]\/g\s*,\s*""\s*\)/,

@@ -353,6 +353,46 @@ const LINE_CASES = [
     code: `export class GoogleCredentialNotFoundError extends Error {`,
   },
   {
+    name: "hand-rolled-object-closure — the category tested against the closing literals",
+    caught: true,
+    code: `if (card.object.stateCategory === "resolved") return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the same test written the other way round",
+    caught: true,
+    code: `if ("abandoned" === object.stateCategory) markHandled(object);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the membership test re-implemented over the tuple",
+    caught: true,
+    code: `const closed = LOOP_CLOSING_STATE_CATEGORIES.includes(row.stateCategory);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the same membership test spelled with some()",
+    caught: true,
+    code: `const closed = LOOP_CLOSING_STATE_CATEGORIES.some((c) => c === row.category);`,
+  },
+  {
+    name: "the tuple as a schema enum is a declaration, not a closure reading",
+    caught: false,
+    code: `  stateCategory: z.enum(LOOP_CLOSING_STATE_CATEGORIES),`,
+  },
+  {
+    name: "the registry declaring which categories a kind closes on is the owner of the policy",
+    caught: false,
+    code: `        closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,`,
+  },
+  {
+    name: "the sanctioned reader's own absent-category guard is not a closure reading",
+    caught: false,
+    code: `  if (object.stateCategory === undefined) return null;`,
+  },
+  {
+    name: "delegating to the registry is the intended form",
+    caught: false,
+    code: `  return closesOpenAsk(object.provider, object.kind, object.stateCategory);`,
+  },
+  {
     name: "partial-integration-slug-record — a sparse slug-keyed table (the PR #943 shape)",
     caught: true,
     code: `const BRAND_BY_SLUG = { gmail: "gmail" } satisfies Partial<Record<IntegrationSlug, string>>;`,
