@@ -14,7 +14,7 @@ import {
   integrationObjects,
 } from "@alfred/db/schemas";
 import { escapeLike } from "@alfred/db/helpers";
-import { and, desc, eq, gte, like, lt, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lt, lte } from "drizzle-orm";
 import { reduceGithubEvent } from "./github-reducer";
 import { reduceSentryEvent } from "./sentry-reducer";
 
@@ -110,6 +110,25 @@ export interface ObjectStateStore {
     keyValue: string,
   ): Promise<ObjectStateRef | null>;
   /**
+   * The batched exact lookup: every stored key in one `inArray` over
+   * `keyValue`, keyed back by `keyValue`. One call per `(provider, keyKind)`
+   * group replaces one `resolveByKey` call per candidate key, so a read that
+   * proposes hundreds of keys costs one round trip per group instead of one
+   * per key against the pool (#1087). An empty `keyValues` resolves to an
+   * empty map without touching the database (`inArray([])` is degenerate).
+   *
+   * The batch returns the same row the per-key `.limit(1)` returns: the keys
+   * table holds a uniqueness on `(userId, provider, keyKind, keyValue)`, so at
+   * most one keys row matches per value and the join fans out to exactly one
+   * object row.
+   */
+  resolveByKeys(
+    userId: string,
+    provider: ObjectStateProvider,
+    keyKind: string,
+    keyValues: readonly string[],
+  ): Promise<ReadonlyMap<string, ObjectStateRef>>;
+  /**
    * Same lookup for an ABBREVIATED key: the stored key must START WITH
    * `keyPrefix`. GitHub Actions failure mail names the run's commit in the
    * 7-hex short form, so the exact lookup can never find it (#1092).
@@ -132,6 +151,16 @@ export interface ObjectStateStore {
    * place, so it always returns the live state.
    */
   getState(userId: string, ref: ObjectStateRef, at?: Date): Promise<ObjectState | null>;
+  /**
+   * The batched state read: one `inArray` over the object ids, keyed back by
+   * object id. The companion to `resolveByKeys` — the resolve's second query
+   * per candidate collapses into this one call. An empty `refs` resolves to
+   * an empty map without touching the database.
+   */
+  getStates(
+    userId: string,
+    refs: readonly ObjectStateRef[],
+  ): Promise<ReadonlyMap<string, ObjectState>>;
   /**
    * Current state by provider-native identity, the `(provider, kind,
    * externalId)` unique key indexed by `integration_objects_identity_idx`. The
@@ -352,6 +381,41 @@ export const objectStateStore: ObjectStateStore = {
     return { objectId: row.objectId, provider, kind: row.kind, externalId: row.externalId };
   },
 
+  async resolveByKeys(userId, provider, keyKind, keyValues) {
+    if (keyValues.length === 0) return new Map();
+
+    const rows = await db()
+      .select({
+        keyValue: integrationObjectKeys.keyValue,
+        objectId: integrationObjectKeys.objectId,
+        kind: integrationObjects.kind,
+        externalId: integrationObjects.externalId,
+      })
+      .from(integrationObjectKeys)
+      .innerJoin(integrationObjects, eq(integrationObjectKeys.objectId, integrationObjects.id))
+      .where(
+        and(
+          eq(integrationObjectKeys.userId, userId),
+          eq(integrationObjectKeys.provider, provider),
+          eq(integrationObjectKeys.keyKind, keyKind),
+          inArray(integrationObjectKeys.keyValue, [...keyValues]),
+        ),
+      );
+
+    const byKeyValue = new Map<string, ObjectStateRef>();
+
+    for (const row of rows) {
+      byKeyValue.set(row.keyValue, {
+        objectId: row.objectId,
+        provider,
+        kind: row.kind,
+        externalId: row.externalId,
+      });
+    }
+
+    return byKeyValue;
+  },
+
   async resolveByKeyPrefix(userId, provider, keyKind, keyPrefix) {
     // Prefix semantics are the registry's per-provider declaration
     // (`prefixableKeys` beside the closure policy), not this file's rule: a
@@ -409,6 +473,25 @@ export const objectStateStore: ObjectStateStore = {
     if (!row) return null;
 
     return rowToObjectState(row);
+  },
+
+  async getStates(userId, refs) {
+    const objectIds = [...new Set(refs.map((ref) => ref.objectId))];
+
+    if (objectIds.length === 0) return new Map();
+
+    const rows = await db()
+      .select()
+      .from(integrationObjects)
+      .where(and(eq(integrationObjects.userId, userId), inArray(integrationObjects.id, objectIds)));
+
+    const byObjectId = new Map<string, ObjectState>();
+
+    for (const row of rows) {
+      byObjectId.set(row.id, rowToObjectState(row));
+    }
+
+    return byObjectId;
   },
 
   async getByIdentity(userId, identity) {

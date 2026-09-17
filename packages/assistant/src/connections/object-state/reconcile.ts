@@ -13,7 +13,12 @@ import {
 } from "./adapter";
 import { githubObjectStateAdapter } from "./github-adapter";
 import { sentryObjectStateAdapter } from "./sentry-adapter";
-import { objectStateStore, type ObjectState, type ObjectStateStore } from "./store";
+import {
+  objectStateStore,
+  type ObjectState,
+  type ObjectStateRef,
+  type ObjectStateStore,
+} from "./store";
 
 /**
  * The one reconciliation operation (#1088) — ADR-0062's dispose half.
@@ -101,9 +106,12 @@ export function proposeObjectKeys(
 /**
  * Resolve every subject's candidate keys to reducer-owned object state.
  *
- * Keys are resolved in parallel and deduplicated across subjects: at
- * single-user scale a batch holds a handful of candidates, and each lookup
- * reads one index.
+ * Exact keys are resolved in batches — one `resolveByKeys` per
+ * `(provider, keyKind)` group, plus one `getStates` over the resolved object
+ * ids — and deduplicated across subjects, so a read that proposes hundreds of
+ * keys costs one round trip per group instead of one per key against a pool
+ * of 20 (#1087). Prefix keys stay per-key: their per-prefix `limit(2)`
+ * ambiguity has no single-query shape.
  *
  * A subject with no resolvable key is absent from the result, never present
  * with an invented entry.
@@ -111,6 +119,12 @@ export function proposeObjectKeys(
 export async function reconcileEvidence(args: {
   userId: string;
   subjects: readonly ReconcileCandidates[];
+  /**
+   * When aborted, no further query is issued and the call rejects instead of
+   * consuming the caller's whole budget (the context-search collect timeout).
+   * The operation is read-only, so abort discards partial maps.
+   */
+  abortSignal?: AbortSignal;
 }): Promise<ReconcileResult> {
   const store = objectStateStore;
   const subjects = args.subjects.filter((subject) => subject.keys.length > 0);
@@ -125,26 +139,68 @@ export async function reconcileEvidence(args: {
 
   const stateByKey = new Map<string, ObjectState>();
 
-  const resolveKey = async (key: CandidateKey): Promise<void> => {
-    // An abbreviated sha is a leading fragment of the stored key, so it
-    // resolves by prefix; an ambiguous prefix resolves to nothing.
-    const ref = await KEY_RESOLVERS[key.match](store, args.userId, key);
-
-    if (!ref) return; // unknown object → the subject stays as it was
-    const state = await store.getState(args.userId, ref);
-
-    if (state) stateByKey.set(candidateIdentity(key), state);
-  };
-
   const candidates = [...distinct.values()];
 
   // An exact key is proof of identity; a prefix key is a guess. Resolve every
   // exact candidate first and consult a prefix only for subjects where no
   // exact candidate produced a state — otherwise a coincidental abbreviation
   // can report the wrong object's title and url.
-  await Promise.all(
-    candidates.filter((key) => key.match === "exact").map((key) => resolveKey(key)),
-  );
+  const exactByGroup = new Map<
+    string,
+    { provider: CandidateKey["provider"]; keyKind: string; keys: CandidateKey[] }
+  >();
+
+  for (const key of candidates) {
+    if (key.match !== "exact") continue;
+    const groupId = [key.provider, key.keyKind].join("\0");
+    const group = exactByGroup.get(groupId);
+
+    if (group) group.keys.push(key);
+    else exactByGroup.set(groupId, { provider: key.provider, keyKind: key.keyKind, keys: [key] });
+  }
+
+  const refByKey = new Map<string, ObjectStateRef>();
+
+  for (const group of exactByGroup.values()) {
+    args.abortSignal?.throwIfAborted();
+
+    const resolved = await store.resolveByKeys(
+      args.userId,
+      group.provider,
+      group.keyKind,
+      group.keys.map((key) => key.keyValue),
+    );
+
+    for (const key of group.keys) {
+      const ref = resolved.get(key.keyValue);
+
+      // Unknown object → the subject stays as it was.
+      if (ref) refByKey.set(candidateIdentity(key), ref);
+    }
+  }
+
+  args.abortSignal?.throwIfAborted();
+  const statesByObjectId = await store.getStates(args.userId, [...refByKey.values()]);
+
+  for (const [identity, ref] of refByKey) {
+    const state = statesByObjectId.get(ref.objectId);
+
+    if (state) stateByKey.set(identity, state);
+  }
+
+  const resolvePrefixKey = async (key: CandidateKey): Promise<void> => {
+    // An abbreviated sha is a leading fragment of the stored key, so it
+    // resolves by prefix; an ambiguous prefix resolves to nothing.
+    const ref = await KEY_RESOLVERS[key.match](store, args.userId, key);
+
+    if (!ref) return; // unknown object → the subject stays as it was
+
+    args.abortSignal?.throwIfAborted();
+
+    const state = await store.getState(args.userId, ref);
+
+    if (state) stateByKey.set(candidateIdentity(key), state);
+  };
 
   const subjectHasExactState = (subject: ReconcileCandidates): boolean =>
     subject.keys.some((key) => key.match === "exact" && stateByKey.has(candidateIdentity(key)));
@@ -159,7 +215,8 @@ export async function reconcileEvidence(args: {
     }
   }
 
-  await Promise.all([...wantedPrefixes.values()].map((key) => resolveKey(key)));
+  args.abortSignal?.throwIfAborted();
+  await Promise.all([...wantedPrefixes.values()].map((key) => resolvePrefixKey(key)));
 
   const result = new Map<string, readonly ReconciledObject[]>();
 
