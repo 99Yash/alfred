@@ -2,6 +2,10 @@ import { writeMemoryChunk } from "./chunks";
 import { extractFactsFromDocument, type FactProposal } from "./extraction";
 import { gateDocumentFact } from "./fact-policy";
 import { listFactsByStatus, proposeFact } from "./facts";
+import {
+  describeMemoryExtractionOutcome,
+  summarizeMemoryExtractionRun,
+} from "./memory-extraction-outcome";
 import { loadSelfIdentity } from "./self-identity";
 import { runSignificancePass } from "./significance";
 import { accumulateDoc, applyCorrespondenceIncrements, type ContactAggregate } from "./team-graph";
@@ -358,11 +362,21 @@ export async function runMemoryFinalize<State extends MemoryExtractionOperationS
   // Write a memory_chunk so the run leaves a recallable trace —
   // future "what did alfred learn this week" queries hit this.
   // Idempotent on (user, kind, content_hash) so a retry is safe.
+  // WHICH zero this run is reporting (#1109). `picked` is derived from
+  // `documentIds` rather than counted into a second state field: the pick step
+  // already writes that array and every later step carries it forward, so a
+  // parallel counter could only drift. The union is what forces the report —
+  // three of its four arms cannot be built without `picked`.
+  const outcome = summarizeMemoryExtractionRun({
+    picked: ctx.state.documentIds.length,
+    processed: ctx.state.processed,
+    proposed: ctx.state.proposed,
+    blocked: ctx.state.blocked,
+  });
+
   const summary =
     `Memory-extraction run ${ctx.runId} (${ctx.state.startedAt}): ` +
-    `processed ${ctx.state.processed} document(s); ` +
-    `proposed ${ctx.state.proposed} fact(s); ` +
-    `${ctx.state.blocked} suppressed by dedup/rejection guards; ` +
+    `${describeMemoryExtractionOutcome(outcome)}; ` +
     `significance scored ${significanceScored} contact(s).`;
 
   await writeMemoryChunk({
@@ -375,18 +389,14 @@ export async function runMemoryFinalize<State extends MemoryExtractionOperationS
       sinceDays: ctx.state.sinceDays,
       maxDocs: ctx.state.maxDocs,
       documentIds: ctx.state.documentIds,
+      outcome,
     },
   });
 
   return {
     kind: "done",
     state: ctx.state,
-    output: {
-      processed: ctx.state.processed,
-      proposed: ctx.state.proposed,
-      blocked: ctx.state.blocked,
-      documentIds: ctx.state.documentIds,
-    },
+    output: { outcome, documentIds: ctx.state.documentIds },
   };
 }
 
