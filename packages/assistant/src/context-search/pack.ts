@@ -403,11 +403,21 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
  * `evidenceObjectClosesAsk` answers all four with one `null`.
  *
  * It does NOT follow that such a card renders the same bytes it rendered before
- * this change. {@link oneLine} runs on every population, closing or not, so a
- * card renders byte for byte as before unless one of its fields carries a line
- * terminator, a run of two or more spaces or tabs, or — on `provider` alone —
- * leading whitespace. Those three are the whole difference. A lone TAB,
- * `U+00A0`, `U+3000`, and `U+FEFF` inside a field all survive.
+ * this change. {@link oneLine} runs on every population, closing or not, and it
+ * reads the ASSEMBLED line, never a field. So state the property of that line,
+ * which names no field and therefore inherits when a field is added: the render
+ * is byte for byte as before exactly when the assembled line holds no line
+ * terminator, holds no run of two or more spaces or tabs, and equals its own
+ * `trim()`.
+ *
+ * The same property read field by field is FALSE, and that is the trap. The
+ * template writes a fixed single space after `${object.kind}` and around
+ * `${state}`, and those two fields render bare. One space at such a field's edge
+ * joins a template separator, makes a run of two in the assembled line, and is
+ * folded — while no field carries a run, a line terminator, or leading
+ * whitespace. `title`, `repo`, and `url` render inside `"`, `[`, and `<`, so
+ * their own edges never touch a separator. A lone TAB, `U+00A0`, `U+3000`, and
+ * `U+FEFF` inside a field all survive the fold.
  */
 function renderObject(object: EvidenceObjectRef): string {
   const state = object.nativeState ?? "state unknown";
