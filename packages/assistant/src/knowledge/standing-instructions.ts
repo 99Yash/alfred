@@ -127,6 +127,39 @@ export async function rememberSenderSuppression(
   }
 
   const row = await db().transaction(async (tx) => {
+    // Serialize concurrent remembers for the same (user, sender): without
+    // this, two runs can both pass the `existing` check above and insert
+    // duplicate active rows. Same per-key advisory-lock pattern as
+    // `proposeFact`/`confirmFact` in `facts.ts`.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${parsed.userId}:standing_instruction:${email}`}, 0))`,
+    );
+
+    // Re-check inside the lock: the outer `existing` read raced with a
+    // concurrent inserter, so a duplicate found here collapses to
+    // `already_exists` instead of a second active row.
+    const rivals = await tx
+      .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
+      .from(userFacts)
+      .where(activeStandingInstructionsWhere(parsed.userId))
+      .orderBy(desc(userFacts.validFrom));
+
+    const rival = findSenderSuppression(
+      rivals
+        .map(instructionFromFact)
+        .filter(
+          (instruction): instruction is ActiveSuppressionInstruction =>
+            instruction !== null && instruction.value.action === "suppress",
+        ),
+      {
+        senderEmail: instruction.target.email,
+        accountId: instruction.target.accountId,
+        effect: "block_todo_suggestion",
+      },
+    );
+
+    if (rival) return { id: rival.factId, instruction: rival.value, duplicate: true as const };
+
     const [inserted] = await tx
       .insert(userFacts)
       .values({
@@ -153,10 +186,20 @@ export async function rememberSenderSuppression(
       tx,
     );
 
-    return inserted;
+    return { id: inserted.id, instruction, duplicate: false as const };
   });
 
   if (!row) throw new Error("[memory.standing-instructions] insert returned no row");
+
+  if (row.duplicate) {
+    return {
+      ok: true,
+      status: "already_exists",
+      factId: row.id,
+      instruction: row.instruction,
+    };
+  }
+
   emitReplicachePokes([parsed.userId]);
 
   return {
@@ -315,6 +358,14 @@ export async function forgetStandingInstruction(args: {
   source?: MemorySource | undefined;
 }): Promise<ForgetStandingInstructionResult> {
   const forgotten = await db().transaction(async (tx) => {
+    // Per-row serialization: the `status = 'confirmed'` guard below is the
+    // concurrency control (`row_version` is Replicache sync state, never
+    // compared). The lock orders concurrent forget/edit callers on this
+    // factId so the loser deterministically observes the retired row.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${args.userId}:${args.factId}`}, 0))`,
+    );
+
     const [old] = await tx
       .select({ value: userFacts.value })
       .from(userFacts)
@@ -443,6 +494,15 @@ async function supersedeStandingInstruction(args: {
   source?: MemorySource | undefined;
 }): Promise<{ id: string } | null> {
   return db().transaction(async (tx) => {
+    // Per-row serialization, same contract as `forgetStandingInstruction`:
+    // concurrent superseders order here; the loser matches zero rows on the
+    // `status = 'confirmed'` guard and reports `not_found` (stale id, never
+    // retried blindly — the caller re-lists). `row_version` bumps for the
+    // Replicache changelog only.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${args.userId}:${args.factId}`}, 0))`,
+    );
+
     const [closed] = await tx
       .update(userFacts)
       .set({
