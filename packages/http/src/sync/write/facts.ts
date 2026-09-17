@@ -19,10 +19,15 @@ import type { ServerMutatorCtx } from "./mutator";
  *   - the savepoint rolls back and the LMID still advances so the
  *     client doesn't re-queue the failed mutation forever.
  *
- * Memory primitives (`@alfred/assistant/knowledge`) open their
- * own transactions via `db()`, which would escape this savepoint. The
- * fact mutators below re-implement the same logic inline against the
- * supplied `tx` so atomicity is preserved.
+ * Memory primitives in `@alfred/assistant/knowledge` split two ways for this
+ * savepoint. An export that takes a trailing executor argument runs inside
+ * the caller's transaction when it gets one, so pass `tx`:
+ * `ensureEntityNode(args, tx)` is the shape, and its writes commit with the
+ * LMID advance. Every other db-touching export opens its own transaction
+ * via `db()` or issues bare `db()` statements, so its writes escape this
+ * savepoint. The fact-correction writers (`proposeFact` and its siblings) are
+ * that second shape, which is why the fact mutators below re-implement their
+ * logic inline against the supplied `tx`.
  */
 async function lockFactKey(tx: DbTransaction, userId: string, key: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${key}`}, 0))`);
