@@ -8,8 +8,6 @@ export {
   type ObjectStateStore,
 } from "./store";
 
-export { reduceGithubEvent } from "./github-reducer";
-
 export {
   type CandidateKey,
   type KeyProposal,
@@ -26,4 +24,4 @@ export {
   type ReconciledObject,
 } from "./reconcile";
 
-export { githubActivityTriggerConsumer } from "./github-activity-consumer";
+export { objectStateFoldConsumers } from "./activity-consumer";

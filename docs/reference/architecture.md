@@ -90,16 +90,19 @@ durable attachment creation take the same transaction-scoped advisory lock for
 each storage key, so cleanup cannot delete an object after its attachment row
 commits.
 
-GitHub deliveries enter through `POST /webhooks/inbound/:source`. The receive
-path stores one `event_receipts` row and publishes `github.<event>` on the
-trigger bus (ADR-0097). The `github-activity-fold` trigger consumer reads the
-receipt back and runs the ADR-0062 object-state reducer over it. The consumer
-lives beside the reducer and store it drives, in
-`packages/assistant/src/connections/object-state/github-activity-consumer.ts`,
-and the connections barrel exports it. Runtime composition only registers it in
-`packages/assistant/src/runtime/adapters/trigger-consumers.ts`. The object-state
-owner therefore holds the code that feeds the projection, and runtime adapters
-hold no GitHub lifecycle code.
+GitHub and Sentry deliveries enter through `POST /webhooks/inbound/:source`.
+The receive path stores one `event_receipts` row and publishes
+`<source>.<event>` on the trigger bus (ADR-0097). The `github-activity-fold`
+and `sentry-activity-fold` trigger consumers read the receipt back and run the
+ADR-0062 object-state reducer over it. `objectStateFoldConsumers()` builds one
+consumer per provider from a table the `ObjectStateProvider` union keys, so a
+provider without a fold is a compile error. The consumers live beside the
+reducers and store they drive, in
+`packages/assistant/src/connections/object-state/activity-consumer.ts`, and the
+connections barrel exports the builder. Runtime composition only registers them
+in `packages/assistant/src/runtime/adapters/trigger-consumers.ts`. The
+object-state owner therefore holds the code that feeds the projection, and
+runtime adapters hold no provider lifecycle code.
 
 Google credential connect and disconnect mutations enter through the
 connections-owned credential lifecycle interface

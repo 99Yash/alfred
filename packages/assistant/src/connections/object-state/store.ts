@@ -16,6 +16,7 @@ import {
 import { escapeLike } from "@alfred/db/helpers";
 import { and, desc, eq, gte, like, lt, lte } from "drizzle-orm";
 import { reduceGithubEvent } from "./github-reducer";
+import { reduceSentryEvent } from "./sentry-reducer";
 
 /**
  * Integration object-state store (ADR-0062, #212) — the ADR-0058 swappable
@@ -146,6 +147,7 @@ type ReduceFn = (
 /** Per-provider reducers. The only per-provider code; everything else is generic. */
 const REDUCERS = {
   github: reduceGithubEvent,
+  sentry: reduceSentryEvent,
 } satisfies Record<ObjectStateProvider, ReduceFn>;
 
 const DEFAULT_OBJECT_LIST_LIMIT = 100;
