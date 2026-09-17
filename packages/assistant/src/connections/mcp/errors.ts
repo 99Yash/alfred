@@ -144,9 +144,26 @@ export function isMcpEndpointRefusal(err: unknown): boolean {
   return (
     hostedEndpointErrorFrom(err) !== null ||
     err instanceof McpClientError ||
+    err instanceof McpApiKeyRejectedError ||
     SdkError.isInstance(err) ||
     (err instanceof TypeError && err.cause !== undefined)
   );
+}
+
+/**
+ * An owner-supplied API key was configured and the endpoint still answered with
+ * an authorization challenge.
+ *
+ * There is no authorization server to walk the browser to on this path, so a
+ * challenge is the endpoint's answer about the KEY — it is the owner's doing,
+ * and the add door refuses rather than parking an `auth_required` row that no
+ * consent screen can ever finish.
+ */
+export class McpApiKeyRejectedError extends Error {
+  constructor() {
+    super("The MCP server rejected the supplied API key.");
+    this.name = "McpApiKeyRejectedError";
+  }
 }
 
 /** A deterministic client/broker rejection, safe for callers to branch on. */
