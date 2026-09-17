@@ -1,4 +1,5 @@
 import {
+  evidenceObjectClosesAsk,
   EVIDENCE_SNIPPET_MAX_CHARS,
   sanitizeErrorMessage,
   type EvidenceAnchor,
@@ -310,6 +311,8 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
   // packs byte for byte like the card that IS pull request 42, and the model
   // can read the document as merged or cite the document as proof of the pull
   // request's state. The lifecycle belongs to the object, never to the chunk.
+  // `renderObject` adds the closed-underlying clause to the same line, so the
+  // clause and the lifecycle it qualifies cannot be separated (#1089).
   if (card.object !== undefined) {
     const label = card.object.relation === "is" ? "Object" : "Object named in this text";
 
@@ -353,14 +356,54 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
   return { text: lines.join("\n"), truncated };
 }
 
+/**
+ * Renders one object reference, plus the closed-underlying clause when the
+ * object's lifecycle closes an open ask (#1089).
+ *
+ * The clause exists because a category word alone does not tell the model what
+ * to DO. A card rendered `merged (resolved)` still reads as work in flight, and
+ * the model then asks the user to finish a pull request that shipped — the
+ * failure the briefing already had before its own open-ask guard landed. The
+ * clause states the consequence in words, so no reading of the lifecycle is
+ * required.
+ *
+ * Three properties, each deliberate:
+ *
+ * - **It names the OBJECT, never the card, and never says "this".** On a
+ *   `names` card the line above reads `Object named in this text`, so a clause
+ *   that said "this is handled" would invite the model to call the EMAIL
+ *   handled — the exact confusion the two labels exist to prevent, one line
+ *   lower.
+ * - **It rides the same string as the lifecycle**, not a second `lines.push`.
+ *   A separate line is a thing a later edit can reorder, drop, or budget away
+ *   on its own; one string makes "the note survives beside the lifecycle"
+ *   structural rather than conventional.
+ * - **It never goes through `bound()`.** The clause is one of two constant
+ *   strings (`closesOpenAsk` returns `LoopClosingStateCategory`), 63 characters
+ *   at most, and `packEvidenceCards` measures the whole rendered card before
+ *   admitting it and drops a card whole. So the clause is inside the budget by
+ *   construction, and `bound()` would set `truncated` for a cut that cannot
+ *   happen.
+ *
+ * It is also not appended to `card.note`: the packer bounds a note at
+ * {@link EVIDENCE_PACK_NOTE_MAX_CHARS} while the contract allows twice that, so
+ * a long producer note would delete the clause with no signal. A derived clause
+ * cannot be forgotten by a producer either.
+ *
+ * A card whose object closes nothing — active, failed, state-unknown, or an
+ * unprojected provider — renders exactly the bytes it rendered before, because
+ * `evidenceObjectClosesAsk` answers all four with one `null`.
+ */
 function renderObject(object: EvidenceObjectRef): string {
   const state = object.nativeState ?? "state unknown";
   const category = object.stateCategory ?? "uncategorized";
   const title = object.title ? ` "${object.title}"` : "";
   const repo = object.repo ? ` [${object.repo}]` : "";
   const url = object.url ? ` <${object.url}>` : "";
+  const closing = evidenceObjectClosesAsk(object);
+  const closed = closing ? ` — closed work: this object is ${closing}; it is not an open ask` : "";
 
-  return `${object.provider}/${object.kind} ${state} (${category})${title}${repo}${url}`;
+  return `${object.provider}/${object.kind} ${state} (${category})${title}${repo}${url}${closed}`;
 }
 
 /**

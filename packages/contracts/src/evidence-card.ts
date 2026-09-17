@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { OBJECT_STATE_CATEGORIES } from "./integration-objects";
+import {
+  closesOpenAsk,
+  isObjectStateProvider,
+  OBJECT_STATE_CATEGORIES,
+  type LoopClosingStateCategory,
+} from "./integration-objects";
 import { objectIdentitySchema } from "./object-identity";
 import { identityRefSchema } from "./user-model";
 
@@ -147,6 +152,42 @@ export const evidenceObjectRefSchema = objectIdentitySchema.extend({
 });
 
 export type EvidenceObjectRef = z.infer<typeof evidenceObjectRefSchema>;
+
+/**
+ * The category in which this card's object closes an already-open ask, or
+ * `null` when it closes nothing.
+ *
+ * The one reading a card's consumer uses. It joins the three facts the ref
+ * carries — `provider`, `kind`, `stateCategory` — to the integration-object
+ * registry's PER-KIND policy, so a kind that closes on a different category,
+ * or on none, is a registry edit and never a call-site edit. A caller that
+ * tests the category against the `resolved` / `abandoned` literals freezes the
+ * pull-request policy into itself; `pnpm check` refuses that spelling
+ * (`hand-rolled-object-closure`).
+ *
+ * It reads the projection and asserts nothing. An unprojected provider, an
+ * unregistered kind, and an absent category each return `null`: absence never
+ * closes (ADR-0048-D). `active` returns `null` because the object is still
+ * open, and `failed` returns `null` because a failure is terminal for the
+ * object but is the OPENER of a CI loop — a closure note on it would invert
+ * its meaning.
+ *
+ * So the four card populations the packer must leave byte-identical — active,
+ * failed, state-unknown, and unprojected-provider — are one return value here,
+ * not four guards at every call site.
+ */
+export function evidenceObjectClosesAsk(
+  object: EvidenceObjectRef,
+): LoopClosingStateCategory | null {
+  if (object.stateCategory === undefined) return null;
+
+  // `provider` is a deliberately open slug string on the ref, because the
+  // provider set is data. Narrowing it here is what lets `closesOpenAsk` take
+  // the union and refuse a caller that skipped the guard.
+  if (!isObjectStateProvider(object.provider)) return null;
+
+  return closesOpenAsk(object.provider, object.kind, object.stateCategory);
+}
 
 /**
  * One entity a piece of evidence is about (a person, org, or object handle).
