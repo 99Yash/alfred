@@ -200,6 +200,10 @@ export async function addUserMcpServer(
       placement: apiKey.placement,
       value: apiKey.value,
     });
+    // A live generation holds a client whose key reader closed over the row this
+    // write just replaced. Drop it so the connect below re-reads the new secret
+    // instead of serving the old one behind a `ready` card.
+    await getMcpConnectionManager().invalidateLiveClient(connection.id);
   }
 
   await getMcpConnectionManager().getReadyClient(connection.id);

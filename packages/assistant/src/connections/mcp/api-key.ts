@@ -69,6 +69,13 @@ export async function readApiKeyAuthForConnection(
  * Seal and bind one API key to an owned connection, in one transaction. A
  * re-add replaces the stored key in place: the connection holds exactly one API
  * key credential, so an upsert on `connectionId` cannot orphan the old row.
+ *
+ * The bind also clears `credentialId`. The single-credential CHECK admits one
+ * pointer, so a connection that arrives here holding an OAuth grant moves to
+ * the key rather than violating the constraint. The orphaned OAuth row has no
+ * reader once the pointer is gone, and the credential lifecycle retires it.
+ * This store and the OAuth store are the two owners of the one-mode transition;
+ * each clears the inverse pointer.
  */
 export async function persistApiKeyCredential(
   input: PersistMcpApiKeyCredentialInput,
@@ -108,7 +115,7 @@ export async function persistApiKeyCredential(
 
     await tx
       .update(mcpConnections)
-      .set({ apiKeyCredentialId: credential.id, updatedAt: new Date() })
+      .set({ apiKeyCredentialId: credential.id, credentialId: null, updatedAt: new Date() })
       .where(
         and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)),
       );
