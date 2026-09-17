@@ -780,7 +780,11 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       catalogRevision: "sha256:catalog",
     });
 
-    assert.deepEqual(foreign, { status: "unresolved", connection: undefined });
+    assert.deepEqual(foreign, {
+      status: "unresolved",
+      reason: "connection_missing",
+      connection: undefined,
+    });
   });
 
   test("ledger barrier blocks an identical unresolved proposal", async () => {

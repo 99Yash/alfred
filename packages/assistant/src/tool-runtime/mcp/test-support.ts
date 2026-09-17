@@ -6,8 +6,10 @@
  * interface production reads.
  *
  * `upsertToolPolicy` writes the reviewed-downgrade row that ADR-0088 makes the one
- * input able to lower an MCP call BELOW the risk floor. Nothing in `src` mints one
- * — the approval flow does, and it does not live here yet.
+ * input able to lower an MCP call BELOW the risk floor. Production mints one
+ * through `reviewMcpToolPolicy` in `policy.ts`, which owns the descriptor
+ * binding; this export stays for fixtures that seed an exact row without a
+ * review transaction.
  *
  * `_setMcpExecutionBrokerForTests` drops the process-lifetime broker singleton.
  * Nothing in `src` replaces it, and the same rule already put its twin

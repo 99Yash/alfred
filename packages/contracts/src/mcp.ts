@@ -14,6 +14,7 @@
 import { z } from "zod";
 import { enumGuard } from "./guards";
 import type { CatalogSlug } from "./integrations";
+import { TOOL_RISK_TIERS } from "./tools";
 import { jsonObjectSchema, jsonValueSchema } from "./user-model";
 
 // ---------------------------------------------------------------------------
@@ -718,3 +719,81 @@ export const mcpToolInspectionResultSchema = z.union([
 ]);
 
 export type McpToolInspectionResult = z.infer<typeof mcpToolInspectionResultSchema>;
+
+// ---------------------------------------------------------------------------
+// Exact-descriptor policy review (ADR-0088 / ADR-0096). The owner reviews ONE
+// `(connectionId, remoteName, descriptorHash)` through the tool they inspected;
+// the review is bound to the descriptor the server derived, never to one the
+// client named. There is deliberately NO `descriptorHash` and NO
+// `policyRevision` on these wire shapes: both are server derived, so "review an
+// arbitrary descriptor" and "set an arbitrary revision" are unrepresentable
+// (the tier-1 half of the binding).
+// ---------------------------------------------------------------------------
+export const MCP_TOOL_POLICY_NOTE_MAX = 500;
+
+/**
+ * The reviewed fields the owner supplies. `ref` names the EXACT tool the owner
+ * inspected, including the `catalogRevision` they saw; the server re-derives the
+ * descriptor hash under that revision and refuses a stale one rather than
+ * silently binding the review to a descriptor the owner never saw.
+ */
+export const mcpToolPolicyReviewInputSchema = z
+  .object({
+    ref: mcpExternalToolRefSchema,
+    riskTier: z.enum(TOOL_RISK_TIERS),
+    effectClass: mcpEffectClassSchema,
+    retryContract: mcpRetryContractSchema,
+    note: z.string().trim().max(MCP_TOOL_POLICY_NOTE_MAX).nullable(),
+  })
+  .strict();
+
+export type McpToolPolicyReviewInput = z.infer<typeof mcpToolPolicyReviewInputSchema>;
+
+/** The persisted review, projected. `policyRevision` is server-owned and monotonic. */
+export const mcpToolPolicySchema = z
+  .object({
+    riskTier: z.enum(TOOL_RISK_TIERS),
+    effectClass: mcpEffectClassSchema,
+    retryContract: mcpRetryContractSchema,
+    note: z.string().nullable(),
+    policyRevision: z.number().int().positive(),
+    reviewedAt: z.string().nullable(),
+  })
+  .strict();
+
+export type McpToolPolicy = z.infer<typeof mcpToolPolicySchema>;
+
+/**
+ * Exactly one of these is true of `(connection, ref)` now.
+ *
+ *  - `reviewed`: the current descriptor carries a review.
+ *  - `unreviewed`: the descriptor exists and has never been reviewed.
+ *  - `drifted`: this tool WAS reviewed, under a different descriptor, so the
+ *    floor still applies until the owner reviews the current one.
+ *  - `catalog_stale`: the named revision is not the connection's current one.
+ *  - `not_found`: the named tool has no descriptor in the current revision.
+ *
+ * A missing or foreign connection is NOT an arm: it is a 404 at the route, so
+ * the union carries no value the browser could never read.
+ */
+export const mcpToolPolicyStateSchema = z.union([
+  z
+    .object({
+      status: z.literal("reviewed"),
+      ref: mcpExternalToolRefSchema,
+      policy: mcpToolPolicySchema,
+    })
+    .strict(),
+  z.object({ status: z.literal("unreviewed"), ref: mcpExternalToolRefSchema }).strict(),
+  z
+    .object({
+      status: z.literal("drifted"),
+      ref: mcpExternalToolRefSchema,
+      previous: mcpToolPolicySchema,
+    })
+    .strict(),
+  z.object({ status: z.literal("catalog_stale"), ref: mcpExternalToolRefSchema }).strict(),
+  z.object({ status: z.literal("not_found"), ref: mcpExternalToolRefSchema }).strict(),
+]);
+
+export type McpToolPolicyState = z.infer<typeof mcpToolPolicyStateSchema>;

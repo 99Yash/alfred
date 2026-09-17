@@ -76,6 +76,24 @@ export type McpConnectionTool = McpConnectionToolPage["tools"][number];
 export type McpConnectionToolInspection = EdenData<McpConnectionRoute["tools"]["inspect"]["get"]>;
 
 /**
+ * The one cache key for one tool's exact-descriptor review state.
+ *
+ * It is a child of the connection tools key, so invalidating the catalog also
+ * invalidates the review surface, and it carries the full tool identity because
+ * a review is bound to a descriptor, not to a connection.
+ */
+export const MCP_TOOL_POLICY_QUERY_KEY = [...MCP_CONNECTION_TOOLS_QUERY_KEY, "policy"] as const;
+
+/**
+ * One tool's review state, and the persisted review itself. Derived from the
+ * route rather than restated, so the panel cannot drift from the wire contract;
+ * the route parses each arm at its own boundary.
+ */
+export type McpToolPolicyState = EdenData<McpConnectionRoute["tools"]["policy"]["get"]>;
+
+export type McpToolPolicy = Extract<McpToolPolicyState, { status: "reviewed" }>["policy"];
+
+/**
  * The consent door for a STORED connection, and the creation door for a
  * built-in that may have no row yet.
  *

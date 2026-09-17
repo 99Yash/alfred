@@ -117,11 +117,24 @@ export type McpToolIdentityResolution =
   | {
       status: "unresolved";
       /**
+       * WHY no descriptor policy is authorized. The floor is the same in every
+       * case; the distinction exists so a product surface can tell "the catalog
+       * moved" from "this tool is gone" without running a second, competing
+       * identity query. `revision_stale` also covers a connection with no
+       * published revision yet: the caller's `catalogRevision` is not current.
+       */
+      reason: McpToolIdentityUnresolvedReason;
+      /**
        * Present when the connection exists and belongs to the caller. Consumers
        * may use its durable pointer, but no descriptor policy is authorized.
        */
       connection: OwnedMcpConnectionRef | undefined;
     };
+
+export type McpToolIdentityUnresolvedReason =
+  | "connection_missing"
+  | "revision_stale"
+  | "descriptor_missing";
 
 /**
  * Resolve the durable identity of one selected MCP tool in ONE query.
@@ -208,8 +221,21 @@ export async function resolveMcpToolIdentity(
     .where(and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)))
     .limit(1);
 
-  if (!row || row.revisionHash !== input.catalogRevision || !row.descriptorHash) {
-    return { status: "unresolved", connection: row?.connection };
+  // The three uncertainty cases answer the same floor with three different
+  // facts, so each names its reason rather than collapsing into one arm. A
+  // missing row means the connection is absent or foreign; a revision mismatch
+  // means the caller's view is stale; a null descriptor hash means the named
+  // tool is absent from the current revision.
+  if (!row) {
+    return { status: "unresolved", reason: "connection_missing", connection: undefined };
+  }
+
+  if (row.revisionHash !== input.catalogRevision) {
+    return { status: "unresolved", reason: "revision_stale", connection: row.connection };
+  }
+
+  if (!row.descriptorHash) {
+    return { status: "unresolved", reason: "descriptor_missing", connection: row.connection };
   }
 
   return {
