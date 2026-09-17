@@ -3,9 +3,13 @@ import {
   isApiError,
   isBuiltInMCPProvider,
   mcpAddServerBodySchema,
+  mcpExternalToolRefSchema,
   mcpRecoveryDecisionBodySchema,
   mcpRecoveryOperationsPageQuerySchema,
   mcpRenameConnectionBodySchema,
+  mcpToolDiscoveryPageSchema,
+  mcpToolInspectionResultSchema,
+  mcpToolSearchInputSchema,
 } from "@alfred/contracts";
 import type { McpConnection } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -19,6 +23,7 @@ import {
   ensureBuiltInConnection,
   getMcpConnectionManager,
   getMcpEndpointAuthorizer,
+  listMcpToolsLocal,
   listOwnedConnections,
   MCP_DEFAULT_REQUEST_TIMEOUT_MS,
   isAddUserMcpServerRefusal,
@@ -519,6 +524,56 @@ export const mcpIntegrationRoutes = new Elysia({
           return { id: params.id, ok: true as const };
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
+      )
+      // The per-connection catalog read. It reads Alfred's PERSISTED
+      // `mcp_catalog_revisions` slice; it never opens a live client, so an
+      // inspection costs one query and cannot dial a remote. The connection
+      // identity is `params.id` alone: the query contract omits
+      // `connectionId` and `namespace`, so a client cannot point the read at
+      // another owner's catalog, and `listMcpToolsLocal` refuses a foreign id
+      // in SQL on top of that. The handler re-parses the returned union with
+      // the matching contract arm so the Eden response type is exact.
+      .get(
+        "/connections/:id/tools",
+        async ({ params, query, user }) => {
+          const page = await listMcpToolsLocal({
+            userId: user.id,
+            request: { ...query, connectionId: params.id },
+          });
+
+          return mcpToolDiscoveryPageSchema.parse(page);
+        },
+        {
+          params: t.Object({ id: t.String({ minLength: 1 }) }),
+          query: mcpToolSearchInputSchema.omit({ connectionId: true, namespace: true }),
+        },
+      )
+      // The one exact descriptor behind a catalog hit. The ref's
+      // `connectionId` is the path segment, so the browser can only inspect a
+      // tool whose catalogue it just read. A stale `catalogRevision` answers
+      // `catalog_stale` (ADR-0094's refused refresh stays visible) rather than
+      // a filtered list.
+      .get(
+        "/connections/:id/tools/inspect",
+        async ({ params, query, user }) => {
+          const result = await listMcpToolsLocal({
+            userId: user.id,
+            request: {
+              ref: {
+                kind: "mcp",
+                connectionId: params.id,
+                remoteName: query.remoteName,
+                catalogRevision: query.catalogRevision,
+              },
+            },
+          });
+
+          return mcpToolInspectionResultSchema.parse(result);
+        },
+        {
+          params: t.Object({ id: t.String({ minLength: 1 }) }),
+          query: mcpExternalToolRefSchema.pick({ remoteName: true, catalogRevision: true }),
+        },
       ),
   )
   // The Client ID Metadata Document, NOT the RFC 7591 registration body. The
