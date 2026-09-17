@@ -11,10 +11,18 @@ import {
   type EvidenceAnchor,
   type EvidenceCard,
   type EvidenceMediaKind,
+  type EvidenceObjectRef,
   type RetrievalSourceManifest,
   type SourceManifest,
 } from "@alfred/contracts";
+import {
+  proposeObjectKeys,
+  reconcileEvidence,
+  type ReconcileCandidates,
+} from "@alfred/assistant/connections";
 import { search, toModelFacingHit, type ModelFacingHit } from "@alfred/corpus";
+import { logger, safeErrorDiagnostic } from "@alfred/logging";
+import { evidenceObjectRefFromState } from "./object-ref";
 import { defineContextSource, type ContextSource } from "./registry";
 import { compareByScoreThenId, renderContent } from "./vector-source";
 
@@ -39,6 +47,15 @@ import { compareByScoreThenId, renderContent } from "./vector-source";
  * even if the primitive changes its own ordering; that ordering and the
  * content fallback are shared with the memory adapter in `vector-source.ts`.
  * Cross-source ranking is `rank.ts` (#427), not this file.
+ *
+ * One annotation rides on top of the translation (#1087): a chunk whose own
+ * rendered text names a work object carries that object's reducer-owned state.
+ * It obeys ADR-0062's propose / dispose contract. The text may only PROPOSE a
+ * candidate key; only the projection may say what the work's state is. So the
+ * card never reads a lifecycle out of prose, an unresolvable or ambiguous
+ * reference leaves the card exactly as it was, and the object declares
+ * `relation: "mentions"` — the chunk was still reached by similarity, and the
+ * ranker must not read the annotation as an exact-key retrieval.
  */
 
 /**
@@ -112,12 +129,86 @@ async function readDocuments(request: ContextSearchRequest) {
   // mapper below cannot see dereference plumbing and the handle it mints
   // stays inside Alfred's own store (an Alfred document id, like
   // `memory_chunk` → chunk id and `integration_object` → object id).
-  const evidence = [...hits]
-    .map(toModelFacingHit)
-    .sort(compareByScoreThenId)
-    .map(documentHitToEvidenceCard);
+  const modelFacing = [...hits].map(toModelFacingHit).sort(compareByScoreThenId);
+  const objects = await mentionedObjectByCardId(request.userId, modelFacing);
+
+  const evidence = modelFacing.map((hit) =>
+    documentHitToEvidenceCard(hit, objects.get(documentCardId(hit))),
+  );
 
   return { evidence };
+}
+
+/** The stable card id for one hit: the same chunk retrieved twice is one card. */
+function documentCardId(hit: ModelFacingHit): string {
+  return `${DOCUMENT_CONTEXT_SOURCE_ID}:${hit.chunkId}`;
+}
+
+/**
+ * The work object each hit's own text names, for the hits where exactly one
+ * resolves (#1087).
+ *
+ * The text read is the text the card RENDERS — its title and its bounded
+ * preview — and nothing wider: the annotation must be justified by what a
+ * reader of the card can see. No corpus read is added.
+ *
+ * Two rules keep the annotation honest. `annotates` is the reading, so an
+ * adapter proposes every key the chunk names and no caller drops or suppresses
+ * anything on the result. And a hit is annotated only when its keys resolve to
+ * ONE object: two written forms can name one row (a repository rename mints a
+ * second `pull_request_url`), so the set is deduplicated by object id first,
+ * and a chunk naming two different objects is an ambiguous reference that
+ * leaves the card unchanged.
+ *
+ * A failed resolve degrades to no annotation. `reconcileEvidence` reads the
+ * database, and an unguarded throw here would turn the whole `documents` source
+ * into an error report and drop EVERY document card for this search — far worse
+ * than losing an annotation. The catch logs, because a silent catch of exactly
+ * this shape once hid a total briefing failure for seven weeks.
+ */
+async function mentionedObjectByCardId(
+  userId: string,
+  hits: readonly ModelFacingHit[],
+): Promise<ReadonlyMap<string, EvidenceObjectRef>> {
+  const found = new Map<string, EvidenceObjectRef>();
+  const subjects: ReconcileCandidates[] = [];
+
+  for (const hit of hits) {
+    const id = documentCardId(hit);
+    const subject = { id, text: { subject: hit.title ?? "", content: hit.preview } };
+    const keys = proposeObjectKeys(subject, { reading: "annotates" });
+
+    if (keys.length > 0) subjects.push({ id, keys });
+  }
+
+  if (subjects.length === 0) return found;
+
+  try {
+    const reconciled = await reconcileEvidence({ userId, subjects });
+
+    for (const [id, resolved] of reconciled) {
+      const byObjectId = new Map(resolved.map((object) => [object.state.objectId, object.state]));
+
+      if (byObjectId.size !== 1) continue;
+      const [state] = [...byObjectId.values()];
+
+      if (!state) continue;
+      // The chunk NAMES this object; it is not the object. The relation is what
+      // keeps the ranker's exact-retrieval feature off a semantic hit.
+      const ref = evidenceObjectRefFromState(state, "mentions");
+
+      if (ref) found.set(id, ref);
+    }
+  } catch (err) {
+    logger.error(
+      { err: safeErrorDiagnostic(err), event: "context_search_object_annotation_failed", userId },
+      "Resolving mentioned object state for document cards failed; cards are unannotated",
+    );
+
+    return new Map();
+  }
+
+  return found;
 }
 
 /**
@@ -137,8 +228,12 @@ async function readDocuments(request: ContextSearchRequest) {
  * its `ref` (S1/S2 on #1076). `documents` declares only `semantic_search`
  * today, and its `ref` stays inside its own store until #428 declares
  * `expand` plus the `objectKinds` it can dereference.
+ *
+ * `object` is the optional annotation described in the module docstring. It is
+ * a parameter rather than a lookup so this mapper stays pure and reads no
+ * store: the one resolve runs once for the whole page in `readDocuments`.
  */
-function documentHitToEvidenceCard(hit: ModelFacingHit): EvidenceCard {
+function documentHitToEvidenceCard(hit: ModelFacingHit, object?: EvidenceObjectRef): EvidenceCard {
   // `sanitizeErrorMessage` bounds and strips poison; an all-poison title
   // collapses to empty, which is not a citation, so it falls back to undefined.
   // The label cap is the tighter bound shared with the citation schema.
@@ -150,11 +245,12 @@ function documentHitToEvidenceCard(hit: ModelFacingHit): EvidenceCard {
   const anchors = pageAnchors(hit.page);
 
   return {
-    id: `${DOCUMENT_CONTEXT_SOURCE_ID}:${hit.chunkId}`,
+    id: documentCardId(hit),
     source: sourceRefFromManifest(documentManifest()),
     mediaKind: documentMediaKind(hit),
     ...renderContent(hit.preview, "No extracted text is available for this chunk."),
     score: hit.similarity,
+    ...(object ? { object } : {}),
     ...(authority !== undefined ? { authority } : {}),
     time: {
       // `authoredAt` is the authored instant (an email Date header, an event

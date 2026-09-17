@@ -64,9 +64,9 @@ export type EvidenceRankFeature = (typeof EVIDENCE_RANK_FEATURES)[number];
  * - `exactMatch` is a tie-breaker, not a second lead: a deterministically
  *   resolved work object outranks a weak fuzzy hit, but a stale resolved object
  *   must not outrank a perfect fresh document on this feature alone. It sits
- *   with `sourcePriority` for that reason, and it is present only on cards that
- *   carry an `object` — a vector card is not penalized for a field it cannot
- *   carry.
+ *   with `sourcePriority` for that reason, and it is present only on cards
+ *   whose object says `relation: "is"` — a vector card is not penalized for a
+ *   retrieval mode it did not use.
  * - `recency` and `freshness` are separate readings and both matter: `recency`
  *   is how old the EVENT is, `freshness` is how stale ALFRED'S COPY of it is. A
  *   live read of an old record and an ingested copy of a new one are different
@@ -431,20 +431,27 @@ interface FeatureInputs {
  * nothing to read it from.
  *
  * `exactMatch` and `focus` are present only on cards that carry an `object`:
- * a documents or memory card cannot carry one, so scoring it 0 would park a
- * fifth of its average at zero permanently. An object-state MISS card (no
- * `object`) is demoted through its `score: 0`, not through these features.
+ * a memory card cannot carry one, so scoring it 0 would park a fifth of its
+ * average at zero permanently. An object-state MISS card (no `object`) is
+ * demoted through its `score: 0`, not through these features.
+ *
+ * `exactMatch` reads one field further. A document card may now carry an object
+ * its own text NAMED (#1087), and that card was still reached by similarity, so
+ * only `relation: "is"` earns the feature. `focus` and `objectState` stay
+ * ungated: a chunk that mentions the object the caller asked about is genuinely
+ * on-focus, and the projection's lifecycle reads the same either way.
  */
 function cardFeatures(card: EvidenceCard, { context, semantic, focus }: FeatureInputs) {
   // The bag starts empty and every feature writes itself in. A feature here is
   // PRESENT or ABSENT, never neutral, so there is no value to seed it with.
   const features: Partial<Record<EvidenceRankFeature, number>> = {};
 
-  // A card carrying a resolved object identity was reached by an exact
-  // reference, not by similarity. Cards that carry no `object` get no
-  // `exactMatch` feature at all: most sources cannot carry one, and an
-  // object-state MISS card is already demoted through its `score: 0`.
-  if (card.object !== undefined) features.exactMatch = 1;
+  // Only a card that IS the object was reached by an exact reference. A card
+  // that merely MENTIONS one was reached by similarity, so it earns no
+  // exact-retrieval reading. Cards with no `object` get no `exactMatch` feature
+  // at all: most sources cannot carry one, and an object-state MISS card is
+  // already demoted through its `score: 0`.
+  if (card.object?.relation === "is") features.exactMatch = 1;
   features.freshness = FRESHNESS_SCORES[card.time?.freshness ?? "unknown"];
   features.authority = AUTHORITY_SCORES[card.authority?.level ?? "unknown"];
 
