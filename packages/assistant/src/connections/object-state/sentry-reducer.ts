@@ -23,7 +23,7 @@ import type { ObjectStateDelta } from "./store";
  *   issue_resolved                   → `resolved`   (registry: `resolved`)
  *   issue_archived                   → `archived`   (registry: `abandoned`)
  *
- * `issue_assigned` and every other type is a no-op (`null`): assignment moves
+ * `issue_assigned` and every other type is a no-op (`[]`): assignment moves
  * no lifecycle state.
  *
  * Nothing about a Sentry issue absorbs, and nothing about it closes an ask —
@@ -33,15 +33,15 @@ export function reduceSentryEvent(
   eventType: string,
   _action: string | null,
   payload: unknown,
-): ObjectStateDelta | null {
+): ObjectStateDelta[] {
   // The store's `ReduceFn` hands every provider a bare `string`, because one
   // signature serves every source. Narrow it to this source's own vocabulary
   // here, so the switch below is forced (ADR-0097). A type the registry does
   // not name is a delivery this reducer cannot fold, not an error.
-  if (!isEventTypeForSource("sentry", eventType)) return null;
+  if (!isEventTypeForSource("sentry", eventType)) return [];
   const nativeState = issueNativeState(eventType);
 
-  if (nativeState === null) return null;
+  if (nativeState === null) return [];
 
   // The identity. `getIdPath` is what `ingress/sentry.ts` already reads this
   // exact field with, so the dedup key and the projection cannot disagree
@@ -49,7 +49,7 @@ export function reduceSentryEvent(
   // reducer cannot fold, not an error.
   const issueId = getIdPath(payload, "data", "issue", "id");
 
-  if (!issueId) return null;
+  if (!issueId) return [];
 
   const shortId = getStringPath(payload, "data", "issue", "shortId");
   const projectSlug = getStringPath(payload, "data", "issue", "project", "slug");
@@ -65,26 +65,28 @@ export function reduceSentryEvent(
   // it now costs nothing, because a key is an additive identity fact.
   if (shortId) keys.push({ keyKind: "short_id", keyValue: shortId.toUpperCase() });
 
-  return {
-    kind: "issue",
-    externalId: issueId,
-    nativeState,
-    title: getStringPath(payload, "data", "issue", "title"),
-    // Store the permalink only when it names THIS issue under the reader the
-    // adapter proposes keys with. A body whose `permalink` is absent or in an
-    // unrecognized form leaves the row's `url` null: a packed card then names
-    // the issue without a link, and identity, state and closure are unaffected
-    // because all three ride on the id alone.
-    url: permalink && collectSentryIssueIds(permalink).includes(issueId) ? permalink : undefined,
-    // A Sentry project is not a repository, so `repo` stays absent and the
-    // project slug rides in the attributes beside the two identifiers.
-    attributes: {
-      issue_id: issueId,
-      ...(shortId ? { short_id: shortId } : {}),
-      ...(projectSlug ? { project_slug: projectSlug } : {}),
+  return [
+    {
+      kind: "issue",
+      externalId: issueId,
+      nativeState,
+      title: getStringPath(payload, "data", "issue", "title"),
+      // Store the permalink only when it names THIS issue under the reader the
+      // adapter proposes keys with. A body whose `permalink` is absent or in an
+      // unrecognized form leaves the row's `url` null: a packed card then names
+      // the issue without a link, and identity, state and closure are unaffected
+      // because all three ride on the id alone.
+      url: permalink && collectSentryIssueIds(permalink).includes(issueId) ? permalink : undefined,
+      // A Sentry project is not a repository, so `repo` stays absent and the
+      // project slug rides in the attributes beside the two identifiers.
+      attributes: {
+        issue_id: issueId,
+        ...(shortId ? { short_id: shortId } : {}),
+        ...(projectSlug ? { project_slug: projectSlug } : {}),
+      },
+      keys,
     },
-    keys,
-  };
+  ];
 }
 
 /**
