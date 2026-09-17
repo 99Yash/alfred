@@ -1581,6 +1581,9 @@ export const rememberInput = coerceJsonArrayFields(
         .string()
         .trim()
         .max(1_000)
+        .refine((s) => !/[\r\n]/.test(s), {
+          message: "directive must be single-line",
+        })
         .optional()
         .describe(
           "Resolved instruction sentence. Omit to use the default open-loop suppression wording.",
@@ -1589,6 +1592,9 @@ export const rememberInput = coerceJsonArrayFields(
         .string()
         .trim()
         .max(1_000)
+        .refine((s) => !/[\r\n]/.test(s), {
+          message: "phrasing must be single-line",
+        })
         .optional()
         .describe("Verbatim user phrasing that asked Alfred to remember this."),
     })
@@ -1644,6 +1650,9 @@ export const editInstructionInput = z
       .string()
       .trim()
       .max(1_000)
+      .refine((s) => !/[\r\n]/.test(s), {
+        message: "directive must be single-line",
+      })
       .optional()
       .describe("New resolved instruction sentence. Omit to leave unchanged."),
     senderLabel: z

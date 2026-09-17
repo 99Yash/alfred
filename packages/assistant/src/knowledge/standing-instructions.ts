@@ -2,7 +2,6 @@ import {
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   SUPPRESSION_EFFECTS,
-  hasSuppressionEffect,
   standingInstructionValueSchema,
   type ObservationSource,
   type StandingInstructionValue,
@@ -32,6 +31,11 @@ export interface ActiveSuppressionInstruction {
 export interface SenderSuppressionLookup {
   senderEmail: string | null | undefined;
   accountId?: string | null;
+  /**
+   * Audit echo only — membership is derived at read time, so this never
+   * filters. An active suppression for the sender binds every consumer.
+   * Kept so traces can name which consumer asked.
+   */
   effect: SuppressionEffect;
 }
 
@@ -93,6 +97,12 @@ export async function rememberSenderSuppression(
       label,
       accountId,
     },
+    // Legacy write snapshot, stamped for schema compat: readers derive
+    // membership at read time (any active suppression binds its sender for
+    // every consumer), so this array is never branched on. Stated, not
+    // hidden: the `system.remember` tool description discloses the category
+    // prior, and the user can narrow or drop the instruction via
+    // list/edit/forget.
     effects: [...SUPPRESSION_EFFECTS],
     directive,
     phrasing: normalizeOptionalLabel(parsed.phrasing) ?? directive,
@@ -107,10 +117,7 @@ export async function rememberSenderSuppression(
     effect: "block_todo_suggestion",
   });
 
-  if (
-    existing &&
-    SUPPRESSION_EFFECTS.every((effect) => hasSuppressionEffect(existing.value, effect))
-  ) {
+  if (existing) {
     return {
       ok: true,
       status: "already_exists",
@@ -120,6 +127,39 @@ export async function rememberSenderSuppression(
   }
 
   const row = await db().transaction(async (tx) => {
+    // Serialize concurrent remembers for the same (user, sender): without
+    // this, two runs can both pass the `existing` check above and insert
+    // duplicate active rows. Same per-key advisory-lock pattern as
+    // `proposeFact`/`confirmFact` in `facts.ts`.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${parsed.userId}:standing_instruction:${email}`}, 0))`,
+    );
+
+    // Re-check inside the lock: the outer `existing` read raced with a
+    // concurrent inserter, so a duplicate found here collapses to
+    // `already_exists` instead of a second active row.
+    const rivals = await tx
+      .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
+      .from(userFacts)
+      .where(activeStandingInstructionsWhere(parsed.userId))
+      .orderBy(desc(userFacts.validFrom));
+
+    const rival = findSenderSuppression(
+      rivals
+        .map(instructionFromFact)
+        .filter(
+          (instruction): instruction is ActiveSuppressionInstruction =>
+            instruction !== null && instruction.value.action === "suppress",
+        ),
+      {
+        senderEmail: instruction.target.email,
+        accountId: instruction.target.accountId,
+        effect: "block_todo_suggestion",
+      },
+    );
+
+    if (rival) return { id: rival.factId, instruction: rival.value, duplicate: true as const };
+
     const [inserted] = await tx
       .insert(userFacts)
       .values({
@@ -146,10 +186,20 @@ export async function rememberSenderSuppression(
       tx,
     );
 
-    return inserted;
+    return { id: inserted.id, instruction, duplicate: false as const };
   });
 
   if (!row) throw new Error("[memory.standing-instructions] insert returned no row");
+
+  if (row.duplicate) {
+    return {
+      ok: true,
+      status: "already_exists",
+      factId: row.id,
+      instruction: row.instruction,
+    };
+  }
+
   emitReplicachePokes([parsed.userId]);
 
   return {
@@ -162,8 +212,13 @@ export async function rememberSenderSuppression(
 
 export async function listActiveSuppressionInstructions(
   userId: string,
+  // Audit echo only — membership is derived at read time, so the filter is
+  // gone. Kept as an optional arg so existing call sites keep compiling while
+  // they migrate off the per-effect read.
   effect?: SuppressionEffect,
 ): Promise<ActiveSuppressionInstruction[]> {
+  void effect;
+
   const facts = await db()
     .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
     .from(userFacts)
@@ -177,7 +232,7 @@ export async function listActiveSuppressionInstructions(
 
       if (instruction.value.action !== "suppress") return false;
 
-      return effect ? hasSuppressionEffect(instruction.value, effect) : true;
+      return true;
     });
 }
 
@@ -303,6 +358,14 @@ export async function forgetStandingInstruction(args: {
   source?: MemorySource | undefined;
 }): Promise<ForgetStandingInstructionResult> {
   const forgotten = await db().transaction(async (tx) => {
+    // Per-row serialization: the `status = 'confirmed'` guard below is the
+    // concurrency control (`row_version` is Replicache sync state, never
+    // compared). The lock orders concurrent forget/edit callers on this
+    // factId so the loser deterministically observes the retired row.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${args.userId}:${args.factId}`}, 0))`,
+    );
+
     const [old] = await tx
       .select({ value: userFacts.value })
       .from(userFacts)
@@ -396,50 +459,12 @@ export async function editStandingInstruction(
     };
   }
 
-  const edited = await db().transaction(async (tx) => {
-    const [row] = await tx
-      .update(userFacts)
-      .set({
-        status: "edited",
-        validUntil: sql`now()`,
-        rowVersion: sql`${userFacts.rowVersion} + 1`,
-      })
-      .where(activeStandingInstructionWhere(parsed.userId, parsed.factId))
-      .returning({ id: userFacts.id });
-
-    if (!row) return null;
-
-    const [inserted] = await tx
-      .insert(userFacts)
-      .values({
-        userId: parsed.userId,
-        key: STANDING_INSTRUCTION_KEY,
-        value: nextValue,
-        confidence: 1,
-        status: "confirmed",
-        source: parsed.source ?? { kind: "user" },
-        validFrom: sql`now()`,
-        validUntil: null,
-        supersedesId: parsed.factId,
-      })
-      .returning({ id: userFacts.id });
-
-    if (!inserted) return null;
-
-    await appendStandingInstructionObservation(
-      {
-        userId: parsed.userId,
-        operation: "edit",
-        factId: inserted.id,
-        previousFactId: parsed.factId,
-        instruction: nextValue,
-        previousInstruction: existing.value,
-        source: parsed.source,
-      },
-      tx,
-    );
-
-    return inserted;
+  const edited = await supersedeStandingInstruction({
+    userId: parsed.userId,
+    factId: parsed.factId,
+    nextValue,
+    previousValue: existing.value,
+    source: parsed.source,
   });
 
   if (!edited) return { ok: false, status: "not_found" };
@@ -455,6 +480,75 @@ export async function editStandingInstruction(
   };
 }
 
+/**
+ * The single supersede body behind `editStandingInstruction`: close the active
+ * row (`edited`), insert the successor (`supersedesId`), and append the
+ * `user_standing_instruction` observation in one transaction so the edit stays
+ * auditable and reversible.
+ */
+async function supersedeStandingInstruction(args: {
+  userId: string;
+  factId: string;
+  nextValue: StandingInstructionValue;
+  previousValue: StandingInstructionValue;
+  source?: MemorySource | undefined;
+}): Promise<{ id: string } | null> {
+  return db().transaction(async (tx) => {
+    // Per-row serialization, same contract as `forgetStandingInstruction`:
+    // concurrent superseders order here; the loser matches zero rows on the
+    // `status = 'confirmed'` guard and reports `not_found` (stale id, never
+    // retried blindly — the caller re-lists). `row_version` bumps for the
+    // Replicache changelog only.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${args.userId}:${args.factId}`}, 0))`,
+    );
+
+    const [closed] = await tx
+      .update(userFacts)
+      .set({
+        status: "edited",
+        validUntil: sql`now()`,
+        rowVersion: sql`${userFacts.rowVersion} + 1`,
+      })
+      .where(activeStandingInstructionWhere(args.userId, args.factId))
+      .returning({ id: userFacts.id });
+
+    if (!closed) return null;
+
+    const [inserted] = await tx
+      .insert(userFacts)
+      .values({
+        userId: args.userId,
+        key: STANDING_INSTRUCTION_KEY,
+        value: args.nextValue,
+        confidence: 1,
+        status: "confirmed",
+        source: args.source ?? { kind: "user" },
+        validFrom: sql`now()`,
+        validUntil: null,
+        supersedesId: args.factId,
+      })
+      .returning({ id: userFacts.id });
+
+    if (!inserted) return null;
+
+    await appendStandingInstructionObservation(
+      {
+        userId: args.userId,
+        operation: "edit",
+        factId: inserted.id,
+        previousFactId: args.factId,
+        instruction: args.nextValue,
+        previousInstruction: args.previousValue,
+        source: args.source,
+      },
+      tx,
+    );
+
+    return inserted;
+  });
+}
+
 export function findSenderSuppression(
   instructions: readonly ActiveSuppressionInstruction[],
   lookup: SenderSuppressionLookup,
@@ -468,8 +562,10 @@ export function findSenderSuppression(
   for (const instruction of instructions) {
     const { value } = instruction;
 
-    if (!hasSuppressionEffect(value, lookup.effect)) continue;
-
+    // Derived membership: an active suppression binds its sender for every
+    // consumer. The stored `effects` array is never consulted — it is a
+    // write-time snapshot, not a decision. `lookup.effect` is echoed on the
+    // match for audit only.
     if (value.target.kind !== "sender_email") continue;
 
     if (value.target.email !== email) continue;
