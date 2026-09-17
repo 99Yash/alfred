@@ -33,6 +33,13 @@ const githubWebhookPayloadSchema = z.object({
     .object({ full_name: z.string().optional(), html_url: z.string().optional() })
     .optional(),
   review: z.object({ state: z.string().optional(), html_url: z.string().optional() }).optional(),
+  check_suite: z
+    .object({
+      conclusion: z.string().optional(),
+      head_branch: z.string().optional(),
+      status: z.string().optional(),
+    })
+    .optional(),
 });
 
 type GithubWebhookPayload = z.infer<typeof githubWebhookPayloadSchema>;
@@ -74,6 +81,15 @@ function describeGithubActivity(
       const title = `PR #${pr.number ?? "?"} ${payload.review?.state ?? "reviewed"}${where}`;
 
       return { title, status: "open", url: payload.review?.html_url ?? pr.html_url };
+    }
+
+    case "check_suite": {
+      const suite = payload.check_suite ?? {};
+      const outcome = suite.conclusion ?? suite.status ?? action ?? "updated";
+      const branch = suite.head_branch ? ` on ${suite.head_branch}` : "";
+      const title = `Check suite ${outcome}${branch}${where}`;
+
+      return { title, status: action === "completed" ? "resolved" : "open", url: undefined };
     }
 
     default: {
