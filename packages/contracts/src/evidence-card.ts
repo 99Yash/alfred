@@ -93,17 +93,29 @@ export type EvidenceSourceRef = z.infer<typeof evidenceSourceRefSchema>;
  *
  * `is` means the card IS the object: the object-state source resolved the
  * caller's own exact reference, so the card was reached by an exact key.
- * `mentions` means the card's text NAMES the object: a document chunk was
+ * `names` means the card's own text names the object: a document chunk was
  * reached by similarity and the object is an annotation on it.
  *
- * The ranker reads this. `exactMatch` — the feature that asserts "this card
- * was reached by an exact reference, not by similarity" — is present only for
- * `is`, so annotating a semantically retrieved card never claims a retrieval
- * mode it did not use. Every other reader (the packer, the `focus` feature)
- * treats both relations alike: a chunk that mentions the pull request the
- * caller asked about is still evidence about it.
+ * `names`, not `mentions`: `KeyProposalReading` in
+ * `@alfred/assistant/connections` already spends `mentions` on a different
+ * thing — which text an ADAPTER may read a key out of — and a word that means
+ * two things across one call chain is how a caller reads the wrong contract.
+ *
+ * Every reader of a card reads this field, because both hazards it fences are
+ * hazards of silence:
+ *
+ * - The ranker's `exactMatch` asserts "this card was reached by an exact
+ *   reference". It is present only for `is`, so annotating a semantically
+ *   retrieved card never claims a retrieval mode it did not use.
+ * - The ranker's `focus` scores a measured miss as 0 only for `is`. An `is`
+ *   card carries one identity and either matches the declared focus or does
+ *   not; a `names` card carries whatever key its rendered text happened to
+ *   hold, so a non-match says the annotation missed, never that the chunk is
+ *   off-focus.
+ * - The packer labels the two lines differently, so the model cannot read a
+ *   chunk that names a merged pull request AS the merged pull request.
  */
-export const EVIDENCE_OBJECT_RELATIONS = ["is", "mentions"] as const;
+export const EVIDENCE_OBJECT_RELATIONS = ["is", "names"] as const;
 
 export type EvidenceObjectRelation = (typeof EVIDENCE_OBJECT_RELATIONS)[number];
 
@@ -118,7 +130,7 @@ export const evidenceObjectRelationSchema = z.enum(EVIDENCE_OBJECT_RELATIONS);
  * rendered as "uncategorized", never inferred from `nativeState`.
  *
  * `relation` is required and has no default: a default would let a future
- * producer of a MENTIONED object silently inherit the exact-retrieval reading,
+ * producer of a NAMED object silently inherit the exact-retrieval reading,
  * which is the one thing the field exists to prevent.
  */
 export const evidenceObjectRefSchema = objectIdentitySchema.extend({

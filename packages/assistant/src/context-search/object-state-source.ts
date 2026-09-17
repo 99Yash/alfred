@@ -20,7 +20,7 @@ import {
   type ObjectStateStore,
 } from "@alfred/assistant/connections";
 import { sha256Canonical } from "@alfred/db/hash";
-import { boundCardText, evidenceObjectRefFromState } from "./object-ref";
+import { boundCardText, cardIsObjectRef } from "./object-ref";
 import { defineContextSource, type ContextSource } from "./registry";
 
 /**
@@ -189,7 +189,7 @@ async function resolveObjectRef(
 function objectStateCard(state: ObjectState): EvidenceCard {
   // This source resolved the caller's own exact reference, so the card IS the
   // object rather than a piece of evidence that names one.
-  const object = evidenceObjectRefFromState(state, "is");
+  const object = cardIsObjectRef(state);
 
   if (!object) {
     // A stored row whose identity text sanitizes to nothing cannot be cited.
