@@ -31,17 +31,19 @@ export interface McpToolPolicyDraft {
 }
 
 /**
- * The conservative defaults a first review opens with: the `high` floor the
- * tool currently carries, an unknown effect handled as effectful, and no retry.
- * They match `mcp.call`'s unreviewed behavior, so saving without changing
- * anything is a no-op the owner can still build on.
+ * The conservative defaults a first review opens with: an unknown effect
+ * handled as effectful, and no retry — the persisted column defaults.
+ *
+ * `riskTier` is deliberately NOT defaulted. The floor a freshly connected
+ * tool carries lives on the gate (`MCP_CALL_RISK_FLOOR`); a browser copy of it
+ * would silently turn a first save into a raise the day the floor moves, so the
+ * owner must choose the tier explicitly.
  */
-const MCP_TOOL_POLICY_DEFAULTS: McpToolPolicyDraft = {
-  riskTier: "high",
+const MCP_TOOL_POLICY_CONSERVATIVE_DEFAULTS = {
   effectClass: "unknown",
   retryContract: "never",
   note: null,
-};
+} satisfies Omit<McpToolPolicyDraft, "riskTier">;
 
 const isEffectClass = enumGuard(mcpEffectClassValues);
 
@@ -184,12 +186,12 @@ function draftFromPolicy(state: Extract<McpToolPolicyState, { status: "reviewed"
     effectClass: policy.effectClass,
     retryContract: policy.retryContract,
     note: policy.note,
-    policyRevision: policy.policyRevision,
   };
 }
 
 interface McpToolPolicyFormProps {
-  initial: McpToolPolicyDraft;
+  /** Starting values. `riskTier` is absent for a first review, which must be an explicit choice. */
+  initial: Partial<McpToolPolicyDraft>;
   pending: boolean;
   onSave: (draft: McpToolPolicyDraft) => void;
   /** Present only when there is a review to clear. */
@@ -198,13 +200,14 @@ interface McpToolPolicyFormProps {
 
 /**
  * The review form. Local state only, and the container keys it by the identity
- * of the state it renders, so a refetch after a save remounts it with the
- * server's values rather than mirroring props into state with an effect.
+ * of both the tool and the state it renders, so a refetch after a save, or a
+ * switch to another tool that shares a status, remounts it with the server's
+ * values rather than mirroring props into state with an effect.
  */
 function McpToolPolicyForm({ initial, pending, onSave, onClear }: McpToolPolicyFormProps) {
-  const [riskTier, setRiskTier] = useState(initial.riskTier);
-  const [effectClass, setEffectClass] = useState(initial.effectClass);
-  const [retryContract, setRetryContract] = useState(initial.retryContract);
+  const [riskTier, setRiskTier] = useState<ToolRiskTier | undefined>(initial.riskTier);
+  const [effectClass, setEffectClass] = useState(initial.effectClass ?? "unknown");
+  const [retryContract, setRetryContract] = useState(initial.retryContract ?? "never");
   const [note, setNote] = useState(initial.note ?? "");
 
   return (
@@ -212,6 +215,9 @@ function McpToolPolicyForm({ initial, pending, onSave, onClear }: McpToolPolicyF
       className="space-y-2"
       onSubmit={(event) => {
         event.preventDefault();
+
+        // The tier is the approval decision; a form without one cannot save.
+        if (riskTier === undefined) return;
         const trimmed = note.trim();
 
         onSave({
@@ -225,6 +231,7 @@ function McpToolPolicyForm({ initial, pending, onSave, onClear }: McpToolPolicyF
       <div className="grid grid-cols-3 gap-2">
         <AppSelect
           label="Approval tier"
+          placeholder="Select a tier"
           value={riskTier}
           options={RISK_TIER_OPTIONS}
           disabled={pending}
@@ -260,7 +267,12 @@ function McpToolPolicyForm({ initial, pending, onSave, onClear }: McpToolPolicyF
         onChange={(event) => setNote(event.target.value)}
       />
       <div className="flex items-center gap-1">
-        <AppButton type="submit" size="sm" variant="primary" disabled={pending}>
+        <AppButton
+          type="submit"
+          size="sm"
+          variant="primary"
+          disabled={pending || riskTier === undefined}
+        >
           Save review
         </AppButton>
         {onClear ? (
@@ -344,7 +356,7 @@ export function McpToolPolicyReviewView({
       ) : (
         <McpToolPolicyForm
           key="unreviewed"
-          initial={MCP_TOOL_POLICY_DEFAULTS}
+          initial={MCP_TOOL_POLICY_CONSERVATIVE_DEFAULTS}
           pending={pending}
           onSave={onSave}
         />

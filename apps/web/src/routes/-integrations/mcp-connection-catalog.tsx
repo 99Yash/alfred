@@ -250,7 +250,15 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
   // a review to, so the refusal is the whole surface for that selection.
   const policyReview =
     inspection?.status === "tool" ? (
-      <McpToolPolicyReview connectionId={connectionId} toolRef={inspection.ref} />
+      // Keyed by the full tool identity, not by the connection. Two tools that
+      // share a policy state (every first review is "reviewed, revision 1")
+      // would otherwise reuse the form's local state, and a Save would write
+      // the previous tool's draft under this tool's descriptor hash.
+      <McpToolPolicyReview
+        key={`${inspection.ref.remoteName}:${inspection.ref.catalogRevision}`}
+        connectionId={connectionId}
+        toolRef={inspection.ref}
+      />
     ) : null;
 
   return (
