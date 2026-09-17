@@ -55,6 +55,7 @@ describe("packEvidenceCards — card kinds", () => {
         provider: "github",
         kind: "pull_request",
         externalId: "42",
+        relation: "is",
         stateCategory: "resolved",
         nativeState: "merged",
         title: "Close the CI loop",

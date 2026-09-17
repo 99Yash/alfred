@@ -62,6 +62,7 @@ describe("rankEvidenceCards — exact match against semantic hits", () => {
         provider: "github",
         kind: "pull_request",
         externalId: "1",
+        relation: "is",
         stateCategory: "active",
         nativeState: "open",
       },
@@ -125,6 +126,7 @@ describe("rankEvidenceCards — stale against fresh", () => {
       provider: "github" as const,
       kind: "pull_request",
       externalId: "1",
+      relation: "is" as const,
       nativeState: "open",
     };
 
@@ -357,6 +359,7 @@ describe("rankEvidenceCards — the caller's declared focus", () => {
         provider: "github",
         kind: "pull_request",
         externalId: "7",
+        relation: "is",
         stateCategory: "active",
       },
       time: { observedAt: daysAgo(3), freshness: "ingested" },
@@ -370,6 +373,7 @@ describe("rankEvidenceCards — the caller's declared focus", () => {
         provider: "github",
         kind: "pull_request",
         externalId: "8",
+        relation: "is",
         stateCategory: "active",
       },
       time: { observedAt: daysAgo(3), freshness: "ingested" },

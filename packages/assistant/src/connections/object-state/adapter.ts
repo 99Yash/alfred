@@ -85,23 +85,35 @@ export interface ReconcileSubject {
  *   Actions failure mail, a review request). The adapter may demand provenance
  *   before it proposes anything, and an ambiguous reference proposes nothing:
  *   a wrong identity here would drop the wrong item from a briefing.
- * - `mentions` — the text merely NAMES work objects (composed briefing prose,
- *   an indexed document). Every named object is proposed, provenance is not
- *   claimed, and a caller uses the result to annotate rather than to drop.
+ * - `mentions` — the text merely NAMES work objects (composed briefing prose).
+ *   Every named object is proposed, provenance is not claimed, and the caller
+ *   SUPPRESSES prose on the result. Suppression removes a sentence a human
+ *   would otherwise read, so the reading stays narrow: only a written form
+ *   that names a work object directly counts.
+ * - `annotates` — the text is evidence the caller ALREADY holds and will
+ *   DECORATE (an indexed document chunk). The caller drops nothing, suppresses
+ *   nothing, and closes no loop, so an adapter may also propose an identifier
+ *   for a CONSTITUENT of a work object — a commit sha names the pull request
+ *   that carries it. A wrong proposal costs one absent annotation.
  *
- * Both readings are equally safe, because neither one asserts state: a wrong
- * or hallucinated key resolves to nothing and closes nothing.
+ * Every reading is equally safe against state, because none of them asserts
+ * state: a wrong or hallucinated key resolves to nothing and closes nothing.
+ * They differ only in what the caller DOES with a resolution.
  */
-export type KeyProposalReading = "about" | "mentions";
+export type KeyProposalReading = "about" | "mentions" | "annotates";
 
 /**
  * What the caller asks an adapter to read, with the provenance the reading
  * demands folded in. `about` carries its sender because the adapter gates on
  * it: the field is required (possibly `null`) so a caller that omits it is a
  * compile error rather than a subject that silently proposes nothing forever.
- * `mentions` claims no provenance. It is provenance, never state.
+ * `mentions` and `annotates` claim no provenance. It is provenance, never
+ * state.
  */
-export type KeyProposal = { reading: "about"; sender: string | null } | { reading: "mentions" };
+export type KeyProposal =
+  | { reading: "about"; sender: string | null }
+  | { reading: "mentions" }
+  | { reading: "annotates" };
 
 /**
  * One provider's irreducible half of reconciliation.

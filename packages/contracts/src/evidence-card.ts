@@ -89,14 +89,41 @@ export const evidenceSourceRefSchema = z.object({
 export type EvidenceSourceRef = z.infer<typeof evidenceSourceRefSchema>;
 
 /**
+ * How a card holds the object it carries (#1087).
+ *
+ * `is` means the card IS the object: the object-state source resolved the
+ * caller's own exact reference, so the card was reached by an exact key.
+ * `mentions` means the card's text NAMES the object: a document chunk was
+ * reached by similarity and the object is an annotation on it.
+ *
+ * The ranker reads this. `exactMatch` — the feature that asserts "this card
+ * was reached by an exact reference, not by similarity" — is present only for
+ * `is`, so annotating a semantically retrieved card never claims a retrieval
+ * mode it did not use. Every other reader (the packer, the `focus` feature)
+ * treats both relations alike: a chunk that mentions the pull request the
+ * caller asked about is still evidence about it.
+ */
+export const EVIDENCE_OBJECT_RELATIONS = ["is", "mentions"] as const;
+
+export type EvidenceObjectRelation = (typeof EVIDENCE_OBJECT_RELATIONS)[number];
+
+export const evidenceObjectRelationSchema = z.enum(EVIDENCE_OBJECT_RELATIONS);
+
+/**
  * Object identity for deterministic object-state evidence (#425). Every field
  * is an open string because the provider set is data, not this module's enum:
  * `provider` is the integration slug the manifest knows, `kind` is a
  * provider-declared object kind, and `stateCategory` is the provider-agnostic
  * bucket the integration-object registry already owns. A missing category is
  * rendered as "uncategorized", never inferred from `nativeState`.
+ *
+ * `relation` is required and has no default: a default would let a future
+ * producer of a MENTIONED object silently inherit the exact-retrieval reading,
+ * which is the one thing the field exists to prevent.
  */
 export const evidenceObjectRefSchema = objectIdentitySchema.extend({
+  /** How the card holds this object; see {@link EVIDENCE_OBJECT_RELATIONS}. */
+  relation: evidenceObjectRelationSchema,
   /** Provider-agnostic lifecycle bucket; absent when the provider has none. */
   stateCategory: z.enum(OBJECT_STATE_CATEGORIES).optional(),
   /** Raw provider state for display — `open`/`merged`/`closed`. */
