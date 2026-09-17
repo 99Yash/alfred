@@ -9,9 +9,15 @@ import {
   mcpRenameConnectionBodySchema,
   mcpToolDiscoveryPageSchema,
   mcpToolInspectionResultSchema,
+  mcpToolInspectInputSchema,
+  mcpToolPolicyReviewInputSchema,
+  mcpToolPolicyStateSchema,
   mcpToolSearchInputSchema,
+  type ExternalToolRef,
+  type McpToolPolicy,
+  type McpToolPolicyState,
 } from "@alfred/contracts";
-import type { McpConnection } from "@alfred/db/schemas";
+import type { McpConnection, McpToolPolicyRow } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { Elysia, t, type Context } from "elysia";
 import { z } from "zod";
@@ -42,10 +48,13 @@ import {
   type McpOAuthProviderForConnectionInput,
 } from "@alfred/assistant/connections/mcp";
 import {
+  clearMcpToolPolicy,
   listMcpRecoveryOperations,
   mcpUnresolvedInvocationGate,
+  readMcpToolPolicyState,
   resolveMcpRecoveryOperation,
   retryMcpRecoveryOperation,
+  reviewMcpToolPolicy,
 } from "@alfred/assistant/tool-runtime/mcp";
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
@@ -143,6 +152,60 @@ function connectionResult(connection: McpConnectionSummary) {
     // count only when a revision exists.
     toolCount: connection.toolCount,
   };
+}
+
+/**
+ * Project a persisted review onto the wire contract. The row is the
+ * source-of-truth shape; only the browser-visible fields cross, and the two
+ * server-owned fields (`descriptorHash`, the row id/keys) stay behind. The
+ * contract parse at the call site is the boundary that validates the `$type`
+ * enum columns.
+ */
+function mcpToolPolicyResult(policy: McpToolPolicyRow): McpToolPolicy {
+  return {
+    riskTier: policy.riskTier,
+    effectClass: policy.effectClass,
+    retryContract: policy.retryContract,
+    note: policy.reviewedNote,
+    policyRevision: policy.policyRevision,
+    reviewedAt: policy.reviewedAt?.toISOString() ?? null,
+  };
+}
+
+/**
+ * The one 200-able policy response. A missing or foreign connection is a 404
+ * here because it is a request for something the owner does not have; every
+ * other state is a typed body, including `not_found` (the read answered "this
+ * tool is not in that revision") and `catalog_stale` (the named revision is not
+ * current). That is why the contract carries both arms: they are reachable
+ * bodies, not dead schema.
+ */
+function mcpToolPolicyStateResult(
+  state: Awaited<ReturnType<typeof readMcpToolPolicyState>>,
+  ref: ExternalToolRef,
+): McpToolPolicyState {
+  switch (state.status) {
+    case "reviewed":
+      return mcpToolPolicyStateSchema.parse({
+        status: "reviewed",
+        ref,
+        policy: mcpToolPolicyResult(state.policy),
+      });
+    case "drifted":
+      return mcpToolPolicyStateSchema.parse({
+        status: "drifted",
+        ref,
+        previous: mcpToolPolicyResult(state.previous),
+      });
+    case "unreviewed":
+      return mcpToolPolicyStateSchema.parse({ status: "unreviewed", ref });
+    case "catalog_stale":
+      return mcpToolPolicyStateSchema.parse({ status: "catalog_stale", ref });
+    case "not_found":
+      return mcpToolPolicyStateSchema.parse({ status: "not_found", ref });
+    case "connection_missing":
+      throw Errors.NotFoundError("MCP connection not found");
+  }
 }
 
 async function beginAuthorization(input: {
@@ -573,6 +636,89 @@ export const mcpIntegrationRoutes = new Elysia({
         {
           params: t.Object({ id: t.String({ minLength: 1 }) }),
           query: mcpExternalToolRefSchema.pick({ remoteName: true, catalogRevision: true }),
+        },
+      )
+      // The exact-descriptor policy review surface (ADR-0088 / ADR-0096). Three
+      // thin routes: read the state, write a review, clear the pair. The path
+      // names the connection and `ref.connectionId` must agree with it, so a
+      // review can only ever target a tool on the connection the path names.
+      .get(
+        "/connections/:id/tools/policy",
+        async ({ params, query, user }) => {
+          const ref: ExternalToolRef = {
+            kind: "mcp",
+            connectionId: params.id,
+            remoteName: query.remoteName,
+            catalogRevision: query.catalogRevision,
+          };
+
+          return mcpToolPolicyStateResult(
+            await readMcpToolPolicyState({ userId: user.id, ref }),
+            ref,
+          );
+        },
+        {
+          params: t.Object({ id: t.String({ minLength: 1 }) }),
+          query: mcpExternalToolRefSchema.pick({ remoteName: true, catalogRevision: true }),
+        },
+      )
+      .put(
+        "/connections/:id/tools/policy",
+        async ({ body, params, user }) => {
+          if (body.ref.connectionId !== params.id) {
+            throw Errors.BadRequestError("MCP tool reference must name the path connection");
+          }
+
+          const state = await reviewMcpToolPolicy({
+            userId: user.id,
+            ref: body.ref,
+            riskTier: body.riskTier,
+            effectClass: body.effectClass,
+            retryContract: body.retryContract,
+            note: body.note,
+          });
+
+          if (state.status === "catalog_stale") {
+            throw Errors.ConflictError(
+              "The MCP catalog changed; refresh and review the tool again",
+            );
+          }
+
+          if (state.status === "not_found") {
+            throw Errors.NotFoundError("MCP tool not found in the current catalog");
+          }
+
+          return mcpToolPolicyStateResult(state, body.ref);
+        },
+        {
+          params: t.Object({ id: t.String({ minLength: 1 }) }),
+          body: mcpToolPolicyReviewInputSchema,
+        },
+      )
+      .delete(
+        "/connections/:id/tools/policy",
+        async ({ body, params, user }) => {
+          if (body.ref.connectionId !== params.id) {
+            throw Errors.BadRequestError("MCP tool reference must name the path connection");
+          }
+
+          const state = await clearMcpToolPolicy({ userId: user.id, ref: body.ref });
+
+          if (state.status === "catalog_stale") {
+            throw Errors.ConflictError(
+              "The MCP catalog changed; refresh and clear the review again",
+            );
+          }
+
+          if (state.status === "not_found") {
+            throw Errors.NotFoundError("MCP tool not found in the current catalog");
+          }
+
+          return mcpToolPolicyStateResult(state, body.ref);
+        },
+        {
+          params: t.Object({ id: t.String({ minLength: 1 }) }),
+          body: mcpToolInspectInputSchema,
         },
       ),
   )

@@ -54,6 +54,7 @@ function render(overrides: Partial<McpCatalogViewProps> = {}) {
       selectedRemoteName: null,
       inspection: null,
       inspectionLoading: false,
+      policyReview: null,
       onSelect() {},
       onDismissInspection() {},
       ...overrides,
