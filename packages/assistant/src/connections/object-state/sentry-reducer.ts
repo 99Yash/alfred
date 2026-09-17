@@ -1,4 +1,9 @@
-import { getIdPath, getStringPath } from "@alfred/contracts";
+import {
+  type EventTypeForSource,
+  getIdPath,
+  getStringPath,
+  isEventTypeForSource,
+} from "@alfred/contracts";
 import { collectSentryIssueIds } from "./sentry-issue-url";
 import type { ObjectStateDelta } from "./store";
 
@@ -29,6 +34,11 @@ export function reduceSentryEvent(
   _action: string | null,
   payload: unknown,
 ): ObjectStateDelta | null {
+  // The store's `ReduceFn` hands every provider a bare `string`, because one
+  // signature serves every source. Narrow it to this source's own vocabulary
+  // here, so the switch below is forced (ADR-0097). A type the registry does
+  // not name is a delivery this reducer cannot fold, not an error.
+  if (!isEventTypeForSource("sentry", eventType)) return null;
   const nativeState = issueNativeState(eventType);
 
   if (nativeState === null) return null;
@@ -77,8 +87,17 @@ export function reduceSentryEvent(
   };
 }
 
-/** The lifecycle token one typed Sentry event type asserts, or `null` for a no-op. */
-function issueNativeState(eventType: string): "unresolved" | "resolved" | "archived" | null {
+/**
+ * The lifecycle token one typed Sentry event type asserts, or `null` for a
+ * no-op. The switch is exhaustive over `EVENT_SOURCE_ENTRIES.sentry.eventTypes`,
+ * the same device `sentryDeliveryKey` uses on the ingress half of this one
+ * vocabulary (ADR-0097): a ninth Sentry event type does not compile until this
+ * file says what lifecycle state it asserts, rather than silently folding to
+ * no state at all.
+ */
+function issueNativeState(
+  eventType: EventTypeForSource<"sentry">,
+): "unresolved" | "resolved" | "archived" | null {
   switch (eventType) {
     case "issue_created":
     case "issue_unresolved":
@@ -87,7 +106,18 @@ function issueNativeState(eventType: string): "unresolved" | "resolved" | "archi
       return "resolved";
     case "issue_archived":
       return "archived";
-    default:
+    // Assignment moves no lifecycle state, and the other three types are not
+    // issue transitions at all. Each is named, not defaulted, so the tail below
+    // stays reachable only for a type nobody has classified yet.
+    case "issue_assigned":
+    case "error_created":
+    case "event_alert_triggered":
+    case "seer_pr_created":
       return null;
+    default: {
+      const _exhaustive: never = eventType;
+
+      return _exhaustive;
+    }
   }
 }
