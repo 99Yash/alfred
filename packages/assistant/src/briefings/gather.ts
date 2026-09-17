@@ -53,6 +53,7 @@ import {
   type LocalDateKey,
 } from "@alfred/assistant/time";
 import { scorePriorityEmailDemand } from "./read";
+import { gatherRailwayVerifiedPull } from "./railway-pull";
 import { shortenFrom } from "./sender";
 
 /**
@@ -463,13 +464,23 @@ export async function gatherBriefingWithSuppressionAudit(
     ),
   );
 
+  // Verified pull (#1094): a surfaced deployment failure from a connected
+  // provider triggers a live status read at gather time. Runs after the
+  // digest resolves (the failure-mail trigger reads surfaced items) and
+  // appends deployment verdict lines beside the receipt-sourced activity —
+  // never through the email slice, which only carries triage buckets.
+  const railwayPull = await gatherRailwayVerifiedPull({
+    userId: args.userId,
+    digestItems: Object.values(digest.buckets).flat(),
+  });
+
   return {
     gather: {
       email: {
         categories,
       },
       calendar,
-      integration_activity: { items: integrationActivity },
+      integration_activity: { items: [...integrationActivity, ...railwayPull] },
       weather,
       day_of_week: dayContribution(args.briefingDate),
       day_shape: {

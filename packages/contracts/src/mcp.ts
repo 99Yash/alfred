@@ -421,6 +421,11 @@ export const BUILT_IN_MCP_CATALOG = {
     label: "Sentry MCP",
     blurb: "Investigate Sentry issues and error events.",
   },
+  railway: {
+    slug: "railway",
+    label: "Railway MCP",
+    blurb: "Read Railway deployment status.",
+  },
   polylane: {
     slug: "polylane",
     label: "Polylane MCP",
