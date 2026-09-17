@@ -31,12 +31,7 @@ import {
   adoptRegisteredSuppressionEffects,
   listActiveSuppressionInstructions,
 } from "@alfred/assistant/knowledge";
-import {
-  SUPPRESSION_EFFECTS,
-  hasSuppressionEffect,
-  parseEmailAddress,
-  toMessage,
-} from "@alfred/contracts";
+import { missingSuppressionEffects, parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { inArray } from "drizzle-orm";
@@ -73,18 +68,19 @@ async function main(): Promise<void> {
   if (users.length === 0) throw new Error(`no user matched --emails=${emails.join(",")}`);
 
   for (const row of users) {
+    // The ONE read for this user: the preview below and the repair both work
+    // from this snapshot (same `missingSuppressionEffects` definition, same
+    // rows), so a dry run cannot print one set while `--commit` writes another.
     const active = await listActiveSuppressionInstructions(row.id);
 
-    const stale = active.filter((instruction) =>
-      SUPPRESSION_EFFECTS.some((effect) => !hasSuppressionEffect(instruction.value, effect)),
+    const stale = active.filter(
+      (instruction) => missingSuppressionEffects(instruction.value).length > 0,
     );
 
     console.log(`\n${row.email}: ${active.length} active, ${stale.length} missing an effect`);
 
     for (const instruction of stale) {
-      const missing = SUPPRESSION_EFFECTS.filter(
-        (effect) => !hasSuppressionEffect(instruction.value, effect),
-      );
+      const missing = missingSuppressionEffects(instruction.value);
 
       console.log(`  ${instruction.value.target.email} += [${missing.join(", ")}]`);
     }
@@ -94,7 +90,7 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const result = await adoptRegisteredSuppressionEffects({ userId: row.id });
+    const result = await adoptRegisteredSuppressionEffects({ userId: row.id, active });
 
     console.log(`  widened ${result.upgraded.length}, skipped ${result.skipped}`);
   }

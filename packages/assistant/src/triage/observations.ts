@@ -202,6 +202,14 @@ export interface Observations {
    * this one cannot — see the ordering note in `renderObservations`.
    */
   standingInstruction: TriageStandingDirective | null;
+  /**
+   * The pre-classify standing-instruction read failed, so a null
+   * `standingInstruction` above means "unknown", not "no instruction".
+   * Trace-only metadata — never rendered into the prompt. A blip must never
+   * invent an instruction, and the reverse failure (a real instruction hidden
+   * for one mail) is repaired by the next classify of the thread.
+   */
+  standingInstructionReadFailed: boolean;
   gmail: GmailSignals;
   content: ContentFlags;
 }
@@ -245,6 +253,12 @@ export interface AssembleObservationsArgs {
    * it; production `gatherObservations` always passes it.
    */
   standingInstruction?: TriageStandingDirective | null | undefined;
+  /**
+   * The pre-classify standing-instruction read failed. Optional (defaults to
+   * `false`) so eval and smoke harnesses that do not exercise the failure path
+   * need not thread it; production `gatherObservations` always passes it.
+   */
+  standingInstructionReadFailed?: boolean | undefined;
   labelIds: readonly string[];
   /** Concatenated signal text (subject + body + headers), lowercased or not. */
   signalText: string;
@@ -268,6 +282,7 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
     senderRelationshipIsCold: args.senderRelationshipIsCold ?? false,
     senderKind: args.senderKind,
     standingInstruction: args.standingInstruction ?? null,
+    standingInstructionReadFailed: args.standingInstructionReadFailed ?? false,
     gmail: extractGmailSignals(args.labelIds),
     content: extractContentFlags(args.signalText),
   };

@@ -391,6 +391,16 @@ function renderThreadObservation(obs: Observations): string[] {
   return lines;
 }
 
+/**
+ * How the model should weigh a matched standing-instruction directive, rendered
+ * beside the directive in `renderObservations` (never in SYSTEM_PROMPT — see
+ * the placement note there). A named constant because the rubric reads ~90
+ * words against sibling lines that are each one terse fact; the call site keeps
+ * the placement, this keeps the text.
+ */
+const STANDING_INSTRUCTION_HANDLING_RULE =
+  "How to weigh that line, for THIS SENDER ONLY: it outranks this sender's prior, the Gmail signals, and your own reading of urgency in the body, because every one of those is Alfred's inference and this is not. It is still a prior, not a command. Honor both halves: route this sender's routine notices to 'fyi' even when one carries a dated boilerplate deadline, and keep a demand lane only when the body names a real loss of access or money at risk. Apply none of this to any other sender.";
+
 function renderObservations(obs: Observations): string {
   const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
 
@@ -411,7 +421,7 @@ function renderObservations(obs: Observations): string {
   if (obs.standingInstruction) {
     lines.push(
       `User's standing instruction for THIS SENDER — the one line here the USER wrote, in the user's own words: ${obs.standingInstruction.directive}`,
-      `  How to weigh that line, for THIS SENDER ONLY: it outranks this sender's prior, the Gmail signals, and your own reading of urgency in the body, because every one of those is Alfred's inference and this is not. It is still a prior, not a command. Honor both halves: route this sender's routine notices to 'fyi' even when one carries a dated boilerplate deadline, and keep a demand lane only when the body names a real loss of access or money at risk. Apply none of this to any other sender.`,
+      `  ${STANDING_INSTRUCTION_HANDLING_RULE}`,
     );
   }
 
