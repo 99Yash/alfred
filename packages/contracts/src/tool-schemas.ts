@@ -1549,8 +1549,9 @@ const rememberScope = z
   .describe(
     "How wide the instruction binds. `sender` (default) binds this one address. `domain` binds every " +
       "address at the sender's domain, including ones that never wrote before; pick it when the user " +
-      "names a class of senders, not one mailbox. Alfred derives the domain from the address, and a " +
-      "personal-mail address falls back to `sender`.",
+      "names a class of senders, not one mailbox. Alfred derives the domain from the address, and " +
+      "only a single organization's domain widens: a personal, school, shared-hosting, or " +
+      "mail-service host falls back to `sender`.",
   );
 
 /** Per-entry override of the top-level `scope`. Same values, shorter prose. */
