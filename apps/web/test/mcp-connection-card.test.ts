@@ -32,7 +32,6 @@ function actions(overrides: Partial<McpConnectionActions> = {}): McpConnectionAc
     onRemove() {},
     pending: null,
     error: null,
-    removeBlocked: false,
     ...overrides,
   };
 }
@@ -78,8 +77,11 @@ test("a ready connection offers explicit reconnect and disconnect", () => {
 
 test("a blocked removal renders the server message and the recovery anchor", () => {
   const html = render({
-    error: "Resolve the pending MCP operation before removing this connection",
-    removeBlocked: true,
+    error: {
+      kind: "blocked_remove",
+      action: "remove",
+      message: "Resolve the pending MCP operation before removing this connection",
+    },
   });
 
   assert.match(html, /Resolve the pending MCP operation before removing this connection/);
@@ -87,7 +89,13 @@ test("a blocked removal renders the server message and the recovery anchor", () 
 });
 
 test("a non-blocked action error renders without the recovery anchor", () => {
-  const html = render({ error: "Reconnect MCP server failed (400)" });
+  const html = render({
+    error: {
+      kind: "action_failed",
+      action: "reconnect",
+      message: "Reconnect MCP server failed (400)",
+    },
+  });
 
   assert.match(html, /Reconnect MCP server failed \(400\)/);
   assert.doesNotMatch(html, /#mcp-recovery/);
