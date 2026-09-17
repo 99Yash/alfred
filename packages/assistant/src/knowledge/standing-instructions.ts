@@ -4,6 +4,7 @@ import {
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   standingInstructionTargetKey,
+  standingInstructionTargetSpecificity,
   standingInstructionValueSchema,
   SUPPRESSION_EFFECTS,
   targetMatchesSender,
@@ -632,6 +633,9 @@ export function findSenderSuppression(
 
   const accountId = lookup.accountId ?? null;
 
+  let best: ActiveSuppressionInstruction | null = null;
+  let bestSpecificity = -1;
+
   for (const instruction of instructions) {
     const { target } = instruction.value;
 
@@ -648,15 +652,45 @@ export function findSenderSuppression(
 
     if (target.accountId !== null && target.accountId !== accountId) continue;
 
-    return {
-      ...instruction,
-      matchedEmail: email,
-      effect: lookup.effect,
-      matchedVia: target.kind,
-    };
+    // ADR-0060 micro-decision 8: several instructions can match one sender, and
+    // the MOST SPECIFIC target wins. Recency only breaks a tie between two
+    // targets of the same kind. `sender_domain` made this reachable: the user
+    // can mute a domain and still pin one address inside it, which
+    // `rememberSenderSuppression` allows on purpose (see the identity-not-
+    // coverage duplicate check above). A pure first-match-wins scan would let
+    // the newer domain mute defeat that pin.
+    //
+    // The scan reads every match instead of returning the first one, so the
+    // answer does not depend on how the caller sorted the array. The array is
+    // one user's active instructions, and the comparison is two numbers, so the
+    // triage hot path pays a bounded per-message cost.
+    const specificity = standingInstructionTargetSpecificity(target);
+
+    if (best !== null) {
+      if (specificity < bestSpecificity) continue;
+
+      // Equal specificity keeps the newer row, and keeps the earlier one on an
+      // exact tie so the result stays stable for a caller that sorted by
+      // `validFrom` descending.
+      if (
+        specificity === bestSpecificity &&
+        instruction.validFrom.getTime() <= best.validFrom.getTime()
+      )
+        continue;
+    }
+
+    best = instruction;
+    bestSpecificity = specificity;
   }
 
-  return null;
+  if (!best) return null;
+
+  return {
+    ...best,
+    matchedEmail: email,
+    effect: lookup.effect,
+    matchedVia: best.value.target.kind,
+  };
 }
 
 function activeStandingInstructionWhere(userId: string, factId: string) {

@@ -213,6 +213,43 @@ export function targetMatchesSender(
   }
 }
 
+/**
+ * How specific a target is — a higher number wins. ADR-0060 micro-decision 8
+ * fixes the apply-time precedence: when several instructions match one sender,
+ * the most specific target wins and recency only breaks a tie. The order the
+ * ADR names is `sender_email`/`person` > `sender_domain` > `category` >
+ * `topic`.
+ *
+ * The rule was unreachable while `sender_email` was the only kind. It became
+ * reachable with `sender_domain`, because the user can pin one address inside a
+ * domain the same user already muted, and both rows then match the same sender.
+ * Without this rank the newer row wins, so a domain mute written after the pin
+ * defeats the pin.
+ *
+ * The numbers are spaced, not consecutive: `category` and `topic` are deferred
+ * kinds that rank BELOW `sender_domain`, so a later kind takes a free number
+ * and renumbers nothing.
+ *
+ * This lives beside {@link standingInstructionTargetKey} and
+ * {@link targetMatchesSender} so the exhaustive guard forces a third kind to
+ * state its rank before it compiles.
+ */
+export function standingInstructionTargetSpecificity(target: StandingInstructionTarget): number {
+  switch (target.kind) {
+    case "sender_email":
+      return 40;
+    case "sender_domain":
+      return 30;
+
+    default: {
+      const exhaustive: never = target;
+      void exhaustive;
+
+      return 0;
+    }
+  }
+}
+
 // ─── The `user_facts.value` shape ───────────────────────────────────────────
 
 /**
