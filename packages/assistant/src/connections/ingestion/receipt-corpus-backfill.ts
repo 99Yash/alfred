@@ -3,8 +3,8 @@ import { db } from "@alfred/db";
 import { documents, eventReceipts, integrationCredentials } from "@alfred/db/schemas";
 import { and, asc, eq, notExists } from "drizzle-orm";
 import {
-  prepareReceiptProjection,
   receiptDocumentJoin,
+  receiptProjectionBatch,
   writeReceiptDocument,
 } from "./receipt-document";
 
@@ -32,9 +32,11 @@ export async function backfillReceiptDocuments(source: InboundEventSource): Prom
     .orderBy(asc(eventReceipts.deliveredAt))
     .limit(50);
 
+  const batcher = receiptProjectionBatch();
+
   for (const { receipt, accountId } of rows) {
     try {
-      const projection = await prepareReceiptProjection({
+      const projection = await batcher.prepare({
         provider: source,
         userId: receipt.userId,
         eventType: receipt.eventType,

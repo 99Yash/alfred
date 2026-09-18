@@ -92,32 +92,90 @@ export type ReceiptProjection = {
 } & { readonly [receiptProjectionBrand]: true };
 
 /**
- * Derive the provider kind and resolve the user's zone. MUST run before any
- * transaction opens: `resolveTimezone` is a pooled settings read, and holding a
- * transaction connection through it can exhaust the pool under concurrent
- * receipt writes.
- *
- * The kind precedence is the one the backfill used to spell inline:
+ * The kind precedence the backfill used to spell inline:
  * `rawKind ?? parseEventTypeName(provider, eventType) ?? eventType`. A typed row
  * stores `eventTypeName(source, type)` (so `parseEventTypeName` recovers `type`)
  * and a raw row carries its provider kind in `rawKind`, which wins the chain.
  */
-export async function prepareReceiptProjection(
+function deriveReceiptKind(facts: ReceiptProjectionFacts): string {
+  return facts.rawKind ?? parseEventTypeName(facts.provider, facts.eventType) ?? facts.eventType;
+}
+
+/**
+ * The brand's only mint, shared by {@link prepareReceiptProjection} and the
+ * {@link receiptProjectionBatch} rows. The zone is resolved by the caller, so
+ * every construction path still runs `resolveTimezone` behind this module.
+ */
+function mintReceiptProjection(
   facts: ReceiptProjectionFacts,
-): Promise<ReceiptProjection> {
-  const kind =
-    facts.rawKind ?? parseEventTypeName(facts.provider, facts.eventType) ?? facts.eventType;
-
-  const timezone = await resolveTimezone(facts.userId);
-
+  timezone: IanaTimezone,
+): ReceiptProjection {
   // SAFETY: this function is the brand's only mint; the type-only brand makes a
   // hand-built { kind, timezone } object a type error at every other call site.
   return {
     provider: facts.provider,
     userId: facts.userId,
-    kind,
+    kind: deriveReceiptKind(facts),
     timezone,
   } as ReceiptProjection;
+}
+
+/**
+ * Derive the provider kind and resolve the user's zone for one receipt. MUST run
+ * before any transaction opens: `resolveTimezone` is a pooled settings read, and
+ * holding a transaction connection through it can exhaust the pool under
+ * concurrent receipt writes.
+ *
+ * This is the receive path: one receipt, one resolve. The backfill, which walks
+ * many receipts, uses {@link receiptProjectionBatch} instead.
+ */
+export async function prepareReceiptProjection(
+  facts: ReceiptProjectionFacts,
+): Promise<ReceiptProjection> {
+  const timezone = await resolveTimezone(facts.userId);
+
+  return mintReceiptProjection(facts, timezone);
+}
+
+/**
+ * A per-batch zone memo. Not global and not persistent: it lives only as long as
+ * the caller's batch. The first `prepare` for a user resolves their zone; later
+ * `prepare` calls for the same user reuse it. A failed resolution is not cached,
+ * so the next row retries — the per-row failure escape is kept.
+ *
+ * Create one batcher per batch, not per row: calling `receiptProjectionBatch()`
+ * inside a loop restores the repeated `resolveTimezone` this seam removes.
+ */
+export interface ReceiptProjectionBatch {
+  prepare(facts: ReceiptProjectionFacts): Promise<ReceiptProjection>;
+}
+
+/**
+ * Open a batch-local zone memo. The memo stores only fulfilled zones, so one
+ * user's failed resolve leaves the next row free to retry. A user's zone is
+ * captured at their first `prepare` and reused for the rest of the batch, until
+ * {@link writeReceiptDocument} stamps `admittedAt`, so the memo holds a zone a
+ * user may have changed mid-batch. Staleness is bounded by the wall-clock span
+ * from a user's first `prepare` to their last admission in one batch; the
+ * backfill loop is serial and capped, but not time-boxed, so no numeric bound is
+ * claimed. Crossing local midnight is safe: the writer computes
+ * `inZone(zone).dayBounds(admittedAt)`, so the cap day is the admitted day.
+ */
+export function receiptProjectionBatch(): ReceiptProjectionBatch {
+  const zones = new Map<string, IanaTimezone>();
+
+  return {
+    async prepare(facts: ReceiptProjectionFacts): Promise<ReceiptProjection> {
+      let timezone = zones.get(facts.userId);
+
+      if (timezone === undefined) {
+        timezone = await resolveTimezone(facts.userId);
+        zones.set(facts.userId, timezone);
+      }
+
+      return mintReceiptProjection(facts, timezone);
+    },
+  };
 }
 
 /** The receipt identity a document is written under: the row id, payload, delivery time, and account. */
