@@ -173,6 +173,9 @@ export function OnboardingFlow({
                 <h2 className="mb-3 text-[17px] font-semibold text-white">Get set up</h2>
                 <ul className="flex flex-wrap gap-2">
                   {STEPS.map((s, idx) => {
+                    // SAFETY: STEPS is the ordered list of the three onboarding
+                    // steps and OnboardingStep is the literal union 1 | 2 | 3, so
+                    // the 1-based index is always a valid step number.
                     const stepNumber = (idx + 1) as OnboardingStep;
                     const isActive = stepNumber === step;
                     const isDone = stepNumber < step;

@@ -213,7 +213,7 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
 
       return response.data;
     },
-    initialPageParam: null as string | null,
+    initialPageParam: null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     staleTime: 15_000,
   });
