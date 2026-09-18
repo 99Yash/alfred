@@ -3,7 +3,7 @@ import { TRIAGE_CATEGORIES } from "@alfred/integrations/google";
 import { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
 import { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
-import { runEmailTriageApplyLabel, runEmailTriageClassify } from "./workflow-operations";
+import { emailTriageSteps, type EmailTriageStepName } from "./workflow-operations";
 
 const stateSchema = z.object({
   documentId: z.string(),
@@ -14,11 +14,16 @@ const stateSchema = z.object({
   rationale: z.string().nullable().optional(),
   senderContext: senderContextSchema.optional(),
   force: z.boolean().optional(),
+  /**
+   * Whole-thread closure fact read once by `classify` on the reply re-eval and
+   * consumed by `close-loop-todos` (ADR-0050). Absent on every non-reply run.
+   */
+  userAlreadyReplied: z.boolean().optional(),
 });
 
 type State = z.infer<typeof stateSchema>;
 
-export const emailTriageWorkflow: Workflow<State> = {
+export const emailTriageWorkflow: Workflow<State, EmailTriageStepName> = {
   slug: TRIAGE_WORKFLOW_SLUG,
   name: "Email triage",
   description:
@@ -36,8 +41,5 @@ export const emailTriageWorkflow: Workflow<State> = {
       force: parsed.force,
     };
   },
-  steps: {
-    classify: { id: "classify", run: runEmailTriageClassify },
-    "apply-label": { id: "apply-label", run: runEmailTriageApplyLabel },
-  },
+  steps: emailTriageSteps,
 };

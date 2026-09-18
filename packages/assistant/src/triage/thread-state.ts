@@ -187,3 +187,74 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     recentMessages,
   };
 }
+
+/**
+ * Whole-thread closure observations (ADR-0050 same-thread retraction). One read
+ * owns the query shape for every closure consumer; it exposes the two facts
+ * those consumers actually need and nothing else:
+ *
+ *   - `userHasReplied` — the newest message in the thread is the user's own
+ *     send, so the thread is currently closed. This is the fact the
+ *     `close-loop-todos` retraction reads: when it holds, no unanswered inbound
+ *     exists and every live todo on the thread is safe to dismiss.
+ *   - `lastUserReplyAt` — the user's newest send instant. The triage mint reads
+ *     it through {@link userRepliedAfterMessage} to ask the per-message
+ *     question ("did I reply after THIS message?") instead of the thread-level
+ *     one, which inverts on the next inbound (P0).
+ *
+ * It deliberately passes NO `excludeDocumentId`. `getThreadState`'s exclusion
+ * exists for the classifier's observation — "the context this message arrives
+ * into" — but the closure fact is about the WHOLE thread. Reading the
+ * exclusion-based observation here treated a fresh inbound that arrived after
+ * an older user reply as "user already replied": the current message was
+ * excluded, so the prior user send looked newest, and the mint was withheld
+ * from a message the user had not answered.
+ */
+export interface GmailThreadClosure {
+  /** True when the newest message in the whole thread is the user's own send. */
+  userHasReplied: boolean;
+  /** The direction the decision read, for logs. */
+  newestDirection: ThreadState["newestDirection"];
+  /**
+   * Newest authored time across the whole thread for a message the USER sent.
+   * The per-message predicate below reads this; `userHasReplied` answers the
+   * coarser "is the thread currently closed" question.
+   */
+  lastUserReplyAt: Date | null;
+}
+
+/**
+ * The precise per-message closure test (ADR-0050 same-thread retraction): the
+ * user's newest send is strictly newer than the message under consideration.
+ *
+ * `newestDirection === "sent"` answers a different question — "is the newest
+ * message in the whole thread mine?" — and it is the wrong question for a
+ * message that merely arrives after an older reply. On the reply re-eval the
+ * two coincide; on the next inbound they invert, so a fresh ask that follows
+ * the user's reply reads as already answered and its mint is withheld (P0).
+ * Comparing the user's newest send against THIS message's `authoredAt` is
+ * order-exact in both directions: a send after the message closes it, a send
+ * before it does not. A message with no `authoredAt` carries no ordering
+ * signal, so it is never suppressed. PURE.
+ */
+export function userRepliedAfterMessage(
+  lastUserReplyAt: Date | null,
+  messageAuthoredAt: Date | null,
+): boolean {
+  return (
+    lastUserReplyAt != null && messageAuthoredAt != null && lastUserReplyAt > messageAuthoredAt
+  );
+}
+
+export async function readGmailThreadClosure(args: {
+  userId: string;
+  sourceThreadId: string;
+}): Promise<GmailThreadClosure> {
+  const thread = await getThreadState(args);
+
+  return {
+    userHasReplied: thread.newestDirection === "sent",
+    newestDirection: thread.newestDirection,
+    lastUserReplyAt: thread.lastUserReplyAt,
+  };
+}

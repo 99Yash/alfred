@@ -678,7 +678,7 @@ export const systemTools: readonly RegisteredTool[] = [
     // (ADR-0050); audit lives on the todo row.
     riskTier: "no_risk",
     description:
-      "Propose a todo for the user's quick rail. Inserts a 'suggested' row the user can accept or dismiss — it never acts on the user's behalf. Idempotent: if a live todo already references one of the given sources, the refs merge into it instead of duplicating.",
+      "Propose a todo for the user's quick rail. Inserts a 'suggested' row the user can accept or dismiss — it never acts on the user's behalf. Idempotent: if a live todo already references one of the given sources, the refs merge into it instead of duplicating. A Gmail thread the user has already answered is suppressed (status 'suppressed', reason 'user_already_replied') — the loop is closed, so do not ask the user to reply again.",
     inputSchema: suggestTodoInput,
     execute: async (input, ctx) => {
       return await suggestTodo({
