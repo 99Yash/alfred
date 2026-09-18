@@ -11,7 +11,13 @@ const resolveTodosForGmailSenderArgsSchema = z.object({
   senderEmail: z.string().nullish(),
   sourceThreadId: z.string().nullish(),
   accountId: z.string().nullable().optional(),
-  reason: z.string().nullish(),
+  /**
+   * Audit label for why the caller is dismissing. Free text because the
+   * model-authored `system.resolve_todo` path supplies it; bounded like the
+   * tool input. Read and echoed back as {@link ResolveTodosForGmailSenderResult}
+   * `auditReason` so callers can log it — it is never written to the todo row.
+   */
+  reason: z.string().max(1_000).nullish(),
 });
 
 export type ResolveTodosForGmailSenderArgs = z.infer<typeof resolveTodosForGmailSenderArgsSchema>;
@@ -23,12 +29,16 @@ export type ResolveTodosForGmailSenderResult =
       dismissedCount: number;
       todoIds: string[];
       matchedThreadIds: string[];
+      /** The caller's audit label, echoed for logging. Never persisted. */
+      auditReason: string | null;
     }
   | {
       ok: false;
       status: "needs_clarification";
       reason: "missing_source_or_sender";
       message: string;
+      /** The caller's audit label, echoed for logging. Never persisted. */
+      auditReason: string | null;
     };
 
 interface CandidateTodo {
@@ -49,6 +59,7 @@ export async function resolveTodosForGmailSender(
   const senderEmail = normalizeSenderEmail(parsed.senderEmail);
   const sourceThreadId = normalizeOptional(parsed.sourceThreadId);
   const accountId = normalizeOptional(parsed.accountId);
+  const auditReason = normalizeOptional(parsed.reason);
 
   if (!senderEmail && !sourceThreadId) {
     return {
@@ -57,6 +68,7 @@ export async function resolveTodosForGmailSender(
       reason: "missing_source_or_sender",
       message:
         "I could not identify the todo source or sender to resolve. Which sender or thread should I use?",
+      auditReason,
     };
   }
 
@@ -66,7 +78,7 @@ export async function resolveTodosForGmailSender(
     ? candidates.filter((candidate) => candidate.threadIds.includes(sourceThreadId))
     : candidates;
 
-  if (relevant.length === 0) return notFound();
+  if (relevant.length === 0) return notFound(auditReason);
 
   const allThreadIds = [...new Set(relevant.flatMap((candidate) => candidate.threadIds))];
 
@@ -97,7 +109,7 @@ export async function resolveTodosForGmailSender(
     }
   }
 
-  if (todoIds.size === 0) return notFound();
+  if (todoIds.size === 0) return notFound(auditReason);
 
   const dismissed = await db()
     .update(todos)
@@ -115,7 +127,7 @@ export async function resolveTodosForGmailSender(
     )
     .returning({ id: todos.id });
 
-  if (dismissed.length === 0) return notFound();
+  if (dismissed.length === 0) return notFound(auditReason);
   emitReplicachePokes([parsed.userId]);
 
   return {
@@ -124,6 +136,7 @@ export async function resolveTodosForGmailSender(
     dismissedCount: dismissed.length,
     todoIds: dismissed.map((row) => row.id),
     matchedThreadIds: [...matchedThreadIds],
+    auditReason,
   };
 }
 
@@ -212,12 +225,13 @@ function normalizeOptional(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-function notFound(): ResolveTodosForGmailSenderResult {
+function notFound(auditReason: string | null): ResolveTodosForGmailSenderResult {
   return {
     ok: true,
     status: "not_found",
     dismissedCount: 0,
     todoIds: [],
     matchedThreadIds: [],
+    auditReason,
   };
 }
