@@ -21,13 +21,18 @@
     // The vendored anti-slop rules (scripts/oxlint/anti-slop/, see its README for the
     // upstream commits and for the upstream rules this repo does not vendor).
     //
-    // Eight rules at `error`. Each was either adopted clean (zero violations on arrival,
+    // Nine rules at `error`. Each was either adopted clean (zero violations on arrival,
     // so it can only fire on code written after adoption) or driven to zero at warn and
     // promoted here. That is also the bar for registering a new rule — a rule the tree
     // already violates belongs in its own change, violations first, rule second.
     // require-readable-spacing is the one autofix rule: adopted by running its
     // whitespace-only `--fix` across the tree to zero, so the diff added blank lines
     // and nothing else.
+    // require-safety-comment-for-type-assertion is the first rule promoted after a
+    // by-surface scoping: product source was driven to zero and the test/eval scopes,
+    // where a fixture's deliberate cast has no unseen invariant to narrate, are exempted
+    // by the "overrides" entry at the bottom of this file. See
+    // docs/research/anti-slop-paydown-2026-09-12.md for the promotion bar.
     "anti-slop/no-module-mocking": "error",
     "anti-slop/no-reflect-apply": "error",
     "anti-slop/no-widen-then-assert": "error",
@@ -36,7 +41,8 @@
     "anti-slop/no-known-value-widening": "error",
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/require-readable-spacing": "error",
-    // Five rules remain at warn for paydown. Each still has live violations;
+    "anti-slop/require-safety-comment-for-type-assertion": "error",
+    // Four rules remain at warn for paydown. Each still has live violations;
     // promote to error only after the tree is clean. Three upstream rules stay out:
     // - no-conditional-empty-object-spread: conflicts with exactOptionalPropertyTypes
     // - no-unknown-parameters: conflicts with boundary validator pattern
@@ -47,7 +53,6 @@
     "anti-slop/no-shape-in-symbol-names": "warn",
     "anti-slop/no-unknown-returns": "warn",
     "anti-slop/no-unsafe-dictionary-type": "warn",
-    "anti-slop/require-safety-comment-for-type-assertion": "warn",
     "tailwindcss/enforce-sort-order": ["warn", { "entryPoint": "apps/web/src/index.css" }],
     "tailwindcss/enforce-shorthand": "warn",
     "tailwindcss/no-deprecated-classes": ["warn", { "entryPoint": "apps/web/src/index.css" }],
@@ -325,6 +330,30 @@
       ],
       "rules": {
         "anti-slop/no-known-value-widening": "off"
+      }
+    },
+    {
+      // require-safety-comment-for-type-assertion is at `error` for product source;
+      // test, eval and test-support scopes are exempt ON PURPOSE. The rule asks an
+      // assertion to name the invariant TypeScript cannot check, which is load-bearing
+      // when a cast crosses a product seam. A fixture that casts a hand-built row or a
+      // stubbed response to feed a seam has no unseen invariant to narrate — the cast IS
+      // the fixture — so the rule there only extracts a repeated sentence. Product
+      // source was driven to zero at warn before this promotion; see
+      // docs/research/anti-slop-paydown-2026-09-12.md. Every glob below must keep
+      // matching the surfaces the research measured (packages/*/test, packages/*/evals,
+      // apps/*/evals, and *.test.*), or the rule silently returns to those trees.
+      "files": [
+        "**/test/**",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.test.mts",
+        "**/*.test.cts",
+        "**/evals/**",
+        "**/*.eval.ts"
+      ],
+      "rules": {
+        "anti-slop/require-safety-comment-for-type-assertion": "off"
       }
     }
   ]

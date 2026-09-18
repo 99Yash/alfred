@@ -54,8 +54,8 @@ export interface AddServerFields {
   };
 }
 
-const DEFAULT_API_KEY = {
-  placementIn: "header" as McpApiKeyPlacementIn,
+const DEFAULT_API_KEY: AddServerFields["apiKey"] = {
+  placementIn: "header",
   placementName: "",
   value: "",
 };

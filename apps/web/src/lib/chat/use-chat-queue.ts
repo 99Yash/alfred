@@ -99,7 +99,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       if (next.get(oldKey)?.length === 0) next.delete(oldKey);
 
       if (next.size > 20) {
-        const firstKey = next.keys().next().value as string | undefined;
+        const firstKey = next.keys().next().value;
 
         if (firstKey && firstKey !== threadId && firstKey !== oldKey) next.delete(firstKey);
       }

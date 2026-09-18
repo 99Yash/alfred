@@ -863,6 +863,7 @@ function FrostBorderSection() {
             // SAFETY: CSS custom properties are valid style keys at runtime;
             // React's CSSProperties type just omits them.
             ["--frost-strength" as never]: "0.8",
+            // SAFETY: same custom-property omission as `--frost-strength` above.
             ["--frost-border-strength" as never]: "3",
           }}
         >
@@ -876,6 +877,7 @@ function FrostBorderSection() {
             // SAFETY: CSS custom properties are valid style keys at runtime;
             // React's CSSProperties type just omits them.
             ["--frost-strength" as never]: "1",
+            // SAFETY: same custom-property omission as `--frost-strength` above.
             ["--frost-border-strength" as never]: "0.3",
           }}
         >
