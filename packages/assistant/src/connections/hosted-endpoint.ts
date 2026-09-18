@@ -90,6 +90,13 @@ export type HostedEndpointErrorCode =
   | "blocked_port"
   | "credential_url"
   | "invalid_origin"
+  /**
+   * A STORED placement column no longer parses. Like `invalid_origin`, this is
+   * a bad column value rather than fresh owner input: the row was written before
+   * a name rule tightened, so the owner is told to remove and re-add the key
+   * instead of meeting a raw parse error as a 500.
+   */
+  | "invalid_placement"
   | "origin_mismatch"
   | "redirect_refused"
   | "too_many_redirects";
