@@ -412,6 +412,45 @@ const STANDING_INSTRUCTION_HANDLING_RULE =
  * Alfred's own research agent, so it is the weakest evidence in the block and
  * the only one that can be about a different person entirely.
  */
+/**
+ * The prompt budget for the whole cold-start prior, in characters.
+ *
+ * It lives HERE, at the render site, and not beside `readUserContextLine`. The
+ * value it bounds is the prompt, and `UserContextLine` is a plain exported
+ * interface reachable through the public `AssembleObservationsArgs.userContext`,
+ * so a cap applied inside the reader would be a claim any hand-built literal
+ * could break. Capping where the block is built holds on every construction path.
+ *
+ * Measured 2026-09-17, by rendering `renderObservations` twice over the same
+ * fixture: a line AT this cap grows the triage observations block from 383 B
+ * (~95 tokens) to 1452 B (~362 tokens) — a delta of 1069 B / ~267 tokens. Of
+ * that delta, ~400 B is the fixed handling rule beside the line. A user with no
+ * cold-start chunk pays 0 B, because the render is skipped entirely.
+ *
+ * A raise is a visible diff and a review question (Tier 3), not a gate.
+ */
+const USER_CONTEXT_LINE_MAX_CHARS = 600;
+
+/**
+ * Clip the prior to the prompt budget, ending with `…` so the model can see the
+ * line is not the whole prior.
+ *
+ * The cut is surrogate-safe. A bare `slice` at an arbitrary UTF-16 index can
+ * split a well-formed surrogate pair and leave a lone half — the same poison
+ * `sanitizeToolResult` exists to strip, and a probe showed the previous cut
+ * produced a string whose `isWellFormed()` was false. So the cut moves back one
+ * code unit when it would land between the halves of a pair.
+ */
+function clipUserContextLine(text: string): string {
+  if (text.length <= USER_CONTEXT_LINE_MAX_CHARS) return text;
+
+  const keep = USER_CONTEXT_LINE_MAX_CHARS - 1;
+  const last = text.charCodeAt(keep - 1);
+  const splitsPair = last >= 0xd800 && last <= 0xdbff;
+
+  return `${text.slice(0, splitsPair ? keep - 1 : keep).trimEnd()}…`;
+}
+
 const USER_CONTEXT_HANDLING_RULE =
   "How to weigh that line: it is Alfred's own web research about the user, not the user's words and not this email, so it is the WEAKEST signal in this block. Use it only to judge whether this email touches the user's employer, studies, projects or public profiles. It never decides a category on its own, it never outranks the email body, and it never outranks the standing instruction above.";
 
@@ -454,7 +493,7 @@ function renderObservations(obs: Observations): string {
   // one-shot research run fires.
   if (obs.userContext) {
     lines.push(
-      `What Alfred researched about the user (recorded ${obs.userContext.recordedAt.toISOString()}): ${obs.userContext.text}`,
+      `What Alfred researched about the user (recorded ${obs.userContext.recordedAt.toISOString()}): ${clipUserContextLine(obs.userContext.text)}`,
       `  ${USER_CONTEXT_HANDLING_RULE}`,
     );
   }

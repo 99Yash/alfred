@@ -50,6 +50,13 @@ export interface MemoryExtractionOperationState {
   documentIds: string[];
   startedAt: string;
   processed: number;
+  /**
+   * Loaded documents whose extractor call threw. Separated from `processed`
+   * because the two zeros they explain need different fixes (#1109): a run
+   * where every extractor call threw is an extractor bug, and before this field
+   * existed it reported the same counts as a healthy run that found nothing.
+   */
+  extractionErrors: number;
   proposed: number;
   blocked: number;
 }
@@ -100,6 +107,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
   let processed = 0;
+  let extractionErrors = 0;
   let proposed = 0;
   let blocked = 0;
 
@@ -180,6 +188,10 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
         });
       } catch (err) {
         await ctx.log(`extract failed for doc=${docId}: ${toMessage(err)}`);
+        // Count it, do not just log it. The run report is the only artifact a
+        // human reads a week later, and a swallowed throw made a broken
+        // extractor indistinguishable from an empty one (#1109).
+        extractionErrors++;
         proposals = [];
       }
     }
@@ -331,11 +343,14 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
     }
   }
 
-  await ctx.log(`process: docs=${processed} proposed=${proposed} blocked=${blocked}`);
+  await ctx.log(
+    `process: docs=${processed} errors=${extractionErrors} ` +
+      `proposed=${proposed} blocked=${blocked}`,
+  );
 
   return {
     kind: "next",
-    state: { ...ctx.state, processed, proposed, blocked },
+    state: { ...ctx.state, processed, extractionErrors, proposed, blocked },
     nextStep: "finalize",
   };
 }
@@ -370,6 +385,7 @@ export async function runMemoryFinalize<State extends MemoryExtractionOperationS
   const outcome = summarizeMemoryExtractionRun({
     picked: ctx.state.documentIds.length,
     processed: ctx.state.processed,
+    errors: ctx.state.extractionErrors,
     proposed: ctx.state.proposed,
     blocked: ctx.state.blocked,
   });

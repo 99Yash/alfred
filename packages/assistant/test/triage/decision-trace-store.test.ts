@@ -82,6 +82,7 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     standingInstructionReadFailed: false,
     standingInstructionCategoryFactId: null,
     standingInstructionCategoryReadFailed: false,
+    userContextReadFailed: false,
     todoOutcome: null,
     todoNote: null,
   };

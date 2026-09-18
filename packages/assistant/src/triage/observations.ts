@@ -227,8 +227,22 @@ export interface Observations {
    * It is Alfred's OWN research, so it is weaker evidence than the email body
    * and far weaker than the user's verbatim `standingInstruction` above. The
    * render order in `renderObservations` says so.
+   *
+   * A null is two-way ambiguous on its own — "no cold-start chunk" (the common
+   * case) vs "the read threw" — so read it with {@link
+   * Observations.userContextReadFailed}.
    */
   userContext: UserContextLine | null;
+  /**
+   * The cold-start read failed, so a null `userContext` means "unknown", not
+   * "this user has no cold-start chunk". Without this flag a 100% read failure
+   * is byte-identical to the common case, and production cannot answer "did
+   * this classification see a cold-start prior?".
+   *
+   * Never fails the classification: a failed read renders no line, exactly like
+   * an absent chunk, so the flag is a report and not a branch.
+   */
+  userContextReadFailed: boolean;
   gmail: GmailSignals;
   content: ContentFlags;
 }
@@ -288,6 +302,11 @@ export interface AssembleObservationsArgs {
    * production `gatherObservations` always passes it.
    */
   userContext?: UserContextLine | null | undefined;
+  /**
+   * The cold-start read threw. Optional (defaults to `false`) so eval and smoke
+   * harnesses need not thread it; production `gatherObservations` always passes it.
+   */
+  userContextReadFailed?: boolean | undefined;
   labelIds: readonly string[];
   /** Concatenated signal text (subject + body + headers), lowercased or not. */
   signalText: string;
@@ -313,6 +332,7 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
     standingInstruction: args.standingInstruction ?? null,
     standingInstructionReadFailed: args.standingInstructionReadFailed ?? false,
     userContext: args.userContext ?? null,
+    userContextReadFailed: args.userContextReadFailed ?? false,
     gmail: extractGmailSignals(args.labelIds),
     content: extractContentFlags(args.signalText),
   };
