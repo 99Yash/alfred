@@ -297,9 +297,11 @@ export interface AssembleObservationsArgs {
    */
   standingInstructionReadFailed?: boolean | undefined;
   /**
-   * Cold-start prior about the user, already capped by its own reader. Optional
-   * (defaults to `null`) so eval and smoke harnesses need not thread it;
-   * production `gatherObservations` always passes it.
+   * Cold-start prior about the user. NOT capped here or by its reader: the prompt
+   * budget is applied at the render site (`triage/classify.ts`), which is the only
+   * place the byte bound can hold on every construction path. Optional (defaults
+   * to `null`) so eval and smoke harnesses need not thread it; production
+   * `gatherObservations` always passes it.
    */
   userContext?: UserContextLine | null | undefined;
   /**

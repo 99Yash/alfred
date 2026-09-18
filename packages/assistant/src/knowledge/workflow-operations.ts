@@ -381,11 +381,18 @@ export async function runMemoryFinalize<State extends MemoryExtractionOperationS
   // `documentIds` rather than counted into a second state field: the pick step
   // already writes that array and every later step carries it forward, so a
   // parallel counter could only drift. The union is what forces the report —
-  // three of its four arms cannot be built without `picked`.
+  // four of its five arms cannot be built without `picked`.
   const outcome = summarizeMemoryExtractionRun({
     picked: ctx.state.documentIds.length,
     processed: ctx.state.processed,
-    errors: ctx.state.extractionErrors,
+    // `?? 0` is the compatibility seam, not a redundant default: this workflow's
+    // `closure: { kind: "none" }` returns before `terminal-closure.ts` parses
+    // `stateSchema`, and the executor hands `run.state` to a step VERBATIM, so a
+    // run whose `process` step committed before this field shipped resumes with
+    // `extractionErrors` absent at runtime while typed `number`. The schema's
+    // `.default(0)` therefore never fires on this path; coercing here is what
+    // keeps Half A true across a deploy. See the item's round-2 review.
+    errors: ctx.state.extractionErrors ?? 0,
     proposed: ctx.state.proposed,
     blocked: ctx.state.blocked,
   });
