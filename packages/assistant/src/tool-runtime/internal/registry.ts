@@ -311,7 +311,7 @@ export interface LiveToolArgs<
    * refuses a declaration whose model-facing top-level keys are not all
    * accepted by the runtime schema.
    */
-  modelInputSchema?: z.ZodTypeAny;
+  modelInputSchema?: z.ZodType<any>;
   /**
    * Pure side-effect: the dispatcher validates input against
    * `inputSchema` before calling, persists the proposed input + a hash,
@@ -349,13 +349,13 @@ export interface RegisteredTool {
   description: string;
   discovery: ResolvedDiscovery;
   availability?: ToolAvailabilityMetadata | undefined;
-  inputSchema: z.ZodTypeAny;
+  inputSchema: z.ZodType<any>;
   /**
    * See {@link LiveToolArgs.modelInputSchema}. Always set: it falls back to
    * `inputSchema`, so a model-facing reader never has to know which tools
    * split the two.
    */
-  modelInputSchema: z.ZodTypeAny;
+  modelInputSchema: z.ZodType<any>;
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
   /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
   redactInput?: (input: unknown) => unknown;
@@ -548,7 +548,7 @@ export function evaluateToolCatalog(
 export function liveTool<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
-  S extends z.ZodTypeAny,
+  S extends z.ZodType<any>,
 >(args: LiveToolArgs<I, A, S>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
 
@@ -851,7 +851,7 @@ function assertModelSchemaIsSubset(tool: RegisteredTool): void {
 }
 
 /** Top-level input property names, or `null` when the schema cannot be read. */
-function topLevelPropertyNames(schema: z.ZodTypeAny): string[] | null {
+function topLevelPropertyNames(schema: z.ZodType<any>): string[] | null {
   let json: z.core.JSONSchema.BaseSchema;
 
   try {
