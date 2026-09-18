@@ -40,9 +40,21 @@ export interface ExtractedKey {
  * the key resolvable — `head_sha` means nothing without the projection it is
  * keyed in — so the reconcile operation carries it rather than taking one
  * provider for a whole batch.
+ *
+ * The {@link KeyProposalReading} a key was proposed under is a REQUIRED
+ * structural member, never absent and never defaulted. It is what makes an
+ * `annotates` result type-distinct from an `about` one, so a closure reader
+ * that accepts the strongest reading cannot be handed the weakest. It is real
+ * data rather than a phantom: `reconcile.ts` reads it to decide whether a
+ * result may carry a closing category.
  */
-export interface CandidateKey extends Omit<ExtractedKey, "provider"> {
+export interface CandidateKey<Reading extends KeyProposalReading> extends Omit<
+  ExtractedKey,
+  "provider"
+> {
   provider: ObjectStateProvider;
+  /** Which reading proposed this key. Never absent, never defaulted. */
+  readonly reading: Reading;
 }
 
 /**
@@ -55,8 +67,15 @@ export function keyIdentity(key: ExtractedKey): string {
   return [key.keyKind, key.keyValue, key.match].join("\u0000");
 }
 
-/** The same identity across providers, for a batch that spans more than one. */
-export function candidateIdentity(key: CandidateKey): string {
+/**
+ * The same identity across providers, for a batch that spans more than one.
+ * The reading is deliberately not part of the identity: one `reconcileEvidence`
+ * call carries one reading for all of its subjects, so two keys can never
+ * differ by reading within a single dedup map.
+ */
+export function candidateIdentity<Reading extends KeyProposalReading>(
+  key: CandidateKey<Reading>,
+): string {
   const { provider, ...extracted } = key;
 
   return [provider, keyIdentity(extracted)].join("\u0000");
@@ -99,8 +118,34 @@ export interface ReconcileSubject {
  * Every reading is equally safe against state, because none of them asserts
  * state: a wrong or hallucinated key resolves to nothing and closes nothing.
  * They differ only in what the caller DOES with a resolution.
+ *
+ * A reading now rides in the RESULT type, not only in the proposal:
+ * {@link import("./reconcile").proposeObjectKeys} stamps it onto every
+ * {@link CandidateKey}, and `reconcileEvidence` propagates it as a type
+ * parameter. A value produced under `annotates` therefore cannot reach a
+ * closure reader, which accepts only {@link ClosureReading}.
  */
 export type KeyProposalReading = "about" | "mentions" | "annotates";
+
+/**
+ * Whether a reading's caller may close an already-open ask on a resolution.
+ * `about` drops the item, `mentions` suppresses the prose, and `annotates` only
+ * decorates a card — it holds no closure authority by design.
+ */
+const READING_CLOSES_ASK = {
+  about: true,
+  mentions: true,
+  annotates: false,
+} as const satisfies Record<KeyProposalReading, boolean>;
+
+/**
+ * The readings whose caller may read closure off a reconciled result. Derived
+ * from {@link READING_CLOSES_ASK}, so adding a fourth reading is a compile
+ * error until its closure authority is declared.
+ */
+export type ClosureReading = {
+  [R in KeyProposalReading]: (typeof READING_CLOSES_ASK)[R] extends true ? R : never;
+}[KeyProposalReading];
 
 /**
  * What the caller asks an adapter to read, with the provenance the reading
@@ -108,7 +153,8 @@ export type KeyProposalReading = "about" | "mentions" | "annotates";
  * it: the field is required (possibly `null`) so a caller that omits it is a
  * compile error rather than a subject that silently proposes nothing forever.
  * `mentions` and `annotates` claim no provenance. It is provenance, never
- * state.
+ * state. The reading also selects the {@link CandidateKey} parameter the
+ * proposal mints, so the caller's authority is carried by the result type.
  */
 export type KeyProposal =
   | { reading: "about"; sender: string | null }
