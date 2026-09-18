@@ -59,7 +59,7 @@ interface ResolvedLocation {
  * error on non-2xx or malformed JSON; the caller decides whether that is a
  * hard failure or a reason to fall back.
  */
-async function fetchJson(url: URL, source: string): Promise<unknown> {
+async function fetchJson<T>(url: URL, source: string): Promise<T> {
   const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
 
   if (!res.ok) throw new Error(`${source}: ${res.status}`);

@@ -28,6 +28,11 @@ export const SCROLL_CHAT_TO_BOTTOM_EVENT = "alfred:scroll-chat-to-bottom";
 /** Longest reply preview we'll show in the toast before eliding. */
 const SNIPPET_MAX = 140;
 
+/** Leading mark for run-complete toasts — same glyph as the chat think pulse. */
+const ALFRED_TOAST_ICON = (
+  <img src="/images/logo/alfred-logo.svg" alt="" className="size-4.5 rounded-[5px]" />
+);
+
 /**
  * Distil the streamed reply into a one-line preview: collapse whitespace, trim,
  * and elide on a word boundary. Returns `null` when the turn closed with no
@@ -93,7 +98,7 @@ export function useRunComplete(stream: StreamingMessage | null): void {
       toast.custom({
         message: "Alfred can notify you when a reply lands",
         description: "A chime + toast when a turn finishes while you're away. Tune it in Settings.",
-        icon: <span className="text-[15px] leading-none">✨</span>,
+        icon: ALFRED_TOAST_ICON,
         position: "bottom-right",
         duration: 8000,
         action: { label: "Settings", onClick: () => void navigate({ to: "/settings" }) },
@@ -118,7 +123,7 @@ export function useRunComplete(stream: StreamingMessage | null): void {
       ) : (
         "Your turn is ready."
       ),
-      icon: <span className="text-[15px] leading-none">✨</span>,
+      icon: ALFRED_TOAST_ICON,
       position: "bottom-right",
       duration: 6000,
       action: {
