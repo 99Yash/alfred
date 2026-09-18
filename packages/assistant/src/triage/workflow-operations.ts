@@ -58,10 +58,8 @@ import { getFreshAccessToken, getMessage, type TriageCategory } from "@alfred/in
 
 /**
  * Email triage workflow (ADR-0025): one `email_triage` row per (user, thread),
- * steps classify → close-loop-todos → apply-label. A new run re-classifies on
- * reply; user-overridden tags stay pinned; apply-label strips every alfred label
- * from sibling messages. Owner: this file. History: ADR-0051, ADR-0050, #282.
- * Glossary: `docs/reference/glossary.md`.
+ * steps classify → close-loop-todos → apply-label. A reply re-runs it; user
+ * overrides stay pinned; apply-label strips sibling alfred labels. Owner: this file. History: ADR-0051, ADR-0050, #282. Glossary: `docs/reference/glossary.md`.
  */
 
 export interface EmailTriageOperationState {
