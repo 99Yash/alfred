@@ -6,6 +6,9 @@ import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { normalizeSenderEmail } from "../knowledge";
 
+/** The live (`not-yet-terminal`) statuses a dismissal may target. */
+const liveTodoStatusSchema = z.enum(["open", "suggested"]);
+
 const resolveTodosForGmailSourceArgsSchema = z.object({
   userId: z.string().min(1),
   senderEmail: z.string().nullish(),
@@ -18,9 +21,23 @@ const resolveTodosForGmailSourceArgsSchema = z.object({
    * `auditReason` so callers can log it — it is never written to the todo row.
    */
   reason: z.string().max(1_000).nullish(),
+  /**
+   * Which live statuses to retract. Defaults to both: the manual
+   * `system.resolve_todo` / `system.remember` paths dismiss whatever the user
+   * pointed at, promoted or not. The automatic `close-loop-todos` retraction
+   * passes `["suggested"]` on purpose — it may only drop an **unpromoted**
+   * proposal, never a commitment the user explicitly promoted to `open`, where
+   * a holding reply ("I'll send it tomorrow") is progress, not closure.
+   */
+  statuses: z.array(liveTodoStatusSchema).min(1).optional(),
 });
 
 export type ResolveTodosForGmailSourceArgs = z.infer<typeof resolveTodosForGmailSourceArgsSchema>;
+
+/** Both live statuses; the default when a caller does not narrow. */
+const DEFAULT_RETRACTABLE_STATUSES = ["open", "suggested"] as const satisfies ReadonlyArray<
+  z.infer<typeof liveTodoStatusSchema>
+>;
 
 export type ResolveTodosForGmailSourceResult =
   | {
@@ -59,6 +76,11 @@ interface GmailThreadMetadata {
  * `system.remember` and `system.resolve_todo` paths), or both; either mode
  * alone is enough. Named for the source because the thread-only call is a
  * first-class caller, not a misuse of a sender-shaped API.
+ *
+ * The statuses to retract are a caller decision ({@link
+ * ResolveTodosForGmailSourceArgs.statuses}), defaulting to both live ones. The
+ * automatic retraction narrows to `suggested` so it never buries a todo the
+ * user promoted.
  */
 export async function resolveTodosForGmailSource(
   args: ResolveTodosForGmailSourceArgs,
@@ -68,6 +90,7 @@ export async function resolveTodosForGmailSource(
   const sourceThreadId = normalizeOptional(parsed.sourceThreadId);
   const accountId = normalizeOptional(parsed.accountId);
   const auditReason = normalizeOptional(parsed.reason);
+  const statuses = parsed.statuses ?? DEFAULT_RETRACTABLE_STATUSES;
 
   if (!senderEmail && !sourceThreadId) {
     return {
@@ -80,7 +103,7 @@ export async function resolveTodosForGmailSource(
     };
   }
 
-  const candidates = await loadLiveGmailTodoCandidates(parsed.userId);
+  const candidates = await loadLiveGmailTodoCandidates(parsed.userId, statuses);
 
   const relevant = sourceThreadId
     ? candidates.filter((candidate) => candidate.threadIds.includes(sourceThreadId))
@@ -130,7 +153,7 @@ export async function resolveTodosForGmailSource(
       and(
         eq(todos.userId, parsed.userId),
         inArray(todos.id, [...todoIds]),
-        inArray(todos.status, ["open", "suggested"]),
+        inArray(todos.status, [...statuses]),
       ),
     )
     .returning({ id: todos.id });
@@ -166,11 +189,14 @@ export function gmailThreadIdsFromSources(sources: readonly TodoSource[]): strin
   return [...ids];
 }
 
-async function loadLiveGmailTodoCandidates(userId: string): Promise<CandidateTodo[]> {
+async function loadLiveGmailTodoCandidates(
+  userId: string,
+  statuses: ReadonlyArray<z.infer<typeof liveTodoStatusSchema>>,
+): Promise<CandidateTodo[]> {
   const rows = await db()
     .select({ id: todos.id, sources: todos.sources })
     .from(todos)
-    .where(and(eq(todos.userId, userId), inArray(todos.status, ["open", "suggested"])));
+    .where(and(eq(todos.userId, userId), inArray(todos.status, [...statuses])));
 
   return rows.flatMap((row) => {
     const threadIds = gmailThreadIdsFromTodoSources(row.sources);
