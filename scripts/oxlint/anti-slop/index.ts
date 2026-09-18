@@ -18,8 +18,10 @@ import { requireSafetyCommentForTypeAssertionRule } from "./rules/require-safety
  * upstream commit, the sync procedure, and the measured reason each excluded
  * rule stayed out.
  *
- * Nine rules are enabled at "error" in .oxlintrc.json (pure ratchets: zero
- * violations at adoption). Three rules are enabled at "warn" for paydown. Three
+ * Ten rules are enabled at "error" in .oxlintrc.json (pure ratchets: zero
+ * violations at adoption, or driven to zero at warn and promoted — the last
+ * by-surface promotion was no-unsafe-dictionary-type). Two rules are enabled
+ * at "warn" for paydown. Three
  * rules conflict with repo invariants and are NOT registered:
  * - no-conditional-empty-object-spread: conflicts with exactOptionalPropertyTypes
  * - no-unknown-parameters: conflicts with boundary validator pattern

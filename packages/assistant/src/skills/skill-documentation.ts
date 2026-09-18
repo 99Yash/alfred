@@ -237,9 +237,15 @@ export const skillDocumentationWorkflow: Workflow<State> = {
             sourceCounts: context.sourceCounts,
             documentHitCount: context.documentHits.length,
             memoryHitCount: context.memoryHits.length,
-            inputTokens: ctx.state.documented.inputTokens,
-            outputTokens: ctx.state.documented.outputTokens,
-            triggeringLearnRunId: ctx.state.triggeringLearnRunId,
+            ...(ctx.state.documented.inputTokens !== undefined
+              ? { inputTokens: ctx.state.documented.inputTokens }
+              : {}),
+            ...(ctx.state.documented.outputTokens !== undefined
+              ? { outputTokens: ctx.state.documented.outputTokens }
+              : {}),
+            ...(ctx.state.triggeringLearnRunId !== undefined
+              ? { triggeringLearnRunId: ctx.state.triggeringLearnRunId }
+              : {}),
           },
         });
 

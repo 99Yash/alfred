@@ -1,4 +1,4 @@
-import type { AccountPersona } from "@alfred/contracts";
+import type { AccountPersona, JsonObject } from "@alfred/contracts";
 import { toStringArray } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
@@ -38,7 +38,7 @@ export interface UpsertCredentialsArgs {
   refreshToken: string;
   expiresAt: Date;
   scopes: string[];
-  metadata?: Record<string, unknown> | undefined;
+  metadata?: JsonObject | undefined;
   /**
    * Account persona (ADR-0051 #3): `'work' | 'personal'`, auto-detected from
    * the Google `hd` claim at connect. Omitted leaves the column untouched on

@@ -14,6 +14,7 @@ import {
   type Transport,
 } from "@modelcontextprotocol/client";
 import type { McpAuthorizedProtocol } from "./endpoint-authorization";
+import type { JsonObject } from "@alfred/contracts";
 import { McpClientError } from "./errors";
 import type { McpTraceContext } from "./trace";
 
@@ -99,7 +100,7 @@ export interface McpProtocolClient {
   ): Promise<McpProtocolPage>;
   callTool(
     tool: Tool,
-    args: Record<string, unknown>,
+    args: JsonObject,
     signal?: AbortSignal,
     trace?: McpTraceContext,
   ): Promise<McpProtocolCallResult>;
@@ -310,7 +311,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
 
   async callTool(
     tool: Tool,
-    args: Record<string, unknown>,
+    args: JsonObject,
     signal?: AbortSignal,
     trace?: McpTraceContext,
   ): Promise<McpProtocolCallResult> {

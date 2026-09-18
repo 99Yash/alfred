@@ -16,6 +16,7 @@
 import { z } from "zod";
 import { TOOL_INPUT_SCHEMAS } from "./tool-schemas";
 import type { ToolName } from "./tools";
+import type { JsonObject } from "./user-model";
 
 export type FieldKind =
   | "text"
@@ -76,7 +77,7 @@ export type FieldSpec =
       multiline: true;
     });
 
-type JsonSchema = Record<string, unknown>;
+type JsonSchema = JsonObject;
 
 /** Labels for keys whose humanized form reads poorly (abbreviations, ids). */
 const LABEL_ALIASES = {

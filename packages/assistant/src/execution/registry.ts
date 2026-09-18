@@ -2,6 +2,7 @@ import type {
   AgentRunTrigger,
   AgentTranscriptMessage,
   CancellationFence,
+  JsonObject,
   WakeCondition,
   WorkflowTrigger,
 } from "@alfred/contracts";
@@ -152,7 +153,7 @@ export interface WorkflowInput {
   /** Workflow-defined initial input passed to `initialState`. */
   input?: unknown | undefined;
   /** Free-form metadata persisted on the run row. */
-  metadata?: Record<string, unknown> | undefined;
+  metadata?: JsonObject | undefined;
 }
 
 export type AgentDbExecutor = DbRoot | DbTransaction;

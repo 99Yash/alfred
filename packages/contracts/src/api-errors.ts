@@ -1,4 +1,5 @@
 import { enumGuard, isIndexable, isNonEmptyString, isRecord } from "./guards";
+import type { JsonObject } from "./user-model";
 
 export const API_ERROR_CODES = [
   "BAD_REQUEST",
@@ -18,7 +19,7 @@ export const API_ERROR_CODES = [
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
 /** Extra machine-readable context on a failure. Rendered into the wire body. */
-export type ApiErrorDetails = Record<string, unknown>;
+export type ApiErrorDetails = JsonObject;
 
 export interface ApiErrorResponse {
   error: string;

@@ -12,6 +12,7 @@ import {
 } from "ai";
 import { identifyLanguageModel, isModelObject, normalizeProvider } from "../models";
 import { providerForServedModel } from "../provider-adapter";
+import type { JsonObject } from "@alfred/contracts";
 import {
   metered,
   meteredStream,
@@ -312,7 +313,7 @@ export interface MeteredGenerateObjectArgs<O> extends Omit<GenerateTextArgs, "ou
 
 export interface AttributedCall extends CallAttribution {
   /** Trimmed params surfaced to `request_meta` (avoid full prompts). */
-  requestMeta?: Record<string, unknown> | undefined;
+  requestMeta?: JsonObject | undefined;
   /** Override provider/model identifiers — only useful for routed/dispatched models. */
   provider?: string | undefined;
   model?: string | undefined;
