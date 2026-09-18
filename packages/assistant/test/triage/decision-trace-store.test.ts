@@ -98,6 +98,7 @@ function decisionTraceWorkflow(slug: string): Workflow<TestState> {
       senderRelationship: "unused",
     }),
     initialStep: "classify",
+    closure: { kind: "none" },
     steps: {
       classify: {
         id: "classify",
