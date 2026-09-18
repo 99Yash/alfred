@@ -48,6 +48,8 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
   senderKind: clickUpSenderKind,
   standingInstruction: null,
   standingInstructionReadFailed: false,
+  userContext: null,
+  userContextReadFailed: false,
   gmail: {
     categories: ["updates"],
     important: false,

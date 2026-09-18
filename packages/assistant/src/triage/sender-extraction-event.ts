@@ -235,6 +235,13 @@ export interface SenderExtractionEvent extends FloorTraceFields {
    * post-classify todo read.
    */
   standingInstructionCategoryReadFailed: boolean;
+  /**
+   * The pre-classify cold-start read failed, so this classification ran with no
+   * user-context prior in the prompt for a reason OTHER than the common one.
+   * Without it a total read failure and "this user has no cold-start chunk"
+   * project the same row, and the deploy cannot be measured.
+   */
+  userContextReadFailed: boolean;
   /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
   todoOutcome: string | null;
   todoNote: string | null;
@@ -305,6 +312,7 @@ export function senderExtractionEvent(args: {
     standingInstructionReadFailed: args.standingSuppressionReadFailed,
     standingInstructionCategoryFactId: obs.standingInstruction?.factId ?? null,
     standingInstructionCategoryReadFailed: obs.standingInstructionReadFailed,
+    userContextReadFailed: obs.userContextReadFailed,
     todoOutcome: args.classification.todoDecision?.outcome ?? null,
     todoNote: args.classification.todoDecision?.note ?? null,
   };
