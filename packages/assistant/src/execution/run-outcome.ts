@@ -13,8 +13,7 @@ import type { DbTransaction } from "@alfred/db";
 import { actionStagings, workflows, type ActionStaging, type AgentRun } from "@alfred/db/schemas";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { isInternalWorkflowSlug } from "./registry";
-import type { RunDeferReason } from "./types";
+import { isInternalWorkflowSlug, type RunDeferReason } from "./registry";
 
 /**
  * The typed verdict every terminal (and deferred) run write carries beside its

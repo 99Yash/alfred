@@ -12,7 +12,7 @@ import {
   type IntegrationEntryOf,
   type IntegrationSlug,
 } from "./registry";
-import type { PassthroughTransportKind } from "./types";
+import type { PassthroughTransportKind } from "./registry";
 
 /** The slugs whose entry extends `P`. */
 export type SlugsWhere<P> = {
@@ -51,7 +51,7 @@ export type TokenPasteSlug = SlugsWhere<{
 /**
  * The persisted vocabulary of `integration_credentials.provider` and the route
  * family `/api/integrations/<provider>`: `google` for the Google products, the
- * slug for every other live provider. See `CredentialSpec` in `./types`.
+ * slug for every other live provider. See `CredentialSpec` in `./registry`.
  */
 export type CredentialProvider = "google" | GithubAppSlug | BearerSlug;
 

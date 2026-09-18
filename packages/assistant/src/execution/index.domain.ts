@@ -72,15 +72,9 @@ export { persistChatTurnRunInTx, redeliverRun, replayRun };
 
 export { closeAgentQueue, closeSubAgentJoinWakeQueue };
 
-export type {
-  RunStatus,
-  Step,
-  StepContext,
-  StepResult,
-  WakeCondition,
-  Workflow,
-  WorkflowInput,
-} from "./types";
+export type { RunStatus, WakeCondition } from "@alfred/contracts";
+
+export type { Step, StepContext, StepResult, Workflow, WorkflowInput } from "./registry";
 
 export type { CancelOutcome, SignalArgs, SignalOutcome } from "./service";
 
@@ -185,4 +179,4 @@ export {
   type ChildRunOutcome,
 } from "./sub-agents";
 
-export type { AgentDbExecutor } from "./types";
+export type { AgentDbExecutor } from "./registry";

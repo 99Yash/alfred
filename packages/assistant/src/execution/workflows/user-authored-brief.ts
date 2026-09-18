@@ -57,7 +57,8 @@ import {
   subAgentMetadataSchema,
   SUB_AGENT_WORKFLOW_SLUG,
 } from "../sub-agent-metadata";
-import { isTerminalStatus, type Step, type Workflow } from "../types";
+import { isTerminalStatus } from "@alfred/contracts";
+import type { Step, Workflow } from "../registry";
 import { getRun } from "../service";
 import { pendingToolCallSchema } from "./pending-tool-call";
 import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";

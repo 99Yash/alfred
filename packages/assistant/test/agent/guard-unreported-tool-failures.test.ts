@@ -8,7 +8,7 @@ import {
 } from "@alfred/assistant/chat/finalize-guards";
 import type { ChatRunState } from "@alfred/assistant/chat/chat-turn-state";
 import { shouldPublishToolStarted } from "@alfred/assistant/execution/workflows/tool-card-events";
-import type { StepContext } from "@alfred/assistant/execution/types";
+import type { StepContext } from "@alfred/assistant/execution";
 
 /**
  * Unit tests for the #346 honesty guard. The invariant: a turn whose mutating

@@ -2,7 +2,7 @@ import { LOADABLE_INTEGRATION_SLUGS, POLICY_MODES } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
-import type { SyncedActionPolicy } from "../types";
+import type { SyncedActionPolicy } from "../schemas";
 
 export const policySetIntegrationModeArgsSchema = z.object({
   slug: z.enum(LOADABLE_INTEGRATION_SLUGS),

@@ -11,9 +11,13 @@ import {
 import {
   agentRunTriggerSchema,
   boundAgentRunError,
+  isTerminalStatus,
   runStatusSchema,
   wakeConditionSchema,
   type AgentRunTrigger,
+  type ApprovalKind,
+  type RunStatus,
+  type WakeCondition,
 } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes, publishEvent } from "@alfred/assistant/triggers";
@@ -27,7 +31,7 @@ import {
 } from "@alfred/assistant/tool-runtime";
 import { snapshotScratchToPostgres } from "./scratchpad/index";
 import { enqueueRun } from "./queue";
-import { getWorkflow, listWorkflows } from "./registry";
+import { getWorkflow, listWorkflows, type AgentDbExecutor, type WorkflowInput } from "./registry";
 import { resolveWorkflowForRun } from "./resolve-workflow";
 import {
   readSubAgentMetadata,
@@ -37,14 +41,6 @@ import {
 import { startSubAgentWaitSpan, type SubAgentWaitOutcome } from "./runtime-spans";
 import { finalizeCancelledRun } from "./terminal-closure";
 import { deriveRunOutcome, pokeWorkflowOwner, recordWorkflowLastRun } from "./run-outcome";
-import {
-  isTerminalStatus,
-  type AgentDbExecutor,
-  type ApprovalKind,
-  type RunStatus,
-  type WakeCondition,
-  type WorkflowInput,
-} from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
 import {
   workflowOccurrenceKey,

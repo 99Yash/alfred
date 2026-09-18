@@ -10,8 +10,9 @@ import {
   userFacts,
   userPreferences,
 } from "@alfred/db/schemas";
+import { memorySourceSchema, type MemorySource } from "@alfred/contracts";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
-import { memorySourceSchema, type MemorySource, USER_FACING_MEMORY_CHUNK_KINDS } from "./types";
+import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
 
 /** The sections {@link readUserContext} can be narrowed to via `include`. */
 export type UserContextSection =

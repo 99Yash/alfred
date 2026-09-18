@@ -3,7 +3,70 @@ import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { resolveWorkflowForRun } from "./resolve-workflow";
-import type { TerminalOutcome } from "./types";
+
+/**
+ * What terminal closure gets regardless of *how* the run ended: which run it
+ * was, and the state it ended holding. `completed` is absent on purpose — a run
+ * completes by a step returning `done`, inside the step body, so the workflow
+ * already owns that closure.
+ */
+interface TerminalRunFields<S> {
+  runId: string;
+  userId: string;
+  /** The run's last-committed state (validated against `stateSchema` if present). */
+  state: S;
+}
+
+/**
+ * Why closure is being driven, and the one field each reason carries. Split out
+ * so `terminal-closure.ts` can pass the transition around without re-stating the
+ * run fields it looks up itself.
+ */
+export type TerminalOutcome =
+  | {
+      outcome: "failed";
+      /** Sanitized, user-safe failure message (the synthetic backstop string, etc.). */
+      error: string;
+    }
+  | {
+      outcome: "cancelled";
+      /** Why the run was cancelled — e.g. the approvals `cancel_run` decision's reason. */
+      reason: string;
+    };
+
+/**
+ * Context handed to a client-closing workflow — one obligation, two renderings.
+ *
+ * A discriminated union rather than two optional hooks (`onTerminalFailure?` /
+ * `onCancelled?`) held together by a docstring saying "implement BOTH". The
+ * renderings genuinely differ and must stay separable — a cancel must not surface
+ * a retryable error — but that is a `switch`, not a second entry point. With two
+ * hooks, implementing only the failure half compiles, and that omission *is* the
+ * streaming-bubble-hangs-forever regression (#530/#531 review, D2). Here the
+ * missing branch is an exhaustiveness error at the `never` assertion.
+ *
+ * The distributed form (rather than `TerminalRunFields<S> & TerminalOutcome`) is
+ * what makes `switch (ctx.outcome)` narrow `error` / `reason`.
+ */
+type TerminalClosureContext<S> =
+  | (TerminalRunFields<S> & { outcome: "failed"; error: string })
+  | (TerminalRunFields<S> & { outcome: "cancelled"; reason: string });
+
+/**
+ * Whether a run going terminal outside its step body owes client-facing closure,
+ * and the hook that does it. Owned here with the driver that invokes it; the
+ * registered `Workflow` contract in `./registry` names it.
+ */
+export type WorkflowClosure<S> =
+  | {
+      /** This workflow never leaves client-facing state that needs terminal repair. */
+      kind: "none";
+    }
+  | {
+      /** This workflow owns client-facing state that must close on every terminal outcome. */
+      kind: "client";
+      onTerminal(ctx: TerminalClosureContext<S>): Promise<void>;
+    };
 
 /**
  * Workflow-level closure for a run that reached a terminal state outside its

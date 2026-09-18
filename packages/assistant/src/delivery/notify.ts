@@ -35,6 +35,15 @@ export interface NotifyArgs {
   toAddress?: string;
 }
 
+/**
+ * The subject plus both MIME bodies a compose verb hands to `notify`. Derived
+ * from `NotifyArgs` rather than restated, so the transport's three required
+ * body fields are the one source of truth and a compose helper cannot drift.
+ * Minters: `composeInboxBriefing` (`briefings/compose.ts`) and
+ * `composeSkillDocumentationEmail` (`skills/email.ts`).
+ */
+export type ComposedEmail = Pick<NotifyArgs, "subject" | "html" | "text">;
+
 export type NotifyResult =
   | { status: "sent"; emailSendId: string; providerMessageId: string | null }
   | { status: "duplicate"; emailSendId: string }

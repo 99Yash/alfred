@@ -12,7 +12,7 @@ import {
   resolveTraceName,
   traceTags,
 } from "../src/metering/langfuse";
-import type { MeteredMeta } from "../src/metering/types";
+import type { MeteredMeta } from "../src/metering/metered";
 
 /**
  * The Langfuse envelope (#216/#226) is the code most likely to regress

@@ -2,7 +2,7 @@ import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
 import { factValueSchema, memorySourceSchema } from "../schemas";
-import type { SyncedFact } from "../types";
+import type { SyncedFact } from "../schemas";
 
 /**
  * Client-side mutators for the memory correction loop (ADR-0019).

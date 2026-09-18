@@ -2,7 +2,7 @@ import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
 import { memorySourceSchema, preferenceValueSchema } from "../schemas";
-import type { SyncedPreference } from "../types";
+import type { SyncedPreference } from "../schemas";
 
 /**
  * Client-side mutators for `user_preferences` (ADR-0012).

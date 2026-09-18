@@ -2,7 +2,7 @@ import { isoDateTimeStringSchema } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
-import type { SyncedTodo } from "../types";
+import type { SyncedTodo } from "../schemas";
 
 /**
  * Client-side todo mutators (ADR-0050). User-authored todos and user-initiated

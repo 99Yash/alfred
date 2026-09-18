@@ -16,7 +16,7 @@
 // — the regression turns the build red.
 
 import type { DecisionTraceFor } from "@alfred/assistant/execution/decision-traces";
-import type { StepContext } from "@alfred/assistant/execution/types";
+import type { StepContext } from "@alfred/assistant/execution";
 // Barrel import (triage/index.ts). `SenderExtractionEvent` is the payload triage
 // declares for `"triage.classification"` via a `declare module` augmentation at
 // the bottom of `triage/sender-extraction-event.ts`; because `tsconfig.test.json`

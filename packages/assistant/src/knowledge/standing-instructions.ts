@@ -5,9 +5,11 @@ import {
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   standingInstructionTargetKey,
   standingInstructionTargetSpecificity,
+  memorySourceSchema,
   standingInstructionValueSchema,
   SUPPRESSION_EFFECTS,
   targetMatchesSender,
+  type MemorySource,
   type ObservationSource,
   type StandingInstructionTarget,
   type StandingInstructionTargetKind,
@@ -23,7 +25,6 @@ import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { insertObservation } from "./observations";
 import { normalizeSenderEmail } from "./sender-email";
 import { valueSignature } from "./signature";
-import { memorySourceSchema, type MemorySource } from "./types";
 
 export { normalizeSenderEmail } from "./sender-email";
 

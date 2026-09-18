@@ -1,6 +1,7 @@
 import { emailLogoUrl } from "@alfred/assistant/settings";
 import { serverEnv } from "@alfred/env/server";
-import { type ComposedEmail, renderSkillDocumentationEmail } from "@alfred/mailer";
+import type { ComposedEmail } from "@alfred/assistant/delivery";
+import { renderSkillDocumentationEmail } from "@alfred/mailer";
 import type { SkillDocumentationContext } from "./skill-documentation-context";
 
 /**

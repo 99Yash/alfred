@@ -7,12 +7,40 @@ import {
 } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import {
-  type StyleAudienceBucket,
-  type StyleChannel,
-  styleAudienceBucketSchema,
-  styleChannelSchema,
-} from "./types";
+
+/**
+ * `style_profiles.channel` / `audience_bucket` vocabularies (ADR-0013). The
+ * text columns are validated at this app-boundary store; the unions derive from
+ * the tuples so a new channel or bucket cannot drift from its parse.
+ */
+export const STYLE_CHANNELS = [
+  "gmail",
+  "imessage",
+  "slack",
+  "doc",
+  "code_review",
+  "twitter",
+  "generic",
+] as const;
+
+export const styleChannelSchema = z.enum(STYLE_CHANNELS);
+
+export type StyleChannel = (typeof STYLE_CHANNELS)[number];
+
+export const STYLE_AUDIENCE_BUCKETS = [
+  "family",
+  "friend",
+  "peer",
+  "manager",
+  "customer",
+  "vendor",
+  "public",
+  "generic",
+] as const;
+
+export const styleAudienceBucketSchema = z.enum(STYLE_AUDIENCE_BUCKETS);
+
+export type StyleAudienceBucket = (typeof STYLE_AUDIENCE_BUCKETS)[number];
 
 /**
  * Style-profile primitives are intentionally minimal in m8a — table

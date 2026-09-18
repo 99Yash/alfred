@@ -12,7 +12,13 @@
  * Weights and saturation constants are tunable from data (ADR-0057/0059 open
  * item); they live here as named constants, not magic numbers.
  */
-import { type SignificanceBand, bucketSignificance, clamp01, toMessage } from "@alfred/contracts";
+import {
+  type SignificanceBand,
+  bucketSignificance,
+  clamp01,
+  jsonRecordSchema,
+  toMessage,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { entities, user } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -23,7 +29,6 @@ import {
   type SignificanceScoreComponents,
   parsePersonEntityMetadata,
 } from "./entity-metadata";
-import { jsonRecordSchema } from "./types";
 
 export interface SignificanceWeights {
   /**

@@ -113,9 +113,10 @@ column carries. A public failure is `{ code, params?, message, fix }`. Consumers
 
 ### Integration registry — `@alfred/contracts` (`src/integrations/`)
 
-One record per integration (ADR-0093), in four files: `types.ts` (entry shapes), `registry.ts`
-(the record; its keys are the slug space, so `IntegrationSlug` is `keyof` the record), `slugs.ts`
-(derived unions and lists), `projections.ts` (slug-keyed tables built from the record). Every
+One record per integration (ADR-0093), in four modules: `registry.ts` (the record and its entry
+shapes; its keys are the slug space, so `IntegrationSlug` is `keyof` the record), `slugs.ts`
+(derived unions and lists), `projections.ts` (slug-keyed tables built from the record), and
+`connected.ts` (the executable connected rule each `CredentialSpec` declares). Every
 per-integration fact, the tool actions included, is a field on `INTEGRATIONS[slug]`; every table
 keyed by an integration is a projection of it or an exhaustive sibling keyed by a union derived
 from it. `pnpm check` fails on a `Partial<Record<…Slug, …>>` over a registry union or a literal
