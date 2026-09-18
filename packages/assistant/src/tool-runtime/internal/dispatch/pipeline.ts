@@ -1,35 +1,9 @@
 /**
- * Tool dispatcher (m13 Phase 3 / ADR-0034).
- *
- * Every tool call the boss (or a sub-agent) makes flows through
- * `dispatchToolCall`. Responsibilities:
- *
- *   1. Resolve the tool registry entry and validate the proposed input.
- *   2. Stable-hash the input (`hashToolInput`) for retry suppression and
- *      duplicate detection.
- *   3. Consult `user_action_policies` (in-process cache, bust via Redis
- *      Pub/Sub) to decide autonomy vs. gated.
- *   4. INSERT `action_stagings` row, idempotent on
- *      `(run_id, tool_call_id)`. The row is the canonical audit + UI
- *      surface for every tool call regardless of mode.
- *   5. Autonomy: execute the tool, update the row with the result, hand
- *      the result back to the caller.
- *   6. Gated: return a `staged` outcome carrying a `WakeCondition`
- *      whose `approvalId` is the staging row id. The agent loop turns
- *      that into a `StepResult.interrupt` so the executor parks the
- *      run; the resume path (the same step re-runs after approval) hits
- *      this function again with the same `tool_call_id` and finds an
- *      `approved` (or `rejected` / `expired`) row to act on.
- *
- * The dispatcher is also the retry-suppression gate (Phase 3c). When a
- * model re-proposes a tool call with byte-identical input to one the
- * user already rejected, we synthesize `rejected_by_user` immediately —
- * no second staging row, no second email — and the boss learns by
- * receiving the result.
- *
- * The function is single-pass: it handles both the initial dispatch and
- * the post-approval resume by branching on the existing row's status.
- * Callers don't need a separate "resume" entry point.
+ * Every tool call (boss or sub-agent) flows through `dispatchToolCall`: validate,
+ * hash for retry suppression, consult policy, stage an `action_stagings` row (the
+ * canonical audit surface), then execute or park. Single-pass: the same call
+ * handles dispatch and post-approval resume. Owner: this file.
+ * History: ADR-0034, ADR-0069. Glossary: `docs/reference/glossary.md`.
  */
 
 import type {

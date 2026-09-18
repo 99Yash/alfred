@@ -57,56 +57,11 @@ import {
 import { getFreshAccessToken, getMessage, type TriageCategory } from "@alfred/integrations/google";
 
 /**
- * Email triage workflow (ADR-0025 #1).
- *
- * Steps:
- *   1. classify    — load doc + credential, extract SenderContext, gather
- *                    deterministic observations (sender prior, persona, thread
- *                    state, known-contact, Gmail signals, content flags), run
- *                    the context-rich cheap classifier (which owns the
- *                    conditional second cheap pass + override floor, ADR-0051),
- *                    then upsert the final `email_triage` row keyed on the
- *                    Gmail thread. No boss `deepen` escalation.
- *   2. close-loop-todos — on the outbound-reply re-eval (#282), when the
- *                    user's own send is the thread's newest message, dismiss
- *                    the live rail todos sourced from that thread (ADR-0050
- *                    same-thread retraction).
- *   3. apply-label — modify Gmail labels (add chosen on the latest message,
- *                    strip alfred labels from every sibling message in the
- *                    thread), persist `applied_label_id`. Done.
- *
- * Schema model:
- *   One `email_triage` row per (userId, sourceThreadId). New messages in an
- *   auto-tagged thread re-run classify and overwrite the row; user-overridden
- *   tags stay pinned. No per-message audit row; audit lives on `api_call_log`
- *   (the metered LLM call) + `agent_runs`.
- *
- * Idempotency:
- *   - The classify step skips the LLM if the thread's existing triage row
- *     was written by THIS run (a retry within the same attempt reuses the
- *     prior call).
- *   - A NEW run on a thread always re-classifies — that's the explicit
- *     re-evaluation contract for replies (ADR-0025: "Re-evaluates on reply").
- *   - The apply-label step is naturally idempotent: Gmail's `messages.modify`
- *     adds/removes labels deterministically.
- *
- * Thread-level label collapse:
- *   Gmail's thread view unions labels across every message in a thread, so
- *   an older `fyi`/`follow_up` message left next to a newer `done` reply
- *   ends up showing both tags. `apply-label` queries the thread on Gmail's
- *   side (`getThreadMessageLabels`) and strips every alfred label off every
- *   sibling message before applying the new label to the latest one.
- *
- * Failure modes:
- *   - LLM parse failure: caught, falls through to DEFAULT_TRIAGE_CATEGORY
- *     with confidence=0.5; we never leave a message untriaged.
- *   - Credential gone (user disconnected mid-run): the load step throws,
- *     the run goes to `failed`, no Gmail label written.
- *   - Gmail API failure on label-write: bubbles up, the runtime retries
- *     the step. The `email_triage` row is already written so no LLM cost
- *     repeats.
- *   - Document has no `sourceThreadId` (shouldn't happen for Gmail, but
- *     defensive): finish without writing — we have nothing to key on.
+ * Email triage workflow (ADR-0025): one `email_triage` row per (user, thread),
+ * steps classify → close-loop-todos → apply-label. A new run re-classifies on
+ * reply; user-overridden tags stay pinned; apply-label strips every alfred label
+ * from sibling messages. Owner: this file. History: ADR-0051, ADR-0050, #282.
+ * Glossary: `docs/reference/glossary.md`.
  */
 
 export interface EmailTriageOperationState {
