@@ -9,7 +9,7 @@ import {
   type LangfuseSpan,
   type PropagateAttributesParams,
 } from "@langfuse/tracing";
-import { TraceFlags, context, type SpanContext } from "@opentelemetry/api";
+import { ROOT_CONTEXT, TraceFlags, context, type SpanContext } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import type { CallKind, CallUsage, MeteredMeta } from "./metered";
@@ -86,6 +86,22 @@ function getRuntime(): LangfuseRuntime | null {
 }
 
 /**
+ * Test-only: point the helpers at a caller-owned provider (an in-memory span
+ * recorder) instead of the env-gated real one. Returns a restore closure.
+ * Mirrors `_resetPriceCacheForTests`.
+ */
+export function _setLangfuseRuntimeForTests(provider: BasicTracerProvider): () => void {
+  const previous = _runtime;
+  _runtime = { provider };
+  setLangfuseTracerProvider(provider);
+
+  return () => {
+    _runtime = previous;
+    setLangfuseTracerProvider(previous && previous !== "noop" ? previous.provider : null);
+  };
+}
+
+/**
  * Derive a valid 32-hex OTel trace id from a logical trace id (`runId` or
  * `adhoc:<key>`). v5 has no `client.trace()` upsert: an OTel trace *is* the set
  * of observations that share `traceId`, and a span inherits that id from its
@@ -139,6 +155,22 @@ function traceAttributeParams(payload: {
     ...(payload.sessionId !== undefined ? { sessionId: payload.sessionId } : {}),
     ...(payload.tags !== undefined ? { tags: payload.tags } : {}),
   };
+}
+
+/**
+ * Apply trace attributes to the observation `fn` creates, without writing them
+ * to whatever OTel span is active process-wide.
+ *
+ * `propagateAttributes` does two things: it seeds the OTel context the
+ * `LangfuseSpanProcessor` reads in `onStart`, and it calls `setAttribute` on the
+ * active span. Sentry owns the process-global provider, so the active span is
+ * normally Sentry's — running from `ROOT_CONTEXT` hides it, leaving the SDK
+ * nothing to stamp while the context values still ride into the Langfuse
+ * observation. Without this, `user.id` / `session.id` / `langfuse.trace.*` leak
+ * onto Sentry spans.
+ */
+function withTraceAttributes<T>(params: PropagateAttributesParams, fn: () => T): T {
+  return context.with(ROOT_CONTEXT, () => propagateAttributes(params, fn));
 }
 
 export interface LangfuseSpanInput {
@@ -203,17 +235,18 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   // `getRuntime()` above proves the provider is live; the calls below are still
   // wrapped so a misconfigured SDK can't crash the call site.
   const captureIo = shouldCaptureIo();
-  const tracePayload = buildTracePayload({ meta, captureIo });
+  const tracePayload = buildTracePayload(meta);
   const generationPayload = buildGenerationPayload({ meta, startedAt, captureIo });
   let generation: LangfuseGeneration | null = null;
 
   try {
     // No v3-style trace upsert exists in v5. Trace identity comes from the
     // synthetic `parentSpanContext`, and the trace-level name/user/session/tags
-    // ride `propagateAttributes` for this observation. Repeated calls in one run
+    // ride the propagated context for this observation. Repeated calls in one run
     // all hash to the same trace id, and Langfuse unions tags across
     // observations, so a multi-role run accumulates every surface tag (#226).
-    generation = propagateAttributes(traceAttributeParams(tracePayload), () =>
+    // `withTraceAttributes` keeps those attributes off the process-global span.
+    generation = withTraceAttributes(traceAttributeParams(tracePayload), () =>
       startObservation(
         generationPayload.name,
         {
@@ -477,7 +510,6 @@ export function buildDispatchRejectionSpanPayload(
 ) {
   return {
     span: {
-      traceId: args.runId,
       name: `tool:${args.toolName}`,
       startTime: args.startedAt,
       input: captureIo ? args.input : undefined,
@@ -604,7 +636,6 @@ export interface RuntimeSpanCloser {
 /** Pure builder for a runtime span's opening attributes. Exported for tests. */
 export function buildRuntimeSpanPayload(input: RuntimeSpanInput, captureIo: boolean) {
   return {
-    traceId: input.runId,
     name: input.name,
     startTime: input.startedAt,
     input: captureIo ? input.input : undefined,
@@ -783,27 +814,16 @@ export function resolveTraceName(meta: MeteredMeta): string {
 }
 
 /**
- * An ad-hoc trace (no run) holds exactly one generation, so its root *is* the
- * call — we mirror the generation I/O up to it. Run traces hold many
- * generations; mirroring any single call's I/O to the root would misrepresent
- * the run.
- */
-function isAdhocTrace(meta: MeteredMeta): boolean {
-  return !meta.runId;
-}
-
-/**
  * Trace-level identity and attributes for a call. Pure, for testability. In v5
  * `id` is hashed into the OTel trace id via `langfuseTraceId`, and the rest map
  * onto `propagateAttributes`.
+ *
+ * Trace input/output is not built here: in v5 it is the root observation's I/O,
+ * not a separate trace attribute.
  */
-export function buildTracePayload(args: { meta: MeteredMeta; captureIo: boolean }) {
-  const { meta, captureIo } = args;
+export function buildTracePayload(meta: MeteredMeta) {
   const tags = traceTags(meta);
 
-  // Every optional field is *omitted* rather than sent as `undefined`/`null`:
-  // `trace()` is an idempotent upsert keyed on `id`, and a null would clobber a
-  // value an earlier call in the same run already set.
   return {
     id: resolveTraceId(meta),
     name: resolveTraceName(meta),
@@ -817,7 +837,6 @@ export function buildTracePayload(args: { meta: MeteredMeta; captureIo: boolean 
     // Promote role/kind to filterable trace tags (#226) — they otherwise only
     // live in generation metadata, which the Traces filter can't slice by.
     ...(tags !== undefined ? { tags } : {}),
-    ...(captureIo && isAdhocTrace(meta) ? { input: meta.input } : {}),
   };
 }
 
@@ -831,7 +850,6 @@ export function buildGenerationPayload(args: {
   const modelParameters = stripParams(meta.requestMeta);
 
   return {
-    traceId: resolveTraceId(meta),
     name: meta.name ?? `${meta.provider}/${meta.model}`,
     model: meta.model,
     ...(modelParameters !== undefined ? { modelParameters } : {}),
@@ -871,15 +889,10 @@ export function buildGenerationEndPayload(args: {
     ...(servedDiverged ? { model: servedModel } : {}),
     ...(usage
       ? {
-          usage: {
-            ...(usage.inputTokens !== undefined ? { input: usage.inputTokens } : {}),
-            ...(usage.outputTokens !== undefined ? { output: usage.outputTokens } : {}),
-            total: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
-            unit: "TOKENS" as const,
-          },
           // `cacheWrite` is the miss half of `cached`. Without it a trace shows
           // a cold call as plain input, hiding both the premium rate the
-          // provider charged and the fact that the cache missed at all.
+          // provider charged and the fact that the cache missed at all. The v3
+          // `usage` field is not sent — v5 reads `usageDetails` only.
           usageDetails: {
             input: usage.inputTokens ?? 0,
             output: usage.outputTokens ?? 0,
