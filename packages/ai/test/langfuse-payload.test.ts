@@ -1,26 +1,85 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { after, before, beforeEach, describe, test } from "node:test";
+
+import { context as otelContext, trace as otelTrace } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+  type ReadableSpan,
+} from "@opentelemetry/sdk-trace-base";
+import { LangfuseSpanProcessor } from "@langfuse/otel";
+import { LangfuseOtelSpanAttributes as A } from "@langfuse/tracing";
 
 import {
+  _setLangfuseRuntimeForTests,
   buildDispatchRejectionSpanPayload,
   buildGenerationEndPayload,
   buildGenerationPayload,
   buildRuntimeSpanEndPayload,
   buildRuntimeSpanPayload,
   buildTracePayload,
+  langfuseTraceId,
+  recordDispatchRejection,
   resolveTraceId,
   resolveTraceName,
+  startLangfuseSpan,
+  startRuntimeSpan,
+  startToolSpan,
   traceTags,
 } from "../src/metering/langfuse";
 import type { MeteredMeta } from "../src/metering/metered";
 
 /**
  * The Langfuse envelope (#216/#226) is the code most likely to regress
- * silently — the fallback smoke proves `api_call_log` reattributes the served
- * model but never asserts the generation model, requestedModel, root I/O
- * mirroring, sessionId, or tags. These cover the pure payload builders so a
- * regression fails here instead of only surfacing in the Langfuse UI.
+ * silently, so this file carries two layers of proof:
+ *
+ *   1. pure builders — the payload shapes the v5 call sites still consume;
+ *   2. a real v5 emission test — the isolated `BasicTracerProvider` exports
+ *      through a `LangfuseSpanProcessor` into an in-memory exporter, so the
+ *      span name and attributes are asserted end to end (run trace /
+ *      generation / tool span / dispatch rejection / runtime span). This is
+ *      also where the no-leak guarantee is pinned: the trace attributes must
+ *      land on the Langfuse span and never on a non-Langfuse active span.
+ *
+ * `@langfuse/tracing`'s `propagateAttributes` reads the OTel active context, so
+ * the emission tests install the standard context manager the SDK expects.
  */
+otelContext.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+
+// `serverEnv()` validates the whole schema on first read, and the span helpers
+// call `shouldCaptureIo()`. Seed the required slots so the suite runs with no
+// `--env-file` (the CI `ai-unit-tests` job supplies none). Mirrors
+// `packages/integrations/test/self-mail-label.test.ts`.
+const SERVER_ENV_FIXTURES = {
+  DATABASE_URL: "postgres://user:pass@localhost:5432/test",
+  REDIS_URL: "redis://localhost:6379",
+  BETTER_AUTH_SECRET: "test better auth secret with length",
+  // #453: `serverEnv()` requires a 32-byte credential KEK in every environment.
+  OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+  BETTER_AUTH_URL: "http://localhost:3001",
+  ALFRED_ALLOWED_EMAIL: "test@example.com",
+  RESEND_API_KEY: "test-resend",
+  RESEND_FROM_EMAIL: "Alfred <hey@alfred.beauty>",
+  ANTHROPIC_API_KEY: "test-anthropic",
+  GOOGLE_GENERATIVE_AI_API_KEY: "test-google-ai",
+  GOOGLE_OAUTH_CLIENT_ID: "test-google-client",
+  GOOGLE_OAUTH_CLIENT_SECRET: "test-google-secret",
+  GOOGLE_OAUTH_REDIRECT_URI: "http://localhost:3001/api/auth/callback/google",
+  GITHUB_APP_ID: "1",
+  GITHUB_APP_SLUG: "test-app",
+  GITHUB_APP_CLIENT_ID: "test-github-client",
+  GITHUB_APP_CLIENT_SECRET: "test-github-secret",
+  GITHUB_APP_PRIVATE_KEY: "test-private-key",
+  GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
+  GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
+  ENTITY_ID_NAMESPACE: "stable namespace secret for tests",
+} satisfies Record<string, string>;
+
+for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
+  process.env[key] ??= value;
+}
 
 const baseMeta: MeteredMeta = {
   kind: "llm",
@@ -81,42 +140,22 @@ describe("resolveTraceId / resolveTraceName", () => {
 describe("buildTracePayload", () => {
   test("sets sessionId only when the caller supplies a real one", () => {
     // Chat passes threadId → grouped session.
-    const chat = buildTracePayload({
-      meta: { ...baseMeta, runId: "run_1", sessionId: "thread_42" },
-      captureIo: false,
-    });
+    const chat = buildTracePayload({ ...baseMeta, runId: "run_1", sessionId: "thread_42" });
 
     assert.equal(chat.sessionId, "thread_42");
 
     // Background/job run with no session → sessionless (NOT runId), so the
     // Sessions view isn't polluted with one-trace "sessions" (#226 review).
-    const job = buildTracePayload({ meta: { ...baseMeta, runId: "run_1" }, captureIo: false });
+    const job = buildTracePayload({ ...baseMeta, runId: "run_1" });
     assert.equal(job.sessionId, undefined);
   });
 
-  test("mirrors input to the root only for ad-hoc traces with capture on", () => {
-    const adhocOn = buildTracePayload({
-      meta: { ...baseMeta, input: "hello" },
-      captureIo: true,
-    });
+  test("carries the hashed trace identity and filterable tags", () => {
+    const payload = buildTracePayload({ ...baseMeta, runId: "run_9", role: "boss" });
 
-    assert.equal(adhocOn.input, "hello");
-
-    // A run trace holds many generations — never mirror one call's input up.
-    const runOn = buildTracePayload({
-      meta: { ...baseMeta, runId: "run_1", input: "hello" },
-      captureIo: true,
-    });
-
-    assert.equal(runOn.input, undefined);
-
-    // Capture off → no input regardless of trace shape.
-    const adhocOff = buildTracePayload({
-      meta: { ...baseMeta, input: "hello" },
-      captureIo: false,
-    });
-
-    assert.equal(adhocOff.input, undefined);
+    assert.equal(payload.id, "run_9");
+    assert.equal(payload.name, "run:run_9");
+    assert.deepEqual(payload.tags, ["role:boss", "call_kind:llm"]);
   });
 });
 
@@ -130,7 +169,6 @@ describe("buildGenerationPayload", () => {
       captureIo: false,
     });
 
-    assert.equal(gen.traceId, "run_1");
     assert.equal(gen.model, "claude-sonnet-4-6");
     assert.equal(gen.startTime, startedAt);
     assert.equal(gen.input, undefined);
@@ -170,7 +208,6 @@ describe("buildGenerationEndPayload", () => {
     // Unchanged served model → leave generation model untouched (undefined).
     assert.equal(end.model, undefined);
     assert.deepEqual(end.metadata, { finishReason: "stop" });
-    assert.deepEqual(end.usage, { input: 10, output: 5, total: 15, unit: "TOKENS" });
     assert.deepEqual(end.usageDetails, { input: 10, output: 5, cached: 2, cacheWrite: 0 });
     assert.deepEqual(end.costDetails, { total: 0.01 });
   });
@@ -233,7 +270,6 @@ describe("buildDispatchRejectionSpanPayload", () => {
   test("omits input and issue detail when capture is off", () => {
     const payload = buildDispatchRejectionSpanPayload(base, false);
 
-    assert.equal(payload.span.traceId, "run_1");
     assert.equal(payload.span.name, "tool:sheets.update_values");
     assert.equal(payload.span.input, undefined);
     assert.deepEqual(payload.span.metadata, {
@@ -304,9 +340,8 @@ describe("buildRuntimeSpanPayload / buildRuntimeSpanEndPayload", () => {
     metadata: { stepId: "dispatch-tools", workflow: "__chat-turn__", caller: "boss", callCount: 3 },
   };
 
-  test("nests the span under the run trace and stamps the runtime kind + runId", () => {
+  test("stamps the runtime kind + runId on the opening attributes", () => {
     const payload = buildRuntimeSpanPayload(base, false);
-    assert.equal(payload.traceId, "run_9");
     assert.equal(payload.name, "runtime.dispatch.batch");
     assert.equal(payload.startTime, startedAt);
     assert.deepEqual(payload.metadata, {
@@ -353,5 +388,205 @@ describe("buildRuntimeSpanPayload / buildRuntimeSpanEndPayload", () => {
     );
 
     assert.deepEqual(captured.output, { ok: true });
+  });
+});
+
+// ── v5 emission shape ────────────────────────────────────────────────────────
+
+/** A real `BasicTracerProvider` wired to an in-memory exporter via the SDK's own processor. */
+function makeRecordingProvider() {
+  const exporter = new InMemorySpanExporter();
+
+  const processor = new LangfuseSpanProcessor({
+    exporter,
+    publicKey: "pk-test",
+    secretKey: "sk-test",
+    exportMode: "immediate",
+    mediaUploadEnabled: false,
+    environment: "test",
+  });
+
+  const provider = new BasicTracerProvider({ spanProcessors: [processor] });
+
+  return { exporter, processor, provider };
+}
+
+describe("v5 emission shape (in-memory exporter)", () => {
+  let exporter!: InMemorySpanExporter;
+  let processor!: LangfuseSpanProcessor;
+  let restoreRuntime: (() => void) | undefined;
+
+  before(() => {
+    const recording = makeRecordingProvider();
+
+    exporter = recording.exporter;
+    processor = recording.processor;
+    restoreRuntime = _setLangfuseRuntimeForTests(recording.provider);
+  });
+
+  after(() => {
+    restoreRuntime?.();
+  });
+
+  beforeEach(() => {
+    exporter.reset();
+  });
+
+  async function emittedSpans(): Promise<ReadableSpan[]> {
+    await processor.forceFlush();
+
+    return exporter.getFinishedSpans();
+  }
+
+  test("a run generation joins the hashed trace and carries the trace attributes", async () => {
+    const meta: MeteredMeta = {
+      ...baseMeta,
+      role: "boss",
+      runId: "run_verify",
+      sessionId: "thread_1",
+      userId: "user_1",
+      name: "agent:chat",
+    };
+
+    const closer = startLangfuseSpan({ meta, startedAt: new Date() });
+
+    closer.success({
+      usage: { inputTokens: 10, outputTokens: 5, cachedInputTokens: 2 },
+      costUsd: 0.01,
+      responseMeta: { finishReason: "stop" },
+    });
+
+    const gen = (await emittedSpans()).find((s) => s.name === "agent:chat");
+
+    assert.ok(gen, "generation span exported");
+    assert.equal(gen.spanContext().traceId, langfuseTraceId("run_verify"));
+    assert.equal(gen.attributes[A.OBSERVATION_TYPE], "generation");
+    assert.equal(gen.attributes[A.OBSERVATION_MODEL], "claude-sonnet-4-6");
+    assert.equal(gen.attributes[A.TRACE_NAME], "run:run_verify");
+    assert.equal(gen.attributes[A.TRACE_USER_ID], "user_1");
+    assert.equal(gen.attributes[A.TRACE_SESSION_ID], "thread_1");
+    assert.deepEqual(gen.attributes[A.TRACE_TAGS], ["role:boss", "call_kind:llm"]);
+    assert.equal(gen.attributes[A.ENVIRONMENT], "test");
+    assert.equal(gen.attributes[`${A.OBSERVATION_METADATA}.role`], "boss");
+    assert.deepEqual(JSON.parse(String(gen.attributes[A.OBSERVATION_USAGE_DETAILS])), {
+      input: 10,
+      output: 5,
+      cached: 2,
+      cacheWrite: 0,
+    });
+    assert.deepEqual(JSON.parse(String(gen.attributes[A.OBSERVATION_COST_DETAILS])), {
+      total: 0.01,
+    });
+  });
+
+  test("a tool span exports under the run trace with structural metadata", async () => {
+    const closer = startToolSpan({
+      runId: "run_tools",
+      toolName: "sheets.update_values",
+      toolCallId: "tc_1",
+      userId: "user_1",
+      caller: "boss",
+      startedAt: new Date(),
+    });
+
+    closer.success({ ok: true }, { truncated: true });
+
+    const span = (await emittedSpans()).find((s) => s.name === "tool:sheets.update_values");
+
+    assert.ok(span, "tool span exported");
+    assert.equal(span.spanContext().traceId, langfuseTraceId("run_tools"));
+    assert.equal(span.attributes[A.OBSERVATION_TYPE], "span");
+    assert.equal(span.attributes[`${A.OBSERVATION_METADATA}.kind`], "tool");
+    assert.equal(span.attributes[`${A.OBSERVATION_METADATA}.toolCallId`], "tc_1");
+    // Merge semantics: update() keeps the open-time metadata and adds the end one.
+    assert.equal(span.attributes[`${A.OBSERVATION_METADATA}.truncated`], "true");
+    // I/O capture is off by default, so neither payload is exported.
+    assert.equal(span.attributes[A.OBSERVATION_INPUT], undefined);
+    assert.equal(span.attributes[A.OBSERVATION_OUTPUT], undefined);
+  });
+
+  test("a dispatch rejection exports a WARNING span keyed by its signature", async () => {
+    recordDispatchRejection({
+      runId: "run_reject",
+      toolName: "<unknown>",
+      candidateToolName: "list_events",
+      toolCallId: "tc_2",
+      outcome: "unknown_tool",
+      reason: "Tool is not declared",
+      signature: "<unknown>:unknown_tool",
+      startedAt: new Date(),
+    });
+
+    const span = (await emittedSpans()).find((s) => s.name === "tool:<unknown>");
+
+    assert.ok(span, "rejection span exported");
+    assert.equal(span.attributes[A.OBSERVATION_TYPE], "span");
+    assert.equal(span.attributes[A.OBSERVATION_LEVEL], "WARNING");
+    assert.equal(span.attributes[A.OBSERVATION_STATUS_MESSAGE], "<unknown>:unknown_tool");
+    assert.equal(span.attributes[`${A.OBSERVATION_METADATA}.outcome`], "unknown_tool");
+    assert.equal(
+      span.attributes[`${A.OBSERVATION_METADATA}.rejectionSignature`],
+      "<unknown>:unknown_tool",
+    );
+  });
+
+  test("a runtime span exports its name, kind, and terminal status", async () => {
+    startRuntimeSpan({
+      runId: "run_runtime",
+      name: "runtime.dispatch.batch",
+      startedAt: new Date(),
+      metadata: { stepId: "dispatch-tools", callCount: 3 },
+    }).end({ status: "committed", metadata: { executed: 2 } });
+
+    const span = (await emittedSpans()).find((s) => s.name === "runtime.dispatch.batch");
+
+    assert.ok(span, "runtime span exported");
+    assert.equal(span.attributes[A.OBSERVATION_TYPE], "span");
+    assert.equal(span.attributes[`${A.OBSERVATION_METADATA}.kind`], "runtime");
+    assert.equal(span.attributes[`${A.OBSERVATION_METADATA}.status`], "committed");
+    assert.equal(span.attributes[`${A.OBSERVATION_METADATA}.executed`], "2");
+  });
+
+  test("does not write trace attributes onto a non-Langfuse active span", () => {
+    // Stand in for Sentry's process-global provider: a recording provider whose
+    // span is active while a Langfuse generation is emitted.
+    const globalExporter = new InMemorySpanExporter();
+
+    const globalProvider = new BasicTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(globalExporter)],
+    });
+
+    otelTrace.setGlobalTracerProvider(globalProvider);
+
+    const globalSpan = globalProvider.getTracer("sentry").startSpan("sentry.http.request");
+
+    try {
+      otelContext.with(otelTrace.setSpan(otelContext.active(), globalSpan), () => {
+        const closer = startLangfuseSpan({
+          meta: {
+            ...baseMeta,
+            runId: "run_leak",
+            sessionId: "thread_leak",
+            userId: "user_leak",
+            role: "boss",
+            name: "agent:leak",
+          },
+          startedAt: new Date(),
+        });
+
+        closer.success({ costUsd: 0.001 });
+      });
+    } finally {
+      globalSpan.end();
+    }
+
+    const global = globalExporter.getFinishedSpans()[0];
+
+    assert.ok(global, "global span exported");
+    assert.equal(global.attributes[A.TRACE_USER_ID], undefined);
+    assert.equal(global.attributes[A.TRACE_SESSION_ID], undefined);
+    assert.equal(global.attributes[A.TRACE_NAME], undefined);
+    assert.equal(global.attributes[A.TRACE_TAGS], undefined);
+    assert.equal(global.attributes[A.ENVIRONMENT], undefined);
   });
 });

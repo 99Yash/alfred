@@ -1,12 +1,16 @@
 /**
  * Manual verification for the Langfuse envelope (#216/#226 + review fixes).
  * Drives the real `startLangfuseSpan` code path with three call shapes and
- * reads them back through the Langfuse public API to assert the envelope:
+ * reads them back through the Observations API v2 to assert the envelope:
  *
  *   1. chat   — caller supplies a real `sessionId` (threadId) → grouped session
  *   2. job    — background run, no sessionId → MUST be sessionless (no runId
  *               fallback), proving the P2 Sessions-view-pollution fix
  *   3. embed  — embedding kind → `call_kind:embedding` tag, no `cost_kind`
+ *
+ * Reads go through `GET /api/public/v2/observations` (filtered by trace id)
+ * because the self-hosted `events_only` write mode serves reads from the v2
+ * observations API and 404s the legacy `GET /api/public/traces/:id`.
  *
  * Run from packages/ai:
  *   ./node_modules/.bin/tsx --env-file=../../apps/server/.env \
@@ -14,8 +18,9 @@
  */
 import { serverEnv } from "@alfred/env/server";
 import { randomUUID } from "node:crypto";
-import { flushLangfuse, startLangfuseSpan } from "../metering/langfuse";
+import { flushLangfuse, langfuseTraceId, startLangfuseSpan } from "../metering/langfuse";
 import type { MeteredMeta } from "../metering/metered";
+import { fetchObservationsByTraceId } from "./langfuse-observations";
 
 const stamp = randomUUID().slice(0, 8);
 
@@ -85,7 +90,7 @@ function openAndClose() {
   }
 }
 
-/** The slice of the Langfuse trace payload the envelope assertions read back. */
+/** The slice of the first observation that the envelope assertions read back. */
 interface VerifiedTrace {
   sessionId?: string | null;
   tags?: string[] | null;
@@ -97,17 +102,16 @@ async function fetchTrace(
   auth: string,
   traceId: string,
 ): Promise<VerifiedTrace | null> {
-  const res = await fetch(`${host}/api/public/traces/${traceId}`, {
-    headers: { Authorization: `Basic ${auth}` },
-  });
+  const observations = await fetchObservationsByTraceId({ host, auth, traceId });
+  const first = observations[0];
 
-  if (res.status === 404) return null;
+  if (!first) return null;
 
-  if (!res.ok) throw new Error(`GET trace ${traceId} → ${res.status} ${await res.text()}`);
-
-  // SAFETY: VerifiedTrace is the loose diagnostic view this verifier reads;
-  // field accesses tolerate absence, and a wrong shape fails the check itself.
-  return res.json() as Promise<VerifiedTrace>;
+  return {
+    sessionId: first.sessionId ?? null,
+    tags: first.tags ?? null,
+    environment: first.environment ?? null,
+  };
 }
 
 async function main() {
@@ -135,7 +139,7 @@ async function main() {
     traces = {};
 
     for (const id of ids) {
-      const t = await fetchTrace(host, auth, id);
+      const t = await fetchTrace(host, auth, langfuseTraceId(id));
 
       if (t) traces[id] = t;
     }

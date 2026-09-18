@@ -251,6 +251,12 @@ const serverEnvSchema = z
     LANGFUSE_SECRET_KEY: z.string().optional(),
     LANGFUSE_HOST: z.url().optional(),
     /**
+     * Langfuse release tag. v5 removed `release` as a trace attribute; the
+     * `LangfuseSpanProcessor` reads `LANGFUSE_RELEASE` directly. Declared here
+     * so the value is validated and typed like the other Langfuse vars.
+     */
+    LANGFUSE_RELEASE: z.string().optional(),
+    /**
      * Langfuse tracing environment slug (#226 review). `NODE_ENV` only
      * separates development|production|test, but every deploy target (staging,
      * preview, prod) runs with `NODE_ENV=production`, so it can't keep their
