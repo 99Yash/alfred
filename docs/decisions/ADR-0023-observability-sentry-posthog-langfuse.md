@@ -53,7 +53,11 @@ this change.
 **Isolation.** The tracer provider is set with `setLangfuseTracerProvider` on a
 dedicated `BasicTracerProvider` rather than the process-global provider, so it
 does not replace the OTel provider Sentry installs in
-`apps/server/src/instrument.ts`.
+`apps/server/src/instrument.ts`. Provider isolation alone does not cover
+attributes: `propagateAttributes` also writes to whatever OTel span is active,
+which is Sentry's. Trace attributes are therefore applied from `ROOT_CONTEXT`,
+so the Langfuse observation gets them (the `LangfuseSpanProcessor` reads them
+from the span's parent context) while no active global span is stamped.
 
 **Residual risk.** v5 applies smart default span filtering: spans not created by
 Langfuse and without `gen_ai.*` attributes can stop exporting. Every observation

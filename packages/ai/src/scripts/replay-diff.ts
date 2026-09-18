@@ -11,8 +11,13 @@
  *   ./node_modules/.bin/tsx --env-file=../../apps/server/.env \
  *     src/scripts/replay-diff.ts <baselineTraceId> <candidateTraceId>
  *
- * Tip: list recent boss runs to grab ids:
- *   curl -s "$LANGFUSE_HOST/api/public/traces?limit=20&tags=role:boss" \
+ * Reads go through `GET /api/public/v2/observations` (filtered by trace id)
+ * because the self-hosted `events_only` write mode serves reads from the v2
+ * observations API and 404s the legacy `GET /api/public/traces/:id`.
+ *
+ * Tip: grab run ids from the Langfuse Traces UI, or list recent observations
+ * with their trace context:
+ *   curl -s "$LANGFUSE_HOST/api/public/v2/observations?fields=trace_context&limit=20" \
  *     -H "Authorization: Basic $(printf '%s:%s' "$PK" "$SK" | base64)"
  */
 import { serverEnv } from "@alfred/env/server";
@@ -22,20 +27,31 @@ import {
   summarizeDiff,
   type TraceLike,
 } from "../replay/trajectory";
+import { decodeLangfuseIo, fetchObservationsByTraceId } from "./langfuse-observations";
 
 const FETCH_TIMEOUT_MS = 15_000;
 
 async function fetchTrace(host: string, auth: string, traceId: string): Promise<TraceLike> {
-  const res = await fetch(`${host}/api/public/traces/${traceId}`, {
-    headers: { Authorization: `Basic ${auth}` },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  const observations = await fetchObservationsByTraceId({
+    host,
+    auth,
+    traceId,
+    timeoutMs: FETCH_TIMEOUT_MS,
   });
 
-  if (!res.ok) throw new Error(`GET trace ${traceId} → ${res.status} ${await res.text()}`);
-
-  // SAFETY: TraceLike is the deliberately loose diagnostic view of a Langfuse
-  // trace this replay tool reads; every field access tolerates absence.
-  return res.json() as Promise<TraceLike>;
+  return {
+    id: traceId,
+    observations: observations.map((o) => ({
+      type: o.type,
+      name: o.name ?? "",
+      startTime: o.startTime,
+      input: decodeLangfuseIo(o.input),
+      output: decodeLangfuseIo(o.output),
+      ...(o.level != null ? { level: o.level } : {}),
+      ...(o.statusMessage != null ? { statusMessage: o.statusMessage } : {}),
+      metadata: decodeLangfuseIo(o.metadata),
+    })),
+  };
 }
 
 async function main() {
