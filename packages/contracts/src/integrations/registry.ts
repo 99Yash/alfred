@@ -11,6 +11,8 @@
  * This module imports only `./types`, `../google-scopes`, and `../guards`.
  * `../tools` reads the record for tool names, so the record cannot read
  * `../tools`.
+ *
+ * Terminology: see `docs/reference/glossary.md`.
  */
 
 import { enumGuard } from "../guards";

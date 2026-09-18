@@ -1,5 +1,7 @@
 # Runbook: activating the Gmail user-model kind projection
 
+Terminology: see [`glossary.md`](./glossary.md).
+
 **Epic:** #218 (evolving user-model spine). **Design:** [user-model-p1-gmail-shadow.md](../plans/user-model-p1-gmail-shadow.md) / ADR-0067.
 
 This runbook operationalizes the **first manual activation** of the ADR-0067
