@@ -11,6 +11,8 @@
  * ADR-0069 a high-tier tool ALWAYS confirms regardless of policy (a one-way
  * floor the autonomy toggle can't override — see `toolRequiresApproval` in the
  * dispatcher). So `high` is load-bearing for the gate; the lower tiers are not.
+ *
+ * Terminology: see `docs/reference/glossary.md`.
  */
 
 import type {
