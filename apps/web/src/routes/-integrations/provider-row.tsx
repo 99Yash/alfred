@@ -29,6 +29,7 @@ export function ProviderRow({ provider, index }: { provider: IntegrationPage; in
       <AppCard
         padded={false}
         aria-disabled
+        title="Design-only preview — no backend connection yet"
         className={cardClassName}
         style={{ animationDelay: `${240 + index * 40}ms` }}
       >
