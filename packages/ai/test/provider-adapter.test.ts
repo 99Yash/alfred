@@ -403,8 +403,8 @@ describe("route legs", () => {
     assert.equal(standard.modelId, "gpt-5.6-luna");
 
     const boss = identifyLanguageModel(route("boss").model());
-    assert.equal(boss.provider, "anthropic");
-    assert.equal(boss.modelId, "claude-sonnet-4-6");
+    assert.equal(boss.provider, "openai");
+    assert.equal(boss.modelId, "gpt-5.6-luna");
   });
 
   test("select the generic AI SDK reasoning ceiling", () => {

@@ -454,7 +454,7 @@ function InlineApprovalCard({
             ) : null}
           </div>
           <Accordion.Content className="data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down overflow-hidden">
-            <div className="border-t border-app-bg-a2 sm:px-4 p-3">
+            <div className="border-t border-app-bg-a2 p-3 sm:px-4">
               {/* Fields are always live — no read-only/Adjust step. Edit in place, then
                * the primary button reads "Approve changes". */}
               <ApprovalInputEditor
