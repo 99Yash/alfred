@@ -69,9 +69,9 @@ export function keyIdentity(key: ExtractedKey): string {
 
 /**
  * The same identity across providers, for a batch that spans more than one.
- * The reading is deliberately not part of the identity: one `reconcileEvidence`
- * call carries one reading for all of its subjects, so two keys can never
- * differ by reading within a single dedup map.
+ * The reading is deliberately not part of the identity: closure is decided per
+ * key from the subject's own key, so the reading cannot change a resolved
+ * result — which is why it does not belong in the dedup key.
  */
 export function candidateIdentity<Reading extends KeyProposalReading>(
   key: CandidateKey<Reading>,
