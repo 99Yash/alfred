@@ -3,6 +3,8 @@
  *
  * Workflow operations live here; apps/server retains only the built-in
  * declaration, state schema, and step topology.
+ *
+ * Terminology: see `docs/reference/glossary.md`.
  */
 
 export {

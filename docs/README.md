@@ -12,6 +12,7 @@ edit next.
 | Code rules before edit/review    | [`reference/code-style.md`](./reference/code-style.md)     |
 | Non-obvious decisions            | [`../decisions.md`](../decisions.md)                       |
 | Domain vocabulary                | [`../CONTEXT.md`](../CONTEXT.md)                           |
+| Invented code terms              | [`reference/glossary.md`](./reference/glossary.md)         |
 | Current milestone state          | [`reference/milestones.md`](./reference/milestones.md)     |
 | Ops scripts / smokes / backfills | [`reference/operations.md`](./reference/operations.md)     |
 
