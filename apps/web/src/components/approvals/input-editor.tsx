@@ -1,6 +1,7 @@
 import {
   calendarListEventsInput,
   toolInputFields,
+  toJsonValue,
   type FieldSpec,
   type ToolName,
 } from "@alfred/contracts";
@@ -61,7 +62,7 @@ export function ApprovalInputEditor({
             const updated = { ...record };
 
             if (next === undefined) delete updated[field.key];
-            else updated[field.key] = next;
+            else updated[field.key] = toJsonValue(next);
             onChange(updated);
           }}
         />

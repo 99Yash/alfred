@@ -126,7 +126,7 @@ const PROBES = {
   },
   "no-unsafe-dictionary-type": {
     snippet: `export type Metadata = Record<string, unknown>;\n`,
-    severity: "warn",
+    severity: "error",
   },
   "require-readable-spacing": {
     snippet: `export const first = 1;\nexport const second = 2;\n`,

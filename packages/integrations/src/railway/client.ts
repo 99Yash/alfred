@@ -12,6 +12,7 @@
 import { createHash } from "node:crypto";
 
 import { HttpError, summarizeBody, toMessage } from "@alfred/contracts";
+import type { JsonObject } from "@alfred/contracts";
 
 import { authedFetch } from "../shared/authed-fetch";
 import { listActiveBearerCredentials, type ActiveBearerCredential } from "../shared/credentials";
@@ -66,7 +67,7 @@ export function isRailwayAuthorizationError(err: unknown): boolean {
 
 interface RailwayGraphqlPayload {
   query: string;
-  variables?: Record<string, unknown> | undefined;
+  variables?: JsonObject | undefined;
   operationName?: string | undefined;
 }
 
@@ -124,7 +125,7 @@ export async function railwayGraphqlRaw(
   token: string,
   request: {
     document: string;
-    variables?: Record<string, unknown> | undefined;
+    variables?: JsonObject | undefined;
     operationName?: string | undefined;
   },
   retry: RetryPolicy | "none" = "none",
@@ -153,7 +154,7 @@ export async function railwayGraphqlRaw(
 async function railwayGraphql<T>(
   token: string,
   query: string,
-  variables?: Record<string, unknown>,
+  variables?: JsonObject,
   retry: RetryPolicy | "none" = "none",
 ): Promise<T> {
   const { status, ok, text } = await railwayFetch(token, { query, variables }, retry);

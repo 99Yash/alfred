@@ -1,6 +1,6 @@
 import { db, type DbTransaction } from "@alfred/db";
 import { entities, entityInsertSchema, type Entity, type NewEntity } from "@alfred/db/schemas";
-import { jsonRecordSchema } from "@alfred/contracts";
+import { jsonRecordSchema, type JsonObject } from "@alfred/contracts";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { classifyContactKind } from "./entity-kind-classifier";
@@ -166,7 +166,7 @@ export interface UpsertContactByAliasArgs {
    * consistent with the write. Returned keys merge last-writes-wins over the
    * prior bag, so untouched keys (e.g. `significance`) survive.
    */
-  buildMetadata: (priorMetadata: Record<string, unknown>) => Record<string, unknown>;
+  buildMetadata: (priorMetadata: JsonObject) => JsonObject;
 }
 
 /**

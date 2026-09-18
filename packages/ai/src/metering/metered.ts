@@ -3,7 +3,7 @@ import { apiCallLog } from "@alfred/db/schemas";
 import { findApiCallError, isCallerAbort } from "../abort";
 import { startLangfuseSpan } from "./langfuse";
 import { computeCost, getPrice, type PriceLookup } from "./prices";
-import { summarizeBody, toMessage, type AttributionKind } from "@alfred/contracts";
+import { summarizeBody, toMessage, type AttributionKind, type JsonObject } from "@alfred/contracts";
 
 /**
  * Metering's runtime contract, owned by the `metered()` verb. These interfaces
@@ -107,7 +107,7 @@ export interface MeteredMeta extends CallAttribution {
    */
   idempotencyKey?: string | undefined;
   /** Trimmed model params surfaced to the log row's `request_meta`. Avoid full prompts here. */
-  requestMeta?: Record<string, unknown> | undefined;
+  requestMeta?: JsonObject | undefined;
   /** Human-readable name surfaced in Langfuse — defaults to `${provider}/${model}`. */
   name?: string | undefined;
   /**
@@ -130,7 +130,7 @@ export interface MeteredStep {
 export interface MeteredResult {
   usage?: CallUsage | undefined;
   /** Surfaced to `response_meta` (finish_reason, model id echoed back, tool_calls count, etc.). */
-  responseMeta?: Record<string, unknown> | undefined;
+  responseMeta?: JsonObject | undefined;
   /**
    * Per-step attribution + usage for a multi-step turn. When present with more
    * than one entry, `metered()` prices each step against its own serving leg

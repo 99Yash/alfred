@@ -5,6 +5,7 @@ import {
   type ObjectIdentity,
   type ObjectStateProvider,
   type StateCategory,
+  type JsonObject,
   toRecord,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -48,7 +49,7 @@ export interface ObjectStateDelta {
   title?: string | undefined;
   url?: string | undefined;
   repo?: string | undefined;
-  attributes?: Record<string, unknown> | undefined;
+  attributes?: JsonObject | undefined;
   keys: { keyKind: string; keyValue: string }[];
 }
 

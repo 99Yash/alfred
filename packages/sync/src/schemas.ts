@@ -16,6 +16,7 @@ import {
   chatMessageUsageSchema,
   fullBriefingSchema,
   isIntegrationSlug,
+  isRecord,
   isToolName,
   jsonRecordSchema,
   jsonValueSchema,
@@ -488,7 +489,8 @@ export const integrationRuleSchema: z.ZodType<IntegrationRule> = rawIntegrationR
   },
 );
 
-function normalizeIntegrationRules(rawRules: Record<string, unknown>): IntegrationRules {
+function normalizeIntegrationRules(rawRules: unknown): IntegrationRules {
+  if (!isRecord(rawRules)) return {};
   const rules: IntegrationRules = {};
 
   for (const [slug, rawRule] of Object.entries(rawRules)) {

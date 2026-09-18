@@ -14,7 +14,7 @@ export interface ProviderAvailability extends CredentialProofRow {
   scopes: Set<string>;
   installationId: string | null;
   accountLabel: string | null;
-  metadata: Record<string, unknown>;
+  metadata: unknown;
 }
 
 /**

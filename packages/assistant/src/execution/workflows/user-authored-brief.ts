@@ -8,6 +8,7 @@ import {
   compactionThresholdTokens,
   getStringPath,
   isInboundEventSource,
+  jsonObjectSchema,
   parseIanaTimezone,
   parseIntegrationMentions,
   isIntegrationSlug,
@@ -17,6 +18,8 @@ import {
   workflowRequiredCapabilitySchema,
   type AgentTranscriptMessage,
   type InboundEventSource,
+  type JsonObject,
+  type JsonValue,
   type ToolRunContext,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -58,7 +61,7 @@ import {
   SUB_AGENT_WORKFLOW_SLUG,
 } from "../sub-agent-metadata";
 import { isTerminalStatus } from "@alfred/contracts";
-import type { Step, Workflow } from "../registry";
+import type { Step, Workflow, WorkflowInput } from "../registry";
 import { getRun } from "../service";
 import { pendingToolCallSchema } from "./pending-tool-call";
 import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";
@@ -808,27 +811,21 @@ function readBriefAuthoredMetadata(metadata: unknown): BriefAuthoredMetadata {
   return briefAuthoredMetadataSchema.parse(metadata ?? {});
 }
 
-async function buildTriggerEventMessage(input: {
-  userId: string;
-  trigger: {
-    kind: string;
-    source?: string | undefined;
-    type?: string | undefined;
-    rawKind?: string | undefined;
-    payload?: Record<string, unknown> | undefined;
-  };
-}): Promise<AgentTranscriptMessage | null> {
+async function buildTriggerEventMessage(
+  input: WorkflowInput,
+): Promise<AgentTranscriptMessage | null> {
   const trigger = input.trigger;
 
   if (trigger.kind !== "event") return null;
 
-  const documentId =
-    typeof trigger.payload?.documentId === "string" ? trigger.payload.documentId : undefined;
+  const parsedPayload = jsonObjectSchema.safeParse(trigger.payload ?? {});
+  const payload = parsedPayload.success ? parsedPayload.data : {};
 
-  const receiptId =
-    typeof trigger.payload?.receiptId === "string" ? trigger.payload.receiptId : undefined;
+  const documentId = typeof payload.documentId === "string" ? payload.documentId : undefined;
 
-  const reason = typeof trigger.payload?.reason === "string" ? trigger.payload.reason : undefined;
+  const receiptId = typeof payload.receiptId === "string" ? payload.receiptId : undefined;
+
+  const reason = typeof payload.reason === "string" ? payload.reason : undefined;
 
   if (!documentId && receiptId && trigger.source && isInboundEventSource(trigger.source)) {
     return buildReceiptTriggerMessage({
@@ -887,8 +884,8 @@ async function buildTriggerEventMessage(input: {
     };
   }
 
-  const metadata = toRecord(doc.metadata);
-  const metadataSubset = pickTriggerMetadata(metadata);
+  const parsedMetadata = jsonObjectSchema.safeParse(doc.metadata);
+  const metadataSubset = pickTriggerMetadata(parsedMetadata.success ? parsedMetadata.data : {});
 
   return {
     role: "user",
@@ -980,10 +977,21 @@ function triggerEventExcerptTags(content: string): string[] {
   return [xmlTag("truncated", String(content.length > excerpt.length)), xmlTag("excerpt", excerpt)];
 }
 
-function pickTriggerMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
-  return (["from", "to", "cc", "labelIds", "snippet", "historyId", "sizeEstimate"] as const).reduce<
-    Record<string, unknown>
-  >((out, key) => {
+/** The 7 Gmail trigger keys `<trigger_event>` carries; everything else is dropped. */
+interface TriggerMetadata {
+  from?: JsonValue | undefined;
+  to?: JsonValue | undefined;
+  cc?: JsonValue | undefined;
+  labelIds?: JsonValue | undefined;
+  snippet?: JsonValue | undefined;
+  historyId?: JsonValue | undefined;
+  sizeEstimate?: JsonValue | undefined;
+}
+
+function pickTriggerMetadata(metadata: JsonObject): TriggerMetadata {
+  return (
+    ["from", "to", "cc", "labelIds", "snippet", "historyId", "sizeEstimate"] as const
+  ).reduce<TriggerMetadata>((out, key) => {
     if (metadata[key] !== undefined) out[key] = metadata[key];
 
     return out;

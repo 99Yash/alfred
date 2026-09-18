@@ -1,4 +1,9 @@
-import type { BearerSlug, CredentialProvider, InboundEventSource } from "@alfred/contracts";
+import type {
+  BearerSlug,
+  CredentialProvider,
+  InboundEventSource,
+  JsonObject,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
@@ -53,7 +58,7 @@ export interface UpsertBearerCredentialArgs {
   /** Null for non-expiring tokens (the common case here). */
   expiresAt?: Date | null | undefined;
   scopes?: string[] | undefined;
-  metadata?: Record<string, unknown> | undefined;
+  metadata?: JsonObject | undefined;
 }
 
 /**

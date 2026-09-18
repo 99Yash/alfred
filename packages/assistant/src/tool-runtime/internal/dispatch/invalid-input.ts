@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { JsonObject } from "@alfred/contracts";
 
 /**
  * Tool input schemas are pure zod and almost always `.strict()`, so when a
@@ -33,7 +34,7 @@ export function acceptedParamNames(schema: z.ZodType<any>): readonly string[] {
     // SAFETY: z.toJSONSchema emits a JSON Schema document; this reads only the
     // top-level `properties` keyword off it.
     const json = z.toJSONSchema(schema, { io: "input" }) as {
-      properties?: Record<string, unknown>;
+      properties?: JsonObject;
     };
 
     names = json.properties ? Object.freeze(Object.keys(json.properties)) : EMPTY;

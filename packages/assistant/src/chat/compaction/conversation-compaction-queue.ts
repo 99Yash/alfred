@@ -1,4 +1,4 @@
-import { toMessage, type AgentTranscriptMessage } from "@alfred/contracts";
+import { jsonObjectSchema, toMessage, type AgentTranscriptMessage } from "@alfred/contracts";
 import { Queue, UnrecoverableError, Worker, type Job } from "bullmq";
 import { z } from "zod";
 
@@ -26,7 +26,7 @@ const jobDataSchema = z.object({
     z.object({
       role: z.enum(["system", "user", "assistant", "tool"]),
       content: z.unknown(),
-      providerOptions: z.record(z.string(), z.unknown()).optional(),
+      providerOptions: jsonObjectSchema.optional(),
     }),
   ),
 });
