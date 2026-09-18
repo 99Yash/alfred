@@ -623,6 +623,39 @@ async function supersedeStandingInstruction(args: {
   });
 }
 
+/**
+ * ADR-0060 micro-decision 8, made total: the more specific target wins, then
+ * the newer `validFrom`, then the greater `factId`. `factId` is the primary
+ * key, so two distinct rows never compare equal and the election is a function
+ * of the row set alone, never of the caller's array order.
+ *
+ * `accountId` is a gate, not a rank dimension: the caller filters on it before
+ * this comparison, so two matches here are already scoped to the same mailbox.
+ * `validFrom` is compared at `Date` millisecond resolution because
+ * `Date.getTime()` drops the microseconds Postgres stores — which is exactly
+ * why `factId` is needed below it.
+ */
+function isStrongerSuppressionMatch(
+  candidate: ActiveSuppressionInstruction,
+  incumbent: ActiveSuppressionInstruction,
+): boolean {
+  const candidateSpecificity = standingInstructionTargetSpecificity(candidate.value.target);
+  const incumbentSpecificity = standingInstructionTargetSpecificity(incumbent.value.target);
+
+  if (candidateSpecificity !== incumbentSpecificity) {
+    return candidateSpecificity > incumbentSpecificity;
+  }
+
+  const candidateValidFrom = candidate.validFrom.getTime();
+  const incumbentValidFrom = incumbent.validFrom.getTime();
+
+  if (candidateValidFrom !== incumbentValidFrom) {
+    return candidateValidFrom > incumbentValidFrom;
+  }
+
+  return candidate.factId > incumbent.factId;
+}
+
 export function findSenderSuppression(
   instructions: readonly ActiveSuppressionInstruction[],
   lookup: SenderSuppressionLookup,
@@ -634,9 +667,15 @@ export function findSenderSuppression(
   const accountId = lookup.accountId ?? null;
 
   let best: ActiveSuppressionInstruction | null = null;
-  let bestSpecificity = -1;
 
   for (const instruction of instructions) {
+    // Match `listActiveSuppressionInstructions`: only a `suppress` action is a
+    // suppression. `STANDING_INSTRUCTION_ACTIONS` has one member today, so
+    // `ActiveSuppressionInstruction` cannot carry another action and this
+    // guard is unreachable — it closes the door the day a second action lands,
+    // without moving the filter to the six consumers.
+    if (instruction.value.action !== "suppress") continue;
+
     const { target } = instruction.value;
 
     // Derived membership: an active suppression binds its sender for every
@@ -650,37 +689,19 @@ export function findSenderSuppression(
     // target kind means.
     if (!targetMatchesSender(target, email)) continue;
 
+    // `accountId` is a gate, not a rank dimension: a null target is
+    // cross-account and always eligible; a scoped target must name the
+    // caller's mailbox.
     if (target.accountId !== null && target.accountId !== accountId) continue;
 
     // ADR-0060 micro-decision 8: several instructions can match one sender, and
-    // the MOST SPECIFIC target wins. Recency only breaks a tie between two
-    // targets of the same kind. `sender_domain` made this reachable: the user
-    // can mute a domain and still pin one address inside it, which
+    // the MOST SPECIFIC target wins; `isStrongerSuppressionMatch` breaks a tie
+    // by recency, then by `factId`. `sender_domain` made this reachable: the
+    // user can mute a domain and still pin one address inside it, which
     // `rememberSenderSuppression` allows on purpose (see the identity-not-
     // coverage duplicate check above). A pure first-match-wins scan would let
     // the newer domain mute defeat that pin.
-    //
-    // The scan reads every match instead of returning the first one, so the
-    // answer does not depend on how the caller sorted the array. The array is
-    // one user's active instructions, and the comparison is two numbers, so the
-    // triage hot path pays a bounded per-message cost.
-    const specificity = standingInstructionTargetSpecificity(target);
-
-    if (best !== null) {
-      if (specificity < bestSpecificity) continue;
-
-      // Equal specificity keeps the newer row, and keeps the earlier one on an
-      // exact tie so the result stays stable for a caller that sorted by
-      // `validFrom` descending.
-      if (
-        specificity === bestSpecificity &&
-        instruction.validFrom.getTime() <= best.validFrom.getTime()
-      )
-        continue;
-    }
-
-    best = instruction;
-    bestSpecificity = specificity;
+    if (best === null || isStrongerSuppressionMatch(instruction, best)) best = instruction;
   }
 
   if (!best) return null;
