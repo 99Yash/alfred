@@ -13,7 +13,7 @@ import {
 } from "@alfred/assistant/chat/finalize-guards";
 import type { ChatRunState } from "@alfred/assistant/chat/chat-turn-state";
 import { openChatTurnRetries } from "@alfred/assistant/execution/workflows/turn-budgets";
-import type { StepContext } from "@alfred/assistant/execution/types";
+import type { StepContext } from "@alfred/assistant/execution";
 
 /**
  * Unit tests for the ADR-0073 finalization guard (#268). This guard is the

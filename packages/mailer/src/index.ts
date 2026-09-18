@@ -20,5 +20,3 @@ export { renderDeliveryAlertEmail } from "./emails/delivery-alert.render";
 export { WorkflowBlockedEmail, type WorkflowBlockedEmailProps } from "./emails/workflow-blocked";
 
 export { renderWorkflowBlockedEmail } from "./emails/workflow-blocked.render";
-
-export type { ComposedEmail } from "./types";

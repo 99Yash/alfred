@@ -5,7 +5,7 @@ import type { LanguageModel } from "ai";
 import { and, desc, eq, lte } from "drizzle-orm";
 import { z } from "zod";
 import { identifyLanguageModel } from "../models";
-import type { CallUsage } from "./types";
+import type { CallUsage } from "./metered";
 
 /**
  * In-process price cache. Keyed by `${provider}:${model}`; bounded TTL

@@ -16,7 +16,7 @@ export {
   VOYAGE_MAX_BATCH_TOKENS,
 } from "./constants";
 
-import type { CallAttribution } from "./metering/types";
+import type { CallAttribution } from "./metering/metered";
 
 /**
  * Embedding API for the alfred corpus.

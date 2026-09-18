@@ -6,8 +6,7 @@ import {
   type WorkflowRevision,
 } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
-import { getWorkflow } from "./registry";
-import type { AgentDbExecutor, Workflow } from "./types";
+import { getWorkflow, type AgentDbExecutor, type Workflow } from "./registry";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
 
 type UserAuthoredWorkflowRow = Pick<WorkflowRow, "isBuiltin"> &

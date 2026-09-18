@@ -1,5 +1,5 @@
 import type { AgentTranscriptMessage, ChatModelTier } from "@alfred/contracts";
-import type { StepResult } from "../types";
+import type { StepResult } from "../registry";
 
 /**
  * Every bound on how much work one agent turn-loop may do, in one place.

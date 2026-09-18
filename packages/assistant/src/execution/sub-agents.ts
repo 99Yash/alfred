@@ -4,7 +4,7 @@ import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { createRun } from "./service";
-import type { AgentDbExecutor } from "./types";
+import type { AgentDbExecutor } from "./registry";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { enqueueRun } from "./queue";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";

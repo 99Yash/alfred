@@ -10,7 +10,7 @@ import {
   type FullBriefing,
   type IanaTimezone,
 } from "@alfred/contracts";
-import type { ComposedEmail } from "@alfred/mailer";
+import type { ComposedEmail } from "@alfred/assistant/delivery";
 
 import { composeAgentInstructions, sanitizeVoice } from "@alfred/ai/voice";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
