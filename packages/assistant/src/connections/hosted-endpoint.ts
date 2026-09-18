@@ -577,9 +577,11 @@ export interface HostedRequestFacts {
   /**
    * The effective abort signal under native Fetch precedence. `undefined`
    * exactly when neither the `init` nor the `Request` supplies one — the guard
-   * invents no `AbortSignal` of its own.
+   * invents no `AbortSignal` of its own. An explicit `null` (present, so it
+   * replaces) is carried through: handing `null` to `fetch` mints a fresh,
+   * never-aborting signal, which is how a caller detaches a `Request`'s signal.
    */
-  signal: AbortSignal | undefined;
+  signal: AbortSignal | null | undefined;
 }
 
 /**
@@ -589,16 +591,19 @@ export interface HostedRequestFacts {
  *
  *  - a supplied `init.headers` REPLACES the `Request`'s headers (it does not
  *    merge them), and an absent one falls back to the `Request`'s own;
- *  - a supplied `init.signal` replaces the `Request`'s signal, and an absent one
- *    falls back to it;
+ *  - a supplied `init.signal` replaces the `Request`'s signal — including an
+ *    explicit `null`, which native carries through so `fetch` detaches the
+ *    `Request`'s signal — and an absent one falls back to it;
  *  - `url`/`method`/`body` keep the same `init`-wins ordering they already had,
  *    which already matches native (`init.body == null` falls back, a non-null
  *    value replaces).
  *
- * The signal fallback is the one place the guard deliberately stops short of
- * native: `new Request(url)` mints a fresh never-aborting `AbortSignal`, while
- * this returns `undefined`, because callers that add no signal must not be
- * given one (item 02's "the protocol fetch adds no signal of its own").
+ * "Supplied" is `!== undefined`, not `??`: an explicit `null` is a value, and
+ * collapsing it into the fallback would re-couple a request the caller asked to
+ * detach. The one place the guard deliberately stops short of native is when
+ * NOTHING is supplied: `new Request(url)` mints a fresh never-aborting signal,
+ * while this returns `undefined`, because callers that add no signal must not
+ * be given one (item 02's "the protocol fetch adds no signal of its own").
  */
 export function requestFacts(
   input: string | URL | Request,
@@ -612,7 +617,7 @@ export function requestFacts(
     method: (init?.method ?? request?.method ?? "GET").toUpperCase(),
     headers,
     body: init?.body ?? request?.body ?? undefined,
-    signal: init?.signal ?? request?.signal,
+    signal: init?.signal !== undefined ? init.signal : request?.signal,
   };
 }
 
