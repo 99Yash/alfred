@@ -452,8 +452,16 @@ interface FeatureInputs {
  * the card SUPPLIED, so a card that gains a feature scored below its own mean
  * ends below an equal card that gained nothing. A card naming a `resolved`
  * pull request therefore sits below an unannotated equal whenever that card's
- * mean is above the mean of the values it gained. The drop is at most about
- * `0.07`, and about `0.10` when `focus` also scores `0.5`. That is the
+ * mean is above the mean of the values it gained. For one gained feature of
+ * weight `w` and value `v`, the drop is exactly `w x (M - v) / (W + w)`, where
+ * `M` is the mean of the values the card already supplied over its weight `W`.
+ * That form carries no premise and survives a weight change; the numbers below
+ * are one operating point, not a universal bound (at `M = 1` with no
+ * `sourcePriority`, `abandoned` drops `0.08`). A document card reaches `M`
+ * `0.909` (no instant, `W` `0.58`) or `0.927` (with one, `W` `0.72`), where
+ * the measured drop is `0.037`-`0.043` for `resolved` and `0.052`-`0.062` for
+ * `abandoned`, and a `focus = 0.5` arm adds `0.027`-`0.031` MORE, for a worst
+ * total of about `0.09`. That is the
  * ranker's model rather than a property of this feature; removing it needs
  * either a score for the absent case, which would be a lie, or taking
  * `objectState` out of the weighted average, which is a ranker redesign.
@@ -704,8 +712,9 @@ function focusMatcher(
     // Known gap: this arm returns BEFORE the relation gate below, so a `names`
     // card that annotates a DIFFERENT object of a declared provider scores
     // 0.5 on the same reading the next comment refuses to score zero on. It
-    // costs such a card about 0.03 to 0.04 against an unannotated equal.
-    // Gating this arm is a separate change, not this slice.
+    // costs such a card `0.027`-`0.031` MORE than the `objectState` drop alone
+    // — about `0.09` total against an unannotated equal at a document card's
+    // ceiling. Gating this arm is a separate change, not this slice.
     if (providers.has(object.provider)) return 0.5;
 
     // Zero is a MEASURED miss, and only an `is` card can supply one: it carries
