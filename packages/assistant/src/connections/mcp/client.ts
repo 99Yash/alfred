@@ -20,7 +20,7 @@ import { InsufficientScopeError } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { McpClientError } from "./errors";
 import type {
-  McpApiKeyAuth,
+  McpApiKeyCredentialReader,
   McpAuthorizedEndpoint,
   McpAuthorizedProtocol,
   McpEndpointAuthorizer,
@@ -95,23 +95,39 @@ export interface McpClientLimits {
   maxCatalogTools?: number;
 }
 
+/**
+ * The one authentication mode a raw client is built with.
+ *
+ * A connection has exactly one credential source (the `mcp_connections` single-
+ * credential CHECK), so the mode is a closed union rather than two optional
+ * fields that must agree. `auth` is REQUIRED on {@link McpRawClientOptions}, so
+ * "this connection has no key" and "the caller forgot to resolve the key" are
+ * no longer the same program: omitting the field fails `check-types`, and a new
+ * arm fails every switch until it is handled.
+ *
+ * The union makes the mode explicit, not correct — a caller can still pass
+ * `{ mode: "none" }` for a keyed connection. Production has one resolver,
+ * `resolveMcpClientAuth` in `manager.ts`, so the persisted path cannot choose
+ * wrongly by accident.
+ */
+export type McpClientAuth =
+  | { readonly mode: "none" }
+  | { readonly mode: "api_key"; readonly reader: McpApiKeyCredentialReader }
+  | { readonly mode: "oauth"; readonly provider: McpOAuthSessionFactory };
+
 export interface McpRawClientOptions extends McpClientLimits {
   connectionId: string;
   /** The persisted endpoint row projection; the authorizer validates it on every connect. */
   endpoint: McpEndpointConnection;
   endpointAuthorizer: McpEndpointAuthorizer;
   /**
-   * Owner-supplied API key, read from the connection's sealed credential. When
-   * set, the key rides the protocol requester and NO OAuth provider is built:
-   * a connection has exactly one authentication mode.
+   * The connection's single authentication mode. In the `api_key` arm the key
+   * rides the protocol requester and NO OAuth provider is built; the `oauth` arm
+   * builds the session before connect and the HTTP transport receives only a
+   * token-only projection (so it cannot refresh and replay `tools/call`).
    */
-  apiKey?: McpApiKeyAuth;
+  auth: McpClientAuth;
   authProvider?: SdkMcpProtocolClientOptions["authProvider"];
-  /**
-   * Full OAuth provider used only before connect. The HTTP transport receives a
-   * token-only projection so it cannot refresh and replay `tools/call`.
-   */
-  oauthProviderFactory?: McpOAuthSessionFactory;
   onAuthorizationRequired?: () => void | Promise<void>;
   onInsufficientScope?: (requiredScopes: string[]) => void | Promise<void>;
   now?: () => number;
@@ -261,18 +277,32 @@ export class McpRawClient {
     let oauth: McpBoundOAuthSession | null = null;
 
     try {
+      const auth = this.#options.auth;
+
       authorized = await this.#options.endpointAuthorizer.authorize(
         this.#options.endpoint,
         {
           requestTimeoutMs: this.#limits.requestTimeoutMs,
         },
-        this.#options.apiKey,
+        auth.mode === "api_key" ? auth.reader : undefined,
       );
-      // An API key and OAuth are mutually exclusive: when the owner supplied a
-      // key, the endpoint's authorization server is never contacted.
-      oauth = this.#options.apiKey
-        ? null
-        : (this.#options.oauthProviderFactory?.(authorized.oauth) ?? null);
+
+      switch (auth.mode) {
+        case "none":
+        case "api_key":
+          // An API key rides the protocol requester and an endpoint's
+          // authorization server is never contacted, so no OAuth session is
+          // built. `none` has no credential at all.
+          break;
+        case "oauth":
+          oauth = auth.provider(authorized.oauth);
+          break;
+        default: {
+          const _exhaustive: never = auth;
+
+          throw new Error(`unknown MCP auth mode: ${JSON.stringify(_exhaustive)}`);
+        }
+      }
 
       if (oauth) await oauth.authorize();
       const boundOAuth = oauth;

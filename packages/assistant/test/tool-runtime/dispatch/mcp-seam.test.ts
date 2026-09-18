@@ -464,6 +464,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const manager = new McpConnectionManager({
       clientFactory: (owned) =>
         new McpRawClient({
+          auth: { mode: "none" },
           connectionId: owned.id,
           endpoint: owned.server,
           endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
@@ -616,6 +617,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const manager = new McpConnectionManager({
       clientFactory: (owned) =>
         new McpRawClient({
+          auth: { mode: "none" },
           connectionId: owned.id,
           endpoint: owned.server,
           endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),

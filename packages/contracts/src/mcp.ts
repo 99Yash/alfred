@@ -328,6 +328,12 @@ export const mcpApiKeyAuthSchema = z
   })
   .strict();
 
+/**
+ * The wire credential the create route accepts: the plaintext key exactly once.
+ * The per-request transport reader that opens the sealed row is
+ * `McpApiKeyCredentialReader` in `@alfred/assistant/connections/mcp`, a
+ * different shape with the same job; this name stays the contract's.
+ */
 export type McpApiKeyAuth = z.infer<typeof mcpApiKeyAuthSchema>;
 
 /**
