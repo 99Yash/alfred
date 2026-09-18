@@ -69,6 +69,7 @@ export {
   objectStateStore,
   proposeObjectKeys,
   reconcileEvidence,
+  type ClosureReading,
   type ObjectState,
   type ObjectStateStore,
   type ReconcileCandidates,

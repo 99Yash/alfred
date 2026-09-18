@@ -250,7 +250,7 @@ export async function gatherBriefingDigest(
   // post-partition loop-reconciliation pass (ADR-0062). Priority buckets stay
   // uncapped until after reconciliation so closed loops do not consume one of
   // the visible slots.
-  const keyCandidates: ReconcileCandidates[] = [];
+  const keyCandidates: ReconcileCandidates<"about">[] = [];
 
   for (const r of rows) {
     const cat = r.category;
@@ -349,7 +349,7 @@ export async function gatherBriefingDigest(
 async function dropClosedLoops(
   userId: string,
   buckets: Record<PriorityCategory, BriefingItem[]>,
-  candidates: readonly ReconcileCandidates[],
+  candidates: readonly ReconcileCandidates<"about">[],
 ): Promise<BriefingClosedLoop[]> {
   if (candidates.length === 0) return [];
 

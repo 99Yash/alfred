@@ -10,6 +10,7 @@ export {
 
 export {
   type CandidateKey,
+  type ClosureReading,
   type KeyProposal,
   type ReconcileSubject,
   type SubjectText,

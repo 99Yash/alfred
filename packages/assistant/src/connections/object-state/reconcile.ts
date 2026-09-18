@@ -6,7 +6,9 @@ import {
 import {
   candidateIdentity,
   type CandidateKey,
+  type ClosureReading,
   type KeyProposal,
+  type KeyProposalReading,
   type ObjectKeyMatch,
   type ObjectStateAdapter,
   type ReconcileSubject,
@@ -46,28 +48,42 @@ import {
  * (ADR-0048-D).
  */
 
+/**
+ * The closing category a reading's result may carry. `annotates` may not close
+ * an ask, so its result is `null` by construction; `about` and `mentions` carry
+ * the registry's answer.
+ */
+export type ClosesAskAs<Reading extends KeyProposalReading> = Reading extends "annotates"
+  ? null
+  : LoopClosingStateCategory | null;
+
 /** One resolved object, with what this build says its state does to an ask. */
-export interface ReconciledObject {
+export interface ReconciledObject<Reading extends KeyProposalReading> {
   /** The candidate key that proved this object. */
-  key: CandidateKey;
+  key: CandidateKey<Reading>;
   /** Reducer-owned state. The only assertion in this result. */
   state: ObjectState;
   /**
    * The category when it closes an already-open ask about an object of this
    * kind, else `null`. It carries the narrowed category rather than a boolean
-   * so a caller can record WHICH closure it saw without re-deriving it.
+   * so a caller can record WHICH closure it saw without re-deriving it. For
+   * `annotates` it is `null` even though the object may be resolved: the
+   * reading holds no closure authority.
    */
-  closesAskAs: LoopClosingStateCategory | null;
+  closesAskAs: ClosesAskAs<Reading>;
 }
 
 /** A subject's resolved objects, strongest key first. */
-export type ReconcileResult = ReadonlyMap<string, readonly ReconciledObject[]>;
+export type ReconcileResult<Reading extends KeyProposalReading> = ReadonlyMap<
+  string,
+  readonly ReconciledObject<Reading>[]
+>;
 
 /** One subject's candidate keys, as `reconcileEvidence` takes them. */
-export interface ReconcileCandidates {
+export interface ReconcileCandidates<Reading extends KeyProposalReading> {
   /** The caller's own id for the subject; the result is keyed back on it. */
   id: string;
-  keys: readonly CandidateKey[];
+  keys: readonly CandidateKey<Reading>[];
 }
 
 /**
@@ -82,21 +98,22 @@ const OBJECT_STATE_ADAPTERS = {
 
 /**
  * Every key the registered adapters propose for one subject, tagged with the
- * provider that claimed it.
+ * provider that claimed it and the reading it was proposed under.
  *
  * Pure and synchronous, so a caller can run it inside the loop that already
  * holds the text and keep only the keys — a briefing gather never has to carry
- * a window of email bodies into the resolve phase.
+ * a window of email bodies into the resolve phase. The reading is stamped here
+ * because this seam owns it: the adapters propose written forms, not readings.
  */
-export function proposeObjectKeys(
+export function proposeObjectKeys<Reading extends KeyProposalReading>(
   subject: ReconcileSubject,
-  proposal: KeyProposal,
-): CandidateKey[] {
-  const keys: CandidateKey[] = [];
+  proposal: Extract<KeyProposal, { reading: Reading }>,
+): CandidateKey<Reading>[] {
+  const keys: CandidateKey<Reading>[] = [];
 
   for (const adapter of Object.values(OBJECT_STATE_ADAPTERS)) {
     for (const key of adapter.proposeKeys(subject, proposal)) {
-      keys.push({ ...key, provider: adapter.provider });
+      keys.push({ ...key, provider: adapter.provider, reading: proposal.reading });
     }
   }
 
@@ -115,23 +132,30 @@ export function proposeObjectKeys(
  *
  * A subject with no resolvable key is absent from the result, never present
  * with an invented entry.
+ *
+ * One call has one reading: every subject's keys carry the same `Reading`, so
+ * cross-subject dedup cannot collide two readings' keys (the reading is not
+ * part of {@link import("./adapter").candidateIdentity}). The result is typed
+ * by that reading, and an `annotates` result carries `null` closure by
+ * construction — the reading, not a comment, decides whether a caller may close
+ * an ask.
  */
-export async function reconcileEvidence(args: {
+export async function reconcileEvidence<Reading extends KeyProposalReading>(args: {
   userId: string;
-  subjects: readonly ReconcileCandidates[];
+  subjects: readonly ReconcileCandidates<Reading>[];
   /**
    * When aborted, no further query is issued and the call rejects instead of
    * consuming the caller's whole budget (the context-search collect timeout).
    * The operation is read-only, so abort discards partial maps.
    */
   abortSignal?: AbortSignal;
-}): Promise<ReconcileResult> {
+}): Promise<ReconcileResult<Reading>> {
   const store = objectStateStore;
   const subjects = args.subjects.filter((subject) => subject.keys.length > 0);
 
   if (subjects.length === 0) return new Map();
 
-  const distinct = new Map<string, CandidateKey>();
+  const distinct = new Map<string, CandidateKey<Reading>>();
 
   for (const subject of subjects) {
     for (const key of subject.keys) distinct.set(candidateIdentity(key), key);
@@ -147,7 +171,7 @@ export async function reconcileEvidence(args: {
   // can report the wrong object's title and url.
   const exactByGroup = new Map<
     string,
-    { provider: CandidateKey["provider"]; keyKind: string; keys: CandidateKey[] }
+    { provider: CandidateKey<Reading>["provider"]; keyKind: string; keys: CandidateKey<Reading>[] }
   >();
 
   for (const key of candidates) {
@@ -188,7 +212,7 @@ export async function reconcileEvidence(args: {
     if (state) stateByKey.set(identity, state);
   }
 
-  const resolvePrefixKey = async (key: CandidateKey): Promise<void> => {
+  const resolvePrefixKey = async (key: CandidateKey<Reading>): Promise<void> => {
     // An abbreviated sha is a leading fragment of the stored key, so it
     // resolves by prefix; an ambiguous prefix resolves to nothing.
     const ref = await KEY_RESOLVERS[key.match](store, args.userId, key);
@@ -202,10 +226,10 @@ export async function reconcileEvidence(args: {
     if (state) stateByKey.set(candidateIdentity(key), state);
   };
 
-  const subjectHasExactState = (subject: ReconcileCandidates): boolean =>
+  const subjectHasExactState = (subject: ReconcileCandidates<Reading>): boolean =>
     subject.keys.some((key) => key.match === "exact" && stateByKey.has(candidateIdentity(key)));
 
-  const wantedPrefixes = new Map<string, CandidateKey>();
+  const wantedPrefixes = new Map<string, CandidateKey<Reading>>();
 
   for (const subject of subjects) {
     if (subjectHasExactState(subject)) continue;
@@ -218,10 +242,10 @@ export async function reconcileEvidence(args: {
   args.abortSignal?.throwIfAborted();
   await Promise.all([...wantedPrefixes.values()].map((key) => resolvePrefixKey(key)));
 
-  const result = new Map<string, readonly ReconciledObject[]>();
+  const result = new Map<string, readonly ReconciledObject<Reading>[]>();
 
   for (const subject of subjects) {
-    const resolved: ReconciledObject[] = [];
+    const resolved: ReconciledObject<Reading>[] = [];
     const seenKeys = new Set<string>();
     // A subject whose own exact identity resolved ignores every prefix guess —
     // including a prefix another subject's lookup resolved into the shared
@@ -245,7 +269,7 @@ export async function reconcileEvidence(args: {
       resolved.push({
         key,
         state,
-        closesAskAs: closesOpenAsk(state.provider, state.kind, state.stateCategory),
+        closesAskAs: closesAskAsFor(key, state),
       });
     }
 
@@ -255,12 +279,34 @@ export async function reconcileEvidence(args: {
   return result;
 }
 
+/**
+ * The closure authority of one result, decided by the reading that proposed its
+ * key. This is the one place the conditional {@link ClosesAskAs} is laundered:
+ * `annotates` writes `null` at runtime as well as in the type, so an `as` cast
+ * that smuggles an annotates result into a closure reader still carries no
+ * closing category.
+ */
+function closesAskAsFor<Reading extends KeyProposalReading>(
+  key: CandidateKey<Reading>,
+  state: ObjectState,
+): ClosesAskAs<Reading> {
+  const closes = closesOpenAsk(state.provider, state.kind, state.stateCategory);
+
+  // SAFETY: `ClosesAskAs<Reading>` resolves to `null` exactly when `Reading` is
+  // `"annotates"`, which is the same condition the branch below tests at
+  // runtime. TypeScript cannot prove that equality for a deferred `Reading`, so
+  // the cast restates it.
+  return (key.reading === "annotates" ? null : closes) as ClosesAskAs<Reading>;
+}
+
 /** The first resolved object whose state closes an open ask, if any. */
 export function firstClosingObject(
-  resolved: readonly ReconciledObject[] | undefined,
-): (ReconciledObject & { closesAskAs: LoopClosingStateCategory }) | undefined {
+  resolved: readonly ReconciledObject<ClosureReading>[] | undefined,
+): (ReconciledObject<ClosureReading> & { closesAskAs: LoopClosingStateCategory }) | undefined {
   return resolved?.find(
-    (object): object is ReconciledObject & { closesAskAs: LoopClosingStateCategory } =>
+    (
+      object,
+    ): object is ReconciledObject<ClosureReading> & { closesAskAs: LoopClosingStateCategory } =>
       object.closesAskAs !== null,
   );
 }
@@ -270,16 +316,16 @@ export function firstClosingObject(
  * mode is a compile error here instead of a silent exact lookup.
  */
 const KEY_RESOLVERS = {
-  exact: (store: ObjectStateStore, userId: string, key: CandidateKey) =>
+  exact: (store: ObjectStateStore, userId: string, key: CandidateKey<KeyProposalReading>) =>
     store.resolveByKey(userId, key.provider, key.keyKind, key.keyValue),
-  prefix: (store: ObjectStateStore, userId: string, key: CandidateKey) =>
+  prefix: (store: ObjectStateStore, userId: string, key: CandidateKey<KeyProposalReading>) =>
     store.resolveByKeyPrefix(userId, key.provider, key.keyKind, key.keyValue),
 } satisfies Record<
   ObjectKeyMatch,
   (
     store: ObjectStateStore,
     userId: string,
-    key: CandidateKey,
+    key: CandidateKey<KeyProposalReading>,
   ) => Promise<Awaited<ReturnType<ObjectStateStore["resolveByKey"]>>>
 >;
 
