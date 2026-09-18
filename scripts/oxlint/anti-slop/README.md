@@ -16,7 +16,8 @@ copy we own, not a dependency we track.
   belongs to its owner and cannot be renamed locally) and `no-runtime-typeof.ts`
   gained `isExistenceProbe` (`typeof x === "undefined"` establishes whether a
   binding exists rather than narrowing its representation). Their fixtures were
-  re-copied from the same revision.
+  re-copied from the same revision. (`no-shape-in-symbol-names` was dropped
+  outright in #1149; only the `no-runtime-typeof` port survives.)
 - Upstream license: MIT (see `./LICENSE`; retained because these files are copied,
   not rewritten). `vendor/eslint-stylistic/` carries its own `LICENSE` and
   `UPSTREAM.md` provenance, because the padding rule is vendored from ESLint
@@ -70,14 +71,13 @@ takes no options; the vendored source is the policy. The padding engine is the
 ESLint Stylistic `padding-line-between-statements` rule, vendored under
 `vendor/eslint-stylistic/` with its own license and provenance.
 
-**Four rules at `warn`** — paydown rules with live violations (counts as of
+**Three rules at `warn`** — paydown rules with live violations (counts as of
 2026-09-18):
 
 | Rule                        | Violations | What it rejects                                     |
 | --------------------------- | ---------- | --------------------------------------------------- |
 | `no-runtime-typeof`         | ~357       | runtime `typeof` checks instead of boundary parsing |
 | `no-unsafe-dictionary-type` | ~152       | `Record<string, unknown>` and equivalents           |
-| `no-shape-in-symbol-names`  | ~145       | "shape" in identifier names                         |
 | `no-unknown-returns`        | ~94        | functions returning `unknown`                       |
 
 `no-runtime-typeof` runs with `{ "allowInTypeGuards": true }` (see
@@ -111,6 +111,16 @@ Three upstream rules conflict with invariants this repo holds on purpose:
   whose prototype is not `Object.prototype`, so it returns `undefined` for all of
   them. `packages/contracts/CLAUDE.md` documents the `isIndexable` + `Reflect.get`
   pair as the correct answer to this exact question.
+
+`no-shape-in-symbol-names` was dropped in #1149 for the worst signal-to-noise
+ratio in the set: a case-insensitive substring ban on `shape` cannot tell the
+genuine target (the credential `shape` field in
+`packages/contracts/src/integrations/registry.ts`, which wants a domain role
+such as `credentialKind`) from the legitimate domain concept (`DayShape` /
+`day_shape` / `gatherDayShape`, the real product value behind the
+`get_day_shape` tool) or test-helper noise (`nestedShapeFailures`,
+`isCodeShaped`). The naming preference lives in
+`docs/reference/code-style.md` instead of in a rule.
 
 Two newer upstream rules are simply not adopted yet, not rejected on conflict:
 `no-array-filter-map` and `no-reduce-accumulator-copy`. Both are performance rules

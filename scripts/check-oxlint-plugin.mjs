@@ -116,10 +116,6 @@ const PROBES = {
     snippet: `export const isString = typeof input === "string";\n`,
     severity: "warn",
   },
-  "no-shape-in-symbol-names": {
-    snippet: `export interface UserShape { id: string }\n`,
-    severity: "warn",
-  },
   "no-unknown-returns": {
     snippet: `export function loadUser(): unknown { return input; }\n`,
     severity: "warn",

@@ -42,15 +42,17 @@
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/require-readable-spacing": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "error",
-    // Four rules remain at warn for paydown. Each still has live violations;
+    // Three rules remain at warn for paydown. Each still has live violations;
     // promote to error only after the tree is clean. Three upstream rules stay out:
     // - no-conditional-empty-object-spread: conflicts with exactOptionalPropertyTypes
     // - no-unknown-parameters: conflicts with boundary validator pattern
     // - no-reflect-get: conflicts with Reflect.get for class instances
+    // no-shape-in-symbol-names was dropped in #1149: a substring ban cannot tell
+    // the credential `shape` field from the DayShape domain, so it is documented
+    // in docs/reference/code-style.md instead of enforced.
     // allowInTypeGuards: `typeof` inside a `value is T` predicate is the predicate's
     // correct implementation, not the ad-hoc narrowing this rule exists to reject.
     "anti-slop/no-runtime-typeof": ["warn", { "allowInTypeGuards": true }],
-    "anti-slop/no-shape-in-symbol-names": "warn",
     "anti-slop/no-unknown-returns": "warn",
     "anti-slop/no-unsafe-dictionary-type": "warn",
     "tailwindcss/enforce-sort-order": ["warn", { "entryPoint": "apps/web/src/index.css" }],
