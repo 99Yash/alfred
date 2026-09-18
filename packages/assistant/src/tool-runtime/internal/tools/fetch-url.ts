@@ -560,9 +560,11 @@ function refusalFor(error: HostedEndpointError, url: URL): FetchError {
       );
     case "malformed_url":
       return new FetchError("fetch_failed", "The URL is malformed.", shown);
-    // The public-URL check never pins an origin or follows a redirect; these
-    // codes belong to the MCP guard and reach here only if that check grows.
+    // The public-URL check never pins an origin, follows a redirect, or reads a
+    // stored credential placement; these codes belong to the MCP guard and reach
+    // here only if that check grows.
     case "invalid_origin":
+    case "invalid_placement":
     case "origin_mismatch":
     case "redirect_refused":
     case "too_many_redirects":
