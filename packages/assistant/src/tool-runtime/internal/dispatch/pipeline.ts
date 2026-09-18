@@ -1,9 +1,7 @@
 /**
  * Every tool call (boss or sub-agent) flows through `dispatchToolCall`: validate,
- * hash for retry suppression, consult policy, stage an `action_stagings` row (the
- * canonical audit surface), then execute or park. Single-pass: the same call
- * handles dispatch and post-approval resume. Owner: this file.
- * History: ADR-0034, ADR-0069. Glossary: `docs/reference/glossary.md`.
+ * hash for retry suppression, consult policy, then stage an `action_stagings` row
+ * (the audit surface) and execute/park; `join`/`fast_path` execute inline with no row. Owner: this file. History: ADR-0034, ADR-0069. Glossary: `docs/reference/glossary.md`.
  */
 
 import type {

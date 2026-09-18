@@ -56,10 +56,8 @@ export { MAX_RATIONALE_LEN, truncateRationale };
 
 /**
  * Email triage classifier, cheap-model-always (ADR-0051): `classifyEmail` runs
- * the context-rich cheap model over deterministic observations, then a
- * conditional second pass and the override floor, and returns the classification
- * plus a `triage.classification` audit. Owner: this file. Supersedes ADR-0042.
- * Glossary: `docs/reference/glossary.md`.
+ * the cheap model, then a conditional second pass and the deterministic floors
+ * (override → sender-kind → spam → meeting), returning the classification + audit. Owner: this file. Supersedes ADR-0042. Glossary: `docs/reference/glossary.md`.
  */
 
 /**
