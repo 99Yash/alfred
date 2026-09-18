@@ -332,4 +332,98 @@ describe("guarded fetch", () => {
       assert.equal(seen[1]?.headers.has(name), false, name);
     }
   });
+
+  test("carries a Request's signal onto the first hop and every redirect hop", async () => {
+    const controller = new AbortController();
+
+    const request = new Request("https://mcp.example.test/start", {
+      signal: controller.signal,
+    });
+
+    const seen: Array<AbortSignal | null | undefined> = [];
+
+    const guarded = createGuardedFetch({
+      expectedOrigin: "https://mcp.example.test",
+      requester: async (_input, init) => {
+        seen.push(init.signal);
+
+        return seen.length === 1
+          ? new Response(null, { status: 302, headers: { location: "/done" } })
+          : new Response("ok");
+      },
+    });
+
+    await guarded(request);
+
+    assert.equal(seen.length, 2);
+    // Node's `new Request(url, { signal })` stores a DEPENDENT signal, not the
+    // controller's own, so identity is asserted against the Request the caller
+    // handed over — which is the signal native Fetch would read too.
+    assert.equal(seen[0], request.signal);
+    assert.equal(seen[1], request.signal);
+
+    // And that signal is wired to the caller's cancellation, not a fresh one.
+    controller.abort();
+    assert.equal(seen[1]?.aborted, true);
+  });
+
+  test("carries an init signal and invents none when neither route supplies one", async () => {
+    const controller = new AbortController();
+    const seen: Array<AbortSignal | null | undefined> = [];
+
+    const guarded = createGuardedFetch({
+      expectedOrigin: "https://mcp.example.test",
+      requester: async (_input, init) => {
+        seen.push(init.signal);
+
+        return new Response("ok");
+      },
+    });
+
+    await guarded("https://mcp.example.test/with-signal", { signal: controller.signal });
+    await guarded("https://mcp.example.test/without-signal");
+
+    assert.equal(seen[0], controller.signal);
+    assert.equal(seen[1], undefined, "the guard adds no signal of its own");
+  });
+
+  test("init.headers replaces a Request's headers instead of merging them", async () => {
+    const seen: Headers[] = [];
+
+    const guarded = createGuardedFetch({
+      expectedOrigin: "https://mcp.example.test",
+      requester: async (_input, init) => {
+        seen.push(new Headers(init.headers));
+
+        return new Response("ok");
+      },
+    });
+
+    await guarded(
+      new Request("https://mcp.example.test/mcp", { headers: { "x-request": "request" } }),
+      { headers: { "x-init": "init" } },
+    );
+
+    assert.equal(seen[0]?.get("x-init"), "init");
+    assert.equal(seen[0]?.has("x-request"), false);
+  });
+
+  test("falls back to a Request's headers when init supplies none", async () => {
+    const seen: Headers[] = [];
+
+    const guarded = createGuardedFetch({
+      expectedOrigin: "https://mcp.example.test",
+      requester: async (_input, init) => {
+        seen.push(new Headers(init.headers));
+
+        return new Response("ok");
+      },
+    });
+
+    await guarded(
+      new Request("https://mcp.example.test/mcp", { headers: { "x-request": "request" } }),
+    );
+
+    assert.equal(seen[0]?.get("x-request"), "request");
+  });
 });
