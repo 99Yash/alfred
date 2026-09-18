@@ -187,3 +187,40 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     recentMessages,
   };
 }
+
+/**
+ * Whole-thread closure fact (ADR-0050 same-thread retraction): the user's own
+ * send is the newest message in the thread, so the loop it opened is already on
+ * the counterparty.
+ *
+ * This is the SINGLE OWNER of that read. The triage mint suppression
+ * (`user_already_replied`), the `close-loop-todos` retraction, and
+ * `system.suggest_todo` all consult it, so they cannot disagree about the
+ * query shape.
+ *
+ * It deliberately passes NO `excludeDocumentId`. `getThreadState`'s exclusion
+ * exists for the classifier's observation — "the context this message arrives
+ * into" — but the closure fact is about the WHOLE thread. Reading the
+ * exclusion-based observation here treated a fresh inbound that arrived after
+ * an older user reply as "user already replied": the current message was
+ * excluded, so the prior user send looked newest, and the mint was withheld
+ * from a message the user had not answered.
+ */
+export interface GmailThreadClosure {
+  /** True when the newest message in the whole thread is the user's own send. */
+  userHasReplied: boolean;
+  /** The direction the decision read, for logs. */
+  newestDirection: ThreadState["newestDirection"];
+}
+
+export async function readGmailThreadClosure(args: {
+  userId: string;
+  sourceThreadId: string;
+}): Promise<GmailThreadClosure> {
+  const thread = await getThreadState(args);
+
+  return {
+    userHasReplied: thread.newestDirection === "sent",
+    newestDirection: thread.newestDirection,
+  };
+}
