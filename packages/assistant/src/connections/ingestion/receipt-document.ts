@@ -79,14 +79,17 @@ export type ReceiptProjectionFacts = Pick<EventReceipt, "userId" | "eventType" |
  * The normalized receipt inputs the writer consumes. Opaque: only
  * {@link prepareReceiptProjection} constructs one, so a call site cannot hand
  * the writer a `kind` or another user's zone.
+ *
+ * The brand is type-only (the intersection below), matching `IanaTimezone`,
+ * `LocalDateKey`, and the other brands: there is no runtime symbol to
+ * reference, so a mint cannot accidentally emit one.
  */
-export interface ReceiptProjection {
+export type ReceiptProjection = {
   readonly provider: InboundEventSource;
   readonly userId: string;
   readonly kind: string;
   readonly timezone: IanaTimezone;
-  readonly [receiptProjectionBrand]: true;
-}
+} & { readonly [receiptProjectionBrand]: true };
 
 /**
  * Derive the provider kind and resolve the user's zone. MUST run before any
@@ -107,13 +110,14 @@ export async function prepareReceiptProjection(
 
   const timezone = await resolveTimezone(facts.userId);
 
+  // SAFETY: this function is the brand's only mint; the type-only brand makes a
+  // hand-built { kind, timezone } object a type error at every other call site.
   return {
     provider: facts.provider,
     userId: facts.userId,
     kind,
     timezone,
-    [receiptProjectionBrand]: true,
-  };
+  } as ReceiptProjection;
 }
 
 /** The receipt identity a document is written under: the row id, payload, delivery time, and account. */
