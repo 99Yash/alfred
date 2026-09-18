@@ -106,7 +106,7 @@ export interface DeriveToolDiscoveryInput {
   /** The executable description; the derived `summary` default. */
   description: string;
   /** Input schema, read for its top-level field names. */
-  inputSchema: z.ZodTypeAny;
+  inputSchema: z.ZodType<any>;
   /** Hand-authored copy; each field takes precedence over the derived baseline. */
   overrides?: ToolDiscoveryMetadata | undefined;
 }
@@ -225,7 +225,7 @@ export function singularizePhrase(value: string): string {
  * this runs at registration, where any conversion failure degrades to no fields
  * rather than aborting boot.
  */
-function schemaFieldEntities(schema: z.ZodTypeAny): string[] {
+function schemaFieldEntities(schema: z.ZodType<any>): string[] {
   let json: z.core.JSONSchema.BaseSchema;
 
   try {

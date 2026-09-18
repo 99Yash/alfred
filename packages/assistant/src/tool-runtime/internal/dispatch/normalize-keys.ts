@@ -40,7 +40,7 @@ export interface KeyNormalizationResult {
 
 export function normalizeToolInputKeys(
   input: unknown,
-  schema: z.ZodTypeAny,
+  schema: z.ZodType<any>,
 ): KeyNormalizationResult {
   if (!isRecord(input)) return { input, renamed: [] };
   const accepted = acceptedParamNames(schema);

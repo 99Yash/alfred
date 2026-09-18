@@ -5,7 +5,7 @@
  * a thread that was tagged before #1097/#1098 landed converges onto the current
  * classifier and the Gmail label follows. Enqueues onto the same BullMQ queue
  * the prod `server` worker consumes, so classify → upsertTriage → suggestTodo →
- * apply-label runs exactly as in production.
+ * close-loop-todos → apply-label runs exactly as in production.
  *
  * WHY NOT `backfill-triage-committed.ts`. That script DELETES every
  * `created_by='agent'` todo for the user before it enqueues, and it scopes by
@@ -33,18 +33,21 @@
  *    does NOT remove the todo the previous classification minted, so a thread
  *    moving out of a demand lane can leave one behind. This script PRINTS every
  *    agent-authored todo behind a RE-TRIAGEABLE thread and leaves the delete to
- *    the human — that is the one judgment a repair script must not take.
+ *    the human — that is the one judgment a repair script must not take. The
+ *    newer `close-loop-todos` step does not change this: it acts only on the
+ *    `reason === "reply"` re-eval, and this repair enqueues `reason: "manual"`.
  *  - It does not touch a user-overridden row. `upsertTriage` returns at its
  *    read side with `written: false` on a `source = 'user'` row
  *    (`store.ts:197`), and `reconcileThreadLabel` re-reads the stored row inside
  *    the thread lock, so Gmail converges on the USER's category either way.
  *    The `written` gate covers the classify step's own side effects: no todo,
  *    no `inbox.updated`, no `email-triage.classified`, no sender prior and no
- *    decision trace. It does NOT cover the Gmail write. `classify` returns
- *    `nextStep: "apply-label"` unconditionally (`workflow-operations.ts:739`),
- *    and `apply-label` is a SIBLING step that reads neither `written` nor
- *    `source`. It re-applies the stored row's category to the target message,
- *    strips every Alfred label off the thread's siblings
+ *    decision trace. It does NOT cover the Gmail write. `runEmailTriageClassify`
+ *    returns `nextStep: "close-loop-todos"` unconditionally, that step advances
+ *    to `apply-label` unconditionally, and `apply-label` is a SIBLING step that
+ *    reads neither `written` nor `source`. It re-applies the stored row's
+ *    category to
+ *    the target message, strips every Alfred label off the thread's siblings
  *    (`stripAllAlfredLabels: true`, `tags.ts:146`), and bumps `row_version`
  *    through `setAppliedLabelId` / `setTriageReconciledTarget`. Two gates stop
  *    that write and neither of them reads `source`: the `emailTagging` feature

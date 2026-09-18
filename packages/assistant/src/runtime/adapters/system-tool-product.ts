@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { toMessage, type TodoSource } from "@alfred/contracts";
 import {
   editStandingInstruction,
   forgetStandingInstruction,
@@ -7,6 +7,7 @@ import {
   rememberSenderSuppression,
   runWebSearch,
 } from "@alfred/assistant/knowledge";
+import { readGmailThreadClosure } from "@alfred/assistant/triage";
 import {
   registerSystemToolKnowledgeAdapter,
   registerSystemToolTaskAdapter,
@@ -14,13 +15,14 @@ import {
   type SystemToolRequest,
   type SystemToolTaskAdapter,
 } from "@alfred/assistant/tool-runtime";
-import { resolveTodosForGmailSender, suggestTodo } from "@alfred/assistant/tasks";
+import { resolveTodosForGmailSource, suggestTodo } from "@alfred/assistant/tasks";
+import { gmailThreadIdsFromSources } from "@alfred/assistant/tasks/resolve";
 
 const SENDER_SUPPRESSION_REASON = "standing_instruction_sender_suppression";
 
 type RememberSenderSuppressionResult = Awaited<ReturnType<typeof rememberSenderSuppression>>;
 
-type ResolveSenderTodosResult = Awaited<ReturnType<typeof resolveTodosForGmailSender>>;
+type ResolveSenderTodosResult = Awaited<ReturnType<typeof resolveTodosForGmailSource>>;
 
 export type RememberAndDismissResult =
   | (Extract<RememberSenderSuppressionResult, { ok: true }> & {
@@ -64,7 +66,7 @@ export interface RememberAndDismissBatchResult {
 
 interface SenderSuppressionDependencies {
   remember: typeof rememberSenderSuppression;
-  dismissTodos: typeof resolveTodosForGmailSender;
+  dismissTodos: typeof resolveTodosForGmailSource;
 }
 
 type RememberRequest = SystemToolRequest<"system.remember">;
@@ -187,7 +189,7 @@ export function createRememberSenderSuppressionCoordinator(
 
 export const rememberSenderSuppressionAndDismissTodos = createRememberSenderSuppressionCoordinator({
   remember: rememberSenderSuppression,
-  dismissTodos: resolveTodosForGmailSender,
+  dismissTodos: resolveTodosForGmailSource,
 });
 
 const knowledgeAdapter: SystemToolKnowledgeAdapter = {
@@ -240,9 +242,31 @@ const knowledgeAdapter: SystemToolKnowledgeAdapter = {
   },
 };
 
+/**
+ * The `system.suggest_todo` tool is the third producer of a live todo, beside
+ * the triage mint and the `system.remember` dismissal. The "the user already
+ * answered this Gmail thread ⇒ no live todo" invariant has one owner,
+ * `readGmailThreadClosure`; the triage mint suppression and the
+ * `close-loop-todos` retraction already consult it. This guard makes the tool
+ * path consult it too instead of minting straight past both. Best-effort like
+ * the triage read: a DB blip mints rather than blocking a user-requested todo.
+ */
+async function gmailSourcesAlreadyAnswered(
+  userId: string,
+  sources: readonly TodoSource[],
+): Promise<boolean> {
+  for (const sourceThreadId of gmailThreadIdsFromSources(sources)) {
+    const closure = await readGmailThreadClosure({ userId, sourceThreadId });
+
+    if (closure.userHasReplied) return true;
+  }
+
+  return false;
+}
+
 const taskAdapter: SystemToolTaskAdapter = {
   resolveTodo({ input, context }) {
-    return resolveTodosForGmailSender({
+    return resolveTodosForGmailSource({
       userId: context.userId,
       senderEmail: input.senderEmail,
       sourceThreadId: input.sourceThreadId,
@@ -250,7 +274,15 @@ const taskAdapter: SystemToolTaskAdapter = {
       reason: input.reason,
     });
   },
-  suggestTodo({ input, context }) {
+  async suggestTodo({ input, context }) {
+    const answered = await gmailSourcesAlreadyAnswered(context.userId, input.sources ?? []).catch(
+      () => false,
+    );
+
+    if (answered) {
+      return { ok: true, status: "suppressed", reason: "user_already_replied" };
+    }
+
     return suggestTodo({
       userId: context.userId,
       agentRunId: context.runId,

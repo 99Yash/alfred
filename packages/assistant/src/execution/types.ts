@@ -54,8 +54,15 @@ export interface StagedAction {
 /** The closed set of reasons a step may defer a run to a later attempt. */
 export type RunDeferReason = "provider_unhealthy" | "retry_scheduled";
 
-export type StepResult<S> =
-  | { kind: "next"; state: S; nextStep: string; transcript?: AgentTranscriptMessage[] }
+/**
+ * The step-name union a workflow owns, derived from its `steps` keys (the
+ * `StepName = keyof typeof steps` pattern in `email-triage`). Defaults to
+ * `string` for workflows and type-erased helpers that have not adopted it yet,
+ * so the generic is additive: only a workflow that opts in loses the ability to
+ * name a step that does not exist.
+ */
+export type StepResult<S, N extends string = string> =
+  | { kind: "next"; state: S; nextStep: N; transcript?: AgentTranscriptMessage[] }
   | {
       kind: "done";
       state: S;
@@ -129,9 +136,12 @@ export interface StepContext<S> {
   ): void;
 }
 
-export interface Step<S> {
-  /** Logical step id within the workflow (must be stable across deploys). */
-  id: string;
+export interface Step<S, N extends string = string> {
+  /**
+   * Logical step id within the workflow (must be stable across deploys). Typed
+   * to the workflow's own step-name union so it matches its `steps` key.
+   */
+  id: N;
   /**
    * Optional per-step stale-lease window, in ms (ADR-0070 §1.4, Lever A). A
    * `running` row whose heartbeat has been silent longer than this is presumed
@@ -148,7 +158,7 @@ export interface Step<S> {
    * recovers after this longer window instead of 60s.
    */
   staleAfterMs?: number;
-  run(ctx: StepContext<S>): Promise<StepResult<S>>;
+  run(ctx: StepContext<S>): Promise<StepResult<S, N>>;
 }
 
 /**
@@ -233,7 +243,7 @@ interface DedupKeyArgs extends WorkflowInput {
   userId: string;
 }
 
-export interface Workflow<S = unknown> {
+export interface Workflow<S = unknown, N extends string = string> {
   /** Stable slug; used to look up the workflow when resuming a run after a deploy. */
   slug: string;
   /**
@@ -270,9 +280,18 @@ export interface Workflow<S = unknown> {
     input: WorkflowInput,
     context?: WorkflowInitContext,
   ): MaybePromise<AgentTranscriptMessage[]>;
-  /** Step the executor enters first. */
-  initialStep: string;
-  steps: Record<string, Step<S>>;
+  /**
+   * Step the executor enters first. `N` defaults to `string`; a workflow that
+   * derives `N` from its `steps` keys makes an unknown entry step a type error.
+   */
+  initialStep: N;
+  /**
+   * The workflow's topology, keyed by step name. When `N` is derived from these
+   * keys, every `nextStep` in the step bodies and `initialStep` are checked
+   * against them, and each entry's `id` must equal its key, so the topology is
+   * stated once and cannot drift.
+   */
+  steps: { [K in N]: Step<S, N> & { id: K } };
   /** Optional parser used to validate and migrate persisted state before terminal hooks. */
   stateSchema?: z.ZodType<S>;
   /**

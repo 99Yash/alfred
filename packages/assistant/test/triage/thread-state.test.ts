@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { buildThreadSnippet } from "@alfred/assistant/triage/thread-state";
+import { buildThreadSnippet, userRepliedAfterMessage } from "@alfred/assistant/triage/thread-state";
 
 describe("buildThreadSnippet", () => {
   test("strips the leading RFC-822 header block and leads with the body", () => {
@@ -50,5 +50,36 @@ describe("buildThreadSnippet", () => {
   test("returns an empty string when there is neither body nor title", () => {
     assert.equal(buildThreadSnippet(null, "", {}, 220), "");
     assert.equal(buildThreadSnippet(null, null, {}, 220), "");
+  });
+});
+
+// The per-message closure test (ADR-0050 same-thread retraction). `todoSuppressionReason`
+// only branches on this boolean, and the whole-thread read has no local harness,
+// so the P0 inversion is locked here: on the reply re-eval the user's send is
+// newer than the message under classification, but on the NEXT inbound it is
+// older — and only the first may suppress the mint.
+describe("userRepliedAfterMessage", () => {
+  const inboundAt = new Date("2026-09-18T07:36:00Z");
+  const replyAt = new Date("2026-09-18T07:48:00Z");
+  const nextInboundAt = new Date("2026-09-18T09:00:00Z");
+
+  test("reply after the message closes it (the reply re-eval)", () => {
+    assert.equal(userRepliedAfterMessage(replyAt, inboundAt), true);
+  });
+
+  test("reply before a newer inbound does NOT close the newer inbound (P0)", () => {
+    assert.equal(userRepliedAfterMessage(replyAt, nextInboundAt), false);
+  });
+
+  test("a reply at the same instant is not strictly after", () => {
+    assert.equal(userRepliedAfterMessage(replyAt, replyAt), false);
+  });
+
+  test("no user send never suppresses", () => {
+    assert.equal(userRepliedAfterMessage(null, inboundAt), false);
+  });
+
+  test("an undated message carries no ordering signal, so it is never suppressed", () => {
+    assert.equal(userRepliedAfterMessage(replyAt, null), false);
   });
 });
