@@ -90,6 +90,30 @@ export function todoSourceKey(source: TodoSource): string {
 }
 
 /**
+ * True when two source sets overlap on an IDENTITY-bearing ref — anything that
+ * is not a Gmail transport `thread`.
+ *
+ * A Gmail `thread` id is transport, not loop identity: one thread carries many
+ * independent asks, so a resolved (`done`/`dismissed`) todo on a thread must
+ * not suppress a later, genuine ask that reuses that thread. Without this the
+ * ADR-0050 same-thread retraction dismissed a thread's todo and then silenced
+ * every future proposal on the thread for the whole re-suggest window — the
+ * false "doesn't need you" that "demote, never bury" forbids. Identity refs (a
+ * GitHub PR, a Linear issue, a tracker subject, a monitoring alarm) name the
+ * loop itself, so an overlap there still means "the same work". PURE.
+ */
+export function todoSourcesShareIdentityOverlap(
+  existing: readonly TodoSource[],
+  incoming: readonly TodoSource[],
+): boolean {
+  const identityKeys = new Set(incoming.filter((ref) => !isGmailThreadRef(ref)).map(todoSourceKey));
+
+  if (identityKeys.size === 0) return false;
+
+  return existing.some((ref) => !isGmailThreadRef(ref) && identityKeys.has(todoSourceKey(ref)));
+}
+
+/**
  * Merge incoming refs into an existing set, appending only those whose
  * `(provider, kind, id)` identity is not already present. Order-stable: the
  * existing refs keep their position, new ones append. Used by the
