@@ -13,7 +13,7 @@ import {
   getWorkflow,
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
-import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
+import type { StepResult, Workflow } from "@alfred/assistant/execution";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**

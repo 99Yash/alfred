@@ -12,8 +12,14 @@ import {
 } from "ai";
 import { identifyLanguageModel, isModelObject, normalizeProvider } from "../models";
 import { providerForServedModel } from "../provider-adapter";
-import { metered, meteredStream } from "./metered";
-import type { CallAttribution, MeteredMeta, MeteredResult, MeteredStep } from "./types";
+import {
+  metered,
+  meteredStream,
+  type CallAttribution,
+  type MeteredMeta,
+  type MeteredResult,
+  type MeteredStep,
+} from "./metered";
 
 /**
  * AI-SDK call wrappers — thin sugar over `metered()`. They:

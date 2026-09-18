@@ -10,7 +10,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { _resetRegistryForTests, registerRecipe } from "@alfred/assistant/execution/registry";
 import { createRun } from "@alfred/assistant/execution/service";
 import { resolveWorkflowForRun } from "@alfred/assistant/execution/resolve-workflow";
-import type { AgentDbExecutor, Workflow } from "@alfred/assistant/execution/types";
+import type { AgentDbExecutor, Workflow } from "@alfred/assistant/execution";
 import { handlePull } from "../../src/sync/pull";
 import { seedBuiltinWorkflowsForUser } from "@alfred/assistant/automation/seeder";
 import { closeRedis } from "@alfred/db/redis";

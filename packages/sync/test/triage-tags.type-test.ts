@@ -1,4 +1,4 @@
-import type { SyncedTriageTag } from "../src/types";
+import type { SyncedTriageTag } from "../src/schemas";
 
 const base = {
   threadId: "thread_1",

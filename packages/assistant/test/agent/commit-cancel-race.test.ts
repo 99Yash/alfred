@@ -17,7 +17,7 @@ import {
 } from "@alfred/assistant/execution/registry";
 import { cancelRun } from "@alfred/assistant/execution/service";
 import { spawnSubAgent } from "@alfred/assistant/execution/sub-agents";
-import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
+import type { StepResult, Workflow } from "@alfred/assistant/execution";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**

@@ -13,7 +13,7 @@ import {
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
 import { heartbeatRun } from "@alfred/assistant/execution/service";
-import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
+import type { StepResult, Workflow } from "@alfred/assistant/execution";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**

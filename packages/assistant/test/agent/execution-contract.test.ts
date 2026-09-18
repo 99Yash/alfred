@@ -16,12 +16,8 @@ import {
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
 import { cancelRun, getRun, signalRun, startRun } from "@alfred/assistant/execution/service";
-import type {
-  StepContext,
-  StepResult,
-  TerminalOutcome,
-  Workflow,
-} from "@alfred/assistant/execution/types";
+import type { StepContext, StepResult, Workflow } from "@alfred/assistant/execution";
+import type { TerminalOutcome } from "@alfred/assistant/execution/terminal-closure";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
