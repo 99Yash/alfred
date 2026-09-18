@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { resolveTimezone } from "@alfred/assistant/settings";
 import {
   eventTypeName,
   jsonObjectSchema,
@@ -22,7 +21,7 @@ import {
   type InboundProjection,
 } from "../ingress";
 import { enqueueInboundDelivery } from "./queue";
-import { writeReceiptDocument } from "./receipt-document";
+import { prepareReceiptProjection, writeReceiptDocument } from "./receipt-document";
 
 /**
  * Result of receiving one delivery on `POST /webhooks/inbound/:source`. The
@@ -277,7 +276,12 @@ async function insertReceipt(
         }),
   };
 
-  const timezone = await resolveTimezone(owner.userId);
+  const projection = await prepareReceiptProjection({
+    provider: source,
+    userId: owner.userId,
+    eventType: row.eventType,
+    rawKind: row.rawKind ?? null,
+  });
 
   const insertedId = await db().transaction(async (tx) => {
     const [inserted] = await tx
@@ -287,18 +291,12 @@ async function insertReceipt(
       .returning({ id: eventReceipts.id, deliveredAt: eventReceipts.deliveredAt });
 
     if (!inserted) return null;
-    await writeReceiptDocument(
-      tx,
-      {
-        ...inserted,
-        provider: source,
-        userId: owner.userId,
-        payload: args.payload,
-        kind: projectionKind(tier),
-        accountId: owner.accountRef,
-      },
-      timezone,
-    );
+    await writeReceiptDocument(tx, projection, {
+      id: inserted.id,
+      payload: args.payload,
+      deliveredAt: inserted.deliveredAt,
+      accountId: owner.accountRef,
+    });
 
     return inserted.id;
   });

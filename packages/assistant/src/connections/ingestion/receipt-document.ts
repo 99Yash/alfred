@@ -1,8 +1,9 @@
-import type { IanaTimezone, InboundEventSource } from "@alfred/contracts";
+import { parseEventTypeName, type IanaTimezone, type InboundEventSource } from "@alfred/contracts";
 import { sha256 } from "@alfred/corpus";
 import { db, type DbTransaction } from "@alfred/db";
 import { documents, eventReceipts, type Document, type EventReceipt } from "@alfred/db/schemas";
 import { and, count, eq, gte, lt, sql, type SQL } from "drizzle-orm";
+import { resolveTimezone } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { INBOUND_SOURCES } from "../ingress";
 import { INBOUND_DAILY_EMBED_CAP, INBOUND_DAILY_EMBED_CAP_REASON } from "../receipt-corpus-policy";
@@ -67,6 +68,59 @@ export async function readReceiptDocument(receipt: {
   return rows[0] ?? null;
 }
 
+declare const receiptProjectionBrand: unique symbol;
+
+/** The receipt facts {@link prepareReceiptProjection} reads: raw/typed kind and the owning user. */
+export type ReceiptProjectionFacts = Pick<EventReceipt, "userId" | "eventType" | "rawKind"> & {
+  readonly provider: InboundEventSource;
+};
+
+/**
+ * The normalized receipt inputs the writer consumes. Opaque: only
+ * {@link prepareReceiptProjection} constructs one, so a call site cannot hand
+ * the writer a `kind` or another user's zone.
+ */
+export interface ReceiptProjection {
+  readonly provider: InboundEventSource;
+  readonly userId: string;
+  readonly kind: string;
+  readonly timezone: IanaTimezone;
+  readonly [receiptProjectionBrand]: true;
+}
+
+/**
+ * Derive the provider kind and resolve the user's zone. MUST run before any
+ * transaction opens: `resolveTimezone` is a pooled settings read, and holding a
+ * transaction connection through it can exhaust the pool under concurrent
+ * receipt writes.
+ *
+ * The kind precedence is the one the backfill used to spell inline:
+ * `rawKind ?? parseEventTypeName(provider, eventType) ?? eventType`. A typed row
+ * stores `eventTypeName(source, type)` (so `parseEventTypeName` recovers `type`)
+ * and a raw row carries its provider kind in `rawKind`, which wins the chain.
+ */
+export async function prepareReceiptProjection(
+  facts: ReceiptProjectionFacts,
+): Promise<ReceiptProjection> {
+  const kind =
+    facts.rawKind ?? parseEventTypeName(facts.provider, facts.eventType) ?? facts.eventType;
+
+  const timezone = await resolveTimezone(facts.userId);
+
+  return {
+    provider: facts.provider,
+    userId: facts.userId,
+    kind,
+    timezone,
+    [receiptProjectionBrand]: true,
+  };
+}
+
+/** The receipt identity a document is written under: the row id, payload, delivery time, and account. */
+export type ReceiptDocumentIdentity = Pick<EventReceipt, "id" | "payload" | "deliveredAt"> & {
+  readonly accountId: string;
+};
+
 /**
  * Called for a new receipt or a stored receipt without a document. The receipt's
  * unique key proves document identity; rollback preserves the pair on failure.
@@ -75,16 +129,13 @@ export async function readReceiptDocument(receipt: {
  */
 export async function writeReceiptDocument(
   tx: DbTransaction,
-  receipt: Pick<EventReceipt, "id" | "userId" | "payload" | "deliveredAt"> & {
-    provider: InboundEventSource;
-    kind: string;
-    accountId: string;
-  },
-  timezone: IanaTimezone,
+  projection: ReceiptProjection,
+  identity: ReceiptDocumentIdentity,
 ): Promise<void> {
-  const description = INBOUND_SOURCES[receipt.provider].describe(receipt.kind, receipt.payload);
+  const { provider, userId, kind, timezone } = projection;
+  const description = INBOUND_SOURCES[provider].describe(kind, identity.payload);
   await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${`receipt-corpus:${receipt.userId}:${receipt.provider}`}, 0))`,
+    sql`select pg_advisory_xact_lock(hashtextextended(${`receipt-corpus:${userId}:${provider}`}, 0))`,
   );
   const admittedAt = new Date();
   const { start, end } = inZone(timezone).dayBounds(admittedAt);
@@ -94,8 +145,8 @@ export async function writeReceiptDocument(
     .from(documents)
     .where(
       and(
-        eq(documents.userId, receipt.userId),
-        eq(documents.source, receipt.provider),
+        eq(documents.userId, userId),
+        eq(documents.source, provider),
         gte(documents.ingestedAt, start),
         lt(documents.ingestedAt, end),
       ),
@@ -105,16 +156,16 @@ export async function writeReceiptDocument(
   await tx
     .insert(documents)
     .values({
-      ...receiptDocumentKey(receipt),
-      accountId: receipt.accountId,
+      ...receiptDocumentKey({ id: identity.id, userId, provider }),
+      accountId: identity.accountId,
       title: description.title,
       content: description.body,
       contentHash: sha256(description.body),
-      raw: receipt.payload,
+      raw: identity.payload,
       url: description.url,
-      authoredAt: receipt.deliveredAt,
+      authoredAt: identity.deliveredAt,
       ingestedAt: admittedAt,
-      metadata: { kind: receipt.kind, summary: description.summary },
+      metadata: { kind, summary: description.summary },
       ...(capped
         ? { embedFailedAt: admittedAt, lastEmbedError: INBOUND_DAILY_EMBED_CAP_REASON }
         : {}),

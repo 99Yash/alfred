@@ -1,9 +1,12 @@
-import { parseEventTypeName, toMessage, type InboundEventSource } from "@alfred/contracts";
+import { toMessage, type InboundEventSource } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, eventReceipts, integrationCredentials } from "@alfred/db/schemas";
 import { and, asc, eq, notExists } from "drizzle-orm";
-import { resolveTimezone } from "@alfred/assistant/settings";
-import { receiptDocumentJoin, writeReceiptDocument } from "./receipt-document";
+import {
+  prepareReceiptProjection,
+  receiptDocumentJoin,
+  writeReceiptDocument,
+} from "./receipt-document";
 
 /**
  * Bounded recovery for receipts stored before corpus projection was installed.
@@ -30,22 +33,21 @@ export async function backfillReceiptDocuments(source: InboundEventSource): Prom
     .limit(50);
 
   for (const { receipt, accountId } of rows) {
-    const kind =
-      receipt.rawKind ?? parseEventTypeName(source, receipt.eventType) ?? receipt.eventType;
-
     try {
-      const timezone = await resolveTimezone(receipt.userId);
+      const projection = await prepareReceiptProjection({
+        provider: source,
+        userId: receipt.userId,
+        eventType: receipt.eventType,
+        rawKind: receipt.rawKind,
+      });
+
       await db().transaction((tx) =>
-        writeReceiptDocument(
-          tx,
-          {
-            ...receipt,
-            provider: source,
-            kind,
-            accountId,
-          },
-          timezone,
-        ),
+        writeReceiptDocument(tx, projection, {
+          id: receipt.id,
+          payload: receipt.payload,
+          deliveredAt: receipt.deliveredAt,
+          accountId,
+        }),
       );
     } catch (err) {
       console.warn(
