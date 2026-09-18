@@ -231,7 +231,7 @@ export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations" |
 export interface LiveToolArgs<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
-  S extends z.ZodTypeAny,
+  S extends z.ZodType<any>,
 > {
   integration: I;
   action: A;
