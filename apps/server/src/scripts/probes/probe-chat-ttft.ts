@@ -31,7 +31,7 @@ import { INTEGRATION_SLUGS } from "@alfred/contracts";
 // Routed through the real dispatch helpers so the tool-name shim + provider
 // options match prod. `route("standard").model()` = Haiku (the chat Auto tier),
 // `route("deep").model()` = Opus + adaptive thinking (the Deep tier), and
-// `route("boss").model()` = Sonnet (the background boss) — all withFallback-wrapped
+// `route("boss").model()` = Luna (the background boss) — all withFallback-wrapped
 // (transparent on success). `thinking` carries the per-tier reasoning block so
 // the Deep tier faithfully emits reasoning tokens BEFORE tool calls — the exact
 // "5-7s thinking before tool calls" symptom this probe exists to isolate.
@@ -39,11 +39,11 @@ type ChatProviderOptions = ReturnType<ModelRouteHandle["providerOptions"]>;
 
 const MODELS = new Map<string, () => ModelRouteHandle>([
   ["haiku", () => route("standard")],
-  ["sonnet", () => route("boss")],
+  ["boss", () => route("boss")],
   ["opus", () => route("deep")],
 ]);
 
-const SELECTED = (process.env.PROBE_MODELS ?? "haiku,sonnet,opus")
+const SELECTED = (process.env.PROBE_MODELS ?? "haiku,boss,opus")
   .split(",")
   .map((s) => s.trim())
   .filter((m) => MODELS.get(m));

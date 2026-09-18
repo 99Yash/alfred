@@ -62,8 +62,13 @@ interface ModelRoute {
  * object, not a second registry entry, supplies provider and model id.
  */
 const MODEL_ROUTES = {
+  // Background boss runs `gpt-5.6-luna` for cost (2026-09-18): briefings,
+  // triage deepen, cold start, and skill compose are non-interactive, so
+  // Luna's turn bloat hurts less than on chat while the 13.3x blended
+  // discount lands. Same legs as `standard`; rollback restores
+  // `anthropicLeg("claude-sonnet-4-6")` as the primary.
   boss: {
-    legs: [() => anthropicLeg("claude-sonnet-4-6"), () => googleLeg("gemini-3.8-flash")],
+    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
     providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
@@ -71,7 +76,8 @@ const MODEL_ROUTES = {
   // 2026-09-03d) so a delegating chat turn is one vendor end to end. The July
   // bake-off measured the mixed pairing — Luna boss + Sonnet worker — as the
   // worst shape at 10 calls / 97s / $0.241, and a Sonnet worker still costs
-  // 13× a Luna one. `boss` stays on Sonnet: it drives background work only.
+  // 13× a Luna one; the background boss is on Luna too now, so no route
+  // mixes vendors.
   subAgent: {
     legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
