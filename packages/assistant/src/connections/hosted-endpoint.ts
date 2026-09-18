@@ -574,27 +574,50 @@ export interface HostedRequestFacts {
   method: string;
   headers: Headers;
   body: RequestInit["body"];
+  /**
+   * The effective abort signal under native Fetch precedence. `undefined`
+   * exactly when neither the `init` nor the `Request` supplies one — the guard
+   * invents no `AbortSignal` of its own. An explicit `null` (present, so it
+   * replaces) is carried through: handing `null` to `fetch` mints a fresh,
+   * never-aborting signal, which is how a caller detaches a `Request`'s signal.
+   */
+  signal: AbortSignal | null | undefined;
 }
 
 /**
  * Flatten the two ways a fetch caller can spell one request (`Request` object
- * or `input + init`) into the facts a policy check reads. `init` wins over the
- * `Request` on every field, matching Fetch's own precedence.
+ * or `input + init`) into the facts a policy check reads, under native Fetch
+ * precedence:
+ *
+ *  - a supplied `init.headers` REPLACES the `Request`'s headers (it does not
+ *    merge them), and an absent one falls back to the `Request`'s own;
+ *  - a supplied `init.signal` replaces the `Request`'s signal — including an
+ *    explicit `null`, which native carries through so `fetch` detaches the
+ *    `Request`'s signal — and an absent one falls back to it;
+ *  - `url`/`method`/`body` keep the same `init`-wins ordering they already had,
+ *    which already matches native (`init.body == null` falls back, a non-null
+ *    value replaces).
+ *
+ * "Supplied" is `!== undefined`, not `??`: an explicit `null` is a value, and
+ * collapsing it into the fallback would re-couple a request the caller asked to
+ * detach. The one place the guard deliberately stops short of native is when
+ * NOTHING is supplied: `new Request(url)` mints a fresh never-aborting signal,
+ * while this returns `undefined`, because callers that add no signal must not
+ * be given one (item 02's "the protocol fetch adds no signal of its own").
  */
 export function requestFacts(
   input: string | URL | Request,
   init: RequestInit | undefined,
 ): HostedRequestFacts {
   const request = input instanceof Request ? input : null;
-  const headers = new Headers(request?.headers);
-
-  if (init?.headers) new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  const headers = init?.headers != null ? new Headers(init.headers) : new Headers(request?.headers);
 
   return {
     url: request?.url ?? (input instanceof URL ? input.href : String(input)),
     method: (init?.method ?? request?.method ?? "GET").toUpperCase(),
     headers,
     body: init?.body ?? request?.body ?? undefined,
+    signal: init?.signal !== undefined ? init.signal : request?.signal,
   };
 }
 
@@ -620,7 +643,7 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
 
   return async (input, init) => {
-    const { url, method, headers, body } = requestFacts(input, init);
+    const { url, method, headers, body, signal } = requestFacts(input, init);
 
     // One validator for both modes: `expectedOrigin` is `null` exactly when the
     // chain is unpinned, which is the argument `validatePinnedHttpsEndpoint`
@@ -635,6 +658,13 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
         ...init,
         method,
         headers,
+        // Written AFTER `...init` so the effective signal holds on the first hop
+        // and on every redirect hop: a Request's signal survives when `init`
+        // supplies none, and a supplied `init.signal` is never replaced by
+        // whatever `...init` already carried. Spread conditionally because
+        // `exactOptionalPropertyTypes` refuses an explicit `undefined` for
+        // `signal?: AbortSignal | null`.
+        ...(signal !== undefined ? { signal } : {}),
         ...(body != null ? { body, duplex: "half" } : {}),
         redirect: "manual",
       };
