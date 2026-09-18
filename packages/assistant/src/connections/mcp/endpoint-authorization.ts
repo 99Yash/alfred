@@ -69,8 +69,13 @@ export interface McpAuthorizedEndpoint {
  * An owner-supplied API key as the transport reads it: the placement is read
  * once when the authorization is built, and the secret is opened once per
  * request and never cached by Alfred.
+ *
+ * Named "reader" to stay distinct from the contract's wire credential
+ * `McpApiKeyAuth` (`@alfred/contracts`), which carries the plaintext value
+ * exactly once at the create door. This is the per-request transport seam a
+ * persisted connection gets instead: it opens the sealed row on demand.
  */
-export interface McpApiKeyAuth {
+export interface McpApiKeyCredentialReader {
   /** Placement, read once when the endpoint authorization is built. Not secret. */
   placement(): Promise<McpApiKeyPlacement>;
   /**
@@ -86,7 +91,7 @@ export interface McpEndpointAuthorizer {
   authorize(
     connection: McpEndpointConnection,
     network: McpEndpointNetworkPolicy,
-    apiKey?: McpApiKeyAuth,
+    apiKey?: McpApiKeyCredentialReader,
   ): Promise<McpAuthorizedEndpoint>;
 }
 
@@ -216,7 +221,7 @@ function createAuthorizedOAuth(
  */
 async function withApiKey(
   requester: GuardedFetchRequester,
-  apiKey: McpApiKeyAuth,
+  apiKey: McpApiKeyCredentialReader,
   origin: string,
 ): Promise<GuardedFetchRequester> {
   const placement = await apiKey.placement();
@@ -246,7 +251,7 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
   async authorize(
     connection: McpEndpointConnection,
     network: McpEndpointNetworkPolicy,
-    apiKey?: McpApiKeyAuth,
+    apiKey?: McpApiKeyCredentialReader,
   ): Promise<McpAuthorizedEndpoint> {
     const endpoint = validatePinnedHttpsEndpoint(connection.endpointUrl, connection.endpointOrigin);
 

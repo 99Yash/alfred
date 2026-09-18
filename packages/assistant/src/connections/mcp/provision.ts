@@ -39,15 +39,15 @@
  * session is what would close the hole, and this module does not have one.
  */
 
-import { redacted, type McpAddServerAuth } from "@alfred/contracts";
+import { redacted, type McpAddServerAuth, type McpApiKeyAuth } from "@alfred/contracts";
 import { persistApiKeyCredential } from "./api-key";
-import { MCP_DEFAULT_REQUEST_TIMEOUT_MS, McpRawClient } from "./client";
+import { MCP_DEFAULT_REQUEST_TIMEOUT_MS, McpRawClient, type McpClientAuth } from "./client";
 import { builtInClientPolicy, builtInProviderForEndpoint } from "./built-ins";
 import { MCP_OAUTH_PENDING_IDENTITY } from "./constants";
 import {
   getMcpEndpointAuthorizer,
   validatePublicHttpsEndpoint,
-  type McpApiKeyAuth,
+  type McpApiKeyCredentialReader,
 } from "./endpoint-authorization";
 import {
   isMcpAuthorizationChallenge,
@@ -151,18 +151,16 @@ export async function addUserMcpServer(
   if (builtIn) throw new BuiltInMcpEndpointError(builtIn);
   const deadline = AbortSignal.timeout(ADD_SERVER_DEADLINE_MS);
   const signal = input.signal ? AbortSignal.any([input.signal, deadline]) : deadline;
-  const apiKey = input.auth?.kind === "api_key" ? input.auth : undefined;
+  const apiKey = apiKeyAuthFromAddServerAuth(input.auth);
 
   // The probe reads the owner's key from memory; only the successful path seals
   // it. The reader shape is the same one the live client gets from the store.
-  const probeApiKey: McpApiKeyAuth | undefined = apiKey
-    ? {
-        placement: async () => apiKey.placement,
-        secret: async () => redacted(apiKey.value),
-      }
-    : undefined;
+  const probeAuth: McpClientAuth =
+    apiKey === undefined
+      ? { mode: "none" }
+      : { mode: "api_key", reader: apiKeyReaderForWireKey(apiKey) };
 
-  const requiresAuthorization = await probeRequiresAuthorization(endpoint, signal, probeApiKey);
+  const requiresAuthorization = await probeRequiresAuthorization(endpoint, signal, probeAuth);
 
   // A challenge with a key configured is the endpoint's answer about the KEY.
   // There is no authorization server to send the browser to, so this refuses
@@ -229,6 +227,49 @@ function canonicalEndpoint(url: URL): URL {
 }
 
 /**
+ * Every arm of the create route's auth union, keyed by `kind`.
+ *
+ * This is the compile-time gate item 21 asks for. A `switch` with a `never`
+ * default cannot prove it while the schema has ONE arm: TypeScript collapses a
+ * single-member discriminated union, so the discriminant is not a union and the
+ * object is never narrowed to `never`. A `satisfies`-checked map keyed by
+ * `McpAddServerAuth["kind"]` is exhaustive under the same compiler, and adding
+ * an arm to `mcpAddServerAuthSchema` fails `check-types` here until the arm gets
+ * a mapping — instead of silently falling through to `undefined` (the defect at
+ * the old ternary).
+ */
+const ADD_SERVER_AUTH_CREDENTIAL = {
+  api_key: (auth: McpApiKeyAuth): McpApiKeyAuth | undefined => auth,
+} satisfies {
+  readonly [K in McpAddServerAuth["kind"]]: (
+    auth: Extract<McpAddServerAuth, { kind: K }>,
+  ) => McpApiKeyAuth | undefined;
+};
+
+/** Narrow the create route's auth input to the wire API-key credential. */
+function apiKeyAuthFromAddServerAuth(
+  auth: McpAddServerAuth | undefined,
+): McpApiKeyAuth | undefined {
+  if (auth === undefined) return undefined;
+
+  const read = ADD_SERVER_AUTH_CREDENTIAL[auth.kind];
+
+  return read(auth);
+}
+
+/**
+ * The in-memory reader the probe carries. The shape matches the store reader
+ * `readApiKeyAuthForConnection` returns, so the probe and the live client
+ * exercise the same transport path; only the source of the plaintext differs.
+ */
+function apiKeyReaderForWireKey(apiKey: McpApiKeyAuth): McpApiKeyCredentialReader {
+  return {
+    placement: async () => apiKey.placement,
+    secret: async () => redacted(apiKey.value),
+  };
+}
+
+/**
  * True when the endpoint answers with an authorization challenge instead of an
  * MCP session. The transport throws `UnauthorizedError` on a 401 when no
  * `authProvider` can retry, which is exactly the no-credentials probe below.
@@ -236,7 +277,7 @@ function canonicalEndpoint(url: URL): URL {
 async function probeRequiresAuthorization(
   endpoint: URL,
   signal: AbortSignal,
-  apiKey?: McpApiKeyAuth,
+  auth: McpClientAuth,
 ): Promise<boolean> {
   const client = new McpRawClient({
     connectionId: PROBE_CONNECTION_ID,
@@ -246,9 +287,9 @@ async function probeRequiresAuthorization(
     // The SAME policy the live manager will spread for this endpoint, from the
     // one function that derives it. Restating the shape here is how the probe
     // and the live client come to disagree about an endpoint's protocol era.
-    // No OAuth provider: an unauthenticated connect IS the probe, and an
-    // owner-supplied key rides the protocol requester when one is present.
-    ...(apiKey ? { apiKey } : {}),
+    // The probe never carries an OAuth arm: an unauthenticated connect IS the
+    // probe, and an owner-supplied key rides the protocol requester.
+    auth,
     ...builtInClientPolicy(endpoint.href),
   });
 

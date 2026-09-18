@@ -198,6 +198,7 @@ function brokerWith(protocol: FakeProtocol): McpExecutionBroker {
   const manager = new McpConnectionManager({
     clientFactory: (connection) =>
       new McpRawClient({
+        auth: { mode: "none" },
         connectionId: connection.id,
         endpoint: connection.server,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
@@ -213,6 +214,7 @@ async function liveRevision(protocol: FakeProtocol, connectionId: string): Promi
   const manager = new McpConnectionManager({
     clientFactory: (connection) =>
       new McpRawClient({
+        auth: { mode: "none" },
         connectionId: connection.id,
         endpoint: connection.server,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
