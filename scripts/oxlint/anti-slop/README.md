@@ -84,10 +84,10 @@ ESLint Stylistic `padding-line-between-statements` rule, vendored under
 **Two rules at `warn`** — paydown rules with live violations (counts as of
 2026-09-18):
 
-| Rule                | Violations | What it rejects                                     |
-| ------------------- | ---------- | --------------------------------------------------- |
-| `no-runtime-typeof` | ~357       | runtime `typeof` checks instead of boundary parsing |
-| `no-unknown-returns`| ~94        | functions returning `unknown`                       |
+| Rule                 | Violations | What it rejects                                     |
+| -------------------- | ---------- | --------------------------------------------------- |
+| `no-runtime-typeof`  | ~357       | runtime `typeof` checks instead of boundary parsing |
+| `no-unknown-returns` | ~94        | functions returning `unknown`                       |
 
 `no-runtime-typeof` runs with `{ "allowInTypeGuards": true }` (see
 `.oxlintrc.json`), so a `typeof` check inside a `value is T` predicate does not
