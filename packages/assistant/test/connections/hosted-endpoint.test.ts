@@ -387,6 +387,37 @@ describe("guarded fetch", () => {
     assert.equal(seen[1], undefined, "the guard adds no signal of its own");
   });
 
+  test("pins init.signal precedence: it replaces a Request's signal, and null detaches", async () => {
+    const requestController = new AbortController();
+    const initController = new AbortController();
+
+    const request = new Request("https://mcp.example.test/mcp", {
+      signal: requestController.signal,
+    });
+
+    const seen: Array<AbortSignal | null | undefined> = [];
+
+    const guarded = createGuardedFetch({
+      expectedOrigin: "https://mcp.example.test",
+      requester: async (_input, init) => {
+        seen.push(init.signal);
+
+        return new Response("ok");
+      },
+    });
+
+    // Both signals present: `init` wins, or the Request's would mask it.
+    await guarded(request, { signal: initController.signal });
+    assert.equal(seen[0], initController.signal, "a supplied init.signal replaces the Request's");
+    requestController.abort();
+    assert.equal(seen[0]?.aborted, false, "the Request's signal is not the effective one");
+
+    // An explicit `null` is SUPPLIED, so it must not fall back to the
+    // Request's signal; native hands it to fetch, which detaches.
+    await guarded(request, { signal: null });
+    assert.equal(seen[1], null, "an explicit null replaces; it does not fall back");
+  });
+
   test("init.headers replaces a Request's headers instead of merging them", async () => {
     const seen: Headers[] = [];
 
