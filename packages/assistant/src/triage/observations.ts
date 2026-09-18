@@ -1,4 +1,10 @@
 import type { AccountPersona } from "@alfred/contracts";
+// Type-only, and a TOP-LEVEL `import type` rather than an inline `{ type X }`
+// specifier: under `verbatimModuleSyntax` the inline form survives erasure as a
+// bare side-effect import, which would drag the whole knowledge barrel into this
+// pure, IO-free module at runtime. The module-architecture check also requires
+// the barrel here, not the `../knowledge/user-context-line` leaf.
+import type { UserContextLine } from "../knowledge";
 import type { TriageSenderKindSignal } from "./sender-kind";
 import type { SenderPrior } from "./sender-priors";
 import type { ThreadState } from "./thread-state";
@@ -212,6 +218,31 @@ export interface Observations {
    * for one mail) is repaired by the next classify of the thread.
    */
   standingInstructionReadFailed: boolean;
+  /**
+   * A bounded prior about the user, drawn from the most recent cold-start
+   * research chunk (ADR-0050 D1, first slice). Null when no chunk exists or the
+   * read failed — both are simply "no prior", because this observation can only
+   * ever add context and never denies anything.
+   *
+   * It is Alfred's OWN research, so it is weaker evidence than the email body
+   * and far weaker than the user's verbatim `standingInstruction` above. The
+   * render order in `renderObservations` says so.
+   *
+   * A null is two-way ambiguous on its own — "no cold-start chunk" (the common
+   * case) vs "the read threw" — so read it with {@link
+   * Observations.userContextReadFailed}.
+   */
+  userContext: UserContextLine | null;
+  /**
+   * The cold-start read failed, so a null `userContext` means "unknown", not
+   * "this user has no cold-start chunk". Without this flag a 100% read failure
+   * is byte-identical to the common case, and production cannot answer "did
+   * this classification see a cold-start prior?".
+   *
+   * Never fails the classification: a failed read renders no line, exactly like
+   * an absent chunk, so the flag is a report and not a branch.
+   */
+  userContextReadFailed: boolean;
   gmail: GmailSignals;
   content: ContentFlags;
 }
@@ -265,6 +296,19 @@ export interface AssembleObservationsArgs {
    * need not thread it; production `gatherObservations` always passes it.
    */
   standingInstructionReadFailed?: boolean | undefined;
+  /**
+   * Cold-start prior about the user. NOT capped here or by its reader: the prompt
+   * budget is applied at the render site (`triage/classify.ts`), which is the only
+   * place the byte bound can hold on every construction path. Optional (defaults
+   * to `null`) so eval and smoke harnesses need not thread it; production
+   * `gatherObservations` always passes it.
+   */
+  userContext?: UserContextLine | null | undefined;
+  /**
+   * The cold-start read threw. Optional (defaults to `false`) so eval and smoke
+   * harnesses need not thread it; production `gatherObservations` always passes it.
+   */
+  userContextReadFailed?: boolean | undefined;
   labelIds: readonly string[];
   /** Concatenated signal text (subject + body + headers), lowercased or not. */
   signalText: string;
@@ -289,6 +333,8 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
     senderKind: args.senderKind,
     standingInstruction: args.standingInstruction ?? null,
     standingInstructionReadFailed: args.standingInstructionReadFailed ?? false,
+    userContext: args.userContext ?? null,
+    userContextReadFailed: args.userContextReadFailed ?? false,
     gmail: extractGmailSignals(args.labelIds),
     content: extractContentFlags(args.signalText),
   };

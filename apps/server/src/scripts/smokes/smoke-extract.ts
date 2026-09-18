@@ -17,9 +17,10 @@
  *      sits inside the extracted-window) and produces the same output.
  */
 import { closeAgentQueue } from "@alfred/assistant/execution";
+import { getPath } from "@alfred/contracts";
 import { warmPool } from "@alfred/db";
 import { enqueueExtractionForUser } from "@alfred/assistant/knowledge/queue";
-import { recallActiveByKey } from "@alfred/assistant/knowledge";
+import { memoryExtractionOutcomeSchema, recallActiveByKey } from "@alfred/assistant/knowledge";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { db } from "@alfred/db";
 import {
@@ -39,6 +40,17 @@ const POLL_TIMEOUT_MS = 60_000;
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`assertion failed: ${msg}`);
+}
+
+/** Validate the persisted jsonb run output at this smoke's own boundary. */
+function readRunOutcome(output: unknown, label: string) {
+  const parsed = memoryExtractionOutcomeSchema.safeParse(getPath(output, "outcome"));
+
+  if (!parsed.success) {
+    throw new Error(`assertion failed: ${label} output carries no valid outcome`);
+  }
+
+  return parsed.data;
 }
 
 async function findOrCreateSmokeUser(): Promise<string> {
@@ -155,11 +167,14 @@ async function main() {
 
   const run1 = await pollRun(runId1, "run 1 completion");
   assert(run1.status === "completed", `run 1 status=${run1.status}`);
-  // SAFETY: agent_runs.output is this smoke's own workflow output shape.
-  const out1 = run1.output as { processed: number; proposed: number; blocked: number };
-  console.log(
-    `[smoke-extract] run 1 output: processed=${out1.processed} proposed=${out1.proposed} blocked=${out1.blocked}`,
-  );
+  // `agent_runs.output` is jsonb, so it arrives as `unknown` — parse it rather
+  // than cast it. The parse also asserts the discriminant: a run that picked
+  // documents and proposed facts must report `facts_proposed`, so the smoke can
+  // no longer pass on a report that says `proposed: 0` without saying which zero.
+  const out1 = readRunOutcome(run1.output, "run 1");
+  console.log(`[smoke-extract] run 1 outcome: ${JSON.stringify(out1)}`);
+  assert(out1.kind === "facts_proposed", `expected facts_proposed, got ${out1.kind}`);
+  assert(out1.picked === 1, `expected picked=1, got ${out1.picked}`);
   assert(out1.processed === 1, `expected processed=1, got ${out1.processed}`);
   assert(out1.proposed === 2, `expected proposed=2, got ${out1.proposed}`);
   assert(out1.blocked === 0, `expected blocked=0 on first run, got ${out1.blocked}`);
@@ -214,13 +229,11 @@ async function main() {
 
   const run2 = await pollRun(runId2, "run 2 completion");
   assert(run2.status === "completed", `run 2 status=${run2.status}`);
-  // SAFETY: same workflow output shape as run 1.
-  const out2 = run2.output as { processed: number; proposed: number; blocked: number };
-  console.log(
-    `[smoke-extract] run 2 output: processed=${out2.processed} proposed=${out2.proposed} blocked=${out2.blocked}`,
-  );
+  const out2 = readRunOutcome(run2.output, "run 2");
+  console.log(`[smoke-extract] run 2 outcome: ${JSON.stringify(out2)}`);
+  assert(out2.kind === "no_facts_proposed", `expected no_facts_proposed, got ${out2.kind}`);
+  assert(out2.picked === 1, `expected picked=1, got ${out2.picked}`);
   assert(out2.processed === 1, `expected processed=1, got ${out2.processed}`);
-  assert(out2.proposed === 0, `expected proposed=0 on dup run, got ${out2.proposed}`);
   assert(out2.blocked === 2, `expected blocked=2 on dup run, got ${out2.blocked}`);
 
   // Confirm no duplicate facts piled up

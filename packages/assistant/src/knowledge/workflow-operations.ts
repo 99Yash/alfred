@@ -2,6 +2,10 @@ import { writeMemoryChunk } from "./chunks";
 import { extractFactsFromDocument, type FactProposal } from "./extraction";
 import { gateDocumentFact } from "./fact-policy";
 import { listFactsByStatus, proposeFact } from "./facts";
+import {
+  describeMemoryExtractionOutcome,
+  summarizeMemoryExtractionRun,
+} from "./memory-extraction-outcome";
 import { loadSelfIdentity } from "./self-identity";
 import { runSignificancePass } from "./significance";
 import { accumulateDoc, applyCorrespondenceIncrements, type ContactAggregate } from "./team-graph";
@@ -46,6 +50,13 @@ export interface MemoryExtractionOperationState {
   documentIds: string[];
   startedAt: string;
   processed: number;
+  /**
+   * Loaded documents whose extractor call threw. Separated from `processed`
+   * because the two zeros they explain need different fixes (#1109): a run
+   * where every extractor call threw is an extractor bug, and before this field
+   * existed it reported the same counts as a healthy run that found nothing.
+   */
+  extractionErrors: number;
   proposed: number;
   blocked: number;
 }
@@ -96,6 +107,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
   let processed = 0;
+  let extractionErrors = 0;
   let proposed = 0;
   let blocked = 0;
 
@@ -176,6 +188,10 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
         });
       } catch (err) {
         await ctx.log(`extract failed for doc=${docId}: ${toMessage(err)}`);
+        // Count it, do not just log it. The run report is the only artifact a
+        // human reads a week later, and a swallowed throw made a broken
+        // extractor indistinguishable from an empty one (#1109).
+        extractionErrors++;
         proposals = [];
       }
     }
@@ -328,11 +344,14 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
     }
   }
 
-  await ctx.log(`process: docs=${processed} proposed=${proposed} blocked=${blocked}`);
+  await ctx.log(
+    `process: docs=${processed} errors=${extractionErrors} ` +
+      `proposed=${proposed} blocked=${blocked}`,
+  );
 
   return {
     kind: "next",
-    state: { ...ctx.state, processed, proposed, blocked },
+    state: { ...ctx.state, processed, extractionErrors, proposed, blocked },
     nextStep: "finalize",
   };
 }
@@ -359,11 +378,29 @@ export async function runMemoryFinalize<State extends MemoryExtractionOperationS
   // Write a memory_chunk so the run leaves a recallable trace —
   // future "what did alfred learn this week" queries hit this.
   // Idempotent on (user, kind, content_hash) so a retry is safe.
+  // WHICH zero this run is reporting (#1109). `picked` is derived from
+  // `documentIds` rather than counted into a second state field: the pick step
+  // already writes that array and every later step carries it forward, so a
+  // parallel counter could only drift. The union is what forces the report —
+  // four of its five arms cannot be built without `picked`.
+  const outcome = summarizeMemoryExtractionRun({
+    picked: ctx.state.documentIds.length,
+    processed: ctx.state.processed,
+    // `?? 0` is the compatibility seam, not a redundant default: this workflow's
+    // `closure: { kind: "none" }` returns before `terminal-closure.ts` parses
+    // `stateSchema`, and the executor hands `run.state` to a step VERBATIM, so a
+    // run whose `process` step committed before this field shipped resumes with
+    // `extractionErrors` absent at runtime while typed `number`. The schema's
+    // `.default(0)` therefore never fires on this path; coercing here is what
+    // keeps Half A true across a deploy. See the item's round-2 review.
+    errors: ctx.state.extractionErrors ?? 0,
+    proposed: ctx.state.proposed,
+    blocked: ctx.state.blocked,
+  });
+
   const summary =
     `Memory-extraction run ${ctx.runId} (${ctx.state.startedAt}): ` +
-    `processed ${ctx.state.processed} document(s); ` +
-    `proposed ${ctx.state.proposed} fact(s); ` +
-    `${ctx.state.blocked} suppressed by dedup/rejection guards; ` +
+    `${describeMemoryExtractionOutcome(outcome)}; ` +
     `significance scored ${significanceScored} contact(s).`;
 
   await writeMemoryChunk({
@@ -376,18 +413,14 @@ export async function runMemoryFinalize<State extends MemoryExtractionOperationS
       sinceDays: ctx.state.sinceDays,
       maxDocs: ctx.state.maxDocs,
       documentIds: ctx.state.documentIds,
+      outcome,
     },
   });
 
   return {
     kind: "done",
     state: ctx.state,
-    output: {
-      processed: ctx.state.processed,
-      proposed: ctx.state.proposed,
-      blocked: ctx.state.blocked,
-      documentIds: ctx.state.documentIds,
-    },
+    output: { outcome, documentIds: ctx.state.documentIds },
   };
 }
 
