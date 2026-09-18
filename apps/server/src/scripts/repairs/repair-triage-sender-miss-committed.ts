@@ -43,10 +43,10 @@
  *    The `written` gate covers the classify step's own side effects: no todo,
  *    no `inbox.updated`, no `email-triage.classified`, no sender prior and no
  *    decision trace. It does NOT cover the Gmail write. `runEmailTriageClassify`
- *    returns `nextStep: "close-loop-todos"` unconditionally
- *    (`workflow-operations.ts:783`), that step advances to `apply-label`
- *    unconditionally (`:826`), and `apply-label` is a SIBLING step that reads
- *    neither `written` nor `source`. It re-applies the stored row's category to
+ *    returns `nextStep: "close-loop-todos"` unconditionally, that step advances
+ *    to `apply-label` unconditionally, and `apply-label` is a SIBLING step that
+ *    reads neither `written` nor `source`. It re-applies the stored row's
+ *    category to
  *    the target message, strips every Alfred label off the thread's siblings
  *    (`stripAllAlfredLabels: true`, `tags.ts:146`), and bumps `row_version`
  *    through `setAppliedLabelId` / `setTriageReconciledTarget`. Two gates stop

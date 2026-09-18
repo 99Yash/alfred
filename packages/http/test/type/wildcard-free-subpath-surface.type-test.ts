@@ -69,7 +69,7 @@ type _AssertContentHashResolves = _ContentHash["artifactContentHash"];
 
 type _TasksResolve = typeof import("@alfred/assistant/tasks/resolve");
 
-type _AssertTasksResolveResolves = _TasksResolve["resolveTodosForGmailSender"];
+type _AssertTasksResolveResolves = _TasksResolve["resolveTodosForGmailSource"];
 
 type _SkillRevisions = typeof import("@alfred/assistant/skills/revisions");
 

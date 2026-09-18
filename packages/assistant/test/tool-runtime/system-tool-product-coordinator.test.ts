@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 
 import { standingInstructionValueSchema } from "@alfred/contracts";
 import type { RememberSenderSuppressionResult } from "@alfred/assistant/knowledge";
-import type { ResolveTodosForGmailSenderResult } from "@alfred/assistant/tasks";
+import type { ResolveTodosForGmailSourceResult } from "@alfred/assistant/tasks";
 import type { SystemToolRequest } from "@alfred/assistant/tool-runtime";
 import { createRememberSenderSuppressionCoordinator } from "../../src/runtime/adapters/system-tool-product";
 
@@ -48,7 +48,7 @@ describe("sender suppression coordinator", () => {
       resolvedSenderEmail: "sender@example.com",
     };
 
-    const dismissed: ResolveTodosForGmailSenderResult = {
+    const dismissed: ResolveTodosForGmailSourceResult = {
       ok: true,
       status: "dismissed",
       dismissedCount: 1,

@@ -79,9 +79,9 @@ export { readTriageUserContext } from "./user-context";
 export type { TriageUserContext } from "./user-context";
 
 // ── Triage v3 (ADR-0051): sent-mail thread state + sender priors + observations
-export { getThreadState } from "./thread-state";
+export { getThreadState, readGmailThreadClosure } from "./thread-state";
 
-export type { ThreadState, GetThreadStateArgs } from "./thread-state";
+export type { ThreadState, GetThreadStateArgs, GmailThreadClosure } from "./thread-state";
 
 export { isKnownContact } from "./contacts";
 

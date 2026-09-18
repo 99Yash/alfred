@@ -130,7 +130,7 @@ function isGmailThreadRef(source: TodoSource): boolean {
  *
  * Identity-bearing refs — everything that is NOT a gmail `thread` — win over
  * transport refs. Gmail `thread` refs are evicted oldest-first (merge appends
- * newest last), so the reverse auto-dismiss linkage (`resolveTodosForGmailSender`,
+ * newest last), so the reverse auto-dismiss linkage (`resolveTodosForGmailSource`,
  * which matches recent threads / the loop's single sender) still resolves. If a
  * caller ever supplies more identity refs than the schema cap allows, this still
  * returns a valid capped array by keeping the newest identity refs; the public
@@ -176,7 +176,7 @@ function newestIndexes(
  * Provenance sources for a todo minted from a triaged Gmail thread (#355).
  *
  * Always carries the transport `thread` ref — same-thread re-triage dedup, and
- * the reverse linkage `resolveTodosForGmailSender` reads to auto-dismiss a todo
+ * the reverse linkage `resolveTodosForGmailSource` reads to auto-dismiss a todo
  * when the user acts on its email. When the subject/sender yield a stable
  * real-world ref ({@link deriveLoopEntityRef} — a GitHub PR, Linear issue, or
  * tracker task that re-notifies on a NEW thread each time), it ALSO carries a

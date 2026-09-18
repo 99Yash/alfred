@@ -6,7 +6,7 @@
 export { suggestTodo, type SuggestTodoInput, type SuggestTodoResult } from "./suggest";
 
 export {
-  resolveTodosForGmailSender,
-  type ResolveTodosForGmailSenderArgs,
-  type ResolveTodosForGmailSenderResult,
+  resolveTodosForGmailSource,
+  type ResolveTodosForGmailSourceArgs,
+  type ResolveTodosForGmailSourceResult,
 } from "./resolve";

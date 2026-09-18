@@ -6,7 +6,7 @@ import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { normalizeSenderEmail } from "../knowledge";
 
-const resolveTodosForGmailSenderArgsSchema = z.object({
+const resolveTodosForGmailSourceArgsSchema = z.object({
   userId: z.string().min(1),
   senderEmail: z.string().nullish(),
   sourceThreadId: z.string().nullish(),
@@ -14,15 +14,15 @@ const resolveTodosForGmailSenderArgsSchema = z.object({
   /**
    * Audit label for why the caller is dismissing. Free text because the
    * model-authored `system.resolve_todo` path supplies it; bounded like the
-   * tool input. Read and echoed back as {@link ResolveTodosForGmailSenderResult}
+   * tool input. Read and echoed back as {@link ResolveTodosForGmailSourceResult}
    * `auditReason` so callers can log it — it is never written to the todo row.
    */
   reason: z.string().max(1_000).nullish(),
 });
 
-export type ResolveTodosForGmailSenderArgs = z.infer<typeof resolveTodosForGmailSenderArgsSchema>;
+export type ResolveTodosForGmailSourceArgs = z.infer<typeof resolveTodosForGmailSourceArgsSchema>;
 
-export type ResolveTodosForGmailSenderResult =
+export type ResolveTodosForGmailSourceResult =
   | {
       ok: true;
       status: "dismissed" | "not_found";
@@ -52,10 +52,18 @@ interface GmailThreadMetadata {
   senderEmails: Set<string>;
 }
 
-export async function resolveTodosForGmailSender(
-  args: ResolveTodosForGmailSenderArgs,
-): Promise<ResolveTodosForGmailSenderResult> {
-  const parsed = resolveTodosForGmailSenderArgsSchema.parse(args);
+/**
+ * Dismiss live Gmail-sourced todos by the source they carry, not by sender
+ * alone. A caller may scope by `sourceThreadId` (the `close-loop-todos`
+ * retraction, which knows only the thread), by `senderEmail`/`accountId` (the
+ * `system.remember` and `system.resolve_todo` paths), or both; either mode
+ * alone is enough. Named for the source because the thread-only call is a
+ * first-class caller, not a misuse of a sender-shaped API.
+ */
+export async function resolveTodosForGmailSource(
+  args: ResolveTodosForGmailSourceArgs,
+): Promise<ResolveTodosForGmailSourceResult> {
+  const parsed = resolveTodosForGmailSourceArgsSchema.parse(args);
   const senderEmail = normalizeSenderEmail(parsed.senderEmail);
   const sourceThreadId = normalizeOptional(parsed.sourceThreadId);
   const accountId = normalizeOptional(parsed.accountId);
@@ -225,7 +233,7 @@ function normalizeOptional(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-function notFound(auditReason: string | null): ResolveTodosForGmailSenderResult {
+function notFound(auditReason: string | null): ResolveTodosForGmailSourceResult {
   return {
     ok: true,
     status: "not_found",

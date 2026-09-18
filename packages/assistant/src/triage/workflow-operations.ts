@@ -10,7 +10,7 @@ import {
   getSenderSignificance,
   listActiveSuppressionInstructions,
 } from "../knowledge";
-import { resolveTodosForGmailSender, suggestTodo } from "@alfred/assistant/tasks";
+import { resolveTodosForGmailSource, suggestTodo } from "@alfred/assistant/tasks";
 import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,
@@ -41,7 +41,7 @@ import {
   type TriageDocumentContext,
 } from "./store";
 import { reconcileThreadLabel } from "./tags";
-import { getThreadState } from "./thread-state";
+import { getThreadState, readGmailThreadClosure } from "./thread-state";
 import { assembleObservations, type Observations } from "./observations";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
@@ -121,7 +121,7 @@ export interface EmailTriageOperationState {
 
 export async function runEmailTriageClassify<State extends EmailTriageOperationState>(
   ctx: StepContext<State>,
-): Promise<StepResult<State>> {
+): Promise<StepResult<State, EmailTriageStepName>> {
   // Background-agent toggles (Settings → Features). Tagging gates the
   // Gmail label (apply-label step); action-items gates the todo
   // suggestion below. Both share this one classify call. When the user
@@ -296,6 +296,11 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
   let standingSuppressionReadFailed = false;
   let standingSuppressionReadError: string | null = null;
+  // The whole-thread closure fact (`readGmailThreadClosure`), not the
+  // exclusion-based classifier observation. Read before the row write so the
+  // same decision governs the mint on both the fresh and reuse paths.
+  let userAlreadyReplied = false;
+  let closureReadFailed = false;
 
   const resolveTodoAndStandingSuppression = async () => {
     // A rail todo's absolute date needs BOTH halves: the send instant and the
@@ -318,8 +323,25 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     let nextStandingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
     let nextStandingSuppressionReadFailed = false;
     let nextStandingSuppressionReadError: string | null = null;
+    let nextUserAlreadyReplied = false;
+    let nextClosureReadFailed = false;
 
     if (nextTodoSuggestion) {
+      try {
+        // The closure owner reads the WHOLE thread (no `excludeDocumentId`), so
+        // a fresh inbound after an older user reply is not mistaken for a
+        // thread the user already answered.
+        nextUserAlreadyReplied = (
+          await readGmailThreadClosure({ userId: ctx.userId, sourceThreadId })
+        ).userHasReplied;
+      } catch {
+        // Best-effort like every sibling read: an unknown closure mints rather
+        // than silently withholding a suggestion the user may need. The
+        // `close-loop-todos` retraction still catches an actually-answered
+        // thread on the next reply re-eval.
+        nextClosureReadFailed = true;
+      }
+
       try {
         nextStandingSuppression = await findActiveSenderSuppression(ctx.userId, {
           senderEmail: senderContextResult.senderAddress ?? ctxData.document.metadata.from ?? null,
@@ -337,6 +359,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       standingSuppression: nextStandingSuppression,
       standingSuppressionReadFailed: nextStandingSuppressionReadFailed,
       standingSuppressionReadError: nextStandingSuppressionReadError,
+      userAlreadyReplied: nextUserAlreadyReplied,
+      closureReadFailed: nextClosureReadFailed,
     };
   };
 
@@ -369,6 +393,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       standingSuppression,
       standingSuppressionReadFailed,
       standingSuppressionReadError,
+      userAlreadyReplied,
+      closureReadFailed,
     } = await resolveTodoAndStandingSuppression());
     await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
   } else {
@@ -447,6 +473,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       standingSuppression,
       standingSuppressionReadFailed,
       standingSuppressionReadError,
+      userAlreadyReplied,
+      closureReadFailed,
     } = await resolveTodoAndStandingSuppression());
 
     const decisionTrace =
@@ -597,6 +625,12 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     );
   }
 
+  if (closureReadFailed) {
+    await ctx.log(
+      `suggest_todo: thread closure read failed for ${sourceThreadId} (treating as not-replied)`,
+    );
+  }
+
   // Sender-prior histogram write-back (ADR-0051 #2, Phase 2). Learns
   // ONLY from Alfred's own classifications and only for bulk senders:
   // skip human senders (`senderKeyFor` returns null) and the user's own
@@ -717,10 +751,14 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         // Same-thread retraction (ADR-0050): the reply re-eval classifies a
         // thread the user's own send now closes. The classifier can miss its
         // rule 18 (it did on the resume thread), so the deterministic thread
-        // state — not the category — withholds the suggestion here. Absent on
-        // the reuse path (observations are not re-gathered), where the
-        // close-loop-todos step below retracts anything this run still mints.
-        userAlreadyReplied: observations?.thread.newestDirection === "sent",
+        // state — not the category — withholds the suggestion here. This is the
+        // `readGmailThreadClosure` read of the WHOLE thread, deliberately not
+        // the exclusion-based `observations.thread`: the observation excludes
+        // the message being classified, so on a fresh inbound after an older
+        // user reply it reported `sent` and wrongly withheld a todo for a
+        // message the user had not answered. The closure read is independent of
+        // `observations`, so it also holds on the reuse path (#157).
+        userAlreadyReplied,
       })
     : null;
 
@@ -796,12 +834,12 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
  *
  * Deterministic and category-independent on purpose: the classifier can miss
  * its own rule 18 on the re-eval (it did on the resume thread) while the
- * thread state plainly says the user replied, so the close reads
- * `newestDirection`, never the category. Gated on `reason === "reply"` so the
- * thread-state read runs only on the reply re-eval, not on every inbound
- * classify. The dismissal itself calls the same `resolveTodosForGmailSender`
- * helper the manual `resolve_todo` reaction calls, so both agree on what
- * "closed" means.
+ * thread state plainly says the user replied, so the close reads the
+ * `readGmailThreadClosure` fact, never the category. Gated on
+ * `reason === "reply"` so the thread read runs only on the reply re-eval, not
+ * on every inbound classify. The dismissal itself calls the same
+ * `resolveTodosForGmailSource` helper the manual `resolve_todo` reaction calls,
+ * so both agree on what "closed" means.
  *
  * RAIL-ONLY AND BEST-EFFORT. The classify row is already committed and the
  * Gmail label is the contract; the todo rail is not. A DB blip on either the
@@ -811,7 +849,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
  */
 export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOperationState>(
   ctx: StepContext<State>,
-): Promise<StepResult<State>> {
+): Promise<StepResult<State, EmailTriageStepName>> {
   const sourceThreadId = ctx.state.sourceThreadId;
 
   if (!sourceThreadId) {
@@ -820,7 +858,7 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
     );
   }
 
-  const advance: StepResult<State> = {
+  const advance: StepResult<State, EmailTriageStepName> = {
     kind: "next",
     state: ctx.state,
     nextStep: "apply-label",
@@ -829,17 +867,19 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
   if (ctx.state.reason !== "reply") return advance;
 
   try {
-    const thread = await getThreadState({ userId: ctx.userId, sourceThreadId });
+    // Same closure owner the mint suppression reads, so the two can never
+    // disagree about "the user has answered this thread".
+    const closure = await readGmailThreadClosure({ userId: ctx.userId, sourceThreadId });
 
-    if (thread.newestDirection !== "sent") {
+    if (!closure.userHasReplied) {
       await ctx.log(
-        `close-loop-todos: thread=${sourceThreadId} newest=${thread.newestDirection ?? "unknown"} — no retraction`,
+        `close-loop-todos: thread=${sourceThreadId} newest=${closure.newestDirection ?? "unknown"} — no retraction`,
       );
 
       return advance;
     }
 
-    const resolved = await resolveTodosForGmailSender({
+    const resolved = await resolveTodosForGmailSource({
       userId: ctx.userId,
       sourceThreadId,
       // The state's own reason union, not an invented literal — the helper
@@ -860,7 +900,7 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
 
 export async function runEmailTriageApplyLabel<State extends EmailTriageOperationState>(
   ctx: StepContext<State>,
-): Promise<StepResult<State>> {
+): Promise<StepResult<State, EmailTriageStepName>> {
   const category = ctx.state.category;
   const sourceThreadId = ctx.state.sourceThreadId;
 
@@ -1123,3 +1163,19 @@ async function gatherObservations(args: {
     signalText,
   });
 }
+
+/**
+ * The `email-triage` topology, stated once. `EmailTriageStepName` is derived
+ * from these keys and threaded through every step's `StepResult`, so the
+ * executor's `nextStep` literals and `initialStep` are checked against the
+ * actual steps rather than meeting them by convention: a name that names no
+ * step is a type error, and adding a step here extends the union the bodies
+ * are checked against. The workflow object consumes this record directly.
+ */
+export const emailTriageSteps = {
+  classify: { id: "classify", run: runEmailTriageClassify },
+  "close-loop-todos": { id: "close-loop-todos", run: runEmailTriageCloseLoopTodos },
+  "apply-label": { id: "apply-label", run: runEmailTriageApplyLabel },
+} as const;
+
+export type EmailTriageStepName = keyof typeof emailTriageSteps;
