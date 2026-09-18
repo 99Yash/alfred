@@ -70,8 +70,10 @@ integration registry (`packages/contracts/src/integrations/registry.ts`).
 
 **bind** — To hand a tool a call-scoped, already-authenticated dependency at
 dispatch (the provider bind and corpus bind). Owner:
-`packages/assistant/src/tool-runtime/internal/registry.ts`; the integration
-registry uses "bound" for the credential an integration declares
+`packages/assistant/src/tool-runtime/internal/registry.ts`. *Reused:* the
+connected-account lifecycle calls binding a provider credential to an account
+"credential binding" (`packages/assistant/src/connections/index.ts`); the
+integration registry declares one `credential` per slug
 (`packages/contracts/src/integrations/registry.ts`).
 
 **manifest** — A retrieval source's own declaration of what it can answer and
