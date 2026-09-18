@@ -7,6 +7,7 @@ import {
   mergeTodoSources,
   TODO_SOURCES_MAX,
   todoSourceKey,
+  todoSourcesShareIdentityOverlap,
   type TodoSource,
 } from "@alfred/contracts";
 
@@ -90,6 +91,46 @@ describe("todoSourcesOverlap (the REAL predicate suggestTodo's dedup loop runs)"
   test("empty existing or empty incoming never overlaps", () => {
     assert.equal(todoSourcesOverlap([], [threadRef]), false);
     assert.equal(todoSourcesOverlap([threadRef], []), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The resolved-todo re-suggest guard (ADR-0050 same-thread retraction). A
+// `done`/`dismissed` todo suppresses re-suggestion only on an IDENTITY ref, not
+// on the bare Gmail transport `thread`. One thread carries many independent
+// asks, so the retraction of an answered ask must not silence the next one for
+// the 30-day window — the false "doesn't need you" that "demote, never bury"
+// forbids. The DB transaction has no harness, so the predicate is locked here.
+// ---------------------------------------------------------------------------
+
+describe("todoSourcesShareIdentityOverlap", () => {
+  const prRef: TodoSource = { provider: "github", kind: "pull_request", id: "owner/repo#7" };
+
+  test("overlap on a stable identity ref suppresses re-suggestion", () => {
+    assert.equal(todoSourcesShareIdentityOverlap([prRef], [prRef]), true);
+  });
+
+  test("a thread-only resolved row does NOT suppress a later ask on the same thread", () => {
+    // Both rows carry only the transport thread of the same conversation.
+    assert.equal(todoSourcesShareIdentityOverlap([threadRef], [threadRef]), false);
+  });
+
+  test("incoming with only a thread ref has no identity to suppress on", () => {
+    assert.equal(todoSourcesShareIdentityOverlap([prRef], [threadRef]), false);
+  });
+
+  test("no refs on either side never suppress", () => {
+    assert.equal(todoSourcesShareIdentityOverlap([], [prRef]), false);
+    assert.equal(todoSourcesShareIdentityOverlap([prRef], []), false);
+  });
+
+  test("a shared thread beside the matching identity still suppresses", () => {
+    assert.equal(todoSourcesShareIdentityOverlap([threadRef, prRef], [prRef]), true);
+  });
+
+  test("distinct identities with a shared thread do NOT suppress", () => {
+    const other: TodoSource = { provider: "github", kind: "pull_request", id: "owner/repo#34" };
+    assert.equal(todoSourcesShareIdentityOverlap([threadRef, prRef], [threadRef, other]), false);
   });
 });
 

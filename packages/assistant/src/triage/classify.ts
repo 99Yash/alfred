@@ -1034,12 +1034,15 @@ const TODO_LIVENESS_RE =
  *                            model won't reliably self-apply (the HyperNexus
  *                            cold-outreach leak). The CATEGORY is untouched — the
  *                            thread keeps its honest awaiting_reply chip.
- *   - `user_already_replied` — the thread's newest message is the USER's own
- *                            send (thread state, not category): the loop this
- *                            mail opened is already on the counterparty, so a
- *                            rail todo would propose work the user just did
- *                            (ADR-0050 same-thread retraction). Category is
- *                            untouched — only the suggestion is withheld.
+ *   - `user_already_replied` — the user's own newest send is strictly newer
+ *                            than THIS message (thread state, not category):
+ *                            the loop this mail opened is already on the
+ *                            counterparty, so a rail todo would propose work
+ *                            the user just did (ADR-0050 same-thread
+ *                            retraction). Per-message on purpose: a whole-thread
+ *                            "newest is mine" flag inverts on the next inbound
+ *                            and buries a fresh ask (P0). Category is untouched
+ *                            — only the suggestion is withheld.
  * Returns null when nothing disqualifies it. PURE — the mint path and the
  * dry-run both apply it so KEEP/KILL stays consistent.
  */
@@ -1053,15 +1056,15 @@ export function todoSuppressionReason(email: {
   /** Typed rule-16b cold-contact flag from the sender-relationship observation. */
   isColdContact?: boolean;
   /**
-   * The user's own send is the newest message in the thread (the reply re-eval
-   * of #282). Defaults to `false` so the dry-run harnesses and callers without
-   * thread state are unchanged.
+   * The user's own newest send is strictly newer than THIS message (the
+   * per-message closure of ADR-0050). Defaults to `false` so the dry-run
+   * harnesses and callers without thread state are unchanged.
    */
-  userAlreadyReplied?: boolean;
+  userRepliedAfterMessage?: boolean;
 }): TodoSuppressionReason | null {
   // The strongest, most specific fact first: whatever the email's shape, a
-  // thread the user already answered mints no new rail todo.
-  if (email.userAlreadyReplied) return "user_already_replied";
+  // message the user has since answered mints no new rail todo.
+  if (email.userRepliedAfterMessage) return "user_already_replied";
 
   if (ALFRED_APPROVAL_SUBJECT_RE.test(email.subject ?? "")) return "alfred_approval";
 

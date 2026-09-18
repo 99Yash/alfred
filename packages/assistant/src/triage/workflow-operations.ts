@@ -41,7 +41,7 @@ import {
   type TriageDocumentContext,
 } from "./store";
 import { reconcileThreadLabel } from "./tags";
-import { getThreadState, readGmailThreadClosure } from "./thread-state";
+import { getThreadState, readGmailThreadClosure, userRepliedAfterMessage } from "./thread-state";
 import { assembleObservations, type Observations } from "./observations";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
@@ -303,12 +303,20 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
   let standingSuppressionReadFailed = false;
   let standingSuppressionReadError: string | null = null;
-  // The whole-thread closure fact (`readGmailThreadClosure`), not the
-  // exclusion-based classifier observation. Read before the row write so the
-  // same decision governs the mint on both the fresh and reuse paths. Only the
-  // reply re-eval reads it; `close-loop-todos` reuses the carried value rather
-  // than reading a second time.
+  // Two closure facts from the ONE `readGmailThreadClosure` read, both resolved
+  // before the row write so the same decision governs the mint on the fresh and
+  // reuse paths. Only the reply re-eval reads them; `close-loop-todos` reuses
+  // `userAlreadyReplied` rather than reading a second time.
+  //
+  // `userAlreadyReplied` (whole-thread: the newest message is the user's send)
+  // gates the retraction — only safe when no unanswered inbound exists.
+  // `documentRepliedAfter` (per-message: the user's newest send is newer than
+  // THIS message) gates the mint — the right question for a fresh ask that
+  // follows an older reply (P0). They coincide on the reply re-eval and diverge
+  // once a newer inbound exists, which is exactly why the mint cannot use the
+  // whole-thread form.
   let userAlreadyReplied = false;
+  let documentRepliedAfter = false;
   let closureReadFailed = false;
 
   const resolveTodoAndStandingSuppression = async () => {
@@ -333,23 +341,26 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     let nextStandingSuppressionReadFailed = false;
     let nextStandingSuppressionReadError: string | null = null;
     let nextUserAlreadyReplied = false;
+    let nextDocumentRepliedAfter = false;
     let nextClosureReadFailed = false;
 
-    // The whole-thread closure fact is a REPLY-REEVAL-ONLY read (ADR-0050).
-    // Gated on the reason, NOT on `nextTodoSuggestion`: the re-eval is the only
-    // run whose user send can be the thread's newest message, and it is the run
-    // whose `close-loop-todos` step needs the fact — even when the model
-    // proposed no new todo, because the step retracts an ALREADY-live todo. A
-    // non-reply inbound must neither pay the read nor let a prior sent message
-    // withhold a suggestion for a message the user has not answered (P0).
+    // The closure facts are a REPLY-REEVAL-ONLY read (ADR-0050). Gated on the
+    // reason, NOT on `nextTodoSuggestion`: the re-eval is the run whose
+    // `close-loop-todos` step may need to retract an ALREADY-live todo (minted
+    // on an earlier run), even when the model proposes no new todo. A non-reply
+    // inbound must neither pay the read nor let a prior sent message withhold a
+    // suggestion for a message the user has not answered (P0).
     if (ctx.state.reason === "reply") {
       try {
         // The closure owner reads the WHOLE thread (no `excludeDocumentId`), so
         // a fresh inbound after an older user reply is not mistaken for a
         // thread the user already answered.
-        nextUserAlreadyReplied = (
-          await readGmailThreadClosure({ userId: ctx.userId, sourceThreadId })
-        ).userHasReplied;
+        const closure = await readGmailThreadClosure({ userId: ctx.userId, sourceThreadId });
+        nextUserAlreadyReplied = closure.userHasReplied;
+        nextDocumentRepliedAfter = userRepliedAfterMessage(
+          closure.lastUserReplyAt,
+          ctxData.document.authoredAt,
+        );
       } catch {
         // Best-effort like every sibling read: an unknown closure mints rather
         // than silently withholding a suggestion the user may need, and leaves
@@ -377,6 +388,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       standingSuppressionReadFailed: nextStandingSuppressionReadFailed,
       standingSuppressionReadError: nextStandingSuppressionReadError,
       userAlreadyReplied: nextUserAlreadyReplied,
+      documentRepliedAfter: nextDocumentRepliedAfter,
       closureReadFailed: nextClosureReadFailed,
     };
   };
@@ -411,6 +423,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       standingSuppressionReadFailed,
       standingSuppressionReadError,
       userAlreadyReplied,
+      documentRepliedAfter,
       closureReadFailed,
     } = await resolveTodoAndStandingSuppression());
     await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
@@ -491,6 +504,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       standingSuppressionReadFailed,
       standingSuppressionReadError,
       userAlreadyReplied,
+      documentRepliedAfter,
       closureReadFailed,
     } = await resolveTodoAndStandingSuppression());
 
@@ -768,15 +782,16 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         // Same-thread retraction (ADR-0050): only the outbound-reply re-eval
         // sets this (`reason === "reply"`). The classifier can miss its rule 18
         // (it did on the resume thread), so the deterministic thread state —
-        // never the category, and never a non-reply inbound — withholds the
-        // suggestion here. The value is `readGmailThreadClosure`'s whole-thread
-        // read, deliberately not the exclusion-based `observations.thread`:
-        // that observation excludes the message being classified, so on a fresh
-        // inbound after an older user reply it reported `sent` and wrongly
-        // withheld a todo for a message the user had not answered. The closure
-        // read is independent of `observations`, so it also holds on the reuse
-        // path (#157), and `close-loop-todos` retracts on the same carried fact.
-        userAlreadyReplied,
+        // never the category — withholds the suggestion here. The value is the
+        // PER-MESSAGE closure (`lastUserReplyAt > this message's authoredAt`),
+        // deliberately not the exclusion-based `observations.thread` and not the
+        // whole-thread `newestDirection`: the observation excludes the message
+        // being classified, so it read `sent` on a fresh inbound after an older
+        // reply, and the whole-thread form reads `sent` on the next-inbound
+        // re-eval for the same reason. Both withheld a todo for a message the
+        // user had not answered (P0). The closure read is independent of
+        // `observations`, so it also holds on the reuse path (#157).
+        userRepliedAfterMessage: documentRepliedAfter,
       })
     : null;
 
