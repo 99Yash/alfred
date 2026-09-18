@@ -31,8 +31,15 @@ import type { ObjectState, ReconciledObject } from "@alfred/assistant/connection
  * plausible-looking call. Two entry points make the wrong relation a
  * deliberately chosen FUNCTION rather than a mistyped argument.
  *
- * **That binding is naming plus convention, not the type system. Read this
- * before you add the third source.** Nothing here is unwritable:
+ * **The reading axis is type-forced; the relation axis is still convention.
+ * Read this before you add the third source.**
+ *
+ * The reading that produced an object rides in its type:
+ * {@link cardNamesObjectRef} accepts only `ReconciledObject<"annotates">`, so a
+ * document source that proposed under `annotates` cannot hand its result to a
+ * closure-capable reader by type. That closes the reading axis.
+ *
+ * The relation axis is NOT type-forced, and nothing here makes it so:
  *
  * - {@link ReconciledObject} is a structural type of three public fields, so a
  *   producer that never called the reconcile seam can still write the literal
@@ -87,16 +94,20 @@ export function cardIsObjectRef(state: ObjectState): EvidenceObjectRef | undefin
  * The card's own text NAMES this object: the card was reached by similarity and
  * the object is an annotation on it.
  *
- * The parameter is the reconcile seam's own {@link ReconciledObject} rather
- * than the `ObjectState` inside it, so the natural call is the one the seam
- * already hands you. It is a structural type, so it does not PREVENT a
- * producer that skipped the seam from writing the literal; it only makes that
- * producer write three fields it has no honest source for.
+ * The parameter is the reconcile seam's own {@link ReconciledObject}, pinned to
+ * the `annotates` reading, rather than the `ObjectState` inside it. So the
+ * natural call is the one the seam already hands you, and the reading cannot be
+ * widened: an `about` or `mentions` result is refused. It is a structural type,
+ * so it does not PREVENT a producer that skipped the seam from writing the
+ * literal; it only makes that producer write three fields it has no honest
+ * source for.
  *
  * `undefined` is returned for the same reason as {@link cardIsObjectRef}; a
  * caller that only annotates attaches nothing.
  */
-export function cardNamesObjectRef(object: ReconciledObject): EvidenceObjectRef | undefined {
+export function cardNamesObjectRef(
+  object: ReconciledObject<"annotates">,
+): EvidenceObjectRef | undefined {
   return objectRef(object.state, "names");
 }
 

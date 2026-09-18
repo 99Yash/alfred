@@ -185,7 +185,7 @@ async function namedObjectByCardId(
   const found = new Map<string, EvidenceObjectRef>();
 
   try {
-    const subjects: ReconcileCandidates[] = [];
+    const subjects: ReconcileCandidates<"annotates">[] = [];
 
     for (const hit of hits) {
       const id = documentCardId(hit);
@@ -209,9 +209,12 @@ async function namedObjectByCardId(
       // The chunk NAMES this object; it is not the object. This source reached
       // the object through TEXT, so `cardNamesObjectRef` is the only correct
       // builder here: it keeps the ranker's exact-retrieval feature off a
-      // semantic hit. `cardIsObjectRef(object.state)` would also compile and
-      // would turn that feature on, which is why the rule lives in a comment
-      // and in `object-ref.ts` rather than in a type.
+      // semantic hit. The reading axis is now type-carried — this subject is
+      // `ReconcileCandidates<"annotates">`, so `firstClosingObject` refuses it —
+      // but the `names`-vs-`is` relation is still convention:
+      // `cardIsObjectRef(object.state)` is one import away, compiles, and would
+      // turn that feature on. That is why the rule lives in a comment and in
+      // `object-ref.ts` rather than in a type.
       const ref = cardNamesObjectRef(object);
 
       if (ref) found.set(id, ref);
