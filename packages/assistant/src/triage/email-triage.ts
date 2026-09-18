@@ -14,6 +14,11 @@ const stateSchema = z.object({
   rationale: z.string().nullable().optional(),
   senderContext: senderContextSchema.optional(),
   force: z.boolean().optional(),
+  /**
+   * Whole-thread closure fact read once by `classify` on the reply re-eval and
+   * consumed by `close-loop-todos` (ADR-0050). Absent on every non-reply run.
+   */
+  userAlreadyReplied: z.boolean().optional(),
 });
 
 type State = z.infer<typeof stateSchema>;
