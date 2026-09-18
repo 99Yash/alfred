@@ -7,6 +7,10 @@
  * `toolChoice: 'required'` (guarantees a no-prose tool-call turn), flushes to
  * Langfuse, and asserts the generation output now carries the tool call.
  *
+ * Reads go through `GET /api/public/v2/observations` (filtered by trace id)
+ * because the self-hosted `events_only` write mode serves reads from the v2
+ * observations API and 404s the legacy `GET /api/public/traces/:id`.
+ *
  * Run from packages/ai (needs a cheap-model key + LANGFUSE_* in env):
  *   ./node_modules/.bin/tsx --env-file=../../apps/server/.env \
  *     src/scripts/verify-capture-output.ts
@@ -15,9 +19,14 @@ import { serverEnv } from "@alfred/env/server";
 import { isRecord } from "@alfred/contracts";
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { randomUUID } from "node:crypto";
-import { flushLangfuse } from "../metering/langfuse";
+import { flushLangfuse, langfuseTraceId } from "../metering/langfuse";
 import { route } from "../provider";
 import { meteredGenerateText } from "../metering/wrappers";
+import {
+  decodeLangfuseIo,
+  fetchObservationsByTraceId,
+  type LangfuseObservation,
+} from "./langfuse-observations";
 
 const stamp = randomUUID().slice(0, 8);
 
@@ -44,11 +53,10 @@ const weather = tool({
 // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
 const tools = { weather } as unknown as ToolSet;
 
-interface Obs {
-  type: string;
-  name: string;
-  output?: unknown;
-  metadata?: { toolCallCount?: number; finishReason?: string };
+function toolCallCount(metadata: unknown): number {
+  const decoded = decodeLangfuseIo(metadata);
+
+  return isRecord(decoded) && typeof decoded.toolCallCount === "number" ? decoded.toolCallCount : 0;
 }
 
 async function main() {
@@ -83,24 +91,19 @@ async function main() {
   await flushLangfuse();
 
   // Poll the trace until the generation observation materializes.
-  let gen: Obs | undefined;
+  let gen: LangfuseObservation | undefined;
 
   for (let attempt = 1; attempt <= 20; attempt++) {
-    const res = await fetch(`${host}/api/public/traces/${runId}`, {
-      headers: { Authorization: `Basic ${auth}` },
-      signal: AbortSignal.timeout(LANGFUSE_FETCH_TIMEOUT_MS),
+    const observations = await fetchObservationsByTraceId({
+      host,
+      auth,
+      traceId: langfuseTraceId(runId),
+      timeoutMs: LANGFUSE_FETCH_TIMEOUT_MS,
     });
 
-    if (res.ok) {
-      // SAFETY: Obs is the loose diagnostic view of one Langfuse observation;
-      // the fields this verifier reads tolerate absence.
-      const t = (await res.json()) as { observations?: Obs[] };
-      gen = (t.observations ?? []).find(
-        (o) => o.type === "GENERATION" && (o.metadata?.toolCallCount ?? 0) > 0,
-      );
+    gen = observations.find((o) => o.type === "GENERATION" && toolCallCount(o.metadata) > 0);
 
-      if (gen) break;
-    }
+    if (gen) break;
 
     process.stdout.write(`  poll ${attempt}/20\r`);
     await new Promise((r) => setTimeout(r, 1500));
@@ -113,7 +116,7 @@ async function main() {
     process.exit(1);
   }
 
-  const out = gen.output;
+  const out = decodeLangfuseIo(gen.output);
   const calls = isRecord(out) ? out.toolCalls : undefined;
   const ok = Array.isArray(calls) && calls.length > 0 && typeof calls[0]?.toolName === "string";
   console.log(`generation output: ${JSON.stringify(out)?.slice(0, 300)}`);
