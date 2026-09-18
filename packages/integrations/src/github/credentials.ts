@@ -26,7 +26,7 @@ export interface UpsertGithubCredentialArgs {
   /** GitHub App installation id captured on the post-install redirect. */
   installationId?: string | null;
   scopes: string[];
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   expiresAt: Date;
 }
 

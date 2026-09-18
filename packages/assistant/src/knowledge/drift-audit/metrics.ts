@@ -1,5 +1,5 @@
 import { parseEmailAddress, toMessage } from "@alfred/contracts";
-import type { IanaTimezone, TriageCategory } from "@alfred/contracts";
+import type { IanaTimezone, JsonObject, TriageCategory } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, driftMetrics, emailTriage, todos } from "@alfred/db/schemas";
 import { selfSenderEmail } from "@alfred/integrations/google";
@@ -57,7 +57,7 @@ export interface MetricResult {
   threshold: number;
   breached: boolean;
   /** Numerator/denominator/sample ids — persisted to the snapshot row. */
-  detail: Record<string, unknown>;
+  detail: JsonObject;
   /** One-line human summary, used in the breach email. */
   summary: string;
 }

@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { toJsonValue, toMessage } from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { runAtomic } from "@alfred/db/helpers";
 import {
@@ -218,8 +218,8 @@ export async function createRun(
     metadata = {
       ...metadata,
       allowedIntegrations: row.allowedIntegrations,
-      allowedTools: row.allowedTools,
-      requiredCapabilities: row.requiredCapabilities,
+      allowedTools: row.allowedTools.map((tool) => toJsonValue(tool)),
+      requiredCapabilities: row.requiredCapabilities.map((capability) => toJsonValue(capability)),
     };
   }
 

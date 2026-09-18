@@ -8,6 +8,7 @@
  */
 
 import {
+  jsonObjectSchema,
   railwayGetLogsInput,
   railwayGraphqlInput,
   railwayListDeploymentsInput,
@@ -170,7 +171,18 @@ export const railwayTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const credential = await selectCredential(ctx);
 
-      return runRailwayPassthrough((request) => credential.graphqlRaw(request), input);
+      return runRailwayPassthrough((request) => {
+        const { variables, ...rest } = request;
+
+        // graphqlRaw requires JSON variables, but the shared passthrough
+        // contract types them as an open record. parse proves JSON-safety at
+        // the boundary; over the wire the input is already JSON, so this
+        // never throws there.
+        return credential.graphqlRaw({
+          ...rest,
+          ...(variables === undefined ? {} : { variables: jsonObjectSchema.parse(variables) }),
+        });
+      }, input);
     },
   }),
   liveTool({

@@ -6,6 +6,7 @@ import {
   mcpContentKindValues,
   type BoundedPassthroughBody,
   type ExternalToolRef,
+  type JsonObject,
   type JsonValue,
   type McpContentKind,
   type McpResultProvenance,
@@ -218,7 +219,7 @@ export class McpRawClient {
   #catalogGeneration = 0;
   #catalogInvalidatedHandler: (() => void) | null = null;
   #toolsByName = new Map<string, Tool>();
-  #inputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
+  #inputValidators = new Map<string, JsonSchemaValidator<JsonObject>>();
   #outputValidators = new Map<string, JsonSchemaValidator<JsonValue>>();
   #authorizationBlocked: McpClientError | null = null;
   #lifecycleTail: Promise<void> = Promise.resolve();
@@ -501,14 +502,14 @@ export class McpRawClient {
 
     const revision = sha256Canonical(sortedTools);
     const nextToolsByName = new Map(sortedTools.map((tool) => [tool.name, tool]));
-    const nextInputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
+    const nextInputValidators = new Map<string, JsonSchemaValidator<JsonObject>>();
     const nextOutputValidators = new Map<string, JsonSchemaValidator<JsonValue>>();
 
     for (const tool of sortedTools) {
-      let validator: JsonSchemaValidator<Record<string, unknown>>;
+      let validator: JsonSchemaValidator<JsonObject>;
 
       try {
-        validator = this.#schemaValidator.getValidator<Record<string, unknown>>(
+        validator = this.#schemaValidator.getValidator<JsonObject>(
           // SAFETY: tool.inputSchema is the MCP JSON-schema envelope; the
           // validator consumes exactly that shape.
           tool.inputSchema as JsonSchemaType,

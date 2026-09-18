@@ -14,6 +14,7 @@ import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-ho
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import type { CallKind, CallUsage, MeteredMeta } from "./metered";
 import { sanitizeErrorMessage, summarizeBody, toMessage, toStringArray } from "@alfred/contracts";
+import type { JsonObject } from "@alfred/contracts";
 
 /**
  * Lazy-init Langfuse tracing. We build the SDK once per process when the keys
@@ -194,7 +195,7 @@ export interface LangfuseSpanCloser {
     /** Full completion — only attached to the span when I/O capture is on. */
     output?: unknown;
     /** Small response metadata (finish_reason, tool-call count) — always attached. */
-    responseMeta?: Record<string, unknown> | undefined;
+    responseMeta?: JsonObject | undefined;
     /**
      * Model the request actually resolved to (#216). When a `withFallback`
      * cascade switches providers mid-call, `metered()` reconciles the served
@@ -337,7 +338,7 @@ export interface ToolSpanCloser {
    * independent of the I/O gate — so it must carry only non-PII, structural
    * signal (e.g. the ADR-0074 passthrough truncation "thermometer").
    */
-  success(output?: unknown, metadata?: Record<string, unknown>): void;
+  success(output?: unknown, metadata?: JsonObject): void;
   error(message: string): void;
 }
 
@@ -873,7 +874,7 @@ export function buildGenerationEndPayload(args: {
   usage?: CallUsage | undefined;
   costUsd: number;
   output?: unknown;
-  responseMeta?: Record<string, unknown> | undefined;
+  responseMeta?: JsonObject | undefined;
   servedModel?: string | undefined;
   captureIo: boolean;
 }) {
@@ -918,7 +919,7 @@ export function buildGenerationEndPayload(args: {
 type LangfuseModelParam = string | number;
 
 function stripParams(
-  meta: Record<string, unknown> | undefined,
+  meta: JsonObject | undefined,
 ): { [key: string]: LangfuseModelParam } | undefined {
   if (!meta) return undefined;
   // Drop fields that are too large or not relevant to the trace, and coerce

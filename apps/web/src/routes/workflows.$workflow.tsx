@@ -16,7 +16,7 @@ import { WorkflowDetailPage } from "./-workflows-detail/workflow-detail-page";
  *   /preview/workflows/$workflow    → app grammar
  */
 export const Route = createFileRoute("/workflows/$workflow")({
-  validateSearch: (params: Record<string, unknown>) => {
+  validateSearch: (params: unknown) => {
     const workflowRecovery = getStringPath(params, "workflow_recovery");
     const revisionId = getStringPath(params, "revision_id");
 

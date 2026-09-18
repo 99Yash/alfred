@@ -3,7 +3,7 @@ import { emailSends, user, type NotificationKind } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq, ne } from "drizzle-orm";
 import { getResendClient } from "./resend-client";
-import { toMessage } from "@alfred/contracts";
+import { toMessage, type JsonObject } from "@alfred/contracts";
 
 /**
  * Logical kinds of notification live in the `@alfred/db` schema (the source of
@@ -30,7 +30,7 @@ export interface NotifyArgs {
    * Render input retained on the row so a failed send can be replayed
    * or debugged later. Not used for delivery itself.
    */
-  payload?: Record<string, unknown>;
+  payload?: JsonObject;
   /** Optional override; defaults to the user's account email. */
   toAddress?: string;
 }

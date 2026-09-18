@@ -33,7 +33,7 @@ copy we own, not a dependency we track.
 
 ## What is enforced
 
-**Nine rules at `error`** — ratchets with zero violations in the tree:
+**Ten rules at `error`** — ratchets with zero violations in the tree:
 
 | Rule                                        | What it rejects                                                         |
 | ------------------------------------------- | ----------------------------------------------------------------------- |
@@ -46,6 +46,7 @@ copy we own, not a dependency we track.
 | `no-unknown-type-aliases`                   | type aliases that resolve to `unknown`                                  |
 | `require-readable-spacing`                  | missing blank lines between declarations and statement groups (autofix) |
 | `require-safety-comment-for-type-assertion` | type assertions without a nearby `SAFETY:` comment                      |
+| `no-unsafe-dictionary-type`                 | `Record<string, unknown>` and equivalents                               |
 
 All but `require-readable-spacing` and
 `require-safety-comment-for-type-assertion` were adopted at warn with violations
@@ -61,6 +62,15 @@ casts a hand-built row to feed a seam has no unseen invariant to narrate. The
 promotion bar and the measured split are recorded in
 `docs/research/anti-slop-paydown-2026-09-12.md`.
 
+`no-unsafe-dictionary-type` is the second rule promoted after a by-surface
+scoping. Its governed product-source sites (64 at promotion) were narrowed to
+`JsonObject` or a closed type per the `narrow-record-types` decision table;
+the honest-boundary files (canonical guards, parser staging buffers, generic
+row envelopes) and the test/eval/script scopes are exempted by `overrides`
+entries in `.oxlintrc.json`, because an honest dynamic dictionary is not debt
+and a fixture's capture buffer has no contract to name. "Zero
+`Record<string, unknown>` spellings" is explicitly the wrong success metric.
+
 `require-readable-spacing` is the one autofix rule. It was adopted by running
 `pnpm exec oxlint --config .oxlintrc.json --fix .`, which inserted blank lines
 only — 17,337 lines across 1,301 files — and changed nothing else. Its policy is
@@ -71,14 +81,13 @@ takes no options; the vendored source is the policy. The padding engine is the
 ESLint Stylistic `padding-line-between-statements` rule, vendored under
 `vendor/eslint-stylistic/` with its own license and provenance.
 
-**Three rules at `warn`** — paydown rules with live violations (counts as of
+**Two rules at `warn`** — paydown rules with live violations (counts as of
 2026-09-18):
 
-| Rule                        | Violations | What it rejects                                     |
-| --------------------------- | ---------- | --------------------------------------------------- |
-| `no-runtime-typeof`         | ~357       | runtime `typeof` checks instead of boundary parsing |
-| `no-unsafe-dictionary-type` | ~152       | `Record<string, unknown>` and equivalents           |
-| `no-unknown-returns`        | ~94        | functions returning `unknown`                       |
+| Rule                | Violations | What it rejects                                     |
+| ------------------- | ---------- | --------------------------------------------------- |
+| `no-runtime-typeof` | ~357       | runtime `typeof` checks instead of boundary parsing |
+| `no-unknown-returns`| ~94        | functions returning `unknown`                       |
 
 `no-runtime-typeof` runs with `{ "allowInTypeGuards": true }` (see
 `.oxlintrc.json`), so a `typeof` check inside a `value is T` predicate does not

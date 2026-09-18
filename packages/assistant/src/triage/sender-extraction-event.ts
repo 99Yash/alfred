@@ -1,6 +1,7 @@
 import {
   type AccountPersona,
   type CollabActivityKind,
+  type JsonObject,
   type SenderContext,
 } from "@alfred/contracts";
 import { type TriageCategory } from "@alfred/integrations/google";
@@ -21,7 +22,7 @@ import type { SenderSuppressionMatch } from "../knowledge";
  */
 type FloorTraceProjection<K extends keyof FloorAudits> = (
   audit: FloorAudits[K] | null,
-) => Record<string, unknown>;
+) => JsonObject;
 
 /**
  * Every floor's contribution to the trace, keyed by floor name and EXHAUSTIVE
@@ -130,7 +131,7 @@ type FloorTraceFields = UnionToIntersection<
  * hand is what makes registration the only edit a fourth floor needs.
  */
 function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
-  const fields: Record<string, unknown> = {};
+  const fields: JsonObject = {};
 
   // SAFETY: FLOOR_TRACE_PROJECTIONS is keyed by ProjectedFloorName, so its
   // keys enumerate exactly those names.

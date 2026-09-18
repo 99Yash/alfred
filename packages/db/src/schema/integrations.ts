@@ -2,6 +2,7 @@ import {
   CREDENTIAL_PROVIDERS,
   type AccountPersona,
   type CredentialProvider,
+  type JsonObject,
 } from "@alfred/contracts";
 import { getTableColumns, isNull, sql } from "drizzle-orm";
 import {
@@ -92,7 +93,7 @@ export const integrationCredentials = pgTable(
       .default(sql`'[]'::jsonb`),
     /** Free-form provider-specific bag: id_token claims, raw refresh response, watch-channel ids, etc. */
     metadata: jsonb("metadata")
-      .$type<Record<string, unknown>>()
+      .$type<JsonObject>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     /**

@@ -18,6 +18,7 @@ import {
   clamp01,
   jsonRecordSchema,
   toMessage,
+  type JsonObject,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { entities, user } from "@alfred/db/schemas";
@@ -198,7 +199,7 @@ export async function runSignificancePass(
     .where(and(eq(entities.userId, userId), eq(entities.kind, "person")));
 
   const scoredRows: Array<{ canonicalName: string; address: string | null; score: number }> = [];
-  const pendingWrites: Array<{ id: string; metadata: Record<string, unknown> }> = [];
+  const pendingWrites: Array<{ id: string; metadata: JsonObject }> = [];
 
   for (const row of rows) {
     const meta = parsePersonEntityMetadata(row.metadata);
