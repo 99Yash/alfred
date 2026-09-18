@@ -86,34 +86,9 @@ import { createTurnStopController } from "./turn-stop-controller";
 import { emitTurnPhaseThermometer, type TurnPhaseOutcome } from "./turn-thermometer";
 
 /**
- * Interactive streaming chat (streaming-chat plan). One run services one user
- * turn end-to-end: the agent streams its reply (token deltas + tool-call
- * cards over the SSE event bus), tools dispatch (writes gate through the
- * existing HIL/approval interrupt), and the finished assistant message is
- * persisted to `chat_messages` so it survives reload and reaches every device.
- *
- * Models: `standard` (Sonnet 4.6) by default; `deep` (Opus 4.8) escalation is
- * wired through state for a future heuristic / the boss-worker harness. The
- * agent can discover and exactly load capabilities, including
- * `system.spawn_sub_agent` for focused fan-out.
- *
- * Within-run tool-loop compaction remains deferred; persisted cross-turn
- * history is guarded before the first provider call of each run.
- *
- * This file is the orchestrator: the two steps, the system prompt, and the
- * workflow definition. Each protocol a turn runs lives in its own module, so
- * the sequence inside it cannot be half-remembered at a second call site:
- *
- *  - `./chat-turn-state`     — the durable state schema and the pure ops on it.
- *  - `./chat-attachments`    — stored-key → model-ready parts, under a byte budget.
- *  - `./turn-budgets`        — the turn cap, the bounded retry planners, and the
- *                              budget refresh a productive turn owes the next.
- *  - `./finalize-guards`     — the finalize boundary: what a turn must do before
- *                              it may complete, and the guards it must clear, in
- *                              one declared order.
- *  - `./chat-turn-closure`   — the one persistence sequence every ending runs.
- *  - `../sub-agent-join`     — joining a spawned child, shared with the
- *                              `await_sub_agent` tool.
+ * One run services one user turn end-to-end: the model streams, tools dispatch,
+ * and the assistant message persists to `chat_messages`. Owner: this file.
+ * History: ADR-0077, ADR-0026. Glossary: `docs/reference/glossary.md`.
  */
 export { CHAT_TURN_WORKFLOW_SLUG };
 
