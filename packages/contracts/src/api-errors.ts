@@ -18,13 +18,11 @@ export const API_ERROR_CODES = [
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
-/** Extra machine-readable context on a failure. Rendered into the wire body. */
-export type ApiErrorDetails = JsonObject;
-
 export interface ApiErrorResponse {
   error: string;
   code: ApiErrorCode;
-  details?: ApiErrorDetails;
+  /** Extra machine-readable context on a failure. Rendered into the wire body. */
+  details?: JsonObject;
 }
 
 /**
@@ -59,9 +57,9 @@ export class ApiError extends Error {
   readonly _tag = "ApiError" as const;
   readonly code: ApiErrorCode;
   readonly statusCode: number;
-  readonly details: ApiErrorDetails | undefined;
+  readonly details: JsonObject | undefined;
 
-  constructor(code: ApiErrorCode, message: string, details?: ApiErrorDetails) {
+  constructor(code: ApiErrorCode, message: string, details?: JsonObject) {
     super(message);
     this.name = "ApiError";
     this.code = code;
@@ -86,51 +84,51 @@ export class ApiError extends Error {
  */
 export const Errors = {
   /** 400 — the request is malformed, or fails a precondition the client can fix. */
-  BadRequestError: (message = "Bad request", details?: ApiErrorDetails) =>
+  BadRequestError: (message = "Bad request", details?: JsonObject) =>
     new ApiError("BAD_REQUEST", message, details),
 
   /** 401 — no usable credential on the request. */
-  UnauthorizedError: (message = "Unauthorized", details?: ApiErrorDetails) =>
+  UnauthorizedError: (message = "Unauthorized", details?: JsonObject) =>
     new ApiError("UNAUTHORIZED", message, details),
 
   /** 403 — authenticated, but not allowed to touch this resource. */
-  ForbiddenError: (message = "Forbidden", details?: ApiErrorDetails) =>
+  ForbiddenError: (message = "Forbidden", details?: JsonObject) =>
     new ApiError("FORBIDDEN", message, details),
 
   /** 404 — the addressed resource does not exist for this caller. */
-  NotFoundError: (message = "Not found", details?: ApiErrorDetails) =>
+  NotFoundError: (message = "Not found", details?: JsonObject) =>
     new ApiError("NOT_FOUND", message, details),
 
   /** 409 — the write conflicts with the current state (duplicate, lost race). */
-  ConflictError: (message = "Conflict", details?: ApiErrorDetails) =>
+  ConflictError: (message = "Conflict", details?: JsonObject) =>
     new ApiError("CONFLICT", message, details),
 
   /** 413 — the body exceeds a declared size bound. */
-  PayloadTooLargeError: (message = "Payload too large", details?: ApiErrorDetails) =>
+  PayloadTooLargeError: (message = "Payload too large", details?: JsonObject) =>
     new ApiError("PAYLOAD_TOO_LARGE", message, details),
 
   /** 429 — a rate limit or a quota rejected the call. */
-  TooManyRequestsError: (message = "Too many requests", details?: ApiErrorDetails) =>
+  TooManyRequestsError: (message = "Too many requests", details?: JsonObject) =>
     new ApiError("TOO_MANY_REQUESTS", message, details),
 
   /** 503 — a dependency this route needs is down or unreachable. */
-  ServiceUnavailableError: (message = "Service unavailable", details?: ApiErrorDetails) =>
+  ServiceUnavailableError: (message = "Service unavailable", details?: JsonObject) =>
     new ApiError("SERVICE_UNAVAILABLE", message, details),
 
   /** 502 — an upstream provider answered, but with a failure we cannot use. */
-  BadGatewayError: (message = "Bad gateway", details?: ApiErrorDetails) =>
+  BadGatewayError: (message = "Bad gateway", details?: JsonObject) =>
     new ApiError("BAD_GATEWAY", message, details),
 
   /** 400 — the payload failed schema validation. */
-  ValidationError: (message = "Validation failed", details?: ApiErrorDetails) =>
+  ValidationError: (message = "Validation failed", details?: JsonObject) =>
     new ApiError("VALIDATION_ERROR", message, details),
 
   /** 400 — the body could not be parsed at all. */
-  ParseError: (message = "Invalid request body", details?: ApiErrorDetails) =>
+  ParseError: (message = "Invalid request body", details?: JsonObject) =>
     new ApiError("PARSE_ERROR", message, details),
 
   /** 500 — a bug or an invariant break on our side. */
-  InternalServerError: (message = "Internal server error", details?: ApiErrorDetails) =>
+  InternalServerError: (message = "Internal server error", details?: JsonObject) =>
     new ApiError("INTERNAL_SERVER_ERROR", message, details),
 } as const;
 
