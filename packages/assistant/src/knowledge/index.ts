@@ -25,6 +25,8 @@
  * crisp, tagged propositions. No durable writes happen here — the observation
  * write path lands in #399; the idle end-of-thread TRIGGER lives next to the
  * compaction it drives in `chat/idle-capture-queue.ts`.
+ *
+ * Terminology: see `docs/reference/glossary.md`.
  */
 export { requireEntityIdNamespace } from "./namespace";
 

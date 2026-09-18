@@ -50,6 +50,8 @@ export type ReaderDeclinedReason = (typeof READER_DECLINED_REASONS)[number];
  * where that manifest is validated. Describing itself is therefore not an
  * optional extra a source can forget: it is part of what registering MEANS. See
  * `manifest.ts` for what the boundary then does with the declaration.
+ *
+ * Terminology: see `docs/reference/glossary.md`.
  */
 
 /** What one registered source returns. Errors are reported, not thrown through. */
