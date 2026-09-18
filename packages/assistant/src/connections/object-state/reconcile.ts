@@ -126,10 +126,15 @@ export function proposeObjectKeys<Reading extends KeyProposalReading>(
  * A subject with no resolvable key is absent from the result, never present
  * with an invented entry.
  *
- * One call has one reading: every subject's keys carry the same `Reading`, so
- * cross-subject dedup cannot collide two readings' keys (the reading is not
- * part of {@link import("./adapter").candidateIdentity}). The result is typed
- * by that reading, and an `annotates` result carries `null` closure by
+ * "One call has one reading" is the caller's precondition, not a fact the types
+ * enforce: the caller supplies one reading for the whole subject array, and a
+ * mixed array compiles with `Reading` inferred as the union of its readings.
+ * A mixed array does not miscarry closure — the reading is not part of
+ * {@link import("./adapter").candidateIdentity}, and the seam decides closure
+ * from each key's own `reading` — so per-key closure stays correct. The union
+ * only widens the result: once it admits a reading with no closure authority
+ * (`annotates`), {@link firstClosingObject} refuses the whole result. The result
+ * is typed by the reading, and an `annotates` result carries `null` closure by
  * construction — the reading, not a comment, decides whether a caller may close
  * an ask.
  */
