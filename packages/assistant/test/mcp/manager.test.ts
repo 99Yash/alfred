@@ -103,6 +103,7 @@ function managerWith(protocol: FakeProtocol): McpConnectionManager {
   return new McpConnectionManager({
     clientFactory: (connection) =>
       new McpRawClient({
+        auth: { mode: "none" },
         connectionId: connection.id,
         endpoint: connection.server,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),

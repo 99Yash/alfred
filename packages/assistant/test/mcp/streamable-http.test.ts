@@ -220,6 +220,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
   }> = [];
 
   const client = new McpRawClient({
+    auth: { mode: "none" },
     connectionId: "conn_http_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     // Production supplies the hardened URL/SSRF authorizer. This explicit test
@@ -334,6 +335,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
 
 test("McpRawClient applies its request deadline to the connect handshake", async () => {
   const client = new McpRawClient({
+    auth: { mode: "none" },
     connectionId: "conn_connect_timeout_test",
     endpoint: { endpointUrl: new URL("/slow-mcp", endpoint).href, endpointOrigin: endpoint.origin },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
@@ -345,6 +347,7 @@ test("McpRawClient applies its request deadline to the connect handshake", async
 
 test("McpRawClient falls back to a 2025-11-25 Streamable HTTP server", async () => {
   const client = new McpRawClient({
+    auth: { mode: "none" },
     connectionId: "conn_legacy_http_test",
     endpoint: {
       endpointUrl: new URL("/legacy-mcp", endpoint).href,
@@ -398,6 +401,7 @@ test("McpRawClient falls back to a 2025-11-25 Streamable HTTP server", async () 
 
 test("modern connect fails when the advertised list-change subscription cannot open", async () => {
   const client = new McpRawClient({
+    auth: { mode: "none" },
     connectionId: "conn_modern_subscription_failure_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
@@ -424,6 +428,7 @@ test("modern connect fails when the advertised list-change subscription cannot o
 
 test("the real SDK cannot bypass Alfred's catalog page limit", async () => {
   const client = new McpRawClient({
+    auth: { mode: "none" },
     connectionId: "conn_legacy_page_limit_test",
     endpoint: {
       endpointUrl: new URL("/legacy-mcp", endpoint).href,
@@ -447,6 +452,7 @@ test("the real SDK does not replay tools/call after auth or header failures", as
   let unauthorizedRefreshes = 0;
 
   const unauthorizedClient = new McpRawClient({
+    auth: { mode: "none" },
     connectionId: "conn_no_auth_replay_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     authProvider: {
@@ -492,6 +498,7 @@ test("the real SDK does not replay tools/call after auth or header failures", as
   const requiredScopes: string[][] = [];
 
   const insufficientScopeClient = new McpRawClient({
+    auth: { mode: "none" },
     connectionId: "conn_no_scope_replay_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     authProvider: { token: async () => "test-token" },
@@ -556,6 +563,7 @@ test("the real SDK does not replay tools/call after auth or header failures", as
   let mismatchCalls = 0;
 
   const mismatchClient = new McpRawClient({
+    auth: { mode: "none" },
     connectionId: "conn_no_header_replay_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {

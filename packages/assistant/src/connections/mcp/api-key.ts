@@ -20,7 +20,7 @@ import { credentialVault } from "@alfred/db/credential-vault";
 import { mcpApiKeyCredentials, mcpConnections } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { HostedEndpointError } from "../hosted-endpoint";
-import type { McpApiKeyAuth } from "./endpoint-authorization";
+import type { McpApiKeyCredentialReader } from "./endpoint-authorization";
 
 export interface PersistMcpApiKeyCredentialInput {
   connectionId: string;
@@ -44,7 +44,7 @@ export interface PersistMcpApiKeyCredentialInput {
 export async function readApiKeyAuthForConnection(
   connectionId: string,
   userId: string,
-): Promise<McpApiKeyAuth | undefined> {
+): Promise<McpApiKeyCredentialReader | undefined> {
   const [row] = await db()
     .select({
       placement: mcpApiKeyCredentials.placement,
