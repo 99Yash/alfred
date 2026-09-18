@@ -10,7 +10,7 @@ import {
   getSenderSignificance,
   listActiveSuppressionInstructions,
 } from "../knowledge";
-import { suggestTodo } from "@alfred/assistant/tasks";
+import { resolveTodosForGmailSender, suggestTodo } from "@alfred/assistant/tasks";
 import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,
@@ -66,7 +66,11 @@ import { getFreshAccessToken, getMessage, type TriageCategory } from "@alfred/in
  *                    conditional second cheap pass + override floor, ADR-0051),
  *                    then upsert the final `email_triage` row keyed on the
  *                    Gmail thread. No boss `deepen` escalation.
- *   2. apply-label — modify Gmail labels (add chosen on the latest message,
+ *   2. close-loop-todos — on the outbound-reply re-eval (#282), when the
+ *                    user's own send is the thread's newest message, dismiss
+ *                    the live rail todos sourced from that thread (ADR-0050
+ *                    same-thread retraction).
+ *   3. apply-label — modify Gmail labels (add chosen on the latest message,
  *                    strip alfred labels from every sibling message in the
  *                    thread), persist `applied_label_id`. Done.
  *
@@ -710,6 +714,13 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         isColdContact:
           observations?.senderRelationshipIsCold ??
           (reusedExistingRow ? (existing?.senderRelationshipIsCold ?? false) : false),
+        // Same-thread retraction (ADR-0050): the reply re-eval classifies a
+        // thread the user's own send now closes. The classifier can miss its
+        // rule 18 (it did on the resume thread), so the deterministic thread
+        // state — not the category — withholds the suggestion here. Absent on
+        // the reuse path (observations are not re-gathered), where the
+        // close-loop-todos step below retracts anything this run still mints.
+        userAlreadyReplied: observations?.thread.newestDirection === "sent",
       })
     : null;
 
@@ -769,8 +780,69 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       rationale: classification.rationale,
       senderContext,
     },
+    nextStep: "close-loop-todos",
+  };
+}
+
+/**
+ * Post-classify, pre-label follow-up: retract the rail todos a just-handled
+ * thread left open (ADR-0050 same-thread retraction, un-parked).
+ *
+ * The outbound-reply re-eval (#282) re-classifies a thread after the user
+ * sends. When the user's own message is now the newest in the thread, the
+ * loop that thread opened is already on the counterparty — so any live
+ * (`suggested`/`open`) todo whose Gmail-thread source is this thread is
+ * dismissed rather than left sitting on the rail.
+ *
+ * Deterministic and category-independent on purpose: the classifier can miss
+ * its own rule 18 on the re-eval (it did on the resume thread) while the
+ * thread state plainly says the user replied, so the close reads
+ * `newestDirection`, never the category. Gated on `reason === "reply"` so the
+ * thread-state read runs only on the reply re-eval, not on every inbound
+ * classify. The dismissal itself reuses the same write path the manual
+ * `resolve_todo` reaction drives, so both agree on what "closed" means.
+ */
+export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOperationState>(
+  ctx: StepContext<State>,
+): Promise<StepResult<State>> {
+  const sourceThreadId = ctx.state.sourceThreadId;
+
+  if (!sourceThreadId) {
+    throw new Error(
+      "[email-triage] close-loop-todos entered without sourceThreadId; classify step did not commit",
+    );
+  }
+
+  const advance: StepResult<State> = {
+    kind: "next",
+    state: ctx.state,
     nextStep: "apply-label",
   };
+
+  if (ctx.state.reason !== "reply") return advance;
+
+  const thread = await getThreadState({ userId: ctx.userId, sourceThreadId });
+
+  if (thread.newestDirection !== "sent") {
+    await ctx.log(
+      `close-loop-todos: thread=${sourceThreadId} newest=${thread.newestDirection ?? "unknown"} — no retraction`,
+    );
+
+    return advance;
+  }
+
+  const resolved = await resolveTodosForGmailSender({
+    userId: ctx.userId,
+    sourceThreadId,
+    reason: "reply-reeval",
+  });
+
+  await ctx.log(
+    `close-loop-todos: thread=${sourceThreadId} newest=sent status=${resolved.status} ` +
+      `dismissed=${resolved.ok ? resolved.dismissedCount : 0}`,
+  );
+
+  return advance;
 }
 
 export async function runEmailTriageApplyLabel<State extends EmailTriageOperationState>(

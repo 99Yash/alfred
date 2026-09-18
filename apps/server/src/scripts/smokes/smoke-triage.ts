@@ -11,7 +11,7 @@
  *   1. ensureAlfredLabels installs the ten Alfred labels (or recovers them
  *      from the credential metadata cache).
  *   2. Triggering email-triage on a real ingested doc runs through:
- *        classify  →  apply-label  →  done
+ *        classify  →  close-loop-todos  →  apply-label  →  done
  *      with a metered LLM call landing in api_call_log.
  *   3. The corresponding Gmail message picks up exactly one Alfred label.
  *   4. A single triage row keyed on (userId, sourceThreadId) lands in the DB

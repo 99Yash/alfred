@@ -970,7 +970,8 @@ export type TodoSuppressionReason =
   | "alfred_approval"
   | "pre_merge_advisory"
   | "tracker_owned"
-  | "cold_sender";
+  | "cold_sender"
+  | "user_already_replied";
 
 // A dedicated task/issue tracker or doc-comment tool's notification address
 // (#353). Subdomains and per-site Atlassian hosts (`<site>.atlassian.net`) match
@@ -1014,7 +1015,8 @@ const TODO_LIVENESS_RE =
  * Structural disqualifier for a rail todo, applied AFTER the cheap model proposed
  * one (rule 16). The cheap model won't reliably self-apply 16b's liveness clause,
  * recognize Alfred's own approval mail, or hold the tracker-ownership line, so
- * three whole-row leaks are killed here deterministically from the email's shape:
+ * these whole-row leaks are killed here deterministically — from the email's
+ * shape, and (for `user_already_replied`) from thread state:
  *   - `alfred_approval`    — Alfred's own HIL approval request; it lives on the
  *                            Approvals surface, never the todo rail.
  *   - `pre_merge_advisory` — a GitHub pull-request notification thread with no
@@ -1032,6 +1034,12 @@ const TODO_LIVENESS_RE =
  *                            model won't reliably self-apply (the HyperNexus
  *                            cold-outreach leak). The CATEGORY is untouched — the
  *                            thread keeps its honest awaiting_reply chip.
+ *   - `user_already_replied` — the thread's newest message is the USER's own
+ *                            send (thread state, not category): the loop this
+ *                            mail opened is already on the counterparty, so a
+ *                            rail todo would propose work the user just did
+ *                            (ADR-0050 same-thread retraction). Category is
+ *                            untouched — only the suggestion is withheld.
  * Returns null when nothing disqualifies it. PURE — the mint path and the
  * dry-run both apply it so KEEP/KILL stays consistent.
  */
@@ -1044,7 +1052,17 @@ export function todoSuppressionReason(email: {
   category?: TriageCategory | null;
   /** Typed rule-16b cold-contact flag from the sender-relationship observation. */
   isColdContact?: boolean;
+  /**
+   * The user's own send is the newest message in the thread (the reply re-eval
+   * of #282). Defaults to `false` so the dry-run harnesses and callers without
+   * thread state are unchanged.
+   */
+  userAlreadyReplied?: boolean;
 }): TodoSuppressionReason | null {
+  // The strongest, most specific fact first: whatever the email's shape, a
+  // thread the user already answered mints no new rail todo.
+  if (email.userAlreadyReplied) return "user_already_replied";
+
   if (ALFRED_APPROVAL_SUBJECT_RE.test(email.subject ?? "")) return "alfred_approval";
 
   if (isGithubNotificationSender(email.sender) && matchesPrThread(email.signalText)) {

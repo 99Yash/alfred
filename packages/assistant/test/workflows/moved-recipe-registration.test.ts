@@ -93,7 +93,7 @@ describe("moved product recipes keep their identity at their owning module seam"
       recipe: emailTriageWorkflow as Workflow<unknown>,
       slug: "email-triage",
       initialStep: "classify",
-      steps: ["classify", "apply-label"],
+      steps: ["classify", "close-loop-todos", "apply-label"],
       trigger: { kind: "event", source: "gmail", type: "message_received" },
       dedup: null,
     },

@@ -3,7 +3,11 @@ import { TRIAGE_CATEGORIES } from "@alfred/integrations/google";
 import { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
 import { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
-import { runEmailTriageApplyLabel, runEmailTriageClassify } from "./workflow-operations";
+import {
+  runEmailTriageApplyLabel,
+  runEmailTriageClassify,
+  runEmailTriageCloseLoopTodos,
+} from "./workflow-operations";
 
 const stateSchema = z.object({
   documentId: z.string(),
@@ -38,6 +42,7 @@ export const emailTriageWorkflow: Workflow<State> = {
   },
   steps: {
     classify: { id: "classify", run: runEmailTriageClassify },
+    "close-loop-todos": { id: "close-loop-todos", run: runEmailTriageCloseLoopTodos },
     "apply-label": { id: "apply-label", run: runEmailTriageApplyLabel },
   },
 };
