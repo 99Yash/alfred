@@ -268,7 +268,10 @@ function renderSourceNotes(
 
   if (hidden > 0) shown.push(`+ ${hidden} more source(s) with no shown evidence`);
 
-  return { text: shown.length > 0 ? `Source notes:\n${shown.join("\n")}` : "", hidden };
+  return {
+    text: shown.length > 0 ? `Source notes:\n${shown.map(oneLine).join("\n")}` : "",
+    hidden,
+  };
 }
 
 /** One source note: the id joins the suffix here, never at four call sites. */
@@ -434,32 +437,31 @@ function renderObject(object: EvidenceObjectRef): string {
 }
 
 /**
- * Removes the line terminators from an assembled line, then collapses the space
- * run each removal leaves behind.
+ * Removes the line terminators from an assembled rendered line, then collapses
+ * the space run each removal leaves behind.
  *
- * Applied to every rendered line, never to a field, so a field added to any
- * line kind inherits the property instead of needing its own call. `renderCard`
- * joins its lines with `\n`, and a consumer that reads one line expects one card
- * fact. A provider string that carried a line break would make a suffix of that
- * fact unreachable to such a reader, so the render, not the producer, is where
- * the break is removed.
+ * Applied to a whole rendered line, never to a field, so a field added to any
+ * line kind inherits the property instead of needing its own call. The pack has
+ * two line joins — `renderCard`'s card lines and `renderSourceNotes`' notes —
+ * and both fold every line before joining with `\n`. A consumer that reads one
+ * line expects one pack fact; a provider string that carried a line break would
+ * put a suffix of that fact on a line of its own, so the render, not the
+ * producer, is where the break is removed.
  *
  * The fold is deliberately narrow, and a wide `\s+` fold is wrong here. It
  * takes the four ECMAScript line terminators — `\n`, `\r`, `U+2028`, `U+2029`
- * — because those are the code points that can put a suffix of one card fact on
- * a line of its own. Every other whitespace-like code point inside a field
- * stays: `U+00A0` and `U+3000` are deliberate provider typography, and a CJK
- * title that loses its word separator loses meaning, while `U+FEFF` is zero
- * width, so folding it would show a character the provider never showed. The
- * `.trim()` reaches one thing only for this line's single caller: a `provider`
- * slug that starts with whitespace. The assembled line always ends with `)`,
- * `"`, `]`, `>`, or the clause.
+ * — because those are the code points that can put a suffix of one fact on a
+ * line of its own. Every other whitespace-like code point inside a field stays:
+ * `U+00A0` and `U+3000` are deliberate provider typography, and a CJK title
+ * that loses its word separator loses meaning, while `U+FEFF` is zero width, so
+ * folding it would show a character the provider never showed. The `.trim()`
+ * removes leading or trailing whitespace a field may carry — a `provider` slug
+ * that starts with whitespace, a source-note suffix that ends with one.
  *
- * This is a property of every line `renderCard` renders: the nine push sites
- * are folded together at the join, so "one line, one card fact" is the pack
- * format's rule and holds for a line kind added later too. `renderObject` also
- * folds its own line; the fold is idempotent, so the inner call is harmless and
- * keeps that function's clause-beside-lifecycle guarantee local to itself.
+ * This is a property of every line the pack renders, not of one line kind: both
+ * joins fold, so a line kind added later inherits it. `renderObject` also folds
+ * its own line; the fold is idempotent, so the inner call is harmless and keeps
+ * that function's clause-beside-lifecycle guarantee local to itself.
  */
 function oneLine(text: string): string {
   return text
