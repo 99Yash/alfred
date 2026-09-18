@@ -55,27 +55,9 @@ import { MAX_RATIONALE_LEN, truncateRationale } from "./rationale";
 export { MAX_RATIONALE_LEN, truncateRationale };
 
 /**
- * Email triage classifier — context-rich, cheap-model-always (ADR-0051).
- *
- * Cheap-tier model (gemini-2.5-flash-lite) classifies a single email into one
- * of ten categories matching the user's numbered Gmail labels. Intelligence
- * comes not from a bigger model but from deterministic **observations** fed in
- * (sender prior histogram, account persona, thread state, known-contact flag,
- * Gmail-native signals, regex content flags — assembled by the workflow, see
- * `observations.ts`). Two deterministic nets wrap the model:
- *
- *  - a **conditional second cheap pass** ({@link detectConflict}) re-runs the
- *    model once with a hard conflict spelled out; the second output is final;
- *  - a small high-precision **override floor** ({@link applyOverrideFloor})
- *    forces `urgent` on the one unambiguous severity signal (exposed secret).
- *
- * `classifyEmail` owns the whole sequence and returns the final classification
- * plus an audit object for the `triage.classification` decision trace. There is no boss
- * `deepen` escalation (ADR-0051 superseded ADR-0042's classifier shape).
- *
- * The four added buckets are narrow seams against existing ones — `urgent` vs
- * `action_needed`, `follow_up` vs `awaiting_reply`, `done` vs `fyi`, `marketing`
- * vs `newsletter` — each disambiguated by an explicit prompt rule.
+ * Email triage classifier, cheap-model-always (ADR-0051): `classifyEmail` runs
+ * the cheap model, then a conditional second pass and the deterministic floors
+ * (override → sender-kind → spam → meeting), returning the classification + audit. Owner: this file. Supersedes ADR-0042. Glossary: `docs/reference/glossary.md`.
  */
 
 /**
