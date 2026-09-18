@@ -15,7 +15,7 @@ import { serverEnv } from "@alfred/env/server";
 import { isRecord } from "@alfred/contracts";
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { randomUUID } from "node:crypto";
-import { flushLangfuse } from "../metering/langfuse";
+import { flushLangfuse, langfuseTraceId } from "../metering/langfuse";
 import { route } from "../provider";
 import { meteredGenerateText } from "../metering/wrappers";
 
@@ -86,7 +86,7 @@ async function main() {
   let gen: Obs | undefined;
 
   for (let attempt = 1; attempt <= 20; attempt++) {
-    const res = await fetch(`${host}/api/public/traces/${runId}`, {
+    const res = await fetch(`${host}/api/public/traces/${langfuseTraceId(runId)}`, {
       headers: { Authorization: `Basic ${auth}` },
       signal: AbortSignal.timeout(LANGFUSE_FETCH_TIMEOUT_MS),
     });

@@ -14,7 +14,7 @@
  */
 import { serverEnv } from "@alfred/env/server";
 import { randomUUID } from "node:crypto";
-import { flushLangfuse, startLangfuseSpan } from "../metering/langfuse";
+import { flushLangfuse, langfuseTraceId, startLangfuseSpan } from "../metering/langfuse";
 import type { MeteredMeta } from "../metering/metered";
 
 const stamp = randomUUID().slice(0, 8);
@@ -135,7 +135,7 @@ async function main() {
     traces = {};
 
     for (const id of ids) {
-      const t = await fetchTrace(host, auth, id);
+      const t = await fetchTrace(host, auth, langfuseTraceId(id));
 
       if (t) traces[id] = t;
     }
