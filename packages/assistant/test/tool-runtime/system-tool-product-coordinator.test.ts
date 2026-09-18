@@ -54,6 +54,7 @@ describe("sender suppression coordinator", () => {
       dismissedCount: 1,
       todoIds: ["todo_1"],
       matchedThreadIds: ["thread_1"],
+      auditReason: "standing_instruction_sender_suppression",
     };
 
     const coordinate = createRememberSenderSuppressionCoordinator({
@@ -121,6 +122,7 @@ describe("sender suppression coordinator", () => {
           dismissedCount: 0,
           todoIds: [],
           matchedThreadIds: [],
+          auditReason: "standing_instruction_sender_suppression",
         });
       },
     });

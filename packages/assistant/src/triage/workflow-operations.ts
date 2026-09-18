@@ -799,8 +799,15 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
  * thread state plainly says the user replied, so the close reads
  * `newestDirection`, never the category. Gated on `reason === "reply"` so the
  * thread-state read runs only on the reply re-eval, not on every inbound
- * classify. The dismissal itself reuses the same write path the manual
- * `resolve_todo` reaction drives, so both agree on what "closed" means.
+ * classify. The dismissal itself calls the same `resolveTodosForGmailSender`
+ * helper the manual `resolve_todo` reaction calls, so both agree on what
+ * "closed" means.
+ *
+ * RAIL-ONLY AND BEST-EFFORT. The classify row is already committed and the
+ * Gmail label is the contract; the todo rail is not. A DB blip on either the
+ * thread-state read or the dismissal must not stop `apply-label` from
+ * converging the thread, exactly as `suggestTodo` and the sender-prior bump
+ * above swallow their own failures. Any throw is logged and the step advances.
  */
 export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOperationState>(
   ctx: StepContext<State>,
@@ -821,26 +828,32 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
 
   if (ctx.state.reason !== "reply") return advance;
 
-  const thread = await getThreadState({ userId: ctx.userId, sourceThreadId });
+  try {
+    const thread = await getThreadState({ userId: ctx.userId, sourceThreadId });
 
-  if (thread.newestDirection !== "sent") {
+    if (thread.newestDirection !== "sent") {
+      await ctx.log(
+        `close-loop-todos: thread=${sourceThreadId} newest=${thread.newestDirection ?? "unknown"} — no retraction`,
+      );
+
+      return advance;
+    }
+
+    const resolved = await resolveTodosForGmailSender({
+      userId: ctx.userId,
+      sourceThreadId,
+      // The state's own reason union, not an invented literal — the helper
+      // echoes it back as `auditReason` for this log.
+      reason: ctx.state.reason,
+    });
+
     await ctx.log(
-      `close-loop-todos: thread=${sourceThreadId} newest=${thread.newestDirection ?? "unknown"} — no retraction`,
+      `close-loop-todos: thread=${sourceThreadId} newest=sent reason=${resolved.auditReason ?? "unknown"} ` +
+        `status=${resolved.status} dismissed=${resolved.ok ? resolved.dismissedCount : 0}`,
     );
-
-    return advance;
+  } catch (err) {
+    await ctx.log(`close-loop-todos failed (non-fatal): ${toMessage(err)}`);
   }
-
-  const resolved = await resolveTodosForGmailSender({
-    userId: ctx.userId,
-    sourceThreadId,
-    reason: "reply-reeval",
-  });
-
-  await ctx.log(
-    `close-loop-todos: thread=${sourceThreadId} newest=sent status=${resolved.status} ` +
-      `dismissed=${resolved.ok ? resolved.dismissedCount : 0}`,
-  );
 
   return advance;
 }
