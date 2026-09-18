@@ -255,13 +255,24 @@ export function sourcePriorityFromManifest(manifest: SourceManifest): number {
 }
 
 /**
- * Lifecycle reading for object-state evidence (#425).
+ * Relevance reading for object-state evidence (#425).
+ *
+ * A kind-agnostic score over the four lifecycle buckets, answering "how much
+ * does this object's state matter to a query about current state". It is NOT
+ * the registry's per-kind closure policy, and the two may differ by design: a
+ * resolved Sentry issue is fixed work and ranks last even though
+ * `sentry.issue.closesAskOn` is empty (ADR-0103 refuses suppression until
+ * transition order is proven), and a green CI target ranks below a red one
+ * because the red build is the alert. Suppression is not relevance.
+ * `closesOpenAsk` / `evidenceObjectClosesAsk` are the closure readers; this
+ * table must not call them, and the `hand-rolled-object-closure` fence rightly
+ * does not reach it.
  *
  * `active` leads because open work is what a question about current state
  * usually means. `failed` is second, not last: a failed object is terminal for
- * the work object but it is normally the ALERT — the thing the user needs to
- * see — not a closed loop (the same reading `LOOP_CLOSING_STATE_CATEGORIES`
- * already takes). `resolved` and `abandoned` are finished work and rank last.
+ * the work object but is normally the ALERT — the thing the user needs to see —
+ * not a closed loop (`LOOP_CLOSING_STATE_CATEGORIES` excludes `failed` for the
+ * same reason). `resolved` and `abandoned` are finished work and rank last.
  */
 const OBJECT_STATE_SCORES = {
   active: 1,
@@ -491,7 +502,9 @@ function cardFeatures(card: EvidenceCard, { context, semantic, focus }: FeatureI
 
   // `stateCategory` is `StateCategory | undefined` because the card is parsed
   // against `evidenceCardSchema` at the boundary, and `OBJECT_STATE_SCORES`
-  // declares a row per member, so this lookup is total without a guard.
+  // declares a row per member, so this lookup is total without a guard. The
+  // score is a relevance reading over the lifecycle bucket, not the per-kind
+  // closure policy (see OBJECT_STATE_SCORES).
   const stateCategory = card.object?.stateCategory;
 
   if (stateCategory !== undefined) features.objectState = OBJECT_STATE_SCORES[stateCategory];
