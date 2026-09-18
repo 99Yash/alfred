@@ -48,7 +48,7 @@ export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./e
 export {
   getMcpEndpointAuthorizer,
   withMcpEndpointAuthorization,
-  type McpApiKeyAuth,
+  type McpApiKeyCredentialReader,
   type McpAuthorizedEndpoint,
   type McpAuthorizedOAuth,
   type McpAuthorizedOAuthServer,

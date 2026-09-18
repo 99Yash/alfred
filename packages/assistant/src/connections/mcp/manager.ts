@@ -33,6 +33,7 @@ import {
   McpRawClient,
   type McpCallEnvelope,
   type McpCatalogSnapshot,
+  type McpClientAuth,
   type McpPreparedToolCall,
 } from "./client";
 import { readApiKeyAuthForConnection } from "./api-key";
@@ -146,44 +147,70 @@ export class McpConnectionNotFoundError extends Error {
 }
 
 /**
+ * The one owner of "connection row → transport auth mode" on the persisted
+ * path. Reads the sealed API-key credential first; a key wins over any residual
+ * OAuth pointer because the `persistApiKeyCredential` bind clears
+ * `credentialId` in the same transaction (the single-credential CHECK admits
+ * one). Otherwise a stored OAuth pointer yields the `oauth` arm, and a row with
+ * neither credential is `none`.
+ *
+ * This is a deliberate tier-3 seam: the transport leaf cannot read the
+ * credential store without importing `@alfred/db`, so correctness on the
+ * persisted path rests on `liveClientFactory` being the only production caller.
+ */
+async function resolveMcpClientAuth(connection: McpConnectionWithServer): Promise<McpClientAuth> {
+  const reader = await readApiKeyAuthForConnection(connection.id, connection.userId);
+
+  if (reader !== undefined) return { mode: "api_key", reader };
+
+  if (connection.credentialId !== null || connection.authServerIdentity !== null) {
+    return {
+      mode: "oauth",
+      provider: (authorization) =>
+        mcpOAuthProviderForConnection({
+          id: connection.id,
+          userId: connection.userId,
+          authorization,
+        }),
+    };
+  }
+
+  return { mode: "none" };
+}
+
+/**
  * The production factory: a live client per connection row, authorized by
  * `authorization`. OAuth discovery runs before transport connect. The transport
  * itself receives only a token reader, so it cannot refresh and replay an
  * in-flight call.
  *
  * A connection carries at most one credential source (the database check
- * constraint), so the owner-supplied API-key reader and the OAuth provider are
- * mutually exclusive. The presence of a key is what decides, and `usesOAuth`
- * reads it, so the two modes cannot both arm.
+ * constraint), and `resolveMcpClientAuth` is the single reader of that fact, so
+ * the API-key reader and the OAuth provider are mutually exclusive by
+ * construction.
  */
 function liveClientFactory(): McpClientFactory {
   const endpointAuthorizer = getMcpEndpointAuthorizer();
 
   return async (connection) => {
-    const apiKey = await readApiKeyAuthForConnection(connection.id, connection.userId);
-
-    const usesOAuth =
-      apiKey === undefined &&
-      (connection.credentialId !== null || connection.authServerIdentity !== null);
+    const auth = await resolveMcpClientAuth(connection);
 
     return new McpRawClient({
       connectionId: connection.id,
       endpoint: connection.server,
       endpointAuthorizer,
-      ...(apiKey ? { apiKey } : {}),
+      auth,
       // The registry is the only thing that knows an endpoint serves a
       // read-only catalog (ADR-0094) or must be held to the legacy protocol era
       // (ADR-0095). `McpRawClient` owns both refusals; it must not reach the
       // registry to learn the policy.
       ...builtInClientPolicy(connection.server.endpointUrl),
-      ...(usesOAuth
+      // The renewal callbacks describe OAuth consent, so they ride the oauth
+      // arm only: an API-key connection that gets an `insufficient_scope`
+      // response must not be sent back through a consent screen it has no
+      // authorization server for.
+      ...(auth.mode === "oauth"
         ? {
-            oauthProviderFactory: (authorization) =>
-              mcpOAuthProviderForConnection({
-                id: connection.id,
-                userId: connection.userId,
-                authorization,
-              }),
             onAuthorizationRequired: async () => {
               await updateConnection(connection.id, {
                 status: "auth_required",

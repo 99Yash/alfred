@@ -216,6 +216,7 @@ function managerWith(
     persistence,
     clientFactory: (row) =>
       new McpRawClient({
+        auth: { mode: "none" },
         connectionId: row.id,
         endpoint: row.server,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),

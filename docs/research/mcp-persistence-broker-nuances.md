@@ -561,7 +561,7 @@ async function hydrate(connectionId: string): Promise<McpRawClient> {
     connectionId: row.id,
     endpoint: new URL(row.endpointUrl),
     endpointAuthorization: buildEndpointAuthorization(row.endpointOrigin), // SSRF/origin pin owner
-    authProvider: row.credentialId ? buildAuthProvider(row.credentialId) : undefined,
+    auth: resolveMcpClientAuth(row), // one required mode: none | api_key | oauth
     // fetch: hardened fetch wrapper (deferred; see last section)
   });
   await client.connect(); // client.ts:113 (pins protocol/tools)

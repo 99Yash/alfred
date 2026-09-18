@@ -306,6 +306,7 @@ describe("mcpIntegrationRoutes", () => {
     let providerAuthorization: McpAuthorizedOAuth | null = null;
 
     const readyClient = new McpRawClient({
+      auth: { mode: "none" },
       connectionId: "conn_test",
       endpoint: {
         endpointUrl: "https://mcp.example.test/mcp",

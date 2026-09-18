@@ -132,6 +132,7 @@ function makeClient(
       endpointOrigin: "https://mcp.example.test",
     },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
+    auth: { mode: "none" },
     protocolFactory: () => protocol,
     ...overrides,
   });
@@ -203,8 +204,11 @@ describe("McpRawClient catalog", () => {
           };
         },
       },
-      oauthProviderFactory: () => {
-        throw new Error("provider construction failed");
+      auth: {
+        mode: "oauth",
+        provider: () => {
+          throw new Error("provider construction failed");
+        },
       },
     });
 
@@ -312,19 +316,22 @@ describe("McpRawClient catalog", () => {
 
     const client = makeClient(protocol, {
       endpointAuthorizer,
-      oauthProviderFactory: (authorization) => {
-        oauthCapability = authorization;
+      auth: {
+        mode: "oauth",
+        provider: (authorization) => {
+          oauthCapability = authorization;
 
-        return {
-          authorize: async () => {
-            await authorization.fetch("https://auth.example.test/token");
+          return {
+            authorize: async () => {
+              await authorization.fetch("https://auth.example.test/token");
 
-            return "AUTHORIZED" as const;
-          },
-          refreshIfNeeded: async () => undefined,
-          finishAuthorization: async () => undefined,
-          accessToken: async () => "fresh",
-        };
+              return "AUTHORIZED" as const;
+            },
+            refreshIfNeeded: async () => undefined,
+            finishAuthorization: async () => undefined,
+            accessToken: async () => "fresh",
+          };
+        },
       },
       protocolFactory: (authorization) => {
         protocolCapability = authorization;
