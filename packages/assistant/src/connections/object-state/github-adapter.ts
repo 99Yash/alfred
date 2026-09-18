@@ -188,15 +188,18 @@ function collectSubjectAbbreviatedShas(subject: string): string[] {
  * The trailing `(<sha>)` is an ANCHOR, not a key — it is what makes the subject
  * unmistakably GitHub's failure notification, so an ordinary
  * `[owner/repo] Title - word` subject never matches. The abbreviation it carries
- * is proposed separately by {@link extractGithubKeys}. The `.*` before the
- * separator is greedy so the LAST ` - ` wins when the workflow name itself
+ * is proposed separately by {@link extractGithubKeys}. Its floor is read off the
+ * registry beside that sibling's regex, so the two cannot drift. The `.*` before
+ * the separator is greedy so the LAST ` - ` wins when the workflow name itself
  * carries one; a branch name has no spaces, so `\S+` captures it whole.
  *
  * Fail closed: no match, an unparseable repo/branch, or a branch the contract
  * canonicalizer refuses proposes nothing — absence never closes (ADR-0048-D).
  */
-const GITHUB_CI_TARGET_SUBJECT_RE =
-  /\[([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\][^\n]*\bRun failed:.*\s-\s(\S+)\s*\([0-9a-f]{7,40}\)\s*$/i;
+const GITHUB_CI_TARGET_SUBJECT_RE = new RegExp(
+  String.raw`\[([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\][^\n]*\bRun failed:.*\s-\s(\S+)\s*\([0-9a-f]{${MIN_ABBREVIATED_SHA_LENGTH},40}\)\s*$`,
+  "i",
+);
 
 /** The CI target the subject names, as one exact key, or nothing. */
 function subjectCiTargetIds(subject: string): ExtractedKey[] {
@@ -269,8 +272,8 @@ export const githubObjectStateAdapter: ObjectStateAdapter = {
     if (!isGithubSenderDomain(proposal.sender)) return [];
 
     // The mail's own object: the CI target its subject names (an Actions
-    // failure notification's reconciled identity) ahead of the PR keys, so the
-    // exact target outranks the abbreviated-sha fallback that follows.
+    // failure notification's reconciled identity) ahead of the PR/sha keys, so
+    // the exact target outranks the abbreviated-sha prefix that follows.
     return [...subjectCiTargetIds(subject.text.subject), ...extractGithubKeys(subject.text)];
   },
 };
