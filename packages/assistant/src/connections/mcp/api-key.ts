@@ -19,6 +19,7 @@ import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { mcpApiKeyCredentials, mcpConnections } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
+import { HostedEndpointError } from "../hosted-endpoint";
 import type { McpApiKeyAuth } from "./endpoint-authorization";
 
 export interface PersistMcpApiKeyCredentialInput {
@@ -34,7 +35,11 @@ export interface PersistMcpApiKeyCredentialInput {
  * The API-key reader for one owned connection, or `undefined` when the
  * connection carries no key. The persisted placement is parsed here — the
  * database column stays `unknown` — so a malformed row fails at this boundary
- * rather than feeding the transport a guessed shape.
+ * rather than feeding the transport a guessed shape. A row that no longer
+ * parses (written before a placement-name rule tightened) refuses as a typed
+ * `HostedEndpointError("invalid_placement")`, the same "the stored column is
+ * corrupt" shape `invalid_origin` uses, so the owner is told to remove and
+ * re-add the key rather than meeting a raw parse error as a 500.
  */
 export async function readApiKeyAuthForConnection(
   connectionId: string,
@@ -60,7 +65,24 @@ export async function readApiKeyAuthForConnection(
   if (!row) return undefined;
 
   return {
-    placement: async () => mcpApiKeyPlacementSchema.parse(row.placement),
+    placement: async () => {
+      const parsed = mcpApiKeyPlacementSchema.safeParse(row.placement);
+
+      if (!parsed.success) {
+        // A stored placement that no longer parses is a bad COLUMN value, not a
+        // fresh owner input: the row was written before the name rule tightened,
+        // so a raw Zod error here would reach the owner as a 500. The
+        // `HostedEndpointError` shape is what every MCP door maps to a typed
+        // 4xx, and `invalid_placement` is the `invalid_origin` precedent for a
+        // corrupt stored column.
+        throw new HostedEndpointError(
+          "invalid_placement",
+          "The stored API-key placement is invalid. Remove and re-add the key.",
+        );
+      }
+
+      return parsed.data;
+    },
     secret: async () => redacted(credentialVault().open(row.secret)),
   };
 }
