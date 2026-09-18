@@ -276,6 +276,21 @@ export const MCP_API_KEY_REFUSED_HEADERS = [
 
 const MCP_API_KEY_REFUSED_HEADER_SET: ReadonlySet<string> = new Set(MCP_API_KEY_REFUSED_HEADERS);
 
+/**
+ * An RFC 9110 `token`, the character set a header field name may use.
+ *
+ * Both arms are held to it: a header name outside it makes `Headers.set` throw
+ * a bare `TypeError` at request time (a 500, because no `HostedEndpointError`
+ * carries it), and a query parameter that identifies a credential placement is a
+ * wire identifier too, so the token set is the conservative intersection rather
+ * than free text. A refused placement is a 400 the owner can retry.
+ */
+const MCP_API_KEY_PLACEMENT_NAME_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+function isPlacementNameToken(name: string): boolean {
+  return MCP_API_KEY_PLACEMENT_NAME_TOKEN.test(name);
+}
+
 const mcpApiKeyPlacementNameSchema = z
   .string()
   .trim()
@@ -289,8 +304,18 @@ export const mcpApiKeyPlacementSchema = z.discriminatedUnion("in", [
     .refine((placement) => !MCP_API_KEY_REFUSED_HEADER_SET.has(placement.name.toLowerCase()), {
       path: ["name"],
       message: "This header is owned by the MCP transport or the HTTP stack",
+    })
+    .refine((placement) => isPlacementNameToken(placement.name), {
+      path: ["name"],
+      message: "A placement name must be an RFC 9110 token",
     }),
-  z.object({ in: z.literal("query"), name: mcpApiKeyPlacementNameSchema }).strict(),
+  z
+    .object({ in: z.literal("query"), name: mcpApiKeyPlacementNameSchema })
+    .strict()
+    .refine((placement) => isPlacementNameToken(placement.name), {
+      path: ["name"],
+      message: "A placement name must be an RFC 9110 token",
+    }),
 ]);
 
 export type McpApiKeyPlacement = z.infer<typeof mcpApiKeyPlacementSchema>;
