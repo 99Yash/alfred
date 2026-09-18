@@ -865,9 +865,13 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
  *
  * The outbound-reply re-eval (#282) re-classifies a thread after the user
  * sends. When the user's own message is now the newest in the thread, the
- * loop that thread opened is already on the counterparty — so any live
- * (`suggested`/`open`) todo whose Gmail-thread source is this thread is
- * dismissed rather than left sitting on the rail.
+ * loop that thread opened is already on the counterparty — so any **unpromoted
+ * `suggested`** todo whose Gmail-thread source is this thread is dismissed
+ * rather than left sitting on the rail. A user-promoted `open` todo is left
+ * untouched: the user owns it, and a holding reply is progress, not closure.
+ *
+ * Gated on `flags.actionItems`, symmetric with the mint: with action items
+ * off, the rail is not in use and existing rows are not mutated.
  *
  * Deterministic and category-independent on purpose: the classifier can miss
  * its own rule 18 on the re-eval (it did on the resume thread) while the
@@ -918,13 +922,38 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
     return advance;
   }
 
+  // Everything past this point touches the todo rail, so it is best-effort:
+  // the flag read is inside the try with the dismissal, so a DB blip here
+  // still cannot stop `apply-label`.
   try {
+    // Symmetric with the mint (`classify` gates `suggestTodo` on the same
+    // flag): when the user has action items off, existing rail rows are left
+    // alone — retracting the surface they opted out of is not a demotion they
+    // asked for. Resolved here like `apply-label` rather than carried from
+    // `classify`, because a setting is not a time-sensitive thread fact and a
+    // second read is cheap and non-racy.
+    const flags = await resolveFeatureFlags(ctx.userId);
+
+    if (!flags.actionItems) {
+      await ctx.log(
+        `close-loop-todos: thread=${sourceThreadId} — no retraction (action-items disabled)`,
+      );
+
+      return advance;
+    }
+
     const resolved = await resolveTodosForGmailSource({
       userId: ctx.userId,
       sourceThreadId,
       // The state's own reason union, not an invented literal — the helper
       // echoes it back as `auditReason` for this log.
       reason: ctx.state.reason,
+      // Only Alfred's unpromoted proposals. An `open` row is one the user
+      // explicitly accepted (promoted with `+`); a holding reply ("I'll send
+      // it tomorrow") is progress, not closure, so auto-dismissing it would
+      // bury the user's own commitment rather than demote a suggestion
+      // (ADR-0050's parked wording: "auto-dismiss an unpromoted suggestion").
+      statuses: ["suggested"],
     });
 
     await ctx.log(
