@@ -120,7 +120,7 @@ export const canonicalParamKey = (key: string): string => key.toLowerCase().repl
  * the server gets more tolerant. Applied to the `q`-named tools, which the
  * model is likeliest to call with the more common `query`.
  */
-function withQueryAlias<S extends z.ZodTypeAny>(canonical: "q" | "query", schema: S) {
+function withQueryAlias<S extends z.ZodType<any>>(canonical: "q" | "query", schema: S) {
   const alias = canonical === "q" ? "query" : "q";
 
   return z.preprocess((value) => {
@@ -215,7 +215,7 @@ function withKeyAliases<S extends z.ZodObject>(
  * web_search `query`) should still reject the empty string rather than silently
  * search for nothing.
  */
-function blankFieldToOmitted<S extends z.ZodTypeAny>(fields: readonly string[], schema: S) {
+function blankFieldToOmitted<S extends z.ZodType<any>>(fields: readonly string[], schema: S) {
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
@@ -246,7 +246,7 @@ function blankFieldToOmitted<S extends z.ZodTypeAny>(fields: readonly string[], 
  * doesn't JSON-parse to an array is left untouched, so it still fails strict
  * validation and surfaces the enriched dispatcher error.
  */
-export function coerceJsonArrayFields<S extends z.ZodTypeAny>(
+export function coerceJsonArrayFields<S extends z.ZodType<any>>(
   fields: readonly string[],
   schema: S,
 ) {
@@ -385,7 +385,7 @@ export const calendarListEventsInput = z.preprocess(promoteWindowSynonym, calend
  */
 const MINUTE_PRECISION_DATETIME_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/;
 
-function padDatetimeSeconds<S extends z.ZodTypeAny>(fields: readonly string[], schema: S) {
+function padDatetimeSeconds<S extends z.ZodType<any>>(fields: readonly string[], schema: S) {
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
