@@ -227,11 +227,7 @@ export {
 // The cold-start prior the triage classifier renders into its observations block
 // (ADR-0050 D1, first slice). One indexed point read; no query parameter, so no
 // memory search is expressible on the triage hot path.
-export {
-  readUserContextLine,
-  USER_CONTEXT_LINE_MAX_CHARS,
-  type UserContextLine,
-} from "./user-context-line";
+export { readUserContextLine, type UserContextLine } from "./user-context-line";
 
 /**
  * ── memory acquisition sub-areas folded into knowledge (item 07) ─────────────

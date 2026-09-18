@@ -19,34 +19,28 @@ import { and, desc, eq } from "drizzle-orm";
  * signature, not by a comment.
  */
 
-/** One indexed row, already collapsed to a single line and already capped. */
+/** One indexed row, collapsed to a single line. */
 export interface UserContextLine {
-  /** Prompt-ready prose, at most `USER_CONTEXT_LINE_MAX_CHARS` characters. */
+  /**
+   * Prompt-ready prose on ONE line. NOT capped here, deliberately: the byte
+   * budget belongs to the prompt, so it is applied by the render site
+   * (`triage/classify.ts`, `USER_CONTEXT_LINE_MAX_CHARS`). A cap applied here
+   * would be a claim this module cannot keep — `UserContextLine` is a plain
+   * exported interface, so any caller can build an uncapped literal and reach
+   * the same prompt. Capping where the prompt is built holds on every path.
+   */
   text: string;
   /** When the cold-start run wrote the chunk, so a reader can say how old the prior is. */
   recordedAt: Date;
 }
 
-/**
- * The prompt budget for the whole prior, in characters.
- *
- * Measured 2026-09-17, by rendering `renderObservations` twice over the same
- * fixture: a line AT this cap grows the triage observations block from 383 B
- * (~95 tokens) to 1452 B (~362 tokens) — a delta of 1069 B / ~267 tokens. Of
- * that delta, ~400 B is the fixed handling rule beside the line. A user with no
- * cold-start chunk pays 0 B, because the render is skipped entirely.
- *
- * A raise is a visible diff and a review question (Tier 3), not a gate.
- */
-export const USER_CONTEXT_LINE_MAX_CHARS = 600;
-
 /** A line of pure punctuation or whitespace is a research header, not a prior. */
 const HAS_ALPHANUMERIC_RE = /[\p{L}\p{N}]/u;
 
 /**
- * Read the user's most recent cold-start research chunk as a capped one-line
- * prior. `null` when the user has no such chunk, or when the chunk holds no
- * readable content.
+ * Read the user's most recent cold-start research chunk as a one-line prior.
+ * `null` when the user has no such chunk, or when the chunk holds no readable
+ * content. The prompt cap is the render site's job, not this reader's.
  *
  * ONE point read on `memory_chunks_user_kind_idx` (`user_id, kind, created_at`).
  * No embedding, no model, no query parameter.
@@ -65,21 +59,16 @@ export async function readUserContextLine(userId: string): Promise<UserContextLi
 }
 
 /**
- * The ONLY constructor of a `UserContextLine`, so the cap and the single-line
- * rule cannot be bypassed. The newline collapse is not cosmetic: the value is
- * rendered inside a `===`-delimited observations block, and a chunk with a blank
- * line would otherwise forge a section header above the derived signals — the
- * same defense `renderObservations` applies to a standing-instruction phrasing.
+ * Collapse one stored chunk to a single line, or reject it. The newline collapse
+ * is not cosmetic: the value is rendered inside a `===`-delimited observations
+ * block, and a chunk with a blank line would otherwise forge a section header
+ * above the derived signals — the same defense `renderObservations` applies to a
+ * standing-instruction phrasing.
  */
 function buildUserContextLine(content: string, recordedAt: Date): UserContextLine | null {
   const collapsed = content.replace(/\s+/g, " ").trim();
 
   if (!HAS_ALPHANUMERIC_RE.test(collapsed)) return null;
 
-  const text =
-    collapsed.length > USER_CONTEXT_LINE_MAX_CHARS
-      ? `${collapsed.slice(0, USER_CONTEXT_LINE_MAX_CHARS - 1).trimEnd()}…`
-      : collapsed;
-
-  return { text, recordedAt };
+  return { text: collapsed, recordedAt };
 }

@@ -986,8 +986,12 @@ async function gatherObservations(args: {
     // search — #435 owns the triage latency budget and `readUserContextLine`
     // takes no query argument, so no search is expressible here. Best-effort:
     // a blip yields `null`, which renders as no line at all, so a database
-    // hiccup can only lose context, never invent it.
-    readUserContextLine(args.userId).catch(() => null),
+    // hiccup can only lose context, never invent it — but it carries a flag,
+    // because a bare null cannot tell a total read failure from the common
+    // case of a user with no cold-start chunk.
+    readUserContextLine(args.userId)
+      .then((line) => ({ line, readFailed: false }))
+      .catch(() => ({ line: null, readFailed: true })),
   ]);
 
   const senderKind =
@@ -1044,7 +1048,8 @@ async function gatherObservations(args: {
     senderKind,
     standingInstruction: standing.instruction,
     standingInstructionReadFailed: standing.readFailed,
-    userContext,
+    userContext: userContext.line,
+    userContextReadFailed: userContext.readFailed,
     labelIds,
     signalText,
   });
