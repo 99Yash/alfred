@@ -31,7 +31,7 @@
  *
  * Pre-reqs:
  *   - Server worker running (`pnpm dev`) so the agent run picks up.
- *   - `ANTHROPIC_API_KEY` set; Sonnet 4.6 is the boss model.
+ *   - `OPENAI_API_KEY` set; GPT-5.6 Luna is the boss model.
  *   - User row with a deliverable email (only when sending).
  */
 import { randomUUID } from "node:crypto";
