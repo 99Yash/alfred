@@ -124,8 +124,7 @@ Three upstream rules conflict with invariants this repo holds on purpose:
 `no-shape-in-symbol-names` was dropped in #1149 for the worst signal-to-noise
 ratio in the set: a case-insensitive substring ban on `shape` cannot tell the
 genuine target (the credential `shape` field in
-`packages/contracts/src/integrations/registry.ts`, which wants a domain role
-such as `credentialKind`) from the legitimate domain concept (`DayShape` /
+`packages/contracts/src/integrations/registry.ts`, which wants a domain role) from the legitimate domain concept (`DayShape` /
 `day_shape` / `gatherDayShape`, the real product value behind the
 `get_day_shape` tool) or test-helper noise (`nestedShapeFailures`,
 `isCodeShaped`). The naming preference lives in
