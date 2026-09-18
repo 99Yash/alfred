@@ -1,5 +1,6 @@
 import {
   canonicalizeGithubPullRequestUrl,
+  canonicalizeGithubTargetId,
   collectGithubPullRequestUrls,
   deriveLoopEntityRef,
   INTEGRATION_OBJECT_DEFS,
@@ -24,6 +25,11 @@ import type {
  * Actions failure mail carries in its subject. Use a single PR identity when
  * possible: a link to a different PR in a comment body cannot close the
  * notification's own loop. Ambiguous PR references leave the loop live.
+ *
+ * An Actions failure notification additionally names a CI TARGET — the
+ * reconciled `owner/repo#branch` identity whose state is the outcome of the
+ * latest suite on that branch (#1093) — through the same subject grammar, so a
+ * later green run closes the ask the failure mail opened.
  *
  * Everything past the proposal is generic and lives elsewhere: `reconcile.ts`
  * resolves and ranks the candidates, the store asserts state, and the
@@ -169,6 +175,45 @@ function collectSubjectAbbreviatedShas(subject: string): string[] {
   return [sha];
 }
 
+/**
+ * The CI target an Actions failure notification is ABOUT, read from the
+ * notification's own structured subject — GitHub writes
+ * `[owner/repo] Run failed: <workflow> - <branch> (<sha>)`.
+ *
+ * The reconciled identity is the TARGET (`owner/repo#branch`), never the suite
+ * attempt: a later green run on the branch closes the ask an earlier failure
+ * opened, and a later failure reopens it (#1093). The reducer writes that row
+ * (item 04); this is its first reader.
+ *
+ * The trailing `(<sha>)` is an ANCHOR, not a key — it is what makes the subject
+ * unmistakably GitHub's failure notification, so an ordinary
+ * `[owner/repo] Title - word` subject never matches. The abbreviation it carries
+ * is proposed separately by {@link extractGithubKeys}. Its floor is read off the
+ * registry beside that sibling's regex, so the two cannot drift. The `.*` before
+ * the separator is greedy so the LAST ` - ` wins when the workflow name itself
+ * carries one; a branch name has no spaces, so `\S+` captures it whole.
+ *
+ * Fail closed: no match, an unparseable repo/branch, or a branch the contract
+ * canonicalizer refuses proposes nothing — absence never closes (ADR-0048-D).
+ */
+const GITHUB_CI_TARGET_SUBJECT_RE = new RegExp(
+  String.raw`\[([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\][^\n]*\bRun failed:.*\s-\s(\S+)\s*\([0-9a-f]{${MIN_ABBREVIATED_SHA_LENGTH},40}\)\s*$`,
+  "i",
+);
+
+/** The CI target the subject names, as one exact key, or nothing. */
+function subjectCiTargetIds(subject: string): ExtractedKey[] {
+  const match = GITHUB_CI_TARGET_SUBJECT_RE.exec(subject);
+
+  if (!match?.[1] || !match[2]) return [];
+
+  const targetId = canonicalizeGithubTargetId({ repoFullName: match[1], branch: match[2] });
+
+  if (!targetId) return [];
+
+  return [{ keyKind: "ci_target", keyValue: targetId, match: "exact" }];
+}
+
 /** One subject's whole text, as the un-gated readings scan it. */
 function wholeText(text: SubjectText): string {
   return `${text.subject}\n${text.content}`;
@@ -188,7 +233,8 @@ function pullRequestUrlKeys(text: string): ExtractedKey[] {
  * assume, not in how safe they are:
  *
  * - `about` requires the `github.com` sender-domain gate and returns the mail's own
- *   single PR identity, because the briefing uses it to DROP an item and a
+ *   work-object identity — its single PR reference, or the CI target an Actions
+ *   failure subject names — because the briefing uses it to DROP an item and a
  *   wrong identity would drop the wrong one.
  * - `mentions` returns every pull request the text names, with no provenance
  *   demand, because its caller SUPPRESSES a composed sentence. The canonical
@@ -225,6 +271,9 @@ export const githubObjectStateAdapter: ObjectStateAdapter = {
 
     if (!isGithubSenderDomain(proposal.sender)) return [];
 
-    return extractGithubKeys(subject.text);
+    // The mail's own object: the CI target its subject names (an Actions
+    // failure notification's reconciled identity) ahead of the PR/sha keys, so
+    // the exact target outranks the abbreviated-sha prefix that follows.
+    return [...subjectCiTargetIds(subject.text.subject), ...extractGithubKeys(subject.text)];
   },
 };
