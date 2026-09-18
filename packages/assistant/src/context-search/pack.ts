@@ -353,7 +353,7 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
     lines.push(`Note: ${bound(card.note, EVIDENCE_PACK_NOTE_MAX_CHARS)}`);
   }
 
-  return { text: lines.join("\n"), truncated };
+  return { text: lines.map(oneLine).join("\n"), truncated };
 }
 
 /**
@@ -437,12 +437,12 @@ function renderObject(object: EvidenceObjectRef): string {
  * Removes the line terminators from an assembled line, then collapses the space
  * run each removal leaves behind.
  *
- * Applied to a whole rendered line, never to a field, so a field added to
- * {@link renderObject} later inherits the property instead of needing its own
- * call. `renderCard` joins its lines with `\n`, and a consumer that reads one
- * line expects one card fact. A provider string that carried a line break would
- * make a suffix of that fact unreachable to such a reader, so the render, not
- * the producer, is where the break is removed.
+ * Applied to every rendered line, never to a field, so a field added to any
+ * line kind inherits the property instead of needing its own call. `renderCard`
+ * joins its lines with `\n`, and a consumer that reads one line expects one card
+ * fact. A provider string that carried a line break would make a suffix of that
+ * fact unreachable to such a reader, so the render, not the producer, is where
+ * the break is removed.
  *
  * The fold is deliberately narrow, and a wide `\s+` fold is wrong here. It
  * takes the four ECMAScript line terminators — `\n`, `\r`, `U+2028`, `U+2029`
@@ -455,9 +455,11 @@ function renderObject(object: EvidenceObjectRef): string {
  * slug that starts with whitespace. The assembled line always ends with `)`,
  * `"`, `]`, `>`, or the clause.
  *
- * This is the object line only. `renderCard` renders nine kinds of line and
- * folds exactly this one, so "one line, one card fact" is this line's property,
- * not a format rule of the pack.
+ * This is a property of every line `renderCard` renders: the nine push sites
+ * are folded together at the join, so "one line, one card fact" is the pack
+ * format's rule and holds for a line kind added later too. `renderObject` also
+ * folds its own line; the fold is idempotent, so the inner call is harmless and
+ * keeps that function's clause-beside-lifecycle guarantee local to itself.
  */
 function oneLine(text: string): string {
   return text
