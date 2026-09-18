@@ -11,6 +11,7 @@ import {
   type KeyProposalReading,
   type ObjectKeyMatch,
   type ObjectStateAdapter,
+  readingClosesAsk,
   type ReconcileSubject,
 } from "./adapter";
 import { githubObjectStateAdapter } from "./github-adapter";
@@ -48,15 +49,6 @@ import {
  * (ADR-0048-D).
  */
 
-/**
- * The closing category a reading's result may carry. `annotates` may not close
- * an ask, so its result is `null` by construction; `about` and `mentions` carry
- * the registry's answer.
- */
-export type ClosesAskAs<Reading extends KeyProposalReading> = Reading extends "annotates"
-  ? null
-  : LoopClosingStateCategory | null;
-
 /** One resolved object, with what this build says its state does to an ask. */
 export interface ReconciledObject<Reading extends KeyProposalReading> {
   /** The candidate key that proved this object. */
@@ -66,11 +58,12 @@ export interface ReconciledObject<Reading extends KeyProposalReading> {
   /**
    * The category when it closes an already-open ask about an object of this
    * kind, else `null`. It carries the narrowed category rather than a boolean
-   * so a caller can record WHICH closure it saw without re-deriving it. For
-   * `annotates` it is `null` even though the object may be resolved: the
-   * reading holds no closure authority.
+   * so a caller can record WHICH closure it saw without re-deriving it. For a
+   * reading whose authority is `false` — `annotates` today — the type is
+   * exactly `null`, so a direct reader of this field cannot receive a closing
+   * category even after an `as` cast; that reading holds no closure authority.
    */
-  closesAskAs: ClosesAskAs<Reading>;
+  closesAskAs: Reading extends ClosureReading ? LoopClosingStateCategory | null : null;
 }
 
 /** A subject's resolved objects, strongest key first. */
@@ -281,22 +274,26 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
 
 /**
  * The closure authority of one result, decided by the reading that proposed its
- * key. This is the one place the conditional {@link ClosesAskAs} is laundered:
- * `annotates` writes `null` at runtime as well as in the type, so an `as` cast
- * that smuggles an annotates result into a closure reader still carries no
- * closing category.
+ * key. This is the one place the conditional {@link ReconciledObject} field is
+ * laundered: a reading the authority map declares `false` writes `null` at
+ * runtime as well as in the type, so an `as` cast that smuggles such a result
+ * into a closure reader still carries no closing category.
  */
 function closesAskAsFor<Reading extends KeyProposalReading>(
   key: CandidateKey<Reading>,
   state: ObjectState,
-): ClosesAskAs<Reading> {
+): ReconciledObject<Reading>["closesAskAs"] {
+  // The same map `ClosureReading` derives from, read at runtime, so the field's
+  // type and this branch cannot disagree about which reading may close.
+  if (!readingClosesAsk(key.reading)) return null;
+
   const closes = closesOpenAsk(state.provider, state.kind, state.stateCategory);
 
-  // SAFETY: `ClosesAskAs<Reading>` resolves to `null` exactly when `Reading` is
-  // `"annotates"`, which is the same condition the branch below tests at
-  // runtime. TypeScript cannot prove that equality for a deferred `Reading`, so
-  // the cast restates it.
-  return (key.reading === "annotates" ? null : closes) as ClosesAskAs<Reading>;
+  // SAFETY: `readingClosesAsk` returned true, so `Reading` is one of
+  // `ClosureReading` and the field type admits `LoopClosingStateCategory | null`.
+  // TypeScript cannot narrow a deferred `Reading` from a runtime check, so the
+  // cast restates what the map already decided.
+  return closes as ReconciledObject<Reading>["closesAskAs"];
 }
 
 /** The first resolved object whose state closes an open ask, if any. */
