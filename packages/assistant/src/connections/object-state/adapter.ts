@@ -10,7 +10,7 @@ import type { ObjectStateProvider } from "@alfred/contracts";
  * adapter must supply — so the two halves can live in different files without
  * either one restating the other's shape.
  *
- * It is types and two pure helpers. The resolve half is `reconcile.ts`, the
+ * It is types and three pure helpers. The resolve half is `reconcile.ts`, the
  * GitHub adapter is `github-adapter.ts`, and this file imports neither —
  * `reconcile.ts` wires the adapters to the resolve operation.
  */
@@ -128,9 +128,14 @@ export interface ReconcileSubject {
 export type KeyProposalReading = "about" | "mentions" | "annotates";
 
 /**
- * Whether a reading's caller may close an already-open ask on a resolution.
- * `about` drops the item, `mentions` suppresses the prose, and `annotates` only
- * decorates a card — it holds no closure authority by design.
+ * The single home of closure authority: whether a reading's caller may close an
+ * already-open ask on a resolution. `about` drops the item, `mentions`
+ * suppresses the prose, and `annotates` only decorates a card — it holds no
+ * closure authority by design.
+ *
+ * Both projections derive from this map, never restate it: {@link ClosureReading}
+ * at the type level and {@link readingClosesAsk} at runtime. Annotating one
+ * reading here is therefore the only edit that changes who may close an ask.
  */
 const READING_CLOSES_ASK = {
   about: true,
@@ -146,6 +151,16 @@ const READING_CLOSES_ASK = {
 export type ClosureReading = {
   [R in KeyProposalReading]: (typeof READING_CLOSES_ASK)[R] extends true ? R : never;
 }[KeyProposalReading];
+
+/**
+ * The map's runtime projection: whether `reading`'s caller may close an ask.
+ * This is the only door to {@link READING_CLOSES_ASK}; `reconcile.ts` reads it
+ * to decide whether a result may carry a closing category, so the map and the
+ * runtime branch cannot disagree.
+ */
+export function readingClosesAsk(reading: KeyProposalReading): boolean {
+  return READING_CLOSES_ASK[reading];
+}
 
 /**
  * What the caller asks an adapter to read, with the provenance the reading
