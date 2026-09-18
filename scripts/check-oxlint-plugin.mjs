@@ -138,7 +138,7 @@ const PROBES = {
   },
   "require-safety-comment-for-type-assertion": {
     snippet: `export const userId = value as UserId;\n`,
-    severity: "warn",
+    severity: "error",
   },
 };
 

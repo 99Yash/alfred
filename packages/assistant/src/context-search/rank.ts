@@ -590,14 +590,15 @@ function normalizeSemanticScores(
   const normalized = new Map<EvidenceCard, number>();
 
   for (const group of bySource.values()) {
-    // Scores here are non-optional by construction: only cards with a defined
-    // `score` contribute above, so absence never invents a number.
+    // SAFETY: scores here are non-optional by construction: only cards with a
+    // defined `score` contribute above, so absence never invents a number.
     const scores = group.map((card) => card.score as number);
     const min = Math.min(...scores);
     const max = Math.max(...scores);
     const alreadyNormalized = min >= 0 && max <= 1;
 
     for (const card of group) {
+      // SAFETY: same non-optional-by-construction score as the group above.
       const score = card.score as number;
 
       if (alreadyNormalized) normalized.set(card, score);
