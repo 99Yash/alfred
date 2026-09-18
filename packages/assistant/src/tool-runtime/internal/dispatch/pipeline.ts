@@ -338,10 +338,10 @@ function unavailableToolResult(args: {
  * four stages in order and returns the first settled value, so the initial
  * dispatch and the post-approval resume stay one pass with one entry point.
  */
-export type DispatchStageOutcome<Next> = DispatchResult | { readonly continueWith: Next };
+type DispatchStageOutcome<Next> = DispatchResult | { readonly continueWith: Next };
 
 /** One named stage of the dispatch pipeline. */
-export type DispatchStage<In, Next> = (input: In) => Promise<DispatchStageOutcome<Next>>;
+type DispatchStage<In, Next> = (input: In) => Promise<DispatchStageOutcome<Next>>;
 
 function continueWith<Next>(next: Next) {
   return { continueWith: next };
@@ -378,7 +378,8 @@ interface SuppressedDispatch extends ValidatedDispatch {
 
 /**
  * Tool dispatch seam — one contract, four named stages, one entry.
- * The map (owners named by glossary term, docs/reference/glossary.md):
+ * The map (each arrow names the stage's owner function; "registry" is the one
+ * glossary term, docs/reference/glossary.md):
  *   registry resolution      → `resolveRegistryStage` ("registry" in registry.ts)
  *   input validation         → `validateInputStage` (param-ergonomics + tool schema)
  *   retry suppression        → `suppressRepeatedStage` (fence + prior-rejection store)
