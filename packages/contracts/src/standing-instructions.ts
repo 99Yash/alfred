@@ -214,11 +214,28 @@ export function targetMatchesSender(
 }
 
 /**
+ * ADR-0060 §8, most specific first. Position IS the rank. The deferred kinds
+ * slot in at their ADR position when they ship — `category` after
+ * `sender_domain`, then `topic` — and the insertion renumbers every later kind,
+ * which nothing observes because only relative order is compared.
+ */
+const STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER = [
+  "sender_email",
+  "sender_domain",
+] as const satisfies readonly StandingInstructionTargetKind[];
+
+/**
  * How specific a target is — a higher number wins. ADR-0060 micro-decision 8
  * fixes the apply-time precedence: when several instructions match one sender,
  * the most specific target wins and recency only breaks a tie. The order the
  * ADR names is `sender_email`/`person` > `sender_domain` > `category` >
  * `topic`.
+ *
+ * The rank is the position in
+ * {@link STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER}, most specific first,
+ * inverted so a higher number is more specific. A developer states a position,
+ * never a number, so a kind cannot be placed at a rank the order does not name.
+ * The order tuple is not exported, so no call site can index it.
  *
  * The rule was unreachable while `sender_email` was the only kind. It became
  * reachable with `sender_domain`, because the user can pin one address inside a
@@ -226,28 +243,22 @@ export function targetMatchesSender(
  * Without this rank the newer row wins, so a domain mute written after the pin
  * defeats the pin.
  *
- * The numbers are spaced, not consecutive: `category` and `topic` are deferred
- * kinds that rank BELOW `sender_domain`, so a later kind takes a free number
- * and renumbers nothing.
+ * The coverage gate is `indexOf(target.kind)`: `indexOf` is declared on the
+ * tuple's element union, and `target.kind` is the full
+ * {@link StandingInstructionTargetKind} union, so a kind the union gains and
+ * the tuple lacks fails to compile. A member the tuple gains and the union
+ * lacks fails `satisfies`. Position within the tuple is an ordering decision
+ * the compiler cannot check; the ADR reference above is what ties the tuple to
+ * §8.
  *
  * This lives beside {@link standingInstructionTargetKey} and
- * {@link targetMatchesSender} so the exhaustive guard forces a third kind to
- * state its rank before it compiles.
+ * {@link targetMatchesSender} so the rank sits with the union it ranks.
  */
 export function standingInstructionTargetSpecificity(target: StandingInstructionTarget): number {
-  switch (target.kind) {
-    case "sender_email":
-      return 40;
-    case "sender_domain":
-      return 30;
-
-    default: {
-      const exhaustive: never = target;
-      void exhaustive;
-
-      return 0;
-    }
-  }
+  return (
+    STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER.length -
+    STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER.indexOf(target.kind)
+  );
 }
 
 // ─── The `user_facts.value` shape ───────────────────────────────────────────
