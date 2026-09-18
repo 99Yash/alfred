@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { GraphqlPassthroughRequest } from "@alfred/contracts";
+import { jsonObjectSchema, type GraphqlPassthroughRequest } from "@alfred/contracts";
 import { railwayGraphqlRaw } from "@alfred/integrations/railway";
 import { runRailwayPassthrough } from "../../../../src/tool-runtime/internal/tools/passthrough";
 
@@ -35,7 +35,14 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const query = (document: string): GraphqlPassthroughRequest => ({ document });
 
-const transport = (request: GraphqlPassthroughRequest) => railwayGraphqlRaw("tok", request);
+const transport = (request: GraphqlPassthroughRequest) => {
+  const { variables, ...rest } = request;
+
+  return railwayGraphqlRaw("tok", {
+    ...rest,
+    ...(variables === undefined ? {} : { variables: jsonObjectSchema.parse(variables) }),
+  });
+};
 
 describe("runRailwayPassthrough — gate denial (never leaves Alfred)", () => {
   test("a mutation is a visible rejected envelope, no fetch issued", async () => {

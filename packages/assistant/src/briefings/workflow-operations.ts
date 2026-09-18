@@ -523,8 +523,8 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
       briefingId,
       briefingDate,
       slot: ctx.state.slot,
-      timezone: ctx.state.timezone,
-      reason: ctx.state.reason,
+      ...(ctx.state.timezone !== undefined ? { timezone: ctx.state.timezone } : {}),
+      ...(ctx.state.reason !== undefined ? { reason: ctx.state.reason } : {}),
     },
   });
 

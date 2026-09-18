@@ -1,4 +1,4 @@
-import { humanizeToolName, type ToolName } from "@alfred/contracts";
+import { humanizeToolName, type JsonObject, type ToolName } from "@alfred/contracts";
 import { asRecord } from "~/lib/json-record";
 import { capitalize } from "~/lib/strings";
 import { stringArray, stringValue } from "./format";
@@ -13,7 +13,7 @@ import { stringArray, stringValue } from "./format";
  * The four decision actions are NOT customized; they stay uniform across every
  * tool (grilled 2026-05-31, ADR-0034).
  */
-const TITLE_OVERRIDES = new Map<ToolName, (input: Record<string, unknown>) => string>([
+const TITLE_OVERRIDES = new Map<ToolName, (input: JsonObject) => string>([
   [
     "gmail.send_draft",
     (input) => {

@@ -662,7 +662,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
           assistantMessageId,
           userMessageId: userMessageId,
           tier: tier ?? "standard",
-          artifactTargetId,
+          ...(artifactTargetId !== undefined ? { artifactTargetId } : {}),
         },
       });
 

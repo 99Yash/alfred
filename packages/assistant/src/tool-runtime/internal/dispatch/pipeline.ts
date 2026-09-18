@@ -1488,7 +1488,7 @@ async function executeToolWithSpan(
         { event: "passthrough_truncation", ...thermometer },
         "Passthrough result truncated",
       );
-      span.success(result, { thermometer });
+      span.success(result, { thermometer: toJsonValue(thermometer) });
     } else {
       span.success(result);
     }

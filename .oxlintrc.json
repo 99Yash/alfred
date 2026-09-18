@@ -54,7 +54,7 @@
     // correct implementation, not the ad-hoc narrowing this rule exists to reject.
     "anti-slop/no-runtime-typeof": ["warn", { "allowInTypeGuards": true }],
     "anti-slop/no-unknown-returns": "warn",
-    "anti-slop/no-unsafe-dictionary-type": "warn",
+    "anti-slop/no-unsafe-dictionary-type": "error",
     "tailwindcss/enforce-sort-order": ["warn", { "entryPoint": "apps/web/src/index.css" }],
     "tailwindcss/enforce-shorthand": "warn",
     "tailwindcss/no-deprecated-classes": ["warn", { "entryPoint": "apps/web/src/index.css" }],
@@ -356,6 +356,64 @@
       ],
       "rules": {
         "anti-slop/require-safety-comment-for-type-assertion": "off"
+      }
+    },
+    {
+      // no-unsafe-dictionary-type is at `error` for product source; test, eval
+      // and script scopes are exempt ON PURPOSE. The rule asks an open
+      // dictionary to name its value contract, which is load-bearing when the
+      // bag crosses a product seam. A fixture's capture buffer, an eval's mock
+      // row, or a one-off probe's parsed-JSON bag has no unseen contract to
+      // name — the bag IS the fixture — so the rule there only extracts
+      // renames. Product source was driven to zero at warn before this
+      // promotion; see docs/research/anti-slop-paydown-2026-09-12.md and
+      // docs/research/narrow-record-types-2026-08-09.md. The `**/scripts/**`
+      // glob covers both ops tooling (apps/server/src/scripts) and package
+      // probes/smokes (packages/*/src/scripts): neither is typed product
+      // code the rule exists to police.
+      "files": [
+        "**/test/**",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.test.mts",
+        "**/*.test.cts",
+        "**/evals/**",
+        "**/*.eval.ts",
+        "**/scripts/**"
+      ],
+      "rules": {
+        "anti-slop/no-unsafe-dictionary-type": "off"
+      }
+    },
+    {
+      // no-unsafe-dictionary-type stays off ON PURPOSE in the honest-boundary
+      // files below. Each carries a dynamic dictionary that is not debt per
+      // the narrow-record-types decision table: canonical guards and rebuilds
+      // (guards, log-redaction, passthrough-bounds, sanitize, bound,
+      // tool-preview), parser staging buffers (gmail-document-metadata),
+      // a positional accumulator with a SAFETY note (triage/floors),
+      // a generic envelope over a literal-union key (credential-vault-maintenance),
+      // local boundary helpers (extract-pdf-protocol), a generic credential-row
+      // envelope (credential-adapter), a third-party AST shape
+      // (briefing-markdown), and a key-sorting rebuild (trajectory). A new
+      // open-dictionary spelling anywhere else in product source is an error.
+      "files": [
+        "packages/contracts/src/guards.ts",
+        "packages/contracts/src/log-redaction.ts",
+        "packages/contracts/src/passthrough-bounds.ts",
+        "packages/contracts/src/gmail-document-metadata.ts",
+        "packages/contracts/src/sanitize.ts",
+        "packages/contracts/src/bound.ts",
+        "packages/assistant/src/execution/workflows/tool-preview.ts",
+        "packages/assistant/src/triage/floors/index.ts",
+        "packages/db/src/credential-vault-maintenance.ts",
+        "packages/extraction/src/extract-pdf-protocol.ts",
+        "packages/auth/src/credential-adapter.ts",
+        "apps/web/src/routes/-briefings/briefing-markdown.ts",
+        "packages/ai/src/replay/trajectory.ts"
+      ],
+      "rules": {
+        "anti-slop/no-unsafe-dictionary-type": "off"
       }
     }
   ]

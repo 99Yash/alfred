@@ -145,11 +145,11 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
             metadata: {
               source: args.source,
               type: args.type,
-              rawKind: args.rawKind,
+              ...(args.rawKind !== undefined ? { rawKind: args.rawKind } : {}),
               eventId: args.eventId,
-              documentId,
-              receiptId,
-              accountRef: args.accountRef,
+              ...(documentId !== undefined ? { documentId } : {}),
+              ...(receiptId !== undefined ? { receiptId } : {}),
+              ...(args.accountRef !== undefined ? { accountRef: args.accountRef } : {}),
             },
             trigger: {
               kind: "event",

@@ -1,3 +1,4 @@
+import type { JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { skillRevisions, skillRuns, skills } from "@alfred/db/schemas";
 import { and, eq, notInArray, sql } from "drizzle-orm";
@@ -21,7 +22,7 @@ export interface CommitRevisionArgs {
   skillId: string;
   kind: "distilled" | "documented" | "manual";
   body: string;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   /** Pointer to `agent_runs.id`. Required for distilled/documented; null for manual. */
   createdByRunId?: string | null;
   /** When set, also overwrites `skills.name`. Distill uses this for the auto-title. */

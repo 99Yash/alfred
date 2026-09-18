@@ -5,6 +5,8 @@ import {
   getStringPath,
   isEventTypeForSource,
   isRecord,
+  jsonObjectSchema,
+  type JsonObject,
 } from "@alfred/contracts";
 import type { ObjectStateDelta } from "./store";
 
@@ -64,9 +66,11 @@ export function reduceGithubEvent(
 function reducePullRequest(action: string | null, payload: unknown): ObjectStateDelta[] {
   if (!isRecord(payload)) return [];
 
-  const pr = isRecord(payload.pull_request) ? payload.pull_request : null;
+  const parsedPr = jsonObjectSchema.safeParse(payload.pull_request);
 
-  if (!pr) return [];
+  if (!parsedPr.success) return [];
+
+  const pr = parsedPr.data;
 
   const githubId = typeof pr.id === "number" ? pr.id : null;
 
@@ -121,7 +125,7 @@ function reducePullRequest(action: string | null, payload: unknown): ObjectState
 /** Collapse the PR `state` + `merged` boolean into one native-state token. */
 function pullRequestNativeState(
   action: string | null,
-  pr: Record<string, unknown>,
+  pr: JsonObject,
 ): "open" | "merged" | "closed" | null {
   switch (action) {
     case "opened":
