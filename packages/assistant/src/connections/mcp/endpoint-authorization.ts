@@ -207,10 +207,12 @@ function createAuthorizedOAuth(
  * neither mutates the guard's own `Headers`: the header arm clones them, and the
  * query arm rewrites only the URL.
  *
- * The query arm attaches only when the request already targets the pinned
- * origin. `createGuardedFetch` pins protocol traffic to that origin, so an
- * off-origin hop is refused before this runs; the origin check keeps the key off
- * any future caller that wires this wrapper without that pin.
+ * BOTH arms attach only when the request already targets the pinned origin.
+ * `createGuardedFetch` pins protocol traffic to that origin, so an off-origin hop
+ * is refused before this runs; the shared check keeps the key off any future
+ * caller that wires this wrapper without that pin. It is one test ABOVE the arm
+ * split, so a later arm inherits it rather than having to remember it — the same
+ * check on the query arm alone left the header arm attaching unconditionally.
  */
 async function withApiKey(
   requester: GuardedFetchRequester,
@@ -220,6 +222,10 @@ async function withApiKey(
   const placement = await apiKey.placement();
 
   return async (input, init) => {
+    const url = new URL(input);
+
+    if (url.origin !== origin) return requester(input, init);
+
     if (placement.in === "header") {
       const headers = new Headers(init.headers);
       headers.set(placement.name, (await apiKey.secret()).unwrap());
@@ -227,9 +233,6 @@ async function withApiKey(
       return requester(input, { ...init, headers });
     }
 
-    const url = new URL(input);
-
-    if (url.origin !== origin) return requester(input, init);
     url.searchParams.set(placement.name, (await apiKey.secret()).unwrap());
 
     return requester(url.href, init);
