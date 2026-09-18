@@ -15,7 +15,7 @@ where to put a new invariant.
 | Chained `as` / angle-bracket asserts | `anti-slop/no-chained-type-assertions` (`error`) |
 | `unknown` in a type alias that leaks to callers | `anti-slop/no-unknown-type-aliases` (`error`), `no-unknown-returns` (`warn`) |
 | `typeof` over unparsed wire values instead of boundary parse | `anti-slop/no-runtime-typeof` (`warn`) |
-| Type assertions without `SAFETY:` comment | `anti-slop/require-safety-comment-for-type-assertion` (`warn`) |
+| Type assertions without `SAFETY:` comment | `anti-slop/require-safety-comment-for-type-assertion` (`error`; test/eval scopes exempt) |
 | `vi.mock`/`jest.mock` | `anti-slop/no-module-mocking` (`error`) |
 | `Record<string, any>` already covered | `typescript/no-restricted-types` |
 | `process.env.*` outside `serverEnv()` | `scripts/consolidation-rules.mjs` `gate: no-process-env` |

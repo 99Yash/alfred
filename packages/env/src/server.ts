@@ -556,8 +556,10 @@ function gatewayTokenFromEnv(): string | undefined {
 
 export function envFieldValue<K extends keyof ServerEnv>(key: K): ServerEnv[K] | undefined {
   const field = serverEnvSchema.shape[key];
-  const result = field.safeParse(process.env[key as string]);
+  const result = field.safeParse(process.env[key]);
 
+  // SAFETY: `field` is the schema for `key`, so a successful parse yields exactly
+  // the inferred output type of that field, which is ServerEnv[K].
   return result.success ? (result.data as ServerEnv[K]) : undefined;
 }
 
@@ -572,8 +574,8 @@ export function cloudflareGatewayConfig():
   | { token: string; accountId: string; gatewayId: string }
   | undefined {
   const token = gatewayTokenFromEnv();
-  const accountId = envFieldValue("CLOUDFLARE_ACCOUNT_ID") as string | undefined;
-  const gatewayId = envFieldValue("CLOUDFLARE_GATEWAY_ID") as string | undefined;
+  const accountId = envFieldValue("CLOUDFLARE_ACCOUNT_ID");
+  const gatewayId = envFieldValue("CLOUDFLARE_GATEWAY_ID");
 
   if (token && accountId && gatewayId) return { token, accountId, gatewayId };
 
