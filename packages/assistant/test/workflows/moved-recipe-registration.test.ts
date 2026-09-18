@@ -16,7 +16,7 @@ import { emailTriageWorkflow, gmailSenderAdapter } from "@alfred/assistant/triag
 // identity (slug/steps/entry/trigger/dedup) is independent of the injection.
 const memoryExtractionWorkflow = buildMemoryExtractionWorkflow(gmailSenderAdapter);
 
-import type { Workflow, WorkflowInput } from "@alfred/assistant/execution/types";
+import type { Workflow, WorkflowInput } from "@alfred/assistant/execution";
 
 /**
  * Item 04 moves the product recipe declarations out of

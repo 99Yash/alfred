@@ -1,12 +1,12 @@
 /**
  * The connected rule (ADR-0093): a live provider is connected for a user when
  * one credential row satisfies the rule its `CredentialSpec` declares. The rule
- * is prose on each `CredentialSpec` member in `./types`; this is its one
+ * is prose on each `CredentialSpec` member in `./registry`; this is its one
  * executable home. The server's availability read and the web's connectedness
  * probe both call it, so the two cannot disagree on which rows count.
  */
 
-import type { CredentialSpec } from "./types";
+import type { CredentialSpec } from "./registry";
 
 /**
  * The credential row fields the connected rule reads. The server's

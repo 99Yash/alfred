@@ -1,9 +1,27 @@
 import { db, type DbTransaction } from "@alfred/db";
 import { entities, entityInsertSchema, type Entity, type NewEntity } from "@alfred/db/schemas";
+import { jsonRecordSchema } from "@alfred/contracts";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { classifyContactKind } from "./entity-kind-classifier";
-import { entityKindSchema, type EntityKind, jsonRecordSchema } from "./types";
+
+/**
+ * `entities.kind` values — the 6-member ADR-0012 vocabulary. The text column is
+ * validated at this app-boundary store; the union derives from the tuple so a
+ * new kind cannot drift from its parse.
+ */
+export const ENTITY_KINDS = [
+  "person",
+  "organization",
+  "project",
+  "product",
+  "location",
+  "other",
+] as const;
+
+export const entityKindSchema = z.enum(ENTITY_KINDS);
+
+export type EntityKind = (typeof ENTITY_KINDS)[number];
 
 const aliasesSchema = z.array(z.string());
 

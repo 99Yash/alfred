@@ -2,9 +2,12 @@ import type { AgentRunError, AgentTranscriptMessage } from "@alfred/contracts";
 import {
   AGENT_STEP_PROGRESS_STATUSES,
   boundAgentRunError,
+  isTerminalStatus,
   sanitizeErrorMessage,
   sanitizeToolResult,
   toMessage,
+  type RunStatus,
+  type WakeCondition,
 } from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import {
@@ -25,16 +28,7 @@ import { finalizeFailedRun } from "./terminal-closure";
 import { deriveRunOutcome, pokeWorkflowOwner, recordWorkflowLastRun } from "./run-outcome";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startQueueLeaseSpan, type QueueLeaseFromStatus } from "./runtime-spans";
-import {
-  isTerminalStatus,
-  type RunStatus,
-  type StagedAction,
-  type Step,
-  type StepContext,
-  type StepResult,
-  type WakeCondition,
-  type Workflow,
-} from "./types";
+import type { StagedAction, Step, StepContext, StepResult, Workflow } from "./registry";
 
 /**
  * What `runOnce` reports back to the caller (the BullMQ worker). The worker

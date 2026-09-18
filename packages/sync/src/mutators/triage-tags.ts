@@ -2,7 +2,7 @@ import { triageCategorySchema } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
-import type { SyncedTriageTag } from "../types";
+import type { SyncedTriageTag } from "../schemas";
 
 /**
  * Client-side triage-tag mutator (rfc-triage-tags.md). The user overrides a

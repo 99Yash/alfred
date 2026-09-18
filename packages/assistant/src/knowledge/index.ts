@@ -145,11 +145,11 @@ export * from "./extractor";
  *     `./queue`, of which this barrel exports only the worker lifecycle. So a
  *     curated-barrel entry is not a complete account of what a caller can see.
  *
- * `./types` stays `export *` — pure enums / schemas / contract re-exports, no
- * behavior-bearing symbol, so curating it buys no encapsulation.
+ * `./types` was removed (#1118). Each vocabulary now lives with the store that
+ * mints it — facts, chunks, style profiles, entities — and the contract
+ * re-exports (`MemorySource`, `jsonRecordSchema`, `memorySourceSchema`,
+ * `parseMemorySourceOrDefault`) come straight from `@alfred/contracts`.
  */
-export * from "./types";
-
 // recall + applyCorrection (facts) — both sanctioned groupings share this file.
 export {
   // recall
@@ -166,10 +166,37 @@ export {
   proposeFactArgsSchema,
   type FactRow,
   type ProposeFactArgs,
+  // fact vocabulary owned by this store
+  FACT_STATUSES,
+  factStatusSchema,
+  AUTO_CONFIRM_THRESHOLD,
+  type FactStatus,
 } from "./facts";
 
 // recall (chunks) + the cold-start write door.
-export { recallMemory, writeMemoryChunk, type RecallMemoryHit } from "./chunks";
+export {
+  recallMemory,
+  writeMemoryChunk,
+  type RecallMemoryHit,
+  // chunk vocabulary owned by this store
+  MEMORY_CHUNK_KINDS,
+  memoryChunkKindSchema,
+  type MemoryChunkKind,
+  USER_FACING_MEMORY_CHUNK_KINDS,
+} from "./chunks";
+
+// Style-profile vocabulary (the `./style-profiles` subpath also exports the CRUD).
+export {
+  STYLE_CHANNELS,
+  styleChannelSchema,
+  type StyleChannel,
+  STYLE_AUDIENCE_BUCKETS,
+  styleAudienceBucketSchema,
+  type StyleAudienceBucket,
+} from "./style-profiles";
+
+// Entity-kind vocabulary owned by the entity graph store.
+export { ENTITY_KINDS, entityKindSchema, type EntityKind } from "./entity-graph";
 
 // contextFor.
 export { readUserContext, type UserContext } from "./user-context";

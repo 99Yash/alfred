@@ -10,7 +10,7 @@ import {
   type IdentityRef,
 } from "@alfred/contracts";
 import type { Observation } from "@alfred/db/schemas";
-import type { EntityKind } from "./types";
+import type { EntityKind } from "./entity-graph";
 
 const AUTHORITATIVE_CONFIDENCE = 0.99;
 

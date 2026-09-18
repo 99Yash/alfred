@@ -2,7 +2,7 @@ import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { isoDateTimeStringSchema, MAX_ATTACHMENTS_PER_MESSAGE } from "@alfred/contracts";
 import { SYNC_MODEL } from "../sync-model";
-import type { SyncedChatAttachment, SyncedChatMessage, SyncedChatThread } from "../types";
+import type { SyncedChatAttachment, SyncedChatMessage, SyncedChatThread } from "../schemas";
 
 /**
  * Client-side chat mutators (streaming-chat plan). Only the *user* side is a

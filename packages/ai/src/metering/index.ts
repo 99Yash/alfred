@@ -50,7 +50,7 @@ export type {
   MeteredMeta,
   MeteredResult,
   ResultExtractor,
-} from "./types";
+} from "./metered";
 
 export { ATTRIBUTION_KINDS, isAttributionKind, type AttributionKind } from "@alfred/contracts";
 

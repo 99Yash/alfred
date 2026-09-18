@@ -28,7 +28,7 @@ express an illegal edit. Owner: `packages/assistant/src/triage/floors/floor.ts`.
 is resolved (the `done` category); a workflow run's client-facing ending is a
 separate, execution-level closure. Owner:
 `packages/assistant/src/triage/classify.ts`; execution sense:
-`packages/assistant/src/execution/types.ts` (`Workflow.closure`).
+`packages/assistant/src/execution/registry.ts` (`Workflow.closure`).
 
 **observation** — A single persisted, source-attributed fact (for example one
 Gmail message); triage additionally assembles a deterministic pre-model

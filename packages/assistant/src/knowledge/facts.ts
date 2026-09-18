@@ -1,4 +1,10 @@
-import { canonicalizeFactKey, clamp01 } from "@alfred/contracts";
+import {
+  canonicalizeFactKey,
+  clamp01,
+  memorySourceSchema,
+  parseMemorySourceOrDefault,
+  type MemorySource,
+} from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import {
   rejectedInferences,
@@ -30,14 +36,23 @@ import {
   validateFactValueForKey,
 } from "./fact-policy";
 import { valueSignature } from "./signature";
-import {
-  AUTO_CONFIRM_THRESHOLD,
-  factStatusSchema,
-  memorySourceSchema,
-  parseMemorySourceOrDefault,
-  type FactStatus,
-  type MemorySource,
-} from "./types";
+
+/**
+ * `user_facts.status` lifecycle values (ADR-0019). The text column itself
+ * cannot carry a pg enum, so this app-boundary schema is the source of truth;
+ * the union derives from the tuple so a new status cannot drift from its parse.
+ */
+export const FACT_STATUSES = ["proposed", "confirmed", "rejected", "edited", "superseded"] as const;
+
+export const factStatusSchema = z.enum(FACT_STATUSES);
+
+export type FactStatus = (typeof FACT_STATUSES)[number];
+
+/**
+ * Confidence ≥ this auto-confirms a proposal; < this stays `proposed`
+ * and waits for the user (ADR-0019). Tunable post-launch — start strict.
+ */
+export const AUTO_CONFIRM_THRESHOLD = 0.85;
 
 // ---------------------------------------------------------------------------
 // schemas

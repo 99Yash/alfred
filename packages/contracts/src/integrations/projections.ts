@@ -13,6 +13,7 @@ import {
   INTEGRATIONS,
   type IntegrationEntryOf,
   type IntegrationSlug,
+  type LiveIntegrationEntry,
 } from "./registry";
 import {
   credentialProviderOf,
@@ -20,7 +21,6 @@ import {
   type CredentialProvider,
   type LiveProviderSlug,
 } from "./slugs";
-import type { LiveIntegrationEntry } from "./types";
 
 /**
  * Build a record over a derived slug list. Exported for the one consumer outside

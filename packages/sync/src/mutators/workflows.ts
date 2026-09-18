@@ -7,7 +7,7 @@ import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
 import { workflowStatusSchema } from "../schemas";
-import type { SyncedWorkflow } from "../types";
+import type { SyncedWorkflow } from "../schemas";
 
 const CRON_MONTH_NAMES = {
   JAN: 1,

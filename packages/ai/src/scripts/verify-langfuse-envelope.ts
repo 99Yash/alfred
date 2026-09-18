@@ -15,7 +15,7 @@
 import { serverEnv } from "@alfred/env/server";
 import { randomUUID } from "node:crypto";
 import { flushLangfuse, startLangfuseSpan } from "../metering/langfuse";
-import type { MeteredMeta } from "../metering/types";
+import type { MeteredMeta } from "../metering/metered";
 
 const stamp = randomUUID().slice(0, 8);
 
