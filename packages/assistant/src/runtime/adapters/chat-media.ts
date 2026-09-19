@@ -20,7 +20,7 @@ import {
 
 interface ChatMediaAdapterDeps {
   claimEnrichment(attachmentId: string): Promise<"claimed" | "existing">;
-  recordEnqueueFailure(attachmentId: string): Promise<unknown>;
+  recordEnqueueFailure(attachmentId: string): Promise<boolean>;
   enrich: typeof enrichClaimedChatAttachment;
   storageConfigured(): boolean;
   deletePrefix(prefix: string): Promise<number>;

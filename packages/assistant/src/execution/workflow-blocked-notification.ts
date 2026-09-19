@@ -35,9 +35,23 @@ function workflowRecoveryDeepLink(slug: string, revisionId: string | undefined):
   return `${base}?${params.toString()}`;
 }
 
+/**
+ * The outcome of one workflow-blocked notification job. A failed send throws
+ * for a BullMQ retry instead of returning, so `sent`/`duplicate` are the only
+ * send outcomes a caller ever sees.
+ */
+export type WorkflowBlockedNotificationResult =
+  | { status: "missing"; workflowId: string }
+  | {
+      status: "skipped";
+      reason: "unblocked" | "already_notified" | "superseded";
+      workflowId: string;
+    }
+  | { status: "sent" | "duplicate"; workflowId: string; emailSendId: string };
+
 export async function processWorkflowBlockedNotification(
   data: WorkflowBlockedNotificationJobData,
-): Promise<unknown> {
+): Promise<WorkflowBlockedNotificationResult> {
   const [row] = await db()
     .select({
       id: workflows.id,

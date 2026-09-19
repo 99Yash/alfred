@@ -9,11 +9,15 @@ import {
 } from "@alfred/assistant/knowledge";
 import { readGmailThreadClosure } from "@alfred/assistant/triage";
 import {
+  registerSystemToolInstructionAdapter,
   registerSystemToolKnowledgeAdapter,
   registerSystemToolTaskAdapter,
+  registerSystemToolWebSearchAdapter,
+  type SystemToolInstructionAdapter,
   type SystemToolKnowledgeAdapter,
   type SystemToolRequest,
   type SystemToolTaskAdapter,
+  type SystemToolWebSearchAdapter,
 } from "@alfred/assistant/tool-runtime";
 import { resolveTodosForGmailSource, suggestTodo } from "@alfred/assistant/tasks";
 import { gmailThreadIdsFromSources } from "@alfred/assistant/tasks/resolve";
@@ -200,6 +204,9 @@ const knowledgeAdapter: SystemToolKnowledgeAdapter = {
       include: input.include,
     });
   },
+};
+
+const instructionAdapter: SystemToolInstructionAdapter = {
   rememberSenderSuppressionAndDismissTodos,
   listInstructions({ context }) {
     return listStandingInstructions(context.userId);
@@ -229,6 +236,9 @@ const knowledgeAdapter: SystemToolKnowledgeAdapter = {
       },
     });
   },
+};
+
+const webSearchAdapter: SystemToolWebSearchAdapter = {
   async webSearch({ input, context }) {
     const { answer, citations, results, searchQueries } = await runWebSearch({
       query: input.query,
@@ -296,16 +306,26 @@ const taskAdapter: SystemToolTaskAdapter = {
 
 let unregisterKnowledge: (() => void) | undefined;
 
+let unregisterInstructions: (() => void) | undefined;
+
+let unregisterWebSearch: (() => void) | undefined;
+
 let unregisterTasks: (() => void) | undefined;
 
 export function registerSystemToolProductAdapters(): void {
   unregisterKnowledge ??= registerSystemToolKnowledgeAdapter(knowledgeAdapter);
+  unregisterInstructions ??= registerSystemToolInstructionAdapter(instructionAdapter);
+  unregisterWebSearch ??= registerSystemToolWebSearchAdapter(webSearchAdapter);
   unregisterTasks ??= registerSystemToolTaskAdapter(taskAdapter);
 }
 
 export function unregisterSystemToolProductAdapters(): void {
   unregisterTasks?.();
   unregisterTasks = undefined;
+  unregisterWebSearch?.();
+  unregisterWebSearch = undefined;
+  unregisterInstructions?.();
+  unregisterInstructions = undefined;
   unregisterKnowledge?.();
   unregisterKnowledge = undefined;
 }

@@ -40,7 +40,7 @@ describe("system-tool chat-history seam without a registered adapter", () => {
 describe("system-tool chat-history seam with a registered adapter", () => {
   test("forwards args verbatim and returns its result unchanged", async () => {
     let seen: typeof historyArgs | undefined;
-    const historyResult = { ok: true, mode: "search", results: [] };
+    const historyResult = { ok: true, mode: "search", query: "invoice", results: [] } as const;
 
     const adapter: SystemToolChatHistoryAdapter = {
       readChatHistory: (args) => {
@@ -60,7 +60,14 @@ describe("system-tool chat-history seam with a registered adapter", () => {
 
   test("a second distinct adapter is rejected", () => {
     const first: SystemToolChatHistoryAdapter = {
-      readChatHistory: () => Promise.resolve(null),
+      readChatHistory: () =>
+        Promise.resolve({
+          ok: true,
+          mode: "fetch",
+          found: false,
+          kind: "message",
+          id: "x",
+        } as const),
     };
 
     unregister = registerSystemToolChatHistoryAdapter(first);

@@ -118,7 +118,7 @@ const PROBES = {
   },
   "no-unknown-returns": {
     snippet: `export function loadUser(): unknown { return input; }\n`,
-    severity: "warn",
+    severity: "error",
   },
   "no-unknown-type-aliases": {
     snippet: `export type ExternalValue = unknown;\n`,

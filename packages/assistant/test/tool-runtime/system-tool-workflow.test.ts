@@ -57,9 +57,24 @@ describe("system-tool workflow seam with a registered adapter", () => {
     }
 
     const seen: SeenOps = {};
-    const authorResult = { ok: true, status: "ready_to_activate" };
-    const recoverResult = { ok: true, status: "blocked" };
-    const activateResult = { ok: true, status: "activated" };
+
+    const authorResult = {
+      ok: false,
+      status: "not_found",
+      failure: { kind: "not_found" },
+    } as const;
+
+    const recoverResult = {
+      ok: false,
+      status: "not_found",
+      failure: { kind: "not_found" },
+    } as const;
+
+    const activateResult = {
+      ok: false,
+      status: "not_found",
+      failure: { kind: "not_found" },
+    } as const;
 
     const adapter: SystemToolWorkflowAdapter = {
       authorWorkflow: (args) => {
@@ -93,10 +108,12 @@ describe("system-tool workflow seam with a registered adapter", () => {
   });
 
   test("a second distinct adapter is rejected", () => {
+    const notFound = { ok: false, status: "not_found", failure: { kind: "not_found" } } as const;
+
     const first: SystemToolWorkflowAdapter = {
-      authorWorkflow: () => Promise.resolve(null),
-      recoverWorkflow: () => Promise.resolve(null),
-      activateWorkflow: () => Promise.resolve(null),
+      authorWorkflow: () => Promise.resolve(notFound),
+      recoverWorkflow: () => Promise.resolve(notFound),
+      activateWorkflow: () => Promise.resolve(notFound),
     };
 
     unregister = registerSystemToolWorkflowAdapter(first);

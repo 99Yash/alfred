@@ -1,4 +1,9 @@
 import { readChatHistoryInput } from "@alfred/contracts";
+import type {
+  ChatHistoryAttachmentEvidence,
+  ChatHistoryMessageEvidence,
+  ChatHistoryToolResult,
+} from "@alfred/assistant/tool-runtime";
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
 import { db } from "@alfred/db";
 import { escapeLike } from "@alfred/db/helpers";
@@ -64,7 +69,7 @@ export type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
 export async function readChatHistory(
   args: { userId: string; threadId: string; input: ReadChatHistoryInput },
   dependencies: ChatHistoryRetrievalDependencies = {},
-): Promise<unknown> {
+): Promise<ChatHistoryToolResult> {
   // `readChatHistoryInput` refinements guarantee `query` in search mode and
   // `kind`+`id` in fetch mode, but the flattened object types them optional
   // (the schema is one object, not a discriminated union — see tool-schemas.ts).
@@ -147,7 +152,7 @@ export async function readChatHistory(
     : { ok: true, mode: "fetch", found: false, kind, id };
 }
 
-function messageEvidence(row: MessageRow) {
+function messageEvidence(row: MessageRow): ChatHistoryMessageEvidence {
   return {
     kind: "message",
     id: row.id,
@@ -160,7 +165,7 @@ function messageEvidence(row: MessageRow) {
   };
 }
 
-function attachmentEvidence(row: AttachmentRow) {
+function attachmentEvidence(row: AttachmentRow): ChatHistoryAttachmentEvidence {
   const parsed = chatAttachmentRepresentationSchema.safeParse(row.representation);
 
   return {
