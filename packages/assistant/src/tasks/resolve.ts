@@ -1,4 +1,9 @@
-import { parseGmailDocumentMetadata, todoSourcesSchema, type TodoSource } from "@alfred/contracts";
+import {
+  parseGmailDocumentMetadata,
+  TODO_RESOLVED_BY,
+  todoSourcesSchema,
+  type TodoSource,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -17,10 +22,17 @@ const resolveTodosForGmailSourceArgsSchema = z.object({
   /**
    * Audit label for why the caller is dismissing. Free text because the
    * model-authored `system.resolve_todo` path supplies it; bounded like the
-   * tool input. Read and echoed back as {@link ResolveTodosForGmailSourceResult}
-   * `auditReason` so callers can log it — it is never written to the todo row.
+   * tool input. Persisted on the row as `resolved_reason` and echoed back as
+   * {@link ResolveTodosForGmailSourceResult} `auditReason` so callers can log it.
    */
   reason: z.string().max(1_000).nullish(),
+  /**
+   * Who is doing the dismissing. Persisted as `resolved_by` and fanned out
+   * into the append-only `todo_events` history by the transition trigger —
+   * this is the answer to "who cleared this?". `agent` for tool calls acting
+   * for the user, `system` for the automatic `close-loop-todos` retraction.
+   */
+  actor: z.enum(TODO_RESOLVED_BY).default("agent"),
   /**
    * Which live statuses to retract. Defaults to both: the manual
    * `system.resolve_todo` / `system.remember` paths dismiss whatever the user
@@ -46,7 +58,7 @@ export type ResolveTodosForGmailSourceResult =
       dismissedCount: number;
       todoIds: string[];
       matchedThreadIds: string[];
-      /** The caller's audit label, echoed for logging. Never persisted. */
+      /** The caller's audit label, persisted as `resolved_reason` and echoed for logging. */
       auditReason: string | null;
     }
   | {
@@ -147,6 +159,8 @@ export async function resolveTodosForGmailSource(
     .set({
       status: "dismissed",
       completedAt: null,
+      resolvedBy: parsed.actor,
+      resolvedReason: auditReason,
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(

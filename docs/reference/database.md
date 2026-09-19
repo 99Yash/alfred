@@ -28,6 +28,31 @@ Drizzle config reads `DATABASE_URL` from `apps/server/.env`.
 
 Every enum CHECK renders through `inList` in `packages/db/src/helpers.ts`, which SORTS its values. The rendered SQL depends on the set of accepted values, not on the order the constant declares them, so reordering a source constant is not a schema change. Migration 0125 normalized the nine constraints that were still in declaration order; it changed no accepted value.
 
+## Append-only history and attribution (ADR-0107, #1177)
+
+Two tables carry trigger enforcement in migration 0134, because the app runs
+on a single database role that legitimately UPDATEs both — GRANT/REVOKE
+cannot separate the app from its own writes, so triggers are the enforcement
+and they fire for every role including the owner:
+
+- `event_receipts` rejects DELETE and rejects UPDATEs touching any evidence
+  or identity column. `processing_status` / `processed_at` / `updated_at`
+  stay writable: that lifecycle belongs to the `ingress.deliver` job
+  (`markProcessed`), and a literal "no UPDATE" rule would break delivery.
+  Corrections are new rows, never mutations.
+- `todos` stays mutable on `status` / `sources` / body, but every status
+  write sets `resolved_by` (`user` = UI mutator, `agent` = tool call acting
+  for the user, `system` = automatic retraction) plus `resolved_reason`.
+  Identity columns (`id`, `user_id`, `created_by`, `agent_run_id`) and
+  identity-bearing `sources` refs are trigger-immutable; Gmail `thread` refs
+  are transport and may come and go under the #355 cap.
+- `todo_events` is the append-only transition log, written only by the
+  `todos_transition_history` trigger (mint on INSERT, one row per status
+  change) and guarded against UPDATE/DELETE by its own trigger.
+
+Bypass needs superuser `session_replication_role` or dropping a trigger —
+both outside application reach, by design.
+
 ## BullMQ / Redis
 
 `createRedisConnection(kind)` from `@alfred/db/redis` is the only factory. `kind` picks what the connection does when Redis is unreachable, refusing, or accepting but unresponsive. Read the kinds off the `RedisConnectionKind` table in `packages/db/src/redis.ts` — it is the single home of that matrix, and a copy here would drift from it. Pass `{ tracked: false }` for a short-lived probe the caller closes itself; every other connection is drained by `closeRedis()` at shutdown.

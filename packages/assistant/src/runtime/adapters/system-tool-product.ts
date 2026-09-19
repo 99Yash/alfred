@@ -122,6 +122,9 @@ async function rememberOneSender(
     senderEmail: result.resolvedSenderEmail,
     accountId: result.instruction.target.accountId,
     reason: SENDER_SUPPRESSION_REASON,
+    // A tool call acting for the user: `agent`, not `user` (direct UI) and
+    // not `system` (the automatic reply retraction).
+    actor: "agent",
   });
 
   return { ...result, resolvedTodos };
@@ -284,6 +287,9 @@ const taskAdapter: SystemToolTaskAdapter = {
       sourceThreadId: input.sourceThreadId,
       accountId: input.accountId ?? null,
       reason: input.reason,
+      // Chat-agent dismissal on the user's behalf — distinguishable from a
+      // direct UI clear (`user`) and the automatic retraction (`system`).
+      actor: "agent",
     });
   },
   async suggestTodo({ input, context }) {
