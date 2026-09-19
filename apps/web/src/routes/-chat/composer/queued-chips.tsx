@@ -59,7 +59,7 @@ export function QueuedChips({
               className={cn(
                 "inline-flex size-5 shrink-0 items-center justify-center rounded-full",
                 "bg-app-bg-a2 text-app-fg-3 transition-colors hover:bg-app-bg-3 hover:text-app-fg-4",
-                "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                "app-focus",
               )}
             >
               <X size={12} />

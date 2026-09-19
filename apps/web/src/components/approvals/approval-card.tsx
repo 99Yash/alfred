@@ -76,7 +76,7 @@ export function ApprovalCard({
               params={{ workflow: staging.workflowSlug }}
               className={cn(
                 "inline-flex items-center gap-1 rounded font-medium transition-colors hover:text-app-fg-4",
-                "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+                "app-focus",
               )}
             >
               <Workflow size={12} />
@@ -158,7 +158,7 @@ export function ApprovalCard({
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] font-medium text-app-red-4",
                 "transition-colors hover:bg-app-red-1 disabled:cursor-not-allowed disabled:opacity-40",
-                "outline-none focus-visible:ring-2 focus-visible:ring-app-red-2",
+                "app-focus [--app-accent-ring:var(--app-red-2)]",
               )}
             >
               <Ban size={13} />

@@ -35,7 +35,7 @@ export function AppCard({ className, padded = true, interactive, ref, ...rest }:
           cn(
             "cursor-pointer transition-shadow",
             "hover:shadow-[var(--app-shadow-elevated-hover)]",
-            "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background focus-visible:outline-none",
+            "app-focus",
           ),
         className,
       )}

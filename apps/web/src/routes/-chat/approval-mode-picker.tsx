@@ -59,7 +59,7 @@ export function ApprovalModePicker({
               "inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2 text-[12px] font-medium",
               "app-press transition-[box-shadow,color,background-color] outline-none",
               "disabled:cursor-not-allowed disabled:opacity-50",
-              "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+              "app-focus",
               on
                 ? cn(
                     // Autopilot on — the lit green pill carries the "acting
@@ -117,9 +117,9 @@ export function ApprovalModePicker({
                     if (!checked) onToggle();
                   }}
                   className={cn(
-                    "flex w-full items-start gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
+                    "app-press flex w-full items-start gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
                     "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
-                    "active:scale-[0.98] active:bg-app-bg-a3",
+                    "active:bg-app-bg-a3",
                     // Selected holds a step-stronger fill than hover, so a
                     // hovered row never reads as the active mode — the Codex
                     // list keeps the same distinction via its check + highlight.
