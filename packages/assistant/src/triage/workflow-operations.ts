@@ -900,8 +900,13 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
       userId: ctx.userId,
       sourceThreadId,
       // The state's own reason union, not an invented literal — the helper
-      // echoes it back as `auditReason` for this log.
+      // persists it as `resolved_reason` and echoes it back as `auditReason`
+      // for this log.
       reason: ctx.state.reason,
+      // The automatic retraction has no user in the loop: attribute `system`
+      // so it stays distinguishable from a chat-agent dismissal (`agent`)
+      // and a direct UI clear (`user`).
+      actor: "system",
       // Only Alfred's unpromoted proposals. An `open` row is one the user
       // explicitly accepted (promoted with `+`); a holding reply ("I'll send
       // it tomorrow") is progress, not closure, so auto-dismissing it would
