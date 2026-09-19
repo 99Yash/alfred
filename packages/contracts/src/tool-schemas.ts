@@ -45,7 +45,7 @@ import {
 import { contextSearchRequestSchema } from "./context-search";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
 import { isRecord } from "./guards";
-import { mcpCallInput, mcpListToolsInput } from "./mcp";
+import { mcpCallInput, mcpToolInspectInputSchema, mcpToolSearchInputSchema } from "./mcp";
 import { graphqlPassthroughRequestSchema, restPassthroughRequestSchema } from "./passthrough";
 import { todoSourceSchema } from "./todos";
 import {
@@ -2264,7 +2264,8 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.update_artifact": updateArtifactInput,
   "system.ask_user": askUserInput,
   "mcp.call": mcpCallInput,
-  "mcp.list_tools": mcpListToolsInput,
+  "mcp.list_tools": mcpToolSearchInputSchema,
+  "mcp.inspect_tool": mcpToolInspectInputSchema,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
 
 /**

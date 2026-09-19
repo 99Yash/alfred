@@ -137,6 +137,7 @@ export const chatRunStateSchema = z
     reasoningText: z.string().default(""),
     reasoningMs: z.number().int().min(0).default(0),
     toolCallsLog: z.array(toolCallLogSchema).default([]),
+    notedProvenanceClaim: z.boolean().default(false),
     deltaSeq: z.number().int().min(0).default(0),
     reasoningSeq: z.number().int().min(0).default(0),
     turnCount: z.number().int().min(0).default(0),

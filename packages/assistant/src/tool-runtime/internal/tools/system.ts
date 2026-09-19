@@ -124,7 +124,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     availability: { surface: "kernel" },
     description:
-      "Search the available tool catalog by capability without loading full schemas. Returns exact names for system.load_tool.",
+      "Search registered tools and connected MCP catalogs by capability. Registered hits return exact names for system.load_tool. Connected catalog hits return name mcp.call with an exact ref (connectionId, remoteName, catalogRevision); load mcp.call and pass that ref's fields to invoke the remote tool.",
     discovery: {
       title: "Search tools",
       summary:

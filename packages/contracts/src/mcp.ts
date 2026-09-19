@@ -1,5 +1,5 @@
 /**
- * Browser-safe MCP cross-boundary contracts: the `mcp.call` / `mcp.list_tools`
+ * Browser-safe MCP cross-boundary contracts: `mcp.call`, catalog search, and inspection
  * argument envelopes and the literal unions that back the persisted MCP tables
  * (`packages/db/src/schema/mcp.ts`) and the execution broker
  * (`packages/assistant/src/tool-runtime/mcp/`).
@@ -420,6 +420,11 @@ export const BUILT_IN_MCP_CATALOG = {
     slug: "sentry",
     label: "Sentry MCP",
     blurb: "Investigate Sentry issues and error events.",
+  },
+  railway: {
+    slug: "railway",
+    label: "Railway MCP",
+    blurb: "Read Railway deployment status.",
   },
   polylane: {
     slug: "polylane",

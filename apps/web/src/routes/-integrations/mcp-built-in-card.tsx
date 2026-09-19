@@ -4,6 +4,7 @@ import { AppButton } from "~/components/ui/v2";
 import { brandForIntegration } from "~/lib/integrations/integrations";
 import { mcpAuthorizeUrl, mcpBuiltInConnectUrl, type McpConnection } from "./helpers";
 import { mcpConnectionSubtitle } from "./mcp-server-status";
+import { McpConnectionWarning } from "./mcp-connection-warning";
 import { McpTile } from "./mcp-tile";
 
 /**
@@ -82,13 +83,18 @@ export function McpBuiltInCard({
   const state = builtInState({ connection, loading, readError });
 
   const subtitle =
-    state.kind === "loading"
-      ? "Loading connection…"
-      : state.kind === "read_error"
-        ? "Could not load connection status."
-        : state.kind === "absent"
-          ? entry.blurb
-          : mcpConnectionSubtitle(state.connection);
+    state.kind === "loading" ? (
+      "Loading connection…"
+    ) : state.kind === "read_error" ? (
+      "Could not load connection status."
+    ) : state.kind === "absent" ? (
+      entry.blurb
+    ) : state.connection.status === "failed" ||
+      (state.connection.status === "connecting" && state.connection.lastError !== null) ? (
+      <McpConnectionWarning connection={state.connection} />
+    ) : (
+      mcpConnectionSubtitle(state.connection)
+    );
 
   return (
     <McpTile
@@ -100,6 +106,10 @@ export function McpBuiltInCard({
       }}
       label={connection?.label ?? entry.label}
       subtitle={subtitle}
+      warning={
+        connection?.status === "failed" ||
+        (connection?.status === "connecting" && connection.lastError !== null)
+      }
     >
       <AppButton
         size="sm"

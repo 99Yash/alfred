@@ -156,13 +156,13 @@ export const INTEGRATIONS = {
     ],
   },
   // Not loadable: not an OAuth-connectable provider with a passthrough surface,
-  // but a projection of N third-party MCP connections behind two fixed actions
-  // (ADR-0018): `mcp.call` routes a remote tools/call through dispatch and
-  // `mcp.list_tools` is a bounded local read of the persisted catalog. The
+  // but a projection of N third-party MCP connections behind fixed actions
+  // (ADR-0018): `mcp.call` routes a remote tools/call through dispatch;
+  // `mcp.list_tools` and `mcp.inspect_tool` read the persisted catalog. The
   // remote tool name and connection ride in the args, never in the tool name.
   // It stays a non-`system` slug so the per-user policy gate and the ADR-0069
   // high-tier floor still apply to it.
-  mcp: { kind: "internal", displayName: "MCP", actions: ["call", "list_tools"] },
+  mcp: { kind: "internal", displayName: "MCP", actions: ["call", "list_tools", "inspect_tool"] },
   gmail: {
     kind: "provider",
     status: "live",

@@ -70,6 +70,7 @@ export function reduceSentryEvent(
       kind: "issue",
       externalId: issueId,
       nativeState,
+      closureSource: "verified_push",
       title: getStringPath(payload, "data", "issue", "title"),
       // Store the permalink only when it names THIS issue under the reader the
       // adapter proposes keys with. A body whose `permalink` is absent or in an
