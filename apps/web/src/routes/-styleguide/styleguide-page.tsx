@@ -14,7 +14,8 @@
  * components/landing/landing-page.tsx).
  */
 
-import { ASK_USER_TOOL } from "@alfred/contracts";
+import { ASK_USER_TOOL, type ChatModelTier } from "@alfred/contracts";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import type { SyncedActionStaging } from "@alfred/sync";
 import {
   Archive,
@@ -22,10 +23,12 @@ import {
   ArrowUp,
   Bell,
   Check,
+  GitPullRequest,
   History as HistoryIcon,
   Home,
   LogOut,
   Mail,
+  MessageCircleQuestion,
   Mic,
   MoonStar,
   Plug,
@@ -56,11 +59,15 @@ import {
   AppInput,
   AppModal,
   AppPill,
+  AppSegmented,
   AppSelect,
   useAppForm,
 } from "~/components/ui/v2";
 import { toast } from "~/lib/toast";
 import { ChatApprovalTray } from "../-chat/approval-tray";
+import { Composer } from "../-chat/composer/composer";
+import { ToolCallGroup } from "../-chat/tool-call-group";
+import type { ToolCallView } from "../-chat/tool-call-presentation";
 import { QuestionAnswersCard } from "~/components/approvals/question-answers-card";
 import { QuickAccessRail } from "~/components/quick-access-rail";
 import { DimensionChatThread } from "~/components/dimension-chat-thread";
@@ -111,10 +118,9 @@ export function StyleguidePage() {
           </h1>
           <p className="max-w-prose text-sm text-gray-800">
             Toggle between the new <strong className="text-white">App revamp</strong> landing
-            grammar and the <strong className="text-white">Dimension</strong> primitives that still
-            power the in-app surfaces. Both halves are kept side-by-side on purpose: Dimension
-            recipes (gray ramp, frost-border, lavender headings) carry forward into the new
-            direction and are not going away.
+            grammar and the <strong className="text-white">Dimension</strong> reference primitives.
+            The in-app tab uses the production app grammar; the Dimension tab remains as the
+            dark-material reference that informed it.
           </p>
           <div className="pt-1">
             <Tabs
@@ -155,7 +161,7 @@ function DimensionHalf() {
         tone="dimension"
         eyebrow="Before"
         title="Dimension primitives"
-        body="Every primitive in apps/web/src/components/ui/ rendered with default / hover / focus / active / disabled states. These power every authenticated surface — chat, settings, command palette, the right rail."
+        body="Reference primitives retained for comparison. They informed the dark materials, but authenticated chat uses the App primitives from components/ui/v2."
       />
       <TokensSection />
       <ButtonSection />
@@ -1742,15 +1748,14 @@ function V2Half() {
         tone="app"
         eyebrow="In-app"
         title="App grammar (v2)"
-        body="The visitors.now-derived grammar from components/ui/v2 — AppButton, AppCard, AppPill, AppInput — plus the chat approval tray, rendered with mock staging data. Each block renders in forced light and forced dark so both themes stay honest."
+        body="The production grammar from components/ui/v2. Light surfaces follow the visitors-now archive; dark surfaces adapt the Dimension material. The HITL example composes the real approval tray and composer, and every block renders in both themes."
       />
       <V2ButtonSection />
       <V2SurfaceSection />
       <V2ModalSection />
       <V2ToastSection />
       <V2FrostOverlaySection />
-      <V2ApprovalTraySection />
-      <V2QuestionCardSection />
+      <V2HitlChatSection />
       <V2QuestionAnswersSection />
     </div>
   );
@@ -2230,29 +2235,6 @@ const V2_STAGING_EMAIL: SyncedActionStaging = {
   updatedAt: null,
 };
 
-const V2_STAGING_EVENT: SyncedActionStaging = {
-  ...V2_STAGING_EMAIL,
-  id: "stg_styleguide_event",
-  stepId: "step_2",
-  toolCallId: "call_2",
-  toolName: "calendar.create_event",
-  integration: "calendar",
-  riskTier: "low",
-  brief: "Add design-review invite for Thursday 2pm and update Maya's invite.",
-  proposedInput: {
-    summary: "Design review",
-    start: "2026-06-11T14:00:00.000Z",
-    end: "2026-06-11T14:45:00.000Z",
-    attendees: ["maya@acme.com"],
-  },
-  recentRejection: {
-    runId: "run_styleguide_prev",
-    reason: "Wrong week — the review moved.",
-    decidedAt: "2026-06-06T18:10:00.000Z",
-  },
-  createdAt: "2026-06-07T08:31:00.000Z",
-};
-
 const V2_STAGING_QUESTION: SyncedActionStaging = {
   ...V2_STAGING_EMAIL,
   id: "stg_styleguide_question",
@@ -2290,6 +2272,27 @@ const V2_STAGING_QUESTION: SyncedActionStaging = {
   },
   recentRejection: null,
   createdAt: "2026-06-07T08:32:00.000Z",
+};
+
+const V2_STAGING_GITHUB: SyncedActionStaging = {
+  ...V2_STAGING_EMAIL,
+  id: "stg_styleguide_github",
+  workflowSlug: "pull-request-review",
+  workflowName: "Pull request review",
+  brief: "Read pull request #124 before preparing the requested review summary.",
+  stepId: "step_2",
+  toolCallId: "call_2",
+  toolName: "github.get_pull_request",
+  integration: "github",
+  // A gated integration policy can require review even for a read-only tool.
+  riskTier: "no_risk",
+  proposedInput: {
+    owner: "99Yash",
+    repo: "alfred",
+    pull_number: 124,
+  },
+  recentRejection: null,
+  createdAt: "2026-06-07T08:31:00.000Z",
 };
 
 function V2QuestionAnswersSection() {
@@ -2352,50 +2355,127 @@ function V2QuestionAnswersSection() {
   );
 }
 
-function V2QuestionCardSection() {
+type HitlPreviewKind = "gmail" | "github" | "question";
+
+const HITL_PREVIEW_ITEMS = [
+  { value: "gmail", label: "Gmail action", icon: <Mail size={13} /> },
+  { value: "github", label: "GitHub review", icon: <GitPullRequest size={13} /> },
+  {
+    value: "question",
+    label: "Question",
+    icon: <MessageCircleQuestion size={13} />,
+  },
+] satisfies ReadonlyArray<{
+  value: HitlPreviewKind;
+  label: string;
+  icon: ReactNode;
+}>;
+
+function V2HitlChatSection() {
+  const [kind, setKind] = useState<HitlPreviewKind>("gmail");
+
   return (
     <Section
-      id="v2-question-card"
-      title="Chat question card"
-      recipe="routes/-chat/approval-tray.tsx with a `system.ask_user` staging (ADR-0099). The card keeps the chrome and draws its body from components/approvals/question-sheet.tsx, which the /approvals queue draws too: a multi-select question and a single-select one, paged with the arrows and the dots, each with a free-text field. Actions read Dismiss / Continue; Cmd+Enter continues. preview mode — decisions are local no-ops."
+      id="v2-hitl-chat"
+      title="HITL in chat"
+      recipe="The production chat composition, not an isolated card: active tool row, one pending ChatApprovalTray card, and the real disabled Composer below it. Switch between a Gmail write, a gated GitHub read, and `system.ask_user`; the same tray also serves other integrations. Preview decisions and approval-mode changes stay local."
     >
-      <ThemePanes
-        stacked
-        render={(theme) => (
-          <div className="mx-auto w-full max-w-3xl">
-            <ChatApprovalTray
-              runId={`run_styleguide_question_${theme}`}
-              approvals={[V2_STAGING_QUESTION]}
-              awaitingApproval
-              preview
-            />
-          </div>
-        )}
-      />
+      <div className="app" data-app-theme="dark">
+        <AppSegmented
+          value={kind}
+          onValueChange={setKind}
+          items={HITL_PREVIEW_ITEMS}
+          label="HITL preview"
+        />
+      </div>
+      <ThemePanes stacked render={(theme) => <V2HitlChatPreview kind={kind} theme={theme} />} />
     </Section>
   );
 }
 
-function V2ApprovalTraySection() {
+function V2HitlChatPreview({ kind, theme }: { kind: HitlPreviewKind; theme: "light" | "dark" }) {
+  const [tier, setTier] = useState<ChatModelTier>("standard");
+  const [autoApprove, setAutoApprove] = useState(false);
+
+  const base =
+    kind === "gmail"
+      ? V2_STAGING_EMAIL
+      : kind === "github"
+        ? V2_STAGING_GITHUB
+        : V2_STAGING_QUESTION;
+
+  const runId = `run_styleguide_hitl_${kind}_${theme}`;
+
+  const staging: SyncedActionStaging = {
+    ...base,
+    id: `stg_styleguide_hitl_${kind}_${theme}`,
+    runId,
+  };
+
+  const tool: ToolCallView = {
+    toolCallId: staging.toolCallId,
+    toolName: staging.toolName,
+    status: "started",
+    argsPreview: JSON.stringify(staging.proposedInput),
+    segmentIndex: 0,
+  };
+
+  const threadTitle =
+    kind === "gmail"
+      ? "Move the design review"
+      : kind === "github"
+        ? "Review pull request #124"
+        : "Draft the project update";
+
+  const userMessage =
+    kind === "gmail"
+      ? "Move Thursday’s design review and send Maya the updated agenda."
+      : kind === "github"
+        ? "Review PR #124 and tell me what needs attention before I approve it."
+        : "Draft the project update, but ask me about the recipients and tone first.";
+
   return (
-    <Section
-      id="v2-approval-tray"
-      title="Chat approval tray"
-      recipe="routes/-chat/approval-tray.tsx rendered with two mock stagings (collapsible inline cards — open while pending, auto-collapse with a check/✕ badge once decided in preview, Permissions popover with the always-allow switch, always-editable fields, Revise/End run, risk chips, recent-rejection strip). preview mode — decisions are local no-ops, no toast/audio/API/policy writes."
-    >
-      <ThemePanes
-        stacked
-        render={(theme) => (
-          <div className="mx-auto w-full max-w-3xl">
-            <ChatApprovalTray
-              runId={`run_styleguide_${theme}`}
-              approvals={[V2_STAGING_EMAIL, V2_STAGING_EVENT]}
-              awaitingApproval
-              preview
-            />
+    <Tooltip.Provider delayDuration={300} skipDelayDuration={600}>
+      <div className="overflow-hidden rounded-2xl bg-app-background shadow-[0_0_0_1px_var(--app-fg-a1)]">
+        <div className="flex h-[min(760px,80vh)] min-h-[620px] flex-col">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-app-bg-a2 px-4">
+            <p className="truncate text-[13px] font-medium text-app-fg-4">{threadTitle}</p>
+            <span className="rounded-full bg-app-purple-1 px-2 py-0.5 text-[11px] font-medium text-app-purple-4">
+              Waiting for you
+            </span>
           </div>
-        )}
-      />
-    </Section>
+
+          <div className="app-scrollbar-none min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
+              <div className="flex justify-end">
+                <p className="max-w-[80%] rounded-2xl bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight text-pretty text-app-fg-4">
+                  {userMessage}
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <ToolCallGroup tools={[tool]} narration={[]} active />
+                <ChatApprovalTray runId={runId} approvals={[staging]} awaitingApproval preview />
+              </div>
+            </div>
+          </div>
+
+          <div className="shrink-0 bg-linear-to-t from-app-background via-app-background to-transparent px-4 pt-3 pb-4">
+            <div className="mx-auto w-full max-w-3xl">
+              <Composer
+                threadId={`styleguide-hitl-${kind}-${theme}`}
+                isStreaming
+                disabled
+                autoApprove={autoApprove}
+                autoApprovePending={false}
+                onToggleAutoApprove={() => setAutoApprove((value) => !value)}
+                tier={tier}
+                onTierChange={setTier}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </Tooltip.Provider>
   );
 }

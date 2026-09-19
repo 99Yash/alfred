@@ -21,7 +21,7 @@ export function AppSwitch({ className, ref, ...rest }: AppSwitchProps) {
       ref={ref}
       className={cn(
         "relative inline-flex h-[22px] w-[40px] shrink-0 cursor-pointer items-center rounded-full",
-        "transition-all duration-200",
+        "transition-[background-color,box-shadow] duration-200",
         /* off / on fills via data-state */
         "data-[state=unchecked]:bg-app-bg-3",
         "data-[state=checked]:bg-[linear-gradient(180deg,var(--app-accent-from)_0%,var(--app-accent-to)_100%)]",
@@ -29,7 +29,7 @@ export function AppSwitch({ className, ref, ...rest }: AppSwitchProps) {
         "data-[state=unchecked]:shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]",
         "data-[state=checked]:shadow-[inset_0_1px_0_rgba(255,255,255,0.20),0_1px_2px_rgba(0,0,0,0.15)]",
         /* focus */
-        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+        "app-focus",
         /* disabled */
         "disabled:cursor-not-allowed disabled:opacity-50",
         className,

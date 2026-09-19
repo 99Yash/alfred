@@ -376,8 +376,7 @@ function InlineApprovalCard({
             <Accordion.Header>
               <Accordion.Trigger
                 className={cn(
-                  "group/approval flex w-full items-center gap-3 p-3 text-left outline-none sm:px-4",
-                  "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-inset",
+                  "app-focus-inset group/approval flex w-full items-center gap-3 p-3 text-left sm:px-4",
                 )}
               >
                 <ToolIcon integration={staging.integration} />
@@ -509,7 +508,7 @@ function InlineApprovalCard({
                     className={cn(
                       "inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-[12px] font-medium text-app-fg-3",
                       "transition-[background-color,color] hover:bg-app-bg-a2 hover:text-app-fg-4",
-                      "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                      "app-focus",
                     )}
                   >
                     View all
@@ -757,9 +756,8 @@ function PermissionsAffordance({
           aria-controls={popoverId}
           className={cn(
             "absolute top-2.5 right-3 inline-flex h-7 items-center gap-1 rounded-lg px-2 text-[12px] font-medium text-app-fg-3",
-            "app-press transition-[box-shadow,color,background-color] outline-none",
+            "app-focus app-press transition-[box-shadow,color,background-color]",
             "hover:bg-app-bg-a2 hover:text-app-fg-4",
-            "focus-visible:ring-2 focus-visible:ring-app-purple-2",
           )}
         >
           <ShieldCheck size={12} className="shrink-0" />

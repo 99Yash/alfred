@@ -17,7 +17,7 @@ export function ComposerDock({
   return (
     <div className="shrink-0 pt-1 pb-5">
       <div className="mx-auto w-full max-w-3xl px-6">
-        <div className={cn("app-elevated rounded-3xl bg-app-bg-1 p-2")}>
+        <div className={cn("app-elevated app-focus-within rounded-3xl bg-app-bg-1 p-2")}>
           <textarea
             aria-label="Ask Alfred"
             value={value}
@@ -54,12 +54,12 @@ export function ComposerDock({
                 className={cn(
                   "inline-flex size-8 items-center justify-center rounded-lg",
                   "app-press transition-[box-shadow,transform,filter]",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+                  "app-focus",
                   canSend
                     ? cn(
-                        "text-[var(--app-accent-fg)]",
-                        "bg-[image:var(--app-cta-bg)]",
-                        "shadow-[var(--app-button-primary-shadow)]",
+                        "text-(--app-accent-fg)",
+                        "bg-(image:--app-cta-bg)",
+                        "shadow-(--app-button-primary-shadow)",
                         "hover:brightness-[1.06]",
                       )
                     : "cursor-not-allowed bg-app-bg-2 text-app-fg-2",
@@ -86,7 +86,7 @@ function ComposerIcon({ label, children }: { label: string; children: ReactNode 
       className={cn(
         "inline-flex size-8 items-center justify-center rounded-lg",
         "app-press text-app-fg-3 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
-        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+        "app-focus",
       )}
     >
       {children}

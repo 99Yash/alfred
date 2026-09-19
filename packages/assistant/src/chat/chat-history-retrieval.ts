@@ -6,7 +6,7 @@ import type {
 } from "@alfred/assistant/tool-runtime";
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
 import { db } from "@alfred/db";
-import { escapeLike } from "@alfred/db/helpers";
+import { stripLikeWildcards } from "@alfred/db/helpers";
 import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import type { z } from "zod";
@@ -211,7 +211,7 @@ async function searchMessages(args: {
       and(
         eq(chatMessages.userId, args.userId),
         eq(chatMessages.threadId, args.threadId),
-        ilike(chatMessages.content, `%${escapeLike(args.query)}%`),
+        ilike(chatMessages.content, `%${stripLikeWildcards(args.query)}%`),
       ),
     )
     .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))

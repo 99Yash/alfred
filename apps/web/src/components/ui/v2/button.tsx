@@ -4,8 +4,8 @@
  * Recipe pulled from archive/visitors-now/design-notes.md §"Button".
  * The visual identity is in three places:
  *   1. `app-elevated` — two-shadow stack (1px drop + 0-blur hairline).
- *   2. `app-press`    — active:scale-99 microinteraction.
- *   3. `focus-visible:ring-2 ring-app-purple-2 ring-offset-4` — soft purple halo.
+ *   2. `app-press`    — consistent press feedback.
+ *   3. `app-focus`    — quiet one-pixel keyboard-focus stroke.
  *
  * No gradients, no border property, no glow. The shadow does everything.
  * Variants change fill + text color only.
@@ -129,8 +129,7 @@ export function AppButton({
          * they pair with the property list order. */
         "transition-[filter,background-color,box-shadow,transform] ease-out",
         "[transition-duration:300ms,300ms,300ms,150ms]",
-        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-        "app-press",
+        "app-focus app-press",
         SIZE[size],
         VARIANT[variant],
         className,
