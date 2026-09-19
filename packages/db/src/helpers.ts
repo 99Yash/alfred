@@ -60,7 +60,7 @@ export const inList = (values: readonly string[]): SQL =>
  * A raw `%` or `_` from user text (or from a key value) silently widens the
  * match; `\\` is escaped first so it cannot re-enable the other two.
  */
-export function stripLikeWildcards(value: string): string {
+export function escapeLike(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
