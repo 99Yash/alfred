@@ -14,7 +14,7 @@ import {
   integrationObjectKeys,
   integrationObjects,
 } from "@alfred/db/schemas";
-import { stripLikeWildcards } from "@alfred/db/helpers";
+import { escapeLike } from "@alfred/db/helpers";
 import { and, desc, eq, gte, inArray, like, lt, lte } from "drizzle-orm";
 import { reduceGithubEvent } from "./github-reducer";
 import { reduceSentryEvent } from "./sentry-reducer";
@@ -450,7 +450,7 @@ export const objectStateStore: ObjectStateStore = {
           eq(integrationObjectKeys.keyKind, keyKind),
           gte(integrationObjectKeys.keyValue, keyPrefix),
           lt(integrationObjectKeys.keyValue, nextPrefix),
-          like(integrationObjectKeys.keyValue, `${stripLikeWildcards(keyPrefix)}%`),
+          like(integrationObjectKeys.keyValue, `${escapeLike(keyPrefix)}%`),
         ),
       )
       // Two rows is already proof of ambiguity; the third would tell us nothing
