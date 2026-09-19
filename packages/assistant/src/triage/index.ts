@@ -76,10 +76,6 @@ export { extractSenderContext, recipientAddresses } from "./sender-context";
 
 export type { ExtractSenderContextArgs, SenderContextResult } from "./sender-context";
 
-export { readTriageUserContext } from "./user-context";
-
-export type { TriageUserContext } from "./user-context";
-
 // ── Triage v3 (ADR-0051): sent-mail thread state + sender priors + observations
 export { getThreadState, readGmailThreadClosure } from "./thread-state";
 
