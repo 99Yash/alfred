@@ -333,7 +333,7 @@ function isLikelyGroupDisplayName(displayName: string): boolean {
 }
 
 function isNonEmpty(value: string | null | undefined): boolean {
-  return typeof value === "string" && value.trim().length > 0;
+  return value != null && value.trim().length > 0;
 }
 
 function classification(

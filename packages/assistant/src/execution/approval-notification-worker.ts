@@ -34,7 +34,10 @@ import {
   type NotificationJobData,
 } from "@alfred/assistant/tool-runtime";
 import { emailLogoUrl, webOrigin } from "@alfred/assistant/settings";
-import { processWorkflowBlockedNotification } from "./workflow-blocked-notification";
+import {
+  processWorkflowBlockedNotification,
+  type WorkflowBlockedNotificationResult,
+} from "./workflow-blocked-notification";
 
 let _worker: Worker<NotificationJobData> | undefined;
 
@@ -66,12 +69,25 @@ export async function stopApprovalNotificationWorker(): Promise<void> {
 }
 
 /**
+ * The outcome of one approval notification job. A failed send throws for a
+ * BullMQ retry instead of returning, so `sent`/`duplicate` are the only send
+ * outcomes a caller ever sees. `reason` stays `string` because a `skipped`
+ * row reports whatever non-pending status it holds.
+ */
+export type ApprovalNotificationResult =
+  | { status: "missing"; stagingId: string }
+  | { status: "skipped"; reason: string; stagingId: string }
+  | { status: "sent" | "duplicate"; stagingId: string; emailSendId: string };
+
+/**
  * One worker, two job shapes (#561): the legacy approval job (`{stagingId,
  * userId}`, no `kind`) and the workflow-blocked job (`kind: "workflow_blocked"`).
  * Parse the union once here and branch; each branch owns its own re-read,
  * render, send, and stamp.
  */
-async function processNotificationJob(job: Job<NotificationJobData>): Promise<unknown> {
+async function processNotificationJob(
+  job: Job<NotificationJobData>,
+): Promise<ApprovalNotificationResult | WorkflowBlockedNotificationResult> {
   const blocked = workflowBlockedNotificationJobDataSchema.safeParse(job.data);
 
   if (blocked.success) return processWorkflowBlockedNotification(blocked.data);
@@ -85,7 +101,7 @@ async function processApprovalNotificationJob({
 }: {
   stagingId: string;
   userId: string;
-}): Promise<unknown> {
+}): Promise<ApprovalNotificationResult> {
   const rows = await db()
     .select({
       id: actionStagings.id,

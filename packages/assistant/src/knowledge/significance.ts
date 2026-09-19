@@ -18,6 +18,7 @@ import {
   clamp01,
   jsonRecordSchema,
   toMessage,
+  toStringArray,
   type JsonObject,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -390,10 +391,9 @@ export async function getSenderSignificanceBatch(
 
     // Map every requested address this entity carries as an alias back to its
     // significance — one entity can answer several of the distinct senders.
-    const aliases = Array.isArray(row.aliases) ? row.aliases : [];
+    const aliases = toStringArray(row.aliases);
 
     for (const alias of aliases) {
-      if (typeof alias !== "string") continue;
       const normalized = alias.trim().toLowerCase();
 
       if (targets.has(normalized)) out.set(normalized, resolved);

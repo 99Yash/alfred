@@ -30,11 +30,10 @@ function queueKey(threadId: string | undefined): string {
 }
 
 function safeRandomId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
+  if (typeof crypto === "undefined")
+    return `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  return `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return crypto.randomUUID?.() ?? `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export interface ChatQueue {

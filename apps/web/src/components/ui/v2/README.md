@@ -47,7 +47,7 @@ text-app-fg-a{1..4}     alpha variants
 bg-app-{purple|green|red|amber|sky|blue|yellow|pink|orange|gray}-{1..4}
                        -1 = tint  -2 = soft / border  -3 = icon / chart  -4 = accent
 
-ring-app-purple-2       focus halo (paired with ring-offset-4)
+--app-accent-ring       shared one-pixel focus stroke
 shadow-[var(--app-shadow-elevated)]   the two-shadow stack
 rounded-app-{1..6}      0.125rem → 1rem radius scale
 ```
@@ -59,7 +59,10 @@ rounded-app-{1..6}      0.125rem → 1rem radius scale
 | `.app`              | Subtree opt-in: white bg, fg-3 text, -0.02em tracking, cursor:default.            |
 | `.app-elevated`     | Two-shadow stack (1px drop + 0-blur hairline). Bumps on hover.                    |
 | `.app-frost-header` | Masked backdrop-blur for fixed headers — fades to no-blur at the very top.        |
-| `.app-press`        | `active:scale(0.99)` press microinteraction. Used on every interactive primitive. |
+| `.app-focus`        | One-pixel focus stroke, placed 2px outside small controls.                        |
+| `.app-focus-inset`  | One-pixel focus stroke inside fields and large surfaces.                          |
+| `.app-focus-within` | The inset stroke for a composite surface when a child has keyboard focus.         |
+| `.app-press`        | `active:scale(0.96)` press microinteraction. Used on every interactive primitive. |
 
 ## Form values
 

@@ -227,8 +227,7 @@ function PagerDot({
         onClick();
       }}
       className={cn(
-        "size-2 rounded-full transition-colors outline-none",
-        "focus-visible:ring-2 focus-visible:ring-app-purple-2",
+        "app-focus size-2 rounded-full transition-colors",
         answered ? "bg-[var(--app-accent-from)]" : "bg-app-fg-a1",
         active && "ring-1 ring-app-fg-2 ring-offset-1 ring-offset-app-bg-2",
         disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer",
@@ -265,8 +264,7 @@ function PagerButton({
       }}
       className={cn(
         "inline-flex size-6 items-center justify-center rounded-lg text-app-fg-3",
-        "app-press transition-colors outline-none",
-        "focus-visible:ring-2 focus-visible:ring-app-purple-2",
+        "app-focus app-press transition-colors",
         inert
           ? "cursor-not-allowed opacity-40"
           : "cursor-pointer hover:bg-app-bg-a2 hover:text-app-fg-4",
@@ -355,7 +353,7 @@ function OptionList({
             />
             <span
               aria-hidden
-              className="pointer-events-none absolute inset-0 rounded-xl peer-focus-visible:ring-2 peer-focus-visible:ring-app-purple-2"
+              className="pointer-events-none absolute inset-0 rounded-xl peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:-outline-offset-1 peer-focus-visible:outline-[var(--app-accent-ring)]"
             />
             <span
               aria-hidden

@@ -269,11 +269,8 @@ export function Composer({
             // Floating frosted-glass surface: a beveled gradient rim, backdrop
             // blur + specular sheen, and a layered drop shadow (ported from
             // dimension's input material, re-tokenized — see `.composer-frost`).
-            // The drop shadow is fed through Tailwind's --tw-shadow so it composes
-            // with the purple focus ring instead of being wiped by it.
             "shadow-[var(--frost-shadow)]",
-            "focus-within:ring-2 focus-within:ring-app-purple-2 focus-within:ring-offset-4",
-            "transition-shadow focus-within:ring-offset-app-background",
+            "app-focus-within transition-shadow",
             disabled && "opacity-70",
             sending && "opacity-80",
           )}

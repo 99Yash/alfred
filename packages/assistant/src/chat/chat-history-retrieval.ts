@@ -1,7 +1,12 @@
 import { readChatHistoryInput } from "@alfred/contracts";
+import type {
+  ChatHistoryAttachmentEvidence,
+  ChatHistoryMessageEvidence,
+  ChatHistoryToolResult,
+} from "@alfred/assistant/tool-runtime";
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
 import { db } from "@alfred/db";
-import { escapeLike } from "@alfred/db/helpers";
+import { stripLikeWildcards } from "@alfred/db/helpers";
 import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import type { z } from "zod";
@@ -64,7 +69,7 @@ export type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
 export async function readChatHistory(
   args: { userId: string; threadId: string; input: ReadChatHistoryInput },
   dependencies: ChatHistoryRetrievalDependencies = {},
-): Promise<unknown> {
+): Promise<ChatHistoryToolResult> {
   // `readChatHistoryInput` refinements guarantee `query` in search mode and
   // `kind`+`id` in fetch mode, but the flattened object types them optional
   // (the schema is one object, not a discriminated union — see tool-schemas.ts).
@@ -147,7 +152,7 @@ export async function readChatHistory(
     : { ok: true, mode: "fetch", found: false, kind, id };
 }
 
-function messageEvidence(row: MessageRow) {
+function messageEvidence(row: MessageRow): ChatHistoryMessageEvidence {
   return {
     kind: "message",
     id: row.id,
@@ -160,7 +165,7 @@ function messageEvidence(row: MessageRow) {
   };
 }
 
-function attachmentEvidence(row: AttachmentRow) {
+function attachmentEvidence(row: AttachmentRow): ChatHistoryAttachmentEvidence {
   const parsed = chatAttachmentRepresentationSchema.safeParse(row.representation);
 
   return {
@@ -206,7 +211,7 @@ async function searchMessages(args: {
       and(
         eq(chatMessages.userId, args.userId),
         eq(chatMessages.threadId, args.threadId),
-        ilike(chatMessages.content, `%${escapeLike(args.query)}%`),
+        ilike(chatMessages.content, `%${stripLikeWildcards(args.query)}%`),
       ),
     )
     .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))

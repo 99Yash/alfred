@@ -14,8 +14,6 @@
  * components/landing/landing-page.tsx).
  */
 
-import { ASK_USER_TOOL } from "@alfred/contracts";
-import type { SyncedActionStaging } from "@alfred/sync";
 import {
   Archive,
   ArrowRight,
@@ -60,7 +58,6 @@ import {
   useAppForm,
 } from "~/components/ui/v2";
 import { toast } from "~/lib/toast";
-import { ChatApprovalTray } from "../-chat/approval-tray";
 import { QuestionAnswersCard } from "~/components/approvals/question-answers-card";
 import { QuickAccessRail } from "~/components/quick-access-rail";
 import { DimensionChatThread } from "~/components/dimension-chat-thread";
@@ -111,10 +108,9 @@ export function StyleguidePage() {
           </h1>
           <p className="max-w-prose text-sm text-gray-800">
             Toggle between the new <strong className="text-white">App revamp</strong> landing
-            grammar and the <strong className="text-white">Dimension</strong> primitives that still
-            power the in-app surfaces. Both halves are kept side-by-side on purpose: Dimension
-            recipes (gray ramp, frost-border, lavender headings) carry forward into the new
-            direction and are not going away.
+            grammar and the <strong className="text-white">Dimension</strong> reference primitives.
+            The in-app tab uses the production app grammar; the Dimension tab remains as the
+            dark-material reference that informed it.
           </p>
           <div className="pt-1">
             <Tabs
@@ -155,7 +151,7 @@ function DimensionHalf() {
         tone="dimension"
         eyebrow="Before"
         title="Dimension primitives"
-        body="Every primitive in apps/web/src/components/ui/ rendered with default / hover / focus / active / disabled states. These power every authenticated surface — chat, settings, command palette, the right rail."
+        body="Reference primitives retained for comparison. They informed the dark materials, but authenticated chat uses the App primitives from components/ui/v2."
       />
       <TokensSection />
       <ButtonSection />
@@ -1742,15 +1738,13 @@ function V2Half() {
         tone="app"
         eyebrow="In-app"
         title="App grammar (v2)"
-        body="The visitors.now-derived grammar from components/ui/v2 — AppButton, AppCard, AppPill, AppInput — plus the chat approval tray, rendered with mock staging data. Each block renders in forced light and forced dark so both themes stay honest."
+        body="The production grammar from components/ui/v2. Light surfaces follow the visitors-now archive; dark surfaces adapt the Dimension material. Every block renders in both themes."
       />
       <V2ButtonSection />
       <V2SurfaceSection />
       <V2ModalSection />
       <V2ToastSection />
       <V2FrostOverlaySection />
-      <V2ApprovalTraySection />
-      <V2QuestionCardSection />
       <V2QuestionAnswersSection />
     </div>
   );
@@ -2187,111 +2181,6 @@ function V2FrostOverlaySection() {
   );
 }
 
-/* Mock stagings for the approval tray preview. Shapes mirror
- * packages/sync/src/schemas.ts syncedActionStagingSchema. */
-const V2_STAGING_EMAIL: SyncedActionStaging = {
-  id: "stg_styleguide_email",
-  userId: "user_styleguide",
-  runId: "run_styleguide",
-  workflowSlug: "inbox-triage",
-  workflowName: "Inbox triage",
-  trigger: { kind: "manual" },
-  brief: "Reply to Maya about moving the design review to Thursday.",
-  stepId: "step_1",
-  toolCallId: "call_1",
-  toolName: "gmail.send_draft",
-  integration: "gmail",
-  riskTier: "medium",
-  proposedInput: {
-    to: ["maya@acme.com"],
-    subject: "Re: Design review timing",
-    bodyText: [
-      "Thursday at 2pm works on my end — moving the invite now. Shout if that clashes with anything on your side.",
-      "",
-      "Quick recap of what we'll cover so nobody preps the wrong thing:",
-      "— Where the new onboarding flow landed after last week's usability pass",
-      "— The two open questions on the billing page copy",
-      "— Whether we ship the dark-mode toggle this cycle or hold it for the brand refresh",
-      "",
-      "I'll bring the Figma links and the latest numbers from the beta cohort. If you want anything else on the agenda, reply here and I'll fold it in before I send the invite update.",
-      "",
-      "Best,",
-      "Yash",
-    ].join("\n"),
-  },
-  requiresApproval: true,
-  status: "pending",
-  expiresAt: null,
-  notifyAfterAt: null,
-  notifiedAt: null,
-  recentRejection: null,
-  rowVersion: 1,
-  createdAt: "2026-06-07T08:30:00.000Z",
-  updatedAt: null,
-};
-
-const V2_STAGING_EVENT: SyncedActionStaging = {
-  ...V2_STAGING_EMAIL,
-  id: "stg_styleguide_event",
-  stepId: "step_2",
-  toolCallId: "call_2",
-  toolName: "calendar.create_event",
-  integration: "calendar",
-  riskTier: "low",
-  brief: "Add design-review invite for Thursday 2pm and update Maya's invite.",
-  proposedInput: {
-    summary: "Design review",
-    start: "2026-06-11T14:00:00.000Z",
-    end: "2026-06-11T14:45:00.000Z",
-    attendees: ["maya@acme.com"],
-  },
-  recentRejection: {
-    runId: "run_styleguide_prev",
-    reason: "Wrong week — the review moved.",
-    decidedAt: "2026-06-06T18:10:00.000Z",
-  },
-  createdAt: "2026-06-07T08:31:00.000Z",
-};
-
-const V2_STAGING_QUESTION: SyncedActionStaging = {
-  ...V2_STAGING_EMAIL,
-  id: "stg_styleguide_question",
-  stepId: "step_3",
-  toolCallId: "call_3",
-  toolName: ASK_USER_TOOL,
-  integration: "system",
-  // What the tool declares. A question is not an irreversible action, so
-  // ADR-0099 rejects the `high` tier for it by name.
-  riskTier: "no_risk",
-  brief: "Ask which recipients and tone to use before sending the update.",
-  proposedInput: {
-    context: "I drafted the update. Two things are ambiguous before I send it.",
-    questions: [
-      {
-        question: "Who should receive the update?",
-        header: "Recipients",
-        multiSelect: true,
-        options: [
-          { label: "Maya only", description: "The one person who asked for it." },
-          { label: "The design channel", description: "Everyone who joined the review." },
-          { label: "Leadership", description: "Adds two directors to the thread." },
-        ],
-      },
-      {
-        question: "How direct should the tone be?",
-        header: "Tone",
-        multiSelect: false,
-        options: [
-          { label: "Plain", description: "Short sentences, no hedging." },
-          { label: "Warm", description: "Keeps the context and the thanks." },
-        ],
-      },
-    ],
-  },
-  recentRejection: null,
-  createdAt: "2026-06-07T08:32:00.000Z",
-};
-
 function V2QuestionAnswersSection() {
   return (
     <Section
@@ -2344,54 +2233,6 @@ function V2QuestionAnswersSection() {
                   },
                 ],
               }}
-            />
-          </div>
-        )}
-      />
-    </Section>
-  );
-}
-
-function V2QuestionCardSection() {
-  return (
-    <Section
-      id="v2-question-card"
-      title="Chat question card"
-      recipe="routes/-chat/approval-tray.tsx with a `system.ask_user` staging (ADR-0099). The card keeps the chrome and draws its body from components/approvals/question-sheet.tsx, which the /approvals queue draws too: a multi-select question and a single-select one, paged with the arrows and the dots, each with a free-text field. Actions read Dismiss / Continue; Cmd+Enter continues. preview mode — decisions are local no-ops."
-    >
-      <ThemePanes
-        stacked
-        render={(theme) => (
-          <div className="mx-auto w-full max-w-3xl">
-            <ChatApprovalTray
-              runId={`run_styleguide_question_${theme}`}
-              approvals={[V2_STAGING_QUESTION]}
-              awaitingApproval
-              preview
-            />
-          </div>
-        )}
-      />
-    </Section>
-  );
-}
-
-function V2ApprovalTraySection() {
-  return (
-    <Section
-      id="v2-approval-tray"
-      title="Chat approval tray"
-      recipe="routes/-chat/approval-tray.tsx rendered with two mock stagings (collapsible inline cards — open while pending, auto-collapse with a check/✕ badge once decided in preview, Permissions popover with the always-allow switch, always-editable fields, Revise/End run, risk chips, recent-rejection strip). preview mode — decisions are local no-ops, no toast/audio/API/policy writes."
-    >
-      <ThemePanes
-        stacked
-        render={(theme) => (
-          <div className="mx-auto w-full max-w-3xl">
-            <ChatApprovalTray
-              runId={`run_styleguide_${theme}`}
-              approvals={[V2_STAGING_EMAIL, V2_STAGING_EVENT]}
-              awaitingApproval
-              preview
             />
           </div>
         )}

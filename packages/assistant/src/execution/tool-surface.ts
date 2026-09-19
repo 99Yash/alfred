@@ -1,4 +1,5 @@
 import {
+  getStringPath,
   isRecord,
   isToolName,
   type IntegrationAvailabilitySnapshot,
@@ -115,16 +116,13 @@ export function activateTool(activeTools: readonly ToolName[], toolName: ToolNam
 
 /** Apply the bounded effect returned by `system.load_tool`; all other output is inert. */
 export function applyExactToolLoad(activeTools: readonly ToolName[], result: unknown): ToolName[] {
-  if (
-    !isRecord(result) ||
-    result.ok !== true ||
-    typeof result.name !== "string" ||
-    !isRegisteredToolName(result.name)
-  ) {
+  const name = isRecord(result) && result.ok === true ? getStringPath(result, "name") : undefined;
+
+  if (name === undefined || !isRegisteredToolName(name)) {
     return uniqueToolNames(activeTools);
   }
 
-  return activateTool(activeTools, result.name);
+  return activateTool(activeTools, name);
 }
 
 function isRegisteredToolName(name: string): name is ToolName {

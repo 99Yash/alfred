@@ -96,7 +96,15 @@ describe("system-tool agent seam with a registered adapter", () => {
     }
 
     const seen: SeenOps = {};
-    const spawnResult = { ok: true, status: "spawned" };
+
+    const spawnResult = {
+      ok: true,
+      status: "spawned",
+      parentRunId: "run_parent",
+      childRunId: "run_child",
+      subId: "sub_1",
+    } as const;
+
     const childResult = { ok: true, done: true, status: "completed" };
 
     const joinResult = {
@@ -106,8 +114,19 @@ describe("system-tool agent seam with a registered adapter", () => {
       editedByUser: false as const,
     };
 
-    const scratchReadResult = { value: { answer: 42 } };
-    const scratchPromoteResult = { value: { answer: 42 }, zone: "shared" };
+    const scratchReadResult = {
+      value: { answer: 42 },
+      zone: "shared",
+      writtenBy: "boss",
+      writtenAt: 0,
+    } as const;
+
+    const scratchPromoteResult = {
+      value: { answer: 42 },
+      zone: "shared",
+      writtenBy: "boss",
+      writtenAt: 0,
+    } as const;
 
     const adapter: SystemToolAgentAdapter = {
       spawnSubAgent: (args) => {
@@ -163,8 +182,16 @@ describe("system-tool agent seam with a registered adapter", () => {
 
   test("a second distinct adapter is rejected", () => {
     const first: SystemToolAgentAdapter = {
-      spawnSubAgent: () => Promise.resolve(null),
-      readChildRunOutcome: () => Promise.resolve(null),
+      spawnSubAgent: () =>
+        Promise.resolve({
+          ok: true,
+          status: "spawned",
+          parentRunId: "run_parent",
+          childRunId: "run_child",
+          subId: "sub_1",
+        } as const),
+      readChildRunOutcome: () =>
+        Promise.resolve({ ok: true, done: true, status: "completed" } as const),
       resolveAwaitSubAgent: () =>
         Promise.resolve({
           kind: "executed",

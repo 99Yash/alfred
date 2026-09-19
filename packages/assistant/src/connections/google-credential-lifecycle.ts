@@ -133,7 +133,7 @@ interface GoogleCredentialDisconnectDeps {
   commitDisconnect(
     request: GoogleCredentialDisconnectHandlerRequest,
   ): Promise<{ status: GoogleCredentialDisconnectResult["status"] }>;
-  stopWatch(request: { accessToken: string; credentialId: string }): Promise<unknown>;
+  stopWatch(request: { accessToken: string; credentialId: string }): Promise<void>;
   now(): Date;
   warn(label: string, error: unknown): void;
 }

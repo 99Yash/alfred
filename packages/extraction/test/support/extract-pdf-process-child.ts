@@ -2,8 +2,6 @@ import { spawn } from "node:child_process";
 
 const behavior = process.env.PDF_EXTRACTION_TEST_BEHAVIOR;
 
-export {};
-
 /**
  * Hold the inherited stdout open past this child's own exit, the way a
  * grandchild that inherits the pipe does in production. The parent settles on

@@ -11,7 +11,8 @@ import { composeAgentInstructions } from "@alfred/ai/voice";
 import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   AWAIT_SUB_AGENT_TOOL,
-  getPath,
+  getStringPath,
+  isNonEmptyString,
   parseIanaTimezone,
   type AgentTranscriptMessage,
   type ToolName,
@@ -713,7 +714,7 @@ const chatTurnStep: Step<ChatRunState> = {
       const { toolCalls, finishReason, response, warnings, usage } = finalStep;
       const billedInputTokens = usage.inputTokens;
 
-      if (typeof billedInputTokens === "number" && billedInputTokens > 0) {
+      if (billedInputTokens !== undefined && billedInputTokens > 0) {
         const errorRatio = (requestEstimate.inputTokens - billedInputTokens) / billedInputTokens;
 
         const observation = {
@@ -1075,9 +1076,9 @@ const dispatchToolsStep: Step<ChatRunState> = {
               return undefined;
             }
 
-            const id = getPath(completion.result, "artifactId");
+            const id = getStringPath(completion.result, "artifactId");
 
-            return typeof id === "string" && id.length > 0 ? id : undefined;
+            return isNonEmptyString(id) ? id : undefined;
           })();
 
           state.toolCallsLog.push({
@@ -1153,16 +1154,15 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   initialStep: "chat-turn",
   initialState(input) {
     const metadata = input.metadata ?? {};
-    const threadId = typeof metadata.threadId === "string" ? metadata.threadId : null;
+    const threadId = getStringPath(metadata, "threadId") ?? null;
 
     if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
 
     const messageId =
-      typeof metadata.assistantMessageId === "string"
-        ? metadata.assistantMessageId
-        : // `kickId` is the legacy alias for `startId`; keep it as fallback for
-          // runs persisted before the rename so the hash stays stable.
-          `msg_${Math.abs(hashString(`${threadId}:${input.userId}:${typeof metadata.startId === "string" ? metadata.startId : typeof metadata.kickId === "string" ? metadata.kickId : ""}`))}`;
+      getStringPath(metadata, "assistantMessageId") ??
+      // `kickId` is the legacy alias for `startId`; keep it as fallback for
+      // runs persisted before the rename so the hash stays stable.
+      `msg_${Math.abs(hashString(`${threadId}:${input.userId}:${getStringPath(metadata, "startId") ?? getStringPath(metadata, "kickId") ?? ""}`))}`;
 
     const tier: ChatModelTier = metadata.tier === "deep" ? "deep" : "standard";
 
@@ -1170,11 +1170,9 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       ? metadata.allowedIntegrations.filter((v): v is string => typeof v === "string")
       : [];
 
-    const userMessageId =
-      typeof metadata.userMessageId === "string" ? metadata.userMessageId : undefined;
+    const userMessageId = getStringPath(metadata, "userMessageId");
 
-    const artifactTargetId =
-      typeof metadata.artifactTargetId === "string" ? metadata.artifactTargetId : undefined;
+    const artifactTargetId = getStringPath(metadata, "artifactTargetId");
 
     return {
       threadId,
@@ -1214,7 +1212,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   },
   async initialTranscript(input, context) {
     const metadata = input.metadata ?? {};
-    const threadId = typeof metadata.threadId === "string" ? metadata.threadId : null;
+    const threadId = getStringPath(metadata, "threadId") ?? null;
 
     if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
     const ex = context?.db ?? db();
@@ -1272,7 +1270,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   dedupKey(input) {
     const id = input.metadata?.userMessageId;
 
-    return typeof id === "string" && id.length > 0 ? `chat:${id}` : null;
+    return isNonEmptyString(id) ? `chat:${id}` : null;
   },
   steps: {
     "chat-turn": chatTurnStep,

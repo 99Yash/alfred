@@ -106,14 +106,13 @@ export function ComposerToolbar({
                 className={cn(
                   "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
                   "app-press transition-[opacity,filter,transform]",
-                  "hover:scale-[1.04] active:scale-[0.97]",
+                  "hover:scale-[1.04]",
                   "text-(--app-accent-fg)",
                   "bg-(image:--app-cta-bg)",
                   "shadow-(--app-button-primary-shadow)",
                   "hover:brightness-[1.06]",
                   "hover:shadow-(--app-button-primary-shadow-hover)",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-                  "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+                  "app-focus",
                 )}
               >
                 <Check size={16} strokeWidth={2.5} />
@@ -143,8 +142,7 @@ export function ComposerToolbar({
                     "bg-app-red-4 text-white",
                     "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
                     "hover:brightness-[1.05]",
-                    "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-                    "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+                    "app-focus",
                   )}
                 >
                   <Square size={12} strokeWidth={2.5} fill="currentColor" />
@@ -158,10 +156,8 @@ export function ComposerToolbar({
                 aria-label={sending ? "Sending" : disabled ? "Waiting for approval" : "Send"}
                 className={cn(
                   "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
-                  "app-press transition-[opacity,filter,transform]",
-                  "active:scale-[0.97] enabled:hover:scale-[1.04]",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-                  "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+                  "app-focus app-press transition-[opacity,filter,transform]",
+                  "enabled:hover:scale-[1.04]",
                   canSend
                     ? cn(
                         "text-(--app-accent-fg)",
@@ -215,7 +211,7 @@ function ComposerIcon({
           ? "bg-app-purple-1 text-app-purple-4"
           : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
         "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-app-fg-3",
-        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+        "app-focus",
       )}
     >
       {children}
