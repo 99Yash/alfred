@@ -9,12 +9,11 @@
  * that lands a beat late on a cold mobile load, so `.app` momentarily falls
  * through to the LIGHT `:root` baseline. With `color-scheme: dark` already
  * forcing a dark UA canvas (see index.html), the result is a dark page whose
- * focus rings paint their `ring-offset` in the light `--app-background`
- * (`#ffffff`) — a bright white band around the auto-focused chat composer until
- * refresh. Stamping the resolved attribute makes `.app` carry the dark token
- * block deterministically, with no @media timing dependency. The provider's
- * matchMedia listener keeps `resolved` in sync when the OS theme changes, so
- * "system" still auto-follows — it just does so through React, not raw CSS.
+ * app surface and accent tokens briefly use their light values. Stamping the
+ * resolved attribute makes `.app` carry the dark token block deterministically,
+ * with no @media timing dependency. The provider's matchMedia listener keeps
+ * `resolved` in sync when the OS theme changes, so "system" still auto-follows
+ * — it just does so through React, not raw CSS.
  */
 
 import { use, type HTMLAttributes } from "react";

@@ -62,7 +62,9 @@ export async function stopApprovalExpiryWorker(): Promise<void> {
   _worker = undefined;
 }
 
-async function processApprovalExpiryJob(job: Job<ApprovalExpiryJobData>): Promise<unknown> {
+async function processApprovalExpiryJob(
+  job: Job<ApprovalExpiryJobData>,
+): Promise<ExpireStagingResult> {
   const { stagingId, userId } = approvalExpiryJobDataSchema.parse(job.data);
   const result = await expireStaging({ stagingId, userId });
 

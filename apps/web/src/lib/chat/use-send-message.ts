@@ -47,11 +47,10 @@ export type SendMessage = (
 const TURN_START_TIMEOUT_MS = 30_000;
 
 function safeRandomId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
+  if (typeof crypto === "undefined")
+    return `id_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  return `id_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return crypto.randomUUID?.() ?? `id_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 /**

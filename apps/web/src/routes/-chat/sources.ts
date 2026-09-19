@@ -1,3 +1,4 @@
+import { getStringPath, isNonEmptyString } from "@alfred/contracts";
 import { asRecord, parseJsonRecord } from "~/lib/json-record";
 import { domainOf } from "~/lib/favicon";
 import type { ToolCallView } from "./tool-call-presentation";
@@ -24,18 +25,17 @@ function looksLikeDomain(value: string): boolean {
  * citation shape persisted on older messages.
  */
 export function toSource(citation: unknown): Source | null {
-  if (typeof citation === "string") {
-    if (citation.length === 0) return null;
+  if (isNonEmptyString(citation)) {
     const domain = domainOf(citation);
 
     return { label: domain, faviconDomain: domain, href: citation };
   }
 
   const record = asRecord(citation);
-  const href = typeof record?.url === "string" ? record.url : undefined;
+  const href = getStringPath(record, "url");
 
   if (!href) return null;
-  const title = typeof record?.title === "string" ? record.title.trim() : "";
+  const title = getStringPath(record, "title")?.trim() ?? "";
   const hostFallback = domainOf(href);
 
   return {

@@ -32,9 +32,7 @@ export interface BriefingEmailProps {
 
 const DEFAULT_CONTENT = `Good morning, Yash.
 
-Quiet overnight — nothing in the priority buckets that needs you before your first block. The **Redis URI** thread from yesterday is still the one open loop; no new replies since the evening briefing.
-
-A couple of newsletters and one calendar invite landed, both triaged out. You're clear to start on whatever you'd planned.
+Quiet overnight. Nothing in the priority buckets that needs you before your first block.
 
 Have a good one.`;
 

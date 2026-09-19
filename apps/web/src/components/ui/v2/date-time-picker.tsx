@@ -140,9 +140,7 @@ export function AppDateTimePicker({
           className={cn(
             "flex h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-sm",
             "app-elevated app-press bg-app-bg-1 text-app-fg-4",
-            "transition-shadow outline-none",
-            "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-            "data-[state=open]:ring-2 data-[state=open]:ring-app-purple-2 data-[state=open]:ring-offset-4 data-[state=open]:ring-offset-app-background",
+            "app-focus-inset app-focus-open transition-shadow",
             "disabled:cursor-not-allowed disabled:opacity-60",
             className,
           )}
@@ -221,8 +219,7 @@ export function AppDateTimePicker({
                           onClick={() => commitDay(day)}
                           onKeyDown={(event) => handleDayKeyDown(event, index)}
                           className={cn(
-                            "grid h-8 w-full place-items-center rounded-lg text-[13px] tabular-nums transition-colors outline-none",
-                            "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-1",
+                            "app-focus grid h-8 w-full place-items-center rounded-lg text-[13px] tabular-nums transition-colors",
                             isSelected
                               ? "bg-[image:var(--app-cta-bg)] text-[var(--app-accent-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
                               : cn(
@@ -292,8 +289,8 @@ export function AppDateTimePicker({
                 setOpen(false);
               }}
               className={cn(
-                "mt-2 flex h-7 w-full items-center justify-center gap-1.5 rounded-lg text-[12px] text-app-fg-3 outline-none",
-                "hover:bg-app-bg-a1 hover:text-app-fg-4 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-1",
+                "app-focus mt-2 flex h-7 w-full items-center justify-center gap-1.5 rounded-lg text-[12px] text-app-fg-3",
+                "hover:bg-app-bg-a1 hover:text-app-fg-4",
               )}
             >
               <X size={12} />
@@ -321,8 +318,8 @@ function NavButton({
       aria-label={label}
       onClick={onClick}
       className={cn(
-        "grid size-7 place-items-center rounded-lg text-app-fg-3 transition-colors outline-none",
-        "hover:bg-app-bg-a1 hover:text-app-fg-4 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-1",
+        "app-focus grid size-7 place-items-center rounded-lg text-app-fg-3 transition-colors",
+        "hover:bg-app-bg-a1 hover:text-app-fg-4",
       )}
     >
       {children}

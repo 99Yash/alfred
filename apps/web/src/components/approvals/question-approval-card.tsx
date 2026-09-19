@@ -59,7 +59,7 @@ export function QuestionApprovalCard({
                 params={{ workflow: staging.workflowSlug }}
                 className={cn(
                   "inline-flex items-center gap-1 rounded font-medium transition-colors hover:text-app-fg-4",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+                  "app-focus",
                 )}
               >
                 <Workflow size={12} />

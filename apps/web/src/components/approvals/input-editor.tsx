@@ -2,6 +2,7 @@ import {
   calendarListEventsInput,
   toolInputFields,
   toJsonValue,
+  toStringArray,
   type FieldSpec,
   type ToolName,
 } from "@alfred/contracts";
@@ -221,7 +222,7 @@ function FieldControl({
       return (
         <AppTextarea
           id={id}
-          value={Array.isArray(value) ? value.filter((v) => typeof v === "string").join("\n") : ""}
+          value={toStringArray(value).join("\n")}
           rows={3}
           disabled={disabled}
           placeholder="One per line"

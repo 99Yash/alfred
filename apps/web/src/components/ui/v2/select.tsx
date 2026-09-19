@@ -130,9 +130,7 @@ export function AppSelect({
           className={cn(
             "flex h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-sm",
             "app-elevated app-press bg-app-bg-1 text-app-fg-4",
-            "transition-shadow outline-none",
-            "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-            "data-[state=open]:ring-2 data-[state=open]:ring-app-purple-2 data-[state=open]:ring-offset-4 data-[state=open]:ring-offset-app-background",
+            "app-focus-inset app-focus-open transition-shadow",
             "disabled:cursor-not-allowed disabled:opacity-60",
             className,
           )}

@@ -62,8 +62,7 @@ export function AppPill({
         "inline-flex items-center justify-center gap-1.5",
         "h-8 rounded-lg px-2.5 text-sm font-medium whitespace-nowrap",
         "transition-[box-shadow,background-color,transform]",
-        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-        "app-press",
+        "app-focus app-press",
         isAccent && tone ? TONE[tone] : cn("bg-app-bg-1 text-app-fg-4", "app-elevated"),
         className,
       )}

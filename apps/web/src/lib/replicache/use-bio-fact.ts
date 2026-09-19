@@ -1,3 +1,4 @@
+import { isNonEmptyString } from "@alfred/contracts";
 import { type FactValue, SYNC_MODEL, type SyncedFact } from "@alfred/sync";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
@@ -24,7 +25,7 @@ export interface BioFactState {
 
 /** The fact's `value` is `unknown`; bio is always a paragraph string. */
 function toText(value: FactValue | undefined): string {
-  return typeof value === "string" ? value : "";
+  return isNonEmptyString(value) ? value : "";
 }
 
 /**

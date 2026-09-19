@@ -2077,6 +2077,30 @@
     box-shadow: var(--app-shadow-elevated-hover);
   }
 
+  /* Quiet focus treatment for the app grammar. The old 2px ring plus a 4px
+   * background-coloured gap drew a second silhouette around every control.
+   * Keep keyboard focus clear with a single accent hairline instead: small
+   * controls sit 2px outside their edge, while inputs and large composite
+   * surfaces draw the same stroke just inside their existing rim. */
+  .app-focus,
+  .app-focus-inset,
+  .app-focus-within {
+    outline: none;
+  }
+  .app-focus:focus-visible {
+    outline: 1px solid var(--app-accent-ring);
+    outline-offset: 2px;
+  }
+  .app-focus-inset:focus-visible,
+  .app-focus-open[data-state="open"] {
+    outline: 1px solid var(--app-accent-ring);
+    outline-offset: -1px;
+  }
+  .app-focus-within:has(:focus-visible) {
+    outline: 1px solid var(--app-accent-ring);
+    outline-offset: -1px;
+  }
+
   /* `composer-frost` — the chat composer's floating frosted-glass surface,
    * ported from dimension's input material (archive/dimension) and re-expressed
    * in Alfred's tokens. Three ingredients carry the "physical glass panel" feel:
@@ -2418,10 +2442,9 @@
     z-index: -1;
   }
 
-  /* Active-press microinteraction used across primitives. Subtle — 1%,
-   * not 5% — just enough to feel responsive. */
+  /* Active-press microinteraction used across primitives. */
   .app-press:active:not(:disabled) {
-    transform: scale(0.99);
+    transform: scale(0.96);
   }
 
   /* Card entrance — fade + 6px rise + slight blur. Use with inline

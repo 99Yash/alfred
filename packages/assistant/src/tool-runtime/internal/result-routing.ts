@@ -1,5 +1,6 @@
 import {
   boundToolResult,
+  getStringPath,
   isRecord,
   toJsonValue,
   type AgentTranscriptMessage,
@@ -158,8 +159,9 @@ function executedResultIsIncomplete(value: unknown): boolean {
   if (!isRecord(value)) return false;
 
   if (value.ok === false || value.success === false) return true;
+  const status = getStringPath(value, "status");
 
-  return typeof value.status === "string" && INCOMPLETE_ACTION_STATUSES.has(value.status);
+  return status !== undefined && INCOMPLETE_ACTION_STATUSES.has(status);
 }
 
 export function toolCallLogStatus(

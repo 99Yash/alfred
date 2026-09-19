@@ -1,4 +1,4 @@
-import { isRecord, type AgentTranscriptMessage } from "@alfred/contracts";
+import { getStringPath, type AgentTranscriptMessage } from "@alfred/contracts";
 
 /**
  * Is `message` an SDK-synthesized tool-result dup we should drop from history?
@@ -25,9 +25,9 @@ export function isSynthesizedToolDup(
   if (!Array.isArray(message.content) || message.content.length === 0) return false;
 
   return message.content.every((part) => {
-    const id = isRecord(part) ? part.toolCallId : undefined;
+    const id = getStringPath(part, "toolCallId");
 
-    return typeof id === "string" && stepCallIds.has(id);
+    return id !== undefined && stepCallIds.has(id);
   });
 }
 
