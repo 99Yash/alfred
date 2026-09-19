@@ -32,29 +32,43 @@ const HAS_ALPHANUMERIC_RE = /[\p{L}\p{N}]/u;
  * A whole line that only reports the absence of a profile.
  *
  * Anchored at BOTH ends, and its middle names the absence VOCABULARY the
- * synthesis prompt writes: the subject `public profile`, an optional copula,
- * then one of four report verbs. The verb is what separates a placeholder from
- * a real prior, because a prior that opens with the same subject continues into
- * a fact instead — `No confident public profile beyond GitHub 99Yash` carries no
- * report verb and renders.
+ * synthesis prompt writes: the singular subject `public profile`, an optional
+ * copula, one of four report verbs, then a short tail of at most 20 characters
+ * holding no `.`, `,`, `;` or `:`.
  *
- * After the verb the pattern allows at most 20 characters holding no `.`, `,`,
- * `;` or `:`. That window is for a trailing decoration on the placeholder
- * itself (` online`, ` for this person`), not for content. The anchors keep a
- * real telegraphic synthesis (~300 words, many sentences) out, because its later
- * sentences fall outside the window.
+ * The separator is the CONJUNCTION of the verb set and the tail bound. Neither
+ * half separates a placeholder from a real prior alone, and both halves were
+ * measured on the shipped pattern:
  *
- * Measured on the shipped pattern: 9 placeholder wordings refuse, 8 real priors
- * render, including the two short priors the campaign review named. The false
- * REJECT window is now 20 characters wide — a prior reading
- * `No public profile found <=20 characters of fact with no . , ; :` still drops,
- * and 21 characters render. The other direction fails OPEN: a placeholder that
- * reports absence with a verb outside the four, such as
- * `No public profile surfaced.`, renders.
+ * - The verb set alone does not. `No confident public profile.` is a pure
+ *   placeholder, carries no report verb, and RENDERS. `No public profile found
+ *   beyond GitHub` carries the verb plus a real fact, and DROPS.
+ * - The tail bound alone does not. Every escape named below sits well inside 20
+ *   characters.
  *
- * Keep both anchors and the verb set if this pattern is ever widened: a false
- * match drops a REAL prior with no error and no log, and the triage classifier
- * is simply less informed after it.
+ * One of those 20 characters is the space that separates the verb from whatever
+ * follows, so the window holds 19 characters of text: a 19-character fact drops
+ * and a 20-character fact renders. The window is therefore NOT limited to a
+ * trailing decoration on the placeholder. It swallows any short fact, and that
+ * is a real false REJECT: `No public profile located at Stripe`,
+ * `No public profile identified in India` and `No public profile was found at
+ * Acme Corp` all drop. `holdsResearchPrior` folds whitespace runs to one space
+ * before it matches, so a NEWLINE also lands inside the window, and the
+ * two-line chunk `"No public profile found\nActive on GitHub."` drops.
+ *
+ * The anchors keep a real telegraphic synthesis (~300 words, many sentences)
+ * out, because its later sentences fall outside the window.
+ *
+ * The other direction fails OPEN, and the escapes are two classes rather than
+ * one. Of seven measured placeholders that render, five carry no verb from the
+ * set (`No confident public profile.`, `No public profile for this person.`,
+ * `No confident public profile match.`, `No public profile was discovered.`,
+ * `No public profile surfaced.`) and two miss the singular subject
+ * (`No public profiles were found.`, `Nothing was found about this person.`).
+ *
+ * Keep both anchors, the verb set AND the tail bound if this pattern is ever
+ * widened: a false match drops a REAL prior with no error and no log, and the
+ * triage classifier is simply less informed after it.
  *
  * It is a tier-3 guard: a wording it does not name still renders, and only a
  * reader notices.
@@ -83,32 +97,54 @@ export function holdsResearchPrior(content: string): boolean {
 /** {@link NO_PUBLIC_PROFILE_LINE} without its terminal punctuation. */
 const NO_PUBLIC_PROFILE_STEM = NO_PUBLIC_PROFILE_LINE.replace(/[.!]$/u, "");
 
-// The shared const pins the STRING the prompt asks for; the pattern above is a
-// SECOND declaration that must keep refusing that string AND keep admitting a
-// real prior built from it. Both directions run at module load rather than on
-// trust: an edit that breaks either one fails the first import instead of
-// dropping a prior on every classified email.
+type GuardCase = { readonly subject: string; readonly holdsPrior: boolean };
+
+/**
+ * The tracked record of what the pattern above was measured against, and the
+ * load-time control that keeps each answer true.
+ *
+ * The shared const pins the STRING the prompt asks for; the pattern is a SECOND
+ * declaration that must keep refusing that string AND keep admitting a real
+ * prior built from it. A refusal control alone catches nothing: all 12 widenings
+ * counted below still refuse the constant, so that control stays silent for
+ * every one. Only a positive control derived from the same constant sees them.
+ *
+ * Each subject is sized to a boundary, not to a comfortable example:
+ *
+ * - the placeholder itself, which must refuse;
+ * - the placeholder followed by a real fact, which must render — the `$` anchor
+ *   and the `[^.,;:]` class;
+ * - a tail of exactly 21 characters, one past the bound, which must render —
+ *   any raised bound from 21 upward refuses it. A longer control has a blind
+ *   band: the 43-character tail this file shipped in round 2 stayed silent at
+ *   `{0,21}` through `{0,42}`, and `{0,40}` is the exact bound round 1 shipped
+ *   and round 2 proved broken;
+ * - a matching subject with a verb outside the set, which must render — a verb
+ *   alternation widened to `\w+` refuses it.
+ */
+const GUARD_CASES = [
+  { subject: NO_PUBLIC_PROFILE_LINE, holdsPrior: false },
+  { subject: `${NO_PUBLIC_PROFILE_LINE} Works at Acme as a staff engineer.`, holdsPrior: true },
+  { subject: `${NO_PUBLIC_PROFILE_STEM} beyond a GitHub page`, holdsPrior: true },
+  { subject: "No public profile surfaced.", holdsPrior: true },
+] satisfies readonly GuardCase[];
+
+// Runs at module load rather than on trust: an edit that breaks any answer above
+// fails the first import instead of dropping a prior on every classified email.
 //
-// The refusal control alone is the cheap half. Measured against four plausible
-// widenings, it catches none; the two positive controls catch three — drop the
-// `$` anchor, replace the tail with `.*`, raise the tail bound to 400.
+// Measured against 12 plausible widenings, this table catches 9: dropping the
+// `$` anchor, replacing the tail with `.*`, and raising the tail bound to any of
+// 21, 30, 40, 42, 43 or 400, plus widening the verb alternation to `\w+`.
 //
-// Two gaps stay tier 5, with no control here: dropping the `^` anchor, and
-// widening the `[^.,;:]` character class. And the guard runs on import and in
-// `barrel-load.test.ts`, never in `pnpm check`.
+// Three stay tier 5, with no control here: dropping the `^` anchor, widening the
+// `[^.,;:]` character class, and widening the copula alternation. And the block
+// runs on import and in `barrel-load.test.ts`, never in `pnpm check`.
 //
-// `assertToolNameRegistry` in `@alfred/ai` (`tool-name-codec.ts:36,73`) runs at
+// `assertToolNameRegistry` in `@alfred/ai` (`tool-name-codec.ts:37,74`) runs at
 // the same timing. Its shape differs: it asserts a round trip from a named
 // exported function, while this file is a bare top-level block.
-if (holdsResearchPrior(NO_PUBLIC_PROFILE_LINE)) {
-  throw new Error("NO_PUBLIC_PROFILE_RE no longer refuses NO_PUBLIC_PROFILE_LINE");
-}
-
-for (const prior of [
-  `${NO_PUBLIC_PROFILE_LINE} Works at Acme as a staff engineer.`,
-  `${NO_PUBLIC_PROFILE_STEM} beyond a GitHub page and a conference talk`,
-]) {
-  if (!holdsResearchPrior(prior)) {
-    throw new Error(`NO_PUBLIC_PROFILE_RE now refuses a real prior: ${prior}`);
+for (const { subject, holdsPrior } of GUARD_CASES) {
+  if (holdsResearchPrior(subject) !== holdsPrior) {
+    throw new Error(`NO_PUBLIC_PROFILE_RE no longer answers ${String(holdsPrior)} for: ${subject}`);
   }
 }
