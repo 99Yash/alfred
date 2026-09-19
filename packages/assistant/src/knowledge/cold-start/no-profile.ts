@@ -31,27 +31,36 @@ const HAS_ALPHANUMERIC_RE = /[\p{L}\p{N}]/u;
 /**
  * A whole line that only reports the absence of a profile.
  *
- * Anchored at BOTH ends, and its tail is bounded to 40 characters that hold no
- * `.`, `,`, `;` or `:`. Both bounds matter, and neither is a content test:
+ * Anchored at BOTH ends, and its middle names the absence VOCABULARY the
+ * synthesis prompt writes: the subject `public profile`, an optional copula,
+ * then one of four report verbs. The verb is what separates a placeholder from
+ * a real prior, because a prior that opens with the same subject continues into
+ * a fact instead — `No confident public profile beyond GitHub 99Yash` carries no
+ * report verb and renders.
  *
- * - The anchors mean a real telegraphic synthesis (~300 words, many sentences)
- *   cannot match, because its later sentences fall outside the tail.
- * - The punctuation class and the 40-character length are what keep a SHORT
- *   real prior that OPENS with the absence phrase — "No public profile beyond a
- *   LinkedIn page; works at Acme as a staff engineer." — outside the pattern.
- *   {@link NO_PUBLIC_PROFILE_LINE} needs 10 tail characters and the stored
- *   paraphrase needs 31, so 40 is the smallest round bound that covers both.
+ * After the verb the pattern allows at most 20 characters holding no `.`, `,`,
+ * `;` or `:`. That window is for a trailing decoration on the placeholder
+ * itself (` online`, ` for this person`), not for content. The anchors keep a
+ * real telegraphic synthesis (~300 words, many sentences) out, because its later
+ * sentences fall outside the window.
  *
- * Keep both anchors and both bounds if this pattern is ever widened: a false
+ * Measured on the shipped pattern: 9 placeholder wordings refuse, 8 real priors
+ * render, including the two short priors the campaign review named. The false
+ * REJECT window is now 20 characters wide — a prior reading
+ * `No public profile found <=20 characters of fact with no . , ; :` still drops,
+ * and 21 characters render. The other direction fails OPEN: a placeholder that
+ * reports absence with a verb outside the four, such as
+ * `No public profile surfaced.`, renders.
+ *
+ * Keep both anchors and the verb set if this pattern is ever widened: a false
  * match drops a REAL prior with no error and no log, and the triage classifier
- * is simply less informed after it. Residual, in the other direction: a short
- * real prior that opens with the phrase and carries no `.`, `,`, `;` or `:` in
- * its first 40 characters is still dropped.
+ * is simply less informed after it.
  *
  * It is a tier-3 guard: a wording it does not name still renders, and only a
  * reader notices.
  */
-const NO_PUBLIC_PROFILE_RE = /^no (?:confident )?public profile\b[^.,;:]{0,40}[.!]?$/iu;
+const NO_PUBLIC_PROFILE_RE =
+  /^no (?:confident )?public profile(?: (?:was|could be|is|has been))? (?:found|identified|located|available)\b[^.,;:]{0,20}[.!]?$/iu;
 
 /**
  * True when a chunk carries a prior about the user. False for a line
@@ -71,11 +80,35 @@ export function holdsResearchPrior(content: string): boolean {
   return !NO_PUBLIC_PROFILE_RE.test(collapsed);
 }
 
+/** {@link NO_PUBLIC_PROFILE_LINE} without its terminal punctuation. */
+const NO_PUBLIC_PROFILE_STEM = NO_PUBLIC_PROFILE_LINE.replace(/[.!]$/u, "");
+
 // The shared const pins the STRING the prompt asks for; the pattern above is a
-// SECOND declaration that must keep refusing it. Verify at module load rather
-// than trust the pair: an edit that narrows the pattern past the sentence fails
-// the first import instead of rendering the placeholder on every classified
-// email. Same timing and same shape as `assertToolNameRegistry` in `@alfred/ai`.
+// SECOND declaration that must keep refusing that string AND keep admitting a
+// real prior built from it. Both directions run at module load rather than on
+// trust: an edit that breaks either one fails the first import instead of
+// dropping a prior on every classified email.
+//
+// The refusal control alone is the cheap half. Measured against four plausible
+// widenings, it catches none; the two positive controls catch three — drop the
+// `$` anchor, replace the tail with `.*`, raise the tail bound to 400.
+//
+// Two gaps stay tier 5, with no control here: dropping the `^` anchor, and
+// widening the `[^.,;:]` character class. And the guard runs on import and in
+// `barrel-load.test.ts`, never in `pnpm check`.
+//
+// `assertToolNameRegistry` in `@alfred/ai` (`tool-name-codec.ts:36,73`) runs at
+// the same timing. Its shape differs: it asserts a round trip from a named
+// exported function, while this file is a bare top-level block.
 if (holdsResearchPrior(NO_PUBLIC_PROFILE_LINE)) {
   throw new Error("NO_PUBLIC_PROFILE_RE no longer refuses NO_PUBLIC_PROFILE_LINE");
+}
+
+for (const prior of [
+  `${NO_PUBLIC_PROFILE_LINE} Works at Acme as a staff engineer.`,
+  `${NO_PUBLIC_PROFILE_STEM} beyond a GitHub page and a conference talk`,
+]) {
+  if (!holdsResearchPrior(prior)) {
+    throw new Error(`NO_PUBLIC_PROFILE_RE now refuses a real prior: ${prior}`);
+  }
 }
