@@ -7,8 +7,12 @@ import {
   type ToolRiskTier,
   type ToolAvailabilityResult,
   type ToolUnavailabilityCode,
+  type ExternalToolRef,
+  type McpToolDiscoveryHit,
 } from "@alfred/contracts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
+import { searchMcpToolsLocal } from "@alfred/assistant/connections/mcp";
+import { resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
 import {
   evaluateToolAvailability,
   evaluateToolCatalog,
@@ -24,6 +28,8 @@ interface ToolCandidateBase {
   summary: string;
   risk: ToolRiskTier;
   reason: string;
+  /** Present only for a connected catalog hit; pass this exact ref to mcp.call. */
+  ref?: ExternalToolRef;
 }
 
 /**
@@ -85,13 +91,102 @@ export async function searchAvailableTools(args: {
   const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
   const availability = evaluateToolCatalog(snapshot, tools, args.allowedIntegrations, args.context);
 
-  return searchToolCatalog({
+  const curated = rankToolCatalog({
     query: args.query,
-    limit: args.limit,
     tools,
     includeUnavailable: true,
     access: { allowedIntegrations: args.allowedIntegrations, availability },
   });
+
+  const mcpAvailable = availability.get("mcp.call")?.available === true;
+  const remote: RankedCandidate[] = [];
+
+  if (mcpAvailable) {
+    // The local catalog read is bounded and only returns current owned revisions.
+    // A full query string rarely occurs verbatim in a descriptor, so scan compact
+    // pages and rank individual fields against the same query tokens as curated tools.
+    let cursor: string | null = null;
+
+    for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
+      const page = await searchMcpToolsLocal({
+        userId: args.userId,
+        detail: "summary",
+        limit: 10,
+        ...(cursor ? { cursor } : {}),
+      });
+
+      for (const hit of page.tools) {
+        const score = scoreMcpHit(hit, args.query);
+
+        if (score <= 0) continue;
+
+        remote.push({
+          name: "mcp.call",
+          title: hit.title ?? hit.ref.remoteName,
+          summary: hit.description ?? "Connected MCP tool",
+          risk: "high",
+          reason: `connected MCP catalog: ${hit.namespace}`,
+          ref: hit.ref,
+          availability: "available",
+          score,
+          preloadEligible: false,
+        });
+      }
+
+      cursor = page.nextCursor;
+
+      if (!cursor) break;
+    }
+  }
+
+  const ranked = [...curated, ...remote].sort(
+    (a, b) =>
+      rankAvailability(b) - rankAvailability(a) ||
+      b.score - a.score ||
+      (a.ref ? 1 : 0) - (b.ref ? 1 : 0) ||
+      a.title.localeCompare(b.title),
+  );
+
+  const selected = ranked.slice(0, boundedLimit(args.limit, 5));
+
+  return Promise.all(
+    selected.map(async ({ score: _score, preloadEligible: _preloadEligible, ...candidate }) => {
+      if (!candidate.ref) return candidate;
+
+      const risk = await resolveMcpCallRiskTier({
+        userId: args.userId,
+        connectionId: candidate.ref.connectionId,
+        remoteName: candidate.ref.remoteName,
+        catalogRevision: candidate.ref.catalogRevision,
+      });
+
+      return { ...candidate, risk };
+    }),
+  );
+}
+
+function scoreMcpHit(hit: McpToolDiscoveryHit, query: string): number {
+  const tokens = meaningfulTokens(normalize(query));
+
+  const name = meaningfulTokens(
+    normalize(hit.ref.remoteName.replaceAll("-", " ").replaceAll("_", " ")),
+  );
+
+  const title = meaningfulTokens(normalize(hit.title ?? ""));
+  const description = meaningfulTokens(normalize(hit.description ?? ""));
+  let score = 0;
+
+  for (const token of tokens) {
+    if (name.has(token)) score += 55;
+    else if (title.has(token)) score += 30;
+    else if (description.has(token)) score += 4;
+  }
+
+  if (tokens.has(normalize(hit.namespace)) || tokens.has(normalize(hit.connection.label))) {
+    score += 10;
+  }
+
+  return score;
 }
 
 /** Deterministic first-turn selection. Full schemas are returned only by name. */

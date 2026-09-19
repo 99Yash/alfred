@@ -1,6 +1,6 @@
 /**
  * The two projected MCP tools (PRD #540). The open-ended external catalog never
- * widens the closed `ToolName`: a fixed `mcp.call` / `mcp.list_tools` pair carries
+ * widens the closed `ToolName`: fixed MCP actions carry
  * the `ExternalToolRef` (connection + remote name + catalog revision) in its ARGS,
  * and every call is authorized independently at Alfred's dispatch boundary.
  *
@@ -19,9 +19,15 @@
  *    `dispatchToolCall`.
  */
 
-import { mcpCallInput, mcpListToolsInput, unknownEffectEnvelopeSchema } from "@alfred/contracts";
 import {
-  listMcpToolsLocal,
+  mcpCallInput,
+  mcpToolInspectInputSchema,
+  mcpToolSearchInputSchema,
+  unknownEffectEnvelopeSchema,
+} from "@alfred/contracts";
+import {
+  inspectMcpToolLocal,
+  searchMcpToolsLocal,
   type ExternalToolRef,
   type McpCallEnvelope,
 } from "@alfred/assistant/connections/mcp";
@@ -87,7 +93,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     // server, so it always confirms regardless of policy (ADR-0069 floor).
     riskTier: "high",
     description:
-      "Invoke a tool on a connected MCP server. Supply the `connectionId`, the remote `remoteName`, the `catalogRevision` you selected the tool under (from mcp.list_tools), and the tool's `arguments` as a JSON object matching that tool's schema. The call is validated against the server's exact schema and routed through Alfred's approval + durable-execution boundary; a write that may have been delivered but not confirmed comes back as `status:\"unknown\"` and MUST NOT be repeated — check its state instead.",
+      "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by system.search_tools or mcp.list_tools, plus `arguments` matching the tool schema. Use mcp.inspect_tool if you need the full schema. The call is validated against the server's exact schema and routed through Alfred's approval + durable-execution boundary; a write that may have been delivered but not confirmed comes back as `status:\"unknown\"` and MUST NOT be repeated — check its state instead.",
     discovery: {
       aliases: ["mcp call", "call connected tool", "run mcp tool", "invoke mcp"],
       tags: ["mcp", "integration", "external"],
@@ -147,7 +153,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     action: "list_tools",
     riskTier: "no_risk",
     description:
-      'Search the tools in all of your connected MCP catalogs without first knowing a connection. Returns compact hits with an exact `ref`, namespace, and connection identity. `query` matches tool names, titles, and descriptions only; scope to one connection with `namespace` or `connectionId`. Continue bounded scans with `cursor`. Pass `detail:"names"` to omit prose. To inspect one full descriptor, pass ONLY a previously returned `ref` and no other field: search fields and `ref` are exclusive, and a request that mixes them is rejected. This is a local read of Alfred\'s validated catalogs and never hits the network.',
+      "Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. `query` matches tool names, titles, and descriptions. Scope with `namespace` or `connectionId`; continue with `cursor`. Use mcp.inspect_tool to inspect a full descriptor. This is a local read.",
     discovery: {
       aliases: ["list mcp tools", "mcp catalog", "what mcp tools", "connected tools"],
       tags: ["mcp", "integration", "discovery"],
@@ -169,7 +175,25 @@ export const mcpTools: readonly RegisteredTool[] = [
     // to another `mcp` tool.
     policyGateWaiver:
       "#540 clarification #5: bounded local read of Alfred's own validated MCP catalog — no outbound action, nothing to approve",
-    inputSchema: mcpListToolsInput,
-    execute: (input, ctx) => listMcpToolsLocal({ userId: ctx.userId, request: input }),
+    inputSchema: mcpToolSearchInputSchema,
+    execute: (input, ctx) => searchMcpToolsLocal({ userId: ctx.userId, ...input }),
+  }),
+  liveTool({
+    integration: "mcp",
+    action: "inspect_tool",
+    riskTier: "no_risk",
+    description:
+      "Inspect one connected MCP tool by the exact ref returned by mcp.list_tools or system.search_tools. Pass only `ref`.",
+    discovery: {
+      aliases: ["inspect mcp tool", "mcp tool schema"],
+      tags: ["mcp", "integration", "discovery"],
+      entities: ["mcp tool", "descriptor"],
+      verbs: ["inspect", "describe"],
+      relatedTools: ["mcp.list_tools", "mcp.call"],
+    },
+    staging: "fast_path",
+    policyGateWaiver: "#540: exact local read of Alfred's validated MCP catalog",
+    inputSchema: mcpToolInspectInputSchema,
+    execute: (input, ctx) => inspectMcpToolLocal({ userId: ctx.userId, ref: input.ref }),
   }),
 ];

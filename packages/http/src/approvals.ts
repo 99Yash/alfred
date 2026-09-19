@@ -215,6 +215,9 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               .update(actionStagings)
               .set({
                 status: "approved",
+                // The wake authorizes dispatch. The MCP broker locks this row
+                // and requires `dispatching` before it reserves an invocation.
+                outcome: "dispatching",
                 decidedInput:
                   workflowEdit.kind === "prepared"
                     ? jsonValueSchema.parse(workflowEdit.input)

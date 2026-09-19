@@ -74,7 +74,7 @@ export { mcpConsentAsk, type McpConsentAsk, type McpConsentConnection } from "./
 // reader outside this directory has any business minting a catalog projection.
 export { canonicalArgsHash, descriptorHash } from "./hash";
 
-export { listMcpToolsLocal } from "./list-tools";
+export { inspectMcpToolLocal, listMcpToolsLocal, searchMcpToolsLocal } from "./list-tools";
 
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
 

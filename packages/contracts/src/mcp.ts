@@ -1,5 +1,5 @@
 /**
- * Browser-safe MCP cross-boundary contracts: the `mcp.call` / `mcp.list_tools`
+ * Browser-safe MCP cross-boundary contracts: `mcp.call`, catalog search, and inspection
  * argument envelopes and the literal unions that back the persisted MCP tables
  * (`packages/db/src/schema/mcp.ts`) and the execution broker
  * (`packages/assistant/src/tool-runtime/mcp/`).
