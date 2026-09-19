@@ -75,6 +75,7 @@
     "./automation/system-tool-adapter": "./src/automation/system-tool-adapter.ts",
     "./automation/tick": "./src/automation/tick.ts",
     "./realtime": "./src/realtime/index.ts",
+    "./realtime/periodic-task": "./src/realtime/periodic-task.ts",
     "./action-policies": "./src/action-policies/index.ts",
     "./action-policies/test-support": "./src/action-policies/test-support.ts",
     "./runtime": "./src/runtime/index.ts",
