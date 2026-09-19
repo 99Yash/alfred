@@ -39,14 +39,18 @@ const HAS_ALPHANUMERIC_RE = /[\p{L}\p{N}]/u;
 const NO_PUBLIC_PROFILE_RE = /^no (?:confident )?public profile\b[^.]{0,80}[.!]?$/iu;
 
 /**
- * True when a collapsed chunk carries a prior about the user. False for a line
+ * True when a chunk carries a prior about the user. False for a line
  * of pure punctuation, and false for a whole line that only asserts no public
  * profile was found.
  *
- * Takes the ALREADY collapsed string — whitespace runs folded to one space and
- * trimmed — because the anchors mean nothing against raw multi-line content.
+ * Normalizes its input (whitespace runs folded to one space, trimmed) before
+ * applying the anchored bar, so raw stored content with a trailing newline
+ * cannot escape `/$/` and fail open. Idempotent: passing an already-collapsed
+ * string answers the same as passing the raw chunk.
  */
-export function holdsResearchPrior(collapsed: string): boolean {
+export function holdsResearchPrior(content: string): boolean {
+  const collapsed = content.replace(/\s+/g, " ").trim();
+
   if (!HAS_ALPHANUMERIC_RE.test(collapsed)) return false;
 
   return !NO_PUBLIC_PROFILE_RE.test(collapsed);
