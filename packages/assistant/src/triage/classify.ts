@@ -499,6 +499,9 @@ function renderObservations(obs: Observations): string {
   // this email, so it reads first among the derived lines. Costs zero bytes
   // when the user has no cold-start chunk, which is every user until the
   // one-shot research run fires.
+  // `senderExtractionEvent` projects this same null check as the trace's
+  // `userContextPresent`. A condition added here must be added there too,
+  // or the row claims a prior the prompt never carried.
   if (obs.userContext) {
     lines.push(
       `What Alfred researched about the user (recorded ${obs.userContext.recordedAt.toISOString()}): ${clipUserContextLine(obs.userContext.text)}`,

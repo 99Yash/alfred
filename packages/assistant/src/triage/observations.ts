@@ -236,8 +236,12 @@ export interface Observations {
   /**
    * The cold-start read failed, so a null `userContext` means "unknown", not
    * "this user has no cold-start chunk". Without this flag a 100% read failure
-   * is byte-identical to the common case, and production cannot answer "did
-   * this classification see a cold-start prior?".
+   * is byte-identical to the common case, and the deploy cannot be measured.
+   *
+   * The decision trace answers "did this classification see a cold-start
+   * prior?" from `SenderExtractionEvent.userContextPresent`, which this flag
+   * completes: a present prior reads (true, false), an absent one
+   * (false, false) and a failed read (false, true).
    *
    * Never fails the classification: a failed read renders no line, exactly like
    * an absent chunk, so the flag is a report and not a branch.
