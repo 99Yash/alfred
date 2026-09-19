@@ -3,10 +3,12 @@ import {
   TODO_CREATED_BY,
   TODO_EXECUTORS,
   TODO_KINDS,
+  TODO_RESOLVED_BY,
   TODO_STATUSES,
   type TodoCreatedBy,
   type TodoExecutor,
   type TodoKind,
+  type TodoResolvedBy,
   type TodoStatus,
 } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
@@ -73,6 +75,22 @@ export const todos = pgTable(
       .$type<TodoSource[]>(),
     /** Soft pointer to the agent run that proposed this row (traceability). */
     agentRunId: text("agent_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    /**
+     * Who last moved the row to its current status (`user` | `agent` | `system`).
+     * NULL on a freshly minted row that has never transitioned. Every status
+     * write sets it: UI mutators write `user`, `system.resolve_todo` /
+     * `system.remember` dismissal writes `agent`, the automatic
+     * `close-loop-todos` retraction writes `system`. Read with the status —
+     * this is the answer to "who cleared this?".
+     */
+    resolvedBy: text("resolved_by").$type<TodoResolvedBy>(),
+    /**
+     * Caller-supplied audit label for the transition (e.g. `reply`,
+     * `standing_instruction_sender_suppression`, or the model-authored
+     * `system.resolve_todo` reason). Free text, bounded at the tool boundary;
+     * echoed into `todo_events` by the transition trigger.
+     */
+    resolvedReason: text("resolved_reason"),
     /** Set when status flips to 'done'. Drives the 2-day done sync window. */
     completedAt: timestamp("completed_at", { withTimezone: true }),
     /** Forward-compat: manual drag-reorder. No interaction wired at v1. */
@@ -92,7 +110,55 @@ export const todos = pgTable(
     check("todos_kind_valid", sql`${t.kind} IN (${inList(TODO_KINDS)})`),
     check("todos_created_by_valid", sql`${t.createdBy} IN (${inList(TODO_CREATED_BY)})`),
     check("todos_executor_valid", sql`${t.executor} IN (${inList(TODO_EXECUTORS)})`),
+    check(
+      "todos_resolved_by_valid",
+      sql`(${t.resolvedBy} IS NULL) OR (${t.resolvedBy} IN (${inList(TODO_RESOLVED_BY)}))`,
+    ),
   ],
 );
 
 export type Todo = typeof todos.$inferSelect;
+
+/**
+ * Append-only transition history for `todos` (#1177). One row per status
+ * change, written by the `todos_log_transition` trigger from the row's own
+ * `resolved_by` / `resolved_reason` — the application never inserts here
+ * directly, and the `todo_events_no_update_delete` trigger rejects UPDATE
+ * and DELETE, so history cannot be rewritten. `from_status` is NULL on the
+ * insert row (the mint itself is recorded by the trigger).
+ */
+export const todoEvents = pgTable(
+  "todo_events",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("tev")),
+    todoId: text("todo_id")
+      .notNull()
+      .references(() => todos.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    fromStatus: text("from_status").$type<TodoStatus>(),
+    toStatus: text("to_status").notNull().$type<TodoStatus>(),
+    /** Who caused the transition (`user` | `agent` | `system`). */
+    actor: text("actor").notNull().$type<TodoResolvedBy>(),
+    /** Audit label carried over from `todos.resolved_reason`. */
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("todo_events_todo_idx").on(t.todoId, t.createdAt),
+    index("todo_events_user_idx").on(t.userId, t.createdAt),
+    check("todo_events_to_status_valid", sql`${t.toStatus} IN (${inList(TODO_STATUSES)})`),
+    check(
+      "todo_events_from_status_valid",
+      sql`(${t.fromStatus} IS NULL) OR (${t.fromStatus} IN (${inList(TODO_STATUSES)}))`,
+    ),
+    check("todo_events_actor_valid", sql`${t.actor} IN (${inList(TODO_RESOLVED_BY)})`),
+  ],
+);
+
+export type TodoEvent = typeof todoEvents.$inferSelect;
+
+export type NewTodoEvent = typeof todoEvents.$inferInsert;

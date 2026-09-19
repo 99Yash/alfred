@@ -96,6 +96,7 @@ describe("sender suppression coordinator", () => {
           senderEmail: "sender@example.com",
           accountId: null,
           reason: "standing_instruction_sender_suppression",
+          actor: "agent",
         },
       },
     ]);
