@@ -33,7 +33,7 @@ import { Tip } from "./tip";
  *      have forgotten which control is which. Both write the same state AND
  *      read their labels from the pickers' own `TIER_OPTIONS` / `MODE_OPTIONS`,
  *      so the two surfaces cannot disagree about either.
- *   4. Economics — the thread usage rollup, DEV-ONLY, as a read-only row.
+ *   4. Economics — the thread usage rollup as a read-only row.
  *   5. Destructive — Delete, last and separated.
  */
 
@@ -85,9 +85,9 @@ export interface ThreadMenuProps {
 /**
  * Read-only economics row.
  *
- * DEV-ONLY, matching `ThreadUsage` in the header and `UsageLine` under a reply:
- * token counts and dollars are internal instrumentation, not a product surface.
- * Renders nothing before a turn has landed with usage either.
+ * Matches the `ThreadTotal` above the composer and the `UsageLine` under a
+ * reply: token counts and dollars are a product surface. Renders nothing
+ * before a turn has landed with usage either.
  *
  * It owns its own leading separator rather than being wrapped in one, because a
  * separator outside a component that returns `null` draws two adjacent rules on
@@ -96,7 +96,7 @@ export interface ThreadMenuProps {
 function UsageRow({ messages }: { messages: readonly SyncedChatMessage[] }) {
   const summary = useThreadUsageSummary(messages);
 
-  if (!import.meta.env.DEV || summary.turns === 0) return null;
+  if (summary.turns === 0) return null;
 
   return (
     <>
