@@ -35,7 +35,8 @@ on a single database role that legitimately UPDATEs both — GRANT/REVOKE
 cannot separate the app from its own writes, so triggers are the enforcement
 and they fire for every role including the owner:
 
-- `event_receipts` rejects DELETE and rejects UPDATEs touching any evidence
+- `event_receipts` rejects direct DELETE (FK-cascade from a user/credential
+  wipe is allowed) and rejects UPDATEs touching any evidence
   or identity column. `processing_status` / `processed_at` / `updated_at`
   stay writable: that lifecycle belongs to the `ingress.deliver` job
   (`markProcessed`), and a literal "no UPDATE" rule would break delivery.
@@ -48,10 +49,13 @@ and they fire for every role including the owner:
   are transport and may come and go under the #355 cap.
 - `todo_events` is the append-only transition log, written only by the
   `todos_transition_history` trigger (mint on INSERT, one row per status
-  change) and guarded against UPDATE/DELETE by its own trigger.
+  change) and guarded against UPDATE/direct-DELETE by its own trigger
+  (FK-cascade from a user/todo wipe is allowed).
 
 Bypass needs superuser `session_replication_role` or dropping a trigger —
-both outside application reach, by design.
+both outside application reach, by design. FK-cascade from a user/todo or
+user/credential wipe is the one allowed DELETE path, so owner deletion and
+test cleanup keep working.
 
 ## BullMQ / Redis
 

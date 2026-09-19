@@ -124,7 +124,8 @@ export type Todo = typeof todos.$inferSelect;
  * change, written by the `todos_log_transition` trigger from the row's own
  * `resolved_by` / `resolved_reason` — the application never inserts here
  * directly, and the `todo_events_no_update_delete` trigger rejects UPDATE
- * and DELETE, so history cannot be rewritten. `from_status` is NULL on the
+ * and direct DELETE (FK-cascade from a user/todo wipe is allowed so owner
+ * deletion and test cleanup keep working). `from_status` is NULL on the
  * insert row (the mint itself is recorded by the trigger).
  */
 export const todoEvents = pgTable(
