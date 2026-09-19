@@ -13,6 +13,7 @@ import {
   extractGmailDocumentBody,
   isOwnershipCollabActivity,
   isPassiveCollabActivity,
+  sanitizeErrorMessage,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
   type CollabActivityKind,
@@ -392,34 +393,59 @@ const STANDING_INSTRUCTION_HANDLING_RULE =
  * so a cap applied inside the reader would be a claim any hand-built literal
  * could break. Capping where the block is built holds on every construction path.
  *
- * Measured 2026-09-17, by rendering `renderObservations` twice over the same
- * fixture: a line AT this cap grows the triage observations block from 383 B
- * (~95 tokens) to 1452 B (~362 tokens) — a delta of 1069 B / ~267 tokens. Of
- * that delta, ~400 B is the fixed handling rule beside the line. A user with no
- * cold-start chunk pays 0 B, because the render is skipped entirely.
+ * The cap bounds the PROSE PREFIX only. A clipped line pays the dropped-count
+ * notice on top of it — see `clipUserContextLine`, which explains why the notice
+ * sits outside the cap rather than inside it.
+ *
+ * Re-measured 2026-09-19, by rendering `renderObservations` twice over one
+ * fixture: an 1800-character prior clipped to this cap grows the triage
+ * observations block from 469 B (~117 tokens) to 1554 B (~389 tokens) — a delta
+ * of 1085 B / ~271 tokens. Of that delta, ~400 B is the fixed handling rule
+ * beside the line, and 14 B is the notice. A user with no cold-start chunk pays
+ * 0 B, because the render is skipped entirely.
+ *
+ * Read that 1085 B against THIS fixture, not against the 1069 B item 03 recorded
+ * on 2026-09-17: that run used a leaner fixture (a 383 B prior-free block) and
+ * the bare `…` this notice replaces, so the two deltas are not byte-comparable.
  *
  * A raise is a visible diff and a review question (Tier 3), not a gate.
  */
 const USER_CONTEXT_LINE_MAX_CHARS = 600;
 
 /**
- * Clip the prior to the prompt budget, ending with `…` so the model can see the
- * line is not the whole prior.
+ * Clip the prior to the prompt budget, ending with a notice that names how many
+ * code units the render dropped.
  *
- * The cut is surrogate-safe. A bare `slice` at an arbitrary UTF-16 index can
- * split a well-formed surrogate pair and leave a lone half — the same poison
- * `sanitizeToolResult` exists to strip, and a probe showed the previous cut
- * produced a string whose `isWellFormed()` was false. So the cut moves back one
- * code unit when it would land between the halves of a pair.
+ * The cut is DELEGATED to {@link sanitizeErrorMessage}, the repo's only
+ * surrogate-safe bounded truncator. A bare `slice` at an arbitrary UTF-16 index
+ * can split a well-formed surrogate pair and leave a lone half — the same poison
+ * `sanitizeToolResult` exists to strip, and a probe showed an earlier hand-rolled
+ * cut here produced a string whose `isWellFormed()` was false. The helper strips
+ * that poison after it slices, so this call site keeps no surrogate arithmetic of
+ * its own. Its name says "Error" but its own docstring scopes it to "a
+ * message/text string"; `boundCardText` in `../context-search/object-ref` already
+ * reuses it for a non-error value.
+ *
+ * The notice names the DROPPED COUNT rather than ending with a bare `…`, so the
+ * model never reads a clipped prior as the whole prior (the ADR-0070 honesty
+ * posture `boundToolResult` follows for the same reason). The count is derived
+ * from the kept string, never from the cap, so the strip and the `trimEnd` cannot
+ * make it lie. `…[+N chars]` is the repo's existing dropped-count dialect
+ * (`summarizeBody`, `@alfred/contracts`); this adds no fifth one.
+ *
+ * The notice sits OUTSIDE the cap, as overhead beside it. Reserving room for it
+ * inside the cap is a fixpoint — the notice's length depends on the dropped
+ * count, which depends on the kept length. `bound.ts` and `summarizeBody` both
+ * treat their notice the same way.
  */
 function clipUserContextLine(text: string): string {
-  if (text.length <= USER_CONTEXT_LINE_MAX_CHARS) return text;
+  const bounded = sanitizeErrorMessage(text, USER_CONTEXT_LINE_MAX_CHARS);
 
-  const keep = USER_CONTEXT_LINE_MAX_CHARS - 1;
-  const last = text.charCodeAt(keep - 1);
-  const splitsPair = last >= 0xd800 && last <= 0xdbff;
+  if (text.length <= USER_CONTEXT_LINE_MAX_CHARS) return bounded;
 
-  return `${text.slice(0, splitsPair ? keep - 1 : keep).trimEnd()}…`;
+  const kept = bounded.trimEnd();
+
+  return `${kept}…[+${text.length - kept.length} chars]`;
 }
 
 /**
