@@ -860,6 +860,13 @@ export type GmailSearchHit = z.infer<typeof gmailSearchHitSchema>;
 
 export const gmailSearchResultSchema = z
   .object({
+    /**
+     * The Gmail query that produced these hits, echoed back. The chat UI drops
+     * `argsPreview` when it persists a turn, so a reload can only name what a
+     * search looked for if the result carries the query itself. The model also
+     * reads it as a reminder of what it asked for across a long tool loop.
+     */
+    query: z.string(),
     messages: z.array(gmailSearchHitSchema),
     nextPageToken: z.string().nullable(),
   })

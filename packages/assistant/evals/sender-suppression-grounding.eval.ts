@@ -134,6 +134,7 @@ function runFirstCall(input: string) {
 }
 
 const CLEAR_SHAPESHIFTER_HIT = gmailSearchResultSchema.parse({
+  query: "acme onboarding",
   messages: [
     {
       messageId: "msg_clear_shape",
@@ -150,6 +151,7 @@ const CLEAR_SHAPESHIFTER_HIT = gmailSearchResultSchema.parse({
 });
 
 const AMBIGUOUS_ONBOARDING_HITS = gmailSearchResultSchema.parse({
+  query: "acme onboarding",
   messages: [
     {
       messageId: "msg_resend",
@@ -176,6 +178,7 @@ const AMBIGUOUS_ONBOARDING_HITS = gmailSearchResultSchema.parse({
 });
 
 const WEAK_ONBOARDING_HIT = gmailSearchResultSchema.parse({
+  query: "acme onboarding",
   messages: [
     {
       messageId: "msg_weak",

@@ -160,7 +160,10 @@ export const systemTools: readonly RegisteredTool[] = [
           latencyMs: Date.now() - startMs,
         });
 
-        return { ok: true, candidates };
+        // Echo the query. The chat UI drops `argsPreview` when it persists a
+        // turn, so the result is the only channel through which a reloaded
+        // tool card can say what Alfred looked for.
+        return { ok: true, query: input.query, candidates };
       } catch (error) {
         span.error();
         throw error;

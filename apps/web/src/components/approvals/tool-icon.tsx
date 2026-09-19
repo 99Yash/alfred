@@ -35,7 +35,7 @@ export function ToolIcon({ integration }: { integration: IntegrationSlug }) {
       title={integration}
       className={cn(
         "grid size-10 shrink-0 place-items-center rounded-full",
-        "bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)]",
+        "bg-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated)",
       )}
     >
       <Glyph size={18} />

@@ -14,7 +14,7 @@
  */
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Check, ChevronDown } from "lucide-react";
-import { use, useId } from "react";
+import { use, useId, useState } from "react";
 import { AppThemeContext } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
 import { MODE_OPTIONS, modeOption } from "./approval-mode-options";
@@ -32,6 +32,7 @@ export function ApprovalModePicker({
   onToggle: () => void;
 }) {
   const listboxId = useId();
+  const [open, setOpen] = useState(false);
   // The popover portals out of the `.app` subtree, so stamp the resolved theme
   // on the content directly (context still flows through the portal). Same
   // pattern as ModelTierPicker / AppSelect.
@@ -44,7 +45,7 @@ export function ApprovalModePicker({
   const SelectedIcon = selected.Icon;
 
   return (
-    <PopoverPrimitive.Root>
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <Tip
         label="Action approval"
         description={on ? "Autopilot: Alfred acts freely." : "Review: Alfred asks before acting."}
@@ -80,7 +81,11 @@ export function ApprovalModePicker({
             {selected.label}
             <ChevronDown
               size={12}
-              className={cn("shrink-0", on ? "text-app-green-4/70" : "text-app-fg-2")}
+              className={cn(
+                "shrink-0 transition-transform duration-200",
+                on ? "text-app-green-4/70" : "text-app-fg-2",
+                open && "rotate-180",
+              )}
             />
           </button>
         </PopoverPrimitive.Trigger>
@@ -97,7 +102,9 @@ export function ApprovalModePicker({
           data-app-theme={dataTheme}
           className={cn(
             "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-2xl p-1.5",
-            "app-fade-in outline-none",
+            "origin-bottom outline-none",
+            "motion-safe:data-[state=open]:animate-[app-popover-in_180ms_cubic-bezier(0.22,1,0.36,1)]",
+            "motion-safe:data-[state=closed]:animate-[app-popover-out_120ms_cubic-bezier(0.22,1,0.36,1)]",
           )}
         >
           <p className="px-2 pt-1 pb-1.5 text-[11px] font-medium tracking-tight text-app-fg-2">

@@ -1,4 +1,4 @@
-import { ShieldCheck, Zap } from "lucide-react";
+import { Eye, Zap } from "lucide-react";
 import type { ComponentType } from "react";
 
 /** One autonomy mode, as the user reads it. */
@@ -14,7 +14,7 @@ const REVIEW_OPTION: ModeOption = {
   autonomy: false,
   label: "Review",
   description: "Alfred pauses for your approval before acting.",
-  Icon: ShieldCheck,
+  Icon: Eye,
 };
 
 const AUTOPILOT_OPTION: ModeOption = {

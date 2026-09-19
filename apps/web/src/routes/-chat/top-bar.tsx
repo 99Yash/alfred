@@ -11,7 +11,6 @@ import { ArtifactMenu } from "./artifact-menu";
 import { IconButton } from "./rail/icon-button";
 import { ShareThreadDialog } from "./share-thread-dialog";
 import { ThreadMenu } from "./thread-menu";
-import { ThreadUsage } from "./thread-usage";
 import { Tip } from "./tip";
 
 export function TopBar({
@@ -44,7 +43,7 @@ export function TopBar({
   selectedArtifactId: string | null;
   onOpenArtifact: (artifactId: string) => void;
   onCloseArtifact: () => void;
-  /** Durable thread messages, for the dev-gated thread usage rollup. */
+  /** Durable thread messages, for the thread menu's usage rollup. */
   threadMessages?: readonly SyncedChatMessage[] | undefined;
   /** Commit a new title. The bar owns the inline editor; the caller owns the mutator. */
   onRename: (title: string) => void;
@@ -109,7 +108,6 @@ export function TopBar({
         ) : (
           <h1 className="truncate text-sm font-medium text-app-fg-4">{title}</h1>
         )}
-        {import.meta.env.DEV && threadMessages ? <ThreadUsage messages={threadMessages} /> : null}
       </div>
       <div className="flex items-center gap-1.5">
         {threadId ? (
