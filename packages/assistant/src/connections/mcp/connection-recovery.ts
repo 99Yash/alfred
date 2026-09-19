@@ -1,5 +1,5 @@
 /** A bounded probe of stalled MCP connections that still have a stored grant. */
-import { PeriodicTask } from "@alfred/assistant/realtime";
+import { PeriodicTask } from "@alfred/assistant/realtime/periodic-task";
 import { boundedMcpErrorText, isMcpTransportFailure } from "./errors";
 import {
   listRecoverableCredentialedConnectionIds,

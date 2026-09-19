@@ -318,13 +318,13 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     await closeConnections();
   });
 
-  test("a reviewed read bypasses the ledger entirely", async () => {
+  test("a reviewed read records a completed invocation without an approval barrier", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
     const protocol = new FakeProtocol([tool("search")]);
     const revision = await liveRevision(protocol, connId);
 
-    // Review `search` as a read so the broker skips the barrier/ledger.
+    // Review `search` as a read so the broker skips the approval barrier.
     await upsertToolPolicy({
       userId,
       connectionId: connId,
@@ -348,12 +348,18 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const outcome = await broker.callTool({ userId, stagingId, ref, arguments: {} });
 
     assert.equal(outcome.status, "completed");
-    assert.equal(outcome.status === "completed" && outcome.invocationId, null);
-    assert.equal((await invocationsForStaging(stagingId)).length, 0);
+    assert.ok(outcome.status === "completed" && outcome.invocationId);
+    const [invocation] = await invocationsForStaging(stagingId);
+
+    assert.ok(invocation);
+    assert.equal(invocation.id, outcome.invocationId);
+    assert.equal(invocation.effectClass, "read");
+    assert.equal(invocation.attemptLifecycle, "response_received");
+    assert.equal(invocation.effectOutcome, "succeeded");
   });
 
-  // The reviewed-read fast path above is an exemption from the ledger, and this
-  // is the guard on it: a `read` policy is honored only while the descriptor it
+  // The reviewed-read fast path above skips approval, and this is the guard on
+  // it: a `read` policy is honored only while the descriptor it
   // was reviewed against is still the one in the current catalog. A server that
   // quietly redefines a tool cannot keep an exemption granted for other behavior.
   //
