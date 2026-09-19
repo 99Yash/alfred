@@ -451,7 +451,7 @@ export function resolveBuiltInClient(
   const envKey = staticClient.clientIdKey;
   const clientId = envFieldValue(envKey);
 
-  if (typeof clientId !== "string") {
+  if (clientId === undefined) {
     return { kind: "unavailable", reason: "missing_client_id", envKey };
   }
 
@@ -465,7 +465,7 @@ export function resolveBuiltInClient(
     client: {
       issuer,
       clientId,
-      ...(typeof clientSecret === "string" ? { clientSecret } : {}),
+      ...(clientSecret === undefined ? {} : { clientSecret }),
     },
   };
 }

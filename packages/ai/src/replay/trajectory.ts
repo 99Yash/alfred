@@ -112,13 +112,16 @@ function decidedCalls(
     if (!Array.isArray(tc)) continue;
 
     for (const c of tc) {
-      if (isRecord(c) && typeof c.toolName === "string") {
-        calls.push({
-          toolName: c.toolName,
-          ...(typeof c.toolCallId === "string" ? { toolCallId: c.toolCallId } : {}),
-          input: c.input,
-        });
-      }
+      if (!isRecord(c)) continue;
+      const toolName = getStringPath(c, "toolName");
+
+      if (toolName === undefined) continue;
+      const toolCallId = getStringPath(c, "toolCallId");
+      calls.push({
+        toolName,
+        ...(toolCallId === undefined ? {} : { toolCallId }),
+        input: c.input,
+      });
     }
   }
 

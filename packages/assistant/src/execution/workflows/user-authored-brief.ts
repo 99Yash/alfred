@@ -821,11 +821,11 @@ async function buildTriggerEventMessage(
   const parsedPayload = jsonObjectSchema.safeParse(trigger.payload ?? {});
   const payload = parsedPayload.success ? parsedPayload.data : {};
 
-  const documentId = typeof payload.documentId === "string" ? payload.documentId : undefined;
+  const documentId = getStringPath(payload, "documentId");
 
-  const receiptId = typeof payload.receiptId === "string" ? payload.receiptId : undefined;
+  const receiptId = getStringPath(payload, "receiptId");
 
-  const reason = typeof payload.reason === "string" ? payload.reason : undefined;
+  const reason = getStringPath(payload, "reason");
 
   if (!documentId && receiptId && trigger.source && isInboundEventSource(trigger.source)) {
     return buildReceiptTriggerMessage({

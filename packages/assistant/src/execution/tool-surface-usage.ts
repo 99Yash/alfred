@@ -21,6 +21,7 @@ import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import {
+  getStringPath,
   isRecord,
   isToolName,
   type AgentTranscriptMessage,
@@ -90,9 +91,9 @@ export function invokedToolNamesFromTranscript(
 
     for (const part of message.content) {
       if (!isRecord(part) || part.type !== "tool-call") continue;
-      const toolName = part.toolName;
+      const toolName = getStringPath(part, "toolName");
 
-      if (typeof toolName === "string" && isToolName(toolName)) names.add(toolName);
+      if (toolName !== undefined && isToolName(toolName)) names.add(toolName);
     }
   }
 

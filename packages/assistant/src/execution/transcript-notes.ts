@@ -10,7 +10,9 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
  */
 const SYSTEM_NOTE_PREFIX = "[system] ";
 
-function isSystemNote(message: AgentTranscriptMessage | undefined): boolean {
+function isSystemNote(
+  message: AgentTranscriptMessage | undefined,
+): message is AgentTranscriptMessage & { content: string } {
   return (
     message?.role === "user" &&
     typeof message.content === "string" &&
@@ -31,7 +33,7 @@ export function appendSystemNote(
 ): AgentTranscriptMessage[] {
   const last = transcript.at(-1);
 
-  if (last && isSystemNote(last) && typeof last.content === "string") {
+  if (last && isSystemNote(last)) {
     return [
       ...transcript.slice(0, -1),
       { ...last, content: `${last.content}\n\n${SYSTEM_NOTE_PREFIX}${text}` },

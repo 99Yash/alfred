@@ -87,7 +87,7 @@ export function minStaleAfterMs(): number {
 
   for (const wf of listWorkflows()) {
     for (const step of Object.values(wf.steps)) {
-      if (typeof step.staleAfterMs === "number" && step.staleAfterMs < min) {
+      if (step.staleAfterMs !== undefined && step.staleAfterMs < min) {
         min = step.staleAfterMs;
       }
     }
@@ -1201,12 +1201,7 @@ export async function collectResumableRunIds(
         continue;
       }
 
-      const staleMs =
-        row.staleMs == null
-          ? null
-          : typeof row.staleMs === "string"
-            ? Number(row.staleMs)
-            : row.staleMs;
+      const staleMs = row.staleMs == null ? null : Number(row.staleMs);
 
       if (staleMs == null || staleMs >= resolveStaleAfterMs(row.workflowSlug, row.currentStep)) {
         resumable.push(row.id);

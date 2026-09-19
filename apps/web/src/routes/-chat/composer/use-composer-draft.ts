@@ -94,7 +94,7 @@ function extractTextFromJSON(json: JSONContent): string {
   let out = "";
 
   const walk = (node: JSONContent) => {
-    if (node.type === "text" && typeof node.text === "string") {
+    if (node.type === "text" && node.text !== undefined) {
       out += node.text;
     } else if (node.type === "mention") {
       const label = node.attrs?.label ?? node.attrs?.id ?? "";

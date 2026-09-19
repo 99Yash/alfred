@@ -1,3 +1,4 @@
+import { isNonEmptyString, toStringArray as coerceStringArray } from "@alfred/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
 import { ApprovalsRoute } from "./-approvals/approvals-route";
@@ -15,13 +16,11 @@ import { ApprovalsRoute } from "./-approvals/approvals-route";
  */
 /** Normalize a search value to a string[] (single value or repeated key). */
 function toStringArray(value: unknown): string[] | undefined {
-  if (Array.isArray(value)) {
-    const arr = value.filter((v): v is string => typeof v === "string");
+  const arr = coerceStringArray(value);
 
-    return arr.length > 0 ? arr : undefined;
-  }
+  if (arr.length > 0) return arr;
 
-  return typeof value === "string" && value.length > 0 ? [value] : undefined;
+  return isNonEmptyString(value) ? [value] : undefined;
 }
 
 export interface ApprovalsSearch {
