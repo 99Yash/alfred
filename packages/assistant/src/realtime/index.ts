@@ -49,10 +49,12 @@
  * the publisher. `passInFlight` in `outbox-reaper.ts` is no part of this — it keeps two
  * retention passes from overlapping and says nothing about lifetime.
  *
- * The relay, the reaper and the `PeriodicTask` primitive stay off this barrel on
- * purpose: they are internals of the delivery loop, and only its own tests reach them.
+ * The relay and reaper stay private. `PeriodicTask` is a shared lifecycle
+ * primitive for other bounded background passes.
  */
 export { closeEventBridge, initEventBridge } from "./bridge";
+
+export { PeriodicTask } from "./periodic-task";
 
 export { getEventsSince, getReplayHighWatermark } from "./replay";
 

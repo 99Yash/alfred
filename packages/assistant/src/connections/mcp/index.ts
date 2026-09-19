@@ -43,7 +43,13 @@ export {
 
 export type { ExternalToolRef } from "@alfred/contracts";
 
-export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
+export {
+  boundedMcpErrorText,
+  isMcpAuthorizationChallenge,
+  isMcpTransportFailure,
+  isPreDeliveryErrorCode,
+  McpClientError,
+} from "./errors";
 
 export {
   getMcpEndpointAuthorizer,
@@ -109,5 +115,7 @@ export {
 } from "./protocol";
 
 export { getMcpConnectionManager } from "./runtime";
+
+export { startMcpConnectionRecovery, stopMcpConnectionRecovery } from "./connection-recovery";
 
 export { startMcpTraceSpan, type McpTraceContext } from "./trace";
