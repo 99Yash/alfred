@@ -1,6 +1,7 @@
 import { db } from "@alfred/db";
 import { memoryChunks } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
+import { holdsResearchPrior } from "./cold-start/no-profile";
 
 /**
  * A bounded prior drawn from the user's cold-start research chunk (ADR-0050 D1,
@@ -34,9 +35,6 @@ export interface UserContextLine {
   recordedAt: Date;
 }
 
-/** A line of pure punctuation or whitespace is a research header, not a prior. */
-const HAS_ALPHANUMERIC_RE = /[\p{L}\p{N}]/u;
-
 /**
  * Read the user's most recent cold-start research chunk as a one-line prior.
  * `null` when the user has no such chunk, or when the chunk holds no readable
@@ -64,11 +62,17 @@ export async function readUserContextLine(userId: string): Promise<UserContextLi
  * block, and a chunk with a blank line would otherwise forge a section header
  * above the derived signals — the same defense `renderObservations` applies to a
  * standing-instruction phrasing.
+ *
+ * Two refusals, both in `holdsResearchPrior`: a line with no letter and no digit
+ * is a research header, and a line that only reports "no confident public
+ * profile was found" is a prior about nothing. The render site pays ~1069 B for
+ * a line plus its handling rule, so a content-free chunk must reach it as
+ * `null`, not as a sentence that happens to hold letters.
  */
 function buildUserContextLine(content: string, recordedAt: Date): UserContextLine | null {
   const collapsed = content.replace(/\s+/g, " ").trim();
 
-  if (!HAS_ALPHANUMERIC_RE.test(collapsed)) return null;
+  if (!holdsResearchPrior(collapsed)) return null;
 
   return { text: collapsed, recordedAt };
 }
