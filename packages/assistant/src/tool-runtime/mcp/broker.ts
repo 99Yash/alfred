@@ -236,6 +236,71 @@ async function reserveNormalMcpInvocationDelivery(
   }
 }
 
+/** Record a completed reviewed read without adding an ambiguity barrier. */
+async function recordCompletedMcpRead(input: {
+  userId: string;
+  stagingId: string;
+  connectionId: string;
+  remoteName: string;
+  catalogRevisionId: string | null;
+  descriptorHash: string | undefined;
+  policyRevision: number;
+  arguments: unknown;
+  resultProvenance: McpResultProvenance;
+}): Promise<string> {
+  return runAtomic(db(), async (tx) => {
+    const [correlation] = await tx
+      .select({
+        traceId: actionStagings.runId,
+        stepId: actionStagings.stepId,
+        toolCallId: actionStagings.toolCallId,
+      })
+      .from(actionStagings)
+      .where(
+        and(
+          eq(actionStagings.id, input.stagingId),
+          eq(actionStagings.userId, input.userId),
+          eq(actionStagings.outcome, "dispatching"),
+        ),
+      )
+      .for("update");
+
+    if (!correlation) {
+      throw new McpClientError(
+        "invalid_arguments",
+        "The MCP authorization is no longer dispatchable.",
+      );
+    }
+
+    const now = new Date();
+
+    const [invocation] = await tx
+      .insert(mcpInvocation)
+      .values({
+        stagingId: input.stagingId,
+        userId: input.userId,
+        connectionId: input.connectionId,
+        remoteName: input.remoteName,
+        argsHash: canonicalArgsHash(input.arguments),
+        effectClass: "read",
+        attemptLifecycle: "response_received",
+        effectOutcome: "succeeded",
+        retryDisposition: "safe",
+        resolvedAt: now,
+        deliveryPossibleAt: now,
+        responseReceivedAt: now,
+        resultProvenance: input.resultProvenance,
+        ...(input.catalogRevisionId ? { catalogRevisionId: input.catalogRevisionId } : {}),
+        ...(input.descriptorHash ? { descriptorHash: input.descriptorHash } : {}),
+        policyRevision: input.policyRevision,
+        ...correlation,
+      })
+      .returning({ id: mcpInvocation.id });
+
+    return requireRow(invocation, "recordCompletedMcpRead").id;
+  });
+}
+
 /**
  * Settle the invocation and its authorizing staging row as one aggregate. The
  * mode closes the only domain distinction: ordinary calls have no predecessor;
@@ -1069,8 +1134,9 @@ export class McpExecutionBroker {
     const effectClass: McpEffectClass = policy?.effectClass ?? "unknown";
 
     if (effectClass === "read") {
-      // Reads are idempotent: no barrier, no ledger row. Any failure (including a
-      // possibly-delivered one) is safe to surface and re-run, so it just throws.
+      // Reads are idempotent: no ambiguity barrier. A completed response gets
+      // an audit row, so a chat provenance claim can point to a completed call.
+      // A failed read remains safe to re-run and throws or returns tool_error.
       // The options object IS the conditional — a spread inside a fresh literal
       // would just be a redundant copy (oxlint's `no-useless-spread`).
       const envelope = await prepared.call(ref, input.arguments, {
@@ -1078,9 +1144,24 @@ export class McpExecutionBroker {
         trace,
       });
 
+      const invocationId =
+        envelope.outcome === "completed" && policy
+          ? await recordCompletedMcpRead({
+              userId: input.userId,
+              stagingId: input.stagingId,
+              connectionId: ref.connectionId,
+              remoteName: ref.remoteName,
+              catalogRevisionId: connection.currentCatalogRevisionId,
+              descriptorHash: hash,
+              policyRevision: policy.policyRevision,
+              arguments: input.arguments,
+              resultProvenance: envelope.provenance,
+            })
+          : null;
+
       return {
         status: envelope.outcome === "completed" ? "completed" : "tool_error",
-        invocationId: null,
+        invocationId,
         envelope,
       };
     }

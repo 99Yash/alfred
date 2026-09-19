@@ -526,7 +526,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
 describe("FINALIZE_GUARD_SEQUENCE", () => {
   /**
-   * The two finalize guards have identical signatures, so nothing in a type
+   * The finalize guards have identical signatures, so nothing in a type
    * stops a caller from swapping them. The order is load-bearing:
    * `guardSpawnedChildren` may PARK the turn, and a parked turn must not first
    * have spent a regeneration on the honesty note — that note would be
@@ -540,7 +540,7 @@ describe("FINALIZE_GUARD_SEQUENCE", () => {
   test("runs the spawned-children guard before the honesty guard", () => {
     assert.deepEqual(
       FINALIZE_GUARD_SEQUENCE.map((guard) => guard.id),
-      ["spawned_children", "unreported_tool_failures"],
+      ["spawned_children", "unreported_tool_failures", "false_provenance"],
     );
   });
 
@@ -548,7 +548,7 @@ describe("FINALIZE_GUARD_SEQUENCE", () => {
     assert.equal(
       new Set(FINALIZE_GUARD_SEQUENCE.map((guard) => guard.id)).size,
       FINALIZE_GUARD_SEQUENCE.length,
-      "two guards sharing an id would make the order unreadable",
+      "guards sharing an id would make the order unreadable",
     );
 
     for (const guard of FINALIZE_GUARD_SEQUENCE) {
@@ -563,7 +563,7 @@ describe("crossFinalizeBoundary", () => {
    * workflow used to do in bare statements above the guard chain, where a
    * future edit could drop or reorder them without a type objecting.
    *
-   * Every case runs with an empty `toolCallsLog`, so both guards stand aside on
+   * Every case runs with an empty `toolCallsLog`, so the guards stand aside on
    * their first line and no guard I/O (children lookup, event publish) is
    * reached: what's under test is the boundary, not the guards.
    */

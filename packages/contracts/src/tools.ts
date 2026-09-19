@@ -434,6 +434,11 @@ export const TOOL_LABELS = {
     done: "Listed connected tools",
     title: "list connected tools",
   },
+  "mcp.inspect_tool": {
+    running: "Inspecting a connected tool",
+    done: "Inspected a connected tool",
+    title: "inspect a connected tool",
+  },
 
   "gmail.search": { running: "Searching Gmail", done: "Searched Gmail", title: "search Gmail" },
   "gmail.read_message": {
@@ -723,6 +728,7 @@ export const TOOL_CATEGORIES = {
 
   "mcp.call": "action",
   "mcp.list_tools": "system",
+  "mcp.inspect_tool": "system",
 
   "gmail.search": "source",
   "gmail.read_message": "source",
