@@ -581,9 +581,9 @@
       //   return what the provider or store returned, which has no static
       //   shape — bound and redact at the call site instead;
       // - queue processors (knowledge/briefings/automation/ingestion/chat-memory
-      //   queues, compaction queue, idle-capture queue, approval-expiry
-      //   worker) return through BullMQ's `Processor` contract, whose
-      //   `Promise<unknown>` no caller reads (`returnValue` has no readers);
+      //   queues, compaction queue, idle-capture queue) return through
+      //   BullMQ's `Processor` contract, whose `Promise<unknown>` no caller
+      //   reads (`returnValue` has no readers);
       // - framework seams (tool-runtime registry execute/redactInput,
       //   dispatch pipeline, triggers TriggerConsumer.accept,
       //   google-credential-lifecycle is typed at its port — the fetch-url
@@ -621,7 +621,6 @@
         "packages/assistant/src/chat/idle-capture-queue.ts",
         "packages/assistant/src/briefings/queue.ts",
         "packages/assistant/src/automation/queue.ts",
-        "packages/assistant/src/execution/approval-expiry-worker.ts",
         "packages/ai/src/replay/trajectory.ts",
         "packages/ai/src/metering/wrappers.ts"
       ],

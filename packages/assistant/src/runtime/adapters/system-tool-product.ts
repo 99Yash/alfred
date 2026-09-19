@@ -39,9 +39,11 @@ export type RememberAndDismissResult =
  * throw mid-batch produced for that sender alone. A throw in entry seven of
  * thirteen must not fail the whole call, because entries one to six already
  * persisted; the honesty guard would then tell the model to report a failure
- * for work that happened.
+ * for work that happened. Not exported: the seam-facing spelling of this
+ * union is `RememberBatchEntryResult` in `tool-runtime/index.ts`, and one
+ * exported name per shape keeps a caller from importing the wrong one.
  */
-export type RememberBatchEntryResult =
+type RememberBatchEntryResult =
   | RememberAndDismissResult
   | { ok: false; status: "failed"; message: string };
 

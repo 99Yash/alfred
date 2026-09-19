@@ -10,10 +10,19 @@
 type already exists (execution sub-agent and scratch operations, chat history
 retrieval, knowledge reads and instruction writes, task resolution, workflow
 authoring and revisions), so naming the seam type lifts an existing contract
-instead of inventing one. The seam keeps its direction: `tool-runtime` reaches
-owner types through `import type` only, which is erased and adds no runtime
-edge — the same precedent `SystemToolContextSearchAdapter` already sets with
-`ContextSearchToolResult`. The `unknown`-as-design alternative is rejected:
+instead of inventing one. The seam keeps its direction: `tool-runtime`
+imports no owner module, not even with `import type`, because
+`scripts/check-module-architecture.mjs` reads a type-only import as an edge
+too. Each seam type is therefore declared in `tool-runtime/index.ts` and
+states in its doc comment which owner type it mirrors — the same precedent
+`SystemToolContextSearchAdapter` already sets with `ContextSearchToolResult`.
+The compiler holds the two halves together at the install site: the adapter
+object is annotated with the seam interface, so a removed or retyped owner
+field fails `check-types`. A field the owner ADDS is the residual risk: it
+reaches the model at run time but stays unnamed at the seam. The fix, when
+that cost grows, is to move the owner type into `@alfred/contracts` and let
+both sides import one declaration. The `unknown`-as-design alternative is
+rejected:
 `internal/tools/system.ts` returns each adapter result straight into a
 model-facing tool result, so an erased seam contract propagates into the model
 surface. Honest `unknown` stays where the value is genuinely untyped at the
