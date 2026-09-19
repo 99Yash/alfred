@@ -1,7 +1,13 @@
 /**
  * The one sentence a cold-start run writes when it finds no confident public
- * profile, and the bar every reader of a `cold_start_research` chunk applies
- * before it spends prompt bytes on the chunk.
+ * profile, and the bar the triage prior reader applies before it spends prompt
+ * bytes on the chunk.
+ *
+ * ONE reader applies this bar today: `buildUserContextLine`. The kind stays in
+ * `USER_FACING_MEMORY_CHUNK_KINDS` (`knowledge/chunks.ts`), so the
+ * `recent_memory` select in `knowledge/user-context.ts` and the `recallMemory`
+ * default still render the same chunk unbarred. Campaign item 27 owns those two
+ * doors; do not read this module as a bar the chunk carries everywhere.
  *
  * WHY the sentence and the bar share a file: the synthesis prompt asks for this
  * exact line (`synthesis.ts` rule 6) and `buildUserContextLine` refuses it. One
@@ -25,18 +31,27 @@ const HAS_ALPHANUMERIC_RE = /[\p{L}\p{N}]/u;
 /**
  * A whole line that only reports the absence of a profile.
  *
- * Anchored at BOTH ends, and its tail is bounded to 80 period-free characters,
- * so a real telegraphic synthesis (~300 words, many sentences) is structurally
- * ineligible to match however it opens. Keep both anchors and the bound if this
- * pattern is ever widened: a false match drops a REAL prior with no error and
- * no log, and the triage classifier is simply less informed after it.
+ * Anchored at BOTH ends, and its tail is bounded to 40 characters that hold no
+ * `.`, `,`, `;` or `:`. Both bounds matter, and neither is a content test:
  *
- * The bound covers {@link NO_PUBLIC_PROFILE_LINE} plus the paraphrase family
- * already stored by earlier prompt versions ("No public profile could be found
- * for this person."). It is a tier-3 guard: a wording it does not name still
- * renders, and only a reader notices.
+ * - The anchors mean a real telegraphic synthesis (~300 words, many sentences)
+ *   cannot match, because its later sentences fall outside the tail.
+ * - The punctuation class and the 40-character length are what keep a SHORT
+ *   real prior that OPENS with the absence phrase — "No public profile beyond a
+ *   LinkedIn page; works at Acme as a staff engineer." — outside the pattern.
+ *   {@link NO_PUBLIC_PROFILE_LINE} needs 10 tail characters and the stored
+ *   paraphrase needs 31, so 40 is the smallest round bound that covers both.
+ *
+ * Keep both anchors and both bounds if this pattern is ever widened: a false
+ * match drops a REAL prior with no error and no log, and the triage classifier
+ * is simply less informed after it. Residual, in the other direction: a short
+ * real prior that opens with the phrase and carries no `.`, `,`, `;` or `:` in
+ * its first 40 characters is still dropped.
+ *
+ * It is a tier-3 guard: a wording it does not name still renders, and only a
+ * reader notices.
  */
-const NO_PUBLIC_PROFILE_RE = /^no (?:confident )?public profile\b[^.]{0,80}[.!]?$/iu;
+const NO_PUBLIC_PROFILE_RE = /^no (?:confident )?public profile\b[^.,;:]{0,40}[.!]?$/iu;
 
 /**
  * True when a chunk carries a prior about the user. False for a line
@@ -54,4 +69,13 @@ export function holdsResearchPrior(content: string): boolean {
   if (!HAS_ALPHANUMERIC_RE.test(collapsed)) return false;
 
   return !NO_PUBLIC_PROFILE_RE.test(collapsed);
+}
+
+// The shared const pins the STRING the prompt asks for; the pattern above is a
+// SECOND declaration that must keep refusing it. Verify at module load rather
+// than trust the pair: an edit that narrows the pattern past the sentence fails
+// the first import instead of rendering the placeholder on every classified
+// email. Same timing and same shape as `assertToolNameRegistry` in `@alfred/ai`.
+if (holdsResearchPrior(NO_PUBLIC_PROFILE_LINE)) {
+  throw new Error("NO_PUBLIC_PROFILE_RE no longer refuses NO_PUBLIC_PROFILE_LINE");
 }
