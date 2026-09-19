@@ -14,21 +14,16 @@
  * components/landing/landing-page.tsx).
  */
 
-import { ASK_USER_TOOL, type ChatModelTier } from "@alfred/contracts";
-import * as Tooltip from "@radix-ui/react-tooltip";
-import type { SyncedActionStaging } from "@alfred/sync";
 import {
   Archive,
   ArrowRight,
   ArrowUp,
   Bell,
   Check,
-  GitPullRequest,
   History as HistoryIcon,
   Home,
   LogOut,
   Mail,
-  MessageCircleQuestion,
   Mic,
   MoonStar,
   Plug,
@@ -59,15 +54,10 @@ import {
   AppInput,
   AppModal,
   AppPill,
-  AppSegmented,
   AppSelect,
   useAppForm,
 } from "~/components/ui/v2";
 import { toast } from "~/lib/toast";
-import { ChatApprovalTray } from "../-chat/approval-tray";
-import { Composer } from "../-chat/composer/composer";
-import { ToolCallGroup } from "../-chat/tool-call-group";
-import type { ToolCallView } from "../-chat/tool-call-presentation";
 import { QuestionAnswersCard } from "~/components/approvals/question-answers-card";
 import { QuickAccessRail } from "~/components/quick-access-rail";
 import { DimensionChatThread } from "~/components/dimension-chat-thread";
@@ -1748,14 +1738,13 @@ function V2Half() {
         tone="app"
         eyebrow="In-app"
         title="App grammar (v2)"
-        body="The production grammar from components/ui/v2. Light surfaces follow the visitors-now archive; dark surfaces adapt the Dimension material. The HITL example composes the real approval tray and composer, and every block renders in both themes."
+        body="The production grammar from components/ui/v2. Light surfaces follow the visitors-now archive; dark surfaces adapt the Dimension material. Every block renders in both themes."
       />
       <V2ButtonSection />
       <V2SurfaceSection />
       <V2ModalSection />
       <V2ToastSection />
       <V2FrostOverlaySection />
-      <V2HitlChatSection />
       <V2QuestionAnswersSection />
     </div>
   );
@@ -2192,109 +2181,6 @@ function V2FrostOverlaySection() {
   );
 }
 
-/* Mock stagings for the approval tray preview. Shapes mirror
- * packages/sync/src/schemas.ts syncedActionStagingSchema. */
-const V2_STAGING_EMAIL: SyncedActionStaging = {
-  id: "stg_styleguide_email",
-  userId: "user_styleguide",
-  runId: "run_styleguide",
-  workflowSlug: "inbox-triage",
-  workflowName: "Inbox triage",
-  trigger: { kind: "manual" },
-  brief: "Reply to Maya about moving the design review to Thursday.",
-  stepId: "step_1",
-  toolCallId: "call_1",
-  toolName: "gmail.send_draft",
-  integration: "gmail",
-  riskTier: "medium",
-  proposedInput: {
-    to: ["maya@acme.com"],
-    subject: "Re: Design review timing",
-    bodyText: [
-      "Thursday at 2pm works on my end — moving the invite now. Shout if that clashes with anything on your side.",
-      "",
-      "Quick recap of what we'll cover so nobody preps the wrong thing:",
-      "— Where the new onboarding flow landed after last week's usability pass",
-      "— The two open questions on the billing page copy",
-      "— Whether we ship the dark-mode toggle this cycle or hold it for the brand refresh",
-      "",
-      "I'll bring the Figma links and the latest numbers from the beta cohort. If you want anything else on the agenda, reply here and I'll fold it in before I send the invite update.",
-      "",
-      "Best,",
-      "Yash",
-    ].join("\n"),
-  },
-  requiresApproval: true,
-  status: "pending",
-  expiresAt: null,
-  notifyAfterAt: null,
-  notifiedAt: null,
-  recentRejection: null,
-  rowVersion: 1,
-  createdAt: "2026-06-07T08:30:00.000Z",
-  updatedAt: null,
-};
-
-const V2_STAGING_QUESTION: SyncedActionStaging = {
-  ...V2_STAGING_EMAIL,
-  id: "stg_styleguide_question",
-  stepId: "step_3",
-  toolCallId: "call_3",
-  toolName: ASK_USER_TOOL,
-  integration: "system",
-  // What the tool declares. A question is not an irreversible action, so
-  // ADR-0099 rejects the `high` tier for it by name.
-  riskTier: "no_risk",
-  brief: "Ask which recipients and tone to use before sending the update.",
-  proposedInput: {
-    context: "I drafted the update. Two things are ambiguous before I send it.",
-    questions: [
-      {
-        question: "Who should receive the update?",
-        header: "Recipients",
-        multiSelect: true,
-        options: [
-          { label: "Maya only", description: "The one person who asked for it." },
-          { label: "The design channel", description: "Everyone who joined the review." },
-          { label: "Leadership", description: "Adds two directors to the thread." },
-        ],
-      },
-      {
-        question: "How direct should the tone be?",
-        header: "Tone",
-        multiSelect: false,
-        options: [
-          { label: "Plain", description: "Short sentences, no hedging." },
-          { label: "Warm", description: "Keeps the context and the thanks." },
-        ],
-      },
-    ],
-  },
-  recentRejection: null,
-  createdAt: "2026-06-07T08:32:00.000Z",
-};
-
-const V2_STAGING_GITHUB: SyncedActionStaging = {
-  ...V2_STAGING_EMAIL,
-  id: "stg_styleguide_github",
-  workflowSlug: "pull-request-review",
-  workflowName: "Pull request review",
-  brief: "Read pull request #124 before preparing the requested review summary.",
-  stepId: "step_2",
-  toolCallId: "call_2",
-  toolName: "github.get_pull_request",
-  integration: "github",
-  // A gated integration policy can require review even for a read-only tool.
-  riskTier: "no_risk",
-  proposedInput: {
-    owner: "99Yash",
-    repo: "alfred",
-    pull_number: 124,
-  },
-  recentRejection: null,
-  createdAt: "2026-06-07T08:31:00.000Z",
-};
-
 function V2QuestionAnswersSection() {
   return (
     <Section
@@ -2352,130 +2238,5 @@ function V2QuestionAnswersSection() {
         )}
       />
     </Section>
-  );
-}
-
-type HitlPreviewKind = "gmail" | "github" | "question";
-
-const HITL_PREVIEW_ITEMS = [
-  { value: "gmail", label: "Gmail action", icon: <Mail size={13} /> },
-  { value: "github", label: "GitHub review", icon: <GitPullRequest size={13} /> },
-  {
-    value: "question",
-    label: "Question",
-    icon: <MessageCircleQuestion size={13} />,
-  },
-] satisfies ReadonlyArray<{
-  value: HitlPreviewKind;
-  label: string;
-  icon: ReactNode;
-}>;
-
-function V2HitlChatSection() {
-  const [kind, setKind] = useState<HitlPreviewKind>("gmail");
-
-  return (
-    <Section
-      id="v2-hitl-chat"
-      title="HITL in chat"
-      recipe="The production chat composition, not an isolated card: active tool row, one pending ChatApprovalTray card, and the real disabled Composer below it. Switch between a Gmail write, a gated GitHub read, and `system.ask_user`; the same tray also serves other integrations. Preview decisions and approval-mode changes stay local."
-    >
-      <div className="app" data-app-theme="dark">
-        <AppSegmented
-          value={kind}
-          onValueChange={setKind}
-          items={HITL_PREVIEW_ITEMS}
-          label="HITL preview"
-        />
-      </div>
-      <ThemePanes stacked render={(theme) => <V2HitlChatPreview kind={kind} theme={theme} />} />
-    </Section>
-  );
-}
-
-function V2HitlChatPreview({ kind, theme }: { kind: HitlPreviewKind; theme: "light" | "dark" }) {
-  const [tier, setTier] = useState<ChatModelTier>("standard");
-  const [autoApprove, setAutoApprove] = useState(false);
-
-  const base =
-    kind === "gmail"
-      ? V2_STAGING_EMAIL
-      : kind === "github"
-        ? V2_STAGING_GITHUB
-        : V2_STAGING_QUESTION;
-
-  const runId = `run_styleguide_hitl_${kind}_${theme}`;
-
-  const staging: SyncedActionStaging = {
-    ...base,
-    id: `stg_styleguide_hitl_${kind}_${theme}`,
-    runId,
-  };
-
-  const tool: ToolCallView = {
-    toolCallId: staging.toolCallId,
-    toolName: staging.toolName,
-    status: "started",
-    argsPreview: JSON.stringify(staging.proposedInput),
-    segmentIndex: 0,
-  };
-
-  const threadTitle =
-    kind === "gmail"
-      ? "Move the design review"
-      : kind === "github"
-        ? "Review pull request #124"
-        : "Draft the project update";
-
-  const userMessage =
-    kind === "gmail"
-      ? "Move Thursday’s design review and send Maya the updated agenda."
-      : kind === "github"
-        ? "Review PR #124 and tell me what needs attention before I approve it."
-        : "Draft the project update, but ask me about the recipients and tone first.";
-
-  return (
-    <Tooltip.Provider delayDuration={300} skipDelayDuration={600}>
-      <div className="overflow-hidden rounded-2xl bg-app-background shadow-[0_0_0_1px_var(--app-fg-a1)]">
-        <div className="flex h-[min(760px,80vh)] min-h-[620px] flex-col">
-          <div className="flex h-11 shrink-0 items-center justify-between border-b border-app-bg-a2 px-4">
-            <p className="truncate text-[13px] font-medium text-app-fg-4">{threadTitle}</p>
-            <span className="rounded-full bg-app-purple-1 px-2 py-0.5 text-[11px] font-medium text-app-purple-4">
-              Waiting for you
-            </span>
-          </div>
-
-          <div className="app-scrollbar-none min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
-              <div className="flex justify-end">
-                <p className="max-w-[80%] rounded-2xl bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight text-pretty text-app-fg-4">
-                  {userMessage}
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <ToolCallGroup tools={[tool]} narration={[]} active />
-                <ChatApprovalTray runId={runId} approvals={[staging]} awaitingApproval preview />
-              </div>
-            </div>
-          </div>
-
-          <div className="shrink-0 bg-linear-to-t from-app-background via-app-background to-transparent px-4 pt-3 pb-4">
-            <div className="mx-auto w-full max-w-3xl">
-              <Composer
-                threadId={`styleguide-hitl-${kind}-${theme}`}
-                isStreaming
-                disabled
-                autoApprove={autoApprove}
-                autoApprovePending={false}
-                onToggleAutoApprove={() => setAutoApprove((value) => !value)}
-                tier={tier}
-                onTierChange={setTier}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    </Tooltip.Provider>
   );
 }
