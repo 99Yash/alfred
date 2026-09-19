@@ -42,7 +42,7 @@
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/require-readable-spacing": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "error",
-    // Three rules remain at warn for paydown. Each still has live violations;
+    // One rule remains at warn for paydown. It still has live violations;
     // promote to error only after the tree is clean. Three upstream rules stay out:
     // - no-conditional-empty-object-spread: conflicts with exactOptionalPropertyTypes
     // - no-unknown-parameters: conflicts with boundary validator pattern
@@ -53,7 +53,7 @@
     // allowInTypeGuards: `typeof` inside a `value is T` predicate is the predicate's
     // correct implementation, not the ad-hoc narrowing this rule exists to reject.
     "anti-slop/no-runtime-typeof": ["warn", { "allowInTypeGuards": true }],
-    "anti-slop/no-unknown-returns": "warn",
+    "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
     "tailwindcss/enforce-sort-order": ["warn", { "entryPoint": "apps/web/src/index.css" }],
     "tailwindcss/enforce-shorthand": "warn",
@@ -383,6 +383,91 @@
       ],
       "rules": {
         "anti-slop/no-unsafe-dictionary-type": "off"
+      }
+    },
+    {
+      // no-unknown-returns is at `error` for product source; test, eval
+      // and script scopes are exempt ON PURPOSE. A fixture's stubbed row or a
+      // one-off probe's parsed-JSON bag has no named domain type to return —
+      // the `unknown` IS the fixture — so the rule there only extracts
+      // renames. See docs/research/anti-slop-paydown-2026-09-12.md.
+      "files": [
+        "**/test/**",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.test.mts",
+        "**/*.test.cts",
+        "**/evals/**",
+        "**/*.eval.ts",
+        "**/scripts/**"
+      ],
+      "rules": {
+        "anti-slop/no-unknown-returns": "off"
+      }
+    },
+    {
+      // no-unknown-returns stays off ON PURPOSE in the honest-boundary
+      // files below. Each returns `unknown` because the value IS untyped at
+      // that boundary, not because a type was erased:
+      // - boundary parsers and canonicalizers (json safeJsonParse, guards
+      //   getPath, passthrough-bounds, log-redaction walk, tool-schemas Zod
+      //   preprocessors, errors causeOf, trajectory canonicalize,
+      //   tool-preview pruneForPreview, chat-attachments hydration,
+      //   user-context identityValue, metering captureOutput) take or emit
+      //   `unknown` as their contract — narrowing belongs at callers via a
+      //   schema, per packages/contracts/AGENTS.md;
+      // - provider clients (rest-passthrough parseBody, authed-json,
+      //   provider-client, sentry/notion/google clients, redis eval,
+      //   credential-adapter openRow/openJoined, rate-limit Redis port)
+      //   return what the provider or store returned, which has no static
+      //   shape — bound and redact at the call site instead;
+      // - queue processors (knowledge/briefings/automation/ingestion/chat-memory
+      //   queues, compaction queue, idle-capture queue, approval-expiry
+      //   worker) return through BullMQ's `Processor` contract, whose
+      //   `Promise<unknown>` no caller reads (`returnValue` has no readers);
+      // - framework seams (tool-runtime registry execute/redactInput,
+      //   dispatch pipeline, triggers TriggerConsumer.accept,
+      //   google-credential-lifecycle is typed at its port — the fetch-url
+      //   undici lifecycle cast carries its own SAFETY note) erase the
+      //   result because every tool's `execute_result` is free-form JSON
+      //   unless a TOOL_OUTPUT_SCHEMAS entry says otherwise.
+      // A new open-`unknown` return anywhere else in product source is an error.
+      "files": [
+        "packages/contracts/src/json.ts",
+        "packages/contracts/src/guards.ts",
+        "packages/contracts/src/passthrough-bounds.ts",
+        "packages/contracts/src/log-redaction.ts",
+        "packages/contracts/src/tool-schemas.ts",
+        "packages/contracts/src/errors.ts",
+        "packages/integrations/src/shared/rest-passthrough.ts",
+        "packages/integrations/src/shared/authed-json.ts",
+        "packages/integrations/src/shared/provider-client.ts",
+        "packages/integrations/src/sentry/client.ts",
+        "packages/integrations/src/notion/client.ts",
+        "packages/integrations/src/google/http.ts",
+        "packages/db/src/redis.ts",
+        "packages/auth/src/credential-adapter.ts",
+        "packages/auth/src/rate-limit.ts",
+        "packages/assistant/src/tool-runtime/internal/registry.ts",
+        "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
+        "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
+        "packages/assistant/src/triggers/index.ts",
+        "packages/assistant/src/knowledge/user-context.ts",
+        "packages/assistant/src/knowledge/queue.ts",
+        "packages/assistant/src/execution/workflows/tool-preview.ts",
+        "packages/assistant/src/connections/ingestion/queue.ts",
+        "packages/assistant/src/chat/compaction/conversation-summary-generator.ts",
+        "packages/assistant/src/chat/compaction/conversation-compaction-queue.ts",
+        "packages/assistant/src/chat/chat-attachments.ts",
+        "packages/assistant/src/chat/idle-capture-queue.ts",
+        "packages/assistant/src/briefings/queue.ts",
+        "packages/assistant/src/automation/queue.ts",
+        "packages/assistant/src/execution/approval-expiry-worker.ts",
+        "packages/ai/src/replay/trajectory.ts",
+        "packages/ai/src/metering/wrappers.ts"
+      ],
+      "rules": {
+        "anti-slop/no-unknown-returns": "off"
       }
     },
     {

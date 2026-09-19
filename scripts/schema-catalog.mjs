@@ -139,7 +139,7 @@ export function scanFile(source) {
   const bases = known();
 
   for (const [, name, base] of source.matchAll(COMPOSE_DEF)) {
-    const isSchemaBase = bases.has(base) || /Schema$/.test(base);
+    const isSchemaBase = bases.has(base) || base.endsWith("Schema");
 
     if (!isSchemaBase) continue;
     found.push({

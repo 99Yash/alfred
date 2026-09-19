@@ -327,7 +327,7 @@ export function createGithubClient(options: GithubClientOptions) {
     async getPullRequests(
       items: ReadonlyArray<{ owner: string; repo: string; number: number }>,
     ): Promise<PullRequestBatch> {
-      const fetched: PullRequestDetail[] = new Array<PullRequestDetail>(items.length);
+      const fetched: (PullRequestDetail | undefined)[] = Array.from({ length: items.length });
       const failed: PullRequestBatchFailure[] = [];
       await mapConcurrent(
         items.map((item, index) => ({ item, index })),
