@@ -2,11 +2,16 @@ import {
   GOOGLE_WORKSPACE_MIME_PREFIX,
   INTEGRATIONS,
   isToolName,
+  type DocumentSource,
   type ToolName,
 } from "@alfred/contracts";
+import type { LucideIcon } from "lucide-react";
 import { domainOf } from "~/lib/favicon";
+import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
+import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { formatRelative } from "~/lib/strings";
 import { asRecord, asString, parseJsonRecord, type JsonRecord } from "~/lib/json-record";
+import { brandlessToolIcon } from "./animated-tool-icons";
 import { toSource, type Source } from "./sources";
 import type { ToolCallView } from "./tool-call-presentation";
 
@@ -86,10 +91,7 @@ export function presentBrowsing(tool: ToolCallView): BrowsingView | null {
 
     return {
       kind: "web_search",
-      // `argsPreview` is dropped from the persisted call, so the query only
-      // survives on reload via the result echo — read args first (live), then
-      // fall back to `result.query` (persisted).
-      query: asString(args?.query) ?? asString(result?.query),
+      query: searchQueryOf(tool),
       sources: [...byDomain.values()],
     };
   }
@@ -127,13 +129,34 @@ interface EvidenceRow {
   /** Muted secondary line — repo, timestamp, path. */
   meta?: string | undefined;
   badge?: EvidenceBadge | undefined;
+  /**
+   * This row's own glyph, for a list whose records come from several services
+   * at once — a corpus search answers with a Gmail message beside a GitHub
+   * event, and a tool search answers with one row per integration. Preferred
+   * over the list-wide favicon, and preferred over {@link faviconDomain}: the
+   * brand renders the service's real logo instead of a fetched favicon.
+   */
+  brand?: IntegrationBrand | undefined;
+  /** This row's own favicon domain, when it has no brand of its own. */
+  faviconDomain?: string | undefined;
+  /**
+   * This row's own glyph, for a record that belongs to no service at all — a
+   * tool search answers with `system.current_time` beside `github.search`, and
+   * the system half would otherwise sit under an empty chip. Last in the
+   * order: a real logo beats a drawn mark.
+   */
+  icon?: LucideIcon | undefined;
 }
 
 /** A list of records a read tool returned (github.search, calendar, …). */
 export interface RecordListView {
   kind: "record-list";
-  /** Integration domain used for each row's favicon. */
-  faviconDomain: string;
+  /**
+   * Integration domain used for each row's favicon. Absent for a list whose
+   * rows each carry their own glyph (a corpus or tool search), where no single
+   * service owns the list.
+   */
+  faviconDomain?: string | undefined;
   /** The query/context that produced the list, when the result echoes it. */
   query?: string | undefined;
   rows: EvidenceRow[];
@@ -287,15 +310,93 @@ function emailBody(content: string | undefined): string | undefined {
 }
 
 /**
+ * The read tools whose defining argument is a search intent, so the card may
+ * quote it as the row's subline ("Searched GitHub · `repo:99Yash/alfred`").
+ * An allowlist rather than a "does it have a `query` field" guess, because
+ * several tools carry a `query` that is not a search intent — `railway.graphql`
+ * holds a whole GraphQL document there, and quoting that would be worse than
+ * showing nothing. `satisfies` pins each name to the contracts key.
+ */
+const SEARCH_TOOLS = new Set<ToolName>([
+  "system.search_tools" satisfies ToolName,
+  "system.corpus_search" satisfies ToolName,
+  "system.search_context" satisfies ToolName,
+  "system.web_search" satisfies ToolName,
+  "system.read_chat_history" satisfies ToolName,
+  "gmail.search" satisfies ToolName,
+  "github.search" satisfies ToolName,
+  "notion.search" satisfies ToolName,
+  "drive.search_files" satisfies ToolName,
+]);
+
+/**
+ * What a search tool looked for, for the collapsed row's subline and the
+ * panel's header.
+ *
+ * Reads the live args first and the result echo second, in that order, because
+ * the two channels have different lifetimes: `argsPreview` rides the live
+ * `chat.tool` event but is dropped when the turn is persisted, so after a
+ * reload only a result that echoes its own query can still name it. Every tool
+ * in {@link SEARCH_TOOLS} either echoes the query today or shows the subline
+ * for the live turn alone — never a wrong query, only a missing one.
+ */
+export function searchQueryOf(tool: ToolCallView): string | undefined {
+  if (!isToolName(tool.toolName) || !SEARCH_TOOLS.has(tool.toolName)) return undefined;
+  const args = parseJsonRecord(tool.argsPreview);
+  const result = parseJsonRecord(tool.resultPreview);
+
+  // `q` is Gmail's own operator-query parameter name; every other search tool
+  // names the field `query`.
+  return asString(args?.query) ?? asString(args?.q) ?? asString(result?.query);
+}
+
+/** The service logo for a qualified tool name (`github.search` → GitHub). */
+function brandOfToolName(name: string | undefined): IntegrationBrand | undefined {
+  if (!name) return undefined;
+  const slug = name.includes(".") ? name.slice(0, name.indexOf(".")) : name;
+
+  return getIntegrationPage(slug)?.brand;
+}
+
+/**
+ * The service logo for a corpus hit's source. Exhaustive over `DocumentSource`
+ * so a new ingest lane fails the typecheck here rather than quietly drawing a
+ * blank chip next to its hits. `gmail_attachment` is a file that travelled on
+ * a message, so it wears the Gmail mark like its carrier.
+ */
+const DOCUMENT_SOURCE_BRANDS = {
+  gmail: "gmail",
+  gmail_attachment: "gmail",
+  github: "github",
+  sentry: "sentry",
+} satisfies Record<DocumentSource, IntegrationBrand>;
+
+/**
+ * Read by plain string, not by a cast: `source` arrives off a best-effort
+ * parsed preview, so an unknown lane must read as "no glyph" rather than be
+ * asserted into the union.
+ */
+const DOCUMENT_SOURCE_BRAND_BY_KEY: ReadonlyMap<string, IntegrationBrand> = new Map(
+  Object.entries(DOCUMENT_SOURCE_BRANDS),
+);
+
+function brandOfDocumentSource(source: string | undefined): IntegrationBrand | undefined {
+  return source ? DOCUMENT_SOURCE_BRAND_BY_KEY.get(source) : undefined;
+}
+
+/**
  * A `record-list` spec: where the records live, and how to turn each one into
  * a display row. Kept declarative so a new read tool is a handful of lines —
  * the row builder reads only the fields it renders and tolerates missing ones.
  */
 interface ListSpec {
   arrayKey: string;
-  faviconDomain: string;
-  /** The query/context line, read from the result echo or the live args. */
-  query?: ((result: JsonRecord, args: JsonRecord | null) => string | undefined) | undefined;
+  /**
+   * The list-wide favicon. Omitted when the rows each carry their own glyph —
+   * a corpus or tool search spans several services, so no one domain is right
+   * for the whole list.
+   */
+  faviconDomain?: string | undefined;
   row: (item: JsonRecord) => EvidenceRow | null;
   /** Exact count beyond the shown rows (e.g. `totalCount − shown`). */
   remaining?: ((result: JsonRecord, shown: number) => number | undefined) | undefined;
@@ -310,13 +411,39 @@ const RAILWAY_DEPLOYMENTS: ListSpec = {
   row: (item) => {
     const status = asString(item.status);
     const url = asString(item.url);
+    const service = asString(item.serviceName);
+    const short = asString(item.id)?.slice(0, 7);
 
-    if (!status && !url) return null;
+    if (!status && !url && !service) return null;
+
+    // `list_deployments` answers one service's history, so every row wears the
+    // same URL and the old title (`url ?? "Deployment"`) rendered five
+    // identical rows divided by hairlines. The deployment id is the only
+    // per-row fact that read always carries, so it joins the title where even
+    // narrow widths can see it (meta hides below `sm`).
+    const host = url ? domainOf(url) : undefined;
+
+    // Stored URLs are often a bare host (`alfred.beauty`), which an `<a>`
+    // would resolve against the app origin — prefix the scheme so the row
+    // links out instead of deeper into the app.
+    const href = url ? (/^https?:\/\//.test(url) ? url : `https://${url}`) : undefined;
+
+    const title =
+      service ??
+      (host && short
+        ? `${host} · #${short}`
+        : (host ?? (short ? `Deployment #${short}` : "Deployment")));
+
+    const meta = joinMeta(
+      service ? joinMeta(host, short ? `#${short}` : undefined) : undefined,
+      ago(item.createdAt),
+    );
 
     return {
       key: asString(item.id) ?? url ?? status ?? "deployment",
-      title: url ?? "Deployment",
-      meta: joinMeta(asString(item.serviceName), ago(item.createdAt)),
+      title,
+      href,
+      meta,
       badge: status
         ? { label: status.toLowerCase(), tone: RAILWAY_TONES.get(status) ?? "neutral" }
         : undefined,
@@ -326,11 +453,84 @@ const RAILWAY_DEPLOYMENTS: ListSpec = {
 
 const LIST_SPECS = new Map<ToolName, ListSpec>([
   [
+    // The corpus answers across every lane Alfred has ingested at once, so the
+    // list carries no single service: each hit wears its own source's mark.
+    "system.corpus_search",
+    {
+      arrayKey: "hits",
+      row: (item) => {
+        const title = asString(item.title);
+
+        if (!title) return null;
+        const page = asNumber(item.page);
+
+        return {
+          key: asString(item.chunkId) ?? asString(item.documentId) ?? title,
+          title,
+          href: asString(item.url),
+          // The page number is the one fact the extractor proved and the model
+          // is forbidden to invent (ADR-0091), so show it where it was proved.
+          meta: joinMeta(page ? `page ${page}` : undefined, ago(item.authoredAt)),
+          brand: brandOfDocumentSource(asString(item.source)),
+        };
+      },
+    },
+  ],
+  [
+    // The ladder's own first rung. Its result is the answer to "what can I do
+    // about this?", which is worth reading as a list of capabilities — the
+    // JSON dump it replaces held the same names behind four keys of scoring.
+    "system.search_tools",
+    {
+      arrayKey: "candidates",
+      row: (item) => {
+        const name = asString(item.name);
+
+        if (!name) return null;
+        const unavailable = asString(item.unavailableReason);
+
+        return {
+          key: name,
+          title: asString(item.title) ?? name,
+          meta: name,
+          brand: brandOfToolName(name),
+          // A `system.*` candidate belongs to no service, so it wears the same
+          // mark its own row in the trail would wear.
+          icon: brandlessToolIcon(name),
+          // A surfaced tool Alfred cannot actually run is the one fact worth a
+          // pill here: it explains a search that "found" something and then
+          // did nothing with it.
+          badge: unavailable ? { label: "unavailable", tone: "amber" } : undefined,
+        };
+      },
+    },
+  ],
+  [
+    "gmail.search",
+    {
+      arrayKey: "messages",
+      faviconDomain: INTEGRATIONS.gmail.domain,
+      hasMore: (result) => asString(result.nextPageToken) !== undefined,
+      row: (item) => {
+        const subject = asString(item.subject);
+        const from = asString(item.from);
+
+        if (!subject && !from) return null;
+
+        return {
+          key: asString(item.messageId) ?? subject ?? from ?? "message",
+          title: subject ?? "(no subject)",
+          href: asString(item.url),
+          meta: joinMeta(from, ago(item.authoredAt)),
+        };
+      },
+    },
+  ],
+  [
     "github.search",
     {
       arrayKey: "items",
       faviconDomain: INTEGRATIONS.github.domain,
-      query: (result) => asString(result.query),
       remaining: (result, shown) => {
         const total = asNumber(result.totalCount);
 
@@ -412,7 +612,6 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     {
       arrayKey: "hits",
       faviconDomain: INTEGRATIONS.notion.domain,
-      query: (_result, args) => asString(args?.query),
       hasMore: (result) => result.hasMore === true,
       row: (item) => {
         const title = asString(item.title);
@@ -433,7 +632,6 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     {
       arrayKey: "files",
       faviconDomain: INTEGRATIONS.drive.domain,
-      query: (_result, args) => asString(args?.query),
       row: (item) => {
         const name = asString(item.name);
 
@@ -582,12 +780,11 @@ export function presentEvidence(tool: ToolCallView): RecordListView | EntityView
     }
 
     if (rows.length === 0) return null;
-    const args = parseJsonRecord(tool.argsPreview);
 
     return {
       kind: "record-list",
       faviconDomain: listSpec.faviconDomain,
-      query: listSpec.query?.(result, args),
+      query: searchQueryOf(tool),
       rows,
       remaining: listSpec.remaining?.(result, rows.length),
       hasMore: listSpec.hasMore?.(result) ?? false,

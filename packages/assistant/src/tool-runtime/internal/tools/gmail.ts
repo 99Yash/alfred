@@ -143,6 +143,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       }
 
       return gmailSearchResultSchema.parse({
+        query: input.q,
         messages: result.messages.map((m) => {
           const cached = cachedBySourceId.get(m.id);
           const live = liveBySourceId.get(m.id);

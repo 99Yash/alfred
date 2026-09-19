@@ -290,9 +290,9 @@ export interface ToolLabel {
  */
 export const TOOL_LABELS = {
   "system.search_tools": {
-    running: "Searching available tools",
-    done: "Searched available tools",
-    title: "search available tools",
+    running: "Searching for a tool",
+    done: "Searched for a tool",
+    title: "search for a tool",
   },
   "system.load_tool": {
     running: "Loading a tool",

@@ -2,6 +2,7 @@ import {
   SPAWN_SUB_AGENT_TOOL,
   toStringArray,
   type ToolCategory,
+  type ToolName,
   toolCategoryOf,
   toolLabel,
 } from "@alfred/contracts";
@@ -9,6 +10,14 @@ import { Sparkles, Wrench, type LucideIcon } from "lucide-react";
 import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { asString, parseJsonRecord } from "~/lib/json-record";
+import { brandlessToolIcon } from "./animated-tool-icons";
+
+/**
+ * The second rung of the tool ladder. Its card is the one place a tool name
+ * the model chose becomes user-facing copy, so it reads its target out of the
+ * call rather than saying "a tool".
+ */
+const LOAD_TOOL = "system.load_tool" satisfies ToolName;
 
 export interface ToolCallView {
   toolCallId: string;
@@ -39,6 +48,14 @@ export interface ToolPresentation {
   failed?: string | undefined;
   /** Human-readable secondary line (brief, target, etc.) — not raw JSON. */
   detail?: string | undefined;
+  /**
+   * The successful result is bookkeeping, not evidence — `load_tool` answers
+   * `{"ok":true,"name":"github.search"}`, which the row's own copy already
+   * states in words. The card hides the expandable panel for such a call, so a
+   * run that climbed the tool ladder four times does not offer four dead
+   * chevrons. A FAILED call still expands: the reason is real information.
+   */
+  suppressResult?: boolean | undefined;
 }
 
 /** The tool's action segment: `"google_calendar.list_events"` → `"list_events"`. */
@@ -122,12 +139,17 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
   // fallback only fires for an unregistered name (e.g. a web-scoped tool).
   const label = toolLabel(tool.toolName);
   const failed = label ? `Couldn't ${label.title}` : undefined;
+  // A brandless tool draws its own glyph (see `brandlessToolIcon`); the wrench
+  // is the last resort for a name this build does not know.
+  const fallbackIcon = brandlessToolIcon(tool.toolName) ?? Wrench;
+
+  if (tool.toolName === LOAD_TOOL) return presentLoadTool(tool, fallbackIcon);
 
   if (slug === "system" || slug === "") {
-    if (label) return { fallbackIcon: Wrench, running: label.running, done: label.done, failed };
+    if (label) return { fallbackIcon, running: label.running, done: label.done, failed };
     const verb = humanizeTool(tool.toolName);
 
-    return { fallbackIcon: Wrench, running: verb, done: verb, failed: `Couldn't ${verb}` };
+    return { fallbackIcon, running: verb, done: verb, failed: `Couldn't ${verb}` };
   }
 
   // Integration-scoped tool, e.g. `github.search`.
@@ -137,7 +159,7 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
   if (label) {
     return {
       brand,
-      fallbackIcon: Wrench,
+      fallbackIcon,
       running: label.running,
       done: label.done,
       failed,
@@ -149,10 +171,59 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
 
   return {
     brand,
-    fallbackIcon: Wrench,
+    fallbackIcon,
     running: verb,
     done: verb,
     failed: `Couldn't ${verb}`,
     detail: provider?.name,
+  };
+}
+
+/**
+ * The `load_tool` card. Left generic it says "Loaded a tool" beside a wrench,
+ * which is the least informative row in a run that may hold four of them — the
+ * one fact the user wants is WHICH capability Alfred just reached for, and the
+ * call carries it.
+ *
+ * The target name is read from the args while the turn streams and from the
+ * result echo after a reload (`load_tool` returns the name it resolved), so
+ * the row keeps its meaning across a refresh. An unresolvable target — a
+ * pruned preview, or a name this build's registry does not carry — falls back
+ * to the registry's generic copy rather than inventing a target.
+ */
+function presentLoadTool(tool: ToolCallView, fallbackIcon: LucideIcon): ToolPresentation {
+  const args = parseJsonRecord(tool.argsPreview);
+  const result = parseJsonRecord(tool.resultPreview);
+  const target = asString(args?.name) ?? asString(result?.name);
+  const generic = toolLabel(tool.toolName);
+  const targetLabel = target ? toolLabel(target) : null;
+
+  const provider = target?.includes(".")
+    ? getIntegrationPage(target.slice(0, target.indexOf(".")))
+    : undefined;
+
+  if (!targetLabel) {
+    return {
+      brand: provider?.brand,
+      fallbackIcon,
+      running: generic?.running ?? "Loading a tool",
+      done: generic?.done ?? "Loaded a tool",
+      failed: "Couldn't load that tool",
+      detail: provider?.name,
+      suppressResult: true,
+    };
+  }
+
+  // The registry's `title` is an infinitive phrase written for exactly this
+  // position ("search issues and pull requests"), so it completes "Ready to…"
+  // without a second field of copy per tool.
+  return {
+    brand: provider?.brand,
+    fallbackIcon,
+    running: `Loading the tool to ${targetLabel.title}`,
+    done: `Ready to ${targetLabel.title}`,
+    failed: `Couldn't load the tool to ${targetLabel.title}`,
+    detail: provider?.name,
+    suppressResult: true,
   };
 }
