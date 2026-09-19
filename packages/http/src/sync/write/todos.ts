@@ -39,7 +39,7 @@ export async function todoCreate(
     .onConflictDoNothing();
 }
 
-/** Check the box: `open → done`, stamp `completed_at`. */
+/** Check the box: `open → done`, stamp `completed_at`. Direct UI write: `user`. */
 export async function todoComplete(
   tx: DbTransaction,
   args: TodoCompleteArgs,
@@ -50,6 +50,8 @@ export async function todoComplete(
     .set({
       status: "done",
       completedAt: new Date(),
+      resolvedBy: "user",
+      resolvedReason: "completed",
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "open")));
@@ -70,12 +72,14 @@ export async function todoCompleteSuggestion(
     .set({
       status: "done",
       completedAt: new Date(),
+      resolvedBy: "user",
+      resolvedReason: "completed",
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "suggested")));
 }
 
-/** Uncheck the box: `done → open`, clear `completed_at`. */
+/** Uncheck the box: `done → open`, clear `completed_at`. Direct UI write: `user`. */
 export async function todoReopen(
   tx: DbTransaction,
   args: TodoReopenArgs,
@@ -86,12 +90,14 @@ export async function todoReopen(
     .set({
       status: "open",
       completedAt: null,
+      resolvedBy: "user",
+      resolvedReason: "reopened",
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "done")));
 }
 
-/** Accept a suggestion: `suggested → open`. `created_by` is preserved. */
+/** Accept a suggestion: `suggested → open`. `created_by` is preserved. Direct UI write: `user`. */
 export async function todoPromote(
   tx: DbTransaction,
   args: TodoPromoteArgs,
@@ -99,7 +105,12 @@ export async function todoPromote(
 ): Promise<void> {
   await tx
     .update(todos)
-    .set({ status: "open", rowVersion: sql`${todos.rowVersion} + 1` })
+    .set({
+      status: "open",
+      resolvedBy: "user",
+      resolvedReason: "promoted",
+      rowVersion: sql`${todos.rowVersion} + 1`,
+    })
     .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "suggested")));
 }
 
@@ -114,7 +125,12 @@ export async function todoDismiss(
 ): Promise<void> {
   await tx
     .update(todos)
-    .set({ status: "dismissed", rowVersion: sql`${todos.rowVersion} + 1` })
+    .set({
+      status: "dismissed",
+      resolvedBy: "user",
+      resolvedReason: "dismissed",
+      rowVersion: sql`${todos.rowVersion} + 1`,
+    })
     .where(
       and(
         eq(todos.id, args.id),
@@ -137,7 +153,12 @@ export async function todoClear(
 ): Promise<void> {
   await tx
     .update(todos)
-    .set({ status: "cleared", rowVersion: sql`${todos.rowVersion} + 1` })
+    .set({
+      status: "cleared",
+      resolvedBy: "user",
+      resolvedReason: "cleared",
+      rowVersion: sql`${todos.rowVersion} + 1`,
+    })
     .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "done")));
 }
 

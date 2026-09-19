@@ -43,6 +43,24 @@ export type TodoCreatedBy = (typeof TODO_CREATED_BY)[number];
 
 export const todoCreatedBySchema = z.enum(TODO_CREATED_BY);
 
+// ─── Resolution attribution ──────────────────────────────────────────
+
+/**
+ * Who last moved the row to its current status. Set on every status write;
+ * NULL only on a freshly minted row that has never transitioned.
+ *
+ * `user` — direct UI mutator (Replicache `todoComplete`/`todoDismiss`/…).
+ * `agent` — an agent tool call acting for the user (`system.resolve_todo`,
+ *   `system.remember` suppression dismissal).
+ * `system` — automatic retraction with no user in the loop
+ *   (`close-loop-todos` reply retraction, future reconciler).
+ */
+export const TODO_RESOLVED_BY = ["user", "agent", "system"] as const;
+
+export type TodoResolvedBy = (typeof TODO_RESOLVED_BY)[number];
+
+export const todoResolvedBySchema = z.enum(TODO_RESOLVED_BY);
+
 // ─── Forward-compat: executor + kind ───────────────────────────────────────
 
 /**
