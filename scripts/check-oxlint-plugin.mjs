@@ -80,7 +80,8 @@ const OXLINT_BIN = resolve(ROOT, "node_modules", ".bin", "oxlint");
 // `vi` one is a trap that already produced a probe that passed for the wrong
 // reason.
 // Each entry maps to { snippet, severity }. The severity must match .oxlintrc.json:
-// "error" for ratchet rules, "warn" for paydown rules.
+// "error" for every rule — the last paydown rule was promoted, so no "warn"
+// probe remains.
 const PROBES = {
   // `vi` is deliberately left UNDECLARED. no-module-mocking resolves the binding
   // and ignores a local one (upstream treats `function f(jest: {mock(): void})`
@@ -114,7 +115,7 @@ const PROBES = {
   },
   "no-runtime-typeof": {
     snippet: `export const isString = typeof input === "string";\n`,
-    severity: "warn",
+    severity: "error",
   },
   "no-unknown-returns": {
     snippet: `export function loadUser(): unknown { return input; }\n`,

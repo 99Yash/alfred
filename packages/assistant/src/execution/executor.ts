@@ -561,12 +561,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
     // now - last_checkpoint_at at lease time. Doubles as the queue/reclaim delay
     // the `runtime.queue.lease` span reports (#409); computed for every status,
     // not just `running`. Null when the row was never checkpointed (fresh pending).
-    const staleMs =
-      row.staleMs == null
-        ? null
-        : typeof row.staleMs === "string"
-          ? Number(row.staleMs)
-          : row.staleMs;
+    const staleMs = row.staleMs == null ? null : Number(row.staleMs);
 
     let isStaleRunning = false;
 

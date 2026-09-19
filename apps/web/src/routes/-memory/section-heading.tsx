@@ -11,7 +11,7 @@ export function SectionHeading({
     <div className="space-y-1 px-1">
       <div className="flex items-baseline gap-2">
         <h2 className="text-[15px] font-medium text-app-fg-4">{title}</h2>
-        {typeof count === "number" ? (
+        {count !== undefined ? (
           <span className="text-xs text-app-fg-2 tabular-nums">{count}</span>
         ) : null}
       </div>

@@ -21,18 +21,20 @@
     // The vendored anti-slop rules (scripts/oxlint/anti-slop/, see its README for the
     // upstream commits and for the upstream rules this repo does not vendor).
     //
-    // Nine rules at `error`. Each was either adopted clean (zero violations on arrival,
+    // Twelve rules at `error`. Each was either adopted clean (zero violations on arrival,
     // so it can only fire on code written after adoption) or driven to zero at warn and
     // promoted here. That is also the bar for registering a new rule — a rule the tree
     // already violates belongs in its own change, violations first, rule second.
     // require-readable-spacing is the one autofix rule: adopted by running its
     // whitespace-only `--fix` across the tree to zero, so the diff added blank lines
     // and nothing else.
-    // require-safety-comment-for-type-assertion is the first rule promoted after a
-    // by-surface scoping: product source was driven to zero and the test/eval scopes,
-    // where a fixture's deliberate cast has no unseen invariant to narrate, are exempted
-    // by the "overrides" entry at the bottom of this file. See
+    // Four rules were promoted after a by-surface scoping: product source was
+    // driven to zero and the test/eval/script scopes, plus named
+    // honest-boundary files where the flagged spelling IS the boundary parse,
+    // are exempted by "overrides" entries at the bottom of this file. See
     // docs/research/anti-slop-paydown-2026-09-12.md for the promotion bar.
+    // (require-safety-comment-for-type-assertion first, then
+    // no-unsafe-dictionary-type, no-unknown-returns, and no-runtime-typeof.)
     "anti-slop/no-module-mocking": "error",
     "anti-slop/no-reflect-apply": "error",
     "anti-slop/no-widen-then-assert": "error",
@@ -42,8 +44,7 @@
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/require-readable-spacing": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "error",
-    // One rule remains at warn for paydown. It still has live violations;
-    // promote to error only after the tree is clean. Three upstream rules stay out:
+    // No rule remains at warn for paydown. Three upstream rules stay out:
     // - no-conditional-empty-object-spread: conflicts with exactOptionalPropertyTypes
     // - no-unknown-parameters: conflicts with boundary validator pattern
     // - no-reflect-get: conflicts with Reflect.get for class instances
@@ -52,7 +53,7 @@
     // in docs/reference/code-style.md instead of enforced.
     // allowInTypeGuards: `typeof` inside a `value is T` predicate is the predicate's
     // correct implementation, not the ad-hoc narrowing this rule exists to reject.
-    "anti-slop/no-runtime-typeof": ["warn", { "allowInTypeGuards": true }],
+    "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
     "tailwindcss/enforce-sort-order": ["warn", { "entryPoint": "apps/web/src/index.css" }],
@@ -403,6 +404,164 @@
       ],
       "rules": {
         "anti-slop/no-unknown-returns": "off"
+      }
+    },
+    {
+      // no-runtime-typeof is at `error` for product source; test, eval
+      // and script scopes are exempt ON PURPOSE. A fixture's `typeof`
+      // probe of a hand-built row, an eval's check of a stubbed response,
+      // or a one-off script's probe of parsed JSON is not the unparsed-value
+      // narrowing the rule exists to reject — the probe IS the fixture or
+      // the probe. Product source was driven to zero at warn before this
+      // promotion; see docs/research/anti-slop-paydown-2026-09-12.md.
+      // The `**/scripts/**` glob covers both ops tooling
+      // (apps/server/src/scripts) and package probes/smokes
+      // (packages/*/src/scripts) plus repo-level scripts/: none is typed
+      // product code the rule exists to police.
+      "files": [
+        "**/test/**",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.test.mts",
+        "**/*.test.cts",
+        "**/evals/**",
+        "**/*.eval.ts",
+        "**/scripts/**"
+      ],
+      "rules": {
+        "anti-slop/no-runtime-typeof": "off"
+      }
+    },
+    {
+      // no-runtime-typeof stays off ON PURPOSE in the honest-boundary
+      // files below. Each `typeof` there is the parse itself, a capability
+      // probe, or a typed-union discrimination with no helper spelling —
+      // not an unparsed value narrowed in place of a boundary decode:
+      // - canonical unknown-walkers and serializers (contracts guards,
+      //   sanitize, bound, flatten-json, tools stringifyCanonical, web
+      //   eden restoreWireTimestamps, signature canonicalize,
+      //   context-search deepFreeze, mcp client deepFreeze) dispatch on
+      //   the runtime representation because the representation IS the
+      //   contract being established;
+      // - schema-boundary validators (contracts tool-schemas and
+      //   tool-fields preprocessors, events z.custom, env server
+      //   preprocessors, extraction protocol validators, triggers
+      //   z.custom, replay-state preprocess, weather schemas transform)
+      //   narrow `unknown` process.env, webhook, and model-output fields
+      //   inside the Zod boundary that owns them;
+      // - provider and external-payload readers (github-reducer,
+      //   gmail-reducer, gmail-kind-fold, fact-policy content probes,
+      //   hosted-endpoint parseUrl, github client, google oauth claims,
+      //   mcp protocol TTL, discovery textFromContent, conversation
+      //   transcript helpers, evidence asNumber, tool-call-card
+      //   prettyJson, login-search sanitizeRedirect, briefings gather
+      //   parseCoord, run-bottlenecks jsonb reason) narrow webhook,
+      //   provider, and persisted-JSON fields at the ingestion edge;
+      // - unknown renderers (approvals format stringValue and
+      //   input-editor tool-input values, memory formatters, approval
+      //   notification formatValue, facts previewValue, skill fact
+      //   renderers, deepen meta, relationship and user-context fact
+      //   strings, finalize-guards child-outcome render, metering
+      //   captureInput, langfuse metadata scrub, logger error
+      //   diagnostics, passthrough transport error fields,
+      //   stream-timeout and compaction error duck-typing, credential
+      //   envelope open and vault classify) branch `unknown` into text
+      //   for display, logs, or redaction, which is the boundary;
+      // - typed-union discriminators with no helper spelling (toast
+      //   Shorthand, shell and sidebar SetStateAction resolvers, agent
+      //   value-or-thunk resolve, gateway RequestInfo, tool-call-round
+      //   restore result, tool JSON-schema properties reads,
+      //   pipeline PropertyKey symbol arm and scratch-key error
+      //   strings, undici resource capability probes in fetch-url,
+      //   window/matchMedia/requestIdle/crypto capability probes,
+      //   Node timer unref probes in worker, db, periodic-task and
+      //   broker, ReactNode discrimination in chat text renderers,
+      //   markdown code-class prop, extractor transcript union,
+      //   credential-adapter seal and join walks, telemetry cause
+      //   validation) narrow an already-typed union whose arms differ
+      //   by representation — `?.`, `??`, and the contracts guards
+      //   either do not apply or change the semantics.
+      // A new `typeof` anywhere else in product source is an error.
+      "files": [
+        "packages/contracts/src/guards.ts",
+        "packages/contracts/src/sanitize.ts",
+        "packages/contracts/src/bound.ts",
+        "packages/contracts/src/flatten-json.ts",
+        "packages/contracts/src/tools.ts",
+        "packages/contracts/src/tool-schemas.ts",
+        "packages/contracts/src/tool-fields.ts",
+        "packages/contracts/src/events.ts",
+        "packages/contracts/src/errors.ts",
+        "packages/env/src/server.ts",
+        "packages/extraction/src/extract-pdf-protocol.ts",
+        "packages/assistant/src/triggers/index.ts",
+        "packages/assistant/src/knowledge/signature.ts",
+        "packages/assistant/src/context-search/registry.ts",
+        "packages/assistant/src/connections/mcp/client.ts",
+        "packages/assistant/src/connections/mcp/protocol.ts",
+        "packages/assistant/src/connections/hosted-endpoint.ts",
+        "packages/assistant/src/connections/object-state/github-reducer.ts",
+        "packages/assistant/src/knowledge/gmail-reducer.ts",
+        "packages/assistant/src/knowledge/gmail-kind-fold.ts",
+        "packages/assistant/src/knowledge/fact-policy.ts",
+        "packages/assistant/src/knowledge/facts.ts",
+        "packages/assistant/src/knowledge/user-context.ts",
+        "packages/assistant/src/knowledge/extractor.ts",
+        "packages/assistant/src/tool-runtime/discovery.ts",
+        "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
+        "packages/assistant/src/tool-runtime/internal/registry.ts",
+        "packages/assistant/src/tool-runtime/internal/metadata-defaults.ts",
+        "packages/assistant/src/tool-runtime/internal/tool-call-round.ts",
+        "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
+        "packages/assistant/src/tool-runtime/internal/tools/passthrough/telemetry.ts",
+        "packages/assistant/src/tool-runtime/internal/tools/passthrough/transport.ts",
+        "packages/assistant/src/tool-runtime/mcp/broker.ts",
+        "packages/assistant/src/chat/compaction/conversation-summary-generator.ts",
+        "packages/assistant/src/chat/finalize-guards.ts",
+        "packages/assistant/src/chat/stream-timeout.ts",
+        "packages/assistant/src/briefings/gather.ts",
+        "packages/assistant/src/execution/approval-notification-worker.ts",
+        "packages/assistant/src/execution/run-bottlenecks.ts",
+        "packages/assistant/src/execution/worker.ts",
+        "packages/assistant/src/execution/workflows/tool-preview.ts",
+        "packages/assistant/src/skills/compose.ts",
+        "packages/assistant/src/skills/distill.ts",
+        "packages/assistant/src/triage/deepen.ts",
+        "packages/assistant/src/triage/sender-relationship.ts",
+        "packages/assistant/src/realtime/periodic-task.ts",
+        "packages/integrations/src/github/client.ts",
+        "packages/integrations/src/google/oauth.ts",
+        "packages/auth/src/credential-adapter.ts",
+        "packages/db/src/credential-envelope.ts",
+        "packages/db/src/credential-vault-maintenance.ts",
+        "packages/db/src/index.ts",
+        "packages/logging/src/logger.ts",
+        "packages/ai/src/agent.ts",
+        "packages/ai/src/gateway-throttle.ts",
+        "packages/ai/src/metering/langfuse.ts",
+        "packages/ai/src/metering/wrappers.ts",
+        "apps/web/src/lib/eden.ts",
+        "apps/web/src/lib/events/replay-state.ts",
+        "apps/web/src/lib/weather/schemas.ts",
+        "apps/web/src/lib/shell/app-shell.tsx",
+        "apps/web/src/lib/toast.tsx",
+        "apps/web/src/lib/chat/animate-text.tsx",
+        "apps/web/src/components/approvals/format.ts",
+        "apps/web/src/components/approvals/input-editor.tsx",
+        "apps/web/src/components/dimension-chat-thread.tsx",
+        "apps/web/src/components/markdown-renderer/markdown-pre.tsx",
+        "apps/web/src/components/ui/v2/theme.tsx",
+        "apps/web/src/main.tsx",
+        "apps/web/src/routes/-chat/artifact-sidebar.tsx",
+        "apps/web/src/routes/-chat/conversation-helpers.ts",
+        "apps/web/src/routes/-chat/evidence.ts",
+        "apps/web/src/routes/-chat/tool-call-card.tsx",
+        "apps/web/src/routes/-login/login-search.ts",
+        "apps/web/src/routes/-memory/memory-page.tsx",
+        "apps/web/src/routes/-memory/proposed-fact-card.tsx"
+      ],
+      "rules": {
+        "anti-slop/no-runtime-typeof": "off"
       }
     },
     {

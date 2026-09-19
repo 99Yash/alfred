@@ -1,5 +1,5 @@
 import type { AlfredAgent } from "@alfred/ai";
-import { isRecord, type ToolName } from "@alfred/contracts";
+import { getStringPath, type ToolName } from "@alfred/contracts";
 import { CHAT_DELTA_MAX } from "@alfred/contracts/events";
 import { parsePartialJson } from "ai";
 import { publishEvent } from "@alfred/assistant/triggers";
@@ -230,15 +230,14 @@ export async function streamModelTurn(args: {
     if (final) artifactInputs.delete(toolCallId);
     const parsed = await parsePartialJson(s.buf);
     const value = parsed.value;
-    const markdown = isRecord(value) && typeof value.markdown === "string" ? value.markdown : "";
+    const markdown = getStringPath(value, "markdown") ?? "";
 
     // Only publish once the body has actually grown — this is what excludes a
     // `pages` create (no `markdown` field) and a rename-only update.
     if (markdown.length <= s.sentLen) return;
-    const title = isRecord(value) && typeof value.title === "string" ? value.title : undefined;
+    const title = getStringPath(value, "title");
 
-    const artifactId =
-      isRecord(value) && typeof value.artifactId === "string" ? value.artifactId : undefined;
+    const artifactId = getStringPath(value, "artifactId");
 
     const tail = markdown.slice(s.sentLen);
     s.sentLen = markdown.length;

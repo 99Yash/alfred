@@ -4,7 +4,7 @@
  * scope and these stay trivially testable.
  */
 
-import { eventTriggerPhrase, humanizeSlug } from "@alfred/contracts";
+import { eventTriggerPhrase, humanizeSlug, toStringArray } from "@alfred/contracts";
 
 export type JsonParseResult = { ok: true; value: unknown } | { ok: false; message: string };
 
@@ -65,9 +65,7 @@ export function stringValue(value: unknown): string {
 }
 
 export function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
+  return toStringArray(value);
 }
 
 export function shortId(value: string): string {

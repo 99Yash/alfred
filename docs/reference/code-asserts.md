@@ -9,12 +9,12 @@ where to put a new invariant.
 | Assert | Rule | Where it lives |
 | --- | --- | --- |
 | `Record<string, any>` defeats `unknown` guards | `typescript/no-restricted-types` | `.oxlintrc.json:typescript/no-restricted-types` |
-| `Record<string, unknown>` as open dict without contract | `anti-slop/no-unsafe-dictionary-type` (`warn` → ratchet to `error` when tree is clean) | `scripts/oxlint/anti-slop/` |
+| `Record<string, unknown>` as open dict without contract | `anti-slop/no-unsafe-dictionary-type` (`error`) | `scripts/oxlint/anti-slop/` |
 | Widening a known literal to `Record`/`unknown` | `anti-slop/no-known-value-widening` (`error`) |
 | Widen then assert back (`unknown` → `as T`) | `anti-slop/no-widen-then-assert` (`error`) |
 | Chained `as` / angle-bracket asserts | `anti-slop/no-chained-type-assertions` (`error`) |
-| `unknown` in a type alias that leaks to callers | `anti-slop/no-unknown-type-aliases` (`error`), `no-unknown-returns` (`warn`) |
-| `typeof` over unparsed wire values instead of boundary parse | `anti-slop/no-runtime-typeof` (`warn`) |
+| `unknown` in a type alias that leaks to callers | `anti-slop/no-unknown-type-aliases` (`error`), `no-unknown-returns` (`error`) |
+| `typeof` over unparsed wire values instead of boundary parse | `anti-slop/no-runtime-typeof` (`error`) |
 | Type assertions without `SAFETY:` comment | `anti-slop/require-safety-comment-for-type-assertion` (`error`; test/eval scopes exempt) |
 | `vi.mock`/`jest.mock` | `anti-slop/no-module-mocking` (`error`) |
 | `Record<string, any>` already covered | `typescript/no-restricted-types` |
