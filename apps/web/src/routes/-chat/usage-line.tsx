@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, Gauge, Repeat, Snowflake, TriangleAlert, Zap } from
 import { modelLabel, providerOf, type SvgIcon } from "~/components/provider-marks";
 import { formatCost, formatTokens, outputTokensPerSecond } from "~/lib/usage-format";
 import { cn } from "~/lib/utils";
+import { CostFlow } from "./cost-flow";
 import { Tip } from "./tip";
 
 /**
@@ -243,10 +244,9 @@ const TONE = {
 } satisfies Record<UsageTone, { container: string; cost: string }>;
 
 /**
- * Dev-only per-turn token + cost readout under an assistant reply. Gated by the
- * caller on `import.meta.env.DEV` (stripped from prod bundles) — it exposes the
- * raw economics of the whole turn (the boss run plus every sub-agent it
- * spawned) so we can eyeball cost while iterating. Numbers come from the synced
+ * Per-turn token + cost readout under an assistant reply. A product surface in
+ * every env — it exposes the economics of the whole turn (the boss run plus
+ * every sub-agent it spawned) so the spend stays legible. Numbers come from the synced
  * `usage` rollup (aggregated server-side from `api_call_log`); absent on older
  * messages.
  *
@@ -376,7 +376,7 @@ export function UsageLine({
       >
         <span className={cn("inline-flex items-center gap-1.5 font-medium", toneClass.cost)}>
           <span className="text-app-fg-2">$</span>
-          {cost.replace(/^\$/, "")}
+          <CostFlow value={usage.costUsd} />
         </span>
       </Tip>
       {/* Only a turn that delegated has a split worth drawing: with one agent
