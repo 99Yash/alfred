@@ -19,14 +19,16 @@
    one row per status change on UPDATE (actor = `resolved_by`, `system`
    fallback so a missed writer stays visible instead of failing the write).
    Non-status writes (name edits, source merges) log nothing. A second
-   trigger rejects UPDATE and DELETE on `todo_events`.
+   trigger rejects UPDATE and direct DELETE on `todo_events`; FK-cascade
+   from a user/todo wipe is allowed so owner deletion keeps working.
 3. **Identity is guarded, lifecycle stays mutable.** A `BEFORE UPDATE`
    trigger on `todos` rejects changes to `id / user_id / created_by /
 agent_run_id` and rejects removal or replacement of identity-bearing
    `sources` refs. Gmail `thread` refs are transport and may come and go
    (the #355 cap evicts them oldest-first); every other ref must survive.
 4. **Receipts are evidence-append-only, not update-free.** Triggers reject
-   DELETE on `event_receipts` and reject UPDATEs touching any evidence or
+   direct DELETE on `event_receipts` (FK-cascade from a user/credential wipe
+   is allowed) and reject UPDATEs touching any evidence or
    identity column — but allow `processing_status / processed_at /
 updated_at`, the lifecycle the `ingress.deliver` job owns
    (`markProcessed`). A literal "UPDATE rejected" rule would break delivery;

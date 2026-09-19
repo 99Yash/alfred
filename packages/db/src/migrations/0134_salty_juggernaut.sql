@@ -28,9 +28,16 @@ ALTER TABLE "todos" ADD CONSTRAINT "todos_resolved_by_valid" CHECK (("todos"."re
 -- UPDATES receipts' lifecycle columns and todos' status). Bypass requires
 -- superuser `session_replication_role` or dropping the trigger, both outside
 -- application reach. Corrections are new rows, never mutations.
+-- FK-cascade deletes (user/todo wipe, test cleanup, GDPR) run nested inside
+-- the parent FK trigger at pg_trigger_depth() > 1 and are allowed; direct
+-- DELETEs run at depth 1 and are rejected. UPDATEs never cascade (all FKs are
+-- ON UPDATE NO ACTION) so they stay rejected at any depth.
 CREATE OR REPLACE FUNCTION event_receipts_guard_evidence() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
+    IF pg_trigger_depth() > 1 THEN
+      RETURN OLD;
+    END IF;
     RAISE EXCEPTION 'event_receipts is append-only: DELETE rejected (issue #1177)';
   END IF;
   -- Lifecycle columns the delivery job owns (`markProcessed` in
@@ -64,6 +71,9 @@ CREATE TRIGGER event_receipts_append_only
 --> statement-breakpoint
 CREATE OR REPLACE FUNCTION todo_events_guard_append_only() RETURNS TRIGGER AS $$
 BEGIN
+  IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
+    RETURN OLD;
+  END IF;
   RAISE EXCEPTION 'todo_events is append-only: % rejected (issue #1177)', TG_OP;
   RETURN NULL;
 END;
