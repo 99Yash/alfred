@@ -39,7 +39,7 @@ import {
 import { readApiKeyAuthForConnection } from "./api-key";
 import { builtInClientPolicy, builtInProviderForEndpoint } from "./built-ins";
 import { getMcpEndpointAuthorizer } from "./endpoint-authorization";
-import { boundedMcpErrorText, McpClientError } from "./errors";
+import { boundedMcpErrorText, isMcpAuthorizationChallenge, McpClientError } from "./errors";
 import {
   compareAndSetCatalogRevision,
   deleteOwnedConnection,
@@ -369,12 +369,18 @@ export class McpConnectionManager {
         throw this.#notConnected(connectionId);
       }
 
-      if (err instanceof McpOAuthAuthorizationRequiredError) {
+      if (
+        err instanceof McpOAuthAuthorizationRequiredError ||
+        (connection.credentialId !== null && isMcpAuthorizationChallenge(err))
+      ) {
         await client.close().catch(() => undefined);
         this.#assertOpenGeneration(generation);
         await this.#patch(connectionId, {
           status: "auth_required",
-          lastError: "Authorization is required to connect this MCP server.",
+          lastError:
+            err instanceof McpOAuthAuthorizationRequiredError
+              ? "Authorization is required to connect this MCP server."
+              : boundedMcpErrorText(err),
         });
         this.#assertOpenGeneration(generation);
         this.#generations.delete(connectionId);

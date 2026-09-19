@@ -25,6 +25,8 @@ import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
   mcpCatalogRevisions,
   mcpConnections,
+  mcpOauthCredentials,
+  mcpApiKeyCredentials,
   mcpServers,
   type McpCatalogRevision,
   type McpConnection,
@@ -33,7 +35,7 @@ import {
   type NewMcpServer,
 } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
-import { and, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
 import { compareMcpToolNames, projectCatalogRevision } from "./hash";
 
@@ -110,6 +112,60 @@ function joinConnection(input: {
   server: McpServerDefinition;
 }): McpConnectionWithServer {
   return { ...input.connection, server: input.server };
+}
+
+/** A small, oldest-first page for the background connection recovery pass. */
+export async function listRecoverableCredentialedConnectionIds(
+  cutoff: Date,
+  limit: number,
+  runner: DbRunner = db(),
+): Promise<string[]> {
+  const rows = await runner
+    .select({ id: mcpConnections.id })
+    .from(mcpConnections)
+    .leftJoin(
+      mcpOauthCredentials,
+      and(
+        eq(mcpOauthCredentials.id, mcpConnections.credentialId),
+        eq(mcpOauthCredentials.connectionId, mcpConnections.id),
+        eq(mcpOauthCredentials.userId, mcpConnections.userId),
+      ),
+    )
+    .leftJoin(
+      mcpApiKeyCredentials,
+      and(
+        eq(mcpApiKeyCredentials.id, mcpConnections.apiKeyCredentialId),
+        eq(mcpApiKeyCredentials.connectionId, mcpConnections.id),
+        eq(mcpApiKeyCredentials.userId, mcpConnections.userId),
+      ),
+    )
+    .where(
+      and(
+        eq(mcpConnections.status, "connecting"),
+        isNotNull(mcpConnections.lastError),
+        lt(mcpConnections.updatedAt, cutoff),
+        or(
+          and(isNotNull(mcpOauthCredentials.accessToken), isNotNull(mcpOauthCredentials.tokenType)),
+          isNotNull(mcpApiKeyCredentials.id),
+        ),
+      ),
+    )
+    .orderBy(asc(mcpConnections.updatedAt), asc(mcpConnections.id))
+    .limit(limit);
+
+  return rows.map((row) => row.id);
+}
+
+/** Keep a transport failure recoverable only if no user action changed the row. */
+export async function retainRecoverableConnection(
+  id: string,
+  lastError: string,
+  runner: DbRunner = db(),
+): Promise<void> {
+  await runner
+    .update(mcpConnections)
+    .set({ status: "connecting", lastError, updatedAt: new Date() })
+    .where(and(eq(mcpConnections.id, id), eq(mcpConnections.status, "failed")));
 }
 
 export async function readConnection(

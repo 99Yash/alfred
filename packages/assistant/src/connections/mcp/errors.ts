@@ -124,6 +124,25 @@ export function isMcpAuthorizationChallenge(err: unknown): boolean {
   );
 }
 
+/** Retry only socket and fetch failures, never a remote authorization or protocol answer. */
+export function isMcpTransportFailure(err: unknown): boolean {
+  if (isMcpAuthorizationChallenge(err) || hostedEndpointErrorFrom(err)) return false;
+
+  return causeChain(err).some((link) => {
+    if (link instanceof TypeError && link.message === "fetch failed") return true;
+
+    if (!(link instanceof Error) || !("code" in link)) return false;
+
+    return [
+      "ECONNRESET",
+      "ECONNREFUSED",
+      "ETIMEDOUT",
+      "EAI_AGAIN",
+      "UND_ERR_CONNECT_TIMEOUT",
+    ].includes(String(link.code));
+  });
+}
+
 /**
  * True when a failure is the ENDPOINT's answer, and false when it is Alfred's
  * own fault.

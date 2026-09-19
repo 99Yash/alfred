@@ -33,6 +33,8 @@ import {
   listOwnedConnections,
   MCP_DEFAULT_REQUEST_TIMEOUT_MS,
   isAddUserMcpServerRefusal,
+  isMcpAuthorizationChallenge,
+  isMcpTransportFailure,
   McpOAuthAuthorizationRequiredError,
   mcpConsentAsk,
   mcpOAuthClientConfiguration,
@@ -84,6 +86,14 @@ interface McpOAuthCallbackDependencies {
   connectionManager: Pick<McpConnectionManager, "getReadyClient">;
 }
 
+/** Identify the only callback phase whose transport failure can recover with stored tokens. */
+class McpPostConsentHandshakeError extends Error {
+  constructor(cause: unknown) {
+    super("MCP connection handshake failed", { cause });
+    this.name = "McpPostConsentHandshakeError";
+  }
+}
+
 /** Keep one callback authorization capability alive through token exchange and reconnect. */
 export async function completeMcpOAuthCallback(input: {
   connection: McpOAuthCallbackConnection;
@@ -112,21 +122,23 @@ export async function completeMcpOAuthCallback(input: {
         throw Errors.BadRequestError("MCP OAuth discovery state is missing");
       }
 
-      try {
-        await provider.finishAuthorization(input.params);
-        // This writes the row's status, but only because it OPENS a generation:
-        // a cached one is returned without a write. That is why every consent
-        // door drops the live client before it asks (see the route block below).
-        // Without that, a row parked in `auth_required` by the ask would still
-        // read `auth_required` after a successful grant, and the card would
-        // offer "Grant access" over a healthy connection forever.
-        await dependencies.connectionManager.getReadyClient(connection.id);
-      } catch (error) {
-        await updateConnection(connection.id, {
-          status: "failed",
-          lastError: boundedMcpErrorText(error),
-        });
-        throw Errors.BadRequestError("MCP authorization callback was rejected");
+      await provider.finishAuthorization(input.params);
+
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          // This writes the row's status only when it OPENS a generation.
+          // Each consent door drops the old client before it asks.
+          await dependencies.connectionManager.getReadyClient(connection.id);
+
+          return;
+        } catch (error) {
+          if (!isMcpTransportFailure(error) || attempt === 3) {
+            throw new McpPostConsentHandshakeError(error);
+          }
+
+          await updateConnection(connection.id, { status: "connecting", lastError: null });
+          await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+        }
       }
     },
   );
@@ -753,18 +765,34 @@ export const mcpIntegrationRoutes = new Elysia({
     const connection = await readOwnedConnection(decoded.connectionId, decoded.userId);
 
     if (!connection) throw Errors.BadRequestError("MCP connection no longer exists");
-    await completeMcpOAuthCallback({
-      connection,
-      state: parsed.data.state,
-      params,
-      dependencies: {
-        endpointAuthorizer,
-        providerForConnection: mcpOAuthProviderForConnection,
-        // The URLSearchParams overload validates `iss` before it reads any
-        // callback error text or redeems the authorization code.
-        connectionManager: getMcpConnectionManager(),
-      },
-    });
+
+    try {
+      await completeMcpOAuthCallback({
+        connection,
+        state: parsed.data.state,
+        params,
+        dependencies: {
+          endpointAuthorizer,
+          providerForConnection: mcpOAuthProviderForConnection,
+          // The URLSearchParams overload validates `iss` before it reads any
+          // callback error text or redeems the authorization code.
+          connectionManager: getMcpConnectionManager(),
+        },
+      });
+    } catch (error) {
+      if (
+        !(error instanceof McpOAuthAuthorizationRequiredError) &&
+        !(error instanceof McpPostConsentHandshakeError && isMcpAuthorizationChallenge(error))
+      ) {
+        await updateConnection(connection.id, {
+          status:
+            error instanceof McpPostConsentHandshakeError && isMcpTransportFailure(error)
+              ? "connecting"
+              : "failed",
+          lastError: boundedMcpErrorText(error),
+        });
+      }
+    }
 
     return redirectToIntegrations(set);
   });

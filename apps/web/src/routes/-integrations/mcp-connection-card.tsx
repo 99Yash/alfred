@@ -5,6 +5,7 @@ import { AppButton, AppInput } from "~/components/ui/v2";
 import { mcpAuthorizeUrl, type McpConnection } from "./helpers";
 import { useMcpConnectionActions, type McpConnectionActions } from "./mcp-connection-actions";
 import { McpConnectionCatalogPanel } from "./mcp-connection-catalog";
+import { McpConnectionWarning } from "./mcp-connection-warning";
 import { McpTile } from "./mcp-tile";
 import { mcpConnectionHealthText } from "./mcp-server-status";
 
@@ -37,6 +38,11 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
   const [toolsOpen, setToolsOpen] = useState(false);
 
   const needsConsent = connection.status === "auth_required";
+
+  const warning =
+    connection.status === "failed" ||
+    (connection.status === "connecting" && connection.lastError !== null);
+
   const busy = actions.pending !== null;
 
   const subtitle = actions.error ? (
@@ -51,13 +57,22 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
         </>
       ) : null}
     </span>
+  ) : warning ? (
+    <McpConnectionWarning connection={connection} />
   ) : (
     mcpConnectionHealthText(connection)
   );
 
   return (
     <div className="space-y-2">
-      <McpTile icon={{ glyph: <Plug size={18} /> }} label={connection.label} subtitle={subtitle}>
+      <McpTile
+        icon={{
+          glyph: warning ? <AlertTriangle size={18} /> : <Plug size={18} />,
+        }}
+        label={connection.label}
+        subtitle={subtitle}
+        warning={warning}
+      >
         {editingLabel !== null ? (
           <form
             className="flex shrink-0 items-center gap-1"

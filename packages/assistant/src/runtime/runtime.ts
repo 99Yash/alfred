@@ -27,6 +27,10 @@ import {
   stopIngestionWorker,
 } from "@alfred/assistant/connections/ingestion";
 import {
+  startMcpConnectionRecovery,
+  stopMcpConnectionRecovery,
+} from "@alfred/assistant/connections/mcp";
+import {
   closeChatMemoryQueue,
   closeConversationCompactionQueue,
   startChatMemoryWorker,
@@ -234,6 +238,7 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       // somebody enqueued, and locally that somebody is the developer, so gating
       // them would break interactive work while fixing nothing.
       if (scheduledJobsEnabled()) {
+        startMcpConnectionRecovery();
         await scheduleRepeatableIngestionJobs();
         await scheduleRepeatableMemoryJobs();
         await scheduleRepeatableBriefingJobs();
@@ -251,6 +256,7 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
     async stop(): Promise<void> {
       // Preserve the required stop order, but attempt every step. One unrelated
       // worker failure must not leave ingestion live while its adapters disappear.
+      await runShutdownStep("MCP connection recovery", stopMcpConnectionRecovery);
       const agentWorkerStopped = await runShutdownStep("agent worker", stopAgentWorker);
       await runShutdownStep("sub-agent join-wake worker", stopSubAgentJoinWakeWorker);
       // The chat-memory debounce worker's fire creates + enqueues an agent run, so
