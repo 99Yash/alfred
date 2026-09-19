@@ -237,10 +237,26 @@ export interface SenderExtractionEvent extends FloorTraceFields {
    */
   standingInstructionCategoryReadFailed: boolean;
   /**
+   * The classify prompt carried a cold-start prior for this mail. Projected
+   * from the same `obs.userContext !== null` that the render branches on (the
+   * `if (obs.userContext)` block in `triage/classify.ts`). Nothing binds the
+   * two sites, so a change to that branch must change this projection too.
+   *
+   * Read it WITH {@link SenderExtractionEvent.userContextReadFailed}: false +
+   * false is "this user has no cold-start chunk", false + true is "the read
+   * threw". Without this member a healthy read that found a line and a healthy
+   * read that found nothing project the same row.
+   */
+  userContextPresent: boolean;
+  /**
    * The pre-classify cold-start read failed, so this classification ran with no
    * user-context prior in the prompt for a reason OTHER than the common one.
    * Without it a total read failure and "this user has no cold-start chunk"
    * project the same row, and the deploy cannot be measured.
+   *
+   * Completes {@link SenderExtractionEvent.userContextPresent}. The two give
+   * three states: present is (true, false), absent is (false, false) and a
+   * failed read is (false, true).
    */
   userContextReadFailed: boolean;
   /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
@@ -313,6 +329,9 @@ export function senderExtractionEvent(args: {
     standingInstructionReadFailed: args.standingSuppressionReadFailed,
     standingInstructionCategoryFactId: obs.standingInstruction?.factId ?? null,
     standingInstructionCategoryReadFailed: obs.standingInstructionReadFailed,
+    // Same condition the classify render branches on, so the row says
+    // whether the prompt carried the prior. See `userContextPresent`.
+    userContextPresent: obs.userContext !== null,
     userContextReadFailed: obs.userContextReadFailed,
     todoOutcome: args.classification.todoDecision?.outcome ?? null,
     todoNote: args.classification.todoDecision?.note ?? null,
