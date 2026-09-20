@@ -14,8 +14,27 @@ import type { FloorResult } from "./floor";
  * `credential` + `exposed` over an 80-char window matches ordinary engineering
  * prose ("the credential object is exposed to the network") and the floor is
  * unrecoverable — a false positive force-tags an architecture email `urgent`.
+ *
+ * `password` is excluded for the SAME co-location reason, only stronger. The
+ * floor's charter is a leaked MACHINE credential; a user's account password is
+ * never committed to a repository, and the word sits inside ordinary vendor auth
+ * prose within the 100-char window of `compromised`/`detected`. Measured against
+ * real bodies, keeping it made the floor backwards for that class — it fired on
+ * the vendor's own boilerplate and stayed silent on the genuine third-party
+ * alert:
+ *
+ *   with `password`     fired on "Your Wellfound password was changed. If you did
+ *                       not make this change, your account may be compromised"
+ *                       and on "We detected a new sign-in ... reset your password
+ *                       now"; silent on "Critical security alert: a new device
+ *                       signed in ... from an unrecognized location"
+ *   without `password`  silent on both vendor bodies; still fires on
+ *                       "GitGuardian detected an exposed API key in commit a1b2c3"
+ *
+ * A genuine "your password was found in a breach" still reaches `urgent` — through
+ * the model's own judgment (rule 15b), not through this unrecoverable floor.
  */
-const OVERRIDE_FLOOR_SECRET_NOUN = String.raw`(?:secret|api[ -]?key|token|private key|password)`;
+const OVERRIDE_FLOOR_SECRET_NOUN = String.raw`(?:secret|api[ -]?key|token|private key)`;
 
 const OVERRIDE_FLOOR_EXPOSURE_VERB = String.raw`(?:exposed|leaked|committed|compromised|found|detected)`;
 
