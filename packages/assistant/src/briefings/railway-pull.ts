@@ -258,15 +258,22 @@ export interface RailwayPullResult {
   target: RailwayPullTarget;
   targetId: string;
   names: RailwayTargetNames | null;
-  /** The read's outcome, or null when the read failed, timed out, or puzzled. */
+  /**
+   * The stored row's state after folding this read — the verdict the briefing
+   * prints. Null when the read failed, timed out, or puzzled, or when the row
+   * holds a token outside the three-state vocabulary.
+   */
   status: ParsedRailwayStatus["status"] | null;
   /**
-   * `applied` — the read folded (a later success closes, a later failure
-   * reopens, per the target kind's policy). `duplicate` — the row already
-   * holds this outcome, so byte-identical repeats collapse and mint nothing.
-   * `unverified` — the read proved nothing; the loop stays live.
+   * `applied` — the read folded and the row holds what it proved (a later
+   * success closes, a later failure reopens, per the target kind's policy).
+   * `duplicate` — the row already holds this outcome, so byte-identical
+   * repeats collapse and mint nothing. `stale` — the read was verified but
+   * older than the stored row, so the store kept the row; `status` and
+   * `occurredAt` carry the row, not the read. `unverified` — the read proved
+   * nothing; the loop stays live.
    */
-  outcome: "applied" | "duplicate" | "unverified";
+  outcome: "applied" | "duplicate" | "stale" | "unverified";
   deploymentId: string | null;
   url: string | null;
   occurredAt: string | null;
@@ -279,7 +286,9 @@ const MAX_RAILWAY_PULL_TARGETS = 5;
  * when the target row already holds the outcome this read proved, nothing is
  * minted — so redeliveries, retries, and identical consecutive reads cannot
  * move the row. When the outcome differs, the store's own recency rule
- * decides (a stale read loses to the row), never this function.
+ * decides the write (a stale read loses to the row), and the verdict is
+ * re-read off the row — so the briefing prints what the projection holds,
+ * never what a losing read claimed.
  */
 export async function pullRailwayTargets(
   userId: string,
@@ -362,7 +371,36 @@ export async function pullRailwayTargets(
       deliveredAt: new Date(),
     });
 
-    results.push(result);
+    // The store's recency guard may refuse a stale read — a SUCCESS for an
+    // older deployment loses to the failed row — so the verdict is re-read
+    // off the row, never the parsed read. Otherwise the briefing prints a
+    // success the projection refused to write.
+    const stored = await objectStateStore.getByIdentity(userId, {
+      provider: "railway",
+      kind: "deployment_target",
+      externalId: targetId,
+    });
+
+    const storedStatus =
+      stored?.nativeState === "success" ||
+      stored?.nativeState === "failure" ||
+      stored?.nativeState === "pending"
+        ? stored.nativeState
+        : null;
+
+    if (!stored || storedStatus === parsed.status) {
+      results.push(result);
+      continue;
+    }
+
+    results.push({
+      ...result,
+      status: storedStatus,
+      outcome: "stale",
+      deploymentId: null,
+      url: stored.url,
+      occurredAt: stored.stateDeliveredAt?.toISOString() ?? result.occurredAt,
+    });
   }
 
   return results;
