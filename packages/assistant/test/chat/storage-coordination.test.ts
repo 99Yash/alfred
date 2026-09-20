@@ -8,6 +8,7 @@ import { pgErrorChain } from "@alfred/db/pg-errors";
 import { sql } from "drizzle-orm";
 
 import { dbBackedSkip } from "../support/db-backed";
+import { awaitGate } from "../support/gate-timeout";
 
 const SKIP = dbBackedSkip("database");
 
@@ -29,7 +30,7 @@ describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
       await releaseFirst.promise;
     });
 
-    await firstLocked.promise;
+    await awaitGate(firstLocked.promise, "chat storage first lock acquired");
 
     try {
       await assert.rejects(
@@ -68,7 +69,7 @@ describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
       await releaseSession.promise;
     });
 
-    await sessionLocked.promise;
+    await awaitGate(sessionLocked.promise, "chat session lock acquired");
 
     try {
       await assert.rejects(
