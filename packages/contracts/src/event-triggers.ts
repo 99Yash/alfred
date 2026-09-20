@@ -102,7 +102,21 @@ export const EVENT_SOURCE_ENTRIES = {
     // Mirrors the GitHub App's subscribed `default_events`, plus `check_suite`
     // for the CI succession shape (#1093). The App-subscription mirror is a
     // human flip (see the PR body) — until then the kinds stay empty, safely.
-    eventTypes: ["pull_request", "push", "issues", "pull_request_review", "check_suite"],
+    //
+    // `repository_dispatch` is GitHub-the-transport, not GitHub-the-subject:
+    // Vercel relays every deployment state change through it, and the body's
+    // `client_payload` is Vercel's own (#1167). Declaring it here is the
+    // ADR-0097 raw-tier lifecycle working as designed — the raw tier is the
+    // UNMAPPED tier, so naming a kind moves it out. `authoring` stays `"raw"`
+    // for this source, so a typed GitHub event adds no trigger surface.
+    eventTypes: [
+      "pull_request",
+      "push",
+      "issues",
+      "pull_request_review",
+      "check_suite",
+      "repository_dispatch",
+    ],
   },
   /**
    * Sentry internal-integration webhooks, one type per `<resource>_<action>`
