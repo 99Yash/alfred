@@ -50,6 +50,7 @@ import {
 } from "../../../src/tool-runtime/mcp/recovery";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../../support/db-backed";
+import { awaitGate } from "../../support/gate-timeout";
 
 /**
  * DB-backed tests for the dispatch → MCP seam (PRD #540 #6). These prove the two
@@ -541,7 +542,10 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       arguments: input.arguments,
     });
 
-    await protocol.firstCallStarted.promise;
+    await awaitGate(
+      protocol.firstCallStarted.promise,
+      "mcp-seam paused protocol first call started",
+    );
 
     const repeated = await dispatchToolCall({
       runId,
@@ -698,7 +702,10 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     };
 
     const firstWorker = dispatchToolCall(dispatchInput);
-    await protocol.firstCallStarted.promise;
+    await awaitGate(
+      protocol.firstCallStarted.promise,
+      "mcp-seam paused protocol first call started",
+    );
 
     const staleCommitStarted = Promise.withResolvers<void>();
     const releaseStaleCommit = Promise.withResolvers<void>();
@@ -717,7 +724,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
 
     try {
       const repeatedWorker = dispatchToolCall(dispatchInput);
-      await staleCommitStarted.promise;
+      await awaitGate(staleCommitStarted.promise, "mcp-seam stale commit intercepted");
 
       protocol.releaseFirstCall.resolve();
       const first = await firstWorker;
