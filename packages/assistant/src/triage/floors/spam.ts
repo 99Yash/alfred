@@ -31,14 +31,22 @@ import type { FloorResult } from "./floor";
  * body to `urgent` at sequence position 1. Exact: the field keys on
  * `verdict.kind === "escalate"`, not on a match.
  *
- * Do NOT add a second join on `secondPassFailure`. A throw on the under-
- * classification second pass once escalated a passive first pass to
- * `action_needed`; that branch is gone, so a second-pass throw now resolves to
- * the model's own first pass in both conflict directions and attributes nothing
- * to the deterministic layer.
+ * That is true FROM #1188 FORWARD only, and the statement must stay dated. A
+ * throw on the under-classification second pass once escalated a passive first
+ * pass to `action_needed`. #1188 deleted that branch, so a second-pass throw now
+ * resolves to the model's own first pass in both conflict directions. The rows it
+ * already wrote never age out — `agent_decision_traces` has no retention
+ * machinery (`packages/db/src/schema/agent.ts`) — so an audit reading history
+ * needs the OLD join too, on the same flat row:
  *
- * A `held_demand_lane` row that does not match `floorForced` is the model's own
- * judgment.
+ *   decided_at < '<#1188 merge date>'
+ *     AND secondPassFailure IS NOT NULL
+ *     AND conflict = 'under_classification'
+ *     AND firstPassCategory IN ('fyi','done','newsletter','marketing')
+ *
+ * Those rows are the deleted producer's, not the model's. For rows written at or
+ * after that date, `floorForced = true` is the whole answer and a
+ * `held_demand_lane` row that misses it is the model's own judgment.
  *
  * The trace key is `spamFloorOutcome`, NOT `spamDemotionReason`. TWO of the
  * three sibling floors — `senderKind` and `meeting` — project

@@ -42,6 +42,7 @@ import {
   applyFloors,
   isGithubNotificationSender,
   matchesCollabIntrinsicStake,
+  matchesExposedCredentialClaim,
   matchesExposedSecret,
   matchesPrThread,
   type FloorAudits,
@@ -275,7 +276,7 @@ Rules:
 12. Automated/service mail:
     12a. Bot review comments — any SenderContext.effectiveAuthor='bot' (a GitHub '[bot]' account such as greptile-apps[bot], coderabbit, copilot-review, github-actions, dependabot, renovate, or any other) — are advisory review noise by default → 'fyi', even when they contain suggested fixes or CVE identifiers. Do not gate on a specific bot name.
     12b. Escalate a bot review comment to 'action_needed' or 'urgent' only when the body itself shows severe impact: exposed secret/token/key, auth bypass, data loss, production outage, blocked deploy, or a same-day security/account deadline.
-    12c. Severity-suspect bot alerts where botSlug is sentry, stripe-billing, google-security, vercel, or datadog should be classified from body content alone: 'urgent' if same-day actionable, 'action_needed' if remediation is needed but not immediate, otherwise 'fyi'/'done'.
+    12c. Severity-suspect bot alerts where botSlug is sentry, stripe-billing, google-security, vercel, or datadog should be classified from body content alone: 'urgent' if same-day actionable, 'action_needed' if remediation is needed but not immediate, otherwise 'fyi'/'done'. PRECEDENCE — rule 15 wins here. An AUTHENTICATION event the account's own vendor reports about that same account (a sign-in or magic link, a one-time or step-up code, email verification, a password/passkey/2FA/OAuth/recovery-address change) is decided by rule 15, never by this rule, whatever the botSlug says. So 15a → 'fyi' when the vendor asserts no observation about WHO acted, and 15b → the demand lane when the asserter names something it claims to have SEEN. The google-security slug is the standing collision: 'accounts.google.com' carries Google's own 'your password was changed' echo (15a, 'fyi') and its 'we detected a new sign-in from an unrecognized device' alert (15b, 'urgent') under one sender. Read the asserter, not the slug and not the same-day wording.
     12d. Unknown service envelopes classify from body content alone.
     12e. Activity-feed notifications from collaboration tools — task/issue trackers (ClickUp, Linear, Asana, Jira, Trello, Monday, Notion, GitHub Issues), doc/design comment threads (Google Docs/Drive, Figma, Confluence), and support/CRM/chat notifications (Zendesk, Intercom, Slack/Discord mention forwards) — separate the item title from the activity. The item title identifies WHAT the notification is about; it does not prove user ownership. The activity body AND recent thread context identify WHO owns the next action. Apply this compact matrix:
       - Activity or status change with no ask owned by the user → 'fyi'.
@@ -1071,14 +1072,16 @@ const COLD_SENDER_GATED_CATEGORIES = new Set<TriageCategory>(["awaiting_reply", 
 
 /**
  * A cold sender still earns a todo when the mail carries a real INTRINSIC stake
- * (rule 16b): money owed / at risk, a hard deadline, an exposed secret, or an
+ * (rule 16b): money owed / at risk, a hard deadline, an exposed credential, or an
  * access/security/payment consequence. Reuse the floors' existing detectors so
  * the carve-out matches what the sender-kind and monitoring floors already honor
- * — a cold contact with a genuine stake is not suppressed. PURE.
+ * — a cold contact with a genuine stake is not suppressed. The credential half is
+ * the RECALL predicate (`password` included): this test only PRESERVES a todo, so
+ * a miss buries "your password was found in a data breach". PURE.
  */
 function hasIntrinsicStakeSignal(signalText: string): boolean {
   return (
-    matchesExposedSecret(signalText) ||
+    matchesExposedCredentialClaim(signalText) ||
     matchesCollabIntrinsicStake(signalText) ||
     ASSIST_AMOUNT_RE.test(signalText) ||
     ASSIST_DATE_RE.test(signalText)
@@ -1086,7 +1089,9 @@ function hasIntrinsicStakeSignal(signalText: string): boolean {
 }
 
 // Liveness escape for the PR gate — something already in production / `main` /
-// an exposed secret makes a PR thread a real stake (rule 16b), not advisory.
+// an exposed credential makes a PR thread a real stake (rule 16b), not advisory.
+// Pairs with the RECALL predicate below, so a committed `DB_PASSWORD` keeps its
+// todo even though the escalating floor no longer reads the word `password`.
 const TODO_LIVENESS_RE =
   /\bproduction\b|\bprod\b|\boutage\b|\bincident\b|\balready merged\b|\bin main\b|\bblocked deploy|\bdeploy(?:ment)? (?:failing|blocked|broken)\b/i;
 
@@ -1148,7 +1153,8 @@ export function todoSuppressionReason(email: {
   if (ALFRED_APPROVAL_SUBJECT_RE.test(email.subject ?? "")) return "alfred_approval";
 
   if (isGithubNotificationSender(email.sender) && matchesPrThread(email.signalText)) {
-    const live = TODO_LIVENESS_RE.test(email.signalText) || matchesExposedSecret(email.signalText);
+    const live =
+      TODO_LIVENESS_RE.test(email.signalText) || matchesExposedCredentialClaim(email.signalText);
 
     if (!live) return "pre_merge_advisory";
   }
@@ -1162,11 +1168,12 @@ export function todoSuppressionReason(email: {
   // duplicating it. Signaled by the model's own collaboration read (any non-null
   // `collabActivity` = a ClickUp/Linear/Jira/… notification) OR, when the model
   // omits the field (~1-in-5), a known task-tracker sender. Escape: an exposed
-  // secret earns a todo regardless of source — a leaked credential is never
-  // "already safely tracked" (mirrors the PR gate's secret escape).
+  // credential earns a todo regardless of source — a leaked credential is never
+  // "already safely tracked" (mirrors the PR gate's escape). RECALL predicate,
+  // for the same reason: the escape only preserves a todo the model proposed.
   if (
     (email.collabActivity != null || TASK_TRACKER_SENDER_RE.test(email.sender ?? "")) &&
-    !matchesExposedSecret(email.signalText)
+    !matchesExposedCredentialClaim(email.signalText)
   ) {
     return "tracker_owned";
   }

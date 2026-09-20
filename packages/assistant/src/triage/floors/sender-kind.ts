@@ -7,7 +7,7 @@ import type { TriageClassification } from "../classify";
 import type { Observations } from "../observations";
 import { canonicalizeEmailForMatch, recipientAddresses } from "../sender-context";
 import type { FloorResult } from "./floor";
-import { matchesExposedSecret } from "./override";
+import { matchesExposedCredentialClaim } from "./override";
 
 export type SenderKindDemotionReason =
   | "collab_state_transition"
@@ -177,16 +177,21 @@ function senderKindDemotionReason(
   // the notification's activity kind, it is a stronger, per-message read than the
   // body-regex heuristic — so it takes precedence over `collab_state_transition`.
   // Ownership kinds are handled as a hard veto in `applySenderKindDemotionFloor`.
-  // Passive kinds demote, subject to the SAME secret + intrinsic-stake vetoes the
-  // regex path honors (a "someone changed status" line that also names an exposed
-  // secret or a past-due invoice keeps its escalation).
+  // Passive kinds demote, subject to the SAME credential + intrinsic-stake vetoes
+  // the regex path honors (a "someone changed status" line that also names an
+  // exposed credential or a past-due invoice keeps its escalation). The veto uses
+  // the RECALL predicate — `password` included — because it only PRESERVES what
+  // the model chose; the precision predicate belongs to the escalating floor.
   const collab = context.collabActivity;
 
   if (collab != null) {
     if (isPassiveCollabActivity(collab)) {
       const signalText = context.collabVetoText ?? context.signalText ?? "";
 
-      if (!matchesExposedSecret(signalText) && !COLLAB_INTRINSIC_STAKE_RE.test(signalText)) {
+      if (
+        !matchesExposedCredentialClaim(signalText) &&
+        !COLLAB_INTRINSIC_STAKE_RE.test(signalText)
+      ) {
         return "collab_passive_activity";
       }
     }
@@ -260,11 +265,14 @@ function isBroadcastAuthSignInConfirmation(
   if (senderKind.kind !== "group") return false;
   const text = [context.subject, context.signalText].filter(Boolean).join("\n");
 
-  // A sign-in notice that also names a leaked secret must escape demotion, the
-  // same veto `collab_passive_activity` and `monitoring_alarm` carry (#580).
-  // Otherwise the override floor's `urgent` is demoted straight back to `fyi`
-  // and the rotate-now todo it protects is cleared.
-  if (matchesExposedSecret(text)) return false;
+  // A sign-in notice that also names a leaked credential must escape demotion,
+  // the same veto `collab_passive_activity` and `monitoring_alarm` carry (#580).
+  // Otherwise an `urgent` — the override floor's, or the model's own under rule
+  // 15b — is demoted straight back to `fyi` and the rotate-now todo it protects
+  // is cleared. Recall predicate, deliberately: since #1188 the floor no longer
+  // fires on a user password, so on that noun the model's judgment is the ONLY
+  // thing this veto has left to protect.
+  if (matchesExposedCredentialClaim(text)) return false;
 
   return (
     AUTH_SIGNIN_NOTICE_RE.test(text) &&
@@ -300,9 +308,11 @@ function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): bo
   if (!shaped) return false;
   const signalText = context.signalText ?? "";
 
-  // A leaked-secret alarm must escape demotion entirely — keep the security
+  // A leaked-credential alarm must escape demotion entirely — keep the security
   // escalation + any legitimate rotate-now todo (mirrors the collab carve-out).
-  if (matchesExposedSecret(signalText)) return false;
+  // Recall predicate: a broadcast "the production database password was exposed
+  // in a public bucket" is the canonical case, and it names a password.
+  if (matchesExposedCredentialClaim(signalText)) return false;
 
   // Do not infer ownership from body prose here. Monitoring/list mail is wrapped
   // in provider and distribution-list boilerplate, so generic second-person or
