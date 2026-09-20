@@ -78,21 +78,6 @@ export interface EmailTriageOperationState {
    * retracts a todo, so it pays for no read (ADR-0050).
    */
   userAlreadyReplied?: boolean;
-  /**
-   * The `apply-label` outcome, carried forward so the terminal
-   * `close-loop-todos` step can re-emit it as the run output (#1168).
-   * `apply-label` is the contract; the rail retraction after it is
-   * best-effort and must not replace that output with nothing.
-   */
-  labelOutcome?: {
-    category: TriageCategory;
-    applied: boolean;
-    reason?: string;
-    confidence?: number;
-    appliedLabelId?: string;
-    removedLabelIds?: string[];
-    strippedSiblings?: number;
-  };
 }
 
 export async function runEmailTriageClassify<State extends EmailTriageOperationState>(
@@ -877,20 +862,12 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
     );
   }
 
-  if (!ctx.state.labelOutcome) {
-    await ctx.log(
-      `close-loop-todos: thread=${sourceThreadId} — pre-swap resume; no label applied (#1168)`,
-    );
-
-    return { kind: "done", state: ctx.state };
-  }
-
+  // The run's contract is the canonical `email_triage` row plus the Gmail
+  // label itself, not `agent_runs.output`: no production reader inspects
+  // triage run output keys, so the terminal step emits none.
   const done: StepResult<State, EmailTriageStepName> = {
     kind: "done",
     state: ctx.state,
-    // Re-emit what `apply-label` converged so the run output keeps its
-    // contract shape with the label step terminal (#1168).
-    output: ctx.state.labelOutcome,
   };
 
   if (ctx.state.reason !== "reply") return done;
@@ -969,11 +946,12 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
   // the in-app triage row (drives the inbox chips + any action-item it
   // already minted) but does not touch the user's Gmail labels.
   // Every path below forwards to the terminal `close-loop-todos` step
-  // (#1168): the label outcome rides the state so the terminal step can
-  // re-emit it as the run output. A provider/DB fault must not throw past
-  // this step — the run would fail terminal and the rail retraction would
-  // never run. Instead log it and forward with applied:false; the column
-  // stays NULL so the next inbound re-labels by itself.
+  // (#1168) with the state untouched: the `email_triage` row plus the
+  // Gmail label are the contract, and no production reader inspects triage
+  // run output. A provider/DB fault must not throw past this step — the run
+  // would fail terminal and the rail retraction would never run. Instead log
+  // it and forward; the `applied_label_id` column stays NULL so the next
+  // inbound re-labels by itself.
   let flags: Awaited<ReturnType<typeof resolveFeatureFlags>>;
 
   try {
@@ -983,10 +961,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
 
     return {
       kind: "next",
-      state: {
-        ...ctx.state,
-        labelOutcome: { category, applied: false, reason: "label-failed" },
-      },
+      state: { ...ctx.state },
       nextStep: "close-loop-todos",
     };
   }
@@ -996,10 +971,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
 
     return {
       kind: "next",
-      state: {
-        ...ctx.state,
-        labelOutcome: { category, applied: false, reason: "tagging-disabled" },
-      },
+      state: { ...ctx.state },
       nextStep: "close-loop-todos",
     };
   }
@@ -1017,10 +989,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
 
     return {
       kind: "next",
-      state: {
-        ...ctx.state,
-        labelOutcome: { category, applied: false, reason: "label-failed" },
-      },
+      state: { ...ctx.state },
       nextStep: "close-loop-todos",
     };
   }
@@ -1030,14 +999,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
 
     return {
       kind: "next",
-      state: {
-        ...ctx.state,
-        labelOutcome: {
-          category: outcome.category ?? category,
-          applied: false,
-          reason: outcome.reason,
-        },
-      },
+      state: { ...ctx.state },
       nextStep: "close-loop-todos",
     };
   }
@@ -1051,17 +1013,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
 
   return {
     kind: "next",
-    state: {
-      ...ctx.state,
-      labelOutcome: {
-        category: outcome.category,
-        confidence: ctx.state.confidence,
-        applied: true,
-        appliedLabelId: outcome.appliedLabelId,
-        removedLabelIds: outcome.removedLabelIds,
-        strippedSiblings: outcome.strippedSiblings.length,
-      },
-    },
+    state: { ...ctx.state },
     nextStep: "close-loop-todos",
   };
 }
