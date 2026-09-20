@@ -2,6 +2,7 @@ import {
   canonicalizeIdentityValue,
   classifyEmailDomain,
   gmailEmailMessagePayloadSchema,
+  hasServiceWordSuffix,
   identityRefSchema,
   integrationObjectKeySegment,
   INTEGRATION_OBJECT_KIND_SEGMENTS,
@@ -89,6 +90,30 @@ const SERVICE_DOMAIN_SUFFIXES = [
   "amazonaws.com",
   "amazonses.com",
 ] as const;
+
+/**
+ * Leftmost host labels that carry the SAME claim as a strong service local
+ * part moved one field left: `noreply.github.com` is `noreply@`, and
+ * `newsletter.shoppersstop.com` is a bulk-mail host with no reader behind it.
+ *
+ * DERIVED from {@link STRONG_SERVICE_LOCALS} rather than listed again, so the
+ * two sides of the same vocabulary cannot drift. The two bulk-mail labels are
+ * the only additions.
+ *
+ * This deliberately does NOT reuse `SERVICE_DOMAIN_LABELS` from
+ * `@alfred/contracts`, although that set also matches a leftmost label. Its
+ * members include `mail`, `email`, `smtp`, `mta` and `send`, and
+ * `jane@mail.company.com` is a real address shape. That set answers a
+ * different question — its own comment says "infrastructure, not an org the
+ * user works at", which is an affiliation-grounding judgement, not a
+ * can-a-human-be-reached-here judgement. Borrowing it would demote a reachable
+ * human to close a noisy row.
+ */
+const STRONG_SERVICE_DOMAIN_LABELS: ReadonlySet<string> = new Set([
+  ...STRONG_SERVICE_LOCALS,
+  "newsletter",
+  "newsletters",
+]);
 
 const SERVICE_LOCAL_PREFIX_RE =
   /^(no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|alerts?|billing[-_.]|security[-_.]|account[-_.]|calendar[-_.]|bounce[-_.])/i;
@@ -181,6 +206,13 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
 
   if (isStrongServiceLocal(parsed.localPart)) {
     return classification("service", STRONG_CONFIDENCE, ["email:local:service_strong"]);
+  }
+
+  // Before the `display:person_like` fast path, or it decides nothing: the rows
+  // this branch exists for (`ghsa-…@noreply.github.com`, `Ci activity`
+  // <ci_activity@noreply.github.com>) all carry a person-like display name.
+  if (isStrongServiceDomain(parsed.domain)) {
+    return classification("service", STRONG_CONFIDENCE, ["email:domain:service_strong"]);
   }
 
   if (signals.some((signal) => hasAutoSubmittedServiceSignal(signal.autoSubmitted))) {
@@ -299,7 +331,18 @@ function parseEmail(value: string): { localPart: string; domain: string } | null
 }
 
 function isStrongServiceLocal(localPart: string): boolean {
-  return STRONG_SERVICE_LOCALS.has(localPart) || SERVICE_LOCAL_PREFIX_RE.test(localPart);
+  return (
+    STRONG_SERVICE_LOCALS.has(localPart) ||
+    SERVICE_LOCAL_PREFIX_RE.test(localPart) ||
+    hasServiceWordSuffix(localPart)
+  );
+}
+
+/** True when the LEFTMOST host label is a strong service word (`noreply.github.com`). */
+function isStrongServiceDomain(domain: string): boolean {
+  const firstLabel = domain.split(".", 1)[0] ?? domain;
+
+  return STRONG_SERVICE_DOMAIN_LABELS.has(firstLabel);
 }
 
 function isServiceLocal(localPart: string): boolean {
@@ -470,17 +513,39 @@ export interface ClassifyContactKindInput {
  *     `!isServiceLocal(localPart)`, so even an unambiguous human display name
  *     on a role mailbox still answers `service`.
  *
- * Only a STRONG service local (`noreply@`, `notifications@`, `alerts@`,
- * `bounces@`) or a bulk-list header is a shape no human mailbox carries, and
- * those are exactly the rows #1108 measured on prod.
+ * Three shapes no human mailbox carries clear the bar, and they are exactly the
+ * rows #1108 measured on prod:
+ *   - a STRONG service local (`noreply@`, `notifications@`, `alerts@`,
+ *     `bounces@`, and the separated `…-noreply`/`…_alerts` suffix);
+ *   - a STRONG service DOMAIN label (`…@noreply.github.com`,
+ *     `…@newsletter.shoppersstop.com`);
+ *   - a bulk-list header.
+ *
+ * `gmail:auto_submitted` is `service` at the same confidence and is NOT one of
+ * them: a human's out-of-office auto-reply must not lose `person`.
+ *
+ * Hardness is read off the evidence codes the classification already carries,
+ * not re-derived from a separate argument. The caller therefore cannot pair a
+ * classification with a different address's local part.
  */
-function isHardNonPersonClaim(classified: EntityKindClassification, localPart: string): boolean {
+function isHardNonPersonClaim(classified: EntityKindClassification): boolean {
   if (classified.kind === "person") return false;
 
   if (classified.confidence < STRONG_CONFIDENCE) return false;
 
-  return classified.kind !== "service" || isStrongServiceLocal(localPart);
+  if (classified.kind !== "service") return true;
+
+  return classified.evidenceCodes.some((code) => HARD_SERVICE_EVIDENCE.has(code));
 }
+
+/**
+ * The `service` evidence codes that are hard enough to take `person` away.
+ * Every other `service` code — today only `gmail:auto_submitted` — is soft.
+ */
+const HARD_SERVICE_EVIDENCE: ReadonlySet<string> = new Set([
+  "email:local:service_strong",
+  "email:domain:service_strong",
+]);
 
 /**
  * The legacy `entities.kind` for ONE mail contact.
@@ -519,7 +584,7 @@ export function classifyContactKind(input: ClassifyContactKindInput): EntityKind
     displayNames: displayName ? [displayName] : [],
   });
 
-  if (isHardNonPersonClaim(classified, parsed.localPart)) {
+  if (isHardNonPersonClaim(classified)) {
     return entityKindForNodeKind(classified.kind);
   }
 
