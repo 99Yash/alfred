@@ -42,12 +42,13 @@
  *    the thread lock, so Gmail converges on the USER's category either way.
  *    The `written` gate covers the classify step's own side effects: no todo,
  *    no `inbox.updated`, no `email-triage.classified`, no sender prior and no
- *    decision trace. It does NOT cover the Gmail write. `runEmailTriageClassify`
- *    returns `nextStep: "apply-label"` unconditionally, that step forwards
- *    to the terminal `close-loop-todos` unconditionally, and `apply-label` is a SIBLING step that
- *    reads neither `written` nor `source`. It re-applies the stored row's
- *    category to
- *    the target message, strips every Alfred label off the thread's siblings
+ *    decision trace. It does NOT cover the Gmail write.
+ *    `runEmailTriageClassify` returns `nextStep: "apply-label"`
+ *    unconditionally, that step forwards to the terminal
+ *    `close-loop-todos` unconditionally, and `apply-label` is a
+ *    SIBLING step that reads neither `written` nor `source`. It
+ *    re-applies the stored row's category to the target message, strips
+ *    every Alfred label off the thread's siblings
  *    (`stripAllAlfredLabels: true`, `tags.ts:146`), and bumps `row_version`
  *    through `setAppliedLabelId` / `setTriageReconciledTarget`. Two gates stop
  *    that write and neither of them reads `source`: the `emailTagging` feature
