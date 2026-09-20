@@ -370,6 +370,17 @@ export const RULES = [
     fix: "Use parseEmailAddress(value) from @alfred/contracts to pull an address out of a `Name <addr>` header and normalize it. It is also the single source of self-mail matching.",
   },
   {
+    id: "hand-rolled-no-reply-regex",
+    // A `no[-_.]?reply` / `no[-_]?reply` alternation inside a regex literal.
+    // `hint`, not `gate`: two SERVICE_LOCAL_PREFIX_RE declarations legitimately
+    // hold this literal, and a whole-file exemption on them would blind the
+    // rule exactly where the next copy would be written.
+    re: /no\[[-_.]+\]\??reply/,
+    severity: "hint",
+    owners: ["packages/contracts/src/identity-affiliation.ts"],
+    fix: "hasServiceWordSuffix(localPart) from @alfred/contracts owns the SUFFIX half of the no-reply family (`messages-noreply`, `nse_alerts`, `store-news`) and carries the prod measurement behind it. Reach for it before re-spelling the alternation. A PREFIX test (`^noreply-…`) is a different question and stays in its owning module.",
+  },
+  {
     id: "spread-over-defaults",
     // `{ ...DEFAULT_X, ...overrides }` — a defaults object (SCREAMING_CASE or
     // `defaultFoo`) with a second spread layered on top. A *present* `undefined`
