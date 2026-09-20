@@ -2,6 +2,7 @@ import { BUILT_IN_MCP_CATALOG, type BuiltInMCPProvider } from "@alfred/contracts
 import { AlertTriangle, Plus } from "lucide-react";
 import { AppButton } from "~/components/ui/v2";
 import { brandForIntegration } from "~/lib/integrations/integrations";
+import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import { mcpAuthorizeUrl, mcpBuiltInConnectUrl, type McpConnection } from "./helpers";
 import { mcpConnectionSubtitle } from "./mcp-server-status";
 import { McpConnectionWarning } from "./mcp-connection-warning";
@@ -127,10 +128,11 @@ export function McpBuiltInCard({
           // door, the same one the generic card uses. The card does not decide
           // whether the authorization server must show a screen: `mcpConsentAsk`
           // forces one whenever the ask exceeds the stored grant.
-          window.location.href =
+          openAuthorizationTab(
             state.kind === "needs_consent"
               ? mcpAuthorizeUrl(state.connection.id)
-              : mcpBuiltInConnectUrl(provider);
+              : mcpBuiltInConnectUrl(provider),
+          );
         }}
       >
         {ACTION_LABEL[state.kind]}
