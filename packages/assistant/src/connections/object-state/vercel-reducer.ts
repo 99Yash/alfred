@@ -2,6 +2,8 @@ import {
   canonicalizeVercelTargetId,
   getStringPath,
   isRecord,
+  parseGitBranchRef,
+  vercelDeploymentOutcome,
   type EventTypeForSource,
 } from "@alfred/contracts";
 import type { ObjectStateDelta } from "./store";
@@ -28,27 +30,15 @@ import type { ObjectStateDelta } from "./store";
  * second dead branch in a file that folds exactly one of them. Railway's
  * reducer already refused that cost for the same reason.
  *
+ * What each dispatch action MEANS is not decided here: `vercelDeploymentOutcome`
+ * in `@alfred/contracts` holds that table, beside the registry entry whose
+ * vocabulary it produces, because the briefing activity line reads the same
+ * answer. One authority, so a fold and a written line cannot disagree.
+ *
  * Anything the payload does not prove folds nothing — absence never closes
  * (ADR-0048-D).
  */
 export const VERCEL_DISPATCH_EVENT_TYPE: EventTypeForSource<"github"> = "repository_dispatch";
-
-/**
- * The dispatch actions Vercel sends, collapsed to the registry's outcome
- * vocabulary. A const table rather than a switch so an action outside it —
- * including a `repository_dispatch` from some other dispatcher entirely —
- * reads as `undefined` and folds nothing.
- *
- * `client_payload.state.type` duplicates the action suffix on every receipt
- * measured, so the action alone is read: one field, one authority.
- */
-const VERCEL_DEPLOYMENT_ACTIONS: ReadonlyMap<string, "success" | "failure" | "pending"> = new Map([
-  ["vercel.deployment.error", "failure"],
-  ["vercel.deployment.success", "success"],
-  ["vercel.deployment.ready", "success"],
-  ["vercel.deployment.promoted", "success"],
-  ["vercel.deployment.pending", "pending"],
-]);
 
 export function reduceVercelEvent(
   eventType: string,
@@ -62,7 +52,7 @@ export function reduceVercelEvent(
   // Boundary parse: every field off `unknown` with the shared readers, never
   // a cast. The reducer trusts no caller — not even ingress — so the token is
   // re-validated here against the registry vocabulary.
-  const token = action === null ? undefined : VERCEL_DEPLOYMENT_ACTIONS.get(action);
+  const token = vercelDeploymentOutcome(action);
 
   if (!token) return [];
 
@@ -80,7 +70,11 @@ export function reduceVercelEvent(
   // repository's default branch, so that field reads `main` even for a
   // preview deploy of a feature branch (measured on all 15 dev receipts).
   // Reading it would fold every preview of a repo into one target identity.
-  const branch = getStringPath(clientPayload, "git", "ref");
+  const gitRef = getStringPath(clientPayload, "git", "ref");
+  // The dispatcher writes the ref, so it arrives as either `main` or
+  // `refs/heads/main`, and a tag or pull ref arrives here too. One branch must
+  // reduce to one identity, and a ref that names no branch names no target.
+  const branch = gitRef ? parseGitBranchRef(gitRef) : null;
   const environment = getStringPath(clientPayload, "environment");
   const url = getStringPath(clientPayload, "url");
   const projectName = getStringPath(clientPayload, "project", "name");
