@@ -7,7 +7,7 @@ import {
 } from "@alfred/contracts";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { db } from "@alfred/db";
-import { mcpInvocation } from "@alfred/db/schemas";
+import { actionStagings, mcpInvocation } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { isMutatingToolName } from "@alfred/assistant/tool-runtime";
 import {
@@ -378,8 +378,10 @@ export async function guardFalseProvenance(
   state: ChatRunState,
   transcript: AgentTranscriptMessage[],
 ): Promise<StepResult<ChatRunState> | null> {
-  if (state.notedProvenanceClaim) return null;
-
+  // Stateless by design: no latch. A regenerated answer that repeats the
+  // unsupported claim must trip the guard again, or the guard would ask once
+  // and then accept the same false claim. Regeneration is bounded by the
+  // turn-loop cap, not by this guard.
   const reply = state.assistantText;
 
   const claimsMcpUse =
@@ -422,16 +424,23 @@ export async function guardFalseProvenance(
     .filter((call) => call.toolName === "mcp.call" && call.status === "succeeded")
     .map((call) => call.toolCallId);
 
+  // Authority keys on the authorizing staging row, never the invocation's
+  // denormalized copies: `stagingId` is notNull with a unique index and an FK
+  // to `action_stagings.id`, and `(runId, toolCallId)` carries its own unique
+  // index — while `traceId`/`toolCallId` on the invocation are declared
+  // observability-only (unindexed, no FK) in the schema. The join means a
+  // drifted copy cannot grant authority the staging row denies.
   const completedInvocation =
     claimsMcpUse && successfulMcpCallIds.length > 0
       ? await db()
           .select({ id: mcpInvocation.id })
           .from(mcpInvocation)
+          .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
           .where(
             and(
               eq(mcpInvocation.userId, ctx.userId),
-              eq(mcpInvocation.traceId, ctx.runId),
-              inArray(mcpInvocation.toolCallId, successfulMcpCallIds),
+              eq(actionStagings.runId, ctx.runId),
+              inArray(actionStagings.toolCallId, successfulMcpCallIds),
               eq(mcpInvocation.effectOutcome, "succeeded"),
             ),
           )
@@ -446,7 +455,6 @@ export async function guardFalseProvenance(
     return null;
   }
 
-  state.notedProvenanceClaim = true;
   await closePrematureAnswerSegment(ctx, state, publishEvent);
 
   const successfulNames = state.toolCallsLog
