@@ -15,6 +15,7 @@ import {
 } from "./adapter";
 import { githubObjectStateAdapter } from "./github-adapter";
 import { railwayObjectStateAdapter } from "./railway-adapter";
+import { vercelObjectStateAdapter } from "./vercel-adapter";
 import { sentryObjectStateAdapter } from "./sentry-adapter";
 import {
   objectStateStore,
@@ -99,6 +100,10 @@ const OBJECT_STATE_ADAPTERS = {
   // the structured follow-up). The row exists because the table is the
   // completeness proof, not because the adapter knows a written form.
   railway: railwayObjectStateAdapter,
+  // Vercel v1 proposes no keys from text either, and for a measured reason:
+  // no Vercel deployment notification exists in the corpus to ground a
+  // grammar on (#1167). Same completeness-proof row, same follow-up.
+  vercel: vercelObjectStateAdapter,
 } satisfies Record<ObjectStateProvider, ObjectStateAdapter>;
 
 /**

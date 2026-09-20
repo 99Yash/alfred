@@ -19,6 +19,7 @@ import { escapeLike } from "@alfred/db/helpers";
 import { and, desc, eq, gte, inArray, like, lt, lte } from "drizzle-orm";
 import { reduceGithubEvent } from "./github-reducer";
 import { reduceRailwayEvent } from "./railway-reducer";
+import { reduceVercelEvent } from "./vercel-reducer";
 import { reduceSentryEvent } from "./sentry-reducer";
 
 /**
@@ -193,6 +194,7 @@ const REDUCERS = {
   github: reduceGithubEvent,
   sentry: reduceSentryEvent,
   railway: reduceRailwayEvent,
+  vercel: reduceVercelEvent,
 } satisfies Record<ObjectStateProvider, ReduceFn>;
 
 const DEFAULT_OBJECT_LIST_LIMIT = 100;

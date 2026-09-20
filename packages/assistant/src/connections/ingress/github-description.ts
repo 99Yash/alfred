@@ -40,6 +40,21 @@ const githubWebhookPayloadSchema = z.object({
       status: z.string().optional(),
     })
     .optional(),
+  /**
+   * `repository_dispatch` carries a dispatcher-authored body. Vercel is the
+   * only dispatcher this build reads (#1167); every field stays optional, so
+   * another dispatcher's body still yields a generic line rather than an
+   * error.
+   */
+  client_payload: z
+    .object({
+      url: z.string().optional(),
+      environment: z.string().optional(),
+      git: z.object({ ref: z.string().optional() }).optional(),
+      project: z.object({ name: z.string().optional() }).optional(),
+      state: z.object({ type: z.string().optional() }).optional(),
+    })
+    .optional(),
 });
 
 type GithubWebhookPayload = z.infer<typeof githubWebhookPayloadSchema>;
@@ -90,6 +105,30 @@ function describeGithubActivity(
       const title = `Check suite ${outcome}${branch}${where}`;
 
       return { title, status: action === "completed" ? "resolved" : "open", url: undefined };
+    }
+
+    case "repository_dispatch": {
+      // Vercel's deployment relay is the only dispatcher this build reads, so
+      // the line is written from its body and degrades to the bare action for
+      // anything else. The `vercel.deployment.` prefix is stripped because the
+      // action already reads as a sentence without it.
+      const deployment = payload.client_payload ?? {};
+      const outcome = deployment.state?.type ?? action?.replace(/^vercel\.deployment\./, "");
+      // The DEPLOYMENT's branch. The top-level `ref`/`branch` of a
+      // `repository_dispatch` is always the default branch, so it would read
+      // `main` for a preview deploy of any feature branch.
+      const branch = deployment.git?.ref ? ` on ${deployment.git.ref}` : "";
+      const environment = deployment.environment ? ` (${deployment.environment})` : "";
+      const title = `Deployment ${outcome ?? "updated"}${branch}${environment}${where}`;
+
+      return {
+        title,
+        // The activity-status vocabulary carries a `succeeded` member and a
+        // `failed` member, so a deployment says which one it is rather than
+        // borrowing the PR lane's `resolved`.
+        status: outcome === "error" ? "failed" : outcome === "pending" ? "open" : "succeeded",
+        url: deployment.url,
+      };
     }
 
     default: {

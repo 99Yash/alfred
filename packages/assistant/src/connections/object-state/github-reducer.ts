@@ -55,6 +55,12 @@ export function reduceGithubEvent(
     case "issues":
     case "pull_request_review":
       return [];
+    // GitHub is only the TRANSPORT for a `repository_dispatch`: the body's
+    // `client_payload` belongs to whoever dispatched it. Vercel's deployment
+    // relay is folded by `reduceVercelEvent` under provider `vercel`, so this
+    // reducer — GitHub's own half — asserts nothing about it (#1167).
+    case "repository_dispatch":
+      return [];
     default: {
       const _exhaustive: never = eventType;
 
