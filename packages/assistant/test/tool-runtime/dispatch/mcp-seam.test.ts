@@ -323,6 +323,8 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     // tool's `resolveRiskTier` hook reads the reviewed `low` policy bound to the
     // exact descriptor, the dispatcher gates on that resolved tier (autonomy +
     // `low` → no approval), and the SAME tier is persisted on the staging row.
+    // The descriptor asserts `readOnlyHint`: per the ADR-0069 amendment a
+    // reviewed tier lowers below `high` only for a read tool.
     const broker = new CapturingBroker();
     _setMcpExecutionBrokerForTests(asBroker(broker));
 
@@ -332,6 +334,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const tool: Tool = {
       name: "search_issues",
       inputSchema: { type: "object", additionalProperties: true },
+      annotations: { readOnlyHint: true },
     };
 
     const { connectionId, revisionHash, descriptorHashes } = await seedOwnedCatalog(userId, [tool]);
@@ -449,6 +452,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const remoteTool: Tool = {
       name: "create_issue",
       inputSchema: { type: "object", additionalProperties: true },
+      annotations: { readOnlyHint: true },
     };
 
     const connection = await ensureConnection({
@@ -475,6 +479,10 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const client = await manager.getReadyClient(connection.id);
     const catalogRevision = client.catalog?.revision;
     assert.ok(catalogRevision);
+    // Deliberately split fixture: the descriptor's `readOnlyHint` lets the
+    // reviewed `low` execute under autonomy (ADR-0069), while the policy's
+    // `write` class mints the ambiguity barrier — the broker keys barriers on
+    // the reviewed effect class, not the catalog claim.
     await upsertToolPolicy({
       userId,
       connectionId: connection.id,
@@ -602,6 +610,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const remoteTool: Tool = {
       name: "create_issue",
       inputSchema: { type: "object", additionalProperties: true },
+      annotations: { readOnlyHint: true },
     };
 
     const connection = await ensureConnection({
@@ -628,6 +637,9 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const client = await manager.getReadyClient(connection.id);
     const catalogRevision = client.catalog?.revision;
     assert.ok(catalogRevision);
+    // Split fixture, same as the ambiguity test above: `readOnlyHint` lets the
+    // reviewed `low` execute under autonomy (ADR-0069), while the `write`
+    // effect class mints the ambiguity barrier the stale-commit fencing needs.
     await upsertToolPolicy({
       userId,
       connectionId: connection.id,
