@@ -23,7 +23,11 @@ import { applySpamDemotionFloor } from "./spam";
  * of those rules has one obvious home per half. Individual floors are exported
  * for their unit tests; `classifyEmail` consumes only {@link applyFloors}.
  */
-export { applyOverrideFloor, matchesExposedSecret } from "./override";
+export {
+  applyOverrideFloor,
+  matchesExposedCredentialClaim,
+  matchesExposedSecret,
+} from "./override";
 
 export {
   applySenderKindDemotionFloor,

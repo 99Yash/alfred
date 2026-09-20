@@ -772,6 +772,42 @@ const CASES: Case[] = [
     },
   },
   {
+    // Floor pin, not a prompt exemplar. `token` is still in the override floor's
+    // noun set and `compromised` is still an exposure verb, so before #1165 this
+    // body matched noun+verb inside the 100-char window and the floor forced
+    // `urgent` at 0.85 — with the under-classification re-ask suppressed, because
+    // `floorMatches` gates it. Deleting `password` from the noun set did not
+    // reach this body. The fix blanks the rule-15a hedge before the predicate
+    // runs. If the floor ever reads that hedge again, this row goes red.
+    label: "vendor-self-echo-otp-token-boilerplate-fyi",
+    from: "LinkedIn <security-noreply@linkedin.com>",
+    subject: "Your verification code is 419283",
+    body: "Your one-time token is 419283. This token expires in 10 minutes. Never share this token with anyone. If you did not request it, your account may be compromised.",
+    senderKey: "security-noreply@linkedin.com",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: ["fyi"],
+      todo: "suppress",
+      note: "Rule 15a. The vendor echoes a code the user asked for and asserts NO observation about who asked. The compromise line is the same boilerplate the Wellfound row carries; the only difference is the noun it sits next to.",
+    },
+  },
+  {
+    // Second floor pin, on the other shape the old predicate reached: a reset
+    // LINK, where `token=` is a query parameter rather than a word. Same hedge,
+    // same 100-char window, same forced `urgent` before #1165.
+    label: "vendor-self-echo-reset-link-token-param-fyi",
+    from: "Supabase <noreply@mail.app.supabase.io>",
+    subject: "Reset your password",
+    body: "Follow this link to reset your password: https://app.example.com/auth/v1/verify?token=pkce_9f1c4&type=recovery. If you did not request a password reset, your account may be compromised.",
+    senderKey: "noreply@mail.app.supabase.io",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: ["fyi"],
+      todo: "suppress",
+      note: "Rule 15a. The user asked for the reset; the vendor is echoing the link back. No asserter claims to have observed anything about who asked.",
+    },
+  },
+  {
     label: "vendor-self-echo-oauth-app-added-fyi",
     from: "GitHub <noreply@github.com>",
     subject: "A third-party OAuth application was added to your account",
