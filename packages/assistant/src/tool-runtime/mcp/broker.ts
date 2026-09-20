@@ -247,58 +247,70 @@ async function recordCompletedMcpRead(input: {
   policyRevision: number;
   arguments: unknown;
   resultProvenance: McpResultProvenance;
-}): Promise<string> {
-  return runAtomic(db(), async (tx) => {
-    const [correlation] = await tx
-      .select({
-        traceId: actionStagings.runId,
-        stepId: actionStagings.stepId,
-        toolCallId: actionStagings.toolCallId,
-      })
-      .from(actionStagings)
-      .where(
-        and(
-          eq(actionStagings.id, input.stagingId),
-          eq(actionStagings.userId, input.userId),
-          eq(actionStagings.outcome, "dispatching"),
-        ),
-      )
-      .for("update");
+}): Promise<string | null> {
+  try {
+    return await runAtomic(db(), async (tx) => {
+      const [correlation] = await tx
+        .select({
+          traceId: actionStagings.runId,
+          stepId: actionStagings.stepId,
+          toolCallId: actionStagings.toolCallId,
+        })
+        .from(actionStagings)
+        .where(
+          and(
+            eq(actionStagings.id, input.stagingId),
+            eq(actionStagings.userId, input.userId),
+            eq(actionStagings.outcome, "dispatching"),
+          ),
+        )
+        .for("update");
 
-    if (!correlation) {
-      throw new McpClientError(
-        "invalid_arguments",
-        "The MCP authorization is no longer dispatchable.",
-      );
-    }
+      if (!correlation) {
+        // The remote read already completed, so this is post-delivery: the
+        // audit row is best-effort and must never throw a pre-delivery code
+        // (which would discard the received result as "never delivered").
+        // Returning null keeps the completed envelope with no provenance row.
+        return null;
+      }
 
-    const now = new Date();
+      const now = new Date();
 
-    const [invocation] = await tx
-      .insert(mcpInvocation)
-      .values({
-        stagingId: input.stagingId,
-        userId: input.userId,
-        connectionId: input.connectionId,
-        remoteName: input.remoteName,
-        argsHash: canonicalArgsHash(input.arguments),
-        effectClass: "read",
-        attemptLifecycle: "response_received",
-        effectOutcome: "succeeded",
-        retryDisposition: "safe",
-        resolvedAt: now,
-        deliveryPossibleAt: now,
-        responseReceivedAt: now,
-        resultProvenance: input.resultProvenance,
-        ...(input.catalogRevisionId ? { catalogRevisionId: input.catalogRevisionId } : {}),
-        ...(input.descriptorHash ? { descriptorHash: input.descriptorHash } : {}),
-        policyRevision: input.policyRevision,
-        ...correlation,
-      })
-      .returning({ id: mcpInvocation.id });
+      const [invocation] = await tx
+        .insert(mcpInvocation)
+        .values({
+          stagingId: input.stagingId,
+          userId: input.userId,
+          connectionId: input.connectionId,
+          remoteName: input.remoteName,
+          argsHash: canonicalArgsHash(input.arguments),
+          effectClass: "read",
+          attemptLifecycle: "response_received",
+          effectOutcome: "succeeded",
+          retryDisposition: "safe",
+          resolvedAt: now,
+          deliveryPossibleAt: now,
+          responseReceivedAt: now,
+          resultProvenance: input.resultProvenance,
+          ...(input.catalogRevisionId ? { catalogRevisionId: input.catalogRevisionId } : {}),
+          ...(input.descriptorHash ? { descriptorHash: input.descriptorHash } : {}),
+          policyRevision: input.policyRevision,
+          ...correlation,
+        })
+        .returning({ id: mcpInvocation.id });
 
-    return requireRow(invocation, "recordCompletedMcpRead").id;
-  });
+      return requireRow(invocation, "recordCompletedMcpRead").id;
+    });
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+
+    // A dispatch retry re-records the same staging row after the remote read
+    // already succeeded once. Reads are idempotent: reuse the recorded row
+    // instead of leaking a raw Postgres 23505 and discarding the result.
+    const prior = await readInvocationByStagingId(input.stagingId);
+
+    return prior?.id ?? null;
+  }
 }
 
 /**
