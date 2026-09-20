@@ -19,21 +19,6 @@ const stateSchema = z.object({
    * consumed by `close-loop-todos` (ADR-0050). Absent on every non-reply run.
    */
   userAlreadyReplied: z.boolean().optional(),
-  /**
-   * The `apply-label` outcome, carried so the terminal `close-loop-todos`
-   * step re-emits it as the run output (#1168).
-   */
-  labelOutcome: z
-    .object({
-      category: z.enum(TRIAGE_CATEGORIES),
-      applied: z.boolean(),
-      reason: z.string().optional(),
-      confidence: z.number().min(0).max(1).optional(),
-      appliedLabelId: z.string().optional(),
-      removedLabelIds: z.array(z.string()).optional(),
-      strippedSiblings: z.number().optional(),
-    })
-    .optional(),
 });
 
 type State = z.infer<typeof stateSchema>;
