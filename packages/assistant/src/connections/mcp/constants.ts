@@ -78,7 +78,7 @@ export const POLYLANE_MCP_ENDPOINT_HREF = "https://mcp.polylane.com/mcp" as cons
 /**
  * Railway's remote MCP server and the authorization server that protects it.
  *
- * Measured on 2026-09-17 against the live discovery document
+ * Measured on 2026-09-20 against the live discovery document
  * (`GET https://backboard.railway.com/.well-known/oauth-authorization-server`):
  * `issuer` is `https://backboard.railway.com` byte for byte, `registration_endpoint`
  * is `https://backboard.railway.com/oauth/register`, `scopes_supported` is the
@@ -88,22 +88,19 @@ export const POLYLANE_MCP_ENDPOINT_HREF = "https://mcp.polylane.com/mcp" as cons
  * (RFC 7591) and needs no pre-registered credential — Railway avoids the
  * static-client problem that blocks GitHub.
  *
- * The published remote catalog carries NO deployment-status tool (only
- * `redeploy` + `accept-deploy`; `list_deployments` exists solely on the local
- * stdio server), so the verified-pull seam reads status over the token-backed
- * GraphQL `deployments` query behind the same trust property until the live
- * catalog grows one — the probe re-checks post-consent.
+ * The live catalog now carries `list-projects`, `list-services`, and
+ * `list-deployments`; verified pull reads their structured outputs.
  */
 export const RAILWAY_MCP_ENDPOINT_HREF = "https://mcp.railway.com/mcp" as const;
 
 /**
- * Railway's authorization-server issuer, byte for byte as discovery reports
- * it — no trailing slash. Carried as a literal, never round-tripped through
- * `new URL().href` (which appends `/` and would silently unpin it). The
- * verified-pull seam refuses a Railway connection whose stored
+ * Railway's STORED authorization-server identity. Discovery publishes the
+ * issuer without a trailing slash, but the OAuth connection stores the URL
+ * form with `/`. The live connection was checked on 2026-09-20. Carried as a
+ * literal so the verified-pull seam refuses a Railway connection whose stored
  * `authServerIdentity` is anything else.
  */
-export const RAILWAY_MCP_ISSUER = "https://backboard.railway.com" as const;
+export const RAILWAY_MCP_STORED_ISSUER = "https://backboard.railway.com/" as const;
 
 /**
  * The `auth_server_identity` a connection row carries before any authorization

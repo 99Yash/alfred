@@ -64,10 +64,10 @@ describe("passthroughTruncationTelemetry", () => {
       },
     };
 
-    const t = passthroughTruncationTelemetry("railway.graphql", RUN_ID, result);
+    const t = passthroughTruncationTelemetry("notion.request", RUN_ID, result);
     assert.ok(t);
     assert.equal(t.succeeded, false);
-    assert.equal(t.integration, "railway");
+    assert.equal(t.integration, "notion");
     assert.equal(t.droppedBodyBytesApprox, 1_500);
   });
 

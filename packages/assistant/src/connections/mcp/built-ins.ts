@@ -288,7 +288,7 @@ export const BUILT_IN_REGISTRY = {
     // `registration_endpoint` (verified live 2026-09-17), so the SDK registers
     // a client per connection under RFC 7591 — the normal dynamic path, not
     // the GitHub exception. The pinned issuer lives in
-    // `RAILWAY_MCP_ISSUER` (byte-exact, never URL-round-tripped) and is
+    // `RAILWAY_MCP_STORED_ISSUER` (byte-exact, never URL-round-tripped) and is
     // enforced by the verified-pull seam, not here: this table declares the
     // ask, discovery supplies the issuer at authorize time.
     //

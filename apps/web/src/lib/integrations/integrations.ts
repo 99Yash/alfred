@@ -235,21 +235,6 @@ const INTEGRATION_PAGE_COPY = {
         "Alfred can search shared pages and databases, pull their contents into answers, create new pages under a parent, and append notes to existing pages.",
     },
   },
-  railway: {
-    description: "Inspect and redeploy Railway services.",
-    category: "Development",
-    capabilities: ["List Projects", "Check Deployments", "Read Logs", "Redeploy"],
-    trust: {
-      title: "Your token, your control",
-      body: "Railway has no OAuth, so you paste a workspace-scoped or account API token you generate yourself. Revoke it any time from Railway, or disconnect here.",
-    },
-    overview: {
-      body: "Connect Railway with a workspace-scoped or account API token. Alfred answers questions about your projects and deployments, and redeploys when you ask.",
-      heading: "Deployment Intelligence",
-      detail:
-        "Alfred can list your projects, services, and environments, check deployment status, read deployment logs, and trigger a redeploy.",
-    },
-  },
   vercel: {
     description: "Inspect and redeploy Vercel projects.",
     category: "Development",

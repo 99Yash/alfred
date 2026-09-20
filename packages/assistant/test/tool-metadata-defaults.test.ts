@@ -50,7 +50,7 @@ describe("deriveToolDiscovery", () => {
 
   test("singularizes entities so a query matches either number", () => {
     const discovery = deriveToolDiscovery({
-      integration: "railway",
+      integration: "vercel",
       action: "list_deployments",
       description: "List deployments.",
       inputSchema: z.object({}).strict(),
