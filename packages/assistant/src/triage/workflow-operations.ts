@@ -864,20 +864,37 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
 
   // The run's contract is the canonical `email_triage` row plus the Gmail
   // label itself, not `agent_runs.output`: no production reader inspects
-  // triage run output keys, so the terminal step emits none.
-  const done: StepResult<State, EmailTriageStepName> = {
-    kind: "done",
-    state: ctx.state,
+  // triage run output keys, so the terminal step emits none. It does owe the
+  // run-history row one sentence: `summary` is the field the history reads
+  // (`registry.ts`, `run-outcome.ts`), and triage sets none elsewhere, so a
+  // missing summary renders every triage run as "Run completed."
+  const summarize = (tail?: string): string => {
+    const category = ctx.state.category;
+    const confidence =
+      typeof ctx.state.confidence === "number"
+        ? ` (confidence ${ctx.state.confidence.toFixed(2)})`
+        : "";
+    const head = category
+      ? `Triaged as ${category}${confidence}`
+      : `Triaged thread ${sourceThreadId}`;
+
+    return tail ? `${head}; ${tail}` : head;
   };
 
-  if (ctx.state.reason !== "reply") return done;
+  const done = (summaryTail?: string): StepResult<State, EmailTriageStepName> => ({
+    kind: "done",
+    state: ctx.state,
+    summary: summarize(summaryTail),
+  });
+
+  if (ctx.state.reason !== "reply") return done();
 
   if (!ctx.state.userAlreadyReplied) {
     await ctx.log(
       `close-loop-todos: thread=${sourceThreadId} — no retraction (classify read no user reply)`,
     );
 
-    return done;
+    return done("reply re-eval, no open suggestion to close");
   }
 
   // Everything past this point touches the todo rail, so it is best-effort:
@@ -897,7 +914,7 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
         `close-loop-todos: thread=${sourceThreadId} — no retraction (action-items disabled)`,
       );
 
-      return done;
+      return done("retraction skipped (action-items disabled)");
     }
 
     const resolved = await resolveTodosForGmailSource({
@@ -923,11 +940,19 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
       `close-loop-todos: thread=${sourceThreadId} newest=sent reason=${resolved.auditReason ?? "unknown"} ` +
         `status=${resolved.status} dismissed=${resolved.ok ? resolved.dismissedCount : 0}`,
     );
+
+    const dismissed = resolved.ok ? resolved.dismissedCount : 0;
+
+    return done(
+      dismissed > 0
+        ? `reply re-eval, closed ${dismissed} suggestion${dismissed === 1 ? "" : "s"}`
+        : "reply re-eval, no open suggestion to close",
+    );
   } catch (err) {
     await ctx.log(`close-loop-todos failed (non-fatal): ${toMessage(err)}`);
-  }
 
-  return done;
+    return done("retraction failed (non-fatal)");
+  }
 }
 
 export async function runEmailTriageApplyLabel<State extends EmailTriageOperationState>(
