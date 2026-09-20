@@ -58,8 +58,8 @@ import { getFreshAccessToken, getMessage, type TriageCategory } from "@alfred/in
 
 /**
  * Email triage workflow (ADR-0025): one `email_triage` row per (user, thread),
- * steps classify → close-loop-todos → apply-label. A reply re-runs it; user
- * overrides stay pinned; apply-label strips sibling alfred labels. Owner: this file. History: ADR-0051, ADR-0050, #282. Glossary: `docs/reference/glossary.md`.
+ * steps classify → apply-label → close-loop-todos. A reply re-runs it; user
+ * overrides stay pinned; apply-label strips sibling alfred labels. Owner: this file. History: ADR-0051, ADR-0050, #282, #1168. Glossary: `docs/reference/glossary.md`.
  */
 
 export interface EmailTriageOperationState {
@@ -78,6 +78,21 @@ export interface EmailTriageOperationState {
    * retracts a todo, so it pays for no read (ADR-0050).
    */
   userAlreadyReplied?: boolean;
+  /**
+   * The `apply-label` outcome, carried forward so the terminal
+   * `close-loop-todos` step can re-emit it as the run output (#1168).
+   * `apply-label` is the contract; the rail retraction after it is
+   * best-effort and must not replace that output with nothing.
+   */
+  labelOutcome?: {
+    category: TriageCategory;
+    applied: boolean;
+    reason?: string;
+    confidence?: number;
+    appliedLabelId?: string;
+    removedLabelIds?: string[];
+    strippedSiblings?: number;
+  };
 }
 
 export async function runEmailTriageClassify<State extends EmailTriageOperationState>(
@@ -809,13 +824,15 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       // could flip between the two steps.
       userAlreadyReplied,
     },
-    nextStep: "close-loop-todos",
+    nextStep: "apply-label",
   };
 }
 
 /**
- * Post-classify, pre-label follow-up: retract the rail todos a just-handled
- * thread left open (ADR-0050 same-thread retraction, un-parked).
+ * Terminal, post-label follow-up: retract the rail todos a just-handled
+ * thread left open (ADR-0050 same-thread retraction, un-parked; #1168 moved
+ * it after `apply-label` so the Gmail label lands before the best-effort
+ * rail write).
  *
  * The outbound-reply re-eval (#282) re-classifies a thread after the user
  * sends. When the user's own message is now the newest in the thread, the
@@ -844,10 +861,10 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
  * fact (ADR-0050's one-owner rule).
  *
  * RAIL-ONLY AND BEST-EFFORT. The classify row is already committed and the
- * Gmail label is the contract; the todo rail is not. A DB blip on the
- * thread-state read or the dismissal must not stop `apply-label` from
- * converging the thread, exactly as `suggestTodo` and the sender-prior bump
- * above swallow their own failures. Any throw is logged and the step advances.
+ * Gmail label has already converged; the todo rail is not the contract. A DB blip on the
+ * thread-state read or the dismissal is logged and the step still dones the run — it never
+ * un-applies or blocks the label — exactly as `suggestTodo` and the sender-prior bump
+ * above swallow their own failures. Any throw is logged and the step dones.
  */
 export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOperationState>(
   ctx: StepContext<State>,
@@ -860,25 +877,33 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
     );
   }
 
-  const advance: StepResult<State, EmailTriageStepName> = {
-    kind: "next",
+  const done: StepResult<State, EmailTriageStepName> = {
+    kind: "done",
     state: ctx.state,
-    nextStep: "apply-label",
+    // Re-emit what `apply-label` converged so the run output keeps its
+    // contract shape with the label step terminal (#1168). Falls back to a
+    // minimal no-label output for a pre-swap in-flight run resuming here
+    // with no carried outcome.
+    output: ctx.state.labelOutcome ?? {
+      category: ctx.state.category,
+      applied: false,
+      reason: "label-outcome-missing",
+    },
   };
 
-  if (ctx.state.reason !== "reply") return advance;
+  if (ctx.state.reason !== "reply") return done;
 
   if (!ctx.state.userAlreadyReplied) {
     await ctx.log(
       `close-loop-todos: thread=${sourceThreadId} — no retraction (classify read no user reply)`,
     );
 
-    return advance;
+    return done;
   }
 
   // Everything past this point touches the todo rail, so it is best-effort:
   // the flag read is inside the try with the dismissal, so a DB blip here
-  // still cannot stop `apply-label`.
+  // still dones the run with the label outcome intact.
   try {
     // Symmetric with the mint (`classify` gates `suggestTodo` on the same
     // flag): when the user has action items off, existing rail rows are left
@@ -893,7 +918,7 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
         `close-loop-todos: thread=${sourceThreadId} — no retraction (action-items disabled)`,
       );
 
-      return advance;
+      return done;
     }
 
     const resolved = await resolveTodosForGmailSource({
@@ -923,7 +948,7 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
     await ctx.log(`close-loop-todos failed (non-fatal): ${toMessage(err)}`);
   }
 
-  return advance;
+  return done;
 }
 
 export async function runEmailTriageApplyLabel<State extends EmailTriageOperationState>(
@@ -941,15 +966,21 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
   // Email-tagging toggle (Settings → Features). When off, Alfred keeps
   // the in-app triage row (drives the inbox chips + any action-item it
   // already minted) but does not touch the user's Gmail labels.
+  // Every path below forwards to the terminal `close-loop-todos` step
+  // (#1168): the label outcome rides the state so the terminal step can
+  // re-emit it as the run output.
   const flags = await resolveFeatureFlags(ctx.userId);
 
   if (!flags.emailTagging) {
     await ctx.log(`apply-label: skipped reason=tagging-disabled`);
 
     return {
-      kind: "done",
-      state: ctx.state,
-      output: { category, applied: false, reason: "tagging-disabled" },
+      kind: "next",
+      state: {
+        ...ctx.state,
+        labelOutcome: { category, applied: false, reason: "tagging-disabled" },
+      },
+      nextStep: "close-loop-todos",
     };
   }
 
@@ -963,13 +994,16 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
     await ctx.log(`apply-label: skipped reason=${outcome.reason}`);
 
     return {
-      kind: "done",
-      state: ctx.state,
-      output: {
-        category: outcome.category ?? category,
-        applied: false,
-        reason: outcome.reason,
+      kind: "next",
+      state: {
+        ...ctx.state,
+        labelOutcome: {
+          category: outcome.category ?? category,
+          applied: false,
+          reason: outcome.reason,
+        },
       },
+      nextStep: "close-loop-todos",
     };
   }
 
@@ -981,16 +1015,19 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
   );
 
   return {
-    kind: "done",
-    state: ctx.state,
-    output: {
-      category: outcome.category,
-      confidence: ctx.state.confidence,
-      applied: true,
-      appliedLabelId: outcome.appliedLabelId,
-      removedLabelIds: outcome.removedLabelIds,
-      strippedSiblings: outcome.strippedSiblings.length,
+    kind: "next",
+    state: {
+      ...ctx.state,
+      labelOutcome: {
+        category: outcome.category,
+        confidence: ctx.state.confidence,
+        applied: true,
+        appliedLabelId: outcome.appliedLabelId,
+        removedLabelIds: outcome.removedLabelIds,
+        strippedSiblings: outcome.strippedSiblings.length,
+      },
     },
+    nextStep: "close-loop-todos",
   };
 }
 
