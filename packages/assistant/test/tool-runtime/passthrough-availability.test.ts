@@ -13,11 +13,11 @@ import { evaluateToolAvailability } from "../../src/tool-runtime/internal/regist
  * but disconnected → the honest health reason, not feature_disabled.
  */
 
-const railwayGraphql = liveTool({
-  integration: "railway",
-  action: "graphql",
+const notionRequest = liveTool({
+  integration: "notion",
+  action: "request",
   riskTier: "no_risk",
-  description: "Raw read-only Railway GraphQL.",
+  description: "Raw read-only Notion request.",
   availability: { passthrough: true },
   inputSchema: z.object({ document: z.string() }),
   execute: async () => ({}),
@@ -26,18 +26,18 @@ const railwayGraphql = liveTool({
 const ctx = { caller: "boss", interaction: "live_chat" } as const;
 
 function snapshot(args: {
-  railwayHealth?: "active" | "needs_reauth" | null;
+  notionHealth?: "active" | "needs_reauth" | null;
   passthroughOn?: boolean;
 }): IntegrationAvailabilitySnapshot {
   return {
     integrations: new Map(
-      args.railwayHealth === undefined
+      args.notionHealth === undefined
         ? []
-        : [["railway", { health: args.railwayHealth, accountLabel: null }]],
+        : [["notion", { health: args.notionHealth, accountLabel: null }]],
     ),
     providers: new Map(),
     passthroughEnabled: new Map(
-      args.passthroughOn === undefined ? [] : [["railway", args.passthroughOn]],
+      args.passthroughOn === undefined ? [] : [["notion", args.passthroughOn]],
     ),
   };
 }
@@ -45,8 +45,8 @@ function snapshot(args: {
 describe("passthrough preference gate (feature_disabled)", () => {
   test("an unset preference (absent from the map) is feature_disabled", () => {
     const result = evaluateToolAvailability(
-      snapshot({ railwayHealth: "active" }),
-      railwayGraphql,
+      snapshot({ notionHealth: "active" }),
+      notionRequest,
       new Set(),
       ctx,
     );
@@ -58,8 +58,8 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
   test("an explicitly-off preference is feature_disabled", () => {
     const result = evaluateToolAvailability(
-      snapshot({ railwayHealth: "active", passthroughOn: false }),
-      railwayGraphql,
+      snapshot({ notionHealth: "active", passthroughOn: false }),
+      notionRequest,
       new Set(),
       ctx,
     );
@@ -71,8 +71,8 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
   test("preference ON + integration connected → available", () => {
     const result = evaluateToolAvailability(
-      snapshot({ railwayHealth: "active", passthroughOn: true }),
-      railwayGraphql,
+      snapshot({ notionHealth: "active", passthroughOn: true }),
+      notionRequest,
       new Set(),
       ctx,
     );
@@ -84,8 +84,8 @@ describe("passthrough preference gate (feature_disabled)", () => {
     // The user turned the tier off, so that is the honest reason regardless of
     // whether the integration is connected.
     const result = evaluateToolAvailability(
-      snapshot({ railwayHealth: null, passthroughOn: false }),
-      railwayGraphql,
+      snapshot({ notionHealth: null, passthroughOn: false }),
+      notionRequest,
       new Set(),
       ctx,
     );
@@ -97,8 +97,8 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
   test("preference ON but integration disconnected → honest connection reason, not feature_disabled", () => {
     const result = evaluateToolAvailability(
-      snapshot({ railwayHealth: null, passthroughOn: true }),
-      railwayGraphql,
+      snapshot({ notionHealth: null, passthroughOn: true }),
+      notionRequest,
       new Set(),
       ctx,
     );
@@ -110,8 +110,8 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
   test("preference ON but integration needs reauth → needs_reauth, not feature_disabled", () => {
     const result = evaluateToolAvailability(
-      snapshot({ railwayHealth: "needs_reauth", passthroughOn: true }),
-      railwayGraphql,
+      snapshot({ notionHealth: "needs_reauth", passthroughOn: true }),
+      notionRequest,
       new Set(),
       ctx,
     );

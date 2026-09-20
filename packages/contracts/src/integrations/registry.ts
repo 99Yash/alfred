@@ -78,7 +78,7 @@ export interface PlannedIntegrationEntry extends EntryBase {
  * - `github_app`: App installation (ADR-0052). App *permissions* never land in
  *   the credential's `scopes`, so connectedness is an active row with an
  *   `installation_id`; legacy classic-OAuth rows read as not-connected.
- * - `bearer`: one long-lived bearer token (Notion/Vercel OAuth, Railway pasted
+ * - `bearer`: one long-lived bearer token (Notion/Vercel OAuth, Sentry pasted
  *   API token). No scopes and no installation to probe: an active row IS the
  *   proof. `connect` says how the token arrives; `token_paste` renders a form,
  *   not a redirect.
@@ -293,24 +293,6 @@ export const INTEGRATIONS = {
     actions: ["search", "get_page", "create_page", "append_blocks", "request"],
     summaryBlurb: "the user's Notion pages and databases",
     domain: "notion.so",
-  },
-  railway: {
-    kind: "provider",
-    status: "live",
-    displayName: "Railway",
-    brand: "railway",
-    credential: { shape: "bearer", connect: "token_paste" },
-    passthrough: { transport: "graphql" },
-    actions: [
-      "list_projects",
-      "list_deployments",
-      "recent_deployments",
-      "get_logs",
-      "redeploy",
-      "graphql",
-    ],
-    summaryBlurb: "the user's Railway projects, deployments, and logs",
-    domain: "railway.com",
   },
   vercel: {
     kind: "provider",

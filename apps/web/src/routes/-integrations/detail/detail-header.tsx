@@ -104,8 +104,8 @@ function RedirectConnect({ slug, connected }: { slug: LiveProviderSlug; connecte
 }
 
 /**
- * The `token_paste` connect flow. Neither Railway nor Sentry has a public
- * OAuth for this use, so the user pastes a token they generated themselves. We
+ * The `token_paste` connect flow. Sentry uses an internal integration token,
+ * so the user pastes a token they generated themselves. We
  * POST it to the provider's connect route (which validates it upstream before
  * storing) and refresh the credential query on success so the tile flips to
  * "Connected". The table below is the per-provider half: what the user pastes,
@@ -129,11 +129,6 @@ interface TokenPasteForm {
 }
 
 const TOKEN_PASTE_FORMS = {
-  railway: {
-    tokenPlaceholder: "Railway workspace or account token",
-    tokenUrl: "https://railway.com/account/tokens",
-    submit: ({ token }) => client.api.integrations.railway.connect.post({ token }),
-  },
   sentry: {
     tokenPlaceholder: "Sentry internal integration token",
     tokenUrl: "https://sentry.io/settings/developer-settings/",

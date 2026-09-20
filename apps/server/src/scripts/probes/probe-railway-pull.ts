@@ -1,17 +1,13 @@
 /**
  * Live probe for the verified pull (#1094). Performs one
  * `readRailwayDeploymentStatus` against a named target (or the first
- * discovered one) and prints the parsed status, the Railway MCP connection
- * readiness, and the live MCP catalog's status-capable tool name — or
- * `no-status-tool` when no authorized connection exists yet (the GraphQL
- * fallback shipped, so that is the expected line until the human completes
- * OAuth consent).
+ * discovered one) and prints the parsed status, Railway MCP readiness,
+ * and whether the live catalog has the three required read tools.
  *
  *   $ pnpm --filter server tsx --env-file=<main-checkout>/apps/server/.env \
  *       src/scripts/probes/probe-railway-pull.ts <userId> [projectId serviceId environmentId]
  *
- * Defaults to the sole local user when no id is passed. Read-only; prints
- * deployment ids and statuses, never tokens.
+ * Requires a user id. Read-only; prints deployment ids and statuses, never tokens.
  */
 
 import { closeConnections } from "@alfred/db";
@@ -28,7 +24,10 @@ import {
 } from "@alfred/assistant/connections/mcp";
 
 async function main(): Promise<void> {
-  const userId = process.argv[2] ?? "f3lTMg2DZzoR7KgGFtjUFNQvqwpUP0y4";
+  const userId = process.argv[2];
+
+  if (!userId)
+    throw new Error("Usage: probe-railway-pull.ts <userId> [projectId serviceId environmentId]");
   const [projectId, serviceId, environmentId] = process.argv.slice(3);
 
   let target: RailwayPullTarget | null =
@@ -73,19 +72,19 @@ async function main(): Promise<void> {
   );
 
   if (!railway || readiness.connected !== true) {
-    console.log("status-capable MCP tool: no-status-tool (no authorized Railway MCP connection)");
+    console.log("required MCP reads: unavailable (no authorized Railway MCP connection)");
   } else {
     try {
       const prepared = await getMcpConnectionManager().prepareToolCall(railway.id);
-      const names = prepared.catalog.tools.map((tool) => tool.name);
-      const statusCapable = names.filter((name) => /deploy|status/i.test(name));
-      console.log(`catalog tools (${names.length}): ${names.join(", ") || "(empty)"}`);
+      const names = new Set(prepared.catalog.tools.map((tool) => tool.name));
+      const required = ["list-projects", "list-services", "list-deployments"];
+      const missing = required.filter((name) => !names.has(name));
       console.log(
-        `status-capable MCP tool: ${statusCapable.length === 0 ? "no-status-tool" : statusCapable.join(", ")}`,
+        `required MCP reads: ${missing.length ? `missing ${missing.join(", ")}` : "available"}`,
       );
     } catch (error) {
       console.log(
-        `status-capable MCP tool: no-status-tool (prepareToolCall failed: ${error instanceof Error ? error.message : String(error)})`,
+        `required MCP reads: unavailable (prepareToolCall failed: ${error instanceof Error ? error.message : String(error)})`,
       );
     }
   }
@@ -94,3 +93,5 @@ async function main(): Promise<void> {
 }
 
 await main();
+
+process.exit(0);

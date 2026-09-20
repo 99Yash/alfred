@@ -73,7 +73,7 @@ export const integrationCredentials = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     /**
      * The credential provider (ADR-0093): `google` for every Google product,
-     * else the live provider's slug (`github`, `notion`, `railway`, `vercel`).
+     * else the live provider's slug (`github`, `notion`, `sentry`, `vercel`).
      * The vocabulary is derived from the integration registry, and the CHECK
      * below holds the column to it, so a new provider is a migration.
      */

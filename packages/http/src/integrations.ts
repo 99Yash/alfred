@@ -29,7 +29,7 @@ import { authMacro } from "./middleware/auth";
  * "connected as …" badges before `user.onboarded_at` is set, and the Google and
  * GitHub connect routes are open to an onboarding user for the same reason. The
  * bearer providers' routes are not, so this read is the first place an
- * onboarding user can see a Notion, Railway, or Vercel connection. The body
+ * onboarding user can see a Notion, Sentry, or Vercel connection. The body
  * holds credential ids, account ids, and labels only.
  */
 export const integrationsRoutes = new Elysia({

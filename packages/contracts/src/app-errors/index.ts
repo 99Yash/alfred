@@ -200,11 +200,6 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "Every connected credential for this integration failed the same read.",
     fix: reconnect,
   }),
-  railway_credential_required: {
-    message: "Choose an active Railway credential from list_projects and try again.",
-    why: "The tool needs one credential and the caller named none or an unknown one.",
-    fix: { kind: "correct_input" },
-  },
   run_cancelled: {
     message: "The run was cancelled; this action did not run.",
     why: "A cancellation fence advanced between dispatch and execution.",

@@ -5,7 +5,6 @@ import { gmailWebhookRoutes } from "./gmail-webhook";
 import { inboundWebhookRoutes } from "./inbound-webhook";
 import { googleIntegrationRoutes } from "./google-routes";
 import { notionIntegrationRoutes } from "./notion-routes";
-import { railwayIntegrationRoutes } from "./railway-routes";
 import { sentryIntegrationRoutes } from "./sentry-routes";
 import { vercelIntegrationRoutes } from "./vercel-routes";
 
@@ -19,7 +18,6 @@ const providerRoutes = {
   google: googleIntegrationRoutes,
   github: githubIntegrationRoutes,
   notion: notionIntegrationRoutes,
-  railway: railwayIntegrationRoutes,
   sentry: sentryIntegrationRoutes,
   vercel: vercelIntegrationRoutes,
 } satisfies Record<CredentialProvider, AnyElysia>;
@@ -28,7 +26,6 @@ export const connections = new Elysia({ name: "connections", normalize: "typebox
   .use(providerRoutes.google)
   .use(providerRoutes.github)
   .use(providerRoutes.notion)
-  .use(providerRoutes.railway)
   .use(providerRoutes.sentry)
   .use(providerRoutes.vercel)
   .use(gmailWebhookRoutes)

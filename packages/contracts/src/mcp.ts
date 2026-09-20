@@ -383,13 +383,12 @@ export type McpRenameConnectionBody = z.infer<typeof mcpRenameConnectionBodySche
 // ---------------------------------------------------------------------------
 export interface McpBuiltInEntry {
   /**
-   * The registry slug whose brand artwork the tile borrows.
+   * The brand artwork the tile borrows.
    *
-   * `CatalogSlug`, not `IntegrationSlug`: only a PROVIDER entry carries brand
-   * artwork, so the wider union would admit a slug with no mark and force
-   * every tile to carry a fallback glyph for a case that cannot occur.
+   * Railway is MCP-only and has no legacy provider page. Its mark is still a
+   * built-in MCP asset.
    */
-  readonly slug: CatalogSlug;
+  readonly brand: CatalogSlug | "railway";
   /**
    * The tile title. It is not the slug's display name: this names the SERVER,
    * and one product can serve more than one (a read-only path and a read-write
@@ -402,32 +401,32 @@ export interface McpBuiltInEntry {
 
 export const BUILT_IN_MCP_CATALOG = {
   github: {
-    slug: "github",
+    brand: "github",
     label: "GitHub MCP",
     blurb: "Read pull requests, issues, and code.",
   },
   linear: {
-    slug: "linear",
+    brand: "linear",
     label: "Linear MCP",
     blurb: "Work with Linear issues, projects, and cycles.",
   },
   notion: {
-    slug: "notion",
+    brand: "notion",
     label: "Notion MCP",
     blurb: "Work with Notion pages and databases.",
   },
   sentry: {
-    slug: "sentry",
+    brand: "sentry",
     label: "Sentry MCP",
     blurb: "Investigate Sentry issues and error events.",
   },
   railway: {
-    slug: "railway",
+    brand: "railway",
     label: "Railway MCP",
     blurb: "Read Railway deployment status.",
   },
   polylane: {
-    slug: "polylane",
+    brand: "polylane",
     label: "Polylane MCP",
     blurb: "Read production logs, metrics, traces, and tracked issues.",
   },

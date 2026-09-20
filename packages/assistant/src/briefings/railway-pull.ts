@@ -1,12 +1,18 @@
-import { canonicalizeRailwayTargetId, type IntegrationActivityItem } from "@alfred/contracts";
-import { railwayClientForUser } from "@alfred/integrations/railway";
+import {
+  canonicalizeRailwayTargetId,
+  getPath,
+  type IntegrationActivityItem,
+} from "@alfred/contracts";
 import { objectStateStore, type ObjectState } from "@alfred/assistant/connections";
 import {
   builtInProviderForEndpoint,
+  getMcpConnectionManager,
   listOwnedConnections,
-  RAILWAY_MCP_ISSUER,
+  RAILWAY_MCP_STORED_ISSUER,
+  type McpPreparedToolCall,
 } from "@alfred/assistant/connections/mcp";
 import { RAILWAY_PULL_EVENT_TYPE } from "@alfred/assistant/connections/object-state/railway-reducer";
+import { z } from "zod";
 
 /**
  * The verified pull for failure-only providers (#1094) — the second named
@@ -20,13 +26,10 @@ import { RAILWAY_PULL_EVENT_TYPE } from "@alfred/assistant/connections/object-st
  * (unknown kind/unknown token no-write, per-kind absorbing, the
  * `(providerEventTime, deliveredAt)` recency rule).
  *
- * Transport, honestly: the published remote MCP catalog carries NO
- * deployment-status tool (only `redeploy` + `accept-deploy`), so v1 reads
- * through the token-backed Railway GraphQL `deployments` query over the
- * user's own stored credential — an authenticated read of current state,
- * the same trust property as an MCP tool call, behind a different wire.
- * MCP-first stays the direction (epic #1002): the probe re-checks the live
- * catalog post-consent, and a status tool there upgrades the transport.
+ * The Railway MCP catalog publishes `list-services` and `list-deployments`.
+ * The read uses the user's ready, issuer-pinned connection and parses only
+ * structured tool output. Missing tools, invalid output, and remote errors
+ * prove nothing and leave the loop live.
  *
  * Approval floors gate AGENT discretion; this deterministic gather-time read
  * over a user-connected grant is the calendar/weather gatherer pattern, so
@@ -61,59 +64,124 @@ export interface ParsedRailwayStatus {
   url: string | null;
 }
 
+const railwayProjectSchema = z.object({ id: z.string().min(1), name: z.string() });
+
+const railwayProjectsSchema = z.object({ projects: z.array(railwayProjectSchema) });
+
+const railwayServicesSchema = z.object({
+  project: railwayProjectSchema,
+  services: z.array(z.object({ id: z.string().min(1), name: z.string() })),
+  environments: z.array(z.object({ id: z.string().min(1), name: z.string() })),
+});
+
+const railwayDeploymentsSchema = z.object({
+  deployments: z.array(
+    z.object({
+      id: z.string().min(1),
+      status: z.string(),
+      createdAt: z.string().nullable(),
+      url: z.string().nullable(),
+    }),
+  ),
+});
+
+interface RailwayReadSession {
+  connectionId: string;
+  prepared: McpPreparedToolCall;
+}
+
+/** Prepare a ready, issuer-pinned Railway connection for a bounded pull. */
+async function prepareRailwayRead(userId: string): Promise<RailwayReadSession | null> {
+  const connections = await listOwnedConnections(userId);
+
+  const connection = connections.find(
+    (item) => builtInProviderForEndpoint(item.server.endpointUrl) === "railway",
+  );
+
+  if (
+    !connection ||
+    connection.status !== "ready" ||
+    connection.authServerIdentity !== RAILWAY_MCP_STORED_ISSUER
+  ) {
+    return null;
+  }
+
+  return {
+    connectionId: connection.id,
+    prepared: await getMcpConnectionManager().prepareToolCall(connection.id),
+  };
+}
+
+async function readRailwayTool<Schema extends z.ZodType>(
+  connectionId: string,
+  prepared: McpPreparedToolCall,
+  remoteName: "list-projects" | "list-services" | "list-deployments",
+  args: Record<string, string | number>,
+  schema: Schema,
+): Promise<z.infer<Schema> | null> {
+  const envelope = await prepared.call(
+    { kind: "mcp", connectionId, remoteName, catalogRevision: prepared.catalog.revision },
+    args,
+  );
+
+  if (envelope.outcome !== "completed" || envelope.truncation) return null;
+
+  const parsed = schema.safeParse(getPath(envelope.result, "structuredContent"));
+
+  return parsed.success ? parsed.data : null;
+}
+
 /**
- * Read current deployment state for one target over the user's stored
- * Railway credential. First answering credential wins; transport faults fall
- * through to the next credential, and an unknown status token is a
- * definitive unknown for this read — never a guessed state.
+ * Read current deployment state for one target over the user's Railway MCP
+ * connection. Unknown output or a transport fault is never a guessed state.
  */
 export async function readRailwayDeploymentStatus(
   userId: string,
   target: RailwayPullTarget,
 ): Promise<ParsedRailwayStatus | null> {
-  let credentials;
-
   try {
-    credentials = await railwayClientForUser({ userId, retry: "none" }).credentials();
+    const read = await prepareRailwayRead(userId);
+
+    return read ? await readRailwayDeploymentStatusFromSession(read, target) : null;
   } catch {
-    // The credential read itself failed: unverified, not failed. A null
-    // keeps the loop live where a thrown error would fail the gather.
+    // A failed read is unverified. It cannot close the loop.
     return null;
   }
+}
 
-  for (const credential of credentials) {
-    let deployments;
+async function readRailwayDeploymentStatusFromSession(
+  read: RailwayReadSession,
+  target: RailwayPullTarget,
+): Promise<ParsedRailwayStatus | null> {
+  const parsed = await readRailwayTool(
+    read.connectionId,
+    read.prepared,
+    "list-deployments",
+    {
+      projectId: target.projectId,
+      serviceId: target.serviceId,
+      environmentId: target.environmentId,
+      limit: 1,
+    },
+    railwayDeploymentsSchema,
+  );
 
-    try {
-      ({ deployments } = await credential.listDeployments({
-        projectId: target.projectId,
-        serviceId: target.serviceId,
-        environmentId: target.environmentId,
-        limit: 1,
-      }));
-    } catch {
-      continue;
-    }
+  if (!parsed) return null;
 
-    const [latest] = deployments;
+  const [latest] = parsed.deployments;
 
-    // No deployments: nothing observed — not a success, not a failure.
-    if (!latest) return null;
+  if (!latest) return null;
 
-    const status = collapseRailwayStatus(latest.status);
+  const status = collapseRailwayStatus(latest.status);
 
-    // Unknown token: the provider spoke a state this build does not name.
-    if (!status) return null;
+  if (!status) return null;
 
-    return {
-      status,
-      deploymentId: latest.id,
-      providerEventTime: parseProviderInstant(latest.createdAt),
-      url: latest.url,
-    };
-  }
-
-  return null;
+  return {
+    status,
+    deploymentId: latest.id,
+    providerEventTime: parseProviderInstant(latest.createdAt),
+    url: latest.url,
+  };
 }
 
 /**
@@ -217,9 +285,11 @@ export async function pullRailwayTargets(
   userId: string,
   targets: readonly RailwayPullTarget[],
 ): Promise<RailwayPullResult[]> {
-  const names = await resolveRailwayTargetNames(userId).catch(
-    () => new Map<string, RailwayTargetNames>(),
-  );
+  const read = await prepareRailwayRead(userId).catch(() => null);
+
+  const names = read
+    ? await resolveRailwayTargetNames(read).catch(() => new Map<string, RailwayTargetNames>())
+    : new Map<string, RailwayTargetNames>();
 
   const results: RailwayPullResult[] = [];
 
@@ -240,7 +310,9 @@ export async function pullRailwayTargets(
       continue;
     }
 
-    const parsed = await readRailwayDeploymentStatus(userId, target);
+    const parsed = read
+      ? await readRailwayDeploymentStatusFromSession(read, target).catch(() => null)
+      : null;
 
     if (!parsed) {
       results.push({
@@ -298,32 +370,49 @@ export async function pullRailwayTargets(
 
 /**
  * Best-effort display names for known targets, keyed by canonical target id.
- * One `listProjects` per credential; anything fails → empty map, and titles
- * fall back to ids. Names are display only and never identity.
+ * MCP project and service reads supply display names. Any failure gives an
+ * empty map, and titles fall back to ids. Names never define identity.
  */
-async function resolveRailwayTargetNames(userId: string): Promise<Map<string, RailwayTargetNames>> {
+async function resolveRailwayTargetNames(
+  read: RailwayReadSession,
+): Promise<Map<string, RailwayTargetNames>> {
   const byId = new Map<string, RailwayTargetNames>();
-  const credentials = await railwayClientForUser({ userId, retry: "none" }).credentials();
 
-  for (const credential of credentials) {
-    const { projects } = await credential.listProjects();
+  const projects = await readRailwayTool(
+    read.connectionId,
+    read.prepared,
+    "list-projects",
+    {},
+    railwayProjectsSchema,
+  );
 
-    for (const project of projects) {
-      for (const service of project.services) {
-        for (const environment of project.environments) {
-          const targetId = canonicalizeRailwayTargetId({
-            projectId: project.id,
-            serviceId: service.id,
-            environmentId: environment.id,
+  if (!projects) return byId;
+
+  for (const project of projects.projects) {
+    const services = await readRailwayTool(
+      read.connectionId,
+      read.prepared,
+      "list-services",
+      { projectId: project.id },
+      railwayServicesSchema,
+    );
+
+    if (!services || services.project.id !== project.id) continue;
+
+    for (const service of services.services) {
+      for (const environment of services.environments) {
+        const targetId = canonicalizeRailwayTargetId({
+          projectId: project.id,
+          serviceId: service.id,
+          environmentId: environment.id,
+        });
+
+        if (targetId && !byId.has(targetId)) {
+          byId.set(targetId, {
+            project: project.name,
+            service: service.name,
+            environment: environment.name,
           });
-
-          if (targetId && !byId.has(targetId)) {
-            byId.set(targetId, {
-              project: project.name,
-              service: service.name,
-              environment: environment.name,
-            });
-          }
         }
       }
     }
@@ -333,34 +422,42 @@ async function resolveRailwayTargetNames(userId: string): Promise<Map<string, Ra
 }
 
 /**
- * Discover pull targets from the provider's own project list — the
+ * Discover pull targets from Railway MCP's project and service lists — the
  * bootstrap, before any target row exists. Bounded: the first
  * `MAX_RAILWAY_PULL_TARGETS` in provider order. A transport fault discovers
- * nothing, so the loop stays live rather than closing on an empty list.
+ * nothing, so the loop stays live.
  */
 export async function discoverRailwayTargets(userId: string): Promise<RailwayPullTarget[]> {
-  let credentials;
-
   try {
-    credentials = await railwayClientForUser({ userId, retry: "none" }).credentials();
-  } catch {
-    return [];
-  }
+    const read = await prepareRailwayRead(userId);
 
-  const targets: RailwayPullTarget[] = [];
+    if (!read) return [];
 
-  for (const credential of credentials) {
-    let projects;
+    const projects = await readRailwayTool(
+      read.connectionId,
+      read.prepared,
+      "list-projects",
+      {},
+      railwayProjectsSchema,
+    );
 
-    try {
-      ({ projects } = await credential.listProjects());
-    } catch {
-      continue;
-    }
+    if (!projects) return [];
 
-    for (const project of projects) {
-      for (const service of project.services) {
-        for (const environment of project.environments) {
+    const targets: RailwayPullTarget[] = [];
+
+    for (const project of projects.projects) {
+      const services = await readRailwayTool(
+        read.connectionId,
+        read.prepared,
+        "list-services",
+        { projectId: project.id },
+        railwayServicesSchema,
+      );
+
+      if (!services || services.project.id !== project.id) continue;
+
+      for (const service of services.services) {
+        for (const environment of services.environments) {
           if (targets.length >= MAX_RAILWAY_PULL_TARGETS) return targets;
 
           targets.push({
@@ -371,17 +468,18 @@ export async function discoverRailwayTargets(userId: string): Promise<RailwayPul
         }
       }
     }
-  }
 
-  return targets;
+    return targets;
+  } catch {
+    return [];
+  }
 }
 
 /**
  * The Railway MCP connection's readiness as pull provenance: connected means
  * the stored row is `ready`, and issuer-pinned means its authorization server
- * is byte-for-byte `RAILWAY_MCP_ISSUER` — never URL-round-tripped. v1's read
- * travels over the native token, so this gates nothing yet; it is the
- * precondition the MCP transport upgrade will require, recorded now.
+ * is byte-for-byte `RAILWAY_MCP_STORED_ISSUER` — never URL-round-tripped. Both
+ * conditions gate the deployment read.
  */
 export async function readRailwayMcpReadiness(
   userId: string,
@@ -396,7 +494,7 @@ export async function readRailwayMcpReadiness(
 
   return {
     connected: railway.status === "ready",
-    issuerPinned: railway.authServerIdentity === RAILWAY_MCP_ISSUER,
+    issuerPinned: railway.authServerIdentity === RAILWAY_MCP_STORED_ISSUER,
   };
 }
 
@@ -443,7 +541,7 @@ export function railwayPullResultToActivityItem(
   return {
     id: `railway-pull:${result.targetId || "unknown"}:${result.deploymentId ?? "unverified"}`,
     provider: "railway",
-    source: "direct_api",
+    source: "mcp",
     activityCategory: "deploy",
     providerKind: "railway.deployment_status",
     title: `Railway deployment ${word}: ${where}`,

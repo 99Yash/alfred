@@ -147,7 +147,7 @@ export const calendarContributionSchema = z.object({
 
 export type CalendarContribution = z.infer<typeof calendarContributionSchema>;
 
-export const INTEGRATION_ACTIVITY_SOURCES = ["direct_api", "email_triage"] as const;
+export const INTEGRATION_ACTIVITY_SOURCES = ["direct_api", "email_triage", "mcp"] as const;
 
 export type IntegrationActivitySource = (typeof INTEGRATION_ACTIVITY_SOURCES)[number];
 
@@ -328,7 +328,9 @@ export const integrationActivityRollupSchema = z.object({
 
 export const integrationActivityItemSchema = z.object({
   id: z.string().min(1),
-  provider: integrationSlugSchema,
+  // Railway deployment receipts come from its MCP-only connection. Object
+  // state keeps the provider identity even though no native provider remains.
+  provider: z.union([integrationSlugSchema, z.literal("railway")]),
   source: integrationActivitySourceSchema,
   activityCategory: integrationActivityCategorySchema,
   providerKind: z.string().min(1).max(120),
