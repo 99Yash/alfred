@@ -17,7 +17,7 @@ export function mcpConnectionStatusText(
     case "auth_required":
       return connection.lastError ?? "Additional permissions require your consent.";
     case "connecting":
-      return "Connecting…";
+      return connection.lastError ? "Reconnecting…" : "Connecting…";
     case "disconnected":
       return "Disconnected";
     case "stale":

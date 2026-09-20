@@ -14,6 +14,7 @@ import { responseErrorMessage } from "~/lib/api-error";
 import { client, API_URL } from "~/lib/eden";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { connectPathFor, type IntegrationPage } from "~/lib/integrations/integrations";
+import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import { INTEGRATION_STATUS_QUERY_KEY } from "~/lib/integrations/use-integration-status";
 import { toast } from "~/lib/toast";
 
@@ -78,7 +79,7 @@ function RedirectConnect({ slug, connected }: { slug: LiveProviderSlug; connecte
   const label = connected ? "Add Account" : "Connect";
 
   const redirect = () => {
-    window.location.href = `${API_URL}${connectPathFor(slug)}`;
+    openAuthorizationTab(`${API_URL}${connectPathFor(slug)}`);
   };
 
   const onConnect = isGoogle ? () => setConsentOpen(true) : redirect;
@@ -103,8 +104,8 @@ function RedirectConnect({ slug, connected }: { slug: LiveProviderSlug; connecte
 }
 
 /**
- * The `token_paste` connect flow. Neither Railway nor Sentry has a public
- * OAuth for this use, so the user pastes a token they generated themselves. We
+ * The `token_paste` connect flow. Sentry uses an internal integration token,
+ * so the user pastes a token they generated themselves. We
  * POST it to the provider's connect route (which validates it upstream before
  * storing) and refresh the credential query on success so the tile flips to
  * "Connected". The table below is the per-provider half: what the user pastes,
@@ -128,11 +129,6 @@ interface TokenPasteForm {
 }
 
 const TOKEN_PASTE_FORMS = {
-  railway: {
-    tokenPlaceholder: "Railway workspace or account token",
-    tokenUrl: "https://railway.com/account/tokens",
-    submit: ({ token }) => client.api.integrations.railway.connect.post({ token }),
-  },
   sentry: {
     tokenPlaceholder: "Sentry internal integration token",
     tokenUrl: "https://sentry.io/settings/developer-settings/",

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
-  INTEGRATIONS,
   PASSTHROUGH_PREFERENCE_KEYS,
   SUPPORTED_PASSTHROUGH_SLUGS,
   SUPPORTED_REST_PASSTHROUGH_SLUGS,
@@ -26,11 +25,6 @@ describe("REST gate config ↔ coverage agreement", () => {
       Object.keys(REST_GATE_CONFIG).sort(),
       [...SUPPORTED_REST_PASSTHROUGH_SLUGS].sort(),
     );
-  });
-
-  test("Railway is GraphQL transport and has no REST gate config", () => {
-    assert.equal(INTEGRATIONS.railway.passthrough.transport, "graphql");
-    assert.ok(!("railway" in REST_GATE_CONFIG));
   });
 
   test("planned providers and channels expose no gate config", () => {

@@ -253,28 +253,28 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
     assert.equal(await getGithubAccessToken(id), "ghu_identity-token");
   });
 
-  test("shared bearer: a Railway-style token is sealed and read back", async () => {
+  test("shared bearer: a Vercel-style token is sealed and read back", async () => {
     ensureCredentialTestEnv();
     const vault = credentialVault();
     const userId = await seedUser("test-vault-bearer");
 
     const { id } = await upsertBearerCredential({
       userId,
-      provider: "railway",
+      provider: "vercel",
       accountId: randomUUID(),
       accountLabel: "workspace",
-      // A Railway workspace token cannot be scoped down, which is why this row
+      // A Vercel team token is broadly scoped, which is why this row
       // is the worst one to leak.
-      accessToken: "railway-workspace-token",
+      accessToken: "vercel-workspace-token",
     });
 
     const raw = await rawIntegrationTokens(id);
     assert.ok(vault.isSealed(raw.accessToken));
-    assert.notEqual(raw.accessToken, "railway-workspace-token");
+    assert.notEqual(raw.accessToken, "vercel-workspace-token");
 
-    const active = await getActiveBearerCredential(userId, "railway");
+    const active = await getActiveBearerCredential(userId, "vercel");
     assert.equal(active.id, id);
-    assert.equal(active.accessToken, "railway-workspace-token");
+    assert.equal(active.accessToken, "vercel-workspace-token");
   });
 });
 

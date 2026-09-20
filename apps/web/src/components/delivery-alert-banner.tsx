@@ -3,6 +3,7 @@ import { useState } from "react";
 import { NagBanner } from "~/components/nag-banner";
 import { API_URL } from "~/lib/eden";
 import { useDeliveryAlerts } from "~/lib/integrations/use-integration-status";
+import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 
 /**
  * Nag bar for an integration that stopped delivering events (ADR-0100).
@@ -42,12 +43,10 @@ export function DeliveryAlertBanner() {
       }
       actionLabel={`Reconnect ${name}`}
       onAction={() => {
-        // Full-page redirect to the provider's connect endpoint, as both
-        // siblings do. The alert's whole claim is that this integration needs
-        // reconnecting, so sending the user to a page to press one more button
-        // adds a step and no information.
+        // Authorization opens in a new tab; the banner's status read
+        // refetches on window focus, so the alert clears on return.
         const prefix = integrationRoutePrefix(credentialProviderOf(alert.integration));
-        window.location.href = `${API_URL}${prefix}/connect`;
+        openAuthorizationTab(`${API_URL}${prefix}/connect`);
       }}
       onDismiss={() => setDismissed((prev) => [...prev, alert.integration])}
     />

@@ -205,7 +205,7 @@ export function isHttpError(err: unknown): err is HttpError {
  *     bodies are prod-safe after {@link summarizeBody} (GitHub, Google, …).
  *   - `"omit"`: nothing rides on the error (`body: ""`). For providers whose
  *     bodies can echo request fragments the secret-redaction can't catch (a
- *     Notion page slice, a Railway GraphQL document) and must never reach the
+ *     Notion page slice, a user-supplied query) and must never reach the
  *     tool dispatcher / model transcript. Log the body server-side at the call
  *     site if you still need it for debugging — this factory won't (it's
  *     browser-safe and does no I/O beyond reading the response).

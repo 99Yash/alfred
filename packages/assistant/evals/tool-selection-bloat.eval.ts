@@ -127,10 +127,6 @@ const CASES: Case[] = [
     expected: "drive.search_files",
     home: "drive",
   },
-  // NOTE: list_deployments/redeploy need a projectId first, so the correct
-  // first move is list_projects — expectations target that, not the action that
-  // can only run after an id lookup (avoids a false "miss" unrelated to bloat).
-  { input: "what railway projects do I have?", expected: "railway.list_projects", home: "railway" },
   { input: "list my vercel projects", expected: "vercel.list_projects", home: "vercel" },
   {
     input: "create a new google spreadsheet to track expenses",

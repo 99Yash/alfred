@@ -76,6 +76,33 @@ export const SENTRY_MCP_ENDPOINT_HREF = "https://mcp.sentry.dev/mcp" as const;
 export const POLYLANE_MCP_ENDPOINT_HREF = "https://mcp.polylane.com/mcp" as const;
 
 /**
+ * Railway's remote MCP server and the authorization server that protects it.
+ *
+ * Measured on 2026-09-20 against the live discovery document
+ * (`GET https://backboard.railway.com/.well-known/oauth-authorization-server`):
+ * `issuer` is `https://backboard.railway.com` byte for byte, `registration_endpoint`
+ * is `https://backboard.railway.com/oauth/register`, `scopes_supported` is the
+ * five scopes the registry asks for, grants include `authorization_code`,
+ * `refresh_token` and `device_code`, and `code_challenge_methods_supported` is
+ * `["S256"]`. The `registration_endpoint` means Alfred registers its own client
+ * (RFC 7591) and needs no pre-registered credential — Railway avoids the
+ * static-client problem that blocks GitHub.
+ *
+ * The live catalog now carries `list-projects`, `list-services`, and
+ * `list-deployments`; verified pull reads their structured outputs.
+ */
+export const RAILWAY_MCP_ENDPOINT_HREF = "https://mcp.railway.com/mcp" as const;
+
+/**
+ * Railway's STORED authorization-server identity. Discovery publishes the
+ * issuer without a trailing slash, but the OAuth connection stores the URL
+ * form with `/`. The live connection was checked on 2026-09-20. Carried as a
+ * literal so the verified-pull seam refuses a Railway connection whose stored
+ * `authServerIdentity` is anything else.
+ */
+export const RAILWAY_MCP_STORED_ISSUER = "https://backboard.railway.com/" as const;
+
+/**
  * The `auth_server_identity` a connection row carries before any authorization
  * server is known.
  *

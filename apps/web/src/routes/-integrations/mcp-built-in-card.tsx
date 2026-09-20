@@ -1,9 +1,11 @@
 import { BUILT_IN_MCP_CATALOG, type BuiltInMCPProvider } from "@alfred/contracts";
 import { AlertTriangle, Plus } from "lucide-react";
 import { AppButton } from "~/components/ui/v2";
+import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import { brandForIntegration } from "~/lib/integrations/integrations";
 import { mcpAuthorizeUrl, mcpBuiltInConnectUrl, type McpConnection } from "./helpers";
 import { mcpConnectionSubtitle } from "./mcp-server-status";
+import { McpConnectionWarning } from "./mcp-connection-warning";
 import { McpTile } from "./mcp-tile";
 
 /**
@@ -14,12 +16,25 @@ import { McpTile } from "./mcp-tile";
  * twice, and the two copies were already ordered differently.
  */
 type BuiltInState =
-  | { readonly kind: "loading" }
-  | { readonly kind: "read_error" }
+  | { readonly kind: "loading"; readonly connection: McpConnection | undefined }
+  | { readonly kind: "read_error"; readonly connection: McpConnection | undefined }
   | { readonly kind: "absent" }
   | { readonly kind: "connecting"; readonly connection: McpConnection }
   | { readonly kind: "needs_consent"; readonly connection: McpConnection }
   | { readonly kind: "connected"; readonly connection: McpConnection };
+
+/**
+ * A stored row that needs the owner's attention. One predicate, read off the
+ * stored connection wherever it appears, so the amber ring, the warning copy,
+ * and the detailsExpander can't disagree: a warning ring always rides with an
+ * icon and a message, never as a colour-only signal.
+ */
+function isWarningConnection(connection: McpConnection): boolean {
+  return (
+    connection.status === "failed" ||
+    (connection.status === "connecting" && connection.lastError !== null)
+  );
+}
 
 /** The states in the order the owner meets them. */
 function builtInState(input: {
@@ -27,9 +42,13 @@ function builtInState(input: {
   loading: boolean;
   readError: boolean;
 }): BuiltInState {
-  if (input.loading) return { kind: "loading" };
+  // Loading and read errors keep the cached row (when one exists) so the
+  // label, the warning predicate, and the subtitle all read the same
+  // connection. Dropping it here is what left a failed cached row as an amber
+  // ring with generic "could not load" copy and no details.
+  if (input.loading) return { kind: "loading", connection: input.connection };
 
-  if (input.readError) return { kind: "read_error" };
+  if (input.readError) return { kind: "read_error", connection: input.connection };
   const { connection } = input;
 
   if (!connection) return { kind: "absent" };
@@ -81,14 +100,28 @@ export function McpBuiltInCard({
   const entry = BUILT_IN_MCP_CATALOG[provider];
   const state = builtInState({ connection, loading, readError });
 
+  const stateConnection = "connection" in state ? state.connection : undefined;
+
+  const warning = stateConnection !== undefined && isWarningConnection(stateConnection);
+
   const subtitle =
-    state.kind === "loading"
-      ? "Loading connection…"
-      : state.kind === "read_error"
-        ? "Could not load connection status."
-        : state.kind === "absent"
-          ? entry.blurb
-          : mcpConnectionSubtitle(state.connection);
+    state.kind === "loading" ? (
+      "Loading connection…"
+    ) : state.kind === "read_error" ? (
+      // A cached failed row keeps its warning copy and details behind the
+      // retry: the amber ring below always rides with a message, never alone.
+      stateConnection && isWarningConnection(stateConnection) ? (
+        <McpConnectionWarning connection={stateConnection} />
+      ) : (
+        "Could not load connection status."
+      )
+    ) : state.kind === "absent" ? (
+      entry.blurb
+    ) : isWarningConnection(state.connection) ? (
+      <McpConnectionWarning connection={state.connection} />
+    ) : (
+      mcpConnectionSubtitle(state.connection)
+    );
 
   return (
     <McpTile
@@ -98,8 +131,9 @@ export function McpBuiltInCard({
         brand: brandForIntegration(entry.slug),
         connected: state.kind === "connected" && state.connection.status === "ready",
       }}
-      label={connection?.label ?? entry.label}
+      label={stateConnection?.label ?? entry.label}
       subtitle={subtitle}
+      warning={warning}
     >
       <AppButton
         size="sm"
@@ -117,10 +151,11 @@ export function McpBuiltInCard({
           // door, the same one the generic card uses. The card does not decide
           // whether the authorization server must show a screen: `mcpConsentAsk`
           // forces one whenever the ask exceeds the stored grant.
-          window.location.href =
+          openAuthorizationTab(
             state.kind === "needs_consent"
               ? mcpAuthorizeUrl(state.connection.id)
-              : mcpBuiltInConnectUrl(provider);
+              : mcpBuiltInConnectUrl(provider),
+          );
         }}
       >
         {ACTION_LABEL[state.kind]}

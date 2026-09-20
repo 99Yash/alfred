@@ -7,8 +7,12 @@ import {
   type ToolRiskTier,
   type ToolAvailabilityResult,
   type ToolUnavailabilityCode,
+  type ExternalToolRef,
+  type McpToolDiscoveryHit,
 } from "@alfred/contracts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
+import { searchMcpToolsLocal } from "@alfred/assistant/connections/mcp";
+import { resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
 import {
   evaluateToolAvailability,
   evaluateToolCatalog,
@@ -32,9 +36,30 @@ interface ToolCandidateBase {
  * candidate can't carry a stray `unavailableReason`, and an "unavailable" one
  * can't omit it. Whether the tool can run is read off the `availability` tag,
  * not a separate boolean.
+ *
+ * The `ref` is a second discriminant: only `mcp.call` — the one tool whose
+ * args carry a connected-catalog reference — may carry it. A curated hit for
+ * any other name with a `ref` (e.g. `{ name: "gmail.search", ref: {...} }`)
+ * is unrepresentable, so a stray ref can't route a registered tool at a
+ * remote descriptor. `mcp.call` itself leaves `ref` optional: the curated
+ * `mcp.call` entry has none, while a connected-catalog hit carries the exact
+ * ref whose fields (`connectionId`, `remoteName`, `catalogRevision`) flatten
+ * into the `mcp.call` args.
  */
-export type ToolSearchCandidate = ToolCandidateBase &
-  ({ availability: "available" } | { availability: "unavailable"; unavailableReason: string });
+type AvailabilityTag =
+  | { availability: "available" }
+  | { availability: "unavailable"; unavailableReason: string };
+
+export type ToolSearchCandidate =
+  | (ToolCandidateBase & {
+      name: Exclude<ToolName, "mcp.call">;
+      ref?: never;
+    } & AvailabilityTag)
+  | (ToolCandidateBase & {
+      name: "mcp.call";
+      /** Present only for a connected catalog hit; pass this ref's fields to mcp.call. */
+      ref?: ExternalToolRef;
+    } & AvailabilityTag);
 
 type RankedCandidate = ToolSearchCandidate & {
   score: number;
@@ -85,13 +110,102 @@ export async function searchAvailableTools(args: {
   const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
   const availability = evaluateToolCatalog(snapshot, tools, args.allowedIntegrations, args.context);
 
-  return searchToolCatalog({
+  const curated = rankToolCatalog({
     query: args.query,
-    limit: args.limit,
     tools,
     includeUnavailable: true,
     access: { allowedIntegrations: args.allowedIntegrations, availability },
   });
+
+  const mcpAvailable = availability.get("mcp.call")?.available === true;
+  const remote: RankedCandidate[] = [];
+
+  if (mcpAvailable) {
+    // The local catalog read is bounded and only returns current owned revisions.
+    // A full query string rarely occurs verbatim in a descriptor, so scan compact
+    // pages and rank individual fields against the same query tokens as curated tools.
+    let cursor: string | null = null;
+
+    for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
+      const page = await searchMcpToolsLocal({
+        userId: args.userId,
+        detail: "summary",
+        limit: 10,
+        ...(cursor ? { cursor } : {}),
+      });
+
+      for (const hit of page.tools) {
+        const score = scoreMcpHit(hit, args.query);
+
+        if (score <= 0) continue;
+
+        remote.push({
+          name: "mcp.call",
+          title: hit.title ?? hit.ref.remoteName,
+          summary: hit.description ?? "Connected MCP tool",
+          risk: "high",
+          reason: `connected MCP catalog: ${hit.namespace}`,
+          ref: hit.ref,
+          availability: "available",
+          score,
+          preloadEligible: false,
+        });
+      }
+
+      cursor = page.nextCursor;
+
+      if (!cursor) break;
+    }
+  }
+
+  const ranked = [...curated, ...remote].sort(
+    (a, b) =>
+      rankAvailability(b) - rankAvailability(a) ||
+      b.score - a.score ||
+      (a.ref ? 1 : 0) - (b.ref ? 1 : 0) ||
+      a.title.localeCompare(b.title),
+  );
+
+  const selected = ranked.slice(0, boundedLimit(args.limit, 5));
+
+  return Promise.all(
+    selected.map(async ({ score: _score, preloadEligible: _preloadEligible, ...candidate }) => {
+      if (!candidate.ref) return candidate;
+
+      const risk = await resolveMcpCallRiskTier({
+        userId: args.userId,
+        connectionId: candidate.ref.connectionId,
+        remoteName: candidate.ref.remoteName,
+        catalogRevision: candidate.ref.catalogRevision,
+      });
+
+      return { ...candidate, risk };
+    }),
+  );
+}
+
+function scoreMcpHit(hit: McpToolDiscoveryHit, query: string): number {
+  const tokens = meaningfulTokens(normalize(query));
+
+  const name = meaningfulTokens(
+    normalize(hit.ref.remoteName.replaceAll("-", " ").replaceAll("_", " ")),
+  );
+
+  const title = meaningfulTokens(normalize(hit.title ?? ""));
+  const description = meaningfulTokens(normalize(hit.description ?? ""));
+  let score = 0;
+
+  for (const token of tokens) {
+    if (name.has(token)) score += 55;
+    else if (title.has(token)) score += 30;
+    else if (description.has(token)) score += 4;
+  }
+
+  if (tokens.has(normalize(hit.namespace)) || tokens.has(normalize(hit.connection.label))) {
+    score += 10;
+  }
+
+  return score;
 }
 
 /** Deterministic first-turn selection. Full schemas are returned only by name. */
@@ -252,13 +366,26 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
       preloadEligible: match.preloadEligible,
     };
 
-    // The discriminant flows from `unavailableReason`: it is set iff the tool is
-    // unavailable (guarded above), so "available" candidates never carry it.
-    ranked.push(
-      unavailableReason
-        ? { ...scored, availability: "unavailable", unavailableReason }
-        : { ...scored, availability: "available" },
-    );
+    // The `ref` discriminant flows from the tool name: only `mcp.call` may
+    // carry one, and the curated catalog entry never does. Branch here so a
+    // curated hit for any other name can't acquire a stray `ref`, and the
+    // `ref?: never` arm stays unrepresentable rather than merely unset.
+    // The availability discriminant flows from `unavailableReason`: it is set
+    // iff the tool is unavailable (guarded above), so "available" candidates
+    // never carry it.
+    if (tool.name === "mcp.call") {
+      ranked.push(
+        unavailableReason
+          ? { ...scored, name: tool.name, availability: "unavailable", unavailableReason }
+          : { ...scored, name: tool.name, availability: "available" },
+      );
+    } else {
+      ranked.push(
+        unavailableReason
+          ? { ...scored, name: tool.name, availability: "unavailable", unavailableReason }
+          : { ...scored, name: tool.name, availability: "available" },
+      );
+    }
   }
 
   // Runnable tools first, then by match strength — an unavailable exact match

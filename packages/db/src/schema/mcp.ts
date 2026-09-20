@@ -491,8 +491,8 @@ export const mcpInvocation = pgTable(
      * `persistence.ts`), never from a separately-threaded ctx that could drift.
      *
      * Nullable only to tolerate rows minted before these columns existed; every row
-     * minted since carries them (its `staging_id` is `notNull`). A read persists no
-     * row at all, so it has no correlation to be absent.
+     * minted since carries them (its `staging_id` is `notNull`). A completed
+     * reviewed read now persists a resolved audit row with this correlation.
      */
     /** Copy of the staging row's `run_id` — the agent-run / Langfuse trace this call groups under. */
     traceId: text("trace_id"),

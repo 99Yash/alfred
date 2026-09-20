@@ -64,8 +64,6 @@ const ROUTE_SURFACE = [
   "GET /api/integrations/notion/connect",
   "DELETE /api/integrations/notion/:id",
   "GET /api/integrations/notion/callback",
-  "POST /api/integrations/railway/connect",
-  "DELETE /api/integrations/railway/:id",
   "POST /api/integrations/sentry/connect",
   "DELETE /api/integrations/sentry/:id",
   "GET /api/integrations/vercel/connect",

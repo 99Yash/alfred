@@ -23,6 +23,10 @@ import {
 } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
+import {
+  navigateAuthorizationTab,
+  reserveAuthorizationTab,
+} from "~/lib/integrations/authorization-tab";
 import { mcpAuthorizeUrl, MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
 import { McpTile } from "./mcp-tile";
 
@@ -150,6 +154,10 @@ export function McpAddServerForm() {
     onSubmit: async ({ value }) => {
       setError(null);
 
+      // Reserve the tab before the POST. A tab opened after await can be
+      // blocked because the browser no longer sees a direct user gesture.
+      const authorizationTab = authMode === "oauth" ? reserveAuthorizationTab() : null;
+
       try {
         const body = buildAddServerBody({
           endpointUrl: value.endpointUrl,
@@ -161,21 +169,20 @@ export function McpAddServerForm() {
         const data = await addMutation.mutateAsync(body);
 
         if (data.outcome === "auth_required") {
-          // The row exists and waits for consent. Hand the browser to the
-          // connection's authorize route, which redirects to the server's own
-          // authorization server; its callback returns here. Nothing is reset
-          // and the modal stays open, because this frame is leaving the page.
-          window.location.href = mcpAuthorizeUrl(data.connectionId);
+          close();
+          navigateAuthorizationTab(authorizationTab, mcpAuthorizeUrl(data.connectionId));
 
           return;
         }
 
+        authorizationTab?.close();
         // One reset owner: `close()` clears the API-key mode, the plaintext,
         // the error and the fields. Resetting the form alone leaves the mode
         // and the secret in component state, so reopening the modal would show
         // API-key mode with the previous secret prefilled.
         close();
       } catch (submitError) {
+        authorizationTab?.close();
         setError(toMessage(submitError));
       }
     },
