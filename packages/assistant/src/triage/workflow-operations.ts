@@ -809,7 +809,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       // could flip between the two steps.
       userAlreadyReplied,
     },
-    nextStep: "apply-label",
+    nextStep: EMAIL_TRIAGE_EDGES.classify,
   };
 }
 
@@ -987,7 +987,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
     return {
       kind: "next",
       state: { ...ctx.state },
-      nextStep: "close-loop-todos",
+      nextStep: EMAIL_TRIAGE_EDGES["apply-label"],
     };
   }
 
@@ -997,7 +997,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
     return {
       kind: "next",
       state: { ...ctx.state },
-      nextStep: "close-loop-todos",
+      nextStep: EMAIL_TRIAGE_EDGES["apply-label"],
     };
   }
 
@@ -1015,7 +1015,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
     return {
       kind: "next",
       state: { ...ctx.state },
-      nextStep: "close-loop-todos",
+      nextStep: EMAIL_TRIAGE_EDGES["apply-label"],
     };
   }
 
@@ -1025,7 +1025,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
     return {
       kind: "next",
       state: { ...ctx.state },
-      nextStep: "close-loop-todos",
+      nextStep: EMAIL_TRIAGE_EDGES["apply-label"],
     };
   }
 
@@ -1039,7 +1039,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
   return {
     kind: "next",
     state: { ...ctx.state },
-    nextStep: "close-loop-todos",
+    nextStep: EMAIL_TRIAGE_EDGES["apply-label"],
   };
 }
 
@@ -1257,17 +1257,26 @@ async function gatherObservations(args: {
 }
 
 /**
- * The `email-triage` topology, stated once. `EmailTriageStepName` is derived
+ * The `email-triage` step set, stated once. `EmailTriageStepName` is derived
  * from these keys and threaded through every step's `StepResult`, so the
- * executor's `nextStep` literals and `initialStep` are checked against the
+ * executor's `nextStep` values and `initialStep` are checked against the
  * actual steps rather than meeting them by convention: a name that names no
  * step is a type error, and adding a step here extends the union the bodies
  * are checked against. The workflow object consumes this record directly.
+ * The order of these keys is the execution order; `EMAIL_TRIAGE_EDGES` below
+ * states the edges the bodies return.
  */
 export const emailTriageSteps = {
   classify: { id: "classify", run: runEmailTriageClassify },
-  "close-loop-todos": { id: "close-loop-todos", run: runEmailTriageCloseLoopTodos },
   "apply-label": { id: "apply-label", run: runEmailTriageApplyLabel },
+  "close-loop-todos": { id: "close-loop-todos", run: runEmailTriageCloseLoopTodos },
 } as const;
 
 export type EmailTriageStepName = keyof typeof emailTriageSteps;
+
+/** The `email-triage` edges, stated once. `null` marks the terminal step. */
+export const EMAIL_TRIAGE_EDGES = {
+  classify: "apply-label",
+  "apply-label": "close-loop-todos",
+  "close-loop-todos": null,
+} as const satisfies Record<EmailTriageStepName, EmailTriageStepName | null>;
