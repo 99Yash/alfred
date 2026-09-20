@@ -36,14 +36,15 @@ const REVISION = "sha256:catrev1";
 const REMOTE = "search_issues";
 
 /**
- * The one descriptor every case in this file publishes. It carries no
- * `annotations`, so its projected `readOnlyHint` is `false`, which keeps every
- * assertion below meaning what it did: the ADR-0096 structural downgrade needs
- * a `true` AND a built-in read-only endpoint, and this fixture has neither.
+ * The one descriptor every case in this file publishes. It asserts
+ * `annotations.readOnlyHint`, so a reviewed `low` still lowers the tier: the
+ * ADR-0069 amendment keeps the `high` floor for write tools, and this fixture
+ * proves the downgrade where it is still allowed.
  */
 const DESCRIPTOR: Tool = {
   name: REMOTE,
   inputSchema: { type: "object", additionalProperties: true },
+  annotations: { readOnlyHint: true },
 };
 
 /** Derived, not written down: publication projects the hash from the descriptor. */
