@@ -3,6 +3,7 @@ import { AlertTriangle, Plug, Wrench } from "lucide-react";
 import { useState } from "react";
 import { AppButton, AppInput } from "~/components/ui/v2";
 import { mcpAuthorizeUrl, type McpConnection } from "./helpers";
+import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import { useMcpConnectionActions, type McpConnectionActions } from "./mcp-connection-actions";
 import { McpConnectionCatalogPanel } from "./mcp-connection-catalog";
 import { McpConnectionWarning } from "./mcp-connection-warning";
@@ -129,7 +130,7 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
                 variant="white"
                 leading={<AlertTriangle size={12} />}
                 onClick={() => {
-                  window.location.href = mcpAuthorizeUrl(connection.id);
+                  openAuthorizationTab(mcpAuthorizeUrl(connection.id));
                 }}
               >
                 Grant access

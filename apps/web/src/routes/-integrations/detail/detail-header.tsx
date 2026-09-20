@@ -14,6 +14,7 @@ import { responseErrorMessage } from "~/lib/api-error";
 import { client, API_URL } from "~/lib/eden";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { connectPathFor, type IntegrationPage } from "~/lib/integrations/integrations";
+import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import { INTEGRATION_STATUS_QUERY_KEY } from "~/lib/integrations/use-integration-status";
 import { toast } from "~/lib/toast";
 
@@ -78,7 +79,7 @@ function RedirectConnect({ slug, connected }: { slug: LiveProviderSlug; connecte
   const label = connected ? "Add Account" : "Connect";
 
   const redirect = () => {
-    window.location.href = `${API_URL}${connectPathFor(slug)}`;
+    openAuthorizationTab(`${API_URL}${connectPathFor(slug)}`);
   };
 
   const onConnect = isGoogle ? () => setConsentOpen(true) : redirect;
