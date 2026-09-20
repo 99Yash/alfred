@@ -21,6 +21,17 @@ const PERSON_CONFIDENCE = 0.82;
 
 const WEAK_CONFIDENCE = 0.58;
 
+/**
+ * The two `service` evidence codes that are hard enough to take `person` away.
+ * They are named because {@link isHardNonPersonClaim} matches them against
+ * `evidenceCodes`, which is typed `string[]`: a bare literal at the emit site
+ * and a second bare literal in {@link HARD_SERVICE_EVIDENCE} would let a typo
+ * at either end switch the demotion bar off with every gate green.
+ */
+const SERVICE_LOCAL_STRONG_EVIDENCE = "email:local:service_strong";
+
+const SERVICE_DOMAIN_STRONG_EVIDENCE = "email:domain:service_strong";
+
 const BULK_PRECEDENCE_VALUES = new Set(["bulk", "list"]);
 
 const STRONG_SERVICE_LOCALS = new Set([
@@ -205,14 +216,14 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
   }
 
   if (isStrongServiceLocal(parsed.localPart)) {
-    return classification("service", STRONG_CONFIDENCE, ["email:local:service_strong"]);
+    return classification("service", STRONG_CONFIDENCE, [SERVICE_LOCAL_STRONG_EVIDENCE]);
   }
 
   // Before the `display:person_like` fast path, or it decides nothing: the rows
   // this branch exists for (`ghsa-…@noreply.github.com`, `Ci activity`
   // <ci_activity@noreply.github.com>) all carry a person-like display name.
   if (isStrongServiceDomain(parsed.domain)) {
-    return classification("service", STRONG_CONFIDENCE, ["email:domain:service_strong"]);
+    return classification("service", STRONG_CONFIDENCE, [SERVICE_DOMAIN_STRONG_EVIDENCE]);
   }
 
   if (signals.some((signal) => hasAutoSubmittedServiceSignal(signal.autoSubmitted))) {
@@ -543,8 +554,8 @@ function isHardNonPersonClaim(classified: EntityKindClassification): boolean {
  * Every other `service` code — today only `gmail:auto_submitted` — is soft.
  */
 const HARD_SERVICE_EVIDENCE: ReadonlySet<string> = new Set([
-  "email:local:service_strong",
-  "email:domain:service_strong",
+  SERVICE_LOCAL_STRONG_EVIDENCE,
+  SERVICE_DOMAIN_STRONG_EVIDENCE,
 ]);
 
 /**
