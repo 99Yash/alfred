@@ -48,13 +48,18 @@ import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
   gmailTodoSources,
   isHttpError,
+  senderContextSchema,
+  triageCategorySchema,
   type AccountPersona,
   type GmailDocumentMetadata,
   type SenderContext,
   type SignificanceBand,
+  type TriageCategory,
   toMessage,
 } from "@alfred/contracts";
-import { getFreshAccessToken, getMessage, type TriageCategory } from "@alfred/integrations/google";
+import { getFreshAccessToken, getMessage } from "@alfred/integrations/google";
+import { triageRunReasonSchema } from "./workflow-input";
+import { z } from "zod";
 
 /**
  * Email triage workflow (ADR-0025): one `email_triage` row per (user, thread),
@@ -62,27 +67,78 @@ import { getFreshAccessToken, getMessage, type TriageCategory } from "@alfred/in
  * overrides stay pinned; apply-label strips sibling alfred labels. Owner: this file. History: ADR-0051, ADR-0050, #282, #1168. Glossary: `docs/reference/glossary.md`.
  */
 
-export interface EmailTriageOperationState {
-  documentId: string;
-  reason?: "ingest" | "webhook" | "manual" | "reply";
-  sourceThreadId?: string;
-  category?: TriageCategory;
-  confidence?: number;
-  rationale?: string | null;
-  senderContext?: SenderContext;
-  force?: boolean;
+/**
+ * The `email-triage` run state, stated once. `email-triage.ts` hands this
+ * schema to the executor as the recipe's `stateSchema`, and the step bodies
+ * below constrain their `State` to the inferred type, so the persisted shape
+ * and the shape the bodies read are one declaration.
+ *
+ * Declare it once because nothing can catch a second copy that drifts:
+ * `Step.run` is a method shorthand, so its parameter is bivariant and `tsc`
+ * accepts a state type that adds or widens a field; and this recipe sets
+ * `closure: { kind: "none" }`, so `terminal-closure.ts` never parses the
+ * state either. A hand-written twin of this shape is therefore checked by
+ * neither the compiler nor the runtime (#1180 review).
+ */
+export const emailTriageStateSchema = z.object({
+  documentId: z.string(),
+  reason: triageRunReasonSchema.optional(),
+  sourceThreadId: z.string().optional(),
+  category: triageCategorySchema.optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  rationale: z.string().nullable().optional(),
+  senderContext: senderContextSchema.optional(),
+  force: z.boolean().optional(),
   /**
    * The whole-thread closure fact, read once by `classify` on the outbound-reply
    * re-eval (`reason === "reply"`) and consumed by `close-loop-todos`. Present
    * only on a reply run: every other reason neither suppresses the mint nor
    * retracts a todo, so it pays for no read (ADR-0050).
    */
-  userAlreadyReplied?: boolean;
-}
+  userAlreadyReplied: z.boolean().optional(),
+});
+
+export type EmailTriageOperationState = z.infer<typeof emailTriageStateSchema>;
+
+/**
+ * Why `classify` ended a run without a classification, and the sentence each
+ * reason owes the run-history row. `deriveRunOutcome` falls back to "Run
+ * completed." when a `done` carries no `summary`, so a skip with no sentence
+ * reads in the history as a triage that succeeded (#561).
+ *
+ * The keys are the reason slugs the `skipped` output carries, so this table is
+ * the only place a skip reason is spelled: the `skip` helper below takes
+ * `ClassifySkipReason`, and a reason absent from this table is a type error at
+ * the call site.
+ */
+const CLASSIFY_SKIP_SUMMARIES = {
+  "triage-disabled": "Skipped: email tagging and action items are both off",
+  "document-not-found": "Skipped: the document was deleted before the run started",
+  "missing-thread-id": "Skipped: the document carries no Gmail thread id",
+  "source-message-not-found": "Skipped: the Gmail message no longer exists",
+  "sent-document": "Skipped: the message is the user's own sent mail",
+  "thread-already-tagged": "Skipped: the thread is tagged and this message is not newer",
+} as const;
+
+type ClassifySkipReason = keyof typeof CLASSIFY_SKIP_SUMMARIES;
 
 export async function runEmailTriageClassify<State extends EmailTriageOperationState>(
   ctx: StepContext<State>,
 ): Promise<StepResult<State, EmailTriageStepName>> {
+  // Every exit below ends the run without a classification. They differ only
+  // in the reason, so they share one shape: the reason names its own history
+  // sentence, and `output.skipped` keeps the shape the smoke scripts and the
+  // enqueue callers already read.
+  const skip = (
+    reason: ClassifySkipReason,
+    extra?: { category: TriageCategory },
+  ): StepResult<State, EmailTriageStepName> => ({
+    kind: "done",
+    state: ctx.state,
+    summary: CLASSIFY_SKIP_SUMMARIES[reason],
+    output: { skipped: true, reason, ...extra },
+  });
+
   // Background-agent toggles (Settings → Features). Tagging gates the
   // Gmail label (apply-label step); action-items gates the todo
   // suggestion below. Both share this one classify call. When the user
@@ -93,11 +149,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   if (!flags.emailTagging && !flags.actionItems) {
     await ctx.log(`classify: skipped reason=triage-disabled (tagging + action-items off)`);
 
-    return {
-      kind: "done",
-      state: ctx.state,
-      output: { skipped: true, reason: "triage-disabled" },
-    };
+    return skip("triage-disabled");
   }
 
   const ctxData = await loadTriageContext(ctx.state.documentId, ctx.userId);
@@ -108,11 +160,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     // `output.skipped`.
     await ctx.log(`document gone: ${ctx.state.documentId}`);
 
-    return {
-      kind: "done",
-      state: ctx.state,
-      output: { skipped: true, reason: "document-not-found" },
-    };
+    return skip("document-not-found");
   }
 
   const sourceThreadId = ctxData.document.sourceThreadId;
@@ -122,11 +170,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     // a malformed ingest doesn't crash the worker.
     await ctx.log(`document missing sourceThreadId: ${ctx.state.documentId}`);
 
-    return {
-      kind: "done",
-      state: ctx.state,
-      output: { skipped: true, reason: "missing-thread-id" },
-    };
+    return skip("missing-thread-id");
   }
 
   // Sent-doc guard (ADR-0051 #7, defense-in-depth — issue #306). The
@@ -141,11 +185,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       `classify: doc=${ctx.state.documentId} source message missing in Gmail — skipping`,
     );
 
-    return {
-      kind: "done",
-      state: ctx.state,
-      output: { skipped: true, reason: "source-message-not-found" },
-    };
+    return skip("source-message-not-found");
   }
 
   if (sentStatus.kind === "sent") {
@@ -161,11 +201,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       `classify: doc=${ctx.state.documentId} is the user's own sent mail (${sentStatus.source}) — skipping (ADR-0051 #7)`,
     );
 
-    return {
-      kind: "done",
-      state: ctx.state,
-      output: { skipped: true, reason: "sent-document" },
-    };
+    return skip("sent-document");
   }
 
   const senderContextResult = extractSenderContext({
@@ -227,15 +263,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
           `doc=${ctx.state.documentId} not newer than prior message — skipping re-process`,
       );
 
-      return {
-        kind: "done",
-        state: ctx.state,
-        output: {
-          skipped: true,
-          reason: "thread-already-tagged",
-          category: existing.category,
-        },
-      };
+      return skip("thread-already-tagged", { category: existing.category });
     }
   }
 
@@ -901,7 +929,8 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
 
   // Everything past this point touches the todo rail, so it is best-effort:
   // the flag read is inside the try with the dismissal, so a DB blip here
-  // still ends the run with the label outcome intact.
+  // still ends the run cleanly. The Gmail label already landed — `apply-label`
+  // runs before this step (#1168) — so a rail fault cannot un-apply it.
   try {
     // Symmetric with the mint (`classify` gates `suggestTodo` on the same
     // flag): when the user has action items off, existing rail rows are left
@@ -1265,8 +1294,10 @@ async function gatherObservations(args: {
  * actual steps rather than meeting them by convention: a name that names no
  * step is a type error, and adding a step here extends the union the bodies
  * are checked against. The workflow object consumes this record directly.
- * The order of these keys is the execution order; `EMAIL_TRIAGE_EDGES` below
- * states the edges the bodies return.
+ *
+ * This record states the step SET, never the order. The key order below only
+ * mirrors the pipeline so the file reads top to bottom; nothing depends on it.
+ * `EMAIL_TRIAGE_EDGES` is the one statement of the order.
  */
 export const emailTriageSteps = {
   classify: { id: "classify", run: runEmailTriageClassify },
@@ -1276,7 +1307,17 @@ export const emailTriageSteps = {
 
 export type EmailTriageStepName = keyof typeof emailTriageSteps;
 
-/** The `email-triage` edges, stated once. `null` marks the terminal step. */
+/**
+ * The `email-triage` topology, stated once: where a run enters, and which step
+ * each body hands to next. `null` marks the terminal step. Read these two
+ * declarations to know the whole state machine — no step body decides an edge
+ * of its own, each one returns its entry from this table, and `satisfies`
+ * rejects an edge that names no step and a step the table forgets.
+ *
+ * To reorder the pipeline, edit the table. That is the whole change.
+ */
+export const EMAIL_TRIAGE_INITIAL_STEP = "classify" satisfies EmailTriageStepName;
+
 export const EMAIL_TRIAGE_EDGES = {
   classify: "apply-label",
   "apply-label": "close-loop-todos",
