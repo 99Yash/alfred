@@ -3,7 +3,9 @@
  *
  * `mcp.call` carries a static `high` floor; `mcp_tool_policy` is the only other
  * input that can lower it, and it binds to the EXACT descriptor the owner
- * reviewed. This module is the product half ADR-0096 called residual: a
+ * reviewed — and, per the ADR-0069 amendment, it lowers below `high` only for
+ * a tool whose persisted descriptor claimed `readOnlyHint`. A review can
+ * always raise to `high`; it can never waive approval for a write tool. This module is the product half ADR-0096 called residual: a
  * per-descriptor review surface for user-added servers, where the structural
  * read-only downgrade does not apply. It owns three operations over the SAME
  * identity derivation the dispatch gate uses — {@link resolveMcpToolIdentity} —

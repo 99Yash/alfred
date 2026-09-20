@@ -7,7 +7,12 @@
  *
  * The REVIEWED downgrade (#541): if the user has reviewed the EXACT descriptor
  * the model selected and recorded a tier in `mcp_tool_policy`, that tier
- * applies, and a routine safe call stops prompting every time.
+ * applies — with one hard limit (ADR-0069 amendment): a review can RAISE to
+ * `high` on any tool, but it can only LOWER below `high` when the persisted
+ * catalog records that tool's own `annotations.readOnlyHint`. A write tool
+ * (no read-only claim — e.g. Railway `redeploy`) keeps the `high` floor no
+ * matter what tier a review recorded, so a one-time `no_risk` review plus the
+ * global Auto toggle can never produce an unstaged production mutation.
  *
  * The STRUCTURAL downgrade (ADR-0096): a tool on a connection whose endpoint the
  * built-in registry marks as a read-only protected resource, and whose own
@@ -81,19 +86,25 @@ export async function resolveMcpCallRiskTier(
  *
  * Four branches, in strict precedence:
  *
- * 1. **A reviewed policy row for THIS descriptor wins outright**, in both
- *    directions. It is the user's explicit decision about this exact
- *    descriptor, so it must be able to raise the tier as well as lower it. A
- *    row whose persisted tier is corrupt is an uncertainty, so it takes the
+ * 1. **A reviewed policy row for THIS descriptor wins outright upward, and
+ *    wins downward only for a read.** It is the user's explicit decision about
+ *    this exact descriptor, so it can always raise the tier to `high`. It can
+ *    lower below `high` only when the persisted catalog records this tool's
+ *    own `readOnlyHint` (ADR-0069 amendment: the old `railway.redeploy`
+ *    carried a static `high` no setting could lower, and the capability now
+ *    rides on `mcp.call` — a reviewed `no_risk` on a write descriptor must
+ *    not re-open the unstaged production redeploy the floor exists to close).
+ *    A row whose persisted tier is corrupt is an uncertainty, so it takes the
  *    floor and does NOT fall through: a present-but-unreadable review is not
- *    the same as no review at all.
+ *    the same as no review at all. A reviewed downgrade on a non-read tool
+ *    likewise takes the floor and does NOT fall through to the structural
+ *    branch.
  * 2. **A tool reviewed under a DIFFERENT descriptor takes the floor.** The user
  *    reviewed this tool and its descriptor has since drifted. Without this
  *    branch the drift would fall through to the structural downgrade, which
  *    would silently undo a review that RAISED the tier — the user asked to be
  *    prompted, and a server-side description edit would have cancelled the
- *    ask. Re-gating is what "a reviewed policy wins in both directions" has to
- *    mean under drift.
+ *    ask. Re-gating preserves an explicit raise across drift.
  * 3. **The structural downgrade (ADR-0096)** applies when the connection's
  *    endpoint is a built-in read-only protected resource AND the persisted
  *    catalog records this tool's own `readOnlyHint`. Two independent
@@ -108,9 +119,21 @@ export function effectiveMcpRiskTier(identity: McpToolIdentityResolution): ToolR
   // out-of-enum tier must re-gate to the floor, never silently un-gate — only
   // `"high"` gates, so an unrecognized string would otherwise waive approval.
   if (identity.policy !== undefined) {
-    return isToolRiskTier(identity.policy.riskTier)
-      ? identity.policy.riskTier
-      : MCP_CALL_RISK_FLOOR;
+    if (!isToolRiskTier(identity.policy.riskTier)) return MCP_CALL_RISK_FLOOR;
+
+    // Raise is always the reviewer's prerogative; the floor is already `high`.
+    if (identity.policy.riskTier === MCP_CALL_RISK_FLOOR) return MCP_CALL_RISK_FLOOR;
+
+    // ADR-0069 hard floor over effectful tools: a reviewed tier below `high`
+    // waives approval under autonomy, so honor it only for a tool whose own
+    // published descriptor claimed `readOnlyHint`. The claim is projected at
+    // publication from durable state — never from the model or the call — so
+    // a `redeploy`-style write (no hint) keeps the floor even with a reviewed
+    // `no_risk` row. A clamped downgrade does NOT fall through: the structural
+    // branch below must not re-answer a question the reviewer already settled.
+    if (!identity.readOnly) return MCP_CALL_RISK_FLOOR;
+
+    return identity.policy.riskTier;
   }
 
   // Reviewed once, drifted since. The structural branch below re-proves that

@@ -103,8 +103,10 @@ export const mcpTools: readonly RegisteredTool[] = [
     },
     inputSchema: mcpCallInput,
     // Two downgrade authorities over the `high` floor above. The REVIEWED one
-    // (#541) narrows it when the user has reviewed the exact descriptor the model
-    // selected and recorded a tier. The STRUCTURAL one (ADR-0096) narrows it for a
+    // (#541, as narrowed by the ADR-0069 amendment) lowers it only for a tool
+    // whose persisted descriptor claimed `readOnlyHint` — a reviewed `no_risk`
+    // on a write descriptor (e.g. Railway `redeploy`) keeps the floor. The
+    // STRUCTURAL one (ADR-0096) narrows it for a
     // tool that is a read on two independent proofs: its connection's endpoint is
     // a built-in read-only protected resource, and its own published descriptor
     // asserted `annotations.readOnlyHint`. All resolution reads Alfred's PERSISTED
@@ -118,7 +120,7 @@ export const mcpTools: readonly RegisteredTool[] = [
         catalogRevision: input.catalogRevision,
       }),
     riskTierDowngradeReason:
-      "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision; ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
+      "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision and lowers only a readOnlyHint tool (ADR-0069 amendment); ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
     execute: async (input, ctx) => {
       if (!ctx.stagingId) {
         // mcp.call is always staged (high floor), so it only reaches execution via
