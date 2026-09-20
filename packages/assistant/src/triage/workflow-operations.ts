@@ -872,10 +872,10 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
   // missing summary renders every triage run as "Run completed."
   const summarize = (tail?: string): string => {
     const category = ctx.state.category;
+
     const confidence =
-      typeof ctx.state.confidence === "number"
-        ? ` (confidence ${ctx.state.confidence.toFixed(2)})`
-        : "";
+      ctx.state.confidence !== undefined ? ` (confidence ${ctx.state.confidence.toFixed(2)})` : "";
+
     const head = category
       ? `Triaged as ${category}${confidence}`
       : `Triaged thread ${sourceThreadId}`;
