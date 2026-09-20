@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NagBanner } from "~/components/nag-banner";
 import { useGithubNeedsReconnect } from "~/lib/integrations/use-integration-status";
 import { API_URL } from "~/lib/eden";
+import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 
 /**
  * Slim nag bar for accounts connected to GitHub before the GitHub App
@@ -29,9 +30,9 @@ export function GithubReconnectBanner() {
       }
       actionLabel="Reconnect GitHub"
       onAction={() => {
-        // Full-page redirect to the connect endpoint → Install & Authorize,
-        // whose callback writes the installation_id onto the credential.
-        window.location.href = `${API_URL}/api/integrations/github/connect`;
+        // Authorization opens in a new tab; the banner's status read
+        // refetches on window focus, so the nag clears on return.
+        openAuthorizationTab(`${API_URL}/api/integrations/github/connect`);
       }}
       onDismiss={() => setDismissed(true)}
     />

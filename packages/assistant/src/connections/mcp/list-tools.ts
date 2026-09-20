@@ -265,8 +265,11 @@ async function rowsForSearch(input: {
 }
 
 /**
- * The two halves below are exported for the test tree only. The dispatcher's
- * one door is {@link listMcpToolsLocal}; the package barrel exports nothing else.
+ * Bounded local reads over the persisted catalog. `searchMcpToolsLocal` and
+ * `inspectMcpToolLocal` are production doors: the dispatcher's
+ * `mcp.list_tools` / `mcp.inspect_tool` tools and `searchAvailableTools` call
+ * them directly. `listMcpToolsLocal` is the HTTP combined search-or-inspect
+ * door. The package barrel re-exports all three; the test tree pins them.
  */
 export async function searchMcpToolsLocal(
   input: McpToolSearchInput & { userId: string },

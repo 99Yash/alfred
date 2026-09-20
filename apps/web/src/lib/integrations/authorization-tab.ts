@@ -1,3 +1,24 @@
+/**
+ * Authorization opens in a NEW tab; the original tab refreshes on focus.
+ *
+ * Most call sites need one name: `openAuthorizationTab(url)`. Two cases need
+ * more, and both are owned here:
+ *
+ * - `mcp-add-server-form` POSTs before it knows the authorize URL. A tab
+ *   opened after `await` loses the user gesture and trips the popup blocker,
+ *   so it calls `reserveAuthorizationTab()` in the click handler and
+ *   `navigateAuthorizationTab(tab, url)` once the POST answers.
+ * - The return tab (`root-layout` + `authorization-return-page`) reads
+ *   `isAuthorizationReturnTab()` / `continueAfterAuthorization()`.
+ *
+ * Refresh on return has two layers: every `useIntegrationStatus` reader
+ * refetches on window focus, and `useAuthorizationRefresh` (in
+ * `routes/-integrations`) force-invalidates integration + MCP reads even
+ * inside `staleTime` for the integrations page. All auth entry points —
+ * integrations detail + MCP cards + add-server form, the three global
+ * banners, onboarding, and both workflow recovery buttons — route through
+ * this module, so no same-tab `window.location.href` connect remains.
+ */
 const AUTHORIZATION_TAB_KEY = "alfred:integration-authorization-tab";
 
 const AUTHORIZATION_TAB_MAX_AGE_MS = 30 * 60_000;

@@ -5,6 +5,7 @@ import { useConnectedAccountLabel } from "~/lib/integrations/use-integration-sta
 import { writeOnboardingHint } from "~/lib/onboarding/onboarding-hint";
 import { authClient } from "~/lib/auth/auth-client";
 import { client, API_URL } from "~/lib/eden";
+import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import { toast } from "~/lib/toast";
 
 export type { OnboardingStep };
@@ -84,12 +85,16 @@ export function OnboardingRoute() {
       connectedEmail={connectedEmail}
       connectedGithub={connectedGithub}
       onConnect={() => {
-        // Full-page redirect to the API connect endpoint (which 302s to Google).
-        window.location.href = `${API_URL}/api/integrations/google/connect`;
+        // Authorization opens in a new tab. The `useConnectedAccountLabel`
+        // reads above fall back to live credential state, so the original tab
+        // shows the connected badge on focus without needing the callback's
+        // `?*_connected` URL param.
+        openAuthorizationTab(`${API_URL}/api/integrations/google/connect`);
       }}
       onConnectGithub={() => {
-        // GitHub's callback 302s back to /onboarding?step=2&github_connected=...
-        window.location.href = `${API_URL}/api/integrations/github/connect`;
+        // Same new-tab shape as Google: the live credential read above keeps
+        // the first badge while the second grant completes elsewhere.
+        openAuthorizationTab(`${API_URL}/api/integrations/github/connect`);
       }}
       onSkip={() => goToStep(3)}
       onFinish={() => {
