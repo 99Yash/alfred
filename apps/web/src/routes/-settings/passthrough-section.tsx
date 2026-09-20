@@ -15,7 +15,6 @@ import {
   Presentation,
   RefreshCw,
   Table2,
-  TrainFront,
   Triangle,
   type LucideIcon,
 } from "lucide-react";
@@ -80,11 +79,6 @@ const PASSTHROUGH_META = {
     helper: "Raw read-only Notion API — database schema, page properties, and search.",
     icon: NotebookText,
     tint: "pink",
-  },
-  railway: {
-    helper: "Raw read-only Railway GraphQL — service, deployment, and environment fields.",
-    icon: TrainFront,
-    tint: "purple",
   },
   vercel: {
     helper: "Raw read-only Vercel REST — project and deployment detail.",

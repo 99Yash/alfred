@@ -43,7 +43,13 @@ export {
 
 export type { ExternalToolRef } from "@alfred/contracts";
 
-export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
+export {
+  boundedMcpErrorText,
+  isMcpAuthorizationChallenge,
+  isMcpTransportFailure,
+  isPreDeliveryErrorCode,
+  McpClientError,
+} from "./errors";
 
 export {
   getMcpEndpointAuthorizer,
@@ -66,13 +72,15 @@ export {
   type BuiltInProvider,
 } from "./built-ins";
 
+export { RAILWAY_MCP_ENDPOINT_HREF, RAILWAY_MCP_STORED_ISSUER } from "./constants";
+
 export { mcpConsentAsk, type McpConsentAsk, type McpConsentConnection } from "./consent";
 
 // `projectCatalogRevision` is deliberately absent: publication owns it, and no
 // reader outside this directory has any business minting a catalog projection.
 export { canonicalArgsHash, descriptorHash } from "./hash";
 
-export { listMcpToolsLocal } from "./list-tools";
+export { inspectMcpToolLocal, listMcpToolsLocal, searchMcpToolsLocal } from "./list-tools";
 
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
 
@@ -107,5 +115,7 @@ export {
 } from "./protocol";
 
 export { getMcpConnectionManager } from "./runtime";
+
+export { startMcpConnectionRecovery, stopMcpConnectionRecovery } from "./connection-recovery";
 
 export { startMcpTraceSpan, type McpTraceContext } from "./trace";

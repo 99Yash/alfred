@@ -434,6 +434,11 @@ export const TOOL_LABELS = {
     done: "Listed connected tools",
     title: "list connected tools",
   },
+  "mcp.inspect_tool": {
+    running: "Inspecting a connected tool",
+    done: "Inspected a connected tool",
+    title: "inspect a connected tool",
+  },
 
   "gmail.search": { running: "Searching Gmail", done: "Searched Gmail", title: "search Gmail" },
   "gmail.read_message": {
@@ -615,37 +620,6 @@ export const TOOL_LABELS = {
     title: "run a read-only Notion API request",
   },
 
-  "railway.list_projects": {
-    running: "Listing Railway projects",
-    done: "Listed Railway projects",
-    title: "list Railway projects",
-  },
-  "railway.list_deployments": {
-    running: "Checking Railway deployments",
-    done: "Checked Railway deployments",
-    title: "check Railway deployments",
-  },
-  "railway.recent_deployments": {
-    running: "Checking recent Railway deployments",
-    done: "Checked recent Railway deployments",
-    title: "check recent Railway deployments",
-  },
-  "railway.get_logs": {
-    running: "Reading Railway logs",
-    done: "Read Railway logs",
-    title: "read Railway logs",
-  },
-  "railway.redeploy": {
-    running: "Redeploying on Railway",
-    done: "Triggered a Railway redeploy",
-    title: "redeploy a Railway service",
-  },
-  "railway.graphql": {
-    running: "Querying the Railway API",
-    done: "Queried the Railway API",
-    title: "run a read-only Railway GraphQL query",
-  },
-
   "vercel.list_projects": {
     running: "Listing Vercel projects",
     done: "Listed Vercel projects",
@@ -723,6 +697,7 @@ export const TOOL_CATEGORIES = {
 
   "mcp.call": "action",
   "mcp.list_tools": "system",
+  "mcp.inspect_tool": "system",
 
   "gmail.search": "source",
   "gmail.read_message": "source",
@@ -767,13 +742,6 @@ export const TOOL_CATEGORIES = {
   "notion.create_page": "action",
   "notion.append_blocks": "action",
   "notion.request": "source",
-
-  "railway.list_projects": "source",
-  "railway.list_deployments": "source",
-  "railway.recent_deployments": "source",
-  "railway.get_logs": "source",
-  "railway.redeploy": "action",
-  "railway.graphql": "source",
 
   "vercel.list_projects": "source",
   "vercel.list_deployments": "source",

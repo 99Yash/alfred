@@ -68,8 +68,6 @@ async function deleteProviderCredential(provider: CredentialProvider, id: string
       return client.api.integrations.github({ id }).delete();
     case "notion":
       return client.api.integrations.notion({ id }).delete();
-    case "railway":
-      return client.api.integrations.railway({ id }).delete();
     case "sentry":
       return client.api.integrations.sentry({ id }).delete();
     case "vercel":

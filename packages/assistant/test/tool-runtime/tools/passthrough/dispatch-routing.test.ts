@@ -20,18 +20,18 @@ import type { ToolCallDispatchResult } from "../../../../src/tool-runtime/dispat
  * can't drift into the same channel.
  */
 
-const GRAPHQL: ToolName = "railway.graphql";
+const REQUEST: ToolName = "notion.request";
 
 describe("read-gate `rejected` is a VISIBLE, model-facing result", () => {
-  // The Railway adapter returns a `rejected` PassthroughResult, which the tool's
+  // The REST adapter returns a `rejected` PassthroughResult, which the tool's
   // execute() returns — so it flows through dispatch as a normal executed result.
   const gateRejected: Extract<ToolCallDispatchResult, { kind: "executed" }> = {
     kind: "executed",
     stagingId: null,
     toolResult: {
       outcome: "rejected",
-      reason: "graphql_non_query",
-      message: "This document contains a mutation operation. The general tier is read-only.",
+      reason: "method_not_read",
+      message: "This request uses a write method. The general tier is read-only.",
     },
     editedByUser: false,
   };
@@ -41,7 +41,7 @@ describe("read-gate `rejected` is a VISIBLE, model-facing result", () => {
   });
 
   test("its log status is succeeded — a read that honestly refused is not a failed side effect", () => {
-    assert.equal(toolCallLogStatus(GRAPHQL, gateRejected), "succeeded");
+    assert.equal(toolCallLogStatus(REQUEST, gateRejected), "succeeded");
   });
 });
 
@@ -50,9 +50,9 @@ describe("`feature_disabled` is HIDDEN nonExecution plumbing", () => {
     kind: "feature_disabled",
     result: {
       status: "feature_disabled",
-      toolName: GRAPHQL,
-      integration: "railway",
-      message: "Railway raw API access is turned off. Enable it under Settings → Features.",
+      toolName: REQUEST,
+      integration: "notion",
+      message: "Notion raw API access is turned off. Enable it under Settings → Features.",
     },
   };
 
@@ -61,12 +61,12 @@ describe("`feature_disabled` is HIDDEN nonExecution plumbing", () => {
   });
 
   test("its log status is failed — never executed", () => {
-    assert.equal(toolCallLogStatus(GRAPHQL, featureDisabled), "failed");
+    assert.equal(toolCallLogStatus(REQUEST, featureDisabled), "failed");
   });
 
   test("the commit loop's hide condition (failed AND nonExecution) holds", () => {
     // The commit loop keys on `status === "failed" && isNonExecutionFailure(result)`.
-    const status = toolCallLogStatus(GRAPHQL, featureDisabled);
+    const status = toolCallLogStatus(REQUEST, featureDisabled);
     const hidden = status === "failed" && isNonExecutionFailure(featureDisabled);
     assert.equal(hidden, true);
   });
@@ -78,7 +78,7 @@ describe("an executed result carries `editedByUser` to the model", () => {
   // pins the unified behavior against a re-drift.
   function executedValue(editedByUser: boolean): unknown {
     const message = toolResultMessage(
-      { toolCallId: "call_1", toolName: GRAPHQL, input: {} },
+      { toolCallId: "call_1", toolName: REQUEST, input: {} },
       { kind: "executed", stagingId: "s1", toolResult: { ok: true }, editedByUser },
     );
 

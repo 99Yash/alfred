@@ -45,8 +45,8 @@ import {
 import { contextSearchRequestSchema } from "./context-search";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
 import { isRecord } from "./guards";
-import { mcpCallInput, mcpListToolsInput } from "./mcp";
-import { graphqlPassthroughRequestSchema, restPassthroughRequestSchema } from "./passthrough";
+import { mcpCallInput, mcpToolInspectInputSchema, mcpToolSearchInputSchema } from "./mcp";
+import { restPassthroughRequestSchema } from "./passthrough";
 import { todoSourceSchema } from "./todos";
 import {
   GMAIL_SEARCH_DEFAULT_RESULTS,
@@ -1213,17 +1213,6 @@ export const notionAppendBlocksInput = z
   })
   .strict();
 
-/* ── railway ──────────────────────────────────────────────────────────── */
-
-/**
- * Railway's general read-only passthrough (ADR-0074). The request shape is the
- * shared {@link graphqlPassthroughRequestSchema} contract; the read gate + honest
- * envelope live in `@alfred/assistant`. Not `.strict()` on purpose — the schema is the
- * pure GraphQL request the boss composes, and a mistaken write reaches the *gate*
- * (a visible rejection it can self-correct), not a hidden Zod failure.
- */
-export const railwayGraphqlInput = graphqlPassthroughRequestSchema;
-
 /**
  * The shared REST general-passthrough (ADR-0074) request shape for every
  * REST-transport integration (`github.request`, `notion.request`,
@@ -1234,99 +1223,6 @@ export const railwayGraphqlInput = graphqlPassthroughRequestSchema;
  * visible rejection the boss can self-correct), not a hidden Zod failure.
  */
 export const restPassthroughInput = restPassthroughRequestSchema;
-
-export const railwayListProjectsInput = z.object({}).strict();
-
-const railwayCredentialId = z
-  .string()
-  .min(1)
-  .max(200)
-  .describe(
-    "Credential id from railway.list_projects identifying which Railway connection to act through. Omit if only one Railway connection exists; required when several are connected.",
-  )
-  .optional();
-
-export const railwayListDeploymentsInput = z
-  .object({
-    credentialId: railwayCredentialId,
-    projectId: z.string().min(1).max(200).describe("Railway project id to list deployments for."),
-    serviceId: z
-      .string()
-      .min(1)
-      .max(200)
-      .optional()
-      .describe("Optional service id to narrow deployments to a single service."),
-    environmentId: z
-      .string()
-      .min(1)
-      .max(200)
-      .optional()
-      .describe("Optional environment id (e.g. production) to narrow deployments."),
-    limit: z.coerce.number().int().min(1).max(20).default(5).catch(5),
-  })
-  .strict();
-
-export const railwayRecentDeploymentsInput = z
-  .object({
-    limit: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(30)
-      .default(15)
-      .catch(15)
-      .describe(
-        "Max deployments to return, merged across all projects and Railway connections and sorted newest first.",
-      ),
-  })
-  .strict();
-
-export const railwayGetLogsInput = z
-  .object({
-    credentialId: railwayCredentialId,
-    deploymentId: z.string().min(1).max(200).describe("Railway deployment id to read logs for."),
-    limit: z.coerce.number().int().min(1).max(500).default(100).catch(100),
-  })
-  .strict();
-
-export const railwayRedeployInput = z
-  .object({
-    credentialId: railwayCredentialId,
-    deploymentId: z
-      .string()
-      .min(1)
-      .max(200)
-      .describe("Railway deployment id to redeploy (re-runs the same build/release)."),
-    // Display-only context for the human approval card. `redeploy` is the one
-    // irreversible Railway action and its approval can fire by email / from the
-    // standalone /approvals page with no surrounding chat narration — where the
-    // raw deploymentId + credentialId are two opaque cuids the approver can't
-    // evaluate. These name what is actually being redeployed (which the boss
-    // already resolved from list_projects + list_deployments). They are NOT used
-    // by the execute path — only deploymentId + credentialId drive the mutation —
-    // so a wrong label can mislead the card but can never redirect the redeploy.
-    serviceName: z
-      .string()
-      .min(1)
-      .max(200)
-      .describe(
-        "Human name of the service being redeployed (from list_projects). Shown on the approval card so the user can see what is being redeployed, not just an id.",
-      ),
-    projectName: z
-      .string()
-      .min(1)
-      .max(200)
-      .describe("Human name of the project the service belongs to (from list_projects)."),
-    environmentName: z
-      .string()
-      .min(1)
-      .max(200)
-      .optional()
-      .describe(
-        "Environment the deployment runs in, e.g. 'production' or 'staging' (from list_projects). Critical safety context on the approval card — include it whenever known.",
-      ),
-  })
-  .strict();
 
 /* ── vercel ───────────────────────────────────────────────────────────── */
 
@@ -2214,12 +2110,6 @@ export const TOOL_INPUT_SCHEMAS = {
   "notion.create_page": notionCreatePageInput,
   "notion.append_blocks": notionAppendBlocksInput,
   "notion.request": restPassthroughInput,
-  "railway.list_projects": railwayListProjectsInput,
-  "railway.list_deployments": railwayListDeploymentsInput,
-  "railway.recent_deployments": railwayRecentDeploymentsInput,
-  "railway.get_logs": railwayGetLogsInput,
-  "railway.redeploy": railwayRedeployInput,
-  "railway.graphql": railwayGraphqlInput,
   "vercel.list_projects": vercelListProjectsInput,
   "vercel.list_deployments": vercelListDeploymentsInput,
   "vercel.redeploy": vercelRedeployInput,
@@ -2264,7 +2154,8 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.update_artifact": updateArtifactInput,
   "system.ask_user": askUserInput,
   "mcp.call": mcpCallInput,
-  "mcp.list_tools": mcpListToolsInput,
+  "mcp.list_tools": mcpToolSearchInputSchema,
+  "mcp.inspect_tool": mcpToolInspectInputSchema,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
 
 /**

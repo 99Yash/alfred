@@ -13,8 +13,6 @@ export { REST_GATE_CONFIG } from "./config";
 
 export { assertReadableRestRequest, assertReadableGraphqlRequest } from "./gate";
 
-export { runRailwayPassthrough } from "./railway-adapter";
-
 export { runRestPassthrough } from "./rest-adapter";
 
 export {

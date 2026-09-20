@@ -27,15 +27,20 @@ export function McpTile({
   icon,
   label,
   subtitle,
+  warning = false,
   children,
 }: {
   icon: McpTileIcon;
   label: string;
   subtitle: ReactNode;
+  warning?: boolean;
   children: ReactNode;
 }) {
   return (
-    <AppCard padded={false} className="flex items-center gap-3 px-3 py-2.5">
+    <AppCard
+      padded={false}
+      className={`flex items-center gap-3 px-3 py-2.5 ${warning ? "ring-1 ring-app-amber-2" : ""}`}
+    >
       {"brand" in icon ? (
         <IntegrationIcon
           brand={icon.brand}
@@ -52,7 +57,9 @@ export function McpTile({
       )}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-app-fg-4">{label}</p>
-        <p className="truncate text-xs text-app-fg-3">{subtitle}</p>
+        <div className={`text-xs ${warning ? "text-app-amber-4" : "truncate text-app-fg-3"}`}>
+          {subtitle}
+        </div>
       </div>
       {children}
     </AppCard>

@@ -50,6 +50,11 @@ import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assi
 const FOLD_SOURCES = {
   github: "github",
   sentry: "sentry",
+  // Railway is pull-only: no webhook, no poller, no inbound source. The null
+  // arm states that absence instead of inheriting a wrong source, so no
+  // `railway-activity-fold` consumer is registered and the verified-pull seam
+  // (beside gather) calls the store directly with a minted receipt.
+  railway: null,
 } as const satisfies Record<ObjectStateProvider, InboundEventSource | null>;
 
 /** One fold consumer per provider that has an inbound source. */

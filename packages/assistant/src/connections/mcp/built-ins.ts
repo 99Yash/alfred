@@ -41,6 +41,7 @@ import {
   MCP_OAUTH_PENDING_IDENTITY,
   NOTION_MCP_ENDPOINT_HREF,
   POLYLANE_MCP_ENDPOINT_HREF,
+  RAILWAY_MCP_ENDPOINT_HREF,
   SENTRY_MCP_ENDPOINT_HREF,
 } from "./constants";
 
@@ -275,6 +276,29 @@ export const BUILT_IN_REGISTRY = {
     // next consent, because `mcpConsentAsk` unions this baseline with the
     // connection's own scopes.
     scopes: [],
+    readOnlyCatalog: false,
+    pinLegacyProtocol: false,
+    initialState: BUILT_IN_INITIAL_STATE,
+  },
+  railway: {
+    instanceKey: "default",
+    canonicalResource: RAILWAY_MCP_ENDPOINT_HREF,
+    endpointHref: RAILWAY_MCP_ENDPOINT_HREF,
+    // No `staticClient`: the authorization server publishes a
+    // `registration_endpoint` (verified live 2026-09-17), so the SDK registers
+    // a client per connection under RFC 7591 — the normal dynamic path, not
+    // the GitHub exception. The pinned issuer lives in
+    // `RAILWAY_MCP_STORED_ISSUER` (byte-exact, never URL-round-tripped) and is
+    // enforced by the verified-pull seam, not here: this table declares the
+    // ask, discovery supplies the issuer at authorize time.
+    //
+    // Every scope the discovery document declares. `offline_access` buys the
+    // refresh token that keeps the connection `ready`.
+    scopes: ["openid", "profile", "email", "offline_access", "workspace:member"],
+    // The remote catalog carries writes (`redeploy`, `accept-deploy`), so no
+    // read-only pin: the verified pull never invokes a write tool — it reads
+    // deployment state over GraphQL behind the same trust property until the
+    // live catalog grows a status tool.
     readOnlyCatalog: false,
     pinLegacyProtocol: false,
     initialState: BUILT_IN_INITIAL_STATE,

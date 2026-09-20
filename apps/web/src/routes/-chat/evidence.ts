@@ -254,16 +254,6 @@ function githubStateBadge(item: JsonRecord): EvidenceBadge | undefined {
   return undefined;
 }
 
-const RAILWAY_TONES = new Map<string, EvidenceBadge["tone"]>([
-  ["SUCCESS", "green"],
-  ["FAILED", "red"],
-  ["CRASHED", "red"],
-  ["BUILDING", "amber"],
-  ["DEPLOYING", "amber"],
-  ["INITIALIZING", "amber"],
-  ["QUEUED", "amber"],
-]);
-
 /** Turn a Drive MIME type into a short human kind ("PDF", "Doc", "Folder"). */
 function driveKind(mimeType: string | undefined): string | undefined {
   if (!mimeType) return undefined;
@@ -313,9 +303,8 @@ function emailBody(content: string | undefined): string | undefined {
  * The read tools whose defining argument is a search intent, so the card may
  * quote it as the row's subline ("Searched GitHub · `repo:99Yash/alfred`").
  * An allowlist rather than a "does it have a `query` field" guess, because
- * several tools carry a `query` that is not a search intent — `railway.graphql`
- * holds a whole GraphQL document there, and quoting that would be worse than
- * showing nothing. `satisfies` pins each name to the contracts key.
+ * other tools carry a `query` that is not a search intent. `satisfies` pins
+ * each name to the contracts key.
  */
 const SEARCH_TOOLS = new Set<ToolName>([
   "system.search_tools" satisfies ToolName,
@@ -403,53 +392,6 @@ interface ListSpec {
   /** More exist, count unknown (a bare pagination flag). */
   hasMore?: ((result: JsonRecord) => boolean) | undefined;
 }
-
-/** Railway's two deployment reads (`list_*` / `recent_*`) share a row shape. */
-const RAILWAY_DEPLOYMENTS: ListSpec = {
-  arrayKey: "deployments",
-  faviconDomain: INTEGRATIONS.railway.domain,
-  row: (item) => {
-    const status = asString(item.status);
-    const url = asString(item.url);
-    const service = asString(item.serviceName);
-    const short = asString(item.id)?.slice(0, 7);
-
-    if (!status && !url && !service) return null;
-
-    // `list_deployments` answers one service's history, so every row wears the
-    // same URL and the old title (`url ?? "Deployment"`) rendered five
-    // identical rows divided by hairlines. The deployment id is the only
-    // per-row fact that read always carries, so it joins the title where even
-    // narrow widths can see it (meta hides below `sm`).
-    const host = url ? domainOf(url) : undefined;
-
-    // Stored URLs are often a bare host (`alfred.beauty`), which an `<a>`
-    // would resolve against the app origin — prefix the scheme so the row
-    // links out instead of deeper into the app.
-    const href = url ? (/^https?:\/\//.test(url) ? url : `https://${url}`) : undefined;
-
-    const title =
-      service ??
-      (host && short
-        ? `${host} · #${short}`
-        : (host ?? (short ? `Deployment #${short}` : "Deployment")));
-
-    const meta = joinMeta(
-      service ? joinMeta(host, short ? `#${short}` : undefined) : undefined,
-      ago(item.createdAt),
-    );
-
-    return {
-      key: asString(item.id) ?? url ?? status ?? "deployment",
-      title,
-      href,
-      meta,
-      badge: status
-        ? { label: status.toLowerCase(), tone: RAILWAY_TONES.get(status) ?? "neutral" }
-        : undefined,
-    };
-  },
-};
 
 const LIST_SPECS = new Map<ToolName, ListSpec>([
   [
@@ -642,28 +584,6 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
           title: name,
           href: asString(item.webViewLink),
           meta: joinMeta(driveKind(asString(item.mimeType)), ago(item.modifiedTime)),
-        };
-      },
-    },
-  ],
-  ["railway.list_deployments", RAILWAY_DEPLOYMENTS],
-  ["railway.recent_deployments", RAILWAY_DEPLOYMENTS],
-  [
-    "railway.list_projects",
-    {
-      arrayKey: "projects",
-      faviconDomain: INTEGRATIONS.railway.domain,
-      row: (item) => {
-        const name = asString(item.name);
-
-        if (!name) return null;
-        const services = Array.isArray(item.services) ? item.services.length : undefined;
-
-        return {
-          key: asString(item.id) ?? name,
-          title: name,
-          meta:
-            services !== undefined ? `${services} service${services === 1 ? "" : "s"}` : undefined,
         };
       },
     },

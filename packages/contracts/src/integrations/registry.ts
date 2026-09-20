@@ -78,7 +78,7 @@ export interface PlannedIntegrationEntry extends EntryBase {
  * - `github_app`: App installation (ADR-0052). App *permissions* never land in
  *   the credential's `scopes`, so connectedness is an active row with an
  *   `installation_id`; legacy classic-OAuth rows read as not-connected.
- * - `bearer`: one long-lived bearer token (Notion/Vercel OAuth, Railway pasted
+ * - `bearer`: one long-lived bearer token (Notion/Vercel OAuth, Sentry pasted
  *   API token). No scopes and no installation to probe: an active row IS the
  *   proof. `connect` says how the token arrives; `token_paste` renders a form,
  *   not a redirect.
@@ -156,13 +156,13 @@ export const INTEGRATIONS = {
     ],
   },
   // Not loadable: not an OAuth-connectable provider with a passthrough surface,
-  // but a projection of N third-party MCP connections behind two fixed actions
-  // (ADR-0018): `mcp.call` routes a remote tools/call through dispatch and
-  // `mcp.list_tools` is a bounded local read of the persisted catalog. The
+  // but a projection of N third-party MCP connections behind fixed actions
+  // (ADR-0018): `mcp.call` routes a remote tools/call through dispatch;
+  // `mcp.list_tools` and `mcp.inspect_tool` read the persisted catalog. The
   // remote tool name and connection ride in the args, never in the tool name.
   // It stays a non-`system` slug so the per-user policy gate and the ADR-0069
   // high-tier floor still apply to it.
-  mcp: { kind: "internal", displayName: "MCP", actions: ["call", "list_tools"] },
+  mcp: { kind: "internal", displayName: "MCP", actions: ["call", "list_tools", "inspect_tool"] },
   gmail: {
     kind: "provider",
     status: "live",
@@ -294,24 +294,6 @@ export const INTEGRATIONS = {
     summaryBlurb: "the user's Notion pages and databases",
     domain: "notion.so",
   },
-  railway: {
-    kind: "provider",
-    status: "live",
-    displayName: "Railway",
-    brand: "railway",
-    credential: { shape: "bearer", connect: "token_paste" },
-    passthrough: { transport: "graphql" },
-    actions: [
-      "list_projects",
-      "list_deployments",
-      "recent_deployments",
-      "get_logs",
-      "redeploy",
-      "graphql",
-    ],
-    summaryBlurb: "the user's Railway projects, deployments, and logs",
-    domain: "railway.com",
-  },
   vercel: {
     kind: "provider",
     status: "live",
@@ -334,11 +316,18 @@ export const INTEGRATIONS = {
     summaryBlurb: "the user's Sentry issues and error events",
     domain: "sentry.io",
   },
-  // `planned` as a PRODUCT integration: Alfred has no Polylane REST credential
-  // and registers no `polylane.*` tool. The entry exists so the slug resolves
-  // and carries brand artwork, which is what the built-in MCP catalog borrows
-  // (ADR-0093). Linear is the same shape. The connection itself is real and
-  // lives on the MCP surface, not here.
+  // `planned` as a PRODUCT integration: Alfred has no REST credential for
+  // Railway or Polylane and registers no `<slug>.*` tool. The entry exists so
+  // the slug resolves and carries brand artwork, which is what the built-in
+  // MCP catalog borrows (ADR-0093). Linear is the same shape. The connection
+  // itself is real and lives on the MCP surface, not here.
+  railway: {
+    kind: "provider",
+    status: "planned",
+    displayName: "Railway",
+    brand: "railway",
+    actions: [],
+  },
   polylane: {
     kind: "provider",
     status: "planned",

@@ -95,7 +95,6 @@ describe("user-bound integrations", () => {
     assert.equal(bound.github, bound.github, "one bind must yield one github client");
     assert.equal(bound.google, bound.google);
     assert.equal(bound.notion, bound.notion);
-    assert.equal(bound.railway, bound.railway);
     assert.equal(bound.vercel, bound.vercel);
   });
 
@@ -110,13 +109,6 @@ describe("user-bound integrations", () => {
     // provider is behind a getter, so an unconfigured provider cannot fail at
     // bind time and a tool pays for only the providers it uses.
     const bound = integrations({ userId: "user_1", retry: RETRY });
-    assert.deepEqual(Object.keys(bound).sort(), [
-      "github",
-      "google",
-      "notion",
-      "railway",
-      "sentry",
-      "vercel",
-    ]);
+    assert.deepEqual(Object.keys(bound).sort(), ["github", "google", "notion", "sentry", "vercel"]);
   });
 });

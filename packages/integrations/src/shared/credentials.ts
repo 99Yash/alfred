@@ -12,7 +12,7 @@ import { and, desc, eq } from "drizzle-orm";
 /**
  * Shared persistence layer for providers whose access is a single long-lived
  * bearer token — Notion (OAuth, non-expiring access token), Vercel (OAuth,
- * non-expiring), and Railway (a pasted account/workspace API token). None of them need
+ * non-expiring), and Sentry (a pasted API token). None of them need
  * Google's refresh-on-demand machinery, so the whole layer is "store one
  * bearer token, read it back." Google and GitHub keep their bespoke modules
  * (refresh rotation / installation-token minting); this is the third pattern.
@@ -26,8 +26,8 @@ import { and, desc, eq } from "drizzle-orm";
  * is the obvious follow-up.
  *
  * One of the three owners of credential encryption at rest (#453). The bearer
- * tokens here are the ones a leaked row would hurt most — a Railway workspace
- * token cannot be scoped down — so they are sealed on write and opened only in
+ * tokens here are the ones a leaked row would hurt most — a broadly scoped
+ * team token cannot be scoped down — so they are sealed on write and opened only in
  * the two functions that exist to hand a caller a usable token.
  */
 

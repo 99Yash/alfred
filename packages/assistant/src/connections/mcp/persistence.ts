@@ -25,6 +25,8 @@ import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
   mcpCatalogRevisions,
   mcpConnections,
+  mcpOauthCredentials,
+  mcpApiKeyCredentials,
   mcpServers,
   type McpCatalogRevision,
   type McpConnection,
@@ -33,7 +35,7 @@ import {
   type NewMcpServer,
 } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
-import { and, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
 import { compareMcpToolNames, projectCatalogRevision } from "./hash";
 
@@ -110,6 +112,56 @@ function joinConnection(input: {
   server: McpServerDefinition;
 }): McpConnectionWithServer {
   return { ...input.connection, server: input.server };
+}
+
+/**
+ * A small, oldest-first page for the background connection recovery pass.
+ *
+ * Both `connecting` (post-consent transport stall) and `failed` (ordinary
+ * connect, call, or boot failure) rows are eligible: every failure path except
+ * the post-consent transport branch parks the row as `failed`, so selecting
+ * only `connecting` reaches almost no quiet credentialed connection.
+ * `auth_required` rows are excluded — they need the owner, not a probe.
+ */
+export async function listRecoverableCredentialedConnectionIds(
+  cutoff: Date,
+  limit: number,
+  runner: DbRunner = db(),
+): Promise<string[]> {
+  const rows = await runner
+    .select({ id: mcpConnections.id })
+    .from(mcpConnections)
+    .leftJoin(
+      mcpOauthCredentials,
+      and(
+        eq(mcpOauthCredentials.id, mcpConnections.credentialId),
+        eq(mcpOauthCredentials.connectionId, mcpConnections.id),
+        eq(mcpOauthCredentials.userId, mcpConnections.userId),
+      ),
+    )
+    .leftJoin(
+      mcpApiKeyCredentials,
+      and(
+        eq(mcpApiKeyCredentials.id, mcpConnections.apiKeyCredentialId),
+        eq(mcpApiKeyCredentials.connectionId, mcpConnections.id),
+        eq(mcpApiKeyCredentials.userId, mcpConnections.userId),
+      ),
+    )
+    .where(
+      and(
+        inArray(mcpConnections.status, ["connecting", "failed"]),
+        isNotNull(mcpConnections.lastError),
+        lt(mcpConnections.updatedAt, cutoff),
+        or(
+          and(isNotNull(mcpOauthCredentials.accessToken), isNotNull(mcpOauthCredentials.tokenType)),
+          isNotNull(mcpApiKeyCredentials.id),
+        ),
+      ),
+    )
+    .orderBy(asc(mcpConnections.updatedAt), asc(mcpConnections.id))
+    .limit(limit);
+
+  return rows.map((row) => row.id);
 }
 
 export async function readConnection(

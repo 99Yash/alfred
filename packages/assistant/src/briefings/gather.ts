@@ -53,6 +53,7 @@ import {
   type LocalDateKey,
 } from "@alfred/assistant/time";
 import { scorePriorityEmailDemand } from "./read";
+import { gatherRailwayVerifiedPull } from "./railway-pull";
 import { shortenFrom } from "./sender";
 
 /**
@@ -118,6 +119,13 @@ export interface BriefingDigest {
   buckets: Record<PriorityCategory, BriefingItem[]>;
   /** Last-24h counts for the suppressed categories — surfaced as a tail line. */
   suppressedCounts: Record<SuppressedCategory, number>;
+  /**
+   * Minimal trigger fields for every triaged row in the window, including
+   * `fyi`-suppressed status noise. The Railway verified-pull trigger reads
+   * this — never `buckets` — so a failure notice triaged as `fyi` still
+   * triggers a live read.
+   */
+  triggerItems: { subject: string | null; from: string | null; snippet: string | null }[];
   /** Priority items dropped because a standing instruction matched the sender. */
   suppressedByInstruction: BriefingInstructionSuppression[];
   /**
@@ -246,6 +254,10 @@ export async function gatherBriefingDigest(
   };
 
   const suppressedByInstruction: BriefingInstructionSuppression[] = [];
+  // Trigger fields for every triaged row (priority and suppressed alike), so
+  // a Railway failure notice triaged as `fyi` still reaches the verified-pull
+  // trigger. Built here, where the body and metadata are already in hand.
+  const triggerItems: BriefingDigest["triggerItems"] = [];
   // One entry per priority row whose text proposes a work-object key, for the
   // post-partition loop-reconciliation pass (ADR-0062). Priority buckets stay
   // uncapped until after reconciliation so closed loops do not consume one of
@@ -255,6 +267,12 @@ export async function gatherBriefingDigest(
   for (const r of rows) {
     const cat = r.category;
     const meta = parseGmailDocumentMetadata(r.metadata);
+
+    triggerItems.push({
+      subject: r.title,
+      from: meta.from ?? null,
+      snippet: meta.snippet ?? null,
+    });
 
     if (isSuppressed(cat)) {
       suppressedCounts[cat] += 1;
@@ -327,6 +345,7 @@ export async function gatherBriefingDigest(
     windowEnd,
     buckets,
     suppressedCounts,
+    triggerItems,
     suppressedByInstruction,
     closedLoops,
     totalPriority,
@@ -433,13 +452,27 @@ export async function gatherBriefingWithSuppressionAudit(
     }));
   }
 
+  // Verified pull (#1094): a triaged deployment failure from a connected
+  // provider triggers a live status read at gather time. Runs after the
+  // digest resolves (the failure-mail trigger reads every triaged row,
+  // including `fyi`-suppressed status noise) and appends deployment verdict
+  // lines beside the receipt-sourced activity — never through the email
+  // slice, which only carries triage buckets.
+  const railwayPull = await gatherRailwayVerifiedPull({
+    userId: args.userId,
+    digestItems: digest.triggerItems,
+  });
+
   // Day-shape (ADR-0064 / #230): reuse the already-fetched activity count so we
   // don't re-query event_receipts; the resolved-object recap is one cheap list.
+  // Runs AFTER the verified pull so a day whose only activity is a Railway
+  // failure counts that line — otherwise the same briefing would score the
+  // day quiet and list the failure.
   const dayShape = await gatherDayShape({
     userId: args.userId,
     windowStart: activityStart,
     windowEnd,
-    activityCount: integrationActivity.length,
+    activityCount: integrationActivity.length + railwayPull.length,
   });
 
   // Attention-aware email demand over the FINALIZED priority buckets (#259 /
@@ -469,7 +502,7 @@ export async function gatherBriefingWithSuppressionAudit(
         categories,
       },
       calendar,
-      integration_activity: { items: integrationActivity },
+      integration_activity: { items: [...integrationActivity, ...railwayPull] },
       weather,
       day_of_week: dayContribution(args.briefingDate),
       day_shape: {

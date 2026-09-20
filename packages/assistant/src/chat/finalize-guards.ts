@@ -1,10 +1,14 @@
 import {
   isRecord,
+  INTEGRATION_SLUGS,
   SPAWN_SUB_AGENT_TOOL,
   withDefaults,
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
 import { publishEvent } from "@alfred/assistant/triggers";
+import { db } from "@alfred/db";
+import { actionStagings, mcpInvocation } from "@alfred/db/schemas";
+import { and, eq, inArray } from "drizzle-orm";
 import { isMutatingToolName } from "@alfred/assistant/tool-runtime";
 import {
   isTerminalChildStatus,
@@ -368,6 +372,111 @@ export async function guardUnreportedToolFailures(
   };
 }
 
+/** A successful catalog read and a completed remote call are different evidence. */
+export async function guardFalseProvenance(
+  ctx: StepContext<ChatRunState>,
+  state: ChatRunState,
+  transcript: AgentTranscriptMessage[],
+): Promise<StepResult<ChatRunState> | null> {
+  // Stateless by design: no latch. A regenerated answer that repeats the
+  // unsupported claim must trip the guard again, or the guard would ask once
+  // and then accept the same false claim. Regeneration is bounded by the
+  // turn-loop cap, not by this guard.
+  const reply = state.assistantText;
+
+  const claimsMcpUse =
+    /\b(?:used|using|called|queried|via|through)\b.{0,65}\bMCP\b(?! catalog)/i.test(reply) ||
+    /\bMCP tool\b.{0,65}\b(?:returned|showed|provided|gave)\b/i.test(reply);
+
+  const claimsCatalog =
+    /\b(?:MCP|connection|connected server)\b.{0,90}\b(?:exposes?|offers?|provides?|has|lacks?|does not|doesn't)\b.{0,90}\b(?:tools?|capabilit\w*|metrics?|data|logs?|deployments?|CPU|RAM)\b/i.test(
+      reply,
+    ) || /\b(?:checked|read|searched)\b.{0,65}\b(?:MCP|tool) catalog\b/i.test(reply);
+
+  const unsupportedIntegrations = INTEGRATION_SLUGS.filter((slug) => {
+    if (slug === "mcp" || slug === "system") return false;
+
+    const claim = new RegExp(
+      `\\b(?:used|using|called|queried|via|through)\\b.{0,55}\\b${slug}\\b`,
+      "i",
+    ).exec(reply);
+
+    if (!claim || /\b(?:not|never|didn't|couldn't|cannot)\b/i.test(claim[0])) return false;
+
+    // The provider name can precede "MCP"; inspect the next words as well.
+    // That phrase is a transport claim, which the invocation check owns.
+    const sourcePhrase = reply.slice(claim.index, claim.index + claim[0].length + 20);
+
+    if (/\bMCP\b/i.test(sourcePhrase)) return false;
+
+    return !state.toolCallsLog.some(
+      (call) => call.status === "succeeded" && call.toolName.startsWith(`${slug}.`),
+    );
+  });
+
+  if (!claimsMcpUse && !claimsCatalog && unsupportedIntegrations.length === 0) return null;
+
+  const successfulCatalogRead = state.toolCallsLog.some(
+    (call) => call.toolName === "mcp.list_tools" && call.status === "succeeded",
+  );
+
+  const successfulMcpCallIds = state.toolCallsLog
+    .filter((call) => call.toolName === "mcp.call" && call.status === "succeeded")
+    .map((call) => call.toolCallId);
+
+  // Authority keys on the authorizing staging row, never the invocation's
+  // denormalized copies: `stagingId` is notNull with a unique index and an FK
+  // to `action_stagings.id`, and `(runId, toolCallId)` carries its own unique
+  // index — while `traceId`/`toolCallId` on the invocation are declared
+  // observability-only (unindexed, no FK) in the schema. The join means a
+  // drifted copy cannot grant authority the staging row denies.
+  const completedInvocation =
+    claimsMcpUse && successfulMcpCallIds.length > 0
+      ? await db()
+          .select({ id: mcpInvocation.id })
+          .from(mcpInvocation)
+          .innerJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
+          .where(
+            and(
+              eq(mcpInvocation.userId, ctx.userId),
+              eq(actionStagings.runId, ctx.runId),
+              inArray(actionStagings.toolCallId, successfulMcpCallIds),
+              eq(mcpInvocation.effectOutcome, "succeeded"),
+            ),
+          )
+          .limit(1)
+      : [];
+
+  if (
+    (!claimsMcpUse || completedInvocation.length > 0) &&
+    (!claimsCatalog || successfulCatalogRead) &&
+    unsupportedIntegrations.length === 0
+  ) {
+    return null;
+  }
+
+  await closePrematureAnswerSegment(ctx, state, publishEvent);
+
+  const successfulNames = state.toolCallsLog
+    .filter((call) => call.status === "succeeded")
+    .map((call) => call.toolName);
+
+  const note =
+    `Your previous answer claimed a source or described an MCP catalog without the required successful evidence. ` +
+    `Successful tool calls this run: ${successfulNames.join(", ") || "none"}. ` +
+    `A completed mcp.call with a succeeded mcp_invocation row is required to say you used MCP. ` +
+    `A successful mcp.list_tools call is required to state what its catalog offers. ` +
+    `Unsupported integration claims: ${unsupportedIntegrations.join(", ") || "none"}. ` +
+    `Eight rejected calls or a local registry search do not count. Answer again with only the evidence this run has.`;
+
+  return {
+    kind: "next",
+    state,
+    transcript: appendSystemNote(transcript, note),
+    nextStep: "chat-turn",
+  };
+}
+
 /** One guard in {@link FINALIZE_GUARD_SEQUENCE}. */
 interface FinalizeGuard {
   /** Only for the error message when a guard throws; never user-visible. */
@@ -382,7 +491,7 @@ interface FinalizeGuard {
 /**
  * The declared order every chat turn's finalize boundary runs its guards in.
  *
- * The two guards have identical signatures, so nothing but this list stops a
+ * The guards have identical signatures, so nothing but this list stops a
  * caller from reordering them, and the order is not arbitrary:
  * `guardSpawnedChildren` may PARK the turn on a still-running child, and a
  * parked turn must not first have spent a regeneration on the honesty note —
@@ -406,6 +515,10 @@ export const FINALIZE_GUARD_SEQUENCE: readonly FinalizeGuard[] = [
     // mutating tool call net-failed.
     id: "unreported_tool_failures",
     run: (ctx, state, transcript) => guardUnreportedToolFailures(ctx, state, transcript),
+  },
+  {
+    id: "false_provenance",
+    run: (ctx, state, transcript) => guardFalseProvenance(ctx, state, transcript),
   },
 ];
 

@@ -52,6 +52,23 @@ export const LOOP_CLOSING_STATE_CATEGORIES = ["resolved", "abandoned"] as const;
 export type LoopClosingStateCategory = (typeof LOOP_CLOSING_STATE_CATEGORIES)[number];
 
 /**
+ * The NAMED closure sources: the verified ways object state may assert
+ * closure of an already-open ask (#1094). A verified push is a provider event
+ * delivered over a verified webhook and folded by the per-provider reducer; a
+ * verified pull is an authenticated read of current deployment state taken at
+ * gather time over a user-connected grant. Untrusted text evidence is
+ * deliberately NOT a member — it can trigger a pull, never assert — so a kind
+ * of knowing the pull cannot name cannot be declared.
+ *
+ * Naming, not a gate (tier 3): `ObjectStateDelta.closureSource` is required,
+ * so every producer declares how it knows, but no store branch reads it —
+ * policy stays per-kind in `closesOpenAsk`.
+ */
+export const OBJECT_STATE_CLOSURE_SOURCES = ["verified_push", "verified_pull"] as const;
+
+export type ClosureSource = (typeof OBJECT_STATE_CLOSURE_SOURCES)[number];
+
+/**
  * Per-KIND lifecycle policy. Two rules that generic code must not hard-code,
  * because they differ per kind rather than per provider (#1088, #1093):
  *
@@ -103,7 +120,7 @@ export interface IntegrationObjectDef {
   normalize(kind: string, nativeState: string): StateCategory | null;
 }
 
-export const OBJECT_STATE_PROVIDERS = ["github", "sentry"] as const;
+export const OBJECT_STATE_PROVIDERS = ["github", "sentry", "railway"] as const;
 
 export type ObjectStateProvider = (typeof OBJECT_STATE_PROVIDERS)[number];
 
@@ -179,6 +196,34 @@ export function canonicalizeGithubTargetId(input: {
 }
 
 /**
+ * Canonical external id for a Railway deployment target — the thing a
+ * verified pull closes by succession (`#1094`). Railway mails a build failure
+ * and stays silent on success, so no push can ever observe the recovery; the
+ * reconciled identity is the target the pull reads: `projectId/serviceId/
+ * environmentId`, joined from the provider's own opaque ids.
+ *
+ * No case folding: these are opaque ids, not names. Any part empty returns
+ * `null`, and callers then fold the attempt alone.
+ */
+export function canonicalizeRailwayTargetId(input: {
+  projectId: string;
+  serviceId: string;
+  environmentId: string;
+}): string | null {
+  const projectId = input.projectId.trim();
+  const serviceId = input.serviceId.trim();
+  const environmentId = input.environmentId.trim();
+
+  if (!projectId || !serviceId || !environmentId) return null;
+
+  if (projectId.includes("/") || serviceId.includes("/") || environmentId.includes("/")) {
+    return null;
+  }
+
+  return `${projectId}/${serviceId}/${environmentId}`;
+}
+
+/**
  * Narrow an arbitrary (contract-bounded but provider-open) string to a provider
  * the object-state registry knows. A caller-supplied reference can name a
  * provider that this build does not project, and that must degrade to an honest
@@ -199,7 +244,9 @@ export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
  * this build but reach production only after the human flips the App
  * subscription (see the PR body): until then the CI kinds stay empty, which
  * is safe — absence never closes. GitHub PR closure rides on merge/close
- * alone — the prod-proven chain.
+ * alone — the prod-proven chain. A Railway deployment token is one of
+ * `success` | `failure` | `pending`, collapsed by the verified-pull seam from
+ * the deployment status the authenticated read returns (#1094).
  */
 export const INTEGRATION_OBJECT_DEFS = {
   github: {
@@ -299,6 +346,54 @@ export const INTEGRATION_OBJECT_DEFS = {
         default:
           return null;
       }
+    },
+  },
+  railway: {
+    kinds: {
+      // A Railway deployment attempt closes by SUCCESSION, never by
+      // transition: one deployment goes nowhere, so an attempt row never
+      // closes an ask (only its target does) and never absorbs. Mirrors
+      // `ci_attempt` (#1093).
+      deployment_attempt: {
+        closesAskOn: [],
+        absorbing: [],
+      },
+      // The succession target (`projectId/serviceId/environmentId`): its
+      // state is the outcome of the latest verified pull. Nothing absorbs,
+      // so a success after a failure lands as ordinary traffic.
+      //
+      // `closesAskOn` is empty until the Railway text adapter exists: the
+      // adapter proposes no keys, so no Railway row reaches the closure
+      // reader and a declaration here would be unreachable. Closure to the
+      // reader is the pull's verdict line, not a dropped email loop. Restore
+      // `["resolved"]` alongside the deployment-URL grammar that makes it
+      // reachable (ADR-0062 amendment 2026-09-20).
+      deployment_target: {
+        closesAskOn: [],
+        absorbing: [],
+      },
+    },
+    // Railway ids are exact opaque identities: no abbreviated form of one is
+    // written anywhere, so no key kind here supports a prefix lookup.
+    prefixableKeys: {},
+    normalize(kind, nativeState) {
+      // Both deployment kinds share the pull-collapsed outcome vocabulary.
+      // The kind arm is explicit so a future kind cannot silently inherit it:
+      // an unlisted kind reads as unknown, and absence never closes.
+      if (kind === "deployment_attempt" || kind === "deployment_target") {
+        switch (nativeState) {
+          case "success":
+            return "resolved";
+          case "failure":
+            return "failed";
+          case "pending":
+            return "active";
+          default:
+            return null;
+        }
+      }
+
+      return null;
     },
   },
 } as const satisfies Record<ObjectStateProvider, IntegrationObjectDef>;

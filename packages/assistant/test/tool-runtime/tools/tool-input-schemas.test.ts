@@ -13,11 +13,7 @@ import { listToolsForIntegration } from "../../../src/tool-runtime/internal/regi
  * regression #505 exists to prevent). Kept as an explicit allowlist so ADDING a
  * param to one — or a wrapper that breaks unwrapping on a rich tool — fails here.
  */
-const PARAMLESS_TOOLS = new Set([
-  "railway.list_projects",
-  "system.list_instructions",
-  "system.current_time",
-]);
+const PARAMLESS_TOOLS = new Set(["system.list_instructions", "system.current_time"]);
 
 /**
  * Regression guard for the `read_chat_history` 400 (a top-level

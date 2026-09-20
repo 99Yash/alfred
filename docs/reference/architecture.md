@@ -299,7 +299,7 @@ Live backends today:
 - Google Workspace: Gmail, Calendar, Drive, Docs, Sheets, Slides.
 - GitHub App: install + user-to-server OAuth, installation tokens for REST, prod-only webhooks.
 - Notion OAuth.
-- Railway token connect.
+- Railway MCP OAuth: dynamic client registration, live deployment reads, and MCP tools.
 - Vercel OAuth.
 - Sentry internal-integration token connect, prod-only webhooks.
 

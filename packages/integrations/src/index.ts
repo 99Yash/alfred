@@ -1,13 +1,11 @@
 // One folder per live provider. Google covers Gmail, Calendar, Drive, Docs,
-// Sheets, and Slides; GitHub, Notion, Railway, Sentry, and Vercel have their
+// Sheets, and Slides; GitHub, Notion, Sentry, and Vercel have their
 // own provider folders. Slack/Linear are catalog/design-only for now.
 export * as google from "./google/index";
 
 export * as github from "./github/index";
 
 export * as notion from "./notion/index";
-
-export * as railway from "./railway/index";
 
 export * as sentry from "./sentry/index";
 

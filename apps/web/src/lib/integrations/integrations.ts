@@ -236,18 +236,21 @@ const INTEGRATION_PAGE_COPY = {
     },
   },
   railway: {
-    description: "Inspect and redeploy Railway services.",
+    description: "Read Railway deployment status.",
     category: "Development",
-    capabilities: ["List Projects", "Check Deployments", "Read Logs", "Redeploy"],
+    capabilities: ["Read Projects", "Read Deployments", "Read Deployment Status"],
     trust: {
-      title: "Your token, your control",
-      body: "Railway has no OAuth, so you paste a workspace-scoped or account API token you generate yourself. Revoke it any time from Railway, or disconnect here.",
+      title: "You approve every call",
+      body: "Railway connects over MCP, and every MCP call is staged for your approval before it runs. Disconnect here to end the grant.",
     },
     overview: {
-      body: "Connect Railway with a workspace-scoped or account API token. Alfred answers questions about your projects and deployments, and redeploys when you ask.",
-      heading: "Deployment Intelligence",
+      body: "Connect Railway to give Alfred your deployment record: the projects, services, environments, and deployment states Railway already tracks.",
+      heading: "Deployment Context",
       detail:
-        "Alfred can list your projects, services, and environments, check deployment status, read deployment logs, and trigger a redeploy.",
+        "When you ask about a failed deploy, Alfred reads the current deployment state over your Railway grant instead of guessing from a log line.",
+      extraHeading: "Connect it on the MCP tile",
+      extraDetail:
+        "Railway has no separate Alfred credential. It is a first-class MCP server: connect it from the MCP section of this page, and the consent screen is Railway's own.",
     },
   },
   vercel: {

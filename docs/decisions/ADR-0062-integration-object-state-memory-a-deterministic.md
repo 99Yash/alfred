@@ -36,6 +36,21 @@
 
 **Parked.** Recurrence-decay (#212 "B" — demote-never-bury on repeat) is a separate ticket. ClickUp / Claude-Code reducers land with those integrations. Boss-tool exposure tuning. The rich extraction front-door is **ADR-0063**.
 
+**Amended 2026-09-20 (#1094).** A gather-time verified pull folds Railway pull
+receipts into the same store through the same `applyEvent` guards (unknown
+kind/token no-write, per-kind absorbing, `(providerEventTime, deliveredAt)`
+recency). This is the second closure source beside the webhook reducer,
+admitted because Railway is failure-mail-only with no push source: email can
+observe the failure and can never observe the recovery, so no real-time
+reducer input exists. It is not the rejected gather-time recompute: it reads
+CURRENT provider state over an authenticated grant and folds it through the
+reducer, rather than re-scanning a 24h event window. The pull receipt is
+synthetic with one minter (`mintRailwayPullReceipt`); email text never asserts
+state. Scope limit: the pull appends verified verdict lines and maintains
+trigger rows — it does not drop email loops through `reconcileEvidence` (the
+Railway adapter proposes no keys until the deployment-URL grammar lands), so
+`deployment_target` declares `closesAskOn: []` until then.
+
 **Open.** Backfill horizon over `webhook_events` (how far back to replay). Whether `check_suite` is its own object kind or an attribute of the PR. Cross-source dedup convergence policy (when a ClickUp task and a PR are "the same loop" — the binding constraint ADR-0052(B) named). v1 loop-opener scope = GitHub Actions CI-failure emails; Railway build-failure added if it recurs.
 
 **Amended 2026-09-06 (#975).** The reducer's input log is `event_receipts` (`provider = 'github'`, `event_type = 'github.<type>'`), not `webhook_events`, which ADR-0097 item 8 retired. The real-time fold is the `github-activity-fold` trigger consumer, and the committed backfill replays `event_receipts`. Idempotency now comes from the receipt's `(provider, provider_delivery_id)` dedup index plus the same monotonic `delivered_at` guard.

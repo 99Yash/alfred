@@ -3,6 +3,7 @@ import { useState } from "react";
 import { NagBanner } from "~/components/nag-banner";
 import { useGoogleScopeGaps } from "~/lib/integrations/use-integration-status";
 import { API_URL } from "~/lib/eden";
+import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 
 /**
  * Slim nag bar shown when a Google account is connected but some scopes were
@@ -34,9 +35,9 @@ export function ScopeGapBanner() {
       }
       actionLabel="Reconnect Google"
       onAction={() => {
-        // Full-page redirect to the connect endpoint (no params → full grant);
-        // Google merges the re-consent into the existing authorization.
-        window.location.href = `${API_URL}${integrationRoutePrefix("google")}/connect`;
+        // Authorization opens in a new tab; the banner's status read
+        // refetches on window focus, so the nag clears on return.
+        openAuthorizationTab(`${API_URL}${integrationRoutePrefix("google")}/connect`);
       }}
       onDismiss={() => setDismissed(true)}
     />

@@ -147,7 +147,7 @@ export const calendarContributionSchema = z.object({
 
 export type CalendarContribution = z.infer<typeof calendarContributionSchema>;
 
-export const INTEGRATION_ACTIVITY_SOURCES = ["direct_api", "email_triage"] as const;
+export const INTEGRATION_ACTIVITY_SOURCES = ["direct_api", "email_triage", "mcp"] as const;
 
 export type IntegrationActivitySource = (typeof INTEGRATION_ACTIVITY_SOURCES)[number];
 
