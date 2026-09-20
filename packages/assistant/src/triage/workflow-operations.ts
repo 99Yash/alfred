@@ -58,8 +58,8 @@ import { getFreshAccessToken, getMessage, type TriageCategory } from "@alfred/in
 
 /**
  * Email triage workflow (ADR-0025): one `email_triage` row per (user, thread),
- * steps classify → close-loop-todos → apply-label. A reply re-runs it; user
- * overrides stay pinned; apply-label strips sibling alfred labels. Owner: this file. History: ADR-0051, ADR-0050, #282. Glossary: `docs/reference/glossary.md`.
+ * steps classify → apply-label → close-loop-todos. A reply re-runs it; user
+ * overrides stay pinned; apply-label strips sibling alfred labels. Owner: this file. History: ADR-0051, ADR-0050, #282, #1168. Glossary: `docs/reference/glossary.md`.
  */
 
 export interface EmailTriageOperationState {
@@ -809,13 +809,15 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       // could flip between the two steps.
       userAlreadyReplied,
     },
-    nextStep: "close-loop-todos",
+    nextStep: EMAIL_TRIAGE_EDGES.classify,
   };
 }
 
 /**
- * Post-classify, pre-label follow-up: retract the rail todos a just-handled
- * thread left open (ADR-0050 same-thread retraction, un-parked).
+ * Terminal, post-label follow-up: retract the rail todos a just-handled
+ * thread left open (ADR-0050 same-thread retraction, un-parked; #1168 moved
+ * it after `apply-label` so the Gmail label lands before the best-effort
+ * rail write).
  *
  * The outbound-reply re-eval (#282) re-classifies a thread after the user
  * sends. When the user's own message is now the newest in the thread, the
@@ -843,11 +845,13 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
  * would let the mint suppression and the retraction disagree about the same
  * fact (ADR-0050's one-owner rule).
  *
- * RAIL-ONLY AND BEST-EFFORT. The classify row is already committed and the
- * Gmail label is the contract; the todo rail is not. A DB blip on the
- * thread-state read or the dismissal must not stop `apply-label` from
- * converging the thread, exactly as `suggestTodo` and the sender-prior bump
- * above swallow their own failures. Any throw is logged and the step advances.
+ * RAIL-ONLY AND BEST-EFFORT. The classify row is already committed and
+ * the Gmail label has already converged; the todo rail is not the
+ * contract. A DB blip on the thread-state read or the dismissal is
+ * logged and the step still ends the run — it never un-applies or
+ * blocks the label — exactly as `suggestTodo` and the sender-prior
+ * bump above swallow their own failures. Any throw past the
+ * sourceThreadId guard is logged and the step ends the run.
  */
 export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOperationState>(
   ctx: StepContext<State>,
@@ -860,25 +864,44 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
     );
   }
 
-  const advance: StepResult<State, EmailTriageStepName> = {
-    kind: "next",
-    state: ctx.state,
-    nextStep: "apply-label",
+  // The run's contract is the canonical `email_triage` row plus the Gmail
+  // label itself, not `agent_runs.output`: no production reader inspects
+  // triage run output keys, so the terminal step emits none. It does owe the
+  // run-history row one sentence: `summary` is the field the history reads
+  // (`registry.ts`, `run-outcome.ts`), and triage sets none elsewhere, so a
+  // missing summary renders every triage run as "Run completed."
+  const summarize = (tail?: string): string => {
+    const category = ctx.state.category;
+
+    const confidence =
+      ctx.state.confidence !== undefined ? ` (confidence ${ctx.state.confidence.toFixed(2)})` : "";
+
+    const head = category
+      ? `Triaged as ${category}${confidence}`
+      : `Triaged thread ${sourceThreadId}`;
+
+    return tail ? `${head}; ${tail}` : head;
   };
 
-  if (ctx.state.reason !== "reply") return advance;
+  const done = (summaryTail?: string): StepResult<State, EmailTriageStepName> => ({
+    kind: "done",
+    state: ctx.state,
+    summary: summarize(summaryTail),
+  });
+
+  if (ctx.state.reason !== "reply") return done();
 
   if (!ctx.state.userAlreadyReplied) {
     await ctx.log(
       `close-loop-todos: thread=${sourceThreadId} — no retraction (classify read no user reply)`,
     );
 
-    return advance;
+    return done("reply re-eval, no open suggestion to close");
   }
 
   // Everything past this point touches the todo rail, so it is best-effort:
   // the flag read is inside the try with the dismissal, so a DB blip here
-  // still cannot stop `apply-label`.
+  // still ends the run with the label outcome intact.
   try {
     // Symmetric with the mint (`classify` gates `suggestTodo` on the same
     // flag): when the user has action items off, existing rail rows are left
@@ -893,7 +916,7 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
         `close-loop-todos: thread=${sourceThreadId} — no retraction (action-items disabled)`,
       );
 
-      return advance;
+      return done("retraction skipped (action-items disabled)");
     }
 
     const resolved = await resolveTodosForGmailSource({
@@ -919,11 +942,19 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
       `close-loop-todos: thread=${sourceThreadId} newest=sent reason=${resolved.auditReason ?? "unknown"} ` +
         `status=${resolved.status} dismissed=${resolved.ok ? resolved.dismissedCount : 0}`,
     );
+
+    const dismissed = resolved.ok ? resolved.dismissedCount : 0;
+
+    return done(
+      dismissed > 0
+        ? `reply re-eval, closed ${dismissed} suggestion${dismissed === 1 ? "" : "s"}`
+        : "reply re-eval, no open suggestion to close",
+    );
   } catch (err) {
     await ctx.log(`close-loop-todos failed (non-fatal): ${toMessage(err)}`);
-  }
 
-  return advance;
+    return done("retraction failed (non-fatal)");
+  }
 }
 
 export async function runEmailTriageApplyLabel<State extends EmailTriageOperationState>(
@@ -941,35 +972,62 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
   // Email-tagging toggle (Settings → Features). When off, Alfred keeps
   // the in-app triage row (drives the inbox chips + any action-item it
   // already minted) but does not touch the user's Gmail labels.
-  const flags = await resolveFeatureFlags(ctx.userId);
+  // Every path below forwards to the terminal `close-loop-todos` step
+  // (#1168) with the state untouched: the `email_triage` row plus the
+  // Gmail label are the contract, and no production reader inspects triage
+  // run output. A provider/DB fault must not throw past this step — the run
+  // would fail terminal and the rail retraction would never run. Instead log
+  // it and forward; the `applied_label_id` column stays NULL so the next
+  // inbound re-labels by itself.
+  let flags: Awaited<ReturnType<typeof resolveFeatureFlags>>;
+
+  try {
+    flags = await resolveFeatureFlags(ctx.userId);
+  } catch (err) {
+    await ctx.log(`apply-label failed (non-fatal): ${toMessage(err)}`);
+
+    return {
+      kind: "next",
+      state: { ...ctx.state },
+      nextStep: EMAIL_TRIAGE_EDGES["apply-label"],
+    };
+  }
 
   if (!flags.emailTagging) {
     await ctx.log(`apply-label: skipped reason=tagging-disabled`);
 
     return {
-      kind: "done",
-      state: ctx.state,
-      output: { category, applied: false, reason: "tagging-disabled" },
+      kind: "next",
+      state: { ...ctx.state },
+      nextStep: EMAIL_TRIAGE_EDGES["apply-label"],
     };
   }
 
-  const outcome = await reconcileThreadLabel({
-    userId: ctx.userId,
-    sourceThreadId,
-    fallbackDocumentId: ctx.state.documentId,
-  });
+  let outcome: Awaited<ReturnType<typeof reconcileThreadLabel>>;
+
+  try {
+    outcome = await reconcileThreadLabel({
+      userId: ctx.userId,
+      sourceThreadId,
+      fallbackDocumentId: ctx.state.documentId,
+    });
+  } catch (err) {
+    await ctx.log(`apply-label failed (non-fatal): ${toMessage(err)}`);
+
+    return {
+      kind: "next",
+      state: { ...ctx.state },
+      nextStep: EMAIL_TRIAGE_EDGES["apply-label"],
+    };
+  }
 
   if (!outcome.applied) {
     await ctx.log(`apply-label: skipped reason=${outcome.reason}`);
 
     return {
-      kind: "done",
-      state: ctx.state,
-      output: {
-        category: outcome.category ?? category,
-        applied: false,
-        reason: outcome.reason,
-      },
+      kind: "next",
+      state: { ...ctx.state },
+      nextStep: EMAIL_TRIAGE_EDGES["apply-label"],
     };
   }
 
@@ -981,16 +1039,9 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
   );
 
   return {
-    kind: "done",
-    state: ctx.state,
-    output: {
-      category: outcome.category,
-      confidence: ctx.state.confidence,
-      applied: true,
-      appliedLabelId: outcome.appliedLabelId,
-      removedLabelIds: outcome.removedLabelIds,
-      strippedSiblings: outcome.strippedSiblings.length,
-    },
+    kind: "next",
+    state: { ...ctx.state },
+    nextStep: EMAIL_TRIAGE_EDGES["apply-label"],
   };
 }
 
@@ -1208,17 +1259,26 @@ async function gatherObservations(args: {
 }
 
 /**
- * The `email-triage` topology, stated once. `EmailTriageStepName` is derived
+ * The `email-triage` step set, stated once. `EmailTriageStepName` is derived
  * from these keys and threaded through every step's `StepResult`, so the
- * executor's `nextStep` literals and `initialStep` are checked against the
+ * executor's `nextStep` values and `initialStep` are checked against the
  * actual steps rather than meeting them by convention: a name that names no
  * step is a type error, and adding a step here extends the union the bodies
  * are checked against. The workflow object consumes this record directly.
+ * The order of these keys is the execution order; `EMAIL_TRIAGE_EDGES` below
+ * states the edges the bodies return.
  */
 export const emailTriageSteps = {
   classify: { id: "classify", run: runEmailTriageClassify },
-  "close-loop-todos": { id: "close-loop-todos", run: runEmailTriageCloseLoopTodos },
   "apply-label": { id: "apply-label", run: runEmailTriageApplyLabel },
+  "close-loop-todos": { id: "close-loop-todos", run: runEmailTriageCloseLoopTodos },
 } as const;
 
 export type EmailTriageStepName = keyof typeof emailTriageSteps;
+
+/** The `email-triage` edges, stated once. `null` marks the terminal step. */
+export const EMAIL_TRIAGE_EDGES = {
+  classify: "apply-label",
+  "apply-label": "close-loop-todos",
+  "close-loop-todos": null,
+} as const satisfies Record<EmailTriageStepName, EmailTriageStepName | null>;
