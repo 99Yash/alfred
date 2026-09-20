@@ -2,6 +2,7 @@ import { BUILT_IN_MCP_CATALOG, type BuiltInMCPProvider } from "@alfred/contracts
 import { AlertTriangle, Plus } from "lucide-react";
 import { AppButton } from "~/components/ui/v2";
 import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
+import { brandForIntegration } from "~/lib/integrations/integrations";
 import { mcpAuthorizeUrl, mcpBuiltInConnectUrl, type McpConnection } from "./helpers";
 import { mcpConnectionSubtitle } from "./mcp-server-status";
 import { McpConnectionWarning } from "./mcp-connection-warning";
@@ -98,9 +99,10 @@ export function McpBuiltInCard({
 
   return (
     <McpTile
-      // The MCP catalog names its own brand artwork.
+      // A catalog entry names a PROVIDER slug, and every provider entry carries
+      // brand artwork, so there is no glyph case to fall back to.
       icon={{
-        brand: entry.brand,
+        brand: brandForIntegration(entry.slug),
         connected: state.kind === "connected" && state.connection.status === "ready",
       }}
       label={connection?.label ?? entry.label}
