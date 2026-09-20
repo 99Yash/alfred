@@ -1209,7 +1209,6 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       parkKind: undefined,
       foldedChildRunIds: [],
       notedFailureToolCallIds: [],
-      notedProvenanceClaim: false,
     };
   },
   async initialTranscript(input, context) {
