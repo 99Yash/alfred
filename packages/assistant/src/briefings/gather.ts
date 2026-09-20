@@ -434,13 +434,26 @@ export async function gatherBriefingWithSuppressionAudit(
     }));
   }
 
+  // Verified pull (#1094): a surfaced deployment failure from a connected
+  // provider triggers a live status read at gather time. Runs after the
+  // digest resolves (the failure-mail trigger reads surfaced items) and
+  // appends deployment verdict lines beside the receipt-sourced activity —
+  // never through the email slice, which only carries triage buckets.
+  const railwayPull = await gatherRailwayVerifiedPull({
+    userId: args.userId,
+    digestItems: Object.values(digest.buckets).flat(),
+  });
+
   // Day-shape (ADR-0064 / #230): reuse the already-fetched activity count so we
   // don't re-query event_receipts; the resolved-object recap is one cheap list.
+  // Runs AFTER the verified pull so a day whose only activity is a Railway
+  // failure counts that line — otherwise the same briefing would score the
+  // day quiet and list the failure.
   const dayShape = await gatherDayShape({
     userId: args.userId,
     windowStart: activityStart,
     windowEnd,
-    activityCount: integrationActivity.length,
+    activityCount: integrationActivity.length + railwayPull.length,
   });
 
   // Attention-aware email demand over the FINALIZED priority buckets (#259 /
@@ -463,16 +476,6 @@ export async function gatherBriefingWithSuppressionAudit(
       })),
     ),
   );
-
-  // Verified pull (#1094): a surfaced deployment failure from a connected
-  // provider triggers a live status read at gather time. Runs after the
-  // digest resolves (the failure-mail trigger reads surfaced items) and
-  // appends deployment verdict lines beside the receipt-sourced activity —
-  // never through the email slice, which only carries triage buckets.
-  const railwayPull = await gatherRailwayVerifiedPull({
-    userId: args.userId,
-    digestItems: Object.values(digest.buckets).flat(),
-  });
 
   return {
     gather: {

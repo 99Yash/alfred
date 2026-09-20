@@ -74,15 +74,21 @@ const railwayServicesSchema = z.object({
   environments: z.array(z.object({ id: z.string().min(1), name: z.string() })),
 });
 
+const railwayDeploymentSchema = z.object({
+  id: z.string().min(1),
+  status: z.string(),
+  createdAt: z.string().nullable(),
+  url: z.string().nullable(),
+  // The read filters and orders client-side (below), so the item must carry
+  // the target it belongs to. Both arrive as strings on the live wire and
+  // are absent-tolerant here: a response that omits them is still readable,
+  // and only a POSITIVE mismatch drops the item.
+  serviceId: z.string().nullable().optional(),
+  environmentId: z.string().nullable().optional(),
+});
+
 const railwayDeploymentsSchema = z.object({
-  deployments: z.array(
-    z.object({
-      id: z.string().min(1),
-      status: z.string(),
-      createdAt: z.string().nullable(),
-      url: z.string().nullable(),
-    }),
-  ),
+  deployments: z.array(railwayDeploymentSchema),
 });
 
 interface RailwayReadSession {
@@ -149,10 +155,23 @@ export async function readRailwayDeploymentStatus(
   }
 }
 
+/**
+ * How many deployments one read pulls. The catalog window is 1–50 (default
+ * 10); ten is enough to find the newest readable state while staying at the
+ * default cost. Never 1: a single row makes the server's return order the
+ * verdict, and order is a server claim, not a contract.
+ */
+const RAILWAY_DEPLOYMENT_READ_LIMIT = 10;
+
 async function readRailwayDeploymentStatusFromSession(
   read: RailwayReadSession,
   target: RailwayPullTarget,
 ): Promise<ParsedRailwayStatus | null> {
+  // Argument names mirror the catalog's `list-deployments` input schema:
+  // `projectId` is the one required property; `serviceId`, `environmentId`,
+  // and `limit` are optional filters. `prepared.call` validates this object
+  // against that live schema and throws `invalid_arguments` on drift, which
+  // both callers fold to null — an unverifiable read, never a guessed state.
   const parsed = await readRailwayTool(
     read.connectionId,
     read.prepared,
@@ -161,26 +180,45 @@ async function readRailwayDeploymentStatusFromSession(
       projectId: target.projectId,
       serviceId: target.serviceId,
       environmentId: target.environmentId,
-      limit: 1,
+      limit: RAILWAY_DEPLOYMENT_READ_LIMIT,
     },
     railwayDeploymentsSchema,
   );
 
   if (!parsed) return null;
 
-  const [latest] = parsed.deployments;
+  // The catalog describes the list as most-recent-first, but the verdict
+  // must not depend on that claim: drop deployments for other targets, put
+  // the newest provider instant first (an absent instant sorts last, keeping
+  // server order among ties — the sort is stable), and take the newest
+  // deployment whose status is in the registry vocabulary. A newest row with
+  // an unknown status (a future enum, a casing drift) yields to the previous
+  // readable row instead of failing the whole read.
+  const candidates = parsed.deployments
+    .filter(
+      (deployment) =>
+        (deployment.serviceId == null || deployment.serviceId === target.serviceId) &&
+        (deployment.environmentId == null || deployment.environmentId === target.environmentId),
+    )
+    .map((deployment) => ({
+      deployment,
+      status: collapseRailwayStatus(deployment.status),
+      timeMs: parseProviderInstant(deployment.createdAt)?.getTime() ?? null,
+    }))
+    .filter((candidate) => candidate.status !== null)
+    .sort(
+      (a, b) => (b.timeMs ?? Number.NEGATIVE_INFINITY) - (a.timeMs ?? Number.NEGATIVE_INFINITY),
+    );
 
-  if (!latest) return null;
+  const [latest] = candidates;
 
-  const status = collapseRailwayStatus(latest.status);
-
-  if (!status) return null;
+  if (!latest?.status) return null;
 
   return {
-    status,
-    deploymentId: latest.id,
-    providerEventTime: parseProviderInstant(latest.createdAt),
-    url: latest.url,
+    status: latest.status,
+    deploymentId: latest.deployment.id,
+    providerEventTime: parseProviderInstant(latest.deployment.createdAt),
+    url: latest.deployment.url,
   };
 }
 
@@ -267,8 +305,9 @@ export interface RailwayPullResult {
   /**
    * `applied` — the read folded and the row holds what it proved (a later
    * success closes, a later failure reopens, per the target kind's policy).
-   * `duplicate` — the row already holds this outcome, so byte-identical
-   * repeats collapse and mint nothing. `stale` — the read was verified but
+   * `duplicate` — this exact deployment already folded (its attempt key
+   * exists), so redeliveries, retries, and identical consecutive reads mint
+   * nothing. `stale` — the read was verified but
    * older than the stored row, so the store kept the row; `status` and
    * `occurredAt` carry the row, not the read. `unverified` — the read proved
    * nothing; the loop stays live.
@@ -282,10 +321,13 @@ export interface RailwayPullResult {
 const MAX_RAILWAY_PULL_TARGETS = 5;
 
 /**
- * Pull current state for each target and fold it. The dedup is structural:
- * when the target row already holds the outcome this read proved, nothing is
- * minted — so redeliveries, retries, and identical consecutive reads cannot
- * move the row. When the outcome differs, the store's own recency rule
+ * Pull current state for each target and fold it. The dedup is by deployment
+ * identity, not by outcome: when this exact deployment already folded (its
+ * `deployment_id` attempt key exists), nothing is minted — so redeliveries,
+ * retries, and identical consecutive reads cannot move the row. A second,
+ * different deployment with the SAME status still folds, so the row advances
+ * to the new deploymentId, url, and provider instant instead of keeping the
+ * old ones. When the outcome differs, the store's own recency rule
  * decides the write (a stale read loses to the row), and the verdict is
  * re-read off the row — so the briefing prints what the projection holds,
  * never what a losing read claimed.
@@ -348,18 +390,27 @@ export async function pullRailwayTargets(
       occurredAt: parsed.providerEventTime?.toISOString() ?? null,
     };
 
-    const existing = await objectStateStore.getByIdentity(userId, {
-      provider: "railway",
-      kind: "deployment_target",
-      externalId: targetId,
-    });
+    // Duplicate iff this exact deployment folded before — the reducer writes
+    // one `deployment_id` attempt key per folded deployment beside the target
+    // row, so the key is the folded set. A same-status check here would skip
+    // a second, different failed deployment and leave the row pointing at the
+    // old deploymentId, url, and provider instant.
+    const folded = await objectStateStore.resolveByKey(
+      userId,
+      "railway",
+      "deployment_id",
+      parsed.deploymentId,
+    );
 
-    if (existing && existing.nativeState === parsed.status) {
+    if (folded) {
       result.outcome = "duplicate";
       results.push(result);
       continue;
     }
 
+    // A same-status row for an OLDER deployment is not a duplicate: the mint
+    // below re-asserts the status with the new deployment's identity, and the
+    // store's recency rule advances the row (or keeps it, re-read below).
     const receipt = mintRailwayPullReceipt(target, parsed);
 
     await objectStateStore.applyEvent({
