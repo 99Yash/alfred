@@ -16,15 +16,23 @@ import { z } from "zod";
 
 /**
  * The verified pull for failure-only providers (#1094) — the second named
- * closure source beside the verified push.
+ * closure source beside the verified push (ADR-0062 amendment 2026-09-20).
  *
  * Railway mails a build failure and stays silent on success, so email
  * evidence can observe the failure and can never observe the recovery. This
  * seam takes an authenticated read of CURRENT deployment state at gather
  * time instead: one read holds the whole answer, and a read proving a later
- * success closes the loop through the same store guards every push travels
+ * success folds through the same store guards every push travels
  * (unknown kind/unknown token no-write, per-kind absorbing, the
  * `(providerEventTime, deliveredAt)` recency rule).
+ *
+ * What the fold buys is trigger and verdict state, not email-loop closure:
+ * the folded rows re-arm the next gather's trigger (failed/active rows
+ * re-verify) and dedup identical reads, and the pull appends verified
+ * red/green verdict lines beside the failure mail. It does NOT drop the
+ * email loop through `reconcileEvidence` — the Railway adapter proposes no
+ * keys until the deployment-URL grammar lands, so no Railway row reaches
+ * the closure reader today.
  *
  * The Railway MCP catalog publishes `list-services` and `list-deployments`.
  * The read uses the user's ready, issuer-pinned connection and parses only
@@ -304,7 +312,8 @@ export interface RailwayPullResult {
   status: ParsedRailwayStatus["status"] | null;
   /**
    * `applied` — the read folded and the row holds what it proved (a later
-   * success closes, a later failure reopens, per the target kind's policy).
+   * success advances the target row, a later failure reopens it, per the
+   * store's recency rule).
    * `duplicate` — this exact deployment already folded (its attempt key
    * exists), so redeliveries, retries, and identical consecutive reads mint
    * nothing. `stale` — the read was verified but
