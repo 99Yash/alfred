@@ -223,6 +223,38 @@ export function canonicalizeRailwayTargetId(input: {
   return `${projectId}/${serviceId}/${environmentId}`;
 }
 
+const BRANCH_REF_PREFIX = "refs/heads/";
+
+/**
+ * The branch a git ref names, or `null` when the ref names something that is
+ * not a branch.
+ *
+ * A dispatcher writes `client_payload.git.ref` itself, so the value arrives in
+ * whichever of git's two spellings that dispatcher chose: the short name
+ * (`main`) or the full ref (`refs/heads/main`). Both spell ONE branch, so both
+ * must reduce to one identity — otherwise a single deployment target splits in
+ * two and neither half ever closes the other's ask.
+ *
+ * Anything still under `refs/` after the branch prefix comes off is a tag, a
+ * pull ref or a note. None of those is a branch, so none of them names a
+ * deployment target: the caller folds the attempt alone rather than minting a
+ * target identity out of a ref it cannot read (absence never closes).
+ *
+ * Idempotent, so a caller that normalizes first and a caller that does not
+ * reach the same value.
+ */
+export function parseGitBranchRef(ref: string): string | null {
+  const trimmed = ref.trim();
+
+  const branch = trimmed.startsWith(BRANCH_REF_PREFIX)
+    ? trimmed.slice(BRANCH_REF_PREFIX.length)
+    : trimmed;
+
+  if (!branch || branch.startsWith("refs/")) return null;
+
+  return branch;
+}
+
 /**
  * Canonical external id for a Vercel deployment target — the thing a relayed
  * deployment dispatch closes by succession (#1167): `owner/repo#branch#env`.
@@ -241,6 +273,11 @@ export function canonicalizeRailwayTargetId(input: {
  * against the default branch, so that field reads `main` for a preview deploy
  * of any feature branch. Measured on all 15 dev receipts.
  *
+ * It arrives as a raw ref, so {@link parseGitBranchRef} runs here rather than
+ * only at the call site: the id grammar owns the fold from `refs/heads/main`
+ * to `main`, and a second caller cannot bypass it. A ref that names no branch
+ * returns `null`.
+ *
  * Any segment empty or unparseable returns `null`; callers then fold the
  * attempt alone.
  */
@@ -249,9 +286,18 @@ export function canonicalizeVercelTargetId(input: {
   branch: string;
   environment: string;
 }): string | null {
+  const branch = parseGitBranchRef(input.branch);
+
+  if (!branch) return null;
+
+  // The id joins three segments with `#`, and it is read back by splitting on
+  // the last one. A `#` inside either of the two tail segments makes that
+  // split ambiguous, so neither may carry one.
+  if (branch.includes("#")) return null;
+
   const base = canonicalizeGithubTargetId({
     repoFullName: input.repoFullName,
-    branch: input.branch,
+    branch,
   });
 
   if (!base) return null;
@@ -261,6 +307,44 @@ export function canonicalizeVercelTargetId(input: {
   if (!environment || environment.length > 64 || environment.includes("#")) return null;
 
   return `${base}#${environment}`;
+}
+
+/**
+ * The outcome vocabulary a Vercel deployment dispatch collapses to — the
+ * `nativeState` the `vercel` registry entry below normalizes, and the one the
+ * activity line reads. Declared ONCE, here, so the reducer and the
+ * description cannot encode the same action table twice and drift apart.
+ */
+export const VERCEL_DEPLOYMENT_OUTCOMES = ["success", "failure", "pending"] as const;
+
+export type VercelDeploymentOutcome = (typeof VERCEL_DEPLOYMENT_OUTCOMES)[number];
+
+/**
+ * The `repository_dispatch` actions Vercel sends, collapsed to that
+ * vocabulary. A const table rather than a switch so an action outside it —
+ * including a `repository_dispatch` from some other dispatcher entirely —
+ * reads as `null` and means nothing, neither a fold nor a green line.
+ *
+ * `client_payload.state.type` duplicates the action suffix on every receipt
+ * measured, so the action alone is read: one field, one authority.
+ */
+const VERCEL_DISPATCH_ACTION_OUTCOMES: ReadonlyMap<string, VercelDeploymentOutcome> = new Map([
+  ["vercel.deployment.error", "failure"],
+  ["vercel.deployment.success", "success"],
+  ["vercel.deployment.ready", "success"],
+  ["vercel.deployment.promoted", "success"],
+  ["vercel.deployment.pending", "pending"],
+]);
+
+/**
+ * What a `repository_dispatch` action means, or `null` when this build does
+ * not recognize it. Every reader of a dispatch outcome goes through here:
+ * absence must read as absence, never as a succeeded deployment.
+ */
+export function vercelDeploymentOutcome(action: string | null): VercelDeploymentOutcome | null {
+  if (action === null) return null;
+
+  return VERCEL_DISPATCH_ACTION_OUTCOMES.get(action) ?? null;
 }
 
 /**

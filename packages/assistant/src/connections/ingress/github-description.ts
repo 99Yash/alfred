@@ -1,4 +1,8 @@
-import { isEventTypeForSource, type EventTypeForSource } from "@alfred/contracts";
+import {
+  isEventTypeForSource,
+  vercelDeploymentOutcome,
+  type EventTypeForSource,
+} from "@alfred/contracts";
 import { z } from "zod";
 import type { InboundDescription } from "./descriptor";
 import { describeInboundJson } from "./description";
@@ -52,7 +56,6 @@ const githubWebhookPayloadSchema = z.object({
       environment: z.string().optional(),
       git: z.object({ ref: z.string().optional() }).optional(),
       project: z.object({ name: z.string().optional() }).optional(),
-      state: z.object({ type: z.string().optional() }).optional(),
     })
     .optional(),
 });
@@ -108,25 +111,32 @@ function describeGithubActivity(
     }
 
     case "repository_dispatch": {
-      // Vercel's deployment relay is the only dispatcher this build reads, so
-      // the line is written from its body and degrades to the bare action for
-      // anything else. The `vercel.deployment.` prefix is stripped because the
-      // action already reads as a sentence without it.
+      // What the action MEANS comes from the one table the vercel reducer
+      // folds with, never from a second copy written here. An action that
+      // table does not carry belongs to some other dispatcher: the line stays
+      // generic and the status stays `open`, the same default every arm above
+      // uses. An unrecognized dispatch must never read as a green deploy.
+      const outcome = vercelDeploymentOutcome(action ?? null);
+
+      if (!outcome) return { title: `Repository dispatch${where}`, status: "open", url: undefined };
+
       const deployment = payload.client_payload ?? {};
-      const outcome = deployment.state?.type ?? action?.replace(/^vercel\.deployment\./, "");
+      // Display only, and it carries no authority: the action suffix says
+      // `ready` or `promoted` where the folded outcome says only `success`,
+      // and the reader deserves the finer word.
+      const said = action?.replace(/^vercel\.deployment\./, "") ?? outcome;
       // The DEPLOYMENT's branch. The top-level `ref`/`branch` of a
       // `repository_dispatch` is always the default branch, so it would read
       // `main` for a preview deploy of any feature branch.
       const branch = deployment.git?.ref ? ` on ${deployment.git.ref}` : "";
       const environment = deployment.environment ? ` (${deployment.environment})` : "";
-      const title = `Deployment ${outcome ?? "updated"}${branch}${environment}${where}`;
 
       return {
-        title,
+        title: `Deployment ${said}${branch}${environment}${where}`,
         // The activity-status vocabulary carries a `succeeded` member and a
         // `failed` member, so a deployment says which one it is rather than
         // borrowing the PR lane's `resolved`.
-        status: outcome === "error" ? "failed" : outcome === "pending" ? "open" : "succeeded",
+        status: outcome === "failure" ? "failed" : outcome === "success" ? "succeeded" : "open",
         url: deployment.url,
       };
     }
