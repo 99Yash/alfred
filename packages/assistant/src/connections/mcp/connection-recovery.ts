@@ -1,10 +1,6 @@
 /** A bounded probe of stalled MCP connections that still have a stored grant. */
 import { PeriodicTask } from "@alfred/assistant/realtime/periodic-task";
-import { boundedMcpErrorText, isMcpTransportFailure } from "./errors";
-import {
-  listRecoverableCredentialedConnectionIds,
-  retainRecoverableConnection,
-} from "./persistence";
+import { listRecoverableCredentialedConnectionIds } from "./persistence";
 
 import { getMcpConnectionManager } from "./runtime";
 
@@ -29,12 +25,11 @@ const task = new PeriodicTask({
       try {
         // The manager owns the new generation, catalog publication and row state.
         await getMcpConnectionManager().getReadyClient(id);
-      } catch (error) {
-        // Only transport failures stay eligible. The manager stores other
-        // failures, including authorization and protocol refusals.
-        if (isMcpTransportFailure(error)) {
-          await retainRecoverableConnection(id, boundedMcpErrorText(error));
-        }
+      } catch {
+        // The manager already persisted the outcome (`failed`, `auth_required`,
+        // or a concurrent owner's write). Re-parking a transport failure as
+        // `connecting` here is what stuck dead hosts on "Reconnecting…"
+        // permanently, so the probe leaves the stored row alone.
       }
     }
   },

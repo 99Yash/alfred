@@ -35,7 +35,7 @@ import {
   type NewMcpServer,
 } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
-import { and, asc, desc, eq, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
 import { compareMcpToolNames, projectCatalogRevision } from "./hash";
 
@@ -114,7 +114,15 @@ function joinConnection(input: {
   return { ...input.connection, server: input.server };
 }
 
-/** A small, oldest-first page for the background connection recovery pass. */
+/**
+ * A small, oldest-first page for the background connection recovery pass.
+ *
+ * Both `connecting` (post-consent transport stall) and `failed` (ordinary
+ * connect, call, or boot failure) rows are eligible: every failure path except
+ * the post-consent transport branch parks the row as `failed`, so selecting
+ * only `connecting` reaches almost no quiet credentialed connection.
+ * `auth_required` rows are excluded — they need the owner, not a probe.
+ */
 export async function listRecoverableCredentialedConnectionIds(
   cutoff: Date,
   limit: number,
@@ -141,7 +149,7 @@ export async function listRecoverableCredentialedConnectionIds(
     )
     .where(
       and(
-        eq(mcpConnections.status, "connecting"),
+        inArray(mcpConnections.status, ["connecting", "failed"]),
         isNotNull(mcpConnections.lastError),
         lt(mcpConnections.updatedAt, cutoff),
         or(
@@ -154,18 +162,6 @@ export async function listRecoverableCredentialedConnectionIds(
     .limit(limit);
 
   return rows.map((row) => row.id);
-}
-
-/** Keep a transport failure recoverable only if no user action changed the row. */
-export async function retainRecoverableConnection(
-  id: string,
-  lastError: string,
-  runner: DbRunner = db(),
-): Promise<void> {
-  await runner
-    .update(mcpConnections)
-    .set({ status: "connecting", lastError, updatedAt: new Date() })
-    .where(and(eq(mcpConnections.id, id), eq(mcpConnections.status, "failed")));
 }
 
 export async function readConnection(
