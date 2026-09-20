@@ -47,10 +47,6 @@ export function SourceIcon({ source }: { source: GatherSourceSlug }) {
  * catalog brand (system, imessage).
  */
 export function ProviderGlyph({ provider, size = 14 }: { provider: string; size?: number }) {
-  if (provider === "railway") {
-    return <IntegrationGlyph brand="railway" size={size} />;
-  }
-
   if (!isIntegrationSlug(provider)) {
     return <Activity size={size} aria-hidden className="text-app-fg-2" />;
   }

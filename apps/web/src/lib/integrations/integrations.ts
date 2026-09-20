@@ -235,6 +235,24 @@ const INTEGRATION_PAGE_COPY = {
         "Alfred can search shared pages and databases, pull their contents into answers, create new pages under a parent, and append notes to existing pages.",
     },
   },
+  railway: {
+    description: "Read Railway deployment status.",
+    category: "Development",
+    capabilities: ["Read Projects", "Read Deployments", "Read Deployment Status"],
+    trust: {
+      title: "You approve every call",
+      body: "Railway connects over MCP, and every MCP call is staged for your approval before it runs. Disconnect here to end the grant.",
+    },
+    overview: {
+      body: "Connect Railway to give Alfred your deployment record: the projects, services, environments, and deployment states Railway already tracks.",
+      heading: "Deployment Context",
+      detail:
+        "When you ask about a failed deploy, Alfred reads the current deployment state over your Railway grant instead of guessing from a log line.",
+      extraHeading: "Connect it on the MCP tile",
+      extraDetail:
+        "Railway has no separate Alfred credential. It is a first-class MCP server: connect it from the MCP section of this page, and the consent screen is Railway's own.",
+    },
+  },
   vercel: {
     description: "Inspect and redeploy Vercel projects.",
     category: "Development",

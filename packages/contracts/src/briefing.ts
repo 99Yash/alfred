@@ -328,9 +328,7 @@ export const integrationActivityRollupSchema = z.object({
 
 export const integrationActivityItemSchema = z.object({
   id: z.string().min(1),
-  // Railway deployment receipts come from its MCP-only connection. Object
-  // state keeps the provider identity even though no native provider remains.
-  provider: z.union([integrationSlugSchema, z.literal("railway")]),
+  provider: integrationSlugSchema,
   source: integrationActivitySourceSchema,
   activityCategory: integrationActivityCategorySchema,
   providerKind: z.string().min(1).max(120),
