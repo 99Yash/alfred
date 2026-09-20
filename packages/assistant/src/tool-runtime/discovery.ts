@@ -28,8 +28,6 @@ interface ToolCandidateBase {
   summary: string;
   risk: ToolRiskTier;
   reason: string;
-  /** Present only for a connected catalog hit; pass this exact ref to mcp.call. */
-  ref?: ExternalToolRef;
 }
 
 /**
@@ -38,9 +36,30 @@ interface ToolCandidateBase {
  * candidate can't carry a stray `unavailableReason`, and an "unavailable" one
  * can't omit it. Whether the tool can run is read off the `availability` tag,
  * not a separate boolean.
+ *
+ * The `ref` is a second discriminant: only `mcp.call` — the one tool whose
+ * args carry a connected-catalog reference — may carry it. A curated hit for
+ * any other name with a `ref` (e.g. `{ name: "gmail.search", ref: {...} }`)
+ * is unrepresentable, so a stray ref can't route a registered tool at a
+ * remote descriptor. `mcp.call` itself leaves `ref` optional: the curated
+ * `mcp.call` entry has none, while a connected-catalog hit carries the exact
+ * ref whose fields (`connectionId`, `remoteName`, `catalogRevision`) flatten
+ * into the `mcp.call` args.
  */
-export type ToolSearchCandidate = ToolCandidateBase &
-  ({ availability: "available" } | { availability: "unavailable"; unavailableReason: string });
+type AvailabilityTag =
+  | { availability: "available" }
+  | { availability: "unavailable"; unavailableReason: string };
+
+export type ToolSearchCandidate =
+  | (ToolCandidateBase & {
+      name: Exclude<ToolName, "mcp.call">;
+      ref?: never;
+    } & AvailabilityTag)
+  | (ToolCandidateBase & {
+      name: "mcp.call";
+      /** Present only for a connected catalog hit; pass this ref's fields to mcp.call. */
+      ref?: ExternalToolRef;
+    } & AvailabilityTag);
 
 type RankedCandidate = ToolSearchCandidate & {
   score: number;
@@ -347,13 +366,26 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
       preloadEligible: match.preloadEligible,
     };
 
-    // The discriminant flows from `unavailableReason`: it is set iff the tool is
-    // unavailable (guarded above), so "available" candidates never carry it.
-    ranked.push(
-      unavailableReason
-        ? { ...scored, availability: "unavailable", unavailableReason }
-        : { ...scored, availability: "available" },
-    );
+    // The `ref` discriminant flows from the tool name: only `mcp.call` may
+    // carry one, and the curated catalog entry never does. Branch here so a
+    // curated hit for any other name can't acquire a stray `ref`, and the
+    // `ref?: never` arm stays unrepresentable rather than merely unset.
+    // The availability discriminant flows from `unavailableReason`: it is set
+    // iff the tool is unavailable (guarded above), so "available" candidates
+    // never carry it.
+    if (tool.name === "mcp.call") {
+      ranked.push(
+        unavailableReason
+          ? { ...scored, name: tool.name, availability: "unavailable", unavailableReason }
+          : { ...scored, name: tool.name, availability: "available" },
+      );
+    } else {
+      ranked.push(
+        unavailableReason
+          ? { ...scored, name: tool.name, availability: "unavailable", unavailableReason }
+          : { ...scored, name: tool.name, availability: "available" },
+      );
+    }
   }
 
   // Runnable tools first, then by match strength — an unavailable exact match

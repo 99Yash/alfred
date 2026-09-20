@@ -6,6 +6,7 @@ import { useState } from "react";
 import { AppButton, AppCard } from "~/components/ui/v2";
 import { useSendMessage } from "~/lib/chat/use-send-message";
 import { API_URL, client } from "~/lib/eden";
+import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 
 interface RecoveryPanelProps {
   workflowId: string;
@@ -72,7 +73,9 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
                 variant="primary"
                 size="sm"
                 onClick={() => {
-                  window.location.href = `${API_URL}${recoveryNavigation.path}`;
+                  // Authorization opens in a new tab so the workflow draft
+                  // stays in place; Recheck picks up the new grant on return.
+                  openAuthorizationTab(`${API_URL}${recoveryNavigation.path}`);
                 }}
               >
                 {recoveryNavigation.label}
