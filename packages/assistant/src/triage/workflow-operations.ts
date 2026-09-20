@@ -845,11 +845,13 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
  * would let the mint suppression and the retraction disagree about the same
  * fact (ADR-0050's one-owner rule).
  *
- * RAIL-ONLY AND BEST-EFFORT. The classify row is already committed and the
- * Gmail label has already converged; the todo rail is not the contract. A DB blip on the
- * thread-state read or the dismissal is logged and the step still dones the run — it never
- * un-applies or blocks the label — exactly as `suggestTodo` and the sender-prior bump
- * above swallow their own failures. Any throw is logged and the step dones.
+ * RAIL-ONLY AND BEST-EFFORT. The classify row is already committed and
+ * the Gmail label has already converged; the todo rail is not the
+ * contract. A DB blip on the thread-state read or the dismissal is
+ * logged and the step still ends the run — it never un-applies or
+ * blocks the label — exactly as `suggestTodo` and the sender-prior
+ * bump above swallow their own failures. Any throw past the
+ * sourceThreadId guard is logged and the step ends the run.
  */
 export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOperationState>(
   ctx: StepContext<State>,
@@ -899,7 +901,7 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
 
   // Everything past this point touches the todo rail, so it is best-effort:
   // the flag read is inside the try with the dismissal, so a DB blip here
-  // still dones the run with the label outcome intact.
+  // still ends the run with the label outcome intact.
   try {
     // Symmetric with the mint (`classify` gates `suggestTodo` on the same
     // flag): when the user has action items off, existing rail rows are left

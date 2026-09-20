@@ -1,5 +1,4 @@
-import { senderContextSchema } from "@alfred/contracts";
-import { TRIAGE_CATEGORIES } from "@alfred/integrations/google";
+import { senderContextSchema, triageCategorySchema } from "@alfred/contracts";
 import { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
 import { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
@@ -9,7 +8,7 @@ const stateSchema = z.object({
   documentId: z.string(),
   reason: z.enum(["ingest", "webhook", "manual", "reply"]).optional(),
   sourceThreadId: z.string().optional(),
-  category: z.enum(TRIAGE_CATEGORIES).optional(),
+  category: triageCategorySchema.optional(),
   confidence: z.number().min(0).max(1).optional(),
   rationale: z.string().nullable().optional(),
   senderContext: senderContextSchema.optional(),
