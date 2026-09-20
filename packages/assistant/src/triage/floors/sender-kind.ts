@@ -1,7 +1,9 @@
 import {
   isOwnershipCollabActivity,
   isPassiveCollabActivity,
+  isServiceEvidenceCode,
   type CollabActivityKind,
+  type ServiceEvidenceCode,
 } from "@alfred/contracts";
 import type { TriageClassification } from "../classify";
 import type { Observations } from "../observations";
@@ -119,11 +121,34 @@ export function applySenderKindDemotionFloor(
   };
 }
 
+/**
+ * Which `service` evidence codes are precise enough to demote a demanding
+ * thread. A role mailbox (`support@`, `billing@`) can legitimately ask for a
+ * reply, so it may not; a no-reply address, a no-reply HOST and an
+ * auto-submitted envelope cannot be replied to at all, so they may.
+ *
+ * TOTAL over {@link ServiceEvidenceCode}, not a pair of bare literals. The
+ * vocabulary is minted by the #218 kind classifier in
+ * `packages/assistant/src/knowledge/entity-kind-classifier.ts`, persisted into
+ * the projection this floor reads, and answered a SECOND time there by
+ * `HARD_SERVICE_EVIDENCE` for a different question (may this refuse a live
+ * send). The two answers differ on purpose. Sharing one union is what makes
+ * them move together: the bare-literal form let a new member —
+ * `email:domain:service_strong` — land in the classifier and silently switch
+ * this floor off for every `noreply.github.com` thread.
+ */
+const SERVICE_EVIDENCE_CAN_DEMOTE_DEMAND = {
+  "email:local:service_strong": true,
+  "email:domain:service_strong": true,
+  "email:local:service": false,
+  "gmail:auto_submitted": true,
+} satisfies Record<ServiceEvidenceCode, boolean>;
+
 function senderKindCanDemoteDemand(senderKind: NonNullable<Observations["senderKind"]>) {
   if (senderKind.kind === "group") return true;
 
   return senderKind.evidenceCodes.some(
-    (code) => code === "email:local:service_strong" || code === "gmail:auto_submitted",
+    (code) => isServiceEvidenceCode(code) && SERVICE_EVIDENCE_CAN_DEMOTE_DEMAND[code],
   );
 }
 
