@@ -24,27 +24,20 @@ import type { FloorResult } from "./floor";
  *    tells the model to answer passively unless the body names an obligation the
  *    user owns independently of trusting the sender.
  *
- * `held_demand_lane` does NOT say the model chose the lane. Two deterministic
- * producers can write a demand lane no model voted on, and an over-tag audit
- * (#210/#354) separates them on the same flat trace row:
+ * `held_demand_lane` does NOT say the model chose the lane. Exactly ONE
+ * deterministic producer can write a demand lane no model voted on, and an
+ * over-tag audit (#210/#354) separates it on the same flat trace row:
+ * `floorForced = true` — the override floor force-escalated an exposed-secret
+ * body to `urgent` at sequence position 1. Exact: the field keys on
+ * `verdict.kind === "escalate"`, not on a match.
  *
- *  - `floorForced = true` — the override floor force-escalated an
- *    exposed-secret body to `urgent` at sequence position 1. Exact: the field
- *    keys on `verdict.kind === "escalate"`, not on a match.
- *  - `secondPassFailure IS NOT NULL AND conflict = 'under_classification' AND
- *    firstPassCategory IN ('fyi','done','newsletter','marketing')` —
- *    `conservativeUnderClassificationFallback` wrote `action_needed` after the
- *    second pass threw. ALL THREE clauses are required. `secondPassFailure` is
- *    set on ANY second-pass throw, before the conflict kind is read, so alone
- *    it over-attributes: on an over-classification conflict the throw keeps the
- *    model's own first-pass `urgent`, which the shorter join misreads as
- *    deterministic. That pairing is the likely case, not the exotic one —
- *    over-classification net A gates on a demand lane plus a bulk-prior sender
- *    and no Gmail IMPORTANT, which describes a spam-filed demand lane almost by
- *    definition. The passive list is `PASSIVE_CATEGORIES` in `../classify.ts`,
- *    the fallback's own gate.
+ * Do NOT add a second join on `secondPassFailure`. A throw on the under-
+ * classification second pass once escalated a passive first pass to
+ * `action_needed`; that branch is gone, so a second-pass throw now resolves to
+ * the model's own first pass in both conflict directions and attributes nothing
+ * to the deterministic layer.
  *
- * A `held_demand_lane` row that matches neither join is the model's own
+ * A `held_demand_lane` row that does not match `floorForced` is the model's own
  * judgment.
  *
  * The trace key is `spamFloorOutcome`, NOT `spamDemotionReason`. TWO of the

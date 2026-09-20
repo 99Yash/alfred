@@ -85,17 +85,14 @@ export const FLOOR_TRACE_PROJECTIONS = {
      * The key an audit of this floor must read is `spamFloorOutcome`.
      *
      * `held_demand_lane` does not name WHO chose the lane — the floor cannot
-     * observe that. Join it on this same flat row:
+     * observe that. ONE join answers it on this same flat row:
+     * `floorForced = true`, the override floor's forced `urgent`. Exact.
      *
-     *  - `floorForced = true` — the override floor's forced `urgent`. Exact.
-     *  - `secondPassFailure IS NOT NULL AND conflict = 'under_classification'
-     *    AND firstPassCategory IN ('fyi','done','newsletter','marketing')` —
-     *    `conservativeUnderClassificationFallback` wrote `action_needed` after a
-     *    second pass threw. All three clauses are required: `secondPassFailure`
-     *    is set on ANY second-pass throw, before the conflict kind is read, so
-     *    alone it reads a model's own first-pass `urgent` as deterministic.
-     *
-     * A row that matches neither join is the model's own judgment.
+     * Do NOT also join on `secondPassFailure`. A second-pass throw once
+     * escalated a passive first pass to `action_needed`; it no longer does, and
+     * the failure now resolves to the model's own first pass in both conflict
+     * directions. A row that does not match `floorForced` is the model's own
+     * judgment, whatever `secondPassFailure` holds.
      */
     spamFloorOutcome: audit?.outcome ?? null,
   }),

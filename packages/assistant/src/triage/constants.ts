@@ -44,6 +44,3 @@ export const TRIAGE_STRONG_BULK_MIN_SHARE = 0.8;
 export const TRIAGE_SERVICE_ACTION_LOOP_MIN_TOTAL = 8;
 
 export const TRIAGE_SERVICE_ACTION_LOOP_MIN_SHARE = 0.5;
-
-/** Confidence floor used only when the safety second pass itself fails. */
-export const TRIAGE_SECOND_PASS_FAILURE_CONFIDENCE_FLOOR = 0.6;

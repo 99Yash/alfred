@@ -92,6 +92,13 @@ export interface ContentFlags {
    * under-classification net. This is STRICTLY BROADER than the override-floor
    * predicate (which keys on exposure verbs only), so a self-initiated magic
    * link sets this flag but never trips the floor.
+   *
+   * The flag is a HINT, never a demand lane. Every vendor authentication echo
+   * sets it — a password-change confirmation as much as a breach alert — and
+   * rule 15 decides between them on WHO asserts the risk, not on this vocabulary.
+   * So no deterministic path may read `true` here and write `urgent` or
+   * `action_needed`; only the exposed-secret floor and the model's own judgment
+   * choose a demand lane.
    */
   hasSecurityKeyword: boolean;
   /** An embedded calendar invite (iCal) — a meeting tell. */
