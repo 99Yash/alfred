@@ -359,12 +359,17 @@ export const INTEGRATION_OBJECT_DEFS = {
         absorbing: [],
       },
       // The succession target (`projectId/serviceId/environmentId`): its
-      // state is the outcome of the latest verified pull. A `resolved` target
-      // closes an ask opened by an earlier `failed` target; a later `failed`
-      // reopens it; a lone failure stays open. Nothing absorbs, so a success
-      // after a failure lands as ordinary traffic.
+      // state is the outcome of the latest verified pull. Nothing absorbs,
+      // so a success after a failure lands as ordinary traffic.
+      //
+      // `closesAskOn` is empty until the Railway text adapter exists: the
+      // adapter proposes no keys, so no Railway row reaches the closure
+      // reader and a declaration here would be unreachable. Closure to the
+      // reader is the pull's verdict line, not a dropped email loop. Restore
+      // `["resolved"]` alongside the deployment-URL grammar that makes it
+      // reachable (ADR-0062 amendment 2026-09-20).
       deployment_target: {
-        closesAskOn: ["resolved"],
+        closesAskOn: [],
         absorbing: [],
       },
     },

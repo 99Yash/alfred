@@ -10,8 +10,12 @@ import type { ExtractedKey, KeyProposal, ObjectStateAdapter, ReconcileSubject } 
  * deployment-URL grammar plus a text adapter — fills this file in.
  *
  * This is safe, not silent: proposal never asserts state (a wrong or absent
- * key resolves to nothing and closes nothing), and closure of a Railway loop
- * rides on the verified pull's target rows, read structurally by identity.
+ * key resolves to nothing and closes nothing). A Railway loop's email item
+ * is NOT dropped by reconciliation today — closure to the reader is the
+ * verified pull's verdict line, and the target rows exist for the pull's
+ * own trigger and dedup, read structurally by identity. When the
+ * deployment-URL grammar lands and this adapter proposes keys, the
+ * `deployment_target` closure declaration is restored alongside it.
  */
 export const railwayObjectStateAdapter: ObjectStateAdapter = {
   provider: "railway",
