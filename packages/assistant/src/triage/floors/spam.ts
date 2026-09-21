@@ -39,13 +39,20 @@ import type { FloorResult } from "./floor";
  * machinery (`packages/db/src/schema/agent.ts`) — so an audit reading history
  * needs the OLD join too, on the same flat row:
  *
- *   decided_at < '<#1188 merge date>'
+ *   decided_at < '2026-09-21T01:48:37Z'
  *     AND secondPassFailure IS NOT NULL
  *     AND conflict = 'under_classification'
  *     AND firstPassCategory IN ('fyi','done','newsletter','marketing')
  *
+ * That literal is #1188's own merge time, read from
+ * `gh pr view 1188 --json mergedAt` after the fact rather than guessed before
+ * it. One residual: merge time is not deploy time, so rows written in the gap
+ * between the two still came from the deleted branch and fall on the wrong side
+ * of this bound. The gap is minutes and the join is an audit aid, not a gate,
+ * so widen the bound rather than trust it to the second.
+ *
  * Those rows are the deleted producer's, not the model's. For rows written at or
- * after that date, `floorForced = true` is the whole answer and a
+ * after that timestamp, `floorForced = true` is the whole answer and a
  * `held_demand_lane` row that misses it is the model's own judgment.
  *
  * The trace key is `spamFloorOutcome`, NOT `spamDemotionReason`. TWO of the
