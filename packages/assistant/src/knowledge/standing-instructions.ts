@@ -111,13 +111,18 @@ export async function rememberSenderSuppression(
   //      address the caller already resolved, so `co.in` cannot become a
   //      target — no sender has that address.
   //   2. Only a `corporate_domain` widens. `classifyBareDomain` is the one
-  //      place that answers "is this domain one organization's", and it also
-  //      rejects consumer mailboxes, school and alumni domains, shared-hosting
-  //      and disposable hosts, and mail-infrastructure hosts — every class
-  //      where one domain carries unrelated senders. It reads the BARE domain,
-  //      never a connected account: the account form demands a verified hosted
-  //      domain the sender side never has, so it would answer `ambiguous_domain`
-  //      for every real sender and no instruction would ever widen.
+  //      place that answers "is this domain one organization's". It reads the
+  //      BARE domain, never a connected account: the account form demands a
+  //      verified hosted domain the sender side never has, so it would answer
+  //      `ambiguous_domain` for every real sender and no instruction would
+  //      ever widen.
+  //
+  //      Read rail 2 as a DENY-LIST, not a closed rule. `classifyBareDomain`
+  //      answers from five enumerated tables — consumer mailboxes, school and
+  //      alumni domains, shared hosting, disposable hosts, and mail
+  //      infrastructure. A consumer host that no table lists reads as
+  //      `corporate_domain` and still widens. The rail narrows the class of
+  //      bad targets; it does not close it.
   const candidateDomain = parsed.scope === "domain" ? emailDomain(email) : null;
 
   const domain =
@@ -163,6 +168,11 @@ export async function rememberSenderSuppression(
   // different question (does anything already cover this sender?), and a
   // domain instruction that covers the sender must not block the user from
   // also pinning the address.
+  //
+  // Identity is BOTH halves. `findInstructionByTarget` compares the per-kind
+  // key from `standingInstructionTargetKey` AND `accountId`, because that key
+  // reads the sender and never the account. Two instructions for one sender
+  // scoped to two mailboxes are two distinct rows, not a duplicate.
   const existing = findInstructionByTarget(
     await listActiveSuppressionInstructions(parsed.userId),
     instruction.target,
@@ -183,6 +193,13 @@ export async function rememberSenderSuppression(
     // this, two runs can both pass the `existing` check above and insert
     // duplicate active rows. Same per-key advisory-lock pattern as
     // `proposeFact`/`confirmFact` in `facts.ts`.
+    //
+    // The key TEXT is a deploy-compatibility value, not a style choice. This
+    // file uses two shapes — `<userId>:standing_instruction:<targetKey>` here
+    // on the write path, and `standing_instruction:<userId>:<factId>` on the
+    // edit and delete paths. Rewriting either text leaves the old and new
+    // builds hashing to different keys, so one rolling-deploy window runs
+    // unserialized. Both shapes stay as they are.
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`${parsed.userId}:standing_instruction:${standingInstructionTargetKey(instruction.target)}`}, 0))`,
     );
@@ -282,15 +299,15 @@ function findInstructionByTarget(
   return null;
 }
 
+/**
+ * Every active `suppress` instruction for this user. There is deliberately NO
+ * effect parameter: membership is derived at read time, so an active
+ * suppression binds its sender for every consumer. A caller that wants one
+ * effect filters the result itself, and cannot believe a filter ran here.
+ */
 export async function listActiveSuppressionInstructions(
   userId: string,
-  // Audit echo only — membership is derived at read time, so the filter is
-  // gone. Kept as an optional arg so existing call sites keep compiling while
-  // they migrate off the per-effect read.
-  effect?: SuppressionEffect,
 ): Promise<ActiveSuppressionInstruction[]> {
-  void effect;
-
   const facts = await db()
     .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
     .from(userFacts)
@@ -312,7 +329,7 @@ export async function findActiveSenderSuppression(
   userId: string,
   lookup: SenderSuppressionLookup,
 ): Promise<SenderSuppressionMatch | null> {
-  const instructions = await listActiveSuppressionInstructions(userId, lookup.effect);
+  const instructions = await listActiveSuppressionInstructions(userId);
 
   return findSenderSuppression(instructions, lookup);
 }

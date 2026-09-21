@@ -182,7 +182,7 @@ export async function listEmailsSinceWatermark(
     // is written off `list_emails_since`, and without this a suppressed sender
     // (e.g. one the user just told Alfred to stop surfacing) leaks straight back
     // into the headline.
-    listActiveSuppressionInstructions(args.userId, "exclude_briefing_priority"),
+    listActiveSuppressionInstructions(args.userId),
   ]);
 
   const rows: EmailListRow[] = [];
@@ -670,10 +670,7 @@ export async function readEmailDocument(args: {
   if (!row) return null;
   const meta = parseGmailDocumentMetadata(row.metadata);
 
-  const suppressionInstructions = await listActiveSuppressionInstructions(
-    args.userId,
-    "exclude_briefing_priority",
-  );
+  const suppressionInstructions = await listActiveSuppressionInstructions(args.userId);
 
   const suppressed = findSenderSuppression(suppressionInstructions, {
     senderEmail: meta.from ?? null,

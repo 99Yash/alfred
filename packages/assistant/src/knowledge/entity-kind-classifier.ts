@@ -1,6 +1,7 @@
 import {
   canonicalizeIdentityValue,
   classifyBareDomain,
+  emailDomain,
   gmailEmailMessagePayloadSchema,
   hasServiceWordSuffix,
   identityRefSchema,
@@ -8,6 +9,7 @@ import {
   INTEGRATION_OBJECT_KIND_SEGMENTS,
   isServiceEvidenceCode,
   SERVICE_EVIDENCE_CODES,
+  splitEmail,
   type EntityKindClassification,
   type EntityNodeKind,
   type IdentityRef,
@@ -214,7 +216,7 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
     return classification("unknown", WEAK_CONFIDENCE, [`identity:${identity.kind}`]);
   }
 
-  const parsed = parseEmail(identity.value);
+  const parsed = splitEmail(identity.value);
 
   if (!parsed) {
     return classification("unknown", WEAK_CONFIDENCE, ["email:unparseable"]);
@@ -333,17 +335,6 @@ function normalizeDisplayName(value: string | undefined): string | null {
     .trim();
 
   return trimmed ? trimmed : null;
-}
-
-function parseEmail(value: string): { localPart: string; domain: string } | null {
-  const at = value.lastIndexOf("@");
-
-  if (at < 1 || at === value.length - 1) return null;
-
-  return {
-    localPart: value.slice(0, at).toLowerCase(),
-    domain: value.slice(at + 1).toLowerCase(),
-  };
 }
 
 function isStrongServiceLocal(localPart: string): boolean {
@@ -613,9 +604,9 @@ export function classifyContactKind(input: ClassifyContactKindInput): EntityKind
   const address = canonicalizeIdentityValue("email", input.address);
 
   const identity = identityRefSchema.safeParse({ kind: "email", value: address });
-  const parsed = parseEmail(address);
+  const domain = emailDomain(address);
 
-  if (!identity.success || !parsed) return "other";
+  if (!identity.success || !domain) return "other";
 
   const stored = input.canonicalName.trim();
 
@@ -637,5 +628,5 @@ export function classifyContactKind(input: ClassifyContactKindInput): EntityKind
   // restated (`Amazon.in` from `order-update@amazon.in`).
   if (!displayName) return "person";
 
-  return restatesOwnDomain(displayName, parsed.domain) ? "other" : "person";
+  return restatesOwnDomain(displayName, domain) ? "other" : "person";
 }

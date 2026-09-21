@@ -3,6 +3,7 @@ import {
   type CollabActivityKind,
   type JsonObject,
   type SenderContext,
+  type StandingInstructionTargetKind,
 } from "@alfred/contracts";
 import { type TriageCategory } from "@alfred/integrations/google";
 import type { ClassifyAudit, TriageClassification } from "./classify";
@@ -218,7 +219,7 @@ export interface SenderExtractionEvent extends FloorTraceFields {
    * domain-scoped instruction ever fires, which no other field can show: a
    * domain match and an address match produce the same suppression.
    */
-  standingInstructionMatchedVia: string | null;
+  standingInstructionMatchedVia: StandingInstructionTargetKind | null;
   standingInstructionReadFailed: boolean;
   /**
    * A standing instruction was in the prompt for this
