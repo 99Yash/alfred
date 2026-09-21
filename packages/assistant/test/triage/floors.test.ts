@@ -186,6 +186,35 @@ describe("applyFloors — threading", () => {
     assert.doesNotMatch(outcome.classification.rationale, /Sender-kind floor:/);
   });
 
+  test("the demotion veto survives a comma-set-off leak clause", () => {
+    // Regression for #1188 round 3. The veto predicate
+    // `matchesExposedCredentialClaim` used to share the floor's whitespace-only
+    // gap, which ends at a comma. A leak clause written as a set-off aside —
+    // ordinary in scanner and breach-aggregator mail — therefore read as no
+    // claim at all, the sign-in demotion fired, and a real alarm landed at `fyi`
+    // with its todo cleared. The veto now has its own gap that crosses one
+    // comma-set-off aside; the floor's own gap is unchanged, so this body still
+    // does not force `urgent`.
+    const body =
+      "we detected a new sign-in to your account from a new device. " +
+      "if this was you, no action is needed. " +
+      "if you don't recognize this, your password, which unlocks the production " +
+      "database, was found in a public dump.";
+
+    const outcome = applyFloors(
+      classification({ category: "action_needed" }),
+      context({
+        signalText: body,
+        subject: "New sign-in to your account",
+        senderKind: groupKind,
+      }),
+    );
+
+    assert.equal(outcome.audits.override.verdict.kind, "keep");
+    assert.equal(outcome.audits.senderKind.verdict.kind, "keep");
+    assert.equal(outcome.classification.category, "action_needed");
+  });
+
   test("is pure — the input classification is never mutated", () => {
     const input = classification({
       category: "meeting",

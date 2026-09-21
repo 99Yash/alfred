@@ -42,17 +42,19 @@ function withoutSelfEchoBoilerplate(text: string): string {
  * EXPOSURE VERBS, deliberately narrower than the broad `hasSecurityKeyword`
  * content flag — a self-initiated "sign in"/"your code is 123456" link contains
  * none of these verbs, so it never trips them (the bug that opened v3). The two
- * must also stand in ONE unbroken phrase — see `EXPOSURE_GAP` — which is what
- * stops an exposure verb aimed at something else in the same paragraph from
- * reading as a claim about the secret.
+ * must also stand in one close run — see `EXPOSURE_GAP` for the precision half
+ * and `EXPOSURE_GAP_RECALL` for the veto half — which is what stops an exposure
+ * verb aimed at something else in the same paragraph from reading as a claim
+ * about the secret.
  *
  * Both noun sets are narrower than `hasSecurityKeyword` ON PURPOSE: the generic
  * `credential` is excluded from both (it stays in the broad hint regex) because
  * "the credential object is exposed to the network" is ordinary engineering
  * prose that satisfies every gap rule this module can state.
  *
- * The two sets differ on `password`, and the difference is the whole point of
- * having two. They answer opposite questions with opposite error costs:
+ * The two sets differ on `password`, and the two gaps differ on a comma. That
+ * difference is the whole point of having two. They answer opposite questions
+ * with opposite error costs:
  *
  *   FLOOR (`matchesExposedSecret`)   "is this CERTAINLY a leaked machine
  *                                     credential?" It force-tags `urgent`
@@ -90,14 +92,27 @@ const EXPOSED_CREDENTIAL_NOUN = String.raw`(?:secret|api[ -]?key|token|private k
 const OVERRIDE_FLOOR_EXPOSURE_VERB = String.raw`(?:exposed|leaked|committed|compromised|found|detected)`;
 
 /**
- * One word of the run that may sit between the secret and the exposure verb: a
- * plain word, or a bracketed aside, because leak bots write the credential's
- * identity in parentheses ("A secret (Redis connection URI) was found exposed").
+ * A bracketed aside, because leak bots write the credential's identity in
+ * parentheses ("A secret (Redis connection URI) was found exposed").
  */
-const EXPOSURE_GAP_WORD = String.raw`(?:\([^()\n]*\)|\[[^\]\n]*\]|[\w'’-]+)`;
+const EXPOSURE_BRACKETED_ASIDE = String.raw`(?:\([^()\n]*\)|\[[^\]\n]*\])`;
 
 /**
- * The gap the two must share: at most three words, separated by whitespace
+ * One word of the run that may sit between the secret and the exposure verb: a
+ * plain word, or a bracketed aside.
+ */
+const EXPOSURE_GAP_WORD = String.raw`(?:${EXPOSURE_BRACKETED_ASIDE}|[\w'’-]+)`;
+
+/**
+ * The same word for the RECALL gap, except that a bracketed aside may carry the
+ * comma that closes it ("A secret (Redis connection URI), was found exposed").
+ * A plain word may NOT: a bare comma after an ordinary word opens a new clause,
+ * which is exactly the boundary the precision gap exists to honour.
+ */
+const EXPOSURE_GAP_WORD_RECALL = String.raw`(?:${EXPOSURE_BRACKETED_ASIDE},?|[\w'’-]+)`;
+
+/**
+ * The precision half's gap: at most three words, separated by whitespace
  * ALONE. Whitespace-only is what binds the verb to the secret. Any other
  * character — a period, a comma, a colon, a URL delimiter — ends the run, so the
  * verb and the noun must stand in one unbroken phrase rather than merely in the
@@ -125,19 +140,56 @@ const EXPOSURE_GAP_WORD = String.raw`(?:\([^()\n]*\)|\[[^\]\n]*\]|[\w'’-]+)`;
  * that "your token expires soon, nothing was compromised" is a denial. What it
  * does guarantee is that the verb and the secret belong to one phrase, which is
  * the property the old window lacked.
+ *
+ * This gap belongs to the PRECISION half alone. The recall half gets
+ * `EXPOSURE_GAP_RECALL` below, because the two halves answer opposite questions
+ * and therefore do not want the same tightness.
  */
 const EXPOSURE_GAP = String.raw`(?:\s+${EXPOSURE_GAP_WORD}){0,3}\s+`;
 
-function exposureRe(noun: string): RegExp {
+/**
+ * A clause set off by a PAIR of commas — an appositive that names what the
+ * credential does: "Your token, which grants full API access, was leaked". Six
+ * words inside, because that is the length such an aside runs to. A period, a
+ * colon or a semicolon still ends it, so the aside stays inside one sentence.
+ *
+ * Both commas are required. A single comma after an ordinary word opens a new
+ * clause rather than setting one off, and admitting it would let the recall half
+ * read "We found your account, and your password reset token is abc123" — a
+ * self-echo — as an exposure claim. Measured: that body matches with one comma
+ * allowed and does not match with the pair required.
+ */
+const EXPOSURE_SET_OFF_CLAUSE = String.raw`,(?:\s+${EXPOSURE_GAP_WORD_RECALL}){0,6}\s*,`;
+
+/**
+ * The recall half's gap: the same three-word whitespace run as the precision
+ * gap, plus at most ONE comma-set-off clause, with its own three-word run after
+ * it.
+ *
+ * Why the two differ. `matchesExposedSecret` ESCALATES, so a false positive
+ * force-tags `urgent` unrecoverably and the whitespace-only run is the cut that
+ * earns it. `matchesExposedCredentialClaim` only ever VETOES a demotion at its
+ * six call sites, so a false NEGATIVE is the expensive error: it buries a real
+ * leak notification at `fyi` and clears its todo. Before this split both halves
+ * shared one gap, so tightening the floor for the self-echo class silently made
+ * the vetoes miss comma-appositive leak prose.
+ *
+ * Every other punctuation barrier the precision gap enforces stays. Only the two
+ * shapes above are admitted, so a text with no set-off aside and no bracketed
+ * aside gets the identical rule and the identical answer.
+ */
+const EXPOSURE_GAP_RECALL = String.raw`(?:\s+${EXPOSURE_GAP_WORD_RECALL}){0,3}(?:${EXPOSURE_SET_OFF_CLAUSE}(?:\s+${EXPOSURE_GAP_WORD_RECALL}){0,3})?\s+`;
+
+function exposureRe(noun: string, gap: string): RegExp {
   return new RegExp(
-    String.raw`\b(?:${noun}\b${EXPOSURE_GAP}${OVERRIDE_FLOOR_EXPOSURE_VERB}|${OVERRIDE_FLOOR_EXPOSURE_VERB}\b${EXPOSURE_GAP}${noun})\b`,
+    String.raw`\b(?:${noun}\b${gap}${OVERRIDE_FLOOR_EXPOSURE_VERB}|${OVERRIDE_FLOOR_EXPOSURE_VERB}\b${gap}${noun})\b`,
     "i",
   );
 }
 
-const OVERRIDE_FLOOR_SECRET_RE = exposureRe(OVERRIDE_FLOOR_SECRET_NOUN);
+const OVERRIDE_FLOOR_SECRET_RE = exposureRe(OVERRIDE_FLOOR_SECRET_NOUN, EXPOSURE_GAP);
 
-const EXPOSED_CREDENTIAL_RE = exposureRe(EXPOSED_CREDENTIAL_NOUN);
+const EXPOSED_CREDENTIAL_RE = exposureRe(EXPOSED_CREDENTIAL_NOUN, EXPOSURE_GAP_RECALL);
 
 const OVERRIDE_FLOOR_CONFIDENCE_FLOOR = 0.85;
 
@@ -158,7 +210,9 @@ export function matchesExposedSecret(text: string): boolean {
  * including a user password. The recall half of the pair above, for the six
  * carve-outs that PRESERVE a category or a rail todo — `hasIntrinsicStakeSignal`,
  * the PR-gate liveness escape and the tracker-owned escape in `classify.ts`, and
- * the three demotion vetoes in `sender-kind.ts`. Never use it to ESCALATE. PURE.
+ * the three demotion vetoes in `sender-kind.ts`. Because none of those can raise
+ * a category, this half runs on the looser `EXPOSURE_GAP_RECALL`, which tolerates
+ * one comma-set-off aside. Never use it to ESCALATE. PURE.
  */
 export function matchesExposedCredentialClaim(text: string): boolean {
   return EXPOSED_CREDENTIAL_RE.test(withoutSelfEchoBoilerplate(text));
