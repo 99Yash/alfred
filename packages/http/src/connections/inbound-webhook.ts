@@ -36,9 +36,11 @@ function respond(outcome: InboundDeliveryOutcome, set: Context["set"]) {
   switch (outcome.kind) {
     case "unknown_source":
       set.status = 404;
+
       return { ok: false as const, error: "unknown source" };
     case "rejected":
       set.status = 401;
+
       return { ok: false as const, error: "invalid signature" };
     case "ignored":
       return { ok: true as const, ignored: outcome.reason };
@@ -46,8 +48,11 @@ function respond(outcome: InboundDeliveryOutcome, set: Context["set"]) {
       return { ok: true as const, duplicate: true as const, receiptId: outcome.receiptId };
     case "accepted":
       return { ok: true as const, receiptId: outcome.receiptId };
+    case "raw":
+      return { ok: true as const, receiptId: outcome.receiptId, raw: true as const };
     default: {
       const _exhaustive: never = outcome;
+
       return _exhaustive;
     }
   }

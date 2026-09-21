@@ -10,6 +10,7 @@
  * context through this internal barrel, not through `../../agent`.
  */
 export { type ConversationSummary } from "./conversation-summary";
+
 export {
   loadChatThreadContext,
   persistConversationSummary,
@@ -17,34 +18,42 @@ export {
   type LoadedChatThreadContext,
   type PersistConversationSummaryArgs,
 } from "./chat-context-store";
+
 export {
   assembleChatContext,
   conversationSummaryMessage,
   selectVerbatimTail,
   type ChatContextMessage,
 } from "./chat-context-assembly";
+
 export { assessChatRequestPressure, estimateChatRequestTokens } from "./chat-request-pressure";
+
 export {
   CHAT_HYDRATED_IMAGE_TOKENS,
   CHAT_MAX_OUTPUT_TOKENS,
   CHAT_SYNC_COMPACTION_RATIO,
 } from "./constants";
+
 export {
   chooseConversationSummaryModel,
   eligibleConversationSummarySources,
   generateConversationSummary,
   type ConversationSummaryEvidence,
 } from "./conversation-summary-generator";
+
 export {
   buildConversationSummaryEvidence,
   loadConversationSummaryEvidence,
   CONVERSATION_EVIDENCE_TEXT_LIMIT_CHARS,
 } from "./conversation-summary-evidence";
+
 export { compactConversationSynchronously } from "./synchronous-conversation-compaction";
+
 export {
   isCompactionActive,
   waitForActiveConversationCompaction,
 } from "./conversation-compaction-wait";
+
 export {
   closeConversationCompactionQueue,
   enqueueConversationCompaction,
@@ -52,11 +61,13 @@ export {
   startConversationCompactionWorker,
   stopConversationCompactionWorker,
 } from "./conversation-compaction-queue";
+
 export {
   backgroundCompactionThresholdTokens,
   scheduleConversationCompactionIfNeeded,
   BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS,
 } from "./conversation-compaction-scheduler";
+
 // Pre-call context guard: compaction owns its recipe, not just its ingredients.
 export {
   buildCompactedChatTranscriptPair,

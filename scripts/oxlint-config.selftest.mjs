@@ -52,6 +52,7 @@ function write(root, relative, content) {
 
 function withFixture(body) {
   const fixture = mkdtempSync(join(tmpdir(), "oxlint-config-"));
+
   try {
     return body(fixture);
   } finally {
@@ -85,6 +86,7 @@ function track(fixture) {
 function equal(actual, expected, label) {
   const left = JSON.stringify(actual);
   const right = JSON.stringify(expected);
+
   return left === right ? [] : [`${label}: expected ${right}, received ${left}`];
 }
 
@@ -93,6 +95,7 @@ function cleanFixtureFailures() {
   return withFixture((fixture) => {
     initRepo(fixture);
     track(fixture);
+
     return [
       ...equal(strayOxlintConfigs(fixture), [], "a clean repo has no stray config"),
       ...equal(unpinnedLintScripts(fixture), [], "a clean repo has no unpinned oxlint script"),
@@ -114,6 +117,7 @@ function nestedConfigFailures(name) {
     initRepo(fixture);
     write(fixture, `packages/http/src/${name}`, "{}\n");
     track(fixture);
+
     return equal(
       strayOxlintConfigs(fixture),
       [`packages/http/src/${name}`],
@@ -130,6 +134,7 @@ function untrackedNestedConfigFailures() {
   return withFixture((fixture) => {
     initRepo(fixture);
     write(fixture, "apps/web/.oxlintrc.json", "{}\n");
+
     return equal(
       strayOxlintConfigs(fixture),
       ["apps/web/.oxlintrc.json"],
@@ -149,6 +154,7 @@ function gitignoredNestedConfigFailures() {
     write(fixture, ".gitignore", "packages/http/src/.oxlintrc.json\n");
     write(fixture, "packages/http/src/.oxlintrc.json", "{}\n");
     track(fixture);
+
     return equal(
       strayOxlintConfigs(fixture),
       [],
@@ -165,6 +171,7 @@ function unpinnedScriptFailures() {
       scripts: { ...PINNED_MANIFEST.scripts, lint: "oxlint" },
     });
     track(fixture);
+
     return equal(
       unpinnedLintScripts(fixture),
       [{ script: "lint", command: "oxlint" }],
@@ -184,6 +191,7 @@ function newUnpinnedScriptFailures() {
       scripts: { ...PINNED_MANIFEST.scripts, "lint:ci": "oxlint --format=github" },
     });
     track(fixture);
+
     return equal(
       unpinnedLintScripts(fixture),
       [{ script: "lint:ci", command: "oxlint --format=github" }],
@@ -200,6 +208,7 @@ function wrongConfigPinFailures() {
       scripts: { ...PINNED_MANIFEST.scripts, lint: "oxlint --config tools/.oxlintrc.json" },
     });
     track(fixture);
+
     return equal(
       unpinnedLintScripts(fixture),
       [{ script: "lint", command: "oxlint --config tools/.oxlintrc.json" }],
@@ -213,6 +222,7 @@ function noOxlintScriptFailures() {
   return withFixture((fixture) => {
     initRepo(fixture, { name: "fixture", scripts: { check: "pnpm format:check" } });
     track(fixture);
+
     return equal(oxlintScripts(fixture), [], "a manifest with no oxlint script enumerates none");
   });
 }
@@ -224,6 +234,7 @@ function missingRootConfigFailures() {
     rmSync(join(fixture, ROOT_OXLINT_CONFIG));
     track(fixture);
     const failures = rootConfigFailures(fixture);
+
     return failures.length === 1 && failures[0].includes(ROOT_OXLINT_CONFIG)
       ? []
       : [`a missing root config must be reported, received ${JSON.stringify(failures)}`];
@@ -237,6 +248,7 @@ function emptyRootConfigFailures() {
     write(fixture, ROOT_OXLINT_CONFIG, "{\n}\n");
     track(fixture);
     const failures = rootConfigFailures(fixture);
+
     return failures.length === 1 && failures[0].includes("declares no rules")
       ? []
       : [`an empty root config must be reported, received ${JSON.stringify(failures)}`];
@@ -264,10 +276,12 @@ function fenceRepo(fixture, { packages, rules, overrides, files = [] }) {
   execFileSync("git", ["init", "--quiet"], { cwd: fixture });
   write(fixture, "package.json", `${JSON.stringify({ name: "fixture" }, null, 2)}\n`);
   write(fixture, "pnpm-workspace.yaml", 'packages:\n  - "packages/*"\n');
+
   for (const [dir, manifest] of Object.entries(packages)) {
     write(fixture, `packages/${dir}/package.json`, `${JSON.stringify(manifest, null, 2)}\n`);
     write(fixture, `packages/${dir}/src/index.ts`, "export const value = 1;\n");
   }
+
   // A wildcard `exports` key is resolved to a concrete file, so a drive whose subject
   // is a live wildcard has to put the file behind it on disk.
   for (const file of files) write(fixture, file, "export const value = 1;\n");
@@ -293,6 +307,7 @@ function workspace(name, exportsValue) {
 function fenceFailures(shape) {
   return withFixture((fixture) => {
     fenceRepo(fixture, shape);
+
     return restrictedSpecifierFailures(fixture);
   });
 }
@@ -312,6 +327,7 @@ function drive(label, { mutated, control, expected }) {
   const failures = [];
 
   const red = fenceFailures(mutated);
+
   if (red.failures.length !== 1 || !red.failures[0].includes(expected)) {
     failures.push(
       `${label}: expected one failure containing ${JSON.stringify(expected)}, received ${JSON.stringify(red.failures)}`,
@@ -320,6 +336,7 @@ function drive(label, { mutated, control, expected }) {
 
   if (control !== undefined) {
     const green = fenceFailures(control);
+
     if (green.failures.length !== 0) {
       failures.push(
         `${label}: the control must be silent, received ${JSON.stringify(green.failures)}`,
@@ -374,7 +391,9 @@ function wildcardKeyFailures() {
     rules: fence(["@alfred/x/k/internal"]),
     files: ["packages/x/src/k/internal.ts"],
   };
+
   const result = fenceFailures(shape);
+
   return [
     ...equal(result.failures, [], "a subpath published only by a wildcard exports key resolves"),
     ...equal(result.subpathChecked, 1, "and it is gated on its subpath, not waved through"),
@@ -460,6 +479,7 @@ function relativeSpecifierFailures() {
     packages: { x: workspace("@alfred/x", { ".": "./src/index.ts" }) },
     rules: fence([".", "../../index*"], ["@alfred/x"]),
   });
+
   return [
     ...equal(result.failures, [], "relative literals are not reported"),
     ...equal(result.ungated, 2, "relative literals are counted as ungated"),
@@ -479,6 +499,7 @@ function unmappedPackageFailures() {
     },
     rules: fence(["@alfred/x/thing"], ["@alfred/y"]),
   });
+
   return [
     ...equal(result.failures, [], "a package with no exports map is not reported as dead"),
     ...equal(result.ungated, 1, "its specifier is counted as ungated"),
@@ -496,6 +517,7 @@ function overrideReachFailures() {
     rules: fence(["@alfred/x"]),
     overrides: [{ files: ["packages/x/src/**"], rules: fence([group]) }],
   });
+
   return drive("a dead specifier inside an overrides entry is reported", {
     mutated: shape("@alfred/gone/x"),
     control: shape("@alfred/x"),
@@ -513,8 +535,10 @@ function allowOverrideFailures() {
         { files: ["packages/x/src/index.ts"], rules: { "no-restricted-imports": "off" } },
       ],
     });
+
     return restrictedSpecifierFailures(fixture);
   });
+
   return [
     ...equal(result.failures, [], 'an "off" override is read as no groups, not as a bad shape'),
     ...equal(result.checked, 1, "and the root site is still gated"),
@@ -529,6 +553,7 @@ function allowOverrideFailures() {
 function vacuousConfigFailures() {
   const packages = { x: workspace("@alfred/x", { ".": "./src/index.ts" }) };
   const examinedNothing = "so this check examined nothing";
+
   return [
     ...drive("a config with no no-restricted-imports at all is reported", {
       mutated: { packages, rules: { "no-debugger": "error" } },
@@ -597,6 +622,7 @@ function readerRefusalFailures() {
     const { failures: reported } = restrictedImportSites({
       rules: { "no-restricted-imports": value },
     });
+
     if (reported.length !== 1 || !reported[0].includes(expected)) {
       failures.push(
         `${label} must be refused with ${JSON.stringify(expected)}, received ${JSON.stringify(reported)}`,
@@ -611,6 +637,7 @@ function readerRefusalFailures() {
     ["a non-object rules bag", [{ rules: 7 }], "overrides[0].rules is 7 rather than an object"],
   ]) {
     const { failures: reported } = restrictedImportSites({ overrides });
+
     if (reported.length !== 1 || !reported[0].includes(expected)) {
       failures.push(
         `${label} must be refused with ${JSON.stringify(expected)}, received ${JSON.stringify(reported)}`,
@@ -635,10 +662,15 @@ function readerRefusalFailures() {
 // a literal that looks like a repo path is itself a `check:script-paths` failure.
 
 const COPY_KEY = '"no-restricted-imports"';
+
 const DOOR_A = "@alfred/fixture-door-a";
+
 const DOOR_B = "@alfred/fixture-door-b";
+
 const A_MESSAGE = "Door A is restricted to its allowlist.";
+
 const B_MESSAGE = "Door B is restricted to its allowlist.";
+
 const FIXTURE_SCOPE = ["fixture-tree/src/**"];
 
 /** One group as the resolver reports it: the specifier array and its message. */
@@ -682,6 +714,7 @@ function copyDrive(label, { sites, regions, scopes, expected, restated, declared
     source: copySource(...regions),
     scopes,
   });
+
   const failures = [];
 
   if (result.failures.length !== expected.length) {
@@ -689,6 +722,7 @@ function copyDrive(label, { sites, regions, scopes, expected, restated, declared
       `${label}: expected ${expected.length} failure(s), received ${JSON.stringify(result.failures)}`,
     ];
   }
+
   for (const want of expected) {
     if (result.failures.filter((failure) => failure.includes(want)).length !== 1) {
       failures.push(
@@ -696,12 +730,15 @@ function copyDrive(label, { sites, regions, scopes, expected, restated, declared
       );
     }
   }
+
   if (restated !== undefined) {
     failures.push(...equal(result.restated, restated, `${label}: restated`));
   }
+
   if (declared !== undefined) {
     failures.push(...equal(result.declared, declared, `${label}: declared`));
   }
+
   return failures;
 }
 
@@ -895,6 +932,7 @@ function emptyCopySurfaceFailures() {
     expected: ["so this rule compared nothing"],
     restated: 0,
   });
+
   const noOverrides = copyDrive("a config with no override site is reported", {
     sites: [rootSite()],
     regions: [""],
@@ -902,6 +940,7 @@ function emptyCopySurfaceFailures() {
     expected: ["compared the root list against nothing"],
     restated: 0,
   });
+
   return [...noRootGroups, ...noOverrides];
 }
 
@@ -949,16 +988,21 @@ function severityStringSiteFailures() {
 function walkRepo(fixture, { sources = [], ignores = {}, untracked = [] }) {
   execFileSync("git", ["init", "--quiet"], { cwd: fixture });
   write(fixture, "package.json", `${JSON.stringify({ name: "fixture" }, null, 2)}\n`);
+
   for (const file of sources) write(fixture, file, "export const value = 1;\n");
+
   for (const [path, body] of Object.entries(ignores)) write(fixture, path, body);
   execFileSync("git", ["add", "-A"], { cwd: fixture });
+
   if (sources.length > 0) execFileSync("git", ["add", "-f", "--", ...sources], { cwd: fixture });
+
   for (const file of untracked) write(fixture, file, "export const value = 1;\n");
 }
 
 function walkFailures(shape) {
   return withFixture((fixture) => {
     walkRepo(fixture, shape);
+
     return unwalkedSourceFailures(fixture);
   });
 }
@@ -979,6 +1023,7 @@ function walkDrive(label, shape, expected) {
   if (result.failures.length !== 1) {
     return [`${label}: expected exactly one failure, received ${JSON.stringify(result.failures)}`];
   }
+
   for (const fragment of [expected.file, `${expected.ignoreFile}:${expected.line}`]) {
     if (!result.failures[0].includes(fragment)) {
       failures.push(
@@ -986,12 +1031,14 @@ function walkDrive(label, shape, expected) {
       );
     }
   }
+
   return [...failures, ...equal(result.hidden, [expected], `${label}: the parsed row`)];
 }
 
 /** The false-positive control: a repo whose whole source surface is walked. */
 function walkedSourceFailures() {
   const result = walkFailures({ sources: ["src/a.ts", "src/deep/b.tsx", "src/c.mjs"] });
+
   return [
     ...equal(result.failures, [], "a repo hiding no tracked source reports nothing"),
     ...equal(result.checked, 3, "and every extension it enumerated is counted"),
@@ -1031,6 +1078,7 @@ function untrackedIgnoredSourceFailures() {
     ignores: { ".gitignore": "src/hidden.ts\n" },
     untracked: ["src/hidden.ts"],
   });
+
   return [
     ...equal(
       result.failures,
@@ -1044,6 +1092,7 @@ function untrackedIgnoredSourceFailures() {
 /** The vacuity floor: an enumeration that read nothing is a failure, not a pass. */
 function emptyWalkSurfaceFailures() {
   const result = walkFailures({ sources: [] });
+
   return result.failures.length === 1 && result.failures[0].includes("examined nothing")
     ? equal(result.checked, 0, "an empty walk surface reports zero checked")
     : [`an empty walk surface must be reported, received ${JSON.stringify(result.failures)}`];

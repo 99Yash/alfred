@@ -44,6 +44,7 @@ export const USAGE_RUN_CATEGORIES = [
 ] as const;
 
 export const usageRunCategorySchema = z.enum(USAGE_RUN_CATEGORIES);
+
 export type UsageRunCategory = (typeof USAGE_RUN_CATEGORIES)[number];
 
 export const isUsageRunCategory = enumGuard(USAGE_RUN_CATEGORIES);
@@ -53,6 +54,7 @@ export const usageModelBreakdownSchema = z.object({
   model: z.string(),
   calls: z.number().int().nonnegative(),
 });
+
 export type UsageModelBreakdown = z.infer<typeof usageModelBreakdownSchema>;
 
 /**
@@ -71,6 +73,7 @@ export const usageSummarySchema = z.object({
   periodStart: z.string(),
   periodEnd: z.string(),
 });
+
 export type UsageSummary = z.infer<typeof usageSummarySchema>;
 
 /** Per-category rollup card. `tokens` = input + output (cache-inclusive input). */
@@ -81,11 +84,13 @@ export const usageCategoryBreakdownSchema = z.object({
   runs: z.number().int().nonnegative(),
   calls: z.number().int().nonnegative(),
 });
+
 export type UsageCategoryBreakdown = z.infer<typeof usageCategoryBreakdownSchema>;
 
 export const usageBreakdownSchema = z.object({
   categories: z.array(usageCategoryBreakdownSchema),
 });
+
 export type UsageBreakdown = z.infer<typeof usageBreakdownSchema>;
 
 /**
@@ -106,6 +111,7 @@ export const usageActivityRunSchema = z.object({
   calls: z.number().int().nonnegative(),
   models: z.array(usageModelBreakdownSchema),
 });
+
 export type UsageActivityRun = z.infer<typeof usageActivityRunSchema>;
 
 export const usageActivityResultSchema = z.object({
@@ -114,15 +120,19 @@ export const usageActivityResultSchema = z.object({
   page: z.number().int().positive(),
   pageSize: z.number().int().positive(),
 });
+
 export type UsageActivityResult = z.infer<typeof usageActivityResultSchema>;
 
 /** The only server-sortable activity column. Everything else sorts by recency. */
 export const usageSortFieldValues = ["createdAt", "costUsd"] as const;
+
 export type UsageSortField = (typeof usageSortFieldValues)[number];
 
 export const usageSortDirValues = ["asc", "desc"] as const;
+
 export type UsageSortDir = (typeof usageSortDirValues)[number];
 
 /** Pagination + filter/sort bounds shared by the route validator and client. */
 export const USAGE_ACTIVITY_MAX_PAGE_SIZE = 100;
+
 export const USAGE_ACTIVITY_DEFAULT_PAGE_SIZE = 20;

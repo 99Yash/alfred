@@ -17,6 +17,7 @@ export function LibraryPage({ dimmed = false }: { dimmed?: boolean }) {
   const artifacts = useMemo(() => {
     return recentArtifacts.filter((artifact) => {
       if (!artifactMatchesType(artifact, types)) return false;
+
       return artifactMatchesQuery(artifact, query);
     });
   }, [query, recentArtifacts, types]);

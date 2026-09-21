@@ -28,6 +28,7 @@ type MutatorExecutor = Parameters<(typeof serverMutators.prefSet)["run"]>[0];
 // on these; the `export const` fixtures below are exported for the same reason
 // (matching the established `.type-test.ts` idiom in this package).
 declare const tx: DbTransaction;
+
 declare const root: DbRoot;
 
 // POSITIVE — the real push savepoint executor (`DbTransaction`) is exactly what a

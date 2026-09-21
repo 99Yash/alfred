@@ -16,6 +16,7 @@ const groupKind = {
   entityId: "ent_1",
   displayName: "Some List",
 };
+
 const serviceKind = {
   ...groupKind,
   kind: "service" as const,
@@ -30,6 +31,7 @@ function classification(over: Partial<TriageClassification> = {}): TriageClassif
 
 function context(over: Partial<FloorContext> = {}): FloorContext {
   const signalText = over.signalText ?? "";
+
   return {
     signalText,
     collabVetoText: signalText,
@@ -41,6 +43,7 @@ function context(over: Partial<FloorContext> = {}): FloorContext {
     cc: null,
     accountEmail: null,
     contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: false },
+    isSpam: false,
     ...over,
   } satisfies FloorContext;
 }
@@ -52,16 +55,16 @@ const SECRET_TEXT = "an api key was leaked in the public repo";
 // existed, floor order was covered by exactly one end-to-end assertion in
 // classify.test.ts — every other floor test called a single floor directly, so
 // a reordered `FLOOR_SEQUENCE` was invisible. These cases are chosen so that
-// running the same three floors in a different order gives a DIFFERENT audit;
+// running the same four floors in a different order gives a DIFFERENT audit;
 // asserting the final category alone would not catch a swap.
 // ---------------------------------------------------------------------------
 
 describe("applyFloors — sequence order", () => {
-  test("audits arrive in sequence order: override → senderKind → meeting", () => {
+  test("audits arrive in sequence order: override → senderKind → spam → meeting", () => {
     // `applyFloors` inserts one audit key per `FLOOR_SEQUENCE` entry as it folds,
     // so key order IS sequence order.
     const { audits } = applyFloors(classification(), context());
-    assert.deepEqual(Object.keys(audits), ["override", "senderKind", "meeting"]);
+    assert.deepEqual(Object.keys(audits), ["override", "senderKind", "spam", "meeting"]);
   });
 
   test("every floor reports an audit even when none of them fire", () => {
@@ -69,6 +72,7 @@ describe("applyFloors — sequence order", () => {
     assert.equal(outcome.classification.category, "fyi");
     assert.deepEqual(outcome.audits.override, { verdict: { kind: "keep" }, matched: false });
     assert.deepEqual(outcome.audits.senderKind, { verdict: { kind: "keep" }, reason: null });
+    assert.deepEqual(outcome.audits.spam, { verdict: { kind: "keep" }, outcome: null });
     assert.deepEqual(outcome.audits.meeting, { verdict: { kind: "keep" }, reason: null });
   });
 
@@ -86,6 +90,7 @@ describe("applyFloors — sequence order", () => {
       }),
       context({ signalText: SECRET_TEXT, senderKind: groupKind }),
     );
+
     assert.equal(outcome.classification.category, "urgent");
     assert.equal(outcome.audits.override.verdict.kind, "escalate");
     assert.equal(outcome.audits.senderKind.verdict.kind, "keep");
@@ -100,6 +105,7 @@ describe("applyFloors — sequence order", () => {
       classification({ category: "meeting" }),
       context({ signalText: SECRET_TEXT, subject: "Meeting notes: Eng standup" }),
     );
+
     assert.equal(outcome.classification.category, "urgent");
     assert.equal(outcome.audits.override.verdict.kind, "escalate");
     assert.equal(outcome.audits.meeting.verdict.kind, "keep");
@@ -118,6 +124,7 @@ describe("applyFloors — sequence order", () => {
         subject: "Meeting notes: Weekly sync",
       }),
     );
+
     assert.equal(outcome.classification.category, "fyi");
     assert.equal(outcome.audits.senderKind.verdict.kind, "demote");
     assert.equal(outcome.audits.senderKind.reason, "collab_passive_activity");
@@ -130,6 +137,7 @@ describe("applyFloors — sequence order", () => {
       classification({ category: "meeting" }),
       context({ subject: "Meeting notes: Eng standup", effectiveAuthor: "person" }),
     );
+
     assert.equal(outcome.classification.category, "fyi");
     assert.equal(outcome.audits.meeting.verdict.kind, "demote");
     assert.equal(outcome.audits.meeting.reason, "meeting_recap");
@@ -159,6 +167,7 @@ describe("applyFloors — threading", () => {
       "we detected a new sign-in to your account from a new device. " +
       "if this was you, no action is needed. " +
       "if you don't recognize this, your api key was leaked — rotate it now.";
+
     const outcome = applyFloors(
       classification({ category: "fyi" }),
       context({
@@ -167,6 +176,7 @@ describe("applyFloors — threading", () => {
         senderKind: groupKind,
       }),
     );
+
     assert.equal(outcome.audits.override.verdict.kind, "escalate");
     assert.equal(outcome.audits.senderKind.verdict.kind, "keep");
     assert.equal(outcome.audits.senderKind.reason, null);
@@ -176,11 +186,41 @@ describe("applyFloors — threading", () => {
     assert.doesNotMatch(outcome.classification.rationale, /Sender-kind floor:/);
   });
 
+  test("the demotion veto survives a comma-set-off leak clause", () => {
+    // Regression for #1188 round 3. The veto predicate
+    // `matchesExposedCredentialClaim` used to share the floor's whitespace-only
+    // gap, which ends at a comma. A leak clause written as a set-off aside —
+    // ordinary in scanner and breach-aggregator mail — therefore read as no
+    // claim at all, the sign-in demotion fired, and a real alarm landed at `fyi`
+    // with its todo cleared. The veto now has its own gap that crosses one
+    // comma-set-off aside; the floor's own gap is unchanged, so this body still
+    // does not force `urgent`.
+    const body =
+      "we detected a new sign-in to your account from a new device. " +
+      "if this was you, no action is needed. " +
+      "if you don't recognize this, your password, which unlocks the production " +
+      "database, was found in a public dump.";
+
+    const outcome = applyFloors(
+      classification({ category: "action_needed" }),
+      context({
+        signalText: body,
+        subject: "New sign-in to your account",
+        senderKind: groupKind,
+      }),
+    );
+
+    assert.equal(outcome.audits.override.verdict.kind, "keep");
+    assert.equal(outcome.audits.senderKind.verdict.kind, "keep");
+    assert.equal(outcome.classification.category, "action_needed");
+  });
+
   test("is pure — the input classification is never mutated", () => {
     const input = classification({
       category: "meeting",
       todoSuggestion: { name: "Attend the standup" },
     });
+
     const before = structuredClone(input);
     const outcome = applyFloors(input, context({ subject: "Meeting notes: Eng standup" }));
     assert.deepEqual(input, before);
@@ -237,6 +277,7 @@ describe("applyFloors — model id tags", () => {
         senderKind: groupKind,
       }),
     );
+
     assert.deepEqual(outcome.modelIdTags, ["+floor"]);
   });
 });

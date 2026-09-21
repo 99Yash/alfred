@@ -56,6 +56,7 @@ const userSession = {
 
 function mockUserLookup(t: any, rows: Array<{ onboardedAt: Date | null }>) {
   const database = db();
+
   return t.mock.method(database, "select", () => ({
     from: () => ({
       where: () => ({
@@ -68,6 +69,7 @@ function mockUserLookup(t: any, rows: Array<{ onboardedAt: Date | null }>) {
 describe("requireOnboarded", () => {
   test("returns 401 when the session is missing", async (t) => {
     const getSession = t.mock.method(auth().api, "getSession", async () => null);
+
     const select = t.mock.method(db(), "select", () => {
       throw new Error("db should not be read without a session");
     });

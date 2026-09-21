@@ -12,6 +12,7 @@ describe("passthroughHttpResult — succeeded semantics", () => {
   test("a 2xx with no GraphQL errors succeeds and preserves the body", () => {
     const r = passthroughHttpResult({ status: 200, body: { hello: "world" } });
     assert.equal(r.outcome, "http");
+
     if (r.outcome !== "http") return;
     assert.equal(r.status, 200);
     assert.equal(r.succeeded, true);
@@ -20,6 +21,7 @@ describe("passthroughHttpResult — succeeded semantics", () => {
 
   test("a 4xx keeps the API error body but marks succeeded false (never a confident zero)", () => {
     const r = passthroughHttpResult({ status: 404, body: { message: "Not Found" } });
+
     if (r.outcome !== "http") return assert.fail("expected http");
     assert.equal(r.status, 404);
     assert.equal(r.succeeded, false);
@@ -29,6 +31,7 @@ describe("passthroughHttpResult — succeeded semantics", () => {
   test("GraphQL partial success (HTTP 200 with errors[]) sets succeeded false yet keeps partial data", () => {
     const body = { data: { me: { id: 1 } }, errors: [{ message: "field x failed" }] };
     const r = passthroughHttpResult({ status: 200, body, graphqlHasErrors: true });
+
     if (r.outcome !== "http") return assert.fail("expected http");
     assert.equal(r.succeeded, false, "errors[] means not-complete");
     assert.deepEqual(r.body, body, "partial data still rides in body");
@@ -36,6 +39,7 @@ describe("passthroughHttpResult — succeeded semantics", () => {
 
   test("a clipped body attaches the truncation thermometer", () => {
     const r = passthroughHttpResult({ status: 200, body: { blob: "q".repeat(9000) } });
+
     if (r.outcome !== "http") return assert.fail("expected http");
     assert.ok(r.truncation, "expected truncation on a clipped body");
     assert.equal(r.truncation?.handleEligible, true);
@@ -49,6 +53,7 @@ describe("passthroughBinaryResult", () => {
       contentType: "application/pdf",
       byteCount: 43000,
     });
+
     if (r.outcome !== "http") return assert.fail("expected http");
     assert.equal(r.succeeded, false);
     assert.deepEqual(r.body, {
@@ -67,7 +72,9 @@ describe("passthroughRejection", () => {
       reason: "method_not_read",
       detail: "Method 'DELETE' is not a read method.",
     });
+
     assert.equal(r.outcome, "rejected");
+
     if (r.outcome !== "rejected") return;
     assert.equal(r.reason, "method_not_read");
     assert.equal(r.message, "Method 'DELETE' is not a read method.");
@@ -81,10 +88,12 @@ describe("passthroughTransportError", () => {
     ["dns", false],
     ["tls", false],
   ];
+
   for (const [kind, retryable] of cases) {
     test(`${kind} → retryable=${retryable}`, () => {
       const r = passthroughTransportError(kind, "boom");
       assert.equal(r.outcome, "transport");
+
       if (r.outcome !== "transport") return;
       assert.equal(r.kind, kind);
       assert.equal(r.retryable, retryable);
@@ -96,6 +105,7 @@ describe("passthroughTransportError", () => {
       "timeout",
       "failed with Authorization: Bearer sk-abc1234567890",
     );
+
     if (r.outcome !== "transport") return assert.fail("expected transport");
     assert.doesNotMatch(r.message, /sk-abc1234567890/);
     assert.match(r.message, /redacted/);

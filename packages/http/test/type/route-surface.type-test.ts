@@ -86,6 +86,7 @@ export const prefix: (typeof agent)["config"]["prefix"] = "/api/agent";
 // this fixture covers the first gap and pins the surface at the package that
 // now owns it, so a later transport move need not restate the mount surface.
 export const approvalsPrefix: (typeof approvalsRoutes)["config"]["prefix"] = "/api/approvals";
+
 // `/api/chat` is the first route here for which the Eden paragraph above buys
 // nothing at all: all five of its web call sites are untyped `fetch`, so
 // `treaty<App>` derives the types and nobody consumes them, and renaming this
@@ -93,15 +94,20 @@ export const approvalsPrefix: (typeof approvalsRoutes)["config"]["prefix"] = "/a
 // route-table comparison against the pre-move app are the whole mount-surface
 // evidence for it. Check for a call site before assuming Eden covers a prefix.
 export const chatPrefix: (typeof chatRoutes)["config"]["prefix"] = "/api/chat";
+
 export const mePrefix: (typeof meRoutes)["config"]["prefix"] = "/api/me";
+
 export const onboardingPrefix: (typeof onboardingRoutes)["config"]["prefix"] = "/api/me/onboarding";
+
 export const skillsPrefix: (typeof skillsRoutes)["config"]["prefix"] = "/api/skills";
+
 export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/api/workflows";
 
 // Only `/connections` has a typed Eden call site. The browser builds connect,
 // reconsent and OAuth URLs by hand, so this line and the composed-app route
 // comparison pin the MCP mount prefix for the remaining surface.
 export const mcpPrefix: (typeof mcpIntegrationRoutes)["config"]["prefix"] = "/api/integrations/mcp";
+
 // The catalog-status read and the tool-tier counts share one module and one
 // prefix; the per-provider families and the MCP surface mount beside it.
 export const integrationsPrefix: (typeof integrationsRoutes)["config"]["prefix"] =

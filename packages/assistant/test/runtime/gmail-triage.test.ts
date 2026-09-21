@@ -56,9 +56,11 @@ describe("Gmail triage composition seam", () => {
 
   test("passes the complete post-insert batch and validates the handler result", async () => {
     let received: unknown;
+
     const unregister = registerGmailTriageHandler({
       async postInsert(request) {
         received = request;
+
         return {
           replyReevalTargets: [{ threadId: "thread-2", documentId: "document-inbound" }],
         };
@@ -85,9 +87,11 @@ describe("Gmail triage composition seam", () => {
       protectedDocumentIds: [],
       replyReevalThreadIds: [],
     };
+
     const unregister = registerGmailTriageHandler({
       async postInsert(request) {
         assert.deepEqual(request, emptyRequest);
+
         return { replyReevalTargets: [] };
       },
       async relabel() {
@@ -130,6 +134,7 @@ describe("Gmail triage composition seam", () => {
       },
       async relabel(request) {
         assert.deepEqual(request, { userId: "user-1", sourceThreadId: "thread-1" });
+
         return { applied: true, appliedLabelId: "label-1" };
       },
     });
@@ -161,6 +166,7 @@ describe("Gmail triage composition seam", () => {
         return { applied: false, reason: "not-a-reason" };
       },
     } as unknown as GmailTriageHandler;
+
     const unregister = registerGmailTriageHandler(invalidHandler);
 
     try {
@@ -175,6 +181,7 @@ describe("Gmail triage composition seam", () => {
 
   test("preserves thrown adapter failures for normal job retry", async () => {
     const failure = new Error("triage unavailable");
+
     const unregister = registerGmailTriageHandler({
       async postInsert() {
         throw failure;
@@ -199,6 +206,7 @@ describe("Gmail triage composition seam", () => {
     const warnings: unknown[][] = [];
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => warnings.push(args);
+
     const unregister = registerGmailTriageHandler(
       createGmailTriageHandler({
         async reconcileThreads() {
@@ -229,6 +237,7 @@ describe("Gmail triage composition seam", () => {
     const logs: unknown[][] = [];
     const originalLog = console.log;
     console.log = (...args: unknown[]) => logs.push(args);
+
     const unregister = registerGmailTriageHandler(
       createGmailTriageHandler({
         async reconcileThreads() {

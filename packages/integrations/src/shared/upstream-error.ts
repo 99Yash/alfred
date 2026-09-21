@@ -25,6 +25,7 @@ export async function throwUpstreamError(args: {
   bodyPolicy?: ErrorBodyPolicy | undefined;
 }): Promise<never> {
   const { provider, res, url, method, bodyPolicy } = args;
+
   // `"omit"` drops the body from the error (which flows on into telemetry), so
   // this is the last place that still has it: log the bounded, redacted slice for
   // server-side debugging. The read spends the stream, which is why the log has
@@ -33,6 +34,7 @@ export async function throwUpstreamError(args: {
     const raw = await res.text().catch(() => "");
     console.error(`[${provider}] ${res.status} ${method ?? "GET"} ${url} :: ${summarizeBody(raw)}`);
   }
+
   // Safe after the read above: `"omit"` discards the body either way, so the
   // spent stream cannot change the resulting error.
   throw await httpErrorFromResponse(provider, res, { url, method, bodyPolicy });

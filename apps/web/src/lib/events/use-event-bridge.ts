@@ -28,7 +28,9 @@ export function useEventBridge(): void {
 
   useEffect(() => {
     const userId = session?.user?.id;
+
     if (!userId) return;
+
     // No `onError` here — fatal bus errors are surfaced globally by
     // `EventStreamBanner` (reconnecting) and the shared bus backs off before
     // re-opening. The inbox degrades to polling (useInbox: `refetchOnWindowFocus`
@@ -47,6 +49,7 @@ export function useEventBridge(): void {
         }
       },
     });
+
     return close;
   }, [session?.user?.id, queryClient]);
 }

@@ -46,6 +46,7 @@ import {
 export async function extractChatPdfText(bytes: Uint8Array): Promise<string | null> {
   const media = extraction({ door: "chatUpload" });
   let result: Awaited<ReturnType<typeof media.extract>>;
+
   try {
     result = await media.extract({ mime: "application/pdf", bytes });
   } catch (err) {
@@ -54,11 +55,13 @@ export async function extractChatPdfText(bytes: Uint8Array): Promise<string | nu
   }
 
   if (!result) throw Errors.BadRequestError("Unsupported file type.");
+
   if (result.kind === "extracted") {
     // ADR-0091 D4: `degradedText` carries `[page N]` markers; the corpus path
     // keeps the marker-less `content` plus offsets.
     return formatExtractedMediaText(result);
   }
+
   if (result.kind === "needs_ocr") return null;
   throw Errors.BadRequestError(mediaFailureMessage(result));
 }
@@ -67,6 +70,7 @@ const pdfDegradedArtifactSchema = z.discriminatedUnion("kind", [
   z.object({ version: z.literal(1), kind: z.literal("text"), text: z.string() }).strict(),
   z.object({ version: z.literal(1), kind: z.literal("needs_ocr") }).strict(),
 ]);
+
 type PdfDegradedArtifact = z.infer<typeof pdfDegradedArtifactSchema>;
 
 function artifactFromDegradedText(degradedText: string | null): PdfDegradedArtifact {
@@ -89,20 +93,27 @@ async function writePdfDegradedArtifact(
 
 async function readPdfDegradedArtifact(storageKey: string): Promise<PdfDegradedArtifact | null> {
   const artifactKey = pdfDegradedArtifactKey(storageKey);
+
   if (!(await objectExists(artifactKey))) return null;
   const bytes = await readObject(artifactKey);
   let value: unknown;
+
   try {
     value = JSON.parse(new TextDecoder().decode(bytes));
   } catch (err) {
     console.warn("[chat] stored PDF artifact JSON is invalid:", toMessage(err));
+
     return null;
   }
+
   const parsed = pdfDegradedArtifactSchema.safeParse(value);
+
   if (!parsed.success) {
     console.warn("[chat] stored PDF artifact shape is invalid");
+
     return null;
   }
+
   return parsed.data;
 }
 
@@ -111,11 +122,13 @@ async function ensurePdfDegradedArtifact(
   fallbackBytes?: Uint8Array,
 ): Promise<string | null> {
   const artifact = await readPdfDegradedArtifact(storageKey);
+
   if (artifact) return degradedTextFromArtifact(artifact);
 
   const bytes = fallbackBytes ?? (await readObject(storageKey));
   const degradedText = await extractChatPdfText(bytes);
   await writePdfDegradedArtifact(storageKey, degradedText);
+
   return degradedText;
 }
 
@@ -125,6 +138,7 @@ export async function resolveAttachmentDegradation(opts: {
   mime: string;
 }): Promise<AttachmentDegradation> {
   if (!isPdfContentType(opts.mime)) return { kind: "image" };
+
   try {
     return { kind: "pdf", text: await ensurePdfDegradedArtifact(opts.storageKey) };
   } catch (err) {
@@ -181,9 +195,11 @@ export async function uploadChatAttachment(
       "File uploads aren't configured — set the CHAT_S3_* env vars on the server.",
     );
   }
+
   // Validate the declared mime + actual byte size against the ingest
   // policy (per-type cap); the storage key is rebuilt server-side.
   assertUploadAllowed(input.mime, input.size);
+
   const storageKey = buildAttachmentKey({
     userId: input.userId,
     threadId: input.threadId,
@@ -191,9 +207,12 @@ export async function uploadChatAttachment(
     attachmentId: input.attachmentId,
     fileName: input.name,
   });
+
   let reservedPendingBytes = 0;
+
   try {
     await assertAttachmentUploadRateAllowed(input.userId);
+
     return await withChatStorageKeyLock(storageKey, async (storageDb) => {
       // The session advisory lock is shared by every replica and uses the same
       // namespace as turn admission and pending cleanup. It keeps the key
@@ -203,10 +222,13 @@ export async function uploadChatAttachment(
         .from(chatAttachments)
         .where(eq(chatAttachments.id, input.attachmentId))
         .limit(1);
+
       if (existingRows[0]) {
         throw Errors.ConflictError("Attachment already exists");
       }
+
       const isPdf = isPdfContentType(input.mime);
+
       if (await objectExists(storageKey)) {
         const candidateBytes = await input.readBytes();
         const storedBytes = await readObject(storageKey);
@@ -216,12 +238,16 @@ export async function uploadChatAttachment(
           size: input.size,
         });
         assertStoredAttachmentBytesMatch({ storedBytes, candidateBytes });
+
         if (isPdf) {
           await ensurePdfDegradedArtifact(storageKey, storedBytes);
         }
+
         await schedulePendingUploadCleanup(input.userId, storageKey);
+
         return { storageKey };
       }
+
       const bytes = await input.readBytes();
 
       // Extract PDFs before the common storage tail. Images keep their existing
@@ -229,6 +255,7 @@ export async function uploadChatAttachment(
       const degradation: AttachmentDegradation = isPdf
         ? { kind: "pdf", text: await extractChatPdfText(bytes) }
         : { kind: "image" };
+
       if (degradation.kind === "image") {
         await assertPassThroughImageBytes(bytes, input.mime);
       }
@@ -244,13 +271,16 @@ export async function uploadChatAttachment(
       // Enqueue cleanup as soon as raw bytes exist. If the sidecar write or the
       // later turn commit fails, the delayed job still owns the orphan.
       await schedulePendingUploadCleanup(input.userId, storageKey);
+
       if (degradation.kind === "pdf") {
         await writePdfDegradedArtifact(storageKey, degradation.text);
       }
+
       return { storageKey };
     });
   } catch (err) {
     await releasePendingUploadBudget(input.userId, reservedPendingBytes);
+
     if (isApiError(err, "BAD_REQUEST", "CONFLICT", "TOO_MANY_REQUESTS", "SERVICE_UNAVAILABLE"))
       throw err;
     console.error("[chat] proxied upload failed:", toMessage(err));
@@ -274,10 +304,14 @@ export async function resolveChatAttachmentContentUrl(
     .from(chatAttachments)
     .where(and(eq(chatAttachments.id, attachmentId), eq(chatAttachments.userId, userId)))
     .limit(1);
+
   const row = rows[0];
+
   if (!row) throw Errors.NotFoundError("Attachment not found");
+
   if (!isStorageConfigured()) {
     throw Errors.ServiceUnavailableError("File storage isn't configured");
   }
+
   return await attachmentUrl(row.storageKey);
 }

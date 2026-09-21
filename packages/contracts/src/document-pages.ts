@@ -57,6 +57,7 @@ export type DocumentPagesMixed = z.infer<typeof documentPagesMixedSchema>;
 export function parseDocumentPages(raw: unknown): DocumentPages | null {
   if (!Array.isArray(raw)) return null;
   const parsed = documentPagesSchema.safeParse(raw);
+
   return parsed.success ? parsed.data : null;
 }
 
@@ -69,5 +70,6 @@ export function parseDocumentPages(raw: unknown): DocumentPages | null {
 export function parseDocumentPagesMixed(raw: unknown): DocumentPagesMixed | null {
   if (!Array.isArray(raw)) return null;
   const parsed = documentPagesMixedSchema.safeParse(raw);
+
   return parsed.success ? parsed.data : null;
 }

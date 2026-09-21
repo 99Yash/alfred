@@ -164,7 +164,9 @@ export function HeroAtmosphere({
  */
 function bell(t: number, center: number, halfWidth: number): number {
   const d = Math.abs(t - center);
+
   if (d >= halfWidth) return 0;
+
   return 1 - d / halfWidth;
 }
 
@@ -175,6 +177,8 @@ function bell(t: number, center: number, halfWidth: number): number {
  */
 function saturate(t: number, from: number, to: number): number {
   if (t <= from) return 0;
+
   if (t >= to) return 1;
+
   return (t - from) / (to - from);
 }

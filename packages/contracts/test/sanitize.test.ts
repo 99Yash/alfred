@@ -29,6 +29,7 @@ test("sanitizeToolResult walks nested structures", () => {
     n: 42,
     z: null,
   };
+
   const r = sanitizeToolResult(input);
   assert.deepEqual(r.value, {
     a: "xy",
@@ -84,6 +85,7 @@ test("sanitizeToolResult leaves exotic objects intact by reference", () => {
       return this.note;
     }
   }
+
   const date = new Date("2026-08-24T00:00:00Z");
   const map = new Map([["k", `poison${NUL}`]]);
   const instance = new Instance(`keep${NUL}`);

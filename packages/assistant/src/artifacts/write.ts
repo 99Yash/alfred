@@ -95,7 +95,9 @@ function validatePageForFormat(
   html: string,
 ): ArtifactHtmlValidation {
   if (format === "pdf") return validatePdfArtifactHtml(html);
+
   if (format === "slides") return validateSlideArtifactHtml(html);
+
   return { ok: true };
 }
 
@@ -125,6 +127,7 @@ export async function createArtifact(
   // in-turn create_artifact call. `finalizeRunArtifacts` backfills the column
   // after that message is persisted so the web can attach its trigger card.
   let row: Pick<Artifact, "id" | "title" | "kind" | "format"> | undefined;
+
   try {
     [row] = await db()
       .insert(artifacts)
@@ -150,6 +153,7 @@ export async function createArtifact(
 
   if (!row) throw new Error("[createArtifact] insert returned no row");
   emitReplicachePokes([ctx.userId]);
+
   return { ok: true, artifactId: row.id, title: row.title, kind: row.kind, format: row.format };
 }
 
@@ -178,13 +182,17 @@ export async function appendArtifactPage(
       .for("update");
 
     if (!row) return { status: "not_found" as const };
+
     if (row.kind !== "pages" || !row.content || row.content.kind !== "pages") {
       return { status: "wrong_kind" as const };
     }
+
     const validation = validatePageForFormat(row.format, page.html);
+
     if (!validation.ok) {
       return { status: "invalid_content" as const, reason: validation.reason };
     }
+
     if (row.content.pages.length >= MAX_PAGES) return { status: "page_limit" as const };
 
     const pages = [...row.content.pages, page];
@@ -201,12 +209,14 @@ export async function appendArtifactPage(
           eq(artifacts.threadId, ctx.threadId),
         ),
       );
+
     return { status: "ok" as const, pageCount: pages.length };
   });
 
   if (result.status === "not_found") {
     return { ok: false, status: "not_found", reason: "no artifact with that id for this user" };
   }
+
   if (result.status === "wrong_kind") {
     return {
       ok: false,
@@ -214,6 +224,7 @@ export async function appendArtifactPage(
       reason: "append_artifact_page only works on a 'pages' artifact",
     };
   }
+
   if (result.status === "page_limit") {
     return {
       ok: false,
@@ -221,10 +232,13 @@ export async function appendArtifactPage(
       reason: `an artifact holds at most ${MAX_PAGES} pages`,
     };
   }
+
   if (result.status === "invalid_content") {
     return { ok: false, status: "invalid_content", reason: result.reason };
   }
+
   emitReplicachePokes([ctx.userId]);
+
   return { ok: true, artifactId: input.artifactId, pageCount: result.pageCount };
 }
 
@@ -257,12 +271,14 @@ export async function appendArtifactSection(
       .for("update");
 
     if (!row) return { status: "not_found" as const };
+
     if (row.kind !== "document" || !row.content || row.content.kind !== "document") {
       return { status: "wrong_kind" as const };
     }
 
     const current = row.content.markdown;
     const next = current.length > 0 ? `${current}\n\n${input.markdown}` : input.markdown;
+
     // The stored total cap must be enforced by hand: `content` binds via
     // `.$type<>()` (compile-time only), so no Zod runs before this DB write —
     // exactly why appendArtifactPage guards MAX_PAGES here rather than trusting
@@ -282,12 +298,14 @@ export async function appendArtifactSection(
           eq(artifacts.threadId, ctx.threadId),
         ),
       );
+
     return { status: "ok" as const, contentChars: next.length };
   });
 
   if (result.status === "not_found") {
     return { ok: false, status: "not_found", reason: "no artifact with that id for this user" };
   }
+
   if (result.status === "wrong_kind") {
     return {
       ok: false,
@@ -295,6 +313,7 @@ export async function appendArtifactSection(
       reason: "append_artifact_section only works on a 'document' artifact",
     };
   }
+
   if (result.status === "content_limit") {
     return {
       ok: false,
@@ -302,7 +321,9 @@ export async function appendArtifactSection(
       reason: `a document holds at most ${DOCUMENT_MARKDOWN_MAX} characters`,
     };
   }
+
   emitReplicachePokes([ctx.userId]);
+
   return { ok: true, artifactId: input.artifactId, contentChars: result.contentChars };
 }
 
@@ -343,15 +364,19 @@ export async function updateArtifact(
       .for("update");
 
     if (!row) return { status: "not_found" as const };
+
     if (input.markdown !== undefined && row.kind !== "document") {
       return { status: "wrong_kind" as const, want: "document" };
     }
+
     if (input.pages !== undefined && row.kind !== "pages") {
       return { status: "wrong_kind" as const, want: "pages" };
     }
+
     if (input.pages !== undefined) {
       for (const page of input.pages) {
         const validation = validatePageForFormat(row.format, page.html);
+
         if (!validation.ok) {
           return { status: "invalid_content" as const, reason: validation.reason };
         }
@@ -359,6 +384,7 @@ export async function updateArtifact(
     }
 
     const replacesContent = input.markdown !== undefined || input.pages !== undefined;
+
     // Content authored earlier in this same run is already present in the live
     // transcript. Cross-turn full replacement is different: require proof that
     // the model received the complete, still-current body. This rejects edits
@@ -399,12 +425,14 @@ export async function updateArtifact(
           eq(artifacts.threadId, ctx.threadId),
         ),
       );
+
     return { status: "ok" as const, kind: row.kind, title: input.title ?? row.title };
   });
 
   if (result.status === "not_found") {
     return { ok: false, status: "not_found", reason: "no artifact with that id for this user" };
   }
+
   if (result.status === "wrong_kind") {
     return {
       ok: false,
@@ -412,6 +440,7 @@ export async function updateArtifact(
       reason: `that content only applies to a '${result.want}' artifact`,
     };
   }
+
   if (result.status === "stale_content") {
     return {
       ok: false,
@@ -420,10 +449,13 @@ export async function updateArtifact(
         "content replacement rejected because the complete current artifact body was not supplied or changed after it was read",
     };
   }
+
   if (result.status === "invalid_content") {
     return { ok: false, status: "invalid_content", reason: result.reason };
   }
+
   emitReplicachePokes([ctx.userId]);
+
   return { ok: true, artifactId: input.artifactId, title: result.title, kind: result.kind };
 }
 

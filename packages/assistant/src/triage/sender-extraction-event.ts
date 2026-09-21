@@ -1,6 +1,7 @@
 import {
   type AccountPersona,
   type CollabActivityKind,
+  type JsonObject,
   type SenderContext,
 } from "@alfred/contracts";
 import { type TriageCategory } from "@alfred/integrations/google";
@@ -21,7 +22,7 @@ import type { SenderSuppressionMatch } from "../knowledge";
  */
 type FloorTraceProjection<K extends keyof FloorAudits> = (
   audit: FloorAudits[K] | null,
-) => Record<string, unknown>;
+) => JsonObject;
 
 /**
  * Every floor's contribution to the trace, keyed by floor name and EXHAUSTIVE
@@ -60,6 +61,46 @@ export const FLOOR_TRACE_PROJECTIONS = {
     /** Structured reason for a meeting-gate demotion, if one fired. */
     meetingDemotionReason: audit?.reason ?? null,
   }),
+  spam: (audit) => ({
+    /** True when the spam floor demoted a REPLY lane → `fyi` (rule 20). */
+    spamDemotedCategory: audit?.verdict.kind === "demote",
+    /**
+     * What the spam floor concluded: `"demoted_reply_lane"` when it demoted,
+     * `"held_demand_lane"` when Gmail filed the mail as spam and the final
+     * category was still `urgent`/`action_needed` — the softened path (#1098),
+     * where the floor deliberately did not move the answer. `null` when the
+     * floor was inert. An over-tag audit reads THIS to tell a softened spam
+     * apart from a sender-kind demotion.
+     *
+     * `spamFloorOutcome`, not `…DemotionReason`, because one of its two values
+     * means "no demotion": an audit counting the floor's demotions must query
+     * `= 'demoted_reply_lane'`, and `IS NOT NULL` over-counts it. TWO of the
+     * three sibling floors keep the `<floor>DemotionReason` convention —
+     * `senderKind` and `meeting`; `override` projects `floorMatched`/
+     * `floorForced` instead. This floor breaks only the `DemotionReason` half
+     * and still projects `spamDemotedCategory` above. The break is SILENT to a
+     * cross-floor audit:
+     * `trace->>'spamDemotionReason'` reads as SQL NULL rather than failing, and
+     * the conventional query reports ZERO spam-floor activity with no error.
+     * The key an audit of this floor must read is `spamFloorOutcome`.
+     *
+     * `held_demand_lane` does not name WHO chose the lane — the floor cannot
+     * observe that. ONE join answers it on this same flat row:
+     * `floorForced = true`, the override floor's forced `urgent`. Exact.
+     *
+     * `floorForced` is the whole answer FROM #1188 FORWARD. A second-pass throw
+     * once escalated a passive first pass to `action_needed`; #1188 deleted that
+     * producer, and the failure now resolves to the model's own first pass in
+     * both conflict directions. Rows written BEFORE that deploy keep the old
+     * producer and never age out, so a historical audit also joins
+     * `secondPassFailure IS NOT NULL AND conflict = 'under_classification' AND
+     * firstPassCategory IN ('fyi','done','newsletter','marketing')` on the same
+     * flat row — see `floors/spam.ts` for the dated form. At or after the
+     * cutover, a row that does not match `floorForced` is the model's own
+     * judgment, whatever `secondPassFailure` holds.
+     */
+    spamFloorOutcome: audit?.outcome ?? null,
+  }),
 } satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
 
 /**
@@ -92,7 +133,8 @@ type FloorTraceFields = UnionToIntersection<
  * hand is what makes registration the only edit a fourth floor needs.
  */
 function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
-  const fields: Record<string, unknown> = {};
+  const fields: JsonObject = {};
+
   // SAFETY: FLOOR_TRACE_PROJECTIONS is keyed by ProjectedFloorName, so its
   // keys enumerate exactly those names.
   for (const name of Object.keys(FLOOR_TRACE_PROJECTIONS) as ProjectedFloorName[]) {
@@ -105,6 +147,7 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
     const project = FLOOR_TRACE_PROJECTIONS[name] as FloorTraceProjection<ProjectedFloorName>;
     Object.assign(fields, project(floors?.[name] ?? null));
   }
+
   // SAFETY: the loop assigned one field-set per projected floor above.
   return fields as FloorTraceFields;
 }
@@ -152,6 +195,8 @@ export interface SenderExtractionEvent extends FloorTraceFields {
   threadNewest: Observations["thread"]["newestDirection"];
   gmailImportant: boolean;
   gmailCategories: string[];
+  /** Gmail filed the message as spam (`SPAM` labelId) — the spam floor's trigger. */
+  gmailSpam: boolean;
   contentFlags: Observations["content"];
   firstPassCategory: TriageCategory | null;
   firstPassConfidence: number | null;
@@ -167,7 +212,55 @@ export interface SenderExtractionEvent extends FloorTraceFields {
   standingInstructionSuppressedTodo: boolean;
   standingInstructionFactId: string | null;
   standingInstructionEffect: string | null;
+  /**
+   * Which target kind matched the sender — `sender_email` or `sender_domain`;
+   * null when nothing matched. This is how production says whether a
+   * domain-scoped instruction ever fires, which no other field can show: a
+   * domain match and an address match produce the same suppression.
+   */
+  standingInstructionMatchedVia: string | null;
   standingInstructionReadFailed: boolean;
+  /**
+   * A standing instruction was in the prompt for this
+   * mail. DISTINCT from the three fields above, which report the post-classify
+   * todo read: this one fires before the model runs and is the only standing
+   * field that can explain `finalCategory`. A null here is two-way ambiguous
+   * on its own — "no instruction" vs "the read threw" — so read it with its
+   * flag: `readFailed = true` means "unknown"; false means "no instruction".
+   * A row with a fact id and a demand lane is the
+   * model declining the prior, not a missing read.
+   */
+  standingInstructionCategoryFactId: string | null;
+  /**
+   * The pre-classify standing-instruction read failed, so a null
+   * `standingInstructionCategoryFactId` means "unknown", not "no instruction".
+   * DISTINCT from `standingInstructionReadFailed`, which reports the
+   * post-classify todo read.
+   */
+  standingInstructionCategoryReadFailed: boolean;
+  /**
+   * The classify prompt carried a cold-start prior for this mail. Projected
+   * from the same `obs.userContext !== null` that the render branches on (the
+   * `if (obs.userContext)` block in `triage/classify.ts`). Nothing binds the
+   * two sites, so a change to that branch must change this projection too.
+   *
+   * Read it WITH {@link SenderExtractionEvent.userContextReadFailed}: false +
+   * false is "this user has no cold-start chunk", false + true is "the read
+   * threw". Without this member a healthy read that found a line and a healthy
+   * read that found nothing project the same row.
+   */
+  userContextPresent: boolean;
+  /**
+   * The pre-classify cold-start read failed, so this classification ran with no
+   * user-context prior in the prompt for a reason OTHER than the common one.
+   * Without it a total read failure and "this user has no cold-start chunk"
+   * project the same row, and the deploy cannot be measured.
+   *
+   * Completes {@link SenderExtractionEvent.userContextPresent}. The two give
+   * three states: present is (true, false), absent is (false, false) and a
+   * failed read is (false, true).
+   */
+  userContextReadFailed: boolean;
   /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
   todoOutcome: string | null;
   todoNote: string | null;
@@ -190,6 +283,7 @@ export function senderExtractionEvent(args: {
   const { context } = args.senderContextResult;
   const obs = args.observations;
   const audit = args.audit;
+
   return {
     // sender
     fromKind: context.fromKind,
@@ -215,6 +309,7 @@ export function senderExtractionEvent(args: {
     threadNewest: obs.thread.newestDirection,
     gmailImportant: obs.gmail.important,
     gmailCategories: obs.gmail.categories,
+    gmailSpam: obs.gmail.spam,
     contentFlags: obs.content,
     // classify audit (null on the fallback/default path)
     firstPassCategory: audit?.firstPass.category ?? null,
@@ -232,7 +327,14 @@ export function senderExtractionEvent(args: {
     standingInstructionSuppressedTodo: Boolean(args.standingSuppression),
     standingInstructionFactId: args.standingSuppression?.factId ?? null,
     standingInstructionEffect: args.standingSuppression?.effect ?? null,
+    standingInstructionMatchedVia: args.standingSuppression?.matchedVia ?? null,
     standingInstructionReadFailed: args.standingSuppressionReadFailed,
+    standingInstructionCategoryFactId: obs.standingInstruction?.factId ?? null,
+    standingInstructionCategoryReadFailed: obs.standingInstructionReadFailed,
+    // Same condition the classify render branches on, so the row says
+    // whether the prompt carried the prior. See `userContextPresent`.
+    userContextPresent: obs.userContext !== null,
+    userContextReadFailed: obs.userContextReadFailed,
     todoOutcome: args.classification.todoDecision?.outcome ?? null,
     todoNote: args.classification.todoDecision?.note ?? null,
   };

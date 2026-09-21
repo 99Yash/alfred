@@ -30,10 +30,10 @@ function queueKey(threadId: string | undefined): string {
 }
 
 function safeRandomId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  if (typeof crypto === "undefined")
+    return `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  return crypto.randomUUID?.() ?? `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export interface ChatQueue {
@@ -77,6 +77,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
     setQueues((prev) => {
       const oldKey = "__new__";
       const oldQueue = prev.get(oldKey);
+
       if (!oldQueue || oldQueue.length === 0) return prev;
       const newQueue = prev.get(threadId) ?? [];
       // Merge rather than drop: if the new thread already has queued items
@@ -85,18 +86,23 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       // side would silently lose the user's draft — the harsher structural
       // review flagged the old `if (newQueue.length>0) return prev` as data loss.
       const merged = [...newQueue, ...oldQueue];
+
       if (merged.length === 0) return prev;
       const next = new Map(prev);
       next.set(threadId, merged);
       next.set(oldKey, []);
+
       // Prune empty buckets to bound memory: a Map that grows per visited
       // thread would leak `File` handles. Delete empties and cap distinct
       // thread buckets (LRU-ish: drop oldest empty-ish entries if we exceed 20).
       if (next.get(oldKey)?.length === 0) next.delete(oldKey);
+
       if (next.size > 20) {
-        const firstKey = next.keys().next().value as string | undefined;
+        const firstKey = next.keys().next().value;
+
         if (firstKey && firstKey !== threadId && firstKey !== oldKey) next.delete(firstKey);
       }
+
       return next;
     });
   }, [threadId]);
@@ -105,6 +111,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
     (entry: Omit<QueuedMessage, "id">): boolean => {
       const text = entry.text.trim();
       const hasFiles = entry.files.length > 0;
+
       // Single source of truth for "empty" — mirrors `useSendMessage` and
       // `ChatShell.onSend` via `isEmptyChatTurnInput` in `@alfred/contracts`.
       if (
@@ -116,6 +123,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
         })
       )
         return false;
+
       // Guard `File` caps at enqueue time so a queued batch cannot later exceed
       // the per-message limits the server enforces. The composer already caps
       // live attachments, but a queued turn bypasses that gate.
@@ -123,6 +131,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       // Normalize to trimmed text so a chip never renders leading/trailing blank
       // and the started turn does not carry it.
       const normalized = text;
+
       if (
         isEmptyChatTurnInput({
           content: normalized,
@@ -137,9 +146,11 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       // `File` handles in memory. When full, reject and let the caller keep
       // the draft in the composer (same as "empty" → composer does not clear).
       const currentLen = queues.get(key)?.length ?? 0;
+
       if (currentLen >= MAX_QUEUED_TURNS) return false;
 
       const id = safeRandomId();
+
       const queued: QueuedMessage = {
         id,
         text: normalized,
@@ -149,13 +160,17 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
         retryAttachmentIds: entry.retryAttachmentIds,
         retryAttachmentMessageId: entry.retryAttachmentMessageId,
       };
+
       setQueues((prev) => {
         const prevList = prev.get(key) ?? [];
+
         if (prevList.length >= MAX_QUEUED_TURNS) return prev;
         const next = new Map(prev);
         next.set(key, [...prevList, queued]);
+
         return next;
       });
+
       return true;
     },
     [key, queues],
@@ -166,10 +181,13 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       setQueues((prev) => {
         const list = prev.get(key) ?? [];
         const next = list.filter((m) => m.id !== id);
+
         if (next.length === list.length) return prev;
         const map = new Map(prev);
+
         if (next.length === 0) map.delete(key);
         else map.set(key, next);
+
         return map;
       });
     },
@@ -179,11 +197,14 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
   const dequeue = useCallback(() => {
     setQueues((prev) => {
       const list = prev.get(key) ?? [];
+
       if (list.length === 0) return prev;
       const rest = list.slice(1);
       const map = new Map(prev);
+
       if (rest.length === 0) map.delete(key);
       else map.set(key, rest);
+
       return map;
     });
   }, [key]);

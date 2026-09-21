@@ -24,6 +24,7 @@ function state(overrides: Record<string, unknown> = {}): ChatRunState {
   // The schema transform restores the tool surface, which reads the
   // tool-runtime adapter; register the fixture adapter so the parse resolves.
   resetToolFixtures();
+
   return chatRunStateSchema.parse({
     threadId: "thr_1",
     messageId: "msg_1",
@@ -43,15 +44,19 @@ interface CapturedSpans {
 function capture(run: () => void): CapturedSpans {
   const opened: RuntimeSpanInput[] = [];
   const ended: RuntimeSpanEndArgs[] = [];
+
   const restore = _setTurnThermometerStarterForTests((input) => {
     opened.push(input);
+
     return { end: (args) => ended.push(args) };
   });
+
   try {
     run();
   } finally {
     restore();
   }
+
   return { opened, ended };
 }
 
@@ -77,6 +82,7 @@ describe("emitTurnPhaseThermometer", () => {
 
   test("opens one span under the stable name, backdated to the run start", () => {
     const startedAt = new Date("2026-08-26T00:00:00.000Z");
+
     const { opened } = capture(() =>
       emitTurnPhaseThermometer({
         runId: "run_1",
@@ -86,6 +92,7 @@ describe("emitTurnPhaseThermometer", () => {
         reading,
       }),
     );
+
     assert.equal(opened.length, 1);
     assert.equal(opened[0]?.name, RUNTIME_TURN_PHASES);
     assert.equal(opened[0]?.runId, "run_1");
@@ -103,6 +110,7 @@ describe("emitTurnPhaseThermometer", () => {
         reading,
       }),
     );
+
     assert.deepEqual(ended, [
       {
         status: "completed",
@@ -127,6 +135,7 @@ describe("emitTurnPhaseThermometer", () => {
         reading: { generationMs: 0, dispatchMs: 0, stepWallMs: 0 },
       }),
     );
+
     assert.equal(ended.length, 1);
     assert.equal(ended[0]?.metadata?.dispatchSharePct, undefined);
   });
@@ -141,12 +150,14 @@ describe("emitTurnPhaseThermometer", () => {
         reading,
       }),
     );
+
     assert.equal(ended[0]?.status, "failed");
     assert.equal(ended[0]?.level, "ERROR");
   });
 
   test("buildTurnPhaseSpanInput backdates to the run start for derived duration", () => {
     const startedAt = new Date("2026-08-26T00:00:30.000Z");
+
     const input = buildTurnPhaseSpanInput({
       runId: "run_2",
       startedAt,
@@ -154,7 +165,9 @@ describe("emitTurnPhaseThermometer", () => {
       turns: 3,
       reading,
     });
+
     assert.equal(input.startedAt, startedAt);
+
     // No run-start stamp (legacy checkpoint) falls back to now rather than epoch.
     const fallback = buildTurnPhaseSpanInput({
       runId: "run_2",
@@ -163,6 +176,7 @@ describe("emitTurnPhaseThermometer", () => {
       turns: 3,
       reading,
     });
+
     assert.ok(Number.isFinite(fallback.startedAt.getTime()));
   });
 });

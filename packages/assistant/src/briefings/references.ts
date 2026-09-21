@@ -133,6 +133,7 @@ export function buildBriefingSourcePanels(
 
 export function renderBriefingEmailHtml(args: RenderBriefingEmailArgs): RenderedBriefingEmail {
   const text = renderSegmentsText(args.segments);
+
   const html = [
     `<div style="${EMAIL_WRAPPER_STYLE}">`,
     `  <p style="${EMAIL_P_STYLE}">${renderSegmentsHtml(args.segments)}</p>`,
@@ -143,6 +144,7 @@ export function renderBriefingEmailHtml(args: RenderBriefingEmailArgs): Rendered
   ]
     .filter(Boolean)
     .join("\n");
+
   return {
     html,
     text: args.fullBriefingUrl ? `${text}\n\nView full briefing: ${args.fullBriefingUrl}` : text,
@@ -154,6 +156,7 @@ function emailPanelItems(
   referenced: ReadonlySet<BriefingReference>,
 ): BriefingSourcePanelItem[] {
   const items: BriefingSourcePanelItem[] = [];
+
   for (const [category, categoryItems] of Object.entries(gather.email.categories)) {
     for (const item of categoryItems ?? []) {
       items.push({
@@ -172,6 +175,7 @@ function emailPanelItems(
       });
     }
   }
+
   return items;
 }
 
@@ -182,6 +186,7 @@ function prioritizeReferenced(
   return [...items].sort((a, b) => {
     const aHit = isReferenced(a.reference, referenced) ? 1 : 0;
     const bHit = isReferenced(b.reference, referenced) ? 1 : 0;
+
     return bHit - aHit;
   });
 }
@@ -192,6 +197,7 @@ function isReferenced(
 ): boolean {
   if (!reference) return false;
   const parsed = parseBriefingReference(reference);
+
   return parsed ? referenced.has(parsed.reference) : false;
 }
 
@@ -203,11 +209,13 @@ function compactMetadata(values: Record<string, string | undefined>): Record<str
 
 function integrationSubtitle(provider: string, providerKind: string, relatedRepo?: string): string {
   const kind = providerKind.replaceAll("_", " ");
+
   return relatedRepo ? `${provider} · ${relatedRepo} · ${kind}` : `${provider} · ${kind}`;
 }
 
 function formatDateRange(start: string, end: string): string {
   if (!start || !end) return start || end;
+
   return `${start} - ${end}`;
 }
 
@@ -215,6 +223,7 @@ function renderSegmentsText(segments: BriefingSegment[]): string {
   return segments
     .map((segment) => {
       if (segment.kind === "text") return segment.text;
+
       return segment.href ? `${segment.label} (${segment.href})` : segment.label;
     })
     .join("");
@@ -225,7 +234,9 @@ function renderSegmentsHtml(segments: BriefingSegment[]): string {
     .map((segment) => {
       if (segment.kind === "text") return escapeHtml(segment.text).replace(/\n/g, "<br />");
       const label = escapeHtml(segment.label);
+
       if (!segment.href) return `<span>${label}</span>`;
+
       return `<a href="${escapeHtml(segment.href)}" style="${EMAIL_LINK_STYLE}">${label}</a>`;
     })
     .join("");

@@ -27,6 +27,7 @@ export const SECTIONS = [
 
 /** A settings sidebar section, inferred from the `SECTIONS` registry. */
 export type SectionDef = (typeof SECTIONS)[number];
+
 export type SectionId = SectionDef["id"];
 
 export interface BackgroundAgentDef {
@@ -86,10 +87,7 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Drafts replies in your tone so you can review and send.",
     icon: PencilLine,
     tint: "sky",
-    // The flag and the gate exist (#243); the composer does not (#237). The
-    // switch stays disabled until a run can actually stage a draft.
     prefKey: FEATURE_FLAG_KEYS.replyDrafting,
-    comingSoon: true,
   },
   {
     id: "meeting-prep",

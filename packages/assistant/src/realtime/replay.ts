@@ -15,6 +15,7 @@ export async function getReplayHighWatermark(userId: string): Promise<number> {
     .select({ max: sql<string | null>`MAX(${eventsOutbox.id})` })
     .from(eventsOutbox)
     .where(and(eq(eventsOutbox.userId, userId), isNotNull(eventsOutbox.publishedAt)));
+
   return row?.max ? Number(row.max) : 0;
 }
 
@@ -46,8 +47,10 @@ export async function getEventsSince(
 
   const page = toReplayPage(rows);
   const cursor = Number(page.frames.at(-1)?.id ?? sinceId);
+
   const frames = page.frames.flatMap<EventFrame>((row) => {
     if (!isKnownEventKind(row.kind)) return [];
+
     return [
       {
         id: Number(row.id),

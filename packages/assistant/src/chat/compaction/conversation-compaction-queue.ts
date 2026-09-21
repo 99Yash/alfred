@@ -1,4 +1,4 @@
-import { toMessage, type AgentTranscriptMessage } from "@alfred/contracts";
+import { jsonObjectSchema, toMessage, type AgentTranscriptMessage } from "@alfred/contracts";
 import { Queue, UnrecoverableError, Worker, type Job } from "bullmq";
 import { z } from "zod";
 
@@ -26,11 +26,13 @@ const jobDataSchema = z.object({
     z.object({
       role: z.enum(["system", "user", "assistant", "tool"]),
       content: z.unknown(),
-      providerOptions: z.record(z.string(), z.unknown()).optional(),
+      providerOptions: jsonObjectSchema.optional(),
     }),
   ),
 });
+
 type ConversationCompactionJobData = z.infer<typeof jobDataSchema>;
+
 type ExistingJobState = "active" | "waiting" | "delayed" | string;
 
 export interface ConversationCompactionQueueDependencies {
@@ -44,6 +46,7 @@ export interface ConversationCompactionQueueDependencies {
 }
 
 let queue: Queue<ConversationCompactionJobData> | undefined;
+
 let worker: Worker<ConversationCompactionJobData> | undefined;
 
 function conversationCompactionJobId(threadId: string): string {
@@ -61,6 +64,7 @@ function getConversationCompactionQueue(): Queue<ConversationCompactionJobData> 
       removeOnFail: { count: 100, age: 7 * 24 * 60 * 60 },
     },
   });
+
   return queue;
 }
 
@@ -75,8 +79,10 @@ export async function enqueueConversationCompaction(
   dependencies: ConversationCompactionQueueDependencies = {},
 ): Promise<"scheduled" | "deduplicated" | "disabled"> {
   const enabled = dependencies.enabled ?? isQueueEnabled;
+
   if (!enabled()) return "disabled";
   const jobId = conversationCompactionJobId(args.threadId);
+
   const existing = dependencies.getExisting
     ? await dependencies.getExisting(jobId)
     : await getConversationCompactionQueue()
@@ -84,14 +90,17 @@ export async function enqueueConversationCompaction(
         .then(async (job) =>
           job ? { state: await job.getState(), remove: () => job.remove() } : undefined,
         );
+
   if (existing) {
     const state = existing.state;
+
     if (state === "active" || state === "waiting" || state === "delayed") return "deduplicated";
     await existing.remove();
   }
 
   const markRequested = dependencies.markRequested ?? markConversationCompactionRequested;
   const request = await markRequested(args.userId, args.threadId);
+
   const data: ConversationCompactionJobData = {
     kind: "conversation.compact",
     userId: args.userId,
@@ -104,9 +113,11 @@ export async function enqueueConversationCompaction(
     expectedGeneration: request.generation,
     replayTail: [...args.replayTail],
   };
+
   try {
     if (dependencies.add) await dependencies.add(jobId, data);
     else await getConversationCompactionQueue().add("conversation.compact", data, { jobId });
+
     return "scheduled";
   } catch (error) {
     const recordFailure = dependencies.recordFailure ?? recordConversationCompactionFailure;
@@ -156,6 +167,7 @@ async function processConversationCompactionJob(
 ): Promise<unknown> {
   const data = jobDataSchema.parse(job.data);
   const requestedAt = new Date(data.requestedAt);
+
   try {
     return await compactConversationSynchronously({
       userId: data.userId,
@@ -180,15 +192,18 @@ async function processConversationCompactionJob(
       category: "background_failed",
       message: toMessage(error),
     });
+
     if (isUnrecoverableConversationCompactionError(error)) {
       throw new UnrecoverableError(toMessage(error));
     }
+
     throw error;
   }
 }
 
 export function isUnrecoverableConversationCompactionError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
+
   return [
     "conversation_summary_invalid_provenance",
     "conversation_summary_requires_messages",

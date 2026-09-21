@@ -33,10 +33,12 @@ import type { drizzleAdapter } from "better-auth/adapters/drizzle";
  * nothing and cannot drift from it.
  */
 type AuthAdapterFactory = ReturnType<typeof drizzleAdapter>;
+
 type AuthAdapter = ReturnType<AuthAdapterFactory>;
 
 /** The Better Auth model whose tokens are sealed. */
 const ACCOUNT_MODEL = "account";
+
 /**
  * `ACCOUNT_SECRET_FIELDS` comes from `@alfred/db/credential-vault` rather than
  * being restated here. The vault owns the column catalog, and its boot gate
@@ -55,13 +57,16 @@ const isSealedField = enumGuard(ACCOUNT_SECRET_FIELDS);
  */
 function sealWrite<T extends Record<string, unknown>>(payload: T, vault: CredentialVault): T {
   let sealed: Record<string, unknown> | undefined;
+
   for (const field of ACCOUNT_SECRET_FIELDS) {
     if (!(field in payload)) continue;
     const value = payload[field];
+
     if (typeof value !== "string") continue;
     sealed ??= { ...payload };
     sealed[field] = vault.seal(value);
   }
+
   // SAFETY: sealing replaces only marked field values with envelope strings;
   // the record's key structure is untouched, so T's shape holds.
   return (sealed ?? payload) as T;
@@ -79,13 +84,16 @@ function openRow(row: unknown, vault: CredentialVault): unknown {
   if (!isRecord(row)) return row;
   const source = row;
   let opened: Record<string, unknown> | undefined;
+
   for (const field of ACCOUNT_SECRET_FIELDS) {
     if (!(field in source)) continue;
     const value = source[field];
+
     if (value === null || value === undefined) continue;
     opened ??= { ...source };
     opened[field] = vault.open(value);
   }
+
   return opened ?? row;
 }
 
@@ -97,14 +105,18 @@ function openRow(row: unknown, vault: CredentialVault): unknown {
  */
 function openJoined(row: unknown, join: unknown, vault: CredentialVault): unknown {
   if (join === null || typeof join !== "object" || !(ACCOUNT_MODEL in join)) return row;
+
   if (!isRecord(row)) return row;
   const source = row;
+
   if (!(ACCOUNT_MODEL in source)) return row;
   const joined = source[ACCOUNT_MODEL];
+
   // `one-to-one` yields an object, the other relation types yield an array.
   const resolved = Array.isArray(joined)
     ? joined.map((entry) => openRow(entry, vault))
     : openRow(joined, vault);
+
   return Object.assign({}, source, { [ACCOUNT_MODEL]: resolved });
 }
 
@@ -117,6 +129,7 @@ function openJoined(row: unknown, join: unknown, vault: CredentialVault): unknow
  */
 function rejectSealedWhere(where: ReadonlyArray<{ field: string }> | undefined): void {
   if (!where) return;
+
   for (const clause of where) {
     if (isSealedField(clause.field)) throw new CredentialVaultError("malformed_envelope");
   }
@@ -193,10 +206,12 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
   // token fields on the way in and opening them on the way out.
   const create = (async (data: Parameters<AuthAdapter["create"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL) return base.create(data);
+
     const result = await base.create({
       ...data,
       data: sealWrite(data.data, vault),
     });
+
     return openRow(result, vault);
   }) as AuthAdapter["create"];
 
@@ -204,19 +219,24 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
   // the operation being wrapped.
   const findOne = (async (data: Parameters<AuthAdapter["findOne"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL && !data.join) return base.findOne(data);
+
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
     const result = await base.findOne(data);
     const withJoins = openJoined(result, data.join, vault);
+
     return data.model === ACCOUNT_MODEL ? openRow(withJoins, vault) : withJoins;
   }) as AuthAdapter["findOne"];
 
   // SAFETY: same seal/open forwarding as findOne, mapped over rows.
   const findMany = (async (data: Parameters<AuthAdapter["findMany"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL && !data.join) return base.findMany(data);
+
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
     const rows = await base.findMany(data);
+
     return rows.map((row) => {
       const withJoins = openJoined(row, data.join, vault);
+
       return data.model === ACCOUNT_MODEL ? openRow(withJoins, vault) : withJoins;
     });
   }) as AuthAdapter["findMany"];
@@ -226,12 +246,14 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     if (data.model !== ACCOUNT_MODEL) return base.update(data);
     rejectSealedWhere(data.where);
     const result = await base.update({ ...data, update: sealWrite(data.update, vault) });
+
     return openRow(result, vault);
   }) as AuthAdapter["update"];
 
   const updateMany: AuthAdapter["updateMany"] = async (data) => {
     if (data.model !== ACCOUNT_MODEL) return base.updateMany(data);
     rejectSealedWhere(data.where);
+
     // Returns a row count, so there is nothing to open on the way back.
     return base.updateMany({ ...data, update: sealWrite(data.update, vault) });
   };
@@ -247,6 +269,7 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     if (data.model !== ACCOUNT_MODEL) return base.consumeOne(data);
     rejectSealedWhere(data.where);
     const result = await base.consumeOne(data);
+
     return openRow(result, vault);
   }) as AuthAdapter["consumeOne"];
 
@@ -262,13 +285,16 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
   const incrementOne = (async (data: Parameters<AuthAdapter["incrementOne"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL) return base.incrementOne(data);
     rejectSealedWhere(data.where);
+
     for (const field of Object.keys(data.increment)) {
       if (isSealedField(field)) throw new CredentialVaultError("malformed_envelope");
     }
+
     const result = await base.incrementOne({
       ...data,
       ...(data.set ? { set: sealWrite(data.set, vault) } : {}),
     });
+
     return openRow(result, vault);
   }) as AuthAdapter["incrementOne"];
 
@@ -280,17 +306,20 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
    */
   const count: AuthAdapter["count"] = async (data) => {
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
+
     return base.count(data);
   };
 
   // SAFETY: delete never carries a token value; only rejectSealedWhere runs.
   const remove = (async (data: Parameters<AuthAdapter["delete"]>[0]) => {
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
+
     return base.delete(data);
   }) as AuthAdapter["delete"];
 
   const deleteMany: AuthAdapter["deleteMany"] = async (data) => {
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
+
     return base.deleteMany(data);
   };
 
@@ -332,6 +361,7 @@ export function encryptedAuthAdapter(
     const resolved = vault ?? credentialVault();
     const adapter = base(options);
     const decorated = decorateOperations(adapter, resolved);
+
     return {
       ...decorated,
       // Recurse into the transaction handle. Better Auth links a social

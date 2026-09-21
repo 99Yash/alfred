@@ -35,8 +35,10 @@ const USAGE = `node scripts/bench/mine-task.mjs --id <id> --pr <n> --verify "<cm
 export function parseArgs(argv) {
   /** @type {MineArgs} */
   const args = { id: "", pr: 0, verify: [], issue: null };
+
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
+
     switch (flag) {
       case "--id":
         args.id = argv[++i] ?? "";
@@ -54,18 +56,23 @@ export function parseArgs(argv) {
         throw new Error(`unknown flag ${flag}\n${USAGE}`);
     }
   }
+
   if (!/^[a-z][a-z0-9-]*$/.test(args.id)) {
     throw new Error(`--id must be a lowercase slug like "a-834", got ${JSON.stringify(args.id)}`);
   }
+
   if (!Number.isInteger(args.pr) || args.pr <= 0) {
     throw new Error(`--pr must be a positive integer, got ${args.pr}`);
   }
+
   if (args.verify.length === 0 || args.verify.some((command) => command.trim() === "")) {
     throw new Error("--verify is required");
   }
+
   if (args.issue !== null && (!Number.isInteger(args.issue) || args.issue <= 0)) {
     throw new Error(`--issue must be a positive integer, got ${args.issue}`);
   }
+
   return args;
 }
 
@@ -88,11 +95,14 @@ export function stripSolution(body) {
 export function splitPatch(patch) {
   const test = [];
   const gold = [];
+
   for (const chunk of patch.split(/(?=^diff --git )/m)) {
     const path = /^diff --git a\/(\S+)/m.exec(chunk)?.[1];
+
     if (path === undefined) continue;
     (isTestFile(path) ? test : gold).push(chunk);
   }
+
   return { test: test.join(""), gold: gold.join("") };
 }
 
@@ -111,6 +121,7 @@ export function splitPatch(patch) {
  */
 export function buildPrompt(pr, args) {
   const clean = stripSolution(pr.body);
+
   return [
     `# ${pr.title}`,
     "",
@@ -136,25 +147,31 @@ export function buildPrompt(pr, args) {
  */
 export function mineTask(args) {
   const root = repoRoot();
+
   const metaText = execFileSync(
     "gh",
     ["pr", "view", String(args.pr), "--json", "title,body,baseRefOid,mergedAt"],
     { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
   );
+
   const meta = JSON.parse(metaText);
   const title = /** @type {string} */ (meta.title);
   const body = /** @type {string} */ (meta.body);
   const base = /** @type {string} */ (meta.baseRefOid);
   const mergedAt = /** @type {string} */ (meta.mergedAt);
+
   if (!/^[0-9a-f]{40}$/.test(base)) throw new Error(`PR #${args.pr} has no 40-hex baseRefOid`);
 
   const diff = execFileSync("gh", ["pr", "diff", String(args.pr)], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "inherit"],
   });
+
   const { test, gold } = splitPatch(diff);
+
   if (test.trim() === "")
     throw new Error(`PR #${args.pr} carries no test-file changes; pick another PR`);
+
   if (gold.trim() === "")
     throw new Error(`PR #${args.pr} carries no implementation changes; pick another PR`);
 
@@ -179,10 +196,13 @@ export function mineTask(args) {
   });
 
   const failures = validateManifest(manifest, root);
+
   if (failures.length > 0) {
     throw new Error(`mined task ${args.id} fails validation:\n- ${failures.join("\n- ")}`);
   }
+
   writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+
   return manifest;
 }
 

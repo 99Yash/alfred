@@ -36,9 +36,11 @@ function manifest(root, name, exportsValue) {
  */
 function withWorkspace(prefix, body) {
   const fixture = mkdtempSync(join(tmpdir(), prefix));
+
   try {
     execFileSync("git", ["init", "--quiet"], { cwd: fixture });
     write(fixture, "pnpm-workspace.yaml", "packages:\n  - packages/*\n");
+
     return body(fixture);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
@@ -47,18 +49,23 @@ function withWorkspace(prefix, body) {
 
 function expectClean(label, fixture, failures) {
   const result = packageExportsFailures(fixture);
+
   if (result.failures.length > 0) {
     failures.push(`${label}: expected no failures, received ${JSON.stringify(result.failures)}`);
   }
+
   return result;
 }
 
 function expectFailure(label, fixture, needles, failures) {
   const result = packageExportsFailures(fixture);
+
   if (result.failures.length === 0) {
     failures.push(`${label}: expected a reported failure, received none`);
+
     return result;
   }
+
   for (const needle of needles) {
     if (!result.failures.some((failure) => failure.includes(needle))) {
       failures.push(
@@ -66,6 +73,7 @@ function expectFailure(label, fixture, needles, failures) {
       );
     }
   }
+
   return result;
 }
 
@@ -77,6 +85,7 @@ function concreteTargetFailures() {
     manifest(fixture, "one", { ".": "./src/index.ts" });
     write(fixture, "packages/one/src/index.ts", "export const one = 1;\n");
     const clean = expectClean("concrete target present", fixture, failures);
+
     if (clean.checked !== 1) {
       failures.push(`concrete target present: expected checked 1, received ${clean.checked}`);
     }
@@ -124,9 +133,11 @@ function blockedTargetFailures() {
     write(fixture, "packages/three/src/index.ts", "export const three = 3;\n");
 
     const result = expectClean("null target", fixture, failures);
+
     if (result.blocked !== 1) {
       failures.push(`null target: expected blocked 1, received ${result.blocked}`);
     }
+
     if (result.checked !== 1) {
       failures.push(
         `null target: expected checked 1 (the block is not checked), received ${result.checked}`,
@@ -178,6 +189,7 @@ function nestedShapeFailures() {
     write(fixture, "packages/five/src/index.d.ts", "export declare const five: number;\n");
     write(fixture, "packages/five/src/index.ts", "export const five = 5;\n");
     const clean = expectClean("condition object, both leaves present", fixture, failures);
+
     if (clean.checked !== 2) {
       failures.push(`condition object: expected checked 2, received ${clean.checked}`);
     }
@@ -191,6 +203,7 @@ function nestedShapeFailures() {
     write(fixture, "packages/six/src/first.ts", "export const first = 6;\n");
     write(fixture, "packages/six/src/second.ts", "export const second = 6;\n");
     const clean = expectClean("array target, both elements present", fixture, failures);
+
     if (clean.checked !== 2) {
       failures.push(`array target: expected checked 2, received ${clean.checked}`);
     }
@@ -228,8 +241,10 @@ function malformedTargetFailures() {
     [{ ".": {} }, "empty object"],
     [{ ".": { types: "./a.ts", "./mixed": "./b.ts" } }, "mixes subpath keys"],
   ];
+
   for (const [value, needle] of shapeCases) {
     const reported = exportTargets(value).failures;
+
     if (!reported.some((failure) => failure.includes(needle))) {
       failures.push(
         `exportTargets must report ${needle} for ${JSON.stringify(value)}, received ${JSON.stringify(reported)}`,
@@ -243,6 +258,7 @@ function malformedTargetFailures() {
   // one `Object.keys().length === 0` read — a widened branch would swallow the second
   // case and the `empty object` row above is the only thing that would notice.
   const sealed = exportTargets({});
+
   if (sealed.failures.length > 0 || sealed.targets.length > 0) {
     failures.push(
       `exportTargets must report a top-level {} as a sealed package with no targets and no failures, received ${JSON.stringify(sealed)}`,
@@ -266,6 +282,7 @@ function degenerateSurfaceFailures() {
 
   // No pnpm-workspace.yaml at all.
   const bare = mkdtempSync(join(tmpdir(), "alfred-package-exports-noyaml-"));
+
   try {
     execFileSync("git", ["init", "--quiet"], { cwd: bare });
     expectFailure("no pnpm-workspace.yaml", bare, ["pnpm-workspace.yaml"], failures);
@@ -279,6 +296,7 @@ function degenerateSurfaceFailures() {
     ["empty packages block", "packages:\noverrides:\n  a: b\n", "lists no glob"],
   ]) {
     const fixture = mkdtempSync(join(tmpdir(), "alfred-package-exports-yaml-"));
+
     try {
       execFileSync("git", ["init", "--quiet"], { cwd: fixture });
       write(fixture, "pnpm-workspace.yaml", body);
@@ -319,14 +337,17 @@ function unparsableManifestFailures() {
     write(fixture, "packages/broken/package.json", "{ this is not json\n");
 
     let result;
+
     try {
       result = packageExportsFailures(fixture);
     } catch (error) {
       failures.push(
         `an unparsable package.json must not throw, received ${error instanceof Error ? error.message : String(error)}`,
       );
+
       return;
     }
+
     if (!result.failures.some((failure) => failure.includes("packages/broken/package.json"))) {
       failures.push(
         `an unparsable package.json must be a named failure, received ${JSON.stringify(result.failures)}`,
@@ -352,6 +373,7 @@ function unparsableManifestFailures() {
  */
 function subpathKeyMatchFailures() {
   const failures = [];
+
   for (const [key, subpath, expected] of [
     // No `*`: equality, and nothing else. A prefix is not a match.
     ["./a", "./a", true],
@@ -382,12 +404,14 @@ function subpathKeyMatchFailures() {
     ["@alfred/*", "@other/http", false],
   ]) {
     const actual = matchesSubpathKey(key, subpath);
+
     if (actual !== expected) {
       failures.push(
         `matchesSubpathKey(${JSON.stringify(key)}, ${JSON.stringify(subpath)}): expected ${expected}, received ${actual}`,
       );
     }
   }
+
   return failures;
 }
 
@@ -407,9 +431,11 @@ export function packageExportsSelfTestFailures() {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const failures = packageExportsSelfTestFailures();
+
   if (failures.length > 0) {
     for (const failure of failures) console.error(failure);
     process.exit(1);
   }
+
   console.log("package-exports self-test passed.");
 }

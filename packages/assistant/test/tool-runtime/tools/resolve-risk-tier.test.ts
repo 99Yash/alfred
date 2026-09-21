@@ -44,6 +44,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       resolveRiskTier: async () => "low",
       execute: async () => ({ ok: true }),
     });
+
     assert.equal(tool.riskTier, "high");
   });
 
@@ -56,11 +57,13 @@ describe("liveTool resolveRiskTier wiring", () => {
       inputSchema: z.object({ n: z.coerce.number() }),
       execute: async () => ({ ok: true }),
     });
+
     assert.equal(tool.resolveRiskTier, undefined);
   });
 
   test("re-parses raw input through inputSchema before the resolver sees it", async () => {
     let seen: unknown;
+
     const tool = liveTool({
       integration: "mcp",
       action: "call",
@@ -69,6 +72,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       inputSchema: z.object({ n: z.coerce.number() }),
       resolveRiskTier: async (input) => {
         seen = input;
+
         return "low";
       },
       execute: async () => ({ ok: true }),

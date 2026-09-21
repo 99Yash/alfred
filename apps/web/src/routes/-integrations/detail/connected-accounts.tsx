@@ -8,6 +8,7 @@ import { useState } from "react";
 import { AppButton, AppCard } from "~/components/ui/v2";
 import { useDisconnectIntegration } from "~/lib/integrations/use-integration-status";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
+import { formatDateTime, formatRelative } from "~/lib/strings";
 import { toast } from "~/lib/toast";
 import { ColumnLabel } from "./column-label";
 import { SectionHeading } from "./section-heading";
@@ -24,6 +25,7 @@ export function ConnectedAccounts({
   connected: boolean;
 }) {
   const accounts = provider.connectedAccounts ?? [];
+
   // A planned provider has no credential rows, so nothing to disconnect.
   const credentialProvider = isLiveProviderSlug(provider.slug)
     ? credentialProviderOf(provider.slug)
@@ -50,10 +52,7 @@ export function ConnectedAccounts({
                 {formatConnectedDate(acct.connectedAt)}
               </p>
               <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-1.5 text-sm text-app-fg-3">
-                  <span className="size-1.5 rounded-full bg-app-green-4" aria-hidden />
-                  Active
-                </span>
+                <AccountStatus account={acct} />
                 {credentialProvider ? (
                   <DisconnectControl
                     provider={credentialProvider}
@@ -69,6 +68,41 @@ export function ConnectedAccounts({
         )}
       </AppCard>
     </section>
+  );
+}
+
+/**
+ * The account is active either way; the amber variant says its Gmail push path
+ * has stopped and the five-minute sweep is carrying new mail (#998). The time
+ * identifies either the last receipt or the watch installation. Only Gmail carries the
+ * field; every other slug reads `null` and renders the green dot.
+ */
+function AccountStatus({ account }: { account: ConnectedAccount }) {
+  if (account.pushStale) {
+    const { since, baseline } = account.pushStale;
+
+    const detail =
+      baseline === "push-received"
+        ? `Last Gmail push received ${formatDateTime(since)}.`
+        : `No Gmail push received. Watch installed ${formatDateTime(since)}.`;
+
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 text-sm text-app-fg-3"
+        title={`${detail} The fallback sweep checks for new mail every five minutes.`}
+      >
+        <span className="size-1.5 rounded-full bg-app-amber-4" aria-hidden />
+        Push stale · {baseline === "watch-installed" ? "Watch installed " : "Last push "}
+        {formatRelative(since)}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm text-app-fg-3">
+      <span className="size-1.5 rounded-full bg-app-green-4" aria-hidden />
+      Active
+    </span>
   );
 }
 
@@ -139,7 +173,9 @@ function DisconnectControl({
 
 function formatConnectedDate(iso: string): string {
   const d = new Date(iso);
+
   if (Number.isNaN(d.getTime())) return "—";
+
   return d.toLocaleDateString(undefined, {
     month: "long",
     day: "numeric",

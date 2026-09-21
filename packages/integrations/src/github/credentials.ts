@@ -1,9 +1,8 @@
-import { getPath, type JsonObject } from "@alfred/contracts";
+import { getIdPath, type JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
-import { and, desc, eq } from "drizzle-orm";
-import { z } from "zod";
+import { and, eq } from "drizzle-orm";
 import { getInstallationToken } from "./app";
 
 /**
@@ -27,7 +26,7 @@ export interface UpsertGithubCredentialArgs {
   /** GitHub App installation id captured on the post-install redirect. */
   installationId?: string | null;
   scopes: string[];
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   expiresAt: Date;
 }
 
@@ -38,6 +37,7 @@ export async function upsertGithubCredential(
   // Sealed once and reused by both the insert and the on-conflict update.
   const sealedAccessToken = vault.seal(args.accessToken);
   const sealedRefreshToken = args.refreshToken ? vault.seal(args.refreshToken) : null;
+
   const result = await db()
     .insert(integrationCredentials)
     .values({
@@ -73,8 +73,11 @@ export async function upsertGithubCredential(
       },
     })
     .returning({ id: integrationCredentials.id });
+
   const row = result[0];
+
   if (!row) throw new Error("[github.credentials] upsert returned no row");
+
   return { id: row.id };
 }
 
@@ -116,11 +119,15 @@ export async function getGithubAccessToken(credentialId: string): Promise<string
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+
   const row = rows[0];
+
   if (!row) throw new Error(`[github.credentials] not found: ${credentialId}`);
+
   if (row.status !== "active") {
     throw new Error(`[github.credentials] not active: ${credentialId} (status=${row.status})`);
   }
+
   return credentialVault().open(row.accessToken);
 }
 
@@ -143,62 +150,29 @@ export async function getInstallationTokenForUser(
       credential.status === "active" &&
       (accountRef === undefined || credential.accountId === accountRef),
   );
+
   if (!active) {
     throw new Error(
       `[github.credentials] user ${userId} has no active github credential — connect GitHub in settings`,
     );
   }
+
   if (!active.installationId) {
     throw new Error(
       `[github.credentials] user ${userId} github credential has no installation_id — reconnect GitHub (the App must be installed)`,
     );
   }
+
   const { token } = await getInstallationToken(active.installationId);
+
   return { token, accountLogin: active.accountLabel?.trim() || null };
 }
-
-// GitHub sends `installation.id` as a JSON number; the credential column is text.
-const installationIdSchema = z.union([z.number().int(), z.string().min(1)]).transform(String);
 
 /**
  * The GitHub App installation id a webhook delivery came from, as the
  * `integration_credentials.installation_id` column stores it, or `null` when
- * the payload carries none. The join key for `findCredentialByInstallationId`.
+ * the payload carries none. GitHub sends it as a JSON number; the column is text.
  */
 export function githubInstallationId(payload: JsonObject): string | null {
-  const parsed = installationIdSchema.safeParse(getPath(payload, "installation", "id"));
-  return parsed.success ? parsed.data : null;
-}
-
-export type GithubInstallationCredential = Pick<
-  IntegrationCredential,
-  "id" | "userId" | "accountId"
->;
-
-/**
- * Resolve the active credential that owns a GitHub App installation — the join
- * from an inbound webhook delivery (which carries only `installation.id`) back
- * to a user and the account the receipt must be filed under. Returns the
- * most-recently-updated active match.
- */
-export async function findCredentialByInstallationId(
-  installationId: string,
-): Promise<GithubInstallationCredential | null> {
-  const rows = await db()
-    .select({
-      id: integrationCredentials.id,
-      userId: integrationCredentials.userId,
-      accountId: integrationCredentials.accountId,
-    })
-    .from(integrationCredentials)
-    .where(
-      and(
-        eq(integrationCredentials.provider, "github"),
-        eq(integrationCredentials.installationId, installationId),
-        eq(integrationCredentials.status, "active"),
-      ),
-    )
-    .orderBy(desc(integrationCredentials.updatedAt))
-    .limit(1);
-  return rows[0] ?? null;
+  return getIdPath(payload, "installation", "id");
 }

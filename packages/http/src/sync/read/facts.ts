@@ -16,6 +16,7 @@ export const fetchFacts = syncEntity(SYNC_MODEL.fact, {
         and(eq(userFacts.userId, userId), inArray(userFacts.status, ["proposed", "confirmed"])),
       )
       .orderBy(asc(userFacts.id));
+
     // #491: a proposed `relationship:<email>` edge to a service/no-reply sender,
     // or with an empty/uninformative value, is unreviewable junk — keep the row
     // server-side (intact + queryable) but never sync it to the /memory review
@@ -29,6 +30,7 @@ export const fetchFacts = syncEntity(SYNC_MODEL.fact, {
     if (f.status !== "proposed" && f.status !== "confirmed") {
       throw new SerializationError(`cannot sync fact with status '${f.status}'`);
     }
+
     return {
       id: f.id,
       userId: f.userId,

@@ -50,8 +50,10 @@ export type ProviderFactory = (options: ProviderBindOptions) => object;
  */
 export function once<T>(build: () => T): () => T {
   let cached: { value: T } | undefined;
+
   return () => {
     cached ??= { value: build() };
+
     return cached.value;
   };
 }

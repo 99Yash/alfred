@@ -22,9 +22,11 @@ export const weatherConditionSchema = z.enum([
   "storm",
   "unknown",
 ]);
+
 export type WeatherCondition = z.infer<typeof weatherConditionSchema>;
 
 const temperatureUnitSchema = z.enum(["C", "F"]);
+
 export type TemperatureUnit = z.infer<typeof temperatureUnitSchema>;
 
 /**
@@ -44,6 +46,7 @@ export const weatherSnapshotSchema = z.object({
   condition: weatherConditionSchema,
   isDay: z.boolean(),
 });
+
 export type WeatherSnapshot = z.infer<typeof weatherSnapshotSchema>;
 
 /**
@@ -108,6 +111,7 @@ const WMO_CODE_BANDS: ReadonlyArray<{ from: number; to: number; condition: Weath
 
 export function wmoCodeToCondition(code: number | null | undefined): WeatherCondition {
   if (code === undefined || code === null) return "unknown";
+
   return (
     WMO_CODE_BANDS.find((band) => code >= band.from && code <= band.to)?.condition ?? "unknown"
   );

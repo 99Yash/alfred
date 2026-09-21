@@ -98,7 +98,9 @@ const coversFile = (rule, file) =>
 export function matchLine(line, file, lanes) {
   if (line.includes("// tautology-ok")) return [];
   const trimmed = line.trim();
+
   if (trimmed.startsWith("//") || trimmed.startsWith("*")) return [];
+
   return RULES.filter(
     (rule) =>
       rule.scope !== "chain" &&
@@ -130,22 +132,31 @@ export function matchChains(text, file, lanes) {
   const lines = text.split("\n");
   /** @type {{rule: TautologyRule, line: number, text: string}[]} */
   const found = [];
+
   for (const rule of RULES) {
     if (rule.scope !== "chain") continue;
+
     if (lanes !== "all" && rule.severity !== "gate") continue;
+
     if (!coversFile(rule, file)) continue;
     const re = new RegExp(rule.re.source, `${rule.re.flags.replace(/g/g, "")}g`);
+
     for (let m = re.exec(code); m !== null; m = re.exec(code)) {
       const start = code.lastIndexOf("\n", m.index) + 1;
       const lineEnd = code.indexOf("\n", m.index + m[0].length);
       const first = code.slice(0, start).split("\n").length - 1;
+
       const last =
         lineEnd === -1 ? lines.length - 1 : code.slice(0, lineEnd).split("\n").length - 1;
+
       let markerFrom = first;
+
       while (markerFrom > 0 && isCommentLine(lines[markerFrom - 1])) markerFrom--;
+
       const exempt = lines
         .slice(markerFrom, last + 1)
         .some((l) => /\/\/\s*tautology-ok:\s*\S/.test(l));
+
       if (exempt) continue;
       found.push({
         rule,
@@ -158,5 +169,6 @@ export function matchChains(text, file, lanes) {
       });
     }
   }
+
   return found;
 }

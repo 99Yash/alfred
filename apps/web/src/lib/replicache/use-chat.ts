@@ -20,6 +20,7 @@ export function useChatThreads(): SyncedChatThread[] {
 
   useEffect(() => {
     if (!rep) return;
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.chatthread.scan(tx),
       (threads) => {
@@ -40,6 +41,7 @@ export interface ChatThreadState {
 /** Reactive single-thread lookup with unresolved and resolved-empty kept distinct. */
 export function useChatThread(threadId: string | undefined): ChatThreadState {
   const { rep, loadError, pullError, initialPullPending } = useReplicacheStatus();
+
   const [snapshot, setSnapshot] = useState<{
     rep: Replicache<ClientMutators>;
     threadId: string;
@@ -48,6 +50,7 @@ export function useChatThread(threadId: string | undefined): ChatThreadState {
 
   useEffect(() => {
     if (!rep || !threadId) return;
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.chatthread.get(tx, { id: threadId }),
       (thread) => setSnapshot({ rep, threadId, thread }),
@@ -56,7 +59,9 @@ export function useChatThread(threadId: string | undefined): ChatThreadState {
 
   const current =
     snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.thread : undefined;
+
   const error = loadError ?? pullError;
+
   return {
     thread: current ?? null,
     loading:
@@ -76,6 +81,7 @@ export interface ChatMessagesState {
 /** Reactive message list that does not expose an unresolved subscription as empty. */
 export function useChatMessages(threadId: string | undefined): ChatMessagesState {
   const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
+
   const [snapshot, setSnapshot] = useState<{
     rep: Replicache<ClientMutators>;
     threadId: string;
@@ -84,6 +90,7 @@ export function useChatMessages(threadId: string | undefined): ChatMessagesState
 
   useEffect(() => {
     if (!rep || !threadId) return;
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.chatmsg.scan(tx),
       (values) => {
@@ -96,6 +103,7 @@ export function useChatMessages(threadId: string | undefined): ChatMessagesState
 
   const current = snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.rows : null;
   const error = loadError ?? pullError;
+
   return {
     messages: current ?? [],
     loading:
@@ -117,6 +125,7 @@ export function useChatAttachmentsByMessage(
   threadId: string | undefined,
 ): Record<string, SyncedChatAttachment[]> {
   const rep = useReplicache();
+
   const [snapshot, setSnapshot] = useState<{
     rep: Replicache<ClientMutators>;
     threadId: string;
@@ -125,6 +134,7 @@ export function useChatAttachmentsByMessage(
 
   useEffect(() => {
     if (!rep || !threadId) return;
+
     return rep.subscribe(
       async (tx: ReadTransaction) => ({
         messages: await SYNC_MODEL.chatmsg.scan(tx),
@@ -132,16 +142,20 @@ export function useChatAttachmentsByMessage(
       }),
       ({ messages, attachments }) => {
         const messageIds = new Set<string>();
+
         for (const message of messages) {
           if (message.threadId === threadId) {
             messageIds.add(message.id);
           }
         }
+
         const byMessage: Record<string, SyncedChatAttachment[]> = {};
+
         for (const attachment of attachments) {
           if (!messageIds.has(attachment.messageId)) continue;
           (byMessage[attachment.messageId] ??= []).push(attachment);
         }
+
         for (const list of Object.values(byMessage)) {
           list.sort(
             (a, b) =>
@@ -150,6 +164,7 @@ export function useChatAttachmentsByMessage(
               a.id.localeCompare(b.id),
           );
         }
+
         setSnapshot({ rep, threadId, byMessage });
       },
     );

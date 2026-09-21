@@ -13,6 +13,7 @@ import { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
 import { CHARS_PER_TOKEN, estimateTranscriptTokens } from "./tokens";
 
 const compactorModel: LanguageModel = route("compactor").model();
+
 const compactorFallbackModel: LanguageModel = route("compactorFallback").model();
 
 /**
@@ -111,6 +112,7 @@ export async function compactTranscript(
 
   const text = assertRunSummary(result.text);
   const summary = buildSummaryMessage(text);
+
   return {
     transcript: [summary, ...inFlightTail],
     summary,
@@ -136,6 +138,7 @@ async function selectCompactorModel(
 ): Promise<LanguageModel> {
   const priorTokens = estimateTranscriptTokens(prior);
   const compactorWindow = await resolveModelContextWindow(compactorModel);
+
   if (
     requestFitsContextWindow(priorTokens, {
       contextWindowTokens: compactorWindow,
@@ -145,7 +148,9 @@ async function selectCompactorModel(
   ) {
     return compactorModel;
   }
+
   const fallbackWindow = await resolveModelContextWindow(compactorFallbackModel);
+
   return chooseCompactorModel({ priorTokens, compactorWindow, fallbackWindow });
 }
 
@@ -165,6 +170,7 @@ export function chooseCompactorModel(args: {
     outputReserveTokens: COMPACTOR_MAX_OUTPUT_TOKENS,
     fixedInputOverheadTokens: COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS,
   };
+
   if (
     requestFitsContextWindow(args.priorTokens, {
       ...budget,
@@ -173,6 +179,7 @@ export function chooseCompactorModel(args: {
   ) {
     return compactorModel;
   }
+
   if (
     requestFitsContextWindow(args.priorTokens, {
       ...budget,
@@ -181,6 +188,7 @@ export function chooseCompactorModel(args: {
   ) {
     return compactorFallbackModel;
   }
+
   throw new Error("compactor_input_too_large");
 }
 
@@ -200,19 +208,23 @@ export const compactorRequestOverheadTokens =
  */
 function assertRunSummary(raw: string): string {
   const trimmed = stripCodeFences(raw).trim();
+
   if (!trimmed.startsWith("<run_summary>") || !trimmed.endsWith("</run_summary>")) {
     const preview = trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
     throw new Error(
       `compactor_invalid_output: expected one <run_summary>…</run_summary> element, got: ${preview}`,
     );
   }
+
   assertHandoffSections(trimmed);
+
   return trimmed;
 }
 
 function stripCodeFences(text: string): string {
   const fence = /^\s*```(?:xml)?\s*([\s\S]*?)\s*```\s*$/i;
   const match = fence.exec(text);
+
   return match ? (match[1] ?? text) : text;
 }
 

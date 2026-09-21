@@ -3,6 +3,7 @@ import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 // Defensive process-local limits; normal Gmail identifiers and ingestion batches are far smaller.
 const identifierSchema = z.string().min(1).max(500);
+
 const identifierListSchema = z.array(identifierSchema).max(10_000);
 
 export const gmailPostInsertTriageRequestSchema = z
@@ -84,6 +85,7 @@ export function registerGmailTriageHandler(handler: GmailTriageHandler): () => v
   if (gmailTriageHandler) {
     throw new Error("[integrations] a Gmail triage handler is already registered");
   }
+
   gmailTriageHandler = handler;
 
   return () => {
@@ -96,7 +98,9 @@ export async function runGmailPostInsertTriage(
   request: unknown,
 ): Promise<GmailPostInsertTriageResult> {
   const parsedRequest = gmailPostInsertTriageRequestSchema.parse(request);
+
   if (!gmailTriageHandler) throw new NoGmailTriageHandlerRegisteredError();
+
   return gmailPostInsertTriageResultSchema.parse(
     await gmailTriageHandler.postInsert(parsedRequest),
   );
@@ -105,6 +109,8 @@ export async function runGmailPostInsertTriage(
 /** Run one queued thread relabel without exposing its implementation to ingestion. */
 export async function runGmailTriageRelabel(request: unknown): Promise<GmailTriageRelabelResult> {
   const parsedRequest = gmailTriageRelabelRequestSchema.parse(request);
+
   if (!gmailTriageHandler) throw new NoGmailTriageHandlerRegisteredError();
+
   return gmailTriageRelabelResultSchema.parse(await gmailTriageHandler.relabel(parsedRequest));
 }

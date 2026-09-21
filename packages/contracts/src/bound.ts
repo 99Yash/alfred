@@ -59,6 +59,7 @@ export interface BoundResult {
 function clipString(s: string, max: number) {
   if (s.length <= max) return { value: s, clipped: 0 };
   const clipped = s.length - max;
+
   return {
     value: `${s.slice(0, max)}\n…[truncated ${clipped} chars — re-fetch or paginate this tool for the full content]`,
     clipped,
@@ -80,28 +81,38 @@ export function boundToolResult(
   if (typeof value === "string") {
     return clipString(value, maxStringChars);
   }
+
   if (Array.isArray(value)) {
     let clipped = 0;
     let changed = false;
+
     const out = value.map((item) => {
       const r = boundToolResult(item, maxStringChars);
       clipped += r.clipped;
+
       if (r.value !== item) changed = true;
+
       return r.value;
     });
+
     return { value: changed ? out : value, clipped };
   }
+
   if (isRecord(value)) {
     let clipped = 0;
     let changed = false;
     const out: Record<string, unknown> = {};
+
     for (const [key, v] of Object.entries(value)) {
       const r = boundToolResult(v, maxStringChars);
       clipped += r.clipped;
+
       if (r.value !== v) changed = true;
       out[key] = r.value;
     }
+
     return { value: changed ? out : value, clipped };
   }
+
   return { value, clipped: 0 };
 }

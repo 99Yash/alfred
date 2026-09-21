@@ -1,6 +1,7 @@
 import { route, meteredGenerateText } from "@alfred/ai";
 import type { AspectFinding } from "./aspects";
 import type { IdentityAnchor } from "./seed";
+import { NO_PUBLIC_PROFILE_LINE } from "./no-profile";
 import type { ColdStartSignals } from "./signals";
 
 /**
@@ -51,23 +52,27 @@ Rules:
 3. Dedupe across facets — the same fact may appear in several findings; state it once.
 4. RELATION GUARD: include a family member only when a finding explicitly attests the relationship; never infer from a shared surname or city. For a public-figure relative, one clause on why they're notable. For minor children, only "exists / how many".
 5. Public sources only. Never include contact details (home address, personal phone, email address, exact birthdate).
-6. If the identity anchor was "no confident match" and the findings are empty, output a single line saying no confident public profile was found — do not confabulate.`;
+6. If the identity anchor was "no confident match" and the findings are empty, output exactly this line and nothing else — do not confabulate, do not add a word:
+${NO_PUBLIC_PROFILE_LINE}`;
 
 function buildPrompt(args: SynthesizeColdStartArgs): string {
   const lines: string[] = [];
   lines.push(`Subject:`);
   lines.push(`- Name: ${args.signals.name}`);
+
   // No full email — synthesis output is persisted as the memory chunk, so keep
   // the contact-detail local-part out of it. Name + domain + anchor suffice.
   if (args.signals.emailDomain) lines.push(`- Email domain: ${args.signals.emailDomain}`);
   lines.push("");
   lines.push(`=== Identity anchor ===`);
   lines.push(args.anchor.anchor);
+
   for (const a of args.aspects) {
     lines.push("");
     lines.push(`=== ${a.label} ===`);
     lines.push(a.finding);
   }
+
   return lines.join("\n");
 }
 
@@ -75,12 +80,14 @@ function buildPrompt(args: SynthesizeColdStartArgs): string {
 function mergeCitations(anchor: IdentityAnchor, aspects: AspectFinding[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
+
   for (const url of [...anchor.citations, ...aspects.flatMap((a) => a.citations)]) {
     if (url && !seen.has(url)) {
       seen.add(url);
       out.push(url);
     }
   }
+
   return out;
 }
 

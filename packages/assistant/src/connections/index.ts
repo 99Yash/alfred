@@ -36,7 +36,19 @@
  */
 
 export * from "./availability";
+
+export { readDeliveryAlerts, toDeliveryAlerts, type DeliveryAlertVerdict } from "./delivery-alerts";
+
+export {
+  eventDeliveryRows,
+  readEventSourceHealth,
+  type AccountDeliveryHealthReader,
+  type EventSourceHealth,
+  type EventSourceHealthMap,
+} from "./event-source-health";
+
 export * from "./google-credential-lifecycle";
+
 export {
   createPinnedDispatcher,
   hasCredentialQuery,
@@ -50,7 +62,20 @@ export {
   type DnsLookupAll,
   type HostedDispatcherTimeouts,
 } from "./hosted-endpoint";
-export * from "./object-state";
+
+export {
+  firstClosingObject,
+  objectStateFoldConsumers,
+  objectStateStore,
+  proposeObjectKeys,
+  reconcileEvidence,
+  type ClosureReading,
+  type ObjectState,
+  type ObjectStateStore,
+  type ReconcileCandidates,
+  type ReconciledObject,
+} from "./object-state";
+
 export {
   consumeOAuthNonce,
   rememberOAuthNonce,
@@ -59,4 +84,17 @@ export {
   type IssueNonceArgs,
   type SignedOAuthState,
 } from "./oauth-state";
+
 export { publishGoogleCallbackCompleted } from "./google-callback-events";
+
+export { readRawReceiptInventory, seenRawKinds } from "./raw-receipt-inventory";
+
+export { readReceiptDocument, type ReceiptDocument } from "./ingestion/receipt-document";
+
+export { GMAIL_POLL_SWEEP_INTERVAL_MS } from "./ingestion/gmail-delivery-policy";
+
+export {
+  gmailPushStaleStatus,
+  readGmailDeliveryFacts,
+  type GmailDeliveryFacts,
+} from "./ingestion/gmail-delivery-facts";

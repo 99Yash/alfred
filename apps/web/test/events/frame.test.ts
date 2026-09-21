@@ -95,6 +95,7 @@ describe("parseEventFrame", () => {
       data: JSON.stringify({ payload: chatDeltaPayload }),
       lastEventId: "7",
     });
+
     assert.ok(frame);
     assert.equal(frame.createdAt, "");
   });
@@ -144,6 +145,7 @@ describe("parseEventFrame", () => {
       data: wire(chatToolSubAgentPayload),
       lastEventId: "42",
     });
+
     assert.ok(frame);
     const toolPayload: EventPayload<"chat.tool"> = frame.payload;
     assert.equal(toolPayload.toolName, "system.spawn_sub_agent");
@@ -169,6 +171,7 @@ describe("parseEventFrame", () => {
       ["fractional lastEventId", { data: wire(chatDeltaPayload), lastEventId: "1.5" }],
       ["non-string lastEventId", { data: wire(chatDeltaPayload), lastEventId: 42 }],
     ];
+
     for (const [label, msg] of cases) {
       assert.equal(parseEventFrame("chat.delta", msg), null, label);
     }

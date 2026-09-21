@@ -77,18 +77,23 @@ function useHasScrolledPast(threshold: number): boolean {
 
   useEffect(() => {
     let rafId: number | null = null;
+
     const read = () => {
       rafId = null;
       setPast(window.scrollY > threshold);
     };
+
     const onScroll = () => {
       if (rafId != null) return;
       rafId = requestAnimationFrame(read);
     };
+
     read();
     window.addEventListener("scroll", onScroll, { passive: true });
+
     return () => {
       window.removeEventListener("scroll", onScroll);
+
       if (rafId != null) cancelAnimationFrame(rafId);
     };
   }, [threshold]);

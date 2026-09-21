@@ -4,12 +4,15 @@ import { AppButton, AppCard } from "~/components/ui/v2";
 import { ConfidenceChip } from "./confidence-chip";
 
 const CONFIRM_LEADING = <Check size={12} />;
+
 const REJECT_LEADING = <X size={12} />;
 
 function formatValue(value: unknown): string {
   if (typeof value === "string") return value;
+
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   const serialized = JSON.stringify(value, null, 2);
+
   return serialized ?? "Unknown value";
 }
 

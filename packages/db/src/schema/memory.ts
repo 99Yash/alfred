@@ -484,16 +484,29 @@ export const rejectedInferences = pgTable(
 );
 
 export type UserFact = typeof userFacts.$inferSelect;
+
 export type NewUserFact = typeof userFacts.$inferInsert;
+
 export type UserPreference = typeof userPreferences.$inferSelect;
+
 export type NewUserPreference = typeof userPreferences.$inferInsert;
+
 export type StyleProfile = typeof styleProfiles.$inferSelect;
+
 export type NewStyleProfile = typeof styleProfiles.$inferInsert;
+
 export type Entity = typeof entities.$inferSelect;
+
 export type NewEntity = typeof entities.$inferInsert;
+
 export type EntityRelation = typeof entityRelations.$inferSelect;
+
 export type NewEntityRelation = typeof entityRelations.$inferInsert;
+
 export type MemoryChunk = typeof memoryChunks.$inferSelect;
+
 export type NewMemoryChunk = typeof memoryChunks.$inferInsert;
+
 export type MemoryExtractionStatus = typeof memoryExtractionStatus.$inferSelect;
+
 export type RejectedInference = typeof rejectedInferences.$inferSelect;

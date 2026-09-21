@@ -22,24 +22,29 @@ export function LearnTab({
   const [prompt, setPrompt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
   const hasActiveRun = runs.some(
     (run) => run.status !== "completed" && run.status !== "failed" && run.status !== "cancelled",
   );
+
   const learning = submitting || hasActiveRun;
 
   const onRelearn = async () => {
     if (learning || !prompt.trim()) return;
     setSubmitting(true);
     setSubmitError(null);
+
     try {
       const response = await client.api.skills({ id: skill.id }).relearn.post({
         prompt: prompt.trim(),
       });
+
       if (response.error) {
         throw new Error(
           responseErrorMessage(response.error.value, response.error.status, "Re-learn skill"),
         );
       }
+
       setPrompt("");
     } catch (caught) {
       setSubmitError(caught instanceof Error ? caught.message : "Failed to re-learn skill");

@@ -55,6 +55,7 @@ export const subAgentJoinWakeJobDataSchema = z.object({
   childRunId: z.string().min(1),
   parentRunId: z.string().min(1),
 });
+
 export type SubAgentJoinWakeJobData = z.infer<typeof subAgentJoinWakeJobDataSchema>;
 
 let _queue: Queue<SubAgentJoinWakeJobData> | undefined;
@@ -76,6 +77,7 @@ export function getSubAgentJoinWakeQueue(): Queue<SubAgentJoinWakeJobData> {
       removeOnFail: { count: 200, age: 24 * 60 * 60 },
     },
   });
+
   return _queue;
 }
 
@@ -85,6 +87,7 @@ export async function scheduleSubAgentJoinWakeJob(args: {
   delayMs: number;
 }): Promise<"scheduled" | "disabled" | "failed"> {
   if (!isQueueEnabled()) return "disabled";
+
   try {
     const queue = getSubAgentJoinWakeQueue();
     const jobId = subAgentJoinWakeJobId(args.childRunId);
@@ -96,12 +99,15 @@ export async function scheduleSubAgentJoinWakeJob(args: {
     // (the bare `add` no-ops on it, which is the intended idempotency) and an
     // `active` job alone (it is mid-wake and must not be pulled out).
     const existing = await queue.getJob(jobId);
+
     if (existing) {
       const state = await existing.getState();
+
       if (state === "completed" || state === "failed") {
         await existing.remove();
       }
     }
+
     await queue.add(
       "sub-agent-join.wake",
       { childRunId: args.childRunId, parentRunId: args.parentRunId },
@@ -110,6 +116,7 @@ export async function scheduleSubAgentJoinWakeJob(args: {
         jobId,
       },
     );
+
     return "scheduled";
   } catch (err) {
     console.warn(
@@ -117,6 +124,7 @@ export async function scheduleSubAgentJoinWakeJob(args: {
       args.childRunId,
       toMessage(err),
     );
+
     return "failed";
   }
 }

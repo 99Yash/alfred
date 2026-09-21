@@ -29,6 +29,7 @@ describe("PeriodicTask", () => {
         eager += 1;
       },
     });
+
     const lazyTask = new PeriodicTask({
       name: "lazy",
       intervalMs: 60_000,
@@ -90,6 +91,7 @@ describe("PeriodicTask", () => {
 
   test("stop reports false when the pass ignores its signal", async () => {
     let released = () => {};
+
     const blocked = new Promise<void>((resolve) => {
       released = resolve;
     });
@@ -120,6 +122,7 @@ describe("PeriodicTask", () => {
   test("triggers during a pass coalesce into exactly one more pass", async () => {
     let passes = 0;
     let release = () => {};
+
     const firstPass = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -130,6 +133,7 @@ describe("PeriodicTask", () => {
       runOnStart: false,
       pass: async () => {
         passes += 1;
+
         if (passes === 1) await firstPass;
       },
     });
@@ -195,6 +199,7 @@ describe("PeriodicTask", () => {
       intervalMs: 60_000,
       pass: async (signal) => {
         passes += 1;
+
         if (!signal.aborted) sawLiveSignal = true;
       },
     });
@@ -224,6 +229,7 @@ describe("PeriodicTask", () => {
 
   test("a trigger after stop does nothing", async () => {
     let passes = 0;
+
     const task = new PeriodicTask({
       name: "quiet",
       intervalMs: 60_000,

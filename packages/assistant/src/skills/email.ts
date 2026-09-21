@@ -1,5 +1,7 @@
+import { emailLogoUrl } from "@alfred/assistant/settings";
 import { serverEnv } from "@alfred/env/server";
-import { type ComposedEmail, renderSkillDocumentationEmail } from "@alfred/mailer";
+import type { ComposedEmail } from "@alfred/assistant/delivery";
+import { renderSkillDocumentationEmail } from "@alfred/mailer";
 import type { SkillDocumentationContext } from "./skill-documentation-context";
 
 /**
@@ -45,10 +47,10 @@ export async function composeSkillDocumentationEmail(
 
   const origin = (args.alfredUrl ?? serverEnv().CORS_ORIGIN).replace(/\/+$/, "");
   const skillUrl = `${origin}/skills/${args.context.skill.slug}`;
-  // Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
-  const logoUrl = `${origin}/images/logo/alfred-logo-email.png`;
+  const logoUrl = emailLogoUrl(origin);
 
   const text = renderText({ greetingName, provenance, preview, skillUrl });
+
   const html = await renderSkillDocumentationEmail({
     greetingName,
     provenance,
@@ -56,13 +58,16 @@ export async function composeSkillDocumentationEmail(
     skillUrl,
     logoUrl,
   });
+
   return { subject, html, text };
 }
 
 function firstName(full: string | undefined | null): string {
   if (!full) return "there";
   const trimmed = full.trim();
+
   if (!trimmed) return "there";
+
   return trimmed.split(/\s+/)[0] ?? "there";
 }
 
@@ -79,31 +84,40 @@ function buildProvenanceLine(ctx: SkillDocumentationContext): string {
   if (docCount === 0 && memCount === 0) {
     return `No connected sources matched yet; this is a starting point.`;
   }
+
   const parts: string[] = [];
+
   if (docCount > 0) {
     const fromClause = sourceLabels.length > 0 ? ` across ${humanList(sourceLabels)}` : "";
     parts.push(`${docCount} document chunk${docCount === 1 ? "" : "s"}${fromClause}`);
   }
+
   if (memCount > 0) {
     parts.push(`${memCount} memory note${memCount === 1 ? "" : "s"}`);
   }
+
   return `Analyzed ${humanList(parts)} to enrich this skill.`;
 }
 
 function humanList(items: string[]): string {
   if (items.length === 0) return "";
+
   if (items.length === 1) return items[0]!;
+
   if (items.length === 2) return `${items[0]} and ${items[1]}`;
+
   return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
 }
 
 function previewBody(body: string): string {
   const trimmed = body.trim();
+
   if (trimmed.length <= PREVIEW_CHAR_BUDGET) return trimmed;
   // Cut on a paragraph boundary if there is one inside the budget.
   const slice = trimmed.slice(0, PREVIEW_CHAR_BUDGET);
   const lastBreak = slice.lastIndexOf("\n\n");
   const cut = lastBreak > PREVIEW_CHAR_BUDGET / 2 ? slice.slice(0, lastBreak) : slice;
+
   return `${cut.trim()}…`;
 }
 

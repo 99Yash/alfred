@@ -16,6 +16,7 @@ async function readAvailable(res: Response): Promise<string> {
   assert.ok(reader, "response has a body");
   const { value } = await reader.read();
   await reader.cancel();
+
   return new TextDecoder().decode(value);
 }
 
@@ -28,12 +29,16 @@ async function readChunks(res: Response, count: number): Promise<string[]> {
   assert.ok(reader, "response has a body");
   const decoder = new TextDecoder();
   const chunks: string[] = [];
+
   for (let i = 0; i < count; i += 1) {
     const { value, done } = await reader.read();
+
     if (done) break;
     chunks.push(decoder.decode(value));
   }
+
   await reader.cancel();
+
   return chunks;
 }
 
@@ -50,9 +55,11 @@ async function countingIntervals(fn: () => Promise<void> | void): Promise<{
   const realClearInterval = globalThis.clearInterval;
   let armed = 0;
   let cleared = 0;
+
   try {
     globalThis.setInterval = ((...args: Parameters<typeof realSetInterval>) => {
       armed += 1;
+
       return realSetInterval(...args);
     }) as typeof globalThis.setInterval;
     globalThis.clearInterval = ((handle?: Parameters<typeof realClearInterval>[0]) => {
@@ -64,6 +71,7 @@ async function countingIntervals(fn: () => Promise<void> | void): Promise<{
     globalThis.setInterval = realSetInterval;
     globalThis.clearInterval = realClearInterval;
   }
+
   return { armed, cleared };
 }
 
@@ -152,6 +160,7 @@ describe("sseResponse", () => {
 
   test("runs a registered teardown exactly once on client cancel", async () => {
     let calls = 0;
+
     const res = sseResponse((conn) =>
       conn.defer(() => {
         calls += 1;
@@ -164,6 +173,7 @@ describe("sseResponse", () => {
 
   test("runs a registered teardown exactly once on close(), and close() is idempotent", async () => {
     let calls = 0;
+
     const res = sseResponse((conn) => {
       conn.defer(() => {
         calls += 1;
@@ -181,6 +191,7 @@ describe("sseResponse", () => {
 
   test("does not run teardown twice when a closed stream is then cancelled", async () => {
     let calls = 0;
+
     const res = sseResponse((conn) => {
       conn.defer(() => {
         calls += 1;
@@ -199,6 +210,7 @@ describe("sseResponse", () => {
     // after the list has already been drained.
     let calls = 0;
     let releaseOpen: () => void = () => {};
+
     const subscribed = new Promise<void>((resolve) => {
       releaseOpen = resolve;
     });
@@ -226,6 +238,7 @@ describe("sseResponse", () => {
     // `sseResponse` and reaches the error middleware: the client gets 500 and
     // no stream. Measured against the package's own `errorHandler` on Node 22.
     let calls = 0;
+
     const counts = await countingIntervals(() => {
       assert.throws(
         () =>
@@ -251,11 +264,13 @@ describe("sseResponse", () => {
     // measurement was `armed=1 cleared=0 teardown=0`.
     let calls = 0;
     let failOpen: (err: Error) => void = () => {};
+
     const gate = new Promise<never>((_, reject) => {
       failOpen = reject;
     });
 
     let outcome = "not read";
+
     const counts = await countingIntervals(async () => {
       const res = sseResponse(async (conn) => {
         conn.defer(() => {
@@ -270,6 +285,7 @@ describe("sseResponse", () => {
         () => "ended",
         (err: unknown) => (err instanceof Error ? err.message : String(err)),
       );
+
       failOpen(new Error("open rejected"));
       outcome = await drained;
     });
@@ -288,6 +304,7 @@ describe("sseResponse", () => {
     // close. The cast stands in for that class: it is what the type system
     // already admits, not a widening of the contract.
     let calls = 0;
+
     // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
     const foreign = {
       // eslint-disable-next-line unicorn/no-thenable -- the test subject IS a thenable from outside this realm
@@ -297,11 +314,13 @@ describe("sseResponse", () => {
     } as unknown as Promise<void>;
 
     let outcome = "not read";
+
     const counts = await countingIntervals(async () => {
       const res = sseResponse((conn) => {
         conn.defer(() => {
           calls += 1;
         });
+
         return foreign;
       });
 
@@ -321,6 +340,7 @@ describe("sseResponse", () => {
     // the reason teardown is a LIST is that a later adopter registers a second
     // one beside the first.
     const ran: string[] = [];
+
     const res = sseResponse((conn) => {
       conn.defer(() => {
         ran.push("first");
@@ -337,8 +357,10 @@ describe("sseResponse", () => {
 
   test("frame after close does not throw", async () => {
     let threw: unknown;
+
     const res = sseResponse((conn) => {
       conn.close();
+
       try {
         conn.frame({ event: "poke", data: "{}" });
       } catch (err) {
@@ -357,14 +379,17 @@ describe("sseResponse", () => {
     // returned.
     const realSetInterval = globalThis.setInterval;
     const unreffed: boolean[] = [];
+
     try {
       globalThis.setInterval = ((...args: Parameters<typeof realSetInterval>) => {
         const handle = realSetInterval(...args);
         const realUnref = handle.unref.bind(handle);
         handle.unref = () => {
           unreffed.push(true);
+
           return realUnref();
         };
+
         return handle;
       }) as typeof globalThis.setInterval;
 

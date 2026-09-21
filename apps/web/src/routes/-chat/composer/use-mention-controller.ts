@@ -32,6 +32,7 @@ export function useMentionController(connections: MentionConnectionLookup): Ment
   // Drill-in state for "connect this integration first". Kept here rather
   // than in the palette so it survives palette re-renders driven by keystrokes.
   const [connectPrompt, setConnectPrompt] = useState<MentionOption | null>(null);
+
   const mentionCandidates = useMemo(
     () => (suggestion ? filterMentionOptions(suggestion.query) : []),
     [suggestion],
@@ -44,11 +45,13 @@ export function useMentionController(connections: MentionConnectionLookup): Ment
   // extra render it'd cost.
   const currentQuery = suggestion?.query ?? null;
   const [prevQuery, setPrevQuery] = useState<string | null>(currentQuery);
+
   if (prevQuery !== currentQuery) {
     setPrevQuery(currentQuery);
     setMentionIdx(0);
     setConnectPrompt(null);
   }
+
   // The popup closing must also tear down the drill-in, or the next `@`
   // would reopen straight into a stale connect panel.
   if (suggestion === null && connectPrompt !== null) {
@@ -67,19 +70,23 @@ export function useMentionController(connections: MentionConnectionLookup): Ment
       // dispatch floor would only refuse. Everything else inserts as before.
       if (connections(option.value) === "connectable") {
         setConnectPrompt(option);
+
         return;
       }
+
       suggestion?.command(option);
     },
     [connections, suggestion],
   );
 
   const navigate = useNavigate();
+
   const connectFromPrompt = useCallback(() => {
     if (!connectPrompt) return;
     const page = getIntegrationPage(connectPrompt.value);
     setConnectPrompt(null);
     suggestion?.dismiss();
+
     if (page) {
       void navigate({ to: "/integrations/$slug", params: { slug: page.slug } });
     }
@@ -96,6 +103,7 @@ export function useMentionController(connections: MentionConnectionLookup): Ment
   useEffect(() => {
     suggestionKeyDownRef.current = (event) => {
       if (!suggestion || mentionCandidates.length === 0) return false;
+
       // While the connect drill-in is up, list nav keys have nothing to move
       // to. Enter commits the panel's primary action — without this a
       // keyboard user could read "Connect Gmail" but never activate it, since
@@ -107,42 +115,58 @@ export function useMentionController(connections: MentionConnectionLookup): Ment
         if (event.key === "Enter") {
           event.preventDefault();
           connectFromPrompt();
+
           return true;
         }
+
         if (event.key === "Escape") {
           event.preventDefault();
           suggestion.dismiss();
+
           return true;
         }
+
         if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Tab") {
           event.preventDefault();
+
           return true;
         }
+
         return false;
       }
+
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setMentionIdx(Math.min(mentionCandidates.length - 1, visibleMentionIdx + 1));
+
         return true;
       }
+
       if (event.key === "ArrowUp") {
         event.preventDefault();
         setMentionIdx(Math.max(0, visibleMentionIdx - 1));
+
         return true;
       }
+
       if (event.key === "Enter" || event.key === "Tab") {
         const pick = mentionCandidates[visibleMentionIdx];
+
         if (pick) {
           event.preventDefault();
           pickMention(pick);
+
           return true;
         }
       }
+
       if (event.key === "Escape") {
         event.preventDefault();
         suggestion.dismiss();
+
         return true;
       }
+
       return false;
     };
   }, [

@@ -31,6 +31,7 @@ import { workflowRecoveryNavigation } from "./recovery-navigation";
  */
 
 const DEFAULT_PAGE_SIZE = 20;
+
 export const MAX_PAGE_SIZE = 50;
 
 export interface ListWorkflowRunHistoryArgs {
@@ -75,12 +76,15 @@ function encodeCursor(cursor: HistoryCursor): string {
 function decodeCursor(raw: string): HistoryCursor {
   const decoded = Buffer.from(raw, "base64url").toString("utf8");
   const separator = decoded.indexOf("|");
+
   if (separator <= 0) throw new InvalidRunHistoryCursorError();
   const createdAt = decoded.slice(0, separator);
   const id = decoded.slice(separator + 1);
+
   if (!MICROSECOND_INSTANT.test(createdAt) || id.length === 0) {
     throw new InvalidRunHistoryCursorError();
   }
+
   return { createdAt, id };
 }
 
@@ -105,6 +109,7 @@ export async function listWorkflowRunHistory(
     .from(workflows)
     .where(and(eq(workflows.id, args.workflowId), eq(workflows.userId, args.userId)))
     .limit(1);
+
   if (!workflow) return null;
 
   const runs = await db()
@@ -148,6 +153,7 @@ export async function listWorkflowRunHistory(
 
   const page = runs.slice(0, pageSize);
   const last = page[page.length - 1];
+
   const nextCursor =
     runs.length > pageSize && last
       ? encodeCursor({ createdAt: last.createdAtMicros, id: last.id })
@@ -165,6 +171,7 @@ export async function listWorkflowRunHistory(
     const coverageGaps = status === "blocked" ? readCoverageGaps(run.output) : [];
     const revisionId = run.workflowRevisionId;
     const isPublished = revisionId !== null && revisionId === workflow.publishedRevisionId;
+
     return {
       id: run.id,
       occurrenceKey: run.occurrenceKey,
@@ -198,7 +205,9 @@ export async function listWorkflowRunHistory(
 
 async function readEffectsByRun(runIds: string[]): Promise<Map<string, EffectReceipt[]>> {
   const byRun = new Map<string, EffectReceipt[]>();
+
   if (runIds.length === 0) return byRun;
+
   const rows = await db()
     .select({ runId: actionStagings.runId, ...effectReceiptColumns })
     .from(actionStagings)
@@ -209,11 +218,13 @@ async function readEffectsByRun(runIds: string[]): Promise<Map<string, EffectRec
       ),
     )
     .orderBy(asc(actionStagings.createdAt), asc(actionStagings.id));
+
   for (const row of rows) {
     const list = byRun.get(row.runId) ?? [];
     list.push(toEffectReceipt(row));
     byRun.set(row.runId, list);
   }
+
   return byRun;
 }
 
@@ -226,12 +237,16 @@ function toHistoryOutcome(outcome: WorkflowRunOutcome): WorkflowRunHistoryOutcom
   switch (outcome.kind) {
     case "completed": {
       const { effects: _effects, ...rest } = outcome;
+
       return rest;
     }
+
     case "cancelled": {
       const { completedEffects: _completedEffects, ...rest } = outcome;
+
       return rest;
     }
+
     default:
       return outcome;
   }
@@ -239,6 +254,7 @@ function toHistoryOutcome(outcome: WorkflowRunOutcome): WorkflowRunHistoryOutcom
 
 function readCoverageGaps(output: unknown): PersistedWorkflowReadinessProblem[] {
   const parsed = workflowReadinessOutputSchema.safeParse(output);
+
   return parsed.success ? parsed.data.readiness : [];
 }
 
@@ -258,16 +274,20 @@ function recoveryFor(args: {
   coverageGaps: readonly PersistedWorkflowReadinessProblem[];
 }): WorkflowRunRecovery {
   if (args.outcome?.kind === "unknown_write_outcome") return { kind: "none" };
+
   switch (args.status) {
     case "blocked": {
       if (!args.revisionId) return { kind: "none" };
+
       const navigation = workflowRecoveryNavigation({
         workflowId: args.workflowId,
         revisionId: args.revisionId,
         readiness: args.coverageGaps,
       });
+
       return navigation ?? { kind: "recheck", revisionId: args.revisionId };
     }
+
     case "failed":
     case "cancelled":
       return args.revisionId

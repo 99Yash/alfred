@@ -7,6 +7,7 @@ export function FeaturedHero({ brands }: { brands: ReadonlyArray<IntegrationBran
   const picks: [IntegrationBrand, IntegrationBrand, IntegrationBrand] = (() => {
     if (brands.length === 0) return ["gmail", "google_calendar", "google_drive"];
     const [a = brands[0]!, b = brands[0]!, c = brands[0]!] = brands;
+
     return [a, b, c];
   })();
 

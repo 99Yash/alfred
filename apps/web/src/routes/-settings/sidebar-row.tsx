@@ -11,6 +11,7 @@ export function SidebarRow({
   onClick: () => void;
 }) {
   const Icon = section.icon;
+
   return (
     <button
       type="button"

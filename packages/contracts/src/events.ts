@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { approvalKindSchema } from "./agent";
 import { chatConnectNudgeSchema } from "./chat";
 import { sanitizeErrorMessage } from "./sanitize";
 
@@ -13,6 +14,7 @@ export const CHAT_DELTA_MAX = 16_000;
  * #267). See `toolCardStarted` / `toolCardTerminal` in `@alfred/assistant`.
  */
 export const CHAT_TOOL_NAME_MAX = 120;
+
 export const CHAT_TOOL_CALL_ID_MAX = 200;
 
 /**
@@ -38,7 +40,7 @@ export const toolCallSchema = z.object({
 export const approvalRequestedSchema = z.object({
   runId: z.string().min(1).max(120),
   approvalId: z.string().min(1).max(120),
-  approvalKind: z.enum(["step", "action_staging"]),
+  approvalKind: approvalKindSchema,
   prompt: z.string().min(1).max(4_000),
 });
 
@@ -65,6 +67,7 @@ export const AGENT_RUN_ERROR_MAX = 4_000;
  * consumer or persisted read changes.
  */
 export const agentRunErrorSchema = z.string().max(AGENT_RUN_ERROR_MAX).brand<"AgentRunError">();
+
 export type AgentRunError = z.infer<typeof agentRunErrorSchema>;
 
 /**
@@ -212,6 +215,13 @@ export const chatToolSchema = z.object({
   /** Trimmed preview of the tool result for the card's done state. */
   resultPreview: z.string().max(2_000).optional(),
   /**
+   * `preview()` had to prune `resultPreview` to fit the 2000-character cap: a
+   * string was shortened, an array sliced, or an object key dropped. A pruned
+   * preview still parses as JSON, so a reader that re-reads the preview as the
+   * record it came from cannot tell without this flag (#1018 review, S2).
+   */
+  resultTruncated: z.boolean().optional(),
+  /**
    * ADR-0070: the dispatch-boundary sanitizer stripped non-text bytes (U+0000 /
    * lone surrogates) from this result before storage, so the card can flag the
    * preview as possibly-incomplete instead of looking pristine. Absent/false on
@@ -304,12 +314,25 @@ export const artifactDeltaSchema = z.object({
  * client mount the in-flight bubble keyed by `messageId`; `completed` signals
  * the durable message has been persisted (Replicache poke incoming) so the
  * client can reconcile the streamed bubble against the synced copy.
+ *
+ * `capacity_retry` is sent when the turn hits a 429 or 5xx before anything
+ * streamed and is about to wait out a backoff. It carries a job the other
+ * phases do not: the client arms a 45s stall watchdog on every frame, and the
+ * backoff is long enough to trip it, so a turn that is healthy and waiting on
+ * purpose would paint "Connection stalled". The frame both re-arms that timer
+ * and names the state, so the bubble can say what it is doing.
  */
 export const chatMessageSchema = z.object({
   runId: z.string().min(1).max(120),
   threadId: z.string().min(1).max(120),
   messageId: z.string().min(1).max(120),
-  phase: z.enum(["started", "compaction_started", "compaction_finished", "completed"]),
+  phase: z.enum([
+    "started",
+    "compaction_started",
+    "compaction_finished",
+    "capacity_retry",
+    "completed",
+  ]),
   /** Present only for the explicit compaction phases. */
   compactionScope: z.enum(["foreground", "within_run"]).optional(),
 });
@@ -329,6 +352,7 @@ export const eventPayloadSchemas = {
 } as const satisfies Record<string, z.ZodType>;
 
 export type EventKind = keyof typeof eventPayloadSchemas;
+
 export type EventPayload<K extends EventKind> = z.infer<(typeof eventPayloadSchemas)[K]>;
 
 export const EVENT_KINDS =
@@ -344,6 +368,7 @@ export const eventFrameSchema = z.object({
   payload: z.unknown(),
   createdAt: z.string(),
 });
+
 export type EventFrame = z.infer<typeof eventFrameSchema>;
 
 export function isKnownEventKind(value: string): value is EventKind {

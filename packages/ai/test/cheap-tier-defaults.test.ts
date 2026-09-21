@@ -4,15 +4,14 @@ import { describe, test } from "node:test";
 import { route } from "../src/provider";
 
 /**
- * The cheap route must never buy a reasoning budget (#436). Both the primary
- * and fallback are derived from this route policy, and model construction uses
- * the same provider-options value as its default settings.
+ * The cheap route must never buy a reasoning budget (#436). It selects the
+ * generic AI SDK `none` ceiling, which the provider package maps to its own
+ * disabled shape, and carries no provider-option exception.
  */
 describe("cheap model route", () => {
-  test("projects disabled reasoning for the whole same-provider chain", () => {
-    assert.deepEqual(route("cheap").providerOptions(), {
-      google: { thinkingConfig: { thinkingBudget: 0 } },
-    });
+  test("selects disabled reasoning for the whole same-provider chain", () => {
+    assert.equal(route("cheap").reasoning(), "none");
+    assert.deepEqual(route("cheap").providerOptions(), {});
   });
 
   test("returns one memoized, attribution-preserving model handle", () => {

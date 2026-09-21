@@ -13,6 +13,7 @@ const PreviewLandingPage = import.meta.env.DEV
  * primitives in components/landing/* without signing out.
  */
 export const Route = createFileRoute("/preview/landing")({
+  staticData: { publicRoute: true },
   beforeLoad: () => {
     if (!import.meta.env.DEV) throw notFound();
   },

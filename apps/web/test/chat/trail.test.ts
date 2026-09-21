@@ -46,13 +46,16 @@ describe("buildTrail", () => {
         { index: 1, text: "Now searching" },
       ],
     );
+
     assert.deepEqual(kinds(trail), ["narration", "narration", "tool"]);
     assert.equal(trail[0]?.kind === "narration" && trail[0].text, "First I'll look");
     assert.equal(trail[1]?.kind === "narration" && trail[1].text, "Now searching");
   });
 
-  // Move fidelity — these folding rules predate the move and must not shift.
-  test("consecutive identical calls fold into one row, a status change breaks it", () => {
+  // The fold key is (toolName, foldClass): `started` and `succeeded` share a
+  // class so an in-flight call joins the run it will land in; only a failure
+  // (or a different tool, or narration) breaks a run.
+  test("consecutive identical calls fold into one row, a failure breaks it", () => {
     const folded = buildTrail(
       [
         call("gmail.search", "succeeded", 0, "a"),
@@ -61,6 +64,7 @@ describe("buildTrail", () => {
       ],
       [],
     );
+
     assert.deepEqual(kinds(folded), ["tool", "tool"]);
     assert.equal(folded[0]?.kind === "tool" && folded[0].tools.length, 2);
     assert.equal(folded[1]?.kind === "tool" && folded[1].tools.length, 1);
@@ -74,6 +78,7 @@ describe("buildTrail", () => {
       ],
       [],
     );
+
     assert.deepEqual(kinds(trail), ["tool", "tool"]);
   });
 
@@ -82,6 +87,7 @@ describe("buildTrail", () => {
       [call("gmail.search", "succeeded", 0, "a"), call("gmail.search", "succeeded", 1, "b")],
       [{ index: 1, text: "One more pass" }],
     );
+
     assert.deepEqual(kinds(trail), ["tool", "narration", "tool"]);
   });
 });

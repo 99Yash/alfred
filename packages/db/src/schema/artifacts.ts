@@ -69,4 +69,5 @@ export const artifacts = pgTable(
 );
 
 export type Artifact = typeof artifacts.$inferSelect;
+
 export type NewArtifact = typeof artifacts.$inferInsert;

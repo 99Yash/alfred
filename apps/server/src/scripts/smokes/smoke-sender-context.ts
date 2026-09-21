@@ -159,16 +159,19 @@ for (const fx of FIXTURES) {
     subject: fx.subject,
     body: fx.body,
   });
+
   const errs: string[] = [];
 
   if (result.context.fromKind !== fx.expect.fromKind) {
     errs.push(`fromKind: want ${fx.expect.fromKind}, got ${result.context.fromKind}`);
   }
+
   if (result.context.effectiveAuthor !== fx.expect.effectiveAuthor) {
     errs.push(
       `effectiveAuthor: want ${fx.expect.effectiveAuthor}, got ${result.context.effectiveAuthor}`,
     );
   }
+
   if (fx.expect.botSlug !== undefined) {
     if (result.context.botSlug !== fx.expect.botSlug) {
       errs.push(`botSlug: want ${fx.expect.botSlug}, got ${String(result.context.botSlug)}`);
@@ -176,6 +179,7 @@ for (const fx of FIXTURES) {
   } else if (result.context.botSlug !== undefined) {
     errs.push(`botSlug: want undefined, got ${result.context.botSlug}`);
   }
+
   if (fx.expect.bodyActorKind !== undefined) {
     if (result.context.bodyActor?.kind !== fx.expect.bodyActorKind) {
       errs.push(
@@ -183,6 +187,7 @@ for (const fx of FIXTURES) {
       );
     }
   }
+
   if (fx.expect.bodyActorName !== undefined) {
     if (result.context.bodyActor?.name !== fx.expect.bodyActorName) {
       errs.push(
@@ -190,6 +195,7 @@ for (const fx of FIXTURES) {
       );
     }
   }
+
   if (fx.expect.parserHit !== undefined && result.parserHit !== fx.expect.parserHit) {
     errs.push(`parserHit: want ${String(fx.expect.parserHit)}, got ${String(result.parserHit)}`);
   }
@@ -199,6 +205,7 @@ for (const fx of FIXTURES) {
   } else {
     failed += 1;
     console.error(`✗ ${fx.name}`);
+
     for (const e of errs) console.error(`    ${e}`);
     console.error(`    context=${JSON.stringify(result.context)}`);
   }
@@ -208,4 +215,5 @@ if (failed > 0) {
   console.error(`\n${failed} fixture(s) failed`);
   process.exit(1);
 }
+
 console.log(`\nall ${FIXTURES.length} fixtures green`);

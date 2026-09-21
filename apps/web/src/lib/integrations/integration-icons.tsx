@@ -11,7 +11,9 @@ import {
   GoogleSlidesTile,
   LinearTile,
   NotionTile,
+  PolylaneTile,
   RailwayTile,
+  SentryTile,
   SlackTile,
   VercelTile,
 } from "~/lib/integrations/integration-tile-components";
@@ -57,6 +59,12 @@ const BRAND_SVGS = {
   notion: `<path fill-rule="evenodd" clip-rule="evenodd" d="M29.1559 9.76696L12.2566 11.0152C10.8932 11.1331 10.4189 12.0239 10.4189 13.0917V31.6178C10.4189 32.4495 10.7143 33.1611 11.4268 34.1121L15.3993 39.2775C16.0519 40.1092 16.6453 40.2875 17.8914 40.2283L37.5162 39.0402C39.1755 38.922 39.651 38.1493 39.651 36.8434V16.0013C39.651 15.3263 39.3844 15.1318 38.5995 14.5558L33.0703 10.6575C31.7653 9.70862 31.2317 9.5886 29.1559 9.76665V9.76696ZM18.3352 15.6602C16.7327 15.768 16.3693 15.7924 15.4591 15.0524L13.1453 13.212C12.9102 12.9738 13.0284 12.6766 13.6209 12.6174L29.8666 11.4302C31.2308 11.3111 31.9412 11.7866 32.4748 12.202L35.261 14.2208C35.3801 14.2809 35.6764 14.6361 35.32 14.6361L18.5429 15.6461L18.3352 15.6602ZM16.467 36.6654V18.972C16.467 18.1993 16.7043 17.8429 17.4147 17.7831L36.6842 16.6549C37.3378 16.5959 37.6331 17.0113 37.6331 17.7828V35.3582C37.6331 36.1309 37.514 36.7845 36.4472 36.8434L18.0075 37.9123C16.9407 37.9713 16.4673 37.6161 16.4673 36.6654H16.467ZM34.6694 19.9206C34.7876 20.4551 34.6694 20.9896 34.135 21.0506L33.2462 21.2269V34.2902C32.4745 34.7055 31.7641 34.9428 31.1704 34.9428C30.2214 34.9428 29.9844 34.6457 29.2738 33.7557L23.4618 24.6117V33.4585L25.3004 33.8748C25.3004 33.8748 25.3004 34.9438 23.817 34.9438L19.7275 35.1811C19.6084 34.9428 19.7275 34.3494 20.142 34.2312L21.21 33.935V22.2378L19.7279 22.1177C19.6087 21.5833 19.905 20.8115 20.7357 20.7516L25.1235 20.4563L31.1707 29.7185V21.5243L29.6293 21.3472C29.5101 20.6927 29.9844 20.2172 30.5769 20.1592L34.6694 19.9206Z" fill="currentColor"></path>`,
   railway: `<path d="M7.82509 22.5005C7.7425 23.0793 7.68876 23.662 7.66406 24.2462H33.9983C33.9063 24.0665 33.7828 23.9045 33.6582 23.746C29.1562 17.9296 26.7344 18.4339 23.2701 18.2862C22.1151 18.2387 21.3318 18.2196 16.7344 18.2196C14.2737 18.2196 11.5986 18.2259 8.99364 18.2328C8.65642 19.143 8.33119 20.0253 8.17284 20.743H21.6674V22.5005H7.82509ZM34.2059 26.0054H7.67757C7.70533 26.4744 7.74908 26.9371 7.81226 27.3935H32.3043C33.3962 27.3935 34.0073 26.7741 34.2059 26.0054ZM9.18822 32.1881C9.18822 32.1881 13.2485 42.1579 24.9807 42.335C31.993 42.335 38.0182 38.1703 40.7551 32.1881H9.18822Z" fill="currentColor"></path><path d="M24.9805 7.66504C18.4968 7.66504 12.8548 11.2255 9.87528 16.4887C12.2037 16.4838 16.7383 16.481 16.7383 16.481H16.7394V16.4793C22.0993 16.4793 22.2985 16.5032 23.3455 16.5469L23.9939 16.5708C26.2522 16.6461 29.0279 16.8886 31.2119 18.541C32.3974 19.4372 34.1091 21.4154 35.1295 22.8246C36.0728 24.1281 36.3441 25.6265 35.7028 27.0622C35.1125 28.3816 33.8423 29.1686 32.3041 29.1686H8.22914C8.22914 29.1686 8.37246 29.7761 8.58735 30.4467H41.4504C42.034 28.6926 42.3323 26.8561 42.334 25.0074C42.3343 15.4304 34.5648 7.66504 24.9805 7.66504Z" fill="currentColor"></path>`,
   vercel: `<path d="M37.6934 35.7358L25 13.75L12.3066 35.7358H37.6934Z" fill="currentColor"></path>`,
+  // Sentry mark from simple-icons (24-unit grid), scaled onto the 34-unit glyph region.
+  sentry: `<g transform="translate(8 8) scale(1.41667)"><path d="M13.91 2.505c-.873-1.448-2.972-1.448-3.844 0L6.904 7.92a15.478 15.478 0 0 1 8.53 12.811h-2.221A13.301 13.301 0 0 0 5.784 9.814l-2.926 5.06a7.65 7.65 0 0 1 4.435 5.848H2.194a.365.365 0 0 1-.298-.534l1.413-2.402a5.16 5.16 0 0 0-1.614-.913L.296 19.275a2.182 2.182 0 0 0 .812 2.999 2.24 2.24 0 0 0 1.086.288h6.983a9.322 9.322 0 0 0-3.845-8.318l1.11-1.922a11.47 11.47 0 0 1 4.95 10.24h5.915a17.242 17.242 0 0 0-7.885-15.28l2.244-3.845a.37.37 0 0 1 .504-.13c.255.14 9.75 16.708 9.928 16.9a.365.365 0 0 1-.327.543h-2.287c.029.612.029 1.223 0 1.831h2.297a2.206 2.206 0 0 0 1.922-3.31z" fill="currentColor"></path></g>`,
+  // Polylane mark from the product's own favicon (716-unit grid, brand lime
+  // #A8E840), scaled onto the 34-unit glyph region and re-tinted: the mark is
+  // one tone, so it follows the same currentColor rule as github/notion.
+  polylane: `<g transform="translate(8 8) scale(0.047486) translate(-120 -120)"><path fill-rule="evenodd" clip-rule="evenodd" d="M381.142 255.979C353.262 256.882 324.664 258.165 294.739 259.828C240.319 262.852 197.432 305.379 194.635 357.744C191.659 413.446 191.596 463.816 194.618 519.68C197.379 570.729 238.619 612.379 291.522 616.294C424.628 626.144 531.099 626.37 664.216 616.432C716.652 612.517 757.575 571.322 760.527 520.692C763.828 464.081 763.824 413.076 760.619 356.673C757.677 304.896 715.104 262.861 661.009 259.838C629.813 258.094 600.063 256.769 571.071 255.861C568.898 277.025 553.17 294.761 531.729 297.623C492.693 302.833 460.623 302.444 420.534 297.184C399.233 294.389 383.392 276.96 381.142 255.979ZM291.944 209.528C212.897 213.921 148.553 276.001 144.329 355.057C141.26 412.512 141.192 464.688 144.314 522.401C148.496 599.706 210.597 660.82 287.804 666.534C369.848 672.605 442.16 675.087 516.559 673.853C551.603 711.938 579.891 732.555 618.741 749.748C627.403 753.581 635.458 743.223 630.988 734.873C618.661 711.839 616.267 692.195 623.929 669.646C638.33 668.78 652.985 667.788 667.966 666.669C744.641 660.945 806.343 600.383 810.819 523.625C814.234 465.063 814.229 412.124 810.915 353.815C806.453 275.298 742.341 213.928 663.821 209.539C531.36 202.135 424.263 202.176 291.944 209.528Z" fill="currentColor"></path><path d="M438.296 415.062C438.296 447.11 412.316 473.09 380.269 473.09C348.221 473.09 322.242 447.11 322.242 415.062C322.242 383.015 348.221 357.035 380.269 357.035C412.316 357.035 438.296 383.015 438.296 415.062Z" fill="currentColor"></path><path d="M570.358 473.09C602.405 473.09 628.385 447.11 628.385 415.062C628.385 383.015 602.405 357.035 570.358 357.035C538.31 357.035 512.331 383.015 512.331 415.062C512.331 447.11 538.31 473.09 570.358 473.09Z" fill="currentColor"></path></g>`,
 } satisfies Record<IntegrationBrandKey, string>;
 
 type BrandIconMeta =
@@ -129,6 +137,21 @@ const BRAND_ICONS = {
     plainColor: "var(--app-fg-4)",
     frostColor: "#f4f4f5",
   },
+  sentry: {
+    kind: "svg",
+    slug: "sentry",
+    plainColor: "var(--app-fg-4)",
+    frostColor: "#f4f4f5",
+  },
+  // Lime on chrome, not --app-fg-4: the mark is monochrome but its one tone IS
+  // the brand, and #A8E840 keeps its contrast on both themes. `frost` stays
+  // white so the mark reads on the dark tile like every other coin.
+  polylane: {
+    kind: "svg",
+    slug: "polylane",
+    plainColor: "#a8e840",
+    frostColor: "#ffffff",
+  },
   web: { kind: "lucide", icon: Globe2, color: "#38bdf8" },
 } satisfies Record<IntegrationBrand, BrandIconMeta>;
 
@@ -141,7 +164,7 @@ function brandIcon(brand: IntegrationBrand): BrandIconMeta {
  * provider's detail-page hero (see `HeroPanel`). A brand is keyed here by its
  * primary brand *hue*, not by how its mark renders: Railway's glyph is
  * monochrome on chrome (see `BRAND_ICONS`) yet keeps its magenta glow. Brands
- * absent here (github, notion, vercel) are the ones whose brand color is
+ * absent here (github, notion, vercel, sentry) are the ones whose brand color is
  * black/near-gray — a gray glow reads as no glow on the dark canvas — so they
  * fall back to Alfred's house purple (`--app-purple-2`). Values are applied at
  * low alpha via `color-mix`, so the saturation here is intentional — the
@@ -158,6 +181,7 @@ const BRAND_ACCENT = {
   slack: "#a25da3",
   linear: "#5e6ad2",
   railway: "#8c1eaf",
+  polylane: "#a8e840",
 } satisfies Partial<Record<IntegrationBrand, string>>;
 
 /** The brand's accent hue, or `undefined` for a monochrome brand that falls back to the house purple. */
@@ -206,7 +230,9 @@ const INTEGRATION_TILES = {
   github: GithubTile,
   linear: LinearTile,
   notion: NotionTile,
+  polylane: PolylaneTile,
   railway: RailwayTile,
+  sentry: SentryTile,
   slack: SlackTile,
   vercel: VercelTile,
 } satisfies Record<IntegrationBrandKey, TileComponent>;
@@ -256,6 +282,7 @@ export function IntegrationIcon({
 
   if (hasTile(brand)) {
     const Tile = INTEGRATION_TILES[brand];
+
     return (
       <span
         className={cn("relative block shrink-0", TILE_SIZE_CLASS[size], className)}
@@ -265,7 +292,7 @@ export function IntegrationIcon({
          * elevated shadow is a theme-aware hairline + soft drop: a faint dark
          * rim frames the light Google tiles on a light canvas, a faint light
          * rim lifts the dark GitHub/Linear tiles on dark. */}
-        <span className="block size-full overflow-hidden rounded-[inherit] shadow-[var(--app-shadow-elevated)]">
+        <span className="block size-full overflow-hidden rounded-[inherit] shadow-(--app-shadow-elevated)">
           <Tile aria-hidden className="block size-full" />
         </span>
         {badge}
@@ -279,7 +306,7 @@ export function IntegrationIcon({
   return (
     <span
       className={cn(
-        "relative grid shrink-0 place-items-center bg-app-bg-2 shadow-[var(--app-shadow-elevated)]",
+        "relative grid shrink-0 place-items-center bg-app-bg-2 shadow-(--app-shadow-elevated)",
         TILE_SIZE_CLASS[size],
         className,
       )}
@@ -314,6 +341,7 @@ export function IntegrationGlyph({
 
   if (meta.kind === "lucide") {
     const Icon = meta.icon;
+
     return (
       <Icon
         size={size}

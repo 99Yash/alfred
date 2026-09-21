@@ -4,8 +4,14 @@
  * The merged `dry-run-triage-backfill.ts` is READ-ONLY — it re-classifies the
  * source email of every agent todo and prints KEEP/KILL. This is its committing
  * sibling: it actually re-runs the production `email-triage` workflow (classify
- * → upsertTriage + suggestTodo + sender-prior → apply-label / Gmail re-tag) over
- * a target set of threads, after first deleting the stale agent-authored todos.
+ * → upsertTriage + suggestTodo → apply-label / Gmail re-tag) over a target set
+ * of threads, after first deleting the stale agent-authored todos.
+ *
+ * It does NOT re-teach the sender prior. `incrementSenderPrior` only adds, so a
+ * second bump on the same mail would give the sender two votes. The classify
+ * step skips the bump when the stored row was written by an earlier run and
+ * names the same document, which is every thread this script re-triages that
+ * Alfred already tagged. A thread with no stored row still teaches normally.
  *
  * Scope (per target user):
  *   - DELETE every `created_by='agent'` todo (suggested + open + done).
@@ -21,7 +27,7 @@
  * prod with plain `node dist/scripts/backfills/backfill-triage-committed.js` — the prod
  * image has no `tsx`/loose `@alfred/*` sources.
  *
- * SAFETY: dry by default. Pass `--commit` to actually delete + enqueue.
+ * Dry by default. Pass `--commit` to actually delete + enqueue.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfills/backfill-triage-committed.js
@@ -48,11 +54,13 @@ import { closeScriptResources } from "../script-runtime";
 const TARGET_EMAILS = process.env.BACKFILL_TARGET_EMAILS?.split(",")
   .map((email) => email.trim())
   .filter(Boolean) ?? ["yash.k@oliv.ai", "yashgouravkar@gmail.com"];
+
 /**
  * Newest doc per thread, most-recent N threads. Defaults to 50; override with
  * `BACKFILL_RECENT_LIMIT` (e.g. the 2026-06-10 re-run scoped to 100 each).
  */
 const RECENT_THREAD_LIMIT = Number(process.env.BACKFILL_RECENT_LIMIT) || 50;
+
 const RECENT_DOCUMENT_SCAN_LIMIT = RECENT_THREAD_LIMIT * 4;
 
 const COMMIT = process.argv.includes("--commit");
@@ -92,20 +100,25 @@ async function buildThreadIndex(
     .limit(RECENT_DOCUMENT_SCAN_LIMIT);
 
   const recentThreads: string[] = [];
+
   for (const d of recentDocs) {
     if (!d.threadId) continue;
+
     if (newestDocByThread.has(d.threadId)) continue;
     newestDocByThread.set(d.threadId, d.id);
     recentThreads.push(d.threadId);
+
     if (recentThreads.length >= RECENT_THREAD_LIMIT) break;
   }
 
   const missingTodoThreads = [...todoThreads].filter((thread) => !newestDocByThread.has(thread));
+
   if (missingTodoThreads.length > 0) {
     const missingTodoThreadList = sql.join(
       missingTodoThreads.map((thread) => sql`${thread}`),
       sql`, `,
     );
+
     const todoDocs = rowsFromExecute<ThreadDocRow>(
       await db().execute(sql`
         WITH ranked_gmail_docs AS (
@@ -141,16 +154,19 @@ async function agentTodoThreads(userId: string): Promise<{ ids: string[]; thread
     .where(and(eq(todos.userId, userId), eq(todos.createdBy, "agent")));
 
   const threads = new Set<string>();
+
   for (const t of rows) {
     // SAFETY: email_triage.sources is the jsonb { provider, kind, id } envelope
     // written by the triage workflow; Array.isArray gates the array read.
     const sources = Array.isArray(t.sources)
       ? (t.sources as Array<{ provider: string; kind: string; id: string }>)
       : [];
+
     for (const s of sources) {
       if (s.provider === "gmail" && s.kind === "thread") threads.add(s.id);
     }
   }
+
   return { ids: rows.map((r) => r.id), threads };
 }
 
@@ -164,14 +180,17 @@ async function processUser(u: TargetUser): Promise<void> {
 
   // Union: recent threads ∪ threads behind agent todos.
   const targetThreads = new Set<string>(recentThreads);
+
   for (const t of todoThreads) targetThreads.add(t);
 
   // Resolve each target thread to its newest local gmail doc. A todo whose
   // thread has no local document is skipped (mirrors the dry-run's behavior).
   const docIds: string[] = [];
   const missing: string[] = [];
+
   for (const thread of targetThreads) {
     const docId = newestDocByThread.get(thread);
+
     if (docId) docIds.push(docId);
     else missing.push(thread);
   }
@@ -186,6 +205,7 @@ async function processUser(u: TargetUser): Promise<void> {
 
   if (!COMMIT) {
     console.log("  [dry] no writes. Pass --commit to delete + enqueue.");
+
     return;
   }
 
@@ -195,6 +215,7 @@ async function processUser(u: TargetUser): Promise<void> {
       .delete(todos)
       .where(and(eq(todos.userId, u.userId), inArray(todos.id, agentTodoIds)))
       .returning({ id: todos.id });
+
     console.log(`  deleted ${deleted.length} agent todos`);
     // Poke so the rail drops the deleted rows immediately (the enqueued runs
     // would also poke via suggestTodo, but some threads mint nothing).
@@ -203,6 +224,7 @@ async function processUser(u: TargetUser): Promise<void> {
 
   // 2) Enqueue a real email-triage run per target doc.
   let enqueued = 0;
+
   for (const documentId of docIds) {
     try {
       await startRun({
@@ -222,6 +244,7 @@ async function processUser(u: TargetUser): Promise<void> {
       console.log(`  ! enqueue failed for doc=${documentId}: ${toMessage(err)}`);
     }
   }
+
   console.log(`  enqueued ${enqueued} triage runs (worker executes them)`);
 }
 
@@ -240,6 +263,7 @@ async function main() {
     .where(inArray(userTable.email, TARGET_EMAILS));
 
   const found = new Set(users.map((u) => u.email));
+
   for (const email of TARGET_EMAILS) {
     if (!found.has(email)) console.log(`! no user row for ${email} — skipping`);
   }

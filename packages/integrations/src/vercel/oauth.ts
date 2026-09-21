@@ -22,6 +22,7 @@ export interface VercelOAuthConfig {
 
 export function getVercelOAuthConfig(): VercelOAuthConfig {
   const env = serverEnv();
+
   if (
     !env.VERCEL_CLIENT_ID ||
     !env.VERCEL_CLIENT_SECRET ||
@@ -32,6 +33,7 @@ export function getVercelOAuthConfig(): VercelOAuthConfig {
       "[vercel.oauth] Vercel is not configured — set VERCEL_CLIENT_ID, VERCEL_CLIENT_SECRET, VERCEL_REDIRECT_URI, VERCEL_APP_SLUG",
     );
   }
+
   return {
     clientId: env.VERCEL_CLIENT_ID,
     clientSecret: env.VERCEL_CLIENT_SECRET,
@@ -43,6 +45,7 @@ export function getVercelOAuthConfig(): VercelOAuthConfig {
 export function isVercelConfigured(): boolean {
   try {
     getVercelOAuthConfig();
+
     return true;
   } catch {
     return false;
@@ -54,6 +57,7 @@ export function buildVercelInstallUrl(state: string): string {
   const cfg = getVercelOAuthConfig();
   const url = new URL(`https://vercel.com/integrations/${cfg.appSlug}/new`);
   url.searchParams.set("state", state);
+
   return url.toString();
 }
 
@@ -80,27 +84,34 @@ const tokenResponseSchema = z.object({
 
 export async function exchangeVercelCode(code: string): Promise<VercelTokenResult> {
   const cfg = getVercelOAuthConfig();
+
   const form = new URLSearchParams({
     client_id: cfg.clientId,
     client_secret: cfg.clientSecret,
     code,
     redirect_uri: cfg.redirectUri,
   });
+
   const res = await fetch(VERCEL_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: form.toString(),
     signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
+
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`[vercel.oauth] token exchange ${res.status} :: ${body.slice(0, 300)}`);
   }
+
   const parsed = tokenResponseSchema.safeParse(await res.json());
+
   if (!parsed.success) {
     throw new Error("[vercel.oauth] token exchange returned an unexpected shape");
   }
+
   const json = parsed.data;
+
   return {
     accessToken: json.access_token,
     tokenType: json.token_type ?? "Bearer",

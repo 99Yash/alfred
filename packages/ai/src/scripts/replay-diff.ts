@@ -11,8 +11,13 @@
  *   ./node_modules/.bin/tsx --env-file=../../apps/server/.env \
  *     src/scripts/replay-diff.ts <baselineTraceId> <candidateTraceId>
  *
- * Tip: list recent boss runs to grab ids:
- *   curl -s "$LANGFUSE_HOST/api/public/traces?limit=20&tags=role:boss" \
+ * Reads go through `GET /api/public/v2/observations` (filtered by trace id)
+ * because the self-hosted `events_only` write mode serves reads from the v2
+ * observations API and 404s the legacy `GET /api/public/traces/:id`.
+ *
+ * Tip: grab run ids from the Langfuse Traces UI, or list recent observations
+ * with their trace context:
+ *   curl -s "$LANGFUSE_HOST/api/public/v2/observations?fields=trace_context&limit=20" \
  *     -H "Authorization: Basic $(printf '%s:%s' "$PK" "$SK" | base64)"
  */
 import { serverEnv } from "@alfred/env/server";
@@ -22,22 +27,36 @@ import {
   summarizeDiff,
   type TraceLike,
 } from "../replay/trajectory";
+import { decodeLangfuseIo, fetchObservationsByTraceId } from "./langfuse-observations";
 
 const FETCH_TIMEOUT_MS = 15_000;
 
 async function fetchTrace(host: string, auth: string, traceId: string): Promise<TraceLike> {
-  const res = await fetch(`${host}/api/public/traces/${traceId}`, {
-    headers: { Authorization: `Basic ${auth}` },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  const observations = await fetchObservationsByTraceId({
+    host,
+    auth,
+    traceId,
+    timeoutMs: FETCH_TIMEOUT_MS,
   });
-  if (!res.ok) throw new Error(`GET trace ${traceId} → ${res.status} ${await res.text()}`);
-  // SAFETY: TraceLike is the deliberately loose diagnostic view of a Langfuse
-  // trace this replay tool reads; every field access tolerates absence.
-  return res.json() as Promise<TraceLike>;
+
+  return {
+    id: traceId,
+    observations: observations.map((o) => ({
+      type: o.type,
+      name: o.name ?? "",
+      startTime: o.startTime,
+      input: decodeLangfuseIo(o.input),
+      output: decodeLangfuseIo(o.output),
+      ...(o.level != null ? { level: o.level } : {}),
+      ...(o.statusMessage != null ? { statusMessage: o.statusMessage } : {}),
+      metadata: decodeLangfuseIo(o.metadata),
+    })),
+  };
 }
 
 async function main() {
   const [baselineId, candidateId] = process.argv.slice(2);
+
   if (!baselineId || !candidateId) {
     console.error(
       "usage: replay-diff.ts <baselineTraceId> <candidateTraceId>\n" +
@@ -47,10 +66,13 @@ async function main() {
   }
 
   const env = serverEnv();
+
   if (!env.LANGFUSE_PUBLIC_KEY || !env.LANGFUSE_SECRET_KEY) {
     throw new Error("LANGFUSE keys missing — point --env-file at a configured .env");
   }
+
   const host = env.LANGFUSE_HOST ?? "https://cloud.langfuse.com";
+
   const auth = Buffer.from(`${env.LANGFUSE_PUBLIC_KEY}:${env.LANGFUSE_SECRET_KEY}`).toString(
     "base64",
   );
@@ -59,11 +81,13 @@ async function main() {
     fetchTrace(host, auth, baselineId),
     fetchTrace(host, auth, candidateId),
   ]);
+
   const baseline = extractTrajectory(baseTrace);
   const candidate = extractTrajectory(candTrace);
 
   console.log(`baseline  ${baselineId}: ${baseline.steps.length} tool step(s)`);
   console.log(`candidate ${candidateId}: ${candidate.steps.length} tool step(s)`);
+
   for (const tj of [baseline, candidate]) {
     if (tj.decidedNotExecuted.length > 0) {
       console.log(
@@ -72,6 +96,7 @@ async function main() {
       );
     }
   }
+
   console.log("");
   const diff = diffTrajectories(baseline, candidate);
   console.log(summarizeDiff(diff));

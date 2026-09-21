@@ -1,6 +1,7 @@
 import { loadChatThreadContext, type LoadedChatThreadContext } from "./chat-context-store";
 
 const FOREGROUND_COMPACTION_WAIT_MS = 500;
+
 const FOREGROUND_COMPACTION_POLL_MS = 50;
 
 export interface ConversationCompactionWaitDependencies {
@@ -23,13 +24,16 @@ export async function waitForActiveConversationCompaction(
   const now = dependencies.now ?? Date.now;
   const sleep = dependencies.sleep ?? sleepMs;
   const initial = await loadContext(userId, threadId);
+
   if (!isCompactionActive(initial)) return null;
 
   const initialGeneration = initial.compactionGeneration;
   const deadline = now() + FOREGROUND_COMPACTION_WAIT_MS;
+
   while (now() < deadline) {
     await sleep(Math.min(FOREGROUND_COMPACTION_POLL_MS, deadline - now()));
     const current = await loadContext(userId, threadId);
+
     if (
       current &&
       current.compactionGeneration > initialGeneration &&
@@ -38,8 +42,10 @@ export async function waitForActiveConversationCompaction(
     ) {
       return current;
     }
+
     if (!isCompactionActive(current)) return null;
   }
+
   return null;
 }
 
@@ -50,6 +56,7 @@ export function isCompactionActive(
   const requestedAt = context.compactionRequestedAt.getTime();
   const completedAt = context.compactionCompletedAt?.getTime() ?? -Infinity;
   const failedAt = context.compactionFailedAt?.getTime() ?? -Infinity;
+
   return requestedAt > completedAt && requestedAt > failedAt;
 }
 

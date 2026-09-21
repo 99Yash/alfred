@@ -16,6 +16,7 @@ export function ChatThreadRoute() {
   // highlighted, since nothing else resets it. Mirrors the preview route.
   useLayoutEffect(() => {
     setActiveThread(threadId);
+
     return () => setActiveThread("");
   }, [threadId, setActiveThread]);
 

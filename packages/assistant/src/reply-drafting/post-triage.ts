@@ -68,9 +68,11 @@ async function readStandingInstruction(
       accountId: payload.mailbox.accountId,
       effect: "block_reply_draft",
     });
+
     return match ? "suppress" : "none";
   } catch (err) {
     console.warn(`[${CONSUMER_NAME}] standing instruction read failed: ${toMessage(err)}`);
+
     return "read_failed";
   }
 }
@@ -80,9 +82,11 @@ export async function acceptEmailTriageClassified(event: DomainEvent): Promise<v
   const payload = emailTriageClassifiedPayloadSchema.parse(event.payload);
 
   const flags = await resolveFeatureFlags(event.userId);
+
   if (!flags.replyDrafting) return;
 
   const standingInstruction = await readStandingInstruction(event.userId, payload);
+
   const decision = decideReplyWorthiness({
     invocation: "post_triage",
     featureFlagEnabled: true,
@@ -104,6 +108,7 @@ export async function acceptEmailTriageClassified(event: DomainEvent): Promise<v
       attempt: payload.triageStep.attempt,
       result: noDraftResult(decision.reason, decision.note, provenanceFor(payload, true)),
     });
+
     return;
   }
 
@@ -111,12 +116,14 @@ export async function acceptEmailTriageClassified(event: DomainEvent): Promise<v
   // start a second draft, and the occurrence identity is what makes that a
   // unique violation instead of a duplicate run.
   const eventId = `${payload.triage.sourceThreadId}:${payload.triage.documentId}`;
+
   const input: ReplyDraftingWorkflowInput = {
     documentId: payload.triage.documentId,
     sourceThreadId: payload.triage.sourceThreadId,
     invocation: "post_triage",
     triage: payload.triage,
   };
+
   try {
     await startRun({
       userId: event.userId,
@@ -135,8 +142,10 @@ export async function acceptEmailTriageClassified(event: DomainEvent): Promise<v
   } catch (err) {
     if (isUniqueViolation(err)) {
       console.warn(`[${CONSUMER_NAME}] reply-drafting run already exists for ${eventId}`);
+
       return;
     }
+
     throw err;
   }
 }

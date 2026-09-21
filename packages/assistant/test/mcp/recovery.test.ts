@@ -20,7 +20,9 @@ import { seedMcpInvocationForTests } from "../../src/tool-runtime/mcp/test-suppo
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-mcprec-";
+
 const createdUserIds: string[] = [];
 
 async function seedAmbiguousOperation(
@@ -42,6 +44,7 @@ async function seedAmbiguousOperation(
     workflowSlug: "chat",
     currentStep: "dispatch-tools",
   });
+
   const connection = await ensureConnection({
     userId,
     label: "Recovery MCP",
@@ -49,13 +52,16 @@ async function seedAmbiguousOperation(
     canonicalResource: `mcp://recovery/${randomUUID()}`,
     endpoint: new URL("https://recovery.example.test/mcp"),
   });
+
   const argumentsValue = { invoiceId: "inv_42" };
+
   const proposedInput = {
     connectionId: connection.id,
     remoteName: "send_invoice",
     catalogRevision: "revision-1",
     arguments: argumentsValue,
   };
+
   const stagingId = `as_${randomUUID().slice(0, 12)}`;
   await db()
     .insert(actionStagings)
@@ -83,6 +89,7 @@ async function seedAmbiguousOperation(
             : "executed",
       outcome: options.splitBarrier ?? "unknown",
     });
+
   const inserted = await seedMcpInvocationForTests({
     stagingId,
     userId,
@@ -96,6 +103,7 @@ async function seedAmbiguousOperation(
     deliveryPossibleAt: new Date(),
     lastError: "socket closed after request",
   });
+
   return { userId, runId, connectionId: connection.id, stagingId, invocationId: inserted.id };
 }
 
@@ -110,6 +118,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -175,10 +184,12 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     const first = await listMcpRecoveryOperations({ userId: seeded.userId });
     assert.equal(first.operations.length, MCP_RECOVERY_PAGE_SIZE);
     assert.ok(first.nextCursor);
+
     const second = await listMcpRecoveryOperations({
       userId: seeded.userId,
       cursor: first.nextCursor!,
     });
+
     assert.equal(second.operations.length, 1);
     assert.equal(second.nextCursor, null);
     const ids = [...first.operations, ...second.operations].map((row) => row.invocationId);
@@ -211,6 +222,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     // Crash shape: the dispatcher committed `executed/unknown`, the broker never
     // recorded its settlement on the invocation.
     const expectedIds = [seeded.invocationId];
+
     for (let index = 1; index < MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1; index += 1) {
       const stagingId = `as_${randomUUID().slice(0, 12)}`;
       await db()
@@ -234,6 +246,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
           status: "executed",
           outcome: "unknown",
         });
+
       const invocation = await seedMcpInvocationForTests({
         stagingId,
         userId: seeded.userId,
@@ -244,6 +257,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
         attemptLifecycle: "delivery_possible",
         deliveryPossibleAt: effectiveAt,
       });
+
       expectedIds.push(invocation.id);
     }
 
@@ -251,10 +265,12 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     assert.deepEqual(before.operations, [], "an unsettled row is never projected");
     assert.equal(before.nextCursor, null, "an empty page never carries a live cursor");
     assert.equal(before.awaitingRepair, MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1);
+
     const unchanged = await db()
       .select({ effectOutcome: mcpInvocation.effectOutcome })
       .from(mcpInvocation)
       .where(inArray(mcpInvocation.id, expectedIds));
+
     assert.ok(
       unchanged.every((row) => row.effectOutcome === null),
       "the read wrote nothing",
@@ -265,15 +281,19 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
 
     const seen: string[] = [];
     let cursor: string | undefined;
+
     do {
       const page = await listMcpRecoveryOperations({ userId: seeded.userId, cursor });
       assert.equal(page.awaitingRepair, 0);
+
       for (const operation of page.operations) {
         assert.ok(!seen.includes(operation.invocationId), "a normalized row must not repeat");
         seen.push(operation.invocationId);
       }
+
       cursor = page.nextCursor ?? undefined;
     } while (cursor);
+
     assert.deepEqual([...seen].sort(), expectedIds.sort());
   });
 
@@ -288,6 +308,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       .set({ deliveryPossibleAt: microsecondKey })
       .where(eq(mcpInvocation.id, seeded.invocationId));
     const expectedIds = [seeded.invocationId];
+
     for (let index = 0; index < MCP_RECOVERY_PAGE_SIZE; index += 1) {
       const stagingId = `as_${randomUUID().slice(0, 12)}`;
       await db()
@@ -311,6 +332,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
           status: "executed",
           outcome: "unknown",
         });
+
       const invocation = await seedMcpInvocationForTests({
         stagingId,
         userId: seeded.userId,
@@ -323,6 +345,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
         retryDisposition: "blocked",
         deliveryPossibleAt: new Date(),
       });
+
       await db()
         .update(mcpInvocation)
         .set({ deliveryPossibleAt: microsecondKey })
@@ -333,10 +356,12 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     const first = await listMcpRecoveryOperations({ userId: seeded.userId });
     assert.equal(first.operations.length, MCP_RECOVERY_PAGE_SIZE);
     assert.ok(first.nextCursor);
+
     const second = await listMcpRecoveryOperations({
       userId: seeded.userId,
       cursor: first.nextCursor!,
     });
+
     assert.equal(second.operations.length, 1);
     assert.equal(second.nextCursor, null);
     const ids = [...first.operations, ...second.operations].map((row) => row.invocationId);
@@ -358,14 +383,17 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       invocationId: seeded.invocationId,
       successorInvocationId: null,
     });
+
     const [invocation] = await db()
       .select()
       .from(mcpInvocation)
       .where(eq(mcpInvocation.id, seeded.invocationId));
+
     const [staging] = await db()
       .select()
       .from(actionStagings)
       .where(eq(actionStagings.id, seeded.stagingId));
+
     assert.equal(invocation?.effectOutcome, "failed");
     assert.equal(invocation?.retryDisposition, "safe");
     assert.ok(invocation?.resolvedAt);
@@ -401,6 +429,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     const boot = await reconcileInflightInvocations(seeded.userId);
     assert.equal(boot.markedUnknown, 1);
     assert.equal(boot.alignedStagingBarriers, 1);
+
     const result = await resolveMcpRecoveryOperation({
       userId: seeded.userId,
       invocationId: seeded.invocationId,
@@ -408,10 +437,12 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     });
 
     assert.equal(result.status, "resolved");
+
     const [staging] = await db()
       .select({ status: actionStagings.status, outcome: actionStagings.outcome })
       .from(actionStagings)
       .where(eq(actionStagings.id, seeded.stagingId));
+
     assert.deepEqual(staging, { status: "executed", outcome: "succeeded" });
   });
 
@@ -421,11 +452,13 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     const boot = await reconcileInflightInvocations(seeded.userId);
     assert.equal(boot.markedUnknown, 1);
     assert.equal(boot.alignedStagingBarriers, 1);
+
     const result = await resolveMcpRecoveryOperation({
       userId: seeded.userId,
       invocationId: seeded.invocationId,
       decision: "confirmed_not_applied",
     });
+
     assert.equal(result.status, "resolved");
   });
 
@@ -435,11 +468,13 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     const boot = await reconcileInflightInvocations(seeded.userId);
     assert.equal(boot.markedUnknown, 1);
     assert.equal(boot.alignedStagingBarriers, 1);
+
     const result = await resolveMcpRecoveryOperation({
       userId: seeded.userId,
       invocationId: seeded.invocationId,
       decision: "confirmed_succeeded",
     });
+
     assert.equal(result.status, "resolved");
   });
 
@@ -458,14 +493,17 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       .select()
       .from(mcpInvocation)
       .where(eq(mcpInvocation.id, seeded.invocationId));
+
     const [staging] = await db()
       .select()
       .from(actionStagings)
       .where(eq(actionStagings.id, seeded.stagingId));
+
     const successors = await db()
       .select({ id: mcpInvocation.id })
       .from(mcpInvocation)
       .where(eq(mcpInvocation.successorOf, seeded.invocationId));
+
     assert.equal(invocation?.resolvedAt, null);
     assert.equal(invocation?.effectOutcome, "unknown");
     assert.equal(staging?.outcome, "unknown");

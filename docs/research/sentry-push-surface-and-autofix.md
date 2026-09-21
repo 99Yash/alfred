@@ -235,8 +235,12 @@ paths: `data['event']['issue_id']`, `data['event']['event_id']`, `data['event'][
 In both cases the fields present are: `event_id`, `culprit`,
 `exception.values[].stacktrace.frames[]` (file, line, function, and `pre_context`/`context_line`/
 `post_context` source lines), `issue_id`, `issue_url` (API), `web_url`, `project` (numeric id only
-— **no organization slug field is present in the payload body**; org identity must be resolved
-server-side from `installation.uuid`). `event_alert` additionally carries `data.triggered_rule`
+— **no organization slug field is present in the payload body**. Org identity cannot be resolved
+from `installation.uuid` either: an internal-integration token gets 404 from
+`GET /organizations/{slug}/sentry-app-installations/` (Sentry resolves that endpoint through the
+caller's memberships; the integration's proxy user has none; verified live 2026-09-06), so the
+connect flow never learns the uuid. Alfred attributes a verified delivery to the one active Sentry
+credential, on the ground that one Client Secret is one integration in one organization.) `event_alert` additionally carries `data.triggered_rule`
 (the rule's label) and, for alert-action UI components, `data.issue_alert.title`/`.settings` (the
 user's own routing configuration for that alert action — see [Alert Action](https://docs.sentry.io/integrations/integration-platform/ui-components/alert-action/)).
 Source: [errors.md](https://docs.sentry.io/integrations/integration-platform/webhooks/errors/),
@@ -282,7 +286,7 @@ which is invariant across retries, rather than on any header:
 | ------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `error`       | `data.error.event_id`                         | Sentry event ids are unique per event; identical across all retries of that event                                      |
 | `event_alert` | `data.event.event_id` + `data.triggered_rule` | Same event can legitimately match two different rules; the rule label disambiguates without collapsing distinct alerts |
-| `issue`       | `data.issue.id` + `action`                    | No event id in lifecycle payloads; the (issue, transition) pair is the logical unit                                    |
+| `issue`       | `data.issue.id` + `action` (+ body digest for repeatable actions) | No event id in lifecycle payloads. `(issue, action)` alone is **not** the unit: `resolved` repeats after a regression, so the shipped key appends a slice of the body sha256 for `resolved`/`unresolved`/`assigned`/`archived`. See `ingress/sentry.ts` |
 | `comment`     | `data.comment_id` + `action`                  | `comment_id` is stable; `action` separates create/update/delete                                                        |
 | `seer`        | `data.run_id` + `action`                      | `run_id` identifies the Autofix run; `action` separates the 7 lifecycle events (§3)                                    |
 

@@ -55,6 +55,8 @@ export interface ListFilesArgs {
   pageToken?: string | undefined;
   /** e.g. `modifiedTime desc` (the default), `name`, `folder`. */
   orderBy?: string | undefined;
+  /** Caller-driven abort (collect/expansion deadline). Combined with the transport timeout. */
+  signal?: AbortSignal | undefined;
 }
 
 export interface ListFilesResult {
@@ -68,8 +70,10 @@ export async function listFiles(
   retry: RetryPolicy | "none" = "none",
 ): Promise<ListFilesResult> {
   const url = new URL(API_BASE);
+
   if (args.q) url.searchParams.set("q", args.q);
   url.searchParams.set("pageSize", String(args.pageSize ?? 25));
+
   if (args.pageToken) url.searchParams.set("pageToken", args.pageToken);
   url.searchParams.set("orderBy", args.orderBy ?? "modifiedTime desc");
   url.searchParams.set("fields", `nextPageToken,files(${FILE_FIELDS})`);
@@ -77,13 +81,22 @@ export async function listFiles(
   url.searchParams.set("supportsAllDrives", "true");
   url.searchParams.set("includeItemsFromAllDrives", "true");
 
-  const parsed = await getJson(listFilesResponseSchema, url.toString(), args.accessToken, retry);
+  const parsed = await getJson(
+    listFilesResponseSchema,
+    url.toString(),
+    args.accessToken,
+    retry,
+    args.signal,
+  );
+
   return { files: parsed.files ?? [], nextPageToken: parsed.nextPageToken };
 }
 
 export interface GetFileArgs {
   accessToken: string;
   fileId: string;
+  /** Caller-driven abort (collect/expansion deadline). Combined with the transport timeout. */
+  signal?: AbortSignal | undefined;
 }
 
 /** Fetch one file's metadata. */
@@ -94,7 +107,8 @@ export async function getFile(
   const url = new URL(`${API_BASE}/${encodeURIComponent(args.fileId)}`);
   url.searchParams.set("fields", FILE_FIELDS);
   url.searchParams.set("supportsAllDrives", "true");
-  return getJson(fileSchema, url.toString(), args.accessToken, retry);
+
+  return getJson(fileSchema, url.toString(), args.accessToken, retry, args.signal);
 }
 
 /** Hard cap on inlined file contents so a large file can't blow up the caller's context. */
@@ -105,6 +119,8 @@ export interface ExportFileArgs {
   fileId: string;
   /** Export MIME type, e.g. `text/plain`, `text/csv`, `text/markdown`. Defaults to `text/plain`. */
   mimeType?: string | undefined;
+  /** Caller-driven abort (collect/expansion deadline). Combined with the transport timeout. */
+  signal?: AbortSignal | undefined;
 }
 
 export interface FileContentResult {
@@ -126,13 +142,16 @@ export async function exportFile(
   const mimeType = args.mimeType ?? "text/plain";
   const url = new URL(`${API_BASE}/${encodeURIComponent(args.fileId)}/export`);
   url.searchParams.set("mimeType", mimeType);
-  const { text, truncated } = await getText(url.toString(), args.accessToken, retry);
+  const { text, truncated } = await getText(url.toString(), args.accessToken, retry, args.signal);
+
   return { fileId: args.fileId, mimeType, text, truncated };
 }
 
 export interface DownloadFileArgs {
   accessToken: string;
   fileId: string;
+  /** Caller-driven abort (collect/expansion deadline). Combined with the transport timeout. */
+  signal?: AbortSignal | undefined;
 }
 
 /**
@@ -147,7 +166,14 @@ export async function downloadFile(
   const url = new URL(`${API_BASE}/${encodeURIComponent(args.fileId)}`);
   url.searchParams.set("alt", "media");
   url.searchParams.set("supportsAllDrives", "true");
-  const { text, truncated, mimeType } = await getText(url.toString(), args.accessToken, retry);
+
+  const { text, truncated, mimeType } = await getText(
+    url.toString(),
+    args.accessToken,
+    retry,
+    args.signal,
+  );
+
   return { fileId: args.fileId, mimeType: mimeType ?? "application/octet-stream", text, truncated };
 }
 
@@ -157,26 +183,37 @@ const getJson = <T>(
   url: string,
   accessToken: string,
   retry: RetryPolicy | "none",
+  signal?: AbortSignal | undefined,
 ): Promise<T> =>
-  googleJson("drive", "GET", url, accessToken, undefined, retry).then((raw) => schema.parse(raw));
+  googleJson("drive", "GET", url, accessToken, undefined, retry, signal).then((raw) =>
+    schema.parse(raw),
+  );
 
 async function getText(
   url: string,
   accessToken: string,
   retry: RetryPolicy | "none",
+  signal?: AbortSignal | undefined,
 ): Promise<{ text: string; truncated: boolean; mimeType?: string }> {
   const send = () =>
     fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
-      signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
+      signal:
+        signal === undefined
+          ? AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS)
+          : AbortSignal.any([AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS), signal]),
     });
+
   const res = retry === "none" ? await send() : await fetchWithRetry(send, { policy: retry });
+
   if (!res.ok) {
     throw await httpErrorFromResponse("drive", res, { url });
   }
+
   const full = await res.text();
   const truncated = full.length > MAX_CONTENT_BYTES;
   const mimeType = res.headers.get("content-type");
+
   return {
     text: truncated ? full.slice(0, MAX_CONTENT_BYTES) : full,
     truncated,

@@ -46,6 +46,7 @@ import { closeScriptResources } from "../script-runtime";
 // Seed + parallel aspect loops + synthesis can run a couple of minutes
 // of LLM + web_search calls; budget 5min before giving up.
 const POLL_INTERVAL_MS = 1_000;
+
 const POLL_TIMEOUT_MS = 5 * 60_000;
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -57,24 +58,31 @@ async function pickUser() {
     .select({ id: userTable.id, email: userTable.email, name: userTable.name })
     .from(userTable)
     .limit(1);
+
   return rows[0] ?? null;
 }
 
 async function pollRun(runId: string, label: string) {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStep: string | null = null;
+
   while (Date.now() < deadline) {
     const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
+
     if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
+
     if (row.currentStep !== lastStep) {
       console.log(`[smoke-cold-start]   step → ${row.currentStep} (status=${row.status})`);
       lastStep = row.currentStep;
     }
+
     if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
       return row;
     }
+
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+
   throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
 
@@ -83,6 +91,7 @@ async function fetchMemoryChunkById(id: string, userId: string) {
     .select()
     .from(memoryChunks)
     .where(and(eq(memoryChunks.id, id), eq(memoryChunks.userId, userId)));
+
   return rows[0] ?? null;
 }
 
@@ -114,6 +123,7 @@ async function main() {
     console.log(
       "[smoke-cold-start] GOOGLE_GENERATIVE_AI_API_KEY not set — the seed/synthesis boss calls and grounded web_search loops will fail. Set it in apps/server/.env first.",
     );
+
     return;
   }
 
@@ -121,10 +131,13 @@ async function main() {
   registerBuiltinWorkflows();
 
   const u = await pickUser();
+
   if (!u) {
     console.log("[smoke-cold-start] no user rows — sign in first.");
+
     return;
   }
+
   console.log(`[smoke-cold-start] target: ${u.email} (id=${u.id})`);
 
   // The cold-start workflow is singleton-per-user via the partial
@@ -142,6 +155,7 @@ async function main() {
       ),
     )
     .returning({ id: agentRuns.id });
+
   if (stomped.length) {
     console.log(
       `[smoke-cold-start] cancelled ${stomped.length} prior run(s) to clear the dedup index.`,
@@ -155,6 +169,7 @@ async function main() {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   console.log(`[smoke-cold-start] run enqueued: ${runId}`);
 
   const run = await pollRun(runId, "cold-start run");
@@ -167,6 +182,7 @@ async function main() {
     memoryChunkId: string;
     citationCount: number;
   };
+
   console.log(
     `[smoke-cold-start] output: factsProposed=${out.factsProposed} ` +
       `factsSkipped=${out.factsSkipped} citationCount=${out.citationCount} ` +
@@ -186,6 +202,7 @@ async function main() {
 
   const facts = await fetchColdStartFacts(u.id, runId);
   console.log(`[smoke-cold-start] fact rows from this run: ${facts.length}`);
+
   for (const f of facts.slice(0, 10)) {
     console.log(
       `  - ${f.key} = ${JSON.stringify(f.value)}  ` +

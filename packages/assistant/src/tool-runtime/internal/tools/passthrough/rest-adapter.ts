@@ -33,9 +33,11 @@ export async function runRestPassthrough(
   request: RestPassthroughRequest,
 ): Promise<PassthroughResult> {
   const gate = assertReadableRestRequest(REST_GATE_CONFIG[capability.slug], request);
+
   if (!gate.ok) return passthroughRejection(gate);
 
   let raw;
+
   try {
     raw = await capability.execute(request);
   } catch (err) {
@@ -44,6 +46,7 @@ export async function runRestPassthrough(
       // (the request never left Alfred), never a masqueraded transport error.
       return passthroughRejection({ ok: false, reason: "invalid_path", detail: err.message });
     }
+
     return passthroughTransportError(classifyTransportError(err), toMessage(err));
   }
 
@@ -60,5 +63,6 @@ export async function runRestPassthrough(
   // empty body; `passthroughHttpResult` already marks a 3xx `succeeded: false`.
   const body =
     raw.redirectedTo !== undefined ? { redirect: true, location: raw.redirectedTo } : raw.body;
+
   return passthroughHttpResult({ status: raw.status, body });
 }

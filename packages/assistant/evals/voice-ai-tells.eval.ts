@@ -8,6 +8,7 @@ import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { detectAiTells, summarizeTells } from "@alfred/ai/voice";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { llmJudgeScorer } from "./lib/llm-judge";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // Behavioral guard on the shipped chat voice contract. Chat relies on the
 // prompt rather than post-processing so explicit tone, persona, and exact-copy
@@ -21,7 +22,9 @@ import { llmJudgeScorer } from "./lib/llm-judge";
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
 const NOW = new Date("2026-06-26T04:44:00Z");
+
 const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
+
 const EVAL_TIMEOUT_MS = 60_000;
 
 const CONNECTED_SUMMARY = [
@@ -30,7 +33,11 @@ const CONNECTED_SUMMARY = [
   "- calendar.list_events, calendar.create_event — the user's calendar",
 ].join("\n");
 
-const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+const SYSTEM = buildChatSystemPrompt(
+  formatDateGrounding(TIMEZONE, NOW),
+  CONNECTED_SUMMARY,
+  selfIdentityGrounding(),
+);
 
 interface Case {
   prompt: string;
@@ -100,6 +107,7 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
       maxOutputTokens: 300,
       abortSignal: AbortSignal.timeout(EVAL_TIMEOUT_MS),
     });
+
     return { text: result.text };
   },
   scorers: [
@@ -107,13 +115,17 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
       name: "Voice contract in shipped prose",
       scorer: ({ input, output }) => {
         const text = output.text.trim();
+
         if (text.length === 0) return { score: 0, metadata: "empty output" };
+
         if (input.exactText !== undefined) {
           return text === input.exactText
             ? { score: 1, metadata: `exact copy preserved: ${text}` }
             : { score: 0, metadata: `expected exact copy: ${input.exactText}; received: ${text}` };
         }
+
         const tells = detectAiTells(text);
+
         return {
           score: tells.length === 0 ? 1 : 0,
           metadata:
@@ -126,8 +138,11 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
     llmJudgeScorer<Case, TaskOutput, undefined>({
       name: "Useful and natural",
       rubric: QUALITY_RUBRIC,
-      // Generation is Claude; use cheap Gemini as the judge to reduce spend and
-      // avoid same-model-family preference.
+      // Generation is `route("standard")` (`gpt-5.6-luna`, an OpenAI leg); use
+      // cheap Gemini as the judge to reduce spend and to keep the grader in
+      // another model family. This RESTATES the current default in
+      // `lib/llm-judge.ts`; keep it, because it is what stops this suite from
+      // following that default if the default ever moves to OpenAI.
       model: route("cheap").model(),
       skipWhen: ({ output }) => (output.text.trim().length === 0 ? "empty output" : null),
       prompt: ({ input, output }) =>

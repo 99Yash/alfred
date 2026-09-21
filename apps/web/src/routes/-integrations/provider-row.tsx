@@ -7,6 +7,7 @@ import { ProviderTile } from "./provider-tile";
 
 export function ProviderRow({ provider, index }: { provider: IntegrationPage; index: number }) {
   const isSoon = provider.status === "soon";
+
   const content = (
     <>
       <ProviderTile brand={provider.brand} connected={provider.status === "connected"} />
@@ -28,6 +29,7 @@ export function ProviderRow({ provider, index }: { provider: IntegrationPage; in
       <AppCard
         padded={false}
         aria-disabled
+        title="Design-only preview — no backend connection yet"
         className={cardClassName}
         style={{ animationDelay: `${240 + index * 40}ms` }}
       >

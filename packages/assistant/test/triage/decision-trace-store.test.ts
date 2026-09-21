@@ -8,12 +8,14 @@ import { and, eq, inArray, like } from "drizzle-orm";
 
 import { runOnce } from "@alfred/assistant/execution/executor";
 import { _resetRegistryForTests, registerRecipe } from "@alfred/assistant/execution/registry";
-import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
+import type { StepResult, Workflow } from "@alfred/assistant/execution";
 import { upsertTriage, type SenderExtractionEvent } from "@alfred/assistant/triage";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-triage-decision-trace-";
+
 const createdUserIds: string[] = [];
 
 interface TestState {
@@ -45,10 +47,13 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     senderKindDemotionReason: null,
     meetingDemotedCategory: false,
     meetingDemotionReason: null,
+    spamDemotedCategory: false,
+    spamFloorOutcome: null,
     threadMessages: 1,
     threadNewest: "received",
     gmailImportant: false,
     gmailCategories: [],
+    gmailSpam: false,
     contentFlags: {
       hasUnsubscribe: false,
       hasCurrencyAmount: false,
@@ -73,7 +78,12 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     standingInstructionSuppressedTodo: false,
     standingInstructionFactId: null,
     standingInstructionEffect: null,
+    standingInstructionMatchedVia: null,
     standingInstructionReadFailed: false,
+    standingInstructionCategoryFactId: null,
+    standingInstructionCategoryReadFailed: false,
+    userContextPresent: false,
+    userContextReadFailed: false,
     todoOutcome: null,
     todoNote: null,
   };
@@ -90,6 +100,7 @@ function decisionTraceWorkflow(slug: string): Workflow<TestState> {
       senderRelationship: "unused",
     }),
     initialStep: "classify",
+    closure: { kind: "none" },
     steps: {
       classify: {
         id: "classify",
@@ -112,10 +123,13 @@ function decisionTraceWorkflow(slug: string): Workflow<TestState> {
             },
             authoredAt: new Date("2026-06-27T00:00:00.000Z"),
           });
+
           if (ctx.state.throwAfterUpsert) {
             throw new Error("boom after canonical row write");
           }
+
           ctx.trace("triage.classification", trace);
+
           return { kind: "done", state: ctx.state, output: { ok: true } };
         },
       },
@@ -129,6 +143,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Trace Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -148,6 +163,7 @@ async function seedRunnableRun(args: {
     state: args.state,
     lastCheckpointAt: new Date(),
   });
+
   return runId;
 }
 
@@ -171,6 +187,7 @@ async function seedGmailDocument(args: {
       authoredAt: args.authoredAt,
       metadata: {},
     });
+
   return id;
 }
 
@@ -200,6 +217,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     _resetRegistryForTests();
     await closeConnections();
   });
@@ -208,11 +226,13 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
     const userId = await seedUser();
     const workflowSlug = `${ID_PREFIX}success-${randomUUID().slice(0, 8)}`;
     registerRecipe(decisionTraceWorkflow(workflowSlug));
+
     const state: TestState = {
       sourceThreadId: `thread_${randomUUID()}`,
       documentId: `doc_${randomUUID()}`,
       senderRelationship: "strong two-way",
     };
+
     const runId = await seedRunnableRun({ userId, workflowSlug, state });
 
     const outcome = await runOnce(runId);
@@ -235,12 +255,14 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
     const userId = await seedUser();
     const workflowSlug = `${ID_PREFIX}failure-${randomUUID().slice(0, 8)}`;
     registerRecipe(decisionTraceWorkflow(workflowSlug));
+
     const state: TestState = {
       sourceThreadId: `thread_${randomUUID()}`,
       documentId: `doc_${randomUUID()}`,
       senderRelationship: "weak one-way",
       throwAfterUpsert: true,
     };
+
     const runId = await seedRunnableRun({ userId, workflowSlug, state });
 
     const outcome = await runOnce(runId);
@@ -252,6 +274,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
       .where(
         and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, state.sourceThreadId)),
       );
+
     assert.equal(tags.length, 1, "canonical triage row committed before the step failed");
     assert.equal(tags[0]?.documentId, state.documentId);
 
@@ -267,16 +290,19 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
     const userId = await seedUser();
     const workflowSlug = `${ID_PREFIX}recency-${randomUUID().slice(0, 8)}`;
     const sourceThreadId = `thread_${randomUUID()}`;
+
     const newerDocId = await seedGmailDocument({
       userId,
       sourceThreadId,
       authoredAt: new Date("2026-06-27T10:00:00.000Z"),
     });
+
     const olderDocId = await seedGmailDocument({
       userId,
       sourceThreadId,
       authoredAt: new Date("2026-06-27T09:00:00.000Z"),
     });
+
     const runId = await seedRunnableRun({
       userId,
       workflowSlug,
@@ -329,6 +355,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
   test("a mismatched run owner rolls back the row write and trace", async () => {
     const rowUserId = await seedUser();
     const runUserId = await seedUser();
+
     const runId = await seedRunnableRun({
       userId: runUserId,
       workflowSlug: `${ID_PREFIX}mismatch-${randomUUID().slice(0, 8)}`,
@@ -338,6 +365,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
         senderRelationship: "unused",
       },
     });
+
     const sourceThreadId = `thread_${randomUUID()}`;
 
     await assert.rejects(
@@ -367,6 +395,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
       .where(
         and(eq(emailTriage.userId, rowUserId), eq(emailTriage.sourceThreadId, sourceThreadId)),
       );
+
     assert.equal(tags.length, 0, "mismatched trace aborts the triage row transaction");
     assert.equal((await traceRows(runId)).length, 0, "no mismatched trace row is persisted");
   });
@@ -400,6 +429,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
       .select({ sourceThreadId: emailTriage.sourceThreadId })
       .from(emailTriage)
       .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, sourceThreadId)));
+
     assert.equal(tags.length, 0, "missing run id aborts the triage row transaction");
   });
 });

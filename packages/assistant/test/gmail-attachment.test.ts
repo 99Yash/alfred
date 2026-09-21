@@ -13,7 +13,9 @@ import type { GmailMessage } from "@alfred/integrations/google";
 import { dbBackedSkip } from "./support/db-backed";
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-gmail-att-";
+
 const createdUserIds: string[] = [];
 
 /** Test-only media door: supports PDF only, returns the given extract result. */
@@ -31,6 +33,7 @@ after(async () => {
   if (createdUserIds.length) {
     await db().delete(user).where(inArray(user.id, createdUserIds));
   }
+
   await closeConnections();
 });
 
@@ -40,6 +43,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Gmail Att Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -82,6 +86,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const accountId = `acc-${randomUUID()}`;
     const messageId = `msg-${randomUUID()}`;
     const attachmentId = `att-${randomUUID()}`;
+
     const message = makeMessage({
       id: messageId,
       threadId: `thr-${randomUUID()}`,
@@ -91,6 +96,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4 fake bytes"));
     let indexCalls = 0;
+
     const result = await ingestGmailMediaAttachments({
       userId,
       accountId,
@@ -110,6 +116,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
         })),
         indexDocument: async () => {
           indexCalls++;
+
           return {
             documentId: "fake",
             chunksWritten: 1,
@@ -129,16 +136,19 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       .select()
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+
     assert.equal(rows.length, 1);
     const doc = rows[0]!;
     assert.equal(doc.sourceId, `${messageId}:${attachmentId}`);
     assert.equal(doc.title, "contract.pdf");
     assert.equal(doc.content, "page one text\n\npage two text");
+
     // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: documents.metadata is jsonb unknown; test narrows to the gmail_attachment shape we just wrote.
     const meta = doc.metadata as {
       pages?: { page: number; start: number; end: number }[];
       filename: string;
     };
+
     assert.ok(Array.isArray(meta.pages));
     assert.equal(meta.pages!.length, 2);
     assert.deepEqual(meta.pages![0], { page: 1, start: 0, end: 13 });
@@ -150,6 +160,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       .select({ id: documents.id, source: documents.source })
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail")));
+
     assert.equal(
       gmailRows.length,
       0,
@@ -168,10 +179,12 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
         contentHash: randomUUID(),
         metadata: {},
       });
+
     const allRows = await db()
       .select({ source: documents.source })
       .from(documents)
       .where(eq(documents.userId, userId));
+
     assert.equal(allRows.filter((r) => r.source === "gmail").length, 1);
     assert.equal(allRows.filter((r) => r.source === "gmail_attachment").length, 1);
   });
@@ -181,17 +194,21 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const accountId = `acc-${randomUUID()}`;
     const messageId = `msg-${randomUUID()}`;
     const attachmentId = `att-${randomUUID()}`;
+
     const message = makeMessage({
       id: messageId,
       threadId: `thr-${randomUUID()}`,
       attachmentId,
       filename: "invoice.pdf",
     });
+
     let getAttachmentCalls = 0;
     let indexCalls = 0;
+
     const deps = {
       getAttachment: async () => {
         getAttachmentCalls++;
+
         return { bytes: new Uint8Array(Buffer.from("%PDF-1.4")), size: 9 };
       },
       media: pdfOnlyMedia(async () => ({
@@ -202,6 +219,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       })),
       indexDocument: async () => {
         indexCalls++;
+
         return {
           documentId: "fake",
           chunksWritten: 1,
@@ -220,6 +238,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       authoredAt: new Date(),
       deps,
     });
+
     assert.equal(r1.ingested, 1);
     assert.equal(r1.deduped, 0);
     assert.equal(getAttachmentCalls, 1);
@@ -235,6 +254,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       authoredAt: new Date(),
       deps,
     });
+
     assert.equal(r2.ingested, 0);
     assert.equal(r2.deduped, 1);
     assert.equal(getAttachmentCalls, 1, "existing attachment must not be re-downloaded");
@@ -244,6 +264,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       .select()
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+
     assert.equal(rows.length, 1, "no duplicate row");
     assert.equal(rows[0]!.content, "version one", "original content preserved");
   });
@@ -253,14 +274,17 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const accountId = `acc-${randomUUID()}`;
     const messageId = `msg-${randomUUID()}`;
     const attachmentId = `att-${randomUUID()}`;
+
     const message = makeMessage({
       id: messageId,
       threadId: `thr-${randomUUID()}`,
       attachmentId,
       filename: "report.pdf",
     });
+
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4"));
     let indexCalls = 0;
+
     const deps = {
       getAttachment: async () => ({ bytes, size: bytes.byteLength }),
       media: pdfOnlyMedia(async () => ({
@@ -271,6 +295,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       })),
       indexDocument: async () => {
         indexCalls++;
+
         return {
           documentId: "fake",
           chunksWritten: 0,
@@ -289,14 +314,17 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       authoredAt: new Date(),
       deps,
     });
+
     assert.equal(r1.ingested, 1);
     assert.equal(indexCalls, 1);
+
     const doc1 = (
       await db()
         .select()
         .from(documents)
         .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")))
     )[0]!;
+
     const r2 = await ingestGmailMediaAttachments({
       userId,
       accountId,
@@ -305,22 +333,27 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       authoredAt: new Date(),
       deps,
     });
+
     assert.equal(r2.ingested, 0);
     assert.equal(r2.deduped, 1);
     assert.equal(indexCalls, 1, "embed must not run again for an existing attachment");
+
     const doc2 = (
       await db()
         .select()
         .from(documents)
         .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")))
     )[0]!;
+
     assert.equal(doc1.id, doc2.id);
     assert.equal(doc1.contentHash, doc2.contentHash);
+
     // No duplicate row.
     const count = await db()
       .select()
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+
     assert.equal(count.length, 1);
   });
 
@@ -339,6 +372,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       attachmentId: `att-${randomUUID()}`,
       filename: "resume.pdf",
     });
+
     const depsFor = () => ({
       getAttachment: async () => ({ bytes, size: bytes.byteLength }),
       media: pdfOnlyMedia(async () => ({
@@ -349,6 +383,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       })),
       indexDocument: async () => {
         indexCalls++;
+
         return {
           documentId: "fake",
           chunksWritten: 1,
@@ -358,6 +393,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
         };
       },
     });
+
     const first = await ingestGmailMediaAttachments({
       userId,
       accountId,
@@ -372,12 +408,14 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
     // Second arrival: identical bytes forwarded to recruiter thread two.
     const attachmentIdTwo = `att-${randomUUID()}`;
+
     const secondMessage = makeMessage({
       id: `msg-${randomUUID()}`,
       threadId: threadTwo,
       attachmentId: attachmentIdTwo,
       filename: "resume.pdf",
     });
+
     const second = await ingestGmailMediaAttachments({
       userId,
       accountId,
@@ -395,6 +433,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       .select()
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+
     assert.equal(rows.length, 1, "one canonical row per distinct content");
 
     // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: documents.metadata is jsonb unknown; test narrows to the reference shape ingest wrote.
@@ -424,11 +463,14 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       authoredAt: new Date("2026-08-02T10:00:00Z"),
       deps: depsFor(),
     });
+
     assert.equal(again.referenced, 1);
+
     const after = await db()
       .select()
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+
     // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: same jsonb narrowing as above.
     const metaAfter = after[0]!.metadata as { references?: unknown[] };
     assert.equal(metaAfter.references!.length, 1, "reference append must be idempotent");
@@ -457,6 +499,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
           ],
         },
       });
+
     const ref = {
       messageId: "m2",
       attachmentId: "a2",
@@ -490,13 +533,16 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const accountId = `acc-${randomUUID()}`;
     const messageId = `msg-${randomUUID()}`;
     const attachmentId = `att-${randomUUID()}`;
+
     const message = makeMessage({
       id: messageId,
       threadId: `thr-${randomUUID()}`,
       attachmentId,
       filename: "scan.pdf",
     });
+
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4"));
+
     const result = await ingestGmailMediaAttachments({
       userId,
       accountId,
@@ -514,12 +560,15 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
         },
       },
     });
+
     assert.equal(result.skipped, 1);
     assert.equal(result.ingested, 0);
+
     const rows = await db()
       .select()
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+
     assert.equal(rows.length, 0);
   });
 });

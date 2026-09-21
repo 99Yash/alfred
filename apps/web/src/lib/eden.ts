@@ -53,12 +53,17 @@ type WireBody = string | number | boolean | null | WireBody[] | { [key: string]:
  */
 function restoreWireTimestamps(value: unknown): WireBody {
   if (value instanceof Date) return value.toISOString();
+
   if (Array.isArray(value)) return value.map(restoreWireTimestamps);
+
   if (typeof value === "object" && value !== null) {
     const out: { [key: string]: WireBody } = {};
+
     for (const [key, entry] of Object.entries(value)) out[key] = restoreWireTimestamps(entry);
+
     return out;
   }
+
   if (
     typeof value === "string" ||
     typeof value === "number" ||
@@ -67,6 +72,7 @@ function restoreWireTimestamps(value: unknown): WireBody {
   ) {
     return value;
   }
+
   throw new TypeError(`Eden body holds a non-JSON leaf: ${typeof value}`);
 }
 

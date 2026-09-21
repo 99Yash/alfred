@@ -5,6 +5,7 @@ import { authClient } from "~/lib/auth/auth-client";
 import { GoogleMark } from "./google-mark";
 
 const GOOGLE_LEADING = <GoogleMark />;
+
 const ARROW_TRAILING = <ArrowRight size={14} />;
 
 export function AuthPanel({ redirect }: { redirect?: string | undefined }) {
@@ -14,6 +15,7 @@ export function AuthPanel({ redirect }: { redirect?: string | undefined }) {
   const handleGoogle = async () => {
     setLoading(true);
     setError(null);
+
     try {
       const { error: signInError } = await authClient.signIn.social({
         provider: "google",
@@ -23,6 +25,7 @@ export function AuthPanel({ redirect }: { redirect?: string | undefined }) {
         // wherever the auth guard bounced them from; default `/` for a cold sign-in.
         callbackURL: `${window.location.origin}${redirect ?? "/"}`,
       });
+
       if (signInError) {
         setError(signInError.message ?? "Couldn't start Google sign-in");
         setLoading(false);

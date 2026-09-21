@@ -39,7 +39,10 @@ import {
   type McpToolPolicyRow,
   type NewMcpToolPolicyRow,
 } from "@alfred/db/schemas";
-import { builtInReadOnlyResource } from "@alfred/assistant/connections/mcp";
+import {
+  builtInReadOnlyResource,
+  type McpConnectionRemovalGate,
+} from "@alfred/assistant/connections/mcp";
 import { and, eq, exists, inArray, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -64,6 +67,7 @@ export async function readToolPolicy(
       ),
     )
     .limit(1);
+
   return row;
 }
 
@@ -113,11 +117,24 @@ export type McpToolIdentityResolution =
   | {
       status: "unresolved";
       /**
+       * WHY no descriptor policy is authorized. The floor is the same in every
+       * case; the distinction exists so a product surface can tell "the catalog
+       * moved" from "this tool is gone" without running a second, competing
+       * identity query. `revision_stale` also covers a connection with no
+       * published revision yet: the caller's `catalogRevision` is not current.
+       */
+      reason: McpToolIdentityUnresolvedReason;
+      /**
        * Present when the connection exists and belongs to the caller. Consumers
        * may use its durable pointer, but no descriptor policy is authorized.
        */
       connection: OwnedMcpConnectionRef | undefined;
     };
+
+export type McpToolIdentityUnresolvedReason =
+  | "connection_missing"
+  | "revision_stale"
+  | "descriptor_missing";
 
 /**
  * Resolve the durable identity of one selected MCP tool in ONE query.
@@ -144,9 +161,11 @@ export async function resolveMcpToolIdentity(
   const descriptorHashExpr = sql<
     string | null
   >`${mcpCatalogRevisions.descriptorHashes} ->> ${input.remoteName}`;
+
   // A SECOND, hash-blind view of the same table. It must be an alias: the join
   // below binds the exact descriptor hash, and this one deliberately does not.
   const anyReviewedPolicy = alias(mcpToolPolicy, "any_reviewed_policy");
+
   const [row] = await runner
     .select({
       connection: {
@@ -202,8 +221,21 @@ export async function resolveMcpToolIdentity(
     .where(and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)))
     .limit(1);
 
-  if (!row || row.revisionHash !== input.catalogRevision || !row.descriptorHash) {
-    return { status: "unresolved", connection: row?.connection };
+  // The three uncertainty cases answer the same floor with three different
+  // facts, so each names its reason rather than collapsing into one arm. A
+  // missing row means the connection is absent or foreign; a revision mismatch
+  // means the caller's view is stale; a null descriptor hash means the named
+  // tool is absent from the current revision.
+  if (!row) {
+    return { status: "unresolved", reason: "connection_missing", connection: undefined };
+  }
+
+  if (row.revisionHash !== input.catalogRevision) {
+    return { status: "unresolved", reason: "revision_stale", connection: row.connection };
+  }
+
+  if (!row.descriptorHash) {
+    return { status: "unresolved", reason: "descriptor_missing", connection: row.connection };
   }
 
   return {
@@ -246,6 +278,7 @@ export async function upsertToolPolicy(
         and(eq(mcpConnections.id, values.connectionId), eq(mcpConnections.userId, values.userId)),
       )
       .for("update");
+
     requireRow(ownedConnection, "upsertToolPolicy owned connection");
 
     const [row] = await tx
@@ -267,6 +300,7 @@ export async function upsertToolPolicy(
         },
       })
       .returning();
+
     return requireRow(row, "upsertToolPolicy");
   });
 }
@@ -290,6 +324,7 @@ export async function readInvocationByStagingId(
     .from(mcpInvocation)
     .where(eq(mcpInvocation.stagingId, stagingId))
     .limit(1);
+
   return row;
 }
 
@@ -315,8 +350,40 @@ export async function findUnresolvedBarrier(
       ),
     )
     .limit(1);
+
   return row;
 }
+
+/**
+ * The one place allowed to read the invocation ledger while the connection row
+ * is locked for removal. `tool-runtime -> connections` is the allowed import
+ * direction, so the connection half injects this gate rather than importing the
+ * ledger itself.
+ *
+ * An unresolved invocation — including a `delivery_possible` write whose outcome
+ * is still unknown — means removing the connection would silently discard
+ * ambiguous-write evidence and bypass the recovery facade. The gate refuses
+ * until the owner resolves the operation through that facade. The
+ * `FOR UPDATE` row lock taken before this runs is what closes the race with a
+ * concurrent invocation insert.
+ */
+export const mcpUnresolvedInvocationGate: McpConnectionRemovalGate = {
+  async blocks(tx, { connectionId, userId }) {
+    const [row] = await tx
+      .select({ id: mcpInvocation.id })
+      .from(mcpInvocation)
+      .where(
+        and(
+          eq(mcpInvocation.userId, userId),
+          eq(mcpInvocation.connectionId, connectionId),
+          isNull(mcpInvocation.resolvedAt),
+        ),
+      )
+      .limit(1);
+
+    return row !== undefined;
+  },
+};
 
 export interface ReconcileSummary {
   /** `prepared` rows that never reached delivery — safe, resolved. */
@@ -452,5 +519,6 @@ export async function reconcileInflightInvocations(
       alignedStagingBarriers: splitStagingBarriers.length,
     };
   };
+
   return runAtomic(runner, run);
 }

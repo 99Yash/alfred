@@ -25,6 +25,7 @@ describe("workflow tool catalog", () => {
     const registered = listRegisteredTools();
     const catalog = workflowToolCatalog();
     assert.equal(catalog.size, registered.length);
+
     for (const tool of registered) {
       const facts = catalog.get(tool.name);
       assert.ok(facts, `missing catalog entry for ${tool.name}`);
@@ -42,6 +43,7 @@ describe("workflow tool catalog", () => {
     assert.ok(local, "expected at least one system tool");
     assert.ok(connected, "expected at least one credential-gated tool");
     const allowed = new Set<string>();
+
     for (const tool of [local, connected]) {
       const facts = catalog.get(tool.name);
       assert.ok(facts);

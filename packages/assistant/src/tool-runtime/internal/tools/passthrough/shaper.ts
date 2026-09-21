@@ -42,6 +42,7 @@ export interface HttpResultArgs {
 export function passthroughHttpResult(args: HttpResultArgs): PassthroughResult {
   const succeeded = args.status >= 200 && args.status < 300 && args.graphqlHasErrors !== true;
   const bounded = boundPassthroughBody(args.body);
+
   return {
     outcome: "http",
     status: args.status,

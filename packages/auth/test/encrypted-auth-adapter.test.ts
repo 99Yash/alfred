@@ -18,7 +18,9 @@ import { createCredentialVault, CredentialVaultError } from "@alfred/db/credenti
 const vault = createCredentialVault(randomBytes(32));
 
 const ACCESS = "ya29.access-token";
+
 const REFRESH = "1//refresh-token";
+
 const ID_TOKEN = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.sig";
 
 type Call = { op: string; model: string; payload: unknown };
@@ -29,9 +31,11 @@ type Call = { op: string; model: string; payload: unknown };
  */
 function recordingAdapter() {
   const calls: Call[] = [];
+
   interface RowStore {
     row: Record<string, unknown>;
   }
+
   const store: RowStore = { row: {} };
 
   const fake = {
@@ -39,28 +43,34 @@ function recordingAdapter() {
     create: async (data: { model: string; data: Record<string, unknown> }) => {
       calls.push({ op: "create", model: data.model, payload: data.data });
       store.row = { id: "acc_1", ...data.data };
+
       return store.row;
     },
     findOne: async (data: { model: string }) => {
       calls.push({ op: "findOne", model: data.model, payload: null });
+
       return store.row;
     },
     findMany: async (data: { model: string }) => {
       calls.push({ op: "findMany", model: data.model, payload: null });
+
       return [store.row];
     },
     update: async (data: { model: string; update: Record<string, unknown> }) => {
       calls.push({ op: "update", model: data.model, payload: data.update });
       store.row = { ...store.row, ...data.update };
+
       return store.row;
     },
     updateMany: async (data: { model: string; update: Record<string, unknown> }) => {
       calls.push({ op: "updateMany", model: data.model, payload: data.update });
       store.row = { ...store.row, ...data.update };
+
       return 1;
     },
     count: async (data: { model: string }) => {
       calls.push({ op: "count", model: data.model, payload: null });
+
       return 1;
     },
     delete: async (data: { model: string }) => {
@@ -68,12 +78,14 @@ function recordingAdapter() {
     },
     deleteMany: async (data: { model: string }) => {
       calls.push({ op: "deleteMany", model: data.model, payload: null });
+
       return 1;
     },
     // Both added by better-auth 1.6.25. They take a `where` and return a row,
     // so they sit on the same side of this boundary as `findOne` and `update`.
     consumeOne: async (data: { model: string }) => {
       calls.push({ op: "consumeOne", model: data.model, payload: null });
+
       return store.row;
     },
     incrementOne: async (data: {
@@ -83,10 +95,12 @@ function recordingAdapter() {
     }) => {
       calls.push({ op: "incrementOne", model: data.model, payload: data.set ?? null });
       store.row = { ...store.row, ...data.set };
+
       return store.row;
     },
     transaction: async <R>(callback: (trx: unknown) => Promise<R>) => {
       calls.push({ op: "transaction", model: "-", payload: null });
+
       // Hand the callback a *separate* undecorated handle, exactly as drizzle
       // does. If `encryptedAuthAdapter` forgets to recurse, the callback writes
       // plaintext and the assertions below catch it.
@@ -110,6 +124,7 @@ function build() {
   const factory = encryptedAuthAdapter(() => inner.adapter, vault);
   // `betterAuth` passes its resolved options; the decorator does not read them.
   const outer = factory({} as Parameters<typeof factory>[0]);
+
   return { inner, outer };
 }
 
@@ -121,10 +136,12 @@ function payloadOf(
   const call = inner.calls.find((c) => c.op === op);
   assert.ok(call, `expected the inner adapter to receive a ${op}`);
   assert.ok(call.payload && typeof call.payload === "object");
+
   return call.payload as Record<string, unknown>;
 }
 
 let harness: ReturnType<typeof build>;
+
 beforeEach(() => {
   harness = build();
 });
@@ -137,6 +154,7 @@ describe("encryptedAuthAdapter: account writes are sealed", () => {
     });
 
     const written = payloadOf(harness.inner, "create");
+
     for (const [field, plaintext] of [
       ["accessToken", ACCESS],
       ["refreshToken", REFRESH],
@@ -146,6 +164,7 @@ describe("encryptedAuthAdapter: account writes are sealed", () => {
       assert.notEqual(written[field], plaintext);
       assert.equal(created[field], plaintext, `${field} was not opened for the caller`);
     }
+
     // Non-secret columns pass through untouched.
     assert.equal(written.accountId, "goog_1");
   });
@@ -173,11 +192,13 @@ describe("encryptedAuthAdapter: account writes are sealed", () => {
 
   test("update returns the opened row", async () => {
     harness.inner.setStored({ id: "acc_1", accessToken: vault.seal(ACCESS) });
+
     const result = await harness.outer.update<Record<string, unknown>>({
       model: "account",
       where: [{ field: "id", value: "acc_1" }],
       update: { scope: "email" },
     });
+
     assert.equal(result?.accessToken, ACCESS);
   });
 
@@ -186,6 +207,7 @@ describe("encryptedAuthAdapter: account writes are sealed", () => {
       model: "account",
       data: { accountId: "goog_1", accessToken: ACCESS, refreshToken: null },
     });
+
     const written = payloadOf(harness.inner, "create");
     assert.equal(written.refreshToken, null, "null must not be sealed into a string");
     assert.ok(!("idToken" in written), "an absent field must not be invented");
@@ -210,6 +232,7 @@ describe("encryptedAuthAdapter: account reads are opened", () => {
       model: "account",
       where: [{ field: "id", value: "acc_1" }],
     });
+
     assert.equal(row?.accessToken, ACCESS);
     assert.equal(row?.refreshToken, REFRESH);
     assert.equal(row?.idToken, ID_TOKEN);
@@ -224,11 +247,13 @@ describe("encryptedAuthAdapter: account reads are opened", () => {
 
   test("a projection that omits the tokens still works", async () => {
     harness.inner.setStored({ id: "acc_1", scope: "email" });
+
     const row = await harness.outer.findOne<Record<string, unknown>>({
       model: "account",
       where: [{ field: "id", value: "acc_1" }],
       select: ["id", "scope"],
     });
+
     assert.equal(row?.scope, "email");
     assert.ok(!("accessToken" in (row ?? {})));
   });
@@ -252,6 +277,7 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
       model: "session",
       data: { token: "sess_plain", accessToken: "not-an-account-field" },
     });
+
     const written = payloadOf(harness.inner, "create");
     assert.equal(written.token, "sess_plain");
     assert.equal(
@@ -283,10 +309,12 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
    */
   test("consumeOne opens the row it deletes", async () => {
     harness.inner.setStored({ id: "acc_1", accessToken: vault.seal(ACCESS) });
+
     const consumed = await harness.outer.consumeOne<{ accessToken: string }>({
       model: "account",
       where: [{ field: "id", value: "acc_1" }],
     });
+
     assert.equal(
       consumed?.accessToken,
       ACCESS,
@@ -326,10 +354,12 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
 
   test("consumeOne and incrementOne leave other models alone", async () => {
     harness.inner.setStored({ id: "ver_1", value: "plain-verification-token" });
+
     const consumed = await harness.outer.consumeOne<{ value: string }>({
       model: "verification",
       where: [{ field: "identifier", value: "x" }],
     });
+
     assert.equal(consumed?.value, "plain-verification-token");
 
     const limited = await harness.outer.incrementOne<{ value: string }>({
@@ -337,6 +367,7 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
       where: [{ field: "key", value: "k" }],
       increment: { count: 1 },
     });
+
     assert.equal(limited?.value, "plain-verification-token");
   });
 
@@ -421,12 +452,14 @@ describe("encryptedAuthAdapter: transactions", () => {
 
   test("reads inside a transaction are opened", async () => {
     harness.inner.setStored({ id: "acc_1", accessToken: vault.seal(ACCESS) });
+
     const row = await harness.outer.transaction(async (trx) =>
       trx.findOne<Record<string, unknown>>({
         model: "account",
         where: [{ field: "id", value: "acc_1" }],
       }),
     );
+
     assert.equal(row?.accessToken, ACCESS);
   });
 });
@@ -438,6 +471,7 @@ describe("encryptedAuthAdapter: declared joins", () => {
       token: "sess_plain",
       account: [{ id: "acc_1", accessToken: vault.seal(ACCESS) }],
     });
+
     const row = await harness.outer.findOne<{
       token: string;
       account: Array<{ accessToken: string }>;
@@ -446,6 +480,7 @@ describe("encryptedAuthAdapter: declared joins", () => {
       where: [{ field: "id", value: "ses_1" }],
       join: { account: true },
     });
+
     assert.equal(row?.token, "sess_plain");
     assert.equal(row?.account[0]?.accessToken, ACCESS);
   });
@@ -456,6 +491,7 @@ describe("encryptedAuthAdapter: declared joins", () => {
       accessToken: "session-index-value",
       account: [{ id: "acc_1", accessToken: vault.seal(ACCESS) }],
     });
+
     const row = await harness.outer.findOne<{
       account: Array<{ accessToken: string }>;
     }>({
@@ -463,6 +499,7 @@ describe("encryptedAuthAdapter: declared joins", () => {
       where: [{ field: "accessToken", value: "session-index-value" }],
       join: { account: true },
     });
+
     assert.equal(row?.account[0]?.accessToken, ACCESS);
   });
 
@@ -471,11 +508,13 @@ describe("encryptedAuthAdapter: declared joins", () => {
       id: "ses_1",
       account: { id: "acc_1", accessToken: vault.seal(ACCESS) },
     });
+
     const row = await harness.outer.findOne<{ account: { accessToken: string } }>({
       model: "session",
       where: [{ field: "id", value: "ses_1" }],
       join: { account: true },
     });
+
     assert.equal(row?.account.accessToken, ACCESS);
   });
 
@@ -486,11 +525,13 @@ describe("encryptedAuthAdapter: declared joins", () => {
       id: "ses_1",
       user: { id: "usr_1", accessToken: "some-unrelated-value" },
     });
+
     const row = await harness.outer.findOne<{ user: { accessToken: string } }>({
       model: "session",
       where: [{ field: "id", value: "ses_1" }],
       join: { user: true },
     });
+
     assert.equal(row?.user.accessToken, "some-unrelated-value");
   });
 });

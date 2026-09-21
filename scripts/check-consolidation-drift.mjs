@@ -25,9 +25,12 @@ import { gitSourceFileSelfTestFailures } from "./git-source-files.selftest.mjs";
 // a clean run of a rule that works. Check the fixtures first, so "no drift"
 // means "looked and found nothing" rather than "looked at nothing".
 const selfTest = selfTestFailures();
+
 for (const failure of gitSourceFileSelfTestFailures()) selfTest.push(failure);
+
 if (selfTest.length > 0) {
   console.error("Static check self-test failed:\n");
+
   for (const failure of selfTest) console.error(`  ${failure}`);
   console.error("\nFix the rule or source discovery before trusting this check.");
   process.exit(1);
@@ -48,6 +51,7 @@ for (const file of files) {
       violations.push({ file, line: i + 1, text: line.trim(), fix: rule.fix });
     }
   });
+
   // Chain rules see the whole file: their idiom spans lines (see matchChains).
   for (const hit of matchChains(source, file, "gate")) {
     violations.push({ file, line: hit.line, text: hit.text, fix: hit.rule.fix });
@@ -56,11 +60,13 @@ for (const file of files) {
 
 if (violations.length > 0) {
   console.error("Consolidation drift — a hand-rolled idiom re-appeared:\n");
+
   for (const v of violations) {
     console.error(`  ${v.file}:${v.line}`);
     console.error(`    ${v.text}`);
     console.error(`    → ${v.fix}\n`);
   }
+
   console.error(
     `${violations.length} violation(s). Route through the canonical helper, or append \`// drift-ok\` if the exception is deliberate.`,
   );

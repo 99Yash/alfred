@@ -26,18 +26,23 @@ interface CapturedSpans {
   opened: RuntimeSpanInput[];
   ended: RuntimeSpanEndArgs[];
 }
+
 function capture(run: () => void): CapturedSpans {
   const opened: RuntimeSpanInput[] = [];
   const ended: RuntimeSpanEndArgs[] = [];
+
   const restore = _setToolRuntimeSpanStarterForTests((input) => {
     opened.push(input);
+
     return { end: (args) => ended.push(args) };
   });
+
   try {
     run();
   } finally {
     restore();
   }
+
   return { opened, ended };
 }
 
@@ -87,9 +92,11 @@ describe("startToolCallBatchSpan", () => {
       result("rejected"),
       undefined, // an undispatched gated sibling — contributes to no bucket
     ];
+
     const { ended } = capture(() =>
       startToolCallBatchSpan(bossRun, results.length).end("committed", results),
     );
+
     assert.deepEqual(ended, [
       {
         status: "committed",
@@ -117,9 +124,11 @@ describe("startToolCallBatchSpan", () => {
       result("not_allowed"),
       result("feature_disabled"),
     ];
+
     const { ended } = capture(() =>
       startToolCallBatchSpan(bossRun, results.length).end("committed", results),
     );
+
     assert.equal(ended[0]?.metadata?.invalidInput, 1);
     assert.equal(ended[0]?.metadata?.unknownTool, 1);
     assert.equal(ended[0]?.metadata?.notAllowed, 1);
@@ -130,12 +139,14 @@ describe("startToolCallBatchSpan", () => {
     const staged = capture(() =>
       startToolCallBatchSpan(bossRun, 1).end("staged", [result("staged")]),
     );
+
     assert.equal(staged.ended[0]?.status, "staged");
     assert.equal(staged.ended[0]?.metadata?.staged, 1);
 
     const parked = capture(() =>
       startToolCallBatchSpan(bossRun, 1).end("parked", [result("parked")]),
     );
+
     assert.equal(parked.ended[0]?.status, "parked");
     assert.equal(parked.ended[0]?.metadata?.parked, 1);
   });
@@ -151,6 +162,7 @@ describe("startToolCallBatchSpan", () => {
       span.end("committed", [result("executed")]);
       span.end("error");
     });
+
     assert.equal(ended.length, 1);
     assert.equal(ended[0]?.status, "committed");
   });
@@ -200,6 +212,7 @@ describe("runtime.tool_load (single owner for both load paths)", () => {
     const { opened, ended } = capture(() =>
       recordInactiveToolActivation(bossRun, "calendar.list_events" as never),
     );
+
     assert.equal(opened[0]?.name, "runtime.tool_load");
     assert.deepEqual(opened[0]?.metadata, {
       source: "inactive_bounce",
@@ -239,6 +252,7 @@ describe("runtime.tool_search", () => {
         latencyMs: 12,
       }),
     );
+
     assert.deepEqual(ended, [
       {
         status: "hit",
@@ -256,6 +270,7 @@ describe("runtime.tool_search", () => {
     const { ended } = capture(() =>
       startToolSearchSpan(args).end({ candidateNames: [], latencyMs: 40 }),
     );
+
     assert.deepEqual(ended, [
       {
         status: "miss",
@@ -276,6 +291,7 @@ describe("runtime.tool_search", () => {
         latencyMs: 150,
       }),
     );
+
     assert.equal(ended[0]?.metadata?.latencyHealth, "red");
   });
 
@@ -285,6 +301,7 @@ describe("runtime.tool_search", () => {
       span.error();
       span.end({ candidateNames: ["gmail.search"], latencyMs: 3 });
     });
+
     assert.deepEqual(ended, [{ status: "error", level: "ERROR" }]);
   });
 });

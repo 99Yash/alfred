@@ -1,5 +1,6 @@
 import {
   boundToolResult,
+  getStringPath,
   isRecord,
   toJsonValue,
   type AgentTranscriptMessage,
@@ -58,6 +59,7 @@ function dispatchResultToToolOutput(
         value: toJsonValue(boundToolResult({ status: "failed", error: result.error }).value),
       };
     case "rejected":
+    case "unanswered":
     case "blocked":
     case "fenced":
     case "invalid_input":
@@ -121,6 +123,7 @@ function actionTokensForToolName(toolName: string): string[] {
   const rawAction = toolName.includes(".")
     ? toolName.slice(toolName.lastIndexOf(".") + 1)
     : toolName;
+
   return rawAction
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .toLowerCase()
@@ -154,18 +157,27 @@ const INCOMPLETE_ACTION_STATUSES = new Set([
 
 function executedResultIsIncomplete(value: unknown): boolean {
   if (!isRecord(value)) return false;
+
   if (value.ok === false || value.success === false) return true;
-  return typeof value.status === "string" && INCOMPLETE_ACTION_STATUSES.has(value.status);
+  const status = getStringPath(value, "status");
+
+  return status !== undefined && INCOMPLETE_ACTION_STATUSES.has(status);
 }
 
 export function toolCallLogStatus(
   toolName: string,
   result: TerminalToolCallDispatchResult,
 ): "succeeded" | "failed" {
+  // ADR-0099: a question the user dismissed or let expire is a settled
+  // exchange, not a failed call. The card and the log show it landed.
+  if (result.kind === "unanswered") return "succeeded";
+
   if (result.kind !== "executed") return "failed";
+
   if (isMutatingToolName(toolName) && executedResultIsIncomplete(result.toolResult)) {
     return "failed";
   }
+
   return "succeeded";
 }
 
@@ -184,18 +196,20 @@ export function completedToolCall<Call extends ProposedToolCall>(
   result: TerminalToolCallDispatchResult,
 ): CompletedToolCall<Call> {
   const status = toolCallLogStatus(call.toolName, result);
+
   const value =
     result.kind === "executed"
       ? result.toolResult
       : result.kind === "failed"
         ? result.error
         : result.result;
+
   return {
     call,
     result: value,
     status,
     execution:
-      result.kind === "executed"
+      result.kind === "executed" || result.kind === "unanswered"
         ? "completed"
         : result.kind === "failed" ||
             result.kind === "rejected" ||
@@ -220,7 +234,9 @@ function connectNudgeFromDispatch(
 ): ChatConnectNudge | undefined {
   if (result.kind !== "not_allowed" || result.unavailability === undefined) return undefined;
   const action = connectActionFor(result.unavailability);
+
   if (action === undefined) return undefined;
+
   return { integration: result.result.integration, action };
 }
 

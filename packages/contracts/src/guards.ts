@@ -28,6 +28,7 @@
 export function isRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
+
   return proto === Object.prototype || proto === null;
 }
 
@@ -109,10 +110,12 @@ export function toStringArray(value: unknown): string[] {
  */
 export function getPath(value: unknown, ...keys: string[]): unknown {
   let current: unknown = value;
+
   for (const key of keys) {
     if (!isRecord(current)) return undefined;
     current = current[key];
   }
+
   return current;
 }
 
@@ -123,7 +126,26 @@ export function getPath(value: unknown, ...keys: string[]): unknown {
  */
 export function getStringPath(value: unknown, ...keys: string[]): string | undefined {
   const leaf = getPath(value, ...keys);
+
   return typeof leaf === "string" ? leaf : undefined;
+}
+
+/**
+ * Leaf reader for a provider id that may arrive as either a string or an
+ * integer. Webhook payloads serialize ids both ways (GitHub's `installation.id`
+ * and Sentry's `data.run_id` are integers; Sentry's `issue.id` and `event_id`
+ * are strings), and the columns and dedup keys that store them are text, so
+ * both spellings collapse to one string and no join or key depends on which.
+ * `null` when the leaf is absent, empty, or a non-integer number.
+ */
+export function getIdPath(value: unknown, ...keys: string[]): string | null {
+  const leaf = getPath(value, ...keys);
+
+  if (isNonEmptyString(leaf)) return leaf;
+
+  if (typeof leaf === "number" && Number.isSafeInteger(leaf)) return String(leaf);
+
+  return null;
 }
 
 /**
@@ -146,6 +168,7 @@ export function enumGuard<const T extends readonly string[]>(
   values: T,
 ): (value: unknown) => value is T[number] {
   const members: ReadonlySet<string> = new Set(values);
+
   return (value): value is T[number] => typeof value === "string" && members.has(value);
 }
 
@@ -163,6 +186,7 @@ export function enumGuard<const T extends readonly string[]>(
 export function parseEmailAddress(value: string | null | undefined): string | null {
   if (!value) return null;
   const raw = (value.match(/<([^>]+)>/)?.[1] ?? value).trim().toLowerCase();
+
   return raw.includes("@") ? raw : null;
 }
 
@@ -205,14 +229,18 @@ export function withDefaults<T extends object>(
   overrides?: { [K in keyof T]?: T[K] | undefined },
 ): T {
   const merged = { ...defaults };
+
   if (!overrides) return merged;
+
   // `Object.keys` is typed `string[]`; the value is a `Partial<T>`, so its keys
   // are `keyof T` by construction. The read below is what needs the key type.
   // SAFETY: the parameter type pins every present key to keyof T, so the key
   // list is exactly a (keyof T)[].
   for (const key of Object.keys(overrides) as (keyof T)[]) {
     const value = overrides[key];
+
     if (value !== undefined) merged[key] = value;
   }
+
   return merged;
 }

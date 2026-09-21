@@ -207,10 +207,12 @@ export function nodeOnlyPackages(root) {
 
   /** Every dependency the Node side declares, with the workspace that declared it. */
   const declared = new Map();
+
   for (const workspace of workspaces) {
     if (browserReached.has(workspace.dir)) continue;
 
     let dependencies;
+
     try {
       const parsed = JSON.parse(readFileSync(join(root, workspace.manifest), "utf8"));
       dependencies = parsed?.[DEPENDENCIES];
@@ -222,6 +224,7 @@ export function nodeOnlyPackages(root) {
     }
 
     if (dependencies === undefined) continue;
+
     if (dependencies === null || typeof dependencies !== "object" || Array.isArray(dependencies)) {
       failures.push(
         `${workspace.manifest} has a "${DEPENDENCIES}" field that is not an object, so the packages it declares cannot be read into the forbid set.`,
@@ -243,6 +246,7 @@ export function nodeOnlyPackages(root) {
 
   /** @type {Map<string, string>} */
   const packages = new Map();
+
   for (const [pkg, dir] of declared) {
     if (BROWSER_SAFE_NPM_PACKAGES.has(pkg)) continue;
     packages.set(
@@ -250,6 +254,7 @@ export function nodeOnlyPackages(root) {
       `${dir} declares it as a dependency and the browser fence does not reach ${dir}`,
     );
   }
+
   for (const pkg of FORBIDDEN_RUNTIME_PACKAGES) {
     packages.set(pkg, "FORBIDDEN_RUNTIME_PACKAGES in scripts/web-boundaries.mjs forbids it");
   }
@@ -260,6 +265,7 @@ export function nodeOnlyPackages(root) {
 /** A path with its rollup query suffix removed, at the FIRST `?`. */
 function stripQuery(id) {
   const query = id.indexOf("?");
+
   return query === -1 ? id : id.slice(0, query);
 }
 
@@ -276,19 +282,25 @@ function realPathOrSelf(path) {
 function npmPackageOf(path) {
   const marker = `${sep}node_modules${sep}`;
   const last = path.lastIndexOf(marker);
+
   if (last === -1) return null;
 
   const segments = path.slice(last + marker.length).split(sep);
   const [first, second] = segments;
+
   if (first === undefined || first === "") return null;
+
   if (!first.startsWith("@")) return first;
+
   return second === undefined || second === "" ? null : `${first}/${second}`;
 }
 
 /** A path's repo-relative form with `/` separators, or `null` when it is outside. */
 function insideRoot(root, path) {
   const rel = relative(realPathOrSelf(root), path);
+
   if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return null;
+
   return rel.split(sep).join("/");
 }
 
@@ -328,15 +340,19 @@ export function classifyModuleId(root, id) {
   if (id.includes(NUL)) return { kind: "virtual", package: null, file: null };
 
   const bare = stripQuery(id);
+
   if (bare === BUILTIN_STUB) return { kind: "builtin-stub", package: null, file: null };
+
   if (!isAbsolute(bare)) return { kind: "virtual", package: null, file: null };
 
   const real = realPathOrSelf(bare);
 
   const pkg = npmPackageOf(real);
+
   if (pkg !== null) return { kind: "npm", package: pkg, file: null };
 
   const file = insideRoot(root, real);
+
   if (file !== null) return { kind: "workspace", package: null, file };
 
   return { kind: "foreign", package: null, file: null };
@@ -365,19 +381,25 @@ export function importerChain(graph, id) {
   while (frontier.length > 0) {
     /** @type {string[][]} */
     const next = [];
+
     for (const path of frontier) {
       const head = path[0];
+
       if (head === undefined) continue;
       const importers = graph.importers.get(head) ?? [];
+
       if (entries.has(head) || importers.length === 0) return path;
+
       for (const importer of importers) {
         if (seen.has(importer)) continue;
         seen.add(importer);
         const step = [importer, ...path];
+
         if (step.length > deepest.length) deepest = step;
         next.push(step);
       }
     }
+
     frontier = next;
   }
 
@@ -387,23 +409,29 @@ export function importerChain(graph, id) {
 /** An id in the shortest form a reader can act on: a repo path, or a package name. */
 function describeModuleId(root, id) {
   const info = classifyModuleId(root, id);
+
   if (info.file !== null) return info.file;
+
   if (info.package !== null) return `${info.package} (npm)`;
+
   return id;
 }
 
 /** The builtins the build named, from the one channel that carries their names. */
 function warnedBuiltins(graph) {
   const named = new Map();
+
   for (const warning of graph.warnings) {
     for (const match of warning.matchAll(BUILTIN_WARNING)) {
       const [, builtin, importer] = match;
+
       if (builtin === undefined || importer === undefined) continue;
       const importers = named.get(builtin) ?? [];
       importers.push(describeModuleId(graph.root, importer));
       named.set(builtin, importers);
     }
   }
+
   return named;
 }
 
@@ -452,8 +480,10 @@ export function bundleViolations(graph, { forbidden, surface }) {
 
     if (info.kind === "npm") {
       const pkg = info.package;
+
       if (pkg === null) continue;
       const reason = forbidden.get(pkg);
+
       if (reason === undefined) continue;
       // One violation per PACKAGE, not per module. A single forbidden package
       // contributes dozens of modules to the graph — driving this rule with `zod`
@@ -462,6 +492,7 @@ export function bundleViolations(graph, { forbidden, surface }) {
       // entry is the one a reader should follow first.
       const shortest = chainOf(id);
       const seen = reported.get(pkg);
+
       if (seen === undefined || shortest.length < seen.chain.length) {
         reported.set(pkg, {
           rule: "forbidden-package",
@@ -470,18 +501,22 @@ export function bundleViolations(graph, { forbidden, surface }) {
           chain: shortest,
         });
       }
+
       continue;
     }
 
     if (info.kind === "workspace") {
       workspaceModules += 1;
       const file = /** @type {string} */ (info.file);
+
       if (file.endsWith(`/${ANCHOR_MODULE}`)) anchors += 1;
+
       // R3 rules on the two extensions the source fence scans, and only those. A
       // workspace `.css`, `.svg` or `index.html` in the graph is a real bundle
       // member that the fence never claimed to cover, so demanding it be in the
       // fence's file list would report the fence's own scope as a violation.
       if (!SOURCE_FILE.test(file)) continue;
+
       if (surface.has(file)) continue;
       violations.push({
         rule: "unscanned-module",
@@ -513,6 +548,7 @@ export function bundleViolations(graph, { forbidden, surface }) {
       chain: [],
     });
   }
+
   if (workspaceModules === 0) {
     floors.push({
       rule: "vacuous-graph",
@@ -522,6 +558,7 @@ export function bundleViolations(graph, { forbidden, surface }) {
       chain: [],
     });
   }
+
   if (anchors === 0) {
     floors.push({
       rule: "vacuous-graph",
@@ -540,12 +577,16 @@ export function bundleViolations(graph, { forbidden, surface }) {
 /** The workspace TypeScript files the graph holds, repo-relative. */
 export function graphWorkspaceFiles(graph) {
   const files = new Set();
+
   for (const id of graph.importers.keys()) {
     const info = classifyModuleId(graph.root, id);
+
     if (info.kind !== "workspace" || info.file === null) continue;
+
     if (!SOURCE_FILE.test(info.file)) continue;
     files.add(info.file);
   }
+
   return files;
 }
 
@@ -557,11 +598,13 @@ async function loadVite(root, app, failures) {
   try {
     const resolveFrom = createRequire(join(root, app, "package.json"));
     const entry = resolveFrom.resolve("vite");
+
     return await import(pathToFileURL(entry).href);
   } catch (error) {
     failures.push(
       `vite could not be resolved from ${app} (${error instanceof Error ? error.message : String(error)}), so no module graph could be recorded.`,
     );
+
     return null;
   }
 }
@@ -585,14 +628,17 @@ export async function recordBundleGraph(root) {
   const graph = emptyGraph(root);
 
   const apps = [...BROWSER_ENTRY_APPS].sort();
+
   if (apps.length === 0) {
     failures.push(
       "BROWSER_ENTRY_APPS names no app, so there is no browser bundle to record a graph for.",
     );
+
     return { graph, seconds: 0, failures };
   }
 
   const vite = await loadVite(root, /** @type {string} */ (apps[0]), failures);
+
   if (vite === null) return { graph, seconds: 0, failures };
 
   const started = Date.now();
@@ -613,12 +659,16 @@ export async function recordBundleGraph(root) {
        */
       buildEnd(error) {
         if (error) return;
+
         for (const id of this.getModuleIds()) {
           const info = this.getModuleInfo(id);
+
           if (info === null) continue;
           graph.importers.set(id, [...info.importers]);
+
           if (info.isEntry) graph.entries.push(id);
         }
+
         completed = true;
       },
     };
@@ -661,9 +711,11 @@ export async function recordBundleGraph(root) {
         `the recorder's buildEnd hook never ran for ${app}, so nothing was recorded for it.`,
       );
     }
+
     allCompleted = allCompleted && completed;
   }
 
   graph.completed = allCompleted;
+
   return { graph, seconds: (Date.now() - started) / 1000, failures };
 }

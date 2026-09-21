@@ -44,11 +44,13 @@ function sortTodos(a: SyncedTodo, b: SyncedTodo): number {
   if (STATUS_RANK[a.status] !== STATUS_RANK[b.status]) {
     return STATUS_RANK[a.status] - STATUS_RANK[b.status];
   }
+
   // Manual order takes precedence when present (forward-compat `position`),
   // otherwise fall back to creation order.
   if (a.position != null && b.position != null && a.position !== b.position) {
     return a.position - b.position;
   }
+
   return b.createdAt.localeCompare(a.createdAt);
 }
 
@@ -66,8 +68,10 @@ export function useTodos(): TodosState {
   useEffect(() => {
     if (!rep) {
       setRows(null);
+
       return;
     }
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.todo.scan(tx),
       (todos) => {
@@ -80,6 +84,7 @@ export function useTodos(): TodosState {
   const createTodo = useCallback(
     async (name: string, description?: string): Promise<void> => {
       const trimmed = name.trim();
+
       if (!rep || !userId || !trimmed) return;
       await rep.mutate.todoCreate({
         id: crypto.randomUUID(),
@@ -150,6 +155,7 @@ export function useTodos(): TodosState {
 
   const { todos, suggestions } = useMemo(() => {
     const all = rows ?? [];
+
     return {
       todos: all.filter((t) => t.status === "open" || t.status === "done"),
       suggestions: all.filter((t) => t.status === "suggested"),

@@ -52,6 +52,7 @@ export const conversationSummarySchema = z
   .strict();
 
 export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
+
 export type ConversationSummarySource = z.infer<typeof conversationSummarySourceSchema>;
 
 export interface EligibleConversationSummarySources {
@@ -70,6 +71,7 @@ export function parsePersistedConversationSummary(
 ): PersistedConversationSummaryParse {
   if (value === null) return { summary: null, invalid: false };
   const parsed = conversationSummarySchema.safeParse(value);
+
   return parsed.success
     ? { summary: parsed.data, invalid: false }
     : { summary: null, invalid: true };
@@ -85,16 +87,19 @@ export function validateConversationSummary(
 ): ConversationSummary {
   const summary = conversationSummarySchema.parse(value);
   const { fromMessageId, toMessageId } = summary.overview.sourceMessageRange;
+
   if (!eligible.messageIds.has(fromMessageId) || !eligible.messageIds.has(toMessageId)) {
     throw new Error("conversation_summary_invalid_provenance: overview range");
   }
 
   for (const source of conversationSummarySources(summary)) {
     const eligibleIds = eligibleIdsForSource(source, eligible);
+
     if (!eligibleIds.has(source.id)) {
       throw new Error(`conversation_summary_invalid_provenance: ${source.kind}:${source.id}`);
     }
   }
+
   return summary;
 }
 

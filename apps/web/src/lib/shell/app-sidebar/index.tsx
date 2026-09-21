@@ -11,7 +11,7 @@ import {
   usePersistentSidebarWidth,
 } from "./persistence";
 import { RailContent } from "./rail-content";
-import { DeleteThreadDialog } from "./thread-content";
+import { DeleteThreadDialog } from "~/lib/chat/delete-thread-dialog";
 import type { AppSidebarProps } from "./types";
 
 export type { AppSidebarProps, SidebarThreadActions } from "./types";
@@ -65,8 +65,10 @@ export function AppSidebar({
           MAX_WIDTH,
           Math.max(MIN_WIDTH, startWidth + (pointerEvent.clientX - startX)),
         );
+
         setWidth(next);
       };
+
       const cleanup = () => {
         setDragging(false);
         document.body.style.userSelect = "";

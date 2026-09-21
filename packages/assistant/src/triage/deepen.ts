@@ -9,9 +9,11 @@ import {
 } from "@alfred/contracts";
 import { z } from "zod";
 import { MAX_RATIONALE_LEN, type TriageClassification, truncateRationale } from "./classify";
-import type { TriageUserContext } from "./user-context";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
+import type { UserContext } from "../knowledge";
 
 export const DEEPEN_REASONS = ["severity_suspect_bot", "low_confidence", "unknown_human"] as const;
+
 export type DeepenReason = (typeof DEEPEN_REASONS)[number];
 
 export type DeepenMode = "skip" | "shadow" | "execute";
@@ -22,7 +24,7 @@ export interface DeepenDecision {
 }
 
 export interface DeepenTriageArgs {
-  /** Optional metering attribution. The caller supplies the already-bounded user context. */
+  /** Optional metering attribution. The caller supplies the already-bounded user knowledge. */
   userId?: string;
   document: {
     id: string;
@@ -33,7 +35,7 @@ export interface DeepenTriageArgs {
   };
   classification: TriageClassification;
   senderContext: SenderContext;
-  userContext: TriageUserContext;
+  userKnowledge: UserContext;
   runId?: string;
   stepId?: string;
   attempt?: number;
@@ -57,6 +59,7 @@ const deepenOutputSchema = z.object({
   severityFlag: z.enum(["severe", "normal", "low"]),
   dossierRequest: z.object({ personEmail: z.string().email() }).optional(),
 });
+
 type DeepenOutput = z.infer<typeof deepenOutputSchema>;
 
 const DEEPEN_SYSTEM_PROMPT = `You refine email triage for Alfred, a personal assistant.
@@ -64,14 +67,14 @@ const DEEPEN_SYSTEM_PROMPT = `You refine email triage for Alfred, a personal ass
 You receive:
 - the cheap classifier output,
 - deterministic SenderContext,
-- compact user context from Alfred's database,
+- compact user knowledge from Alfred's database,
 - one email.
 
 Return the final category. Keep the same 10-category taxonomy:
 urgent, action_needed, follow_up, awaiting_reply, meeting, fyi, done, payment, newsletter, marketing.
 
 Rules:
-1. Use user context only to judge relevance/severity. Do not invent facts not present in the email or context.
+1. Use user knowledge only to judge relevance/severity. Do not invent facts not present in the email or user knowledge.
 2. For severity-suspect bot alerts, determine whether this affects the user's real account/project/integration. Use urgent only for same-day or access-breaking consequences.
 3. Payment failures that break access today may be urgent; ordinary receipts/statements stay payment.
 4. Error/deploy/security alerts are urgent only when they affect production, access, security, or a user-owned active project. Otherwise choose action_needed, fyi, or done as appropriate.
@@ -110,15 +113,16 @@ export async function deepenTriageClassification(
   args: DeepenTriageArgs,
 ): Promise<DeepenTriageResult> {
   const model = route("boss").model();
+
   const result = await meteredGenerateObject<DeepenOutput>(
     {
       model,
-      instructions: DEEPEN_SYSTEM_PROMPT,
+      instructions: `${DEEPEN_SYSTEM_PROMPT}\n\n${selfIdentityGrounding()}`,
       prompt: deepenUserPrompt(args),
       schema: deepenOutputSchema,
       schemaName: "triage_deepen",
       schemaDescription:
-        "Refines an email triage category using sender context and compact user context.",
+        "Refines an email triage category using sender context and compact user knowledge.",
       temperature: 0,
       maxOutputTokens: 1_500,
     },
@@ -159,19 +163,22 @@ function deepenUserPrompt(args: DeepenTriageArgs): string {
   lines.push("=== SenderContext ===");
   lines.push(JSON.stringify(args.senderContext));
   lines.push("");
-  lines.push("=== UserContext ===");
-  lines.push(compactJson(args.userContext, 6_000));
+  lines.push("=== UserKnowledge ===");
+  lines.push(compactJson(args.userKnowledge, 6_000));
   lines.push("");
   lines.push("=== Email ===");
   appendStringMeta(lines, "From", meta.from);
   appendStringMeta(lines, "To", meta.to);
   appendStringMeta(lines, "Cc", meta.cc);
+
   if (args.document.title) lines.push(`Subject: ${args.document.title}`);
+
   if (args.document.authoredAt) lines.push(`Date: ${args.document.authoredAt.toISOString()}`);
   appendStringMeta(lines, "GmailSnippet", meta.snippet);
   lines.push("");
   lines.push("=== Body ===");
   lines.push(truncateText(args.document.content, 8_000));
+
   return lines.join("\n");
 }
 
@@ -183,6 +190,7 @@ function appendStringMeta(lines: string[], label: string, value: unknown): void 
 
 function compactJson(value: unknown, maxChars: number): string {
   const text = JSON.stringify(value);
+
   return truncateText(text, maxChars);
 }
 

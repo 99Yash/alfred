@@ -59,6 +59,7 @@ describe("listRegisteredTools snapshot", () => {
 
     const gmail = first.listForIntegration("gmail");
     assert.deepEqual(gmail, listToolsForIntegration("gmail"));
+
     for (const tool of gmail) {
       assert.equal(first.get(tool.name), tool);
       assert.equal(getTool(tool.name), tool);

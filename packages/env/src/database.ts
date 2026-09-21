@@ -40,12 +40,16 @@ let _databaseEnv: DatabaseEnv | undefined;
 export function databaseEnv(): DatabaseEnv {
   if (_databaseEnv) return _databaseEnv;
   const result = databaseEnvSchema.safeParse(process.env);
+
   if (!result.success) {
     const formatted = result.error.issues
       .map((i) => `  ${i.path.join(".")}: ${i.message}`)
       .join("\n");
+
     throw new Error(`Missing or invalid database environment variables:\n${formatted}`);
   }
+
   _databaseEnv = result.data;
+
   return _databaseEnv;
 }

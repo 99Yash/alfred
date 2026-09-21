@@ -43,6 +43,7 @@ function sourceItemKey(item: SourceItem): string {
 
 function SourcePill({ item: props }: { item: SourceItem }) {
   const { label, count } = props;
+
   if (props.integration) {
     return (
       <span className="inline-flex h-6 items-center gap-1.5 rounded-lg bg-app-bg-2 px-2 text-[11px] font-medium text-app-fg-4">
@@ -52,7 +53,9 @@ function SourcePill({ item: props }: { item: SourceItem }) {
       </span>
     );
   }
+
   const Icon = props.icon;
+
   return (
     <span
       className={cn(

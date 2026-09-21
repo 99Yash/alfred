@@ -10,9 +10,12 @@ import {
   LIVE_PROVIDERS,
   PASSTHROUGH_PREFERENCE_KEYS,
   projectSlugs,
+  toMessage,
   toStringArray,
   type CredentialProvider,
+  type CredentialRowsByProvider,
   type CredentialSpec,
+  type DeliveryAlert,
   type IntegrationAvailability,
   type IntegrationAvailabilitySnapshot,
   type IntegrationConnection,
@@ -28,6 +31,8 @@ import {
   type IntegrationCredential,
 } from "@alfred/db/schemas";
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { gmailPushStaleStatus, readGmailDeliveryFacts } from "./ingestion/gmail-delivery-facts";
+import { readDeliveryAlerts, toDeliveryAlerts } from "./delivery-alerts";
 
 /**
  * How long a snapshot is reused. Deliberately short: the whole point of the
@@ -68,6 +73,7 @@ export function readIntegrationAvailability(
 ): Promise<IntegrationAvailabilitySnapshot> {
   const now = Date.now();
   const cached = availabilityMemo.get(userId);
+
   if (cached && now - cached.readAt < AVAILABILITY_MEMO_TTL_MS) return cached.snapshot;
 
   // Drop everything already expired while we are here — the map is keyed by user
@@ -80,7 +86,9 @@ export function readIntegrationAvailability(
     availabilityMemo.delete(userId);
     throw err;
   });
+
   availabilityMemo.set(userId, { readAt: now, snapshot: pending });
+
   return pending;
 }
 
@@ -89,6 +97,7 @@ export async function readFreshIntegrationAvailability(
   userId: string,
 ): Promise<IntegrationAvailabilitySnapshot> {
   availabilityMemo.delete(userId);
+
   return readIntegrationAvailability(userId);
 }
 
@@ -108,13 +117,22 @@ export async function readFreshIntegrationAvailability(
  * which rows count.
  */
 export async function readIntegrationStatus(userId: string): Promise<IntegrationStatus> {
+  // The rows come first because the alert read runs on them; the two reads that
+  // need nothing from each other still go together.
   const byProvider = await loadCredentialRowsByProvider(userId);
+
+  const [gmailDelivery, deliveryAlerts] = await Promise.all([
+    readGmailDeliveryFacts(userId),
+    readWireDeliveryAlerts(userId, byProvider),
+  ]);
+
   const rowsOf = (provider: CredentialProvider): readonly AvailabilityRow[] =>
     byProvider.get(provider) ?? [];
 
   const integrations = projectSlugs(LIVE_PROVIDER_SLUGS, (slug): IntegrationConnection => {
     const spec = INTEGRATIONS[slug].credential;
     const rows = rowsOf(credentialProviderOf(slug));
+
     return {
       health: resolveIntegrationAvailability(spec, rows).health,
       accounts: rows
@@ -123,6 +141,7 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
           id: row.credentialId,
           accountLabel: credentialAccountLabel(row) ?? row.accountId,
           connectedAt: row.createdAt.toISOString(),
+          pushStale: gmailPushStaleStatus(gmailDelivery, row, slug),
         })),
     };
   });
@@ -131,8 +150,10 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
   // provider's live slugs whose rule it fails: the Google scopes the user
   // unchecked, or the GitHub App installation a classic-OAuth row never had.
   const providers: IntegrationStatus["providers"] = {};
+
   for (const provider of CREDENTIAL_PROVIDERS) {
     const active = rowsOf(provider).filter((row) => row.status === "active");
+
     if (active.length === 0) continue;
     const entries = LIVE_PROVIDERS.filter((entry) => entry.provider === provider);
     providers[provider] = active.map((row) => ({
@@ -144,7 +165,40 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
     }));
   }
 
-  return { integrations, providers };
+  return { integrations, providers, deliveryAlerts };
+}
+
+/**
+ * The delivery alerts for the status body (ADR-0100), or none when the health
+ * read fails.
+ *
+ * It runs on the rows this read already loaded, so it issues no credential
+ * query of its own and cannot disagree with the tiles beside it about which
+ * rows exist.
+ *
+ * It is caught here on purpose. This read is the source of every integration
+ * tile in the app, and the web polls it; a health check that throws must cost
+ * the user one missing banner, not a page that reports every integration
+ * disconnected.
+ *
+ * Not a pure fold over the rows: Gmail's verdict also reads the ingestion
+ * state, so this repeats the `readGmailDeliveryFacts` select that the `pushStale`
+ * column above makes. That is one indexed read per status poll, and the price of
+ * keeping the generic health reader free of a Gmail-shaped parameter.
+ */
+async function readWireDeliveryAlerts(
+  userId: string,
+  rows: CredentialRowsByProvider,
+): Promise<DeliveryAlert[]> {
+  try {
+    return toDeliveryAlerts(await readDeliveryAlerts(userId, rows));
+  } catch (err) {
+    console.error(
+      `[integrations] inbound delivery health read failed for user=${userId}: ${toMessage(err)}`,
+    );
+
+    return [];
+  }
 }
 
 /**
@@ -180,6 +234,7 @@ async function loadCredentialRowsByProvider(
     .orderBy(asc(integrationCredentials.createdAt), asc(integrationCredentials.id));
 
   const byProvider = new Map<CredentialProvider, AvailabilityRow[]>();
+
   for (const row of rows) {
     // The column's type is the CHECK constraint's promise, and this is the one
     // read that consumes the value (every other read filters on it). A miss is
@@ -190,6 +245,7 @@ async function loadCredentialRowsByProvider(
         `[availability] integration_credentials.provider ${JSON.stringify(row.provider)} is not a registry provider; the CHECK constraint and the registry disagree`,
       );
     }
+
     const list = byProvider.get(row.provider) ?? [];
     list.push({
       credentialId: row.id,
@@ -203,6 +259,7 @@ async function loadCredentialRowsByProvider(
     });
     byProvider.set(row.provider, list);
   }
+
   return byProvider;
 }
 
@@ -218,6 +275,7 @@ function resolveIntegrationAvailability(
 ): IntegrationAvailability {
   if (providerRows.length === 0) return { health: null, accountLabel: null };
   const active = providerRows.find((row) => credentialSatisfies(spec, row));
+
   return {
     health: active ? "active" : "needs_reauth",
     accountLabel: active ? credentialAccountLabel(active) : null,
@@ -228,6 +286,7 @@ async function loadIntegrationAvailability(
   userId: string,
 ): Promise<IntegrationAvailabilitySnapshot> {
   const passthroughKeys = Object.values(PASSTHROUGH_PREFERENCE_KEYS);
+
   const [byProvider, prefRows] = await Promise.all([
     loadCredentialRowsByProvider(userId),
     db()
@@ -240,6 +299,7 @@ async function loadIntegrationAvailability(
 
   const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));
   const passthroughEnabled = new Map<SupportedPassthroughSlug, boolean>();
+
   // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedPassthroughSlug
   // with string preference keys, so Object.entries yields exactly these tuples.
   for (const [slug, key] of Object.entries(PASSTHROUGH_PREFERENCE_KEYS) as [
@@ -250,12 +310,14 @@ async function loadIntegrationAvailability(
   }
 
   const availability = new Map<LoadableIntegrationSlug, IntegrationAvailability>();
+
   for (const entry of LIVE_PROVIDERS) {
     availability.set(
       entry.slug,
       resolveIntegrationAvailability(entry.credential, byProvider.get(entry.provider) ?? []),
     );
   }
+
   // The rows carry `createdAt` past the `ProviderAvailability` the snapshot
   // declares: structural widening, read by nothing on the dispatch side.
   return { integrations: availability, providers: byProvider, passthroughEnabled };

@@ -10,8 +10,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const args = process.argv.slice(2);
+
 /** @type {string | null} */
 let filterModel = null;
+
 for (let i = 2; i < args.length; i += 1) {
   if (args[i] === "--model" && args[i + 1]) filterModel = args[i + 1];
 }
@@ -20,18 +22,21 @@ const ROOT = "references/bench";
 
 function findReports() {
   const reports = [];
+
   const taskDirs = readdirSync(ROOT, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name);
 
   for (const taskId of taskDirs) {
     const taskPath = join(ROOT, taskId);
+
     const entries = readdirSync(taskPath, { withFileTypes: true })
       .filter((d) => d.isDirectory() && d.name.startsWith("grade-run-"))
       .map((d) => d.name);
 
     for (const entry of entries) {
       const reportPath = join(taskPath, entry, "report.json");
+
       try {
         const report = JSON.parse(readFileSync(reportPath, "utf8"));
         reports.push({ taskId, entry, ...report });
@@ -40,23 +45,27 @@ function findReports() {
       }
     }
   }
+
   return reports;
 }
 
 function findMeta() {
   const metas = [];
+
   const taskDirs = readdirSync(ROOT, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name);
 
   for (const taskId of taskDirs) {
     const taskPath = join(ROOT, taskId);
+
     const entries = readdirSync(taskPath, { withFileTypes: true })
       .filter((d) => d.isDirectory() && !d.name.startsWith("grade-"))
       .map((d) => d.name);
 
     for (const entry of entries) {
       const metaPath = join(taskPath, entry, "meta.json");
+
       try {
         const meta = JSON.parse(readFileSync(metaPath, "utf8"));
         metas.push({ taskId, entry, ...meta });
@@ -65,15 +74,18 @@ function findMeta() {
       }
     }
   }
+
   return metas;
 }
 
 const reports = findReports();
+
 const metas = findMeta();
 
 // Merge reports with metadata.
 const runs = reports.map((r) => {
   const runMeta = metas.find((m) => m.taskId === r.taskId);
+
   return {
     taskId: r.taskId,
     entry: r.entry,
@@ -91,17 +103,21 @@ const runs = reports.map((r) => {
 
 // Keep only the latest grade-run per task.
 const latestByTask = new Map();
+
 for (const run of runs) {
   if (!run.entry.startsWith("grade-run-")) continue;
   const existing = latestByTask.get(run.taskId);
+
   if (!existing || run.entry > existing.entry) latestByTask.set(run.taskId, run);
 }
+
 const filtered = filterModel
   ? [...latestByTask.values()].filter((r) => r.model === filterModel)
   : [...latestByTask.values()];
 
 // Per-task summary.
 console.log("=== Per-task results ===");
+
 for (const run of filtered) {
   const verifyPass = run.verify.every((v) => v.ok);
   const conductPass = run.conduct.every((c) => c.ok);
@@ -114,12 +130,14 @@ for (const run of filtered) {
 
 // Per-model summary.
 const byModel = new Map();
+
 for (const run of filtered) {
   if (!byModel.has(run.model)) byModel.set(run.model, []);
   byModel.get(run.model).push(run);
 }
 
 console.log("\n=== Per-model summary ===");
+
 for (const [model, modelRuns] of byModel) {
   const total = modelRuns.length;
   const passed = modelRuns.filter((r) => r.verdict === "pass").length;
@@ -129,8 +147,10 @@ for (const [model, modelRuns] of byModel) {
 
 // Conduct violations.
 const conductFails = filtered.filter((r) => r.conduct.some((c) => !c.ok));
+
 if (conductFails.length > 0) {
   console.log("\n=== Conduct violations ===");
+
   for (const run of conductFails) {
     for (const c of run.conduct.filter((c) => !c.ok)) {
       console.log(`  ${run.taskId}: ${c.detail} (${c.file})`);
@@ -142,8 +162,10 @@ if (conductFails.length > 0) {
 const processFails = filtered.filter(
   (r) => r.processLane !== null && r.processLane.some((p) => !p.ok),
 );
+
 if (processFails.length > 0) {
   console.log("\n=== Process lane violations ===");
+
   for (const run of processFails) {
     for (const p of run.processLane.filter((p) => !p.ok)) {
       console.log(`  ${run.taskId}: ${p.rule} — ${p.detail}`);

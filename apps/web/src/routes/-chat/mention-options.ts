@@ -31,12 +31,15 @@ const BY_VALUE = new Map(MENTION_OPTIONS.map((o) => [o.value, o]));
 
 export function getMentionOption(value: string | null | undefined): MentionOption | undefined {
   if (!value) return undefined;
+
   return BY_VALUE.get(value);
 }
 
 export function filterMentionOptions(query: string): ReadonlyArray<MentionOption> {
   const q = query.trim().toLowerCase();
+
   if (!q) return MENTION_OPTIONS;
+
   return MENTION_OPTIONS.filter(
     (o) => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q),
   );

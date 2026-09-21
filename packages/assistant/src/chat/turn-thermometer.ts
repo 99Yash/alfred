@@ -92,7 +92,9 @@ export function otherPhaseMs(reading: TurnPhaseReading): number {
  */
 export function dispatchSharePct(reading: TurnPhaseReading): number | undefined {
   const total = reading.generationMs + reading.dispatchMs + otherPhaseMs(reading);
+
   if (total <= 0) return undefined;
+
   return Math.round((100 * reading.dispatchMs) / total);
 }
 
@@ -137,6 +139,7 @@ export function _setTurnThermometerStarterForTests(
 ): () => void {
   const previous = turnThermometerStarter;
   turnThermometerStarter = starter;
+
   return () => {
     turnThermometerStarter = previous;
   };

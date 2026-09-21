@@ -64,8 +64,8 @@ const ROUTE_SURFACE = [
   "GET /api/integrations/notion/connect",
   "DELETE /api/integrations/notion/:id",
   "GET /api/integrations/notion/callback",
-  "POST /api/integrations/railway/connect",
-  "DELETE /api/integrations/railway/:id",
+  "POST /api/integrations/sentry/connect",
+  "DELETE /api/integrations/sentry/:id",
   "GET /api/integrations/vercel/connect",
   "DELETE /api/integrations/vercel/:id",
   "GET /api/integrations/vercel/callback",
@@ -73,15 +73,27 @@ const ROUTE_SURFACE = [
   "POST /webhooks/inbound/:source",
   "POST /webhooks/github",
   "GET /api/integrations/mcp/connections",
+  "POST /api/integrations/mcp/connections",
   "GET /api/integrations/mcp/recovery",
   "POST /api/integrations/mcp/recovery/:invocationId/resolve",
   "POST /api/integrations/mcp/recovery/:invocationId/successor",
-  "GET /api/integrations/mcp/github/connect",
+  "GET /api/integrations/mcp/built-ins/:provider/connect",
+  "GET /api/integrations/mcp/connections/:id/authorize",
   "GET /api/integrations/mcp/connections/:id/reconsent",
+  "POST /api/integrations/mcp/connections/:id/reconnect",
+  "POST /api/integrations/mcp/connections/:id/disconnect",
+  "PATCH /api/integrations/mcp/connections/:id",
+  "DELETE /api/integrations/mcp/connections/:id",
+  "GET /api/integrations/mcp/connections/:id/tools",
+  "GET /api/integrations/mcp/connections/:id/tools/inspect",
+  "GET /api/integrations/mcp/connections/:id/tools/policy",
+  "PUT /api/integrations/mcp/connections/:id/tools/policy",
+  "DELETE /api/integrations/mcp/connections/:id/tools/policy",
   "GET /api/integrations/mcp/client-metadata",
   "GET /api/integrations/mcp/callback",
   "GET /api/integrations/",
   "GET /api/integrations/tool-tiers",
+  "GET /api/integrations/raw-kinds/:slug",
   "GET /api/me/inbox",
   "GET /api/me/inbox/:documentId",
   "POST /api/me/inbox/mark-read",
@@ -93,6 +105,10 @@ const ROUTE_SURFACE = [
   "GET /api/me/usage/activity",
   "GET /api/me/onboarding/",
   "POST /api/me/onboarding/complete",
+  "GET /api/shared/:urlSlug",
+  "POST /api/threads/:threadId/share",
+  "GET /api/threads/:threadId/shares",
+  "DELETE /api/shares/:sharedThreadId",
   "POST /api/skills/",
   "POST /api/skills/:id/relearn",
   "GET /api/workflows/:id/runs",
@@ -142,9 +158,11 @@ const UNRECOGNIZED_NODE_ENV_LABEL = "unrecognized";
  */
 function routeSurfaceCaseByLabel(label: string): RouteSurfaceCase {
   const found = ROUTE_SURFACE_CASES.find((testCase) => testCase.label === label);
+
   if (found === undefined) {
     throw new Error(`the route surface table holds no row labelled "${label}"`);
   }
+
   return found;
 }
 
@@ -152,6 +170,7 @@ function routeSurfaceCaseByLabel(label: string): RouteSurfaceCase {
 export function routeSurfaceFor(testCase: RouteSurfaceCase): readonly string[] {
   if (testCase.includesDevelopmentOnlyRoutes) return ROUTE_SURFACE;
   const developmentOnly: readonly string[] = DEVELOPMENT_ONLY_ROUTES;
+
   return ROUTE_SURFACE.filter((route) => !developmentOnly.includes(route));
 }
 
@@ -162,6 +181,7 @@ export function routeSurfaceFor(testCase: RouteSurfaceCase): readonly string[] {
  */
 export function ambientRouteSurfaceCase(): RouteSurfaceCase {
   const ambient = process.env.NODE_ENV;
+
   return (
     ROUTE_SURFACE_CASES.find((testCase) => testCase.nodeEnv === ambient) ??
     routeSurfaceCaseByLabel(UNRECOGNIZED_NODE_ENV_LABEL)

@@ -39,6 +39,7 @@ function workflowMutatorError(failure: WorkflowServiceFailure): MutatorForbidden
       return new MutatorForbiddenError("workflow not found");
     default: {
       const unhandled: never = failure;
+
       return unhandled;
     }
   }
@@ -68,12 +69,15 @@ export async function workflowUpdate(
     .from(workflows)
     .where(and(eq(workflows.userId, ctx.userId), eq(workflows.slug, args.slug)))
     .limit(1);
+
   // Unknown slug → drop silently (Replicache at-least-once; a deleted row
   // shouldn't wedge the client). Built-in rows are read-only.
   if (!existing) return;
+
   if (existing.isBuiltin) {
     throw new MutatorForbiddenError("cannot edit a built-in workflow");
   }
+
   if (args.status === "active") {
     throw new MutatorForbiddenError(
       "workflow activation requires the exact high-risk approval contract",
@@ -87,7 +91,9 @@ export async function workflowUpdate(
     trigger: args.trigger,
     allowedIntegrations: args.allowedIntegrations,
   };
+
   const hasDefinitionPatch = Object.values(patch).some((value) => value !== undefined);
+
   if (hasDefinitionPatch) {
     const revised = await reviseWorkflowFromPatch({
       userId: ctx.userId,
@@ -96,10 +102,12 @@ export async function workflowUpdate(
       expectedRowVersion: args.expectedRowVersion,
       tx,
     });
+
     if (!revised.ok) throw workflowMutatorError(revised.failure);
   }
 
   if (args.status === undefined) return;
+
   const applied = await setWorkflowStatus({
     userId: ctx.userId,
     workflowId: existing.id,
@@ -107,6 +115,7 @@ export async function workflowUpdate(
     ...(hasDefinitionPatch ? {} : { expectedRowVersion: args.expectedRowVersion }),
     tx,
   });
+
   if (!applied.ok) {
     throw workflowMutatorError(applied.failure);
   }

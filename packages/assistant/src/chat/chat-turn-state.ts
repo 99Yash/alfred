@@ -10,6 +10,7 @@ import { z } from "zod";
 import {
   foldToolSurfaceState,
   pendingToolCallSchema as basePendingToolCallSchema,
+  RUNTIME_GROUNDING_PARK_GRACE_MS,
   toolSurfaceStateFields,
   type StepResult,
 } from "@alfred/assistant/execution";
@@ -31,6 +32,7 @@ const pendingToolCallSchema = basePendingToolCallSchema.extend({
   /** Narration segment this call follows (see `chatRunStateSchema.segmentIndex`). */
   segmentIndex: z.number().int().nonnegative().default(0),
 });
+
 export type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
 const toolCallLogSchema = z.object({
@@ -39,6 +41,10 @@ const toolCallLogSchema = z.object({
   status: z.enum(["succeeded", "failed"]),
   argsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
+  // `preview()` pruned the result to fit its cap. Persisted so a reload keeps
+  // the fact, because a pruned preview still parses (#1018 review, S2).
+  // Optional so checkpoints written before this field still parse.
+  resultTruncated: z.boolean().optional(),
   // A `failed` entry rejected before execution: malformed, invented, inactive,
   // or disallowed. The honesty guard excludes recovered entries so an internal
   // first attempt cannot make it claim a later, successful call failed.
@@ -78,6 +84,11 @@ export const chatRunStateSchema = z
     // ADR-0053 connected summary, snapshotted once at run start (first turn) and
     // reused every turn so the system-prompt prefix stays cache-stable.
     connectedSummary: z.string().optional(),
+    // Deployment identity block (`selfIdentityGrounding`): who Alfred is in this
+    // deployment, read from configuration. Snapshotted with the connected
+    // summary for the same reason: the system prompt must not change mid-run.
+    // Empty for pre-identity checkpoints whose existing hash pins the old prompt.
+    selfIdentity: z.string().optional(),
     // SHA-256 of the cache-stable system prompt. AlfredAgent is constructed per
     // model step on this workflow, so its instance-local stability assertion
     // cannot compare chat turns; the durable workflow state owns that check.
@@ -144,6 +155,10 @@ export const chatRunStateSchema = z
     // it counts retries of the *same* stuck turn — not one timeout per tool-loop
     // step. Default 0 for runs minted before the field existed.
     streamTimeoutRetries: z.number().int().min(0).default(0),
+    // Consecutive capacity (429/5xx) retries this run (bounded by
+    // `turn-budgets`). Sibling of the two above: reset to 0 on any productive
+    // turn. Default 0 for runs minted before the field existed.
+    capacityRetries: z.number().int().min(0).default(0),
     startedAt: z.iso.datetime().optional(),
     // Read only while resuming checkpoints created before `startedAt`.
     started: z.boolean().optional(),
@@ -166,8 +181,9 @@ export const chatRunStateSchema = z
     // Instant the ephemeral `<runtime_context>` line — the chat run's single
     // source of the current date and time — is anchored to (#410). Held stable
     // across a contiguous execution slice so the tool-result tail stays
-    // cacheable. Every interrupt clears it, so any resumed invocation re-stamps
-    // to wake-time regardless of how short the park was. Absent on legacy runs.
+    // cacheable, and across a park too: it is cleared only when the park
+    // outlived the prompt cache, and re-stamped only when the reading it states
+    // is wrong. Absent on legacy runs.
     runtimeGroundingAnchor: z.iso.datetime().optional(),
     // ADR-0073 finalization guard: child runs spawned this turn whose outcomes
     // are already accounted for in the transcript — either folded by the guard, or
@@ -190,6 +206,7 @@ export const chatRunStateSchema = z
     // the best timestamp available for an already-started legacy checkpoint.
     startedAt: state.startedAt ?? (started ? new Date().toISOString() : undefined),
   }));
+
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
 /**
@@ -202,10 +219,13 @@ export function assertStableChatSystem(
   systemPrompt: string,
 ): void {
   const hash = createHash("sha256").update(systemPrompt).digest("hex");
+
   if (state.systemPromptHash === undefined) {
     state.systemPromptHash = hash;
+
     return;
   }
+
   if (state.systemPromptHash === hash) return;
   throw new Error(
     "[chat] system prompt changed within a cache-stable chat run. " +
@@ -219,6 +239,7 @@ export function admitPdfDesignGuide(
 ): AgentTranscriptMessage | undefined {
   if (state.artifactDesignMedium !== "pdf" || state.pdfDesignGuideAdmitted) return;
   state.pdfDesignGuideAdmitted = true;
+
   // A trailing assistant message is an unsupported prefill on the Anthropic
   // fallback. Like finalize-guard notes, runtime guidance uses the user role.
   return { role: "user", content: ARTIFACT_DOCUMENT_DESIGN_PROMPT };
@@ -230,38 +251,53 @@ export function interruptChatRun(
   transcript: AgentTranscriptMessage[],
   wake: Extract<StepResult<ChatRunState>, { kind: "interrupt" }>["wake"],
 ): Extract<StepResult<ChatRunState>, { kind: "interrupt" }> {
-  // A park is the real discontinuity. Clearing here makes even a millisecond
-  // park refresh grounding, while a long uninterrupted tool loop retains it.
-  state.runtimeGroundingAnchor = undefined;
+  // The grounding anchor deliberately survives the park. Its fate is decided on
+  // the way back in, by `foldResumedPark`, which knows how long the park lasted;
+  // clearing it here made a one-second approval cost the whole cached tail.
   // Stamp the park so the phase thermometer (#902) can attribute the parked
   // wall-clock on resume: in this workflow a signal wake is a sub-agent join
   // (`await_sub_agent`), an HIL wake is a gated action waiting on the user.
   state.parkedAt = new Date().toISOString();
   state.parkKind = wake.kind === "hil" ? "gate" : "join";
+
   return { kind: "interrupt", state, transcript, wake };
 }
 
 /**
- * Attribute the wall-clock a just-resumed run spent parked (#902).
+ * Close out a park on the way back in: attribute its wall-clock (#902) and
+ * decide whether the run's "now" survived it.
  *
- * Called at the top of the resumed step body. A sub-agent join park folds into
- * `dispatchMs` — the join is tool work the boss is synchronously waiting on,
- * and it is exactly the slow-tool signal the thermometer hunts. A gate
+ * Called at the top of the resumed step body, the one seam a wake passes
+ * through — which is why both decisions live here. A sub-agent join park folds
+ * into `dispatchMs` — the join is tool work the boss is synchronously waiting
+ * on, and it is exactly the slow-tool signal the thermometer hunts. A gate
  * (approval) park is human time, not machine dispatch, so it stays out of the
  * buckets and lands in the residual `other` reading instead. Either way the
- * markers clear so a later park stamps fresh. Returns the folded gap (0 when
- * the state carries no unfinished park).
+ * markers clear so a later park stamps fresh.
+ *
+ * The grounding anchor is cleared only when the park outlived the prompt cache
+ * ({@link RUNTIME_GROUNDING_PARK_GRACE_MS}), because clearing it re-stamps the
+ * `<runtime_context>` line and costs every cached token behind it. A short park
+ * keeps the anchor, and `resolveRuntimeGroundingAnchor` still re-stamps if the
+ * calendar day moved. Returns the folded gap (0 when the state carries no
+ * unfinished park).
  */
 export function foldResumedPark(
-  state: Pick<ChatRunState, "parkedAt" | "parkKind" | "dispatchMs">,
+  state: Pick<ChatRunState, "parkedAt" | "parkKind" | "dispatchMs" | "runtimeGroundingAnchor">,
   now: number,
 ): number {
   if (state.parkedAt === undefined || state.parkKind === undefined) return 0;
   const parkedAtMs = Date.parse(state.parkedAt);
   const gap = Number.isFinite(parkedAtMs) ? Math.max(0, now - parkedAtMs) : 0;
+
   if (state.parkKind === "join") state.dispatchMs += gap;
+
+  // Past the grace the cached prefix is gone anyway, so the re-stamp is free.
+  if (gap >= RUNTIME_GROUNDING_PARK_GRACE_MS) state.runtimeGroundingAnchor = undefined;
+
   state.parkedAt = undefined;
   state.parkKind = undefined;
+
   return gap;
 }
 
@@ -313,15 +349,19 @@ export function closeNarrationSegment(
   close: NarrationClose,
 ): boolean {
   const kept = close.keepText && state.assistantText.trim().length > 0;
+
   if (!kept && !close.advanceWhenNothingKept) return false;
+
   if (kept) {
     state.narration = [
       ...state.narration,
       { index: state.segmentIndex, text: state.assistantText },
     ];
   }
+
   state.assistantText = "";
   state.segmentIndex += 1;
+
   return kept;
 }
 

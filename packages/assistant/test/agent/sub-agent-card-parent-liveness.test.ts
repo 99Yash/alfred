@@ -30,6 +30,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-parent-liveness-";
+
 const createdUserIds: string[] = [];
 
 async function seedRun(status: RunStatus): Promise<{ userId: string; runId: string }> {
@@ -49,6 +50,7 @@ async function seedRun(status: RunStatus): Promise<{ userId: string; runId: stri
     lastCheckpointAt: new Date(),
     state: {},
   });
+
   return { userId, runId };
 }
 
@@ -62,6 +64,7 @@ describe("parentRunStillOpen (campaign 38, 37-MF1, DB-backed)", { skip: SKIP }, 
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
     await closeRedis();
   });

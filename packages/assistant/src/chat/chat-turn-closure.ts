@@ -8,6 +8,7 @@ import { logger } from "@alfred/logging";
 import { finalizeRunArtifacts } from "@alfred/assistant/artifacts";
 import { scheduleThreadIdleExtraction } from "./idle-capture-queue";
 import { aggregateRunUsage } from "@alfred/assistant/execution";
+import { routeEffort } from "@alfred/ai";
 import { sanitizeVoice } from "@alfred/ai/voice";
 import { scheduleConversationCompactionIfNeeded } from "./compaction";
 import { classifyChatTurnFailure } from "./chat-failure-kind";
@@ -125,6 +126,7 @@ async function closeChatTurn(
   outcome: ChatTurnOutcome,
 ): Promise<void> {
   const policy = CLOSURE_POLICY[outcome.kind];
+
   // A run already cancelled has its own closure coming (or already landed);
   // don't let a success/failure path overwrite it. The cancel path itself is
   // that closure, so it never yields.
@@ -144,6 +146,7 @@ async function closeChatTurn(
   // fails here, which is the right place to decide whether it may replace a
   // failed attempt and whether it carries usage.
   let written: { id: string }[];
+
   switch (outcome.kind) {
     case "failed":
       written = await insertFailedRow(userId, runId, state, fields, reasoningMs, outcome.error);
@@ -153,6 +156,7 @@ async function closeChatTurn(
       written = await upsertCompletedRow(userId, runId, state, fields, reasoningMs, now);
       break;
   }
+
   // Nothing changed: a prior attempt of this run already wrote a terminal row for
   // THIS `messageId`. The client's replay-recovery barrier releases only on the
   // `chat.message completed` frame, and that first attempt may have died before
@@ -187,6 +191,7 @@ async function closeChatTurn(
   // skip the finalize — the artifacts cascade-delete with it.
   if (written.length === 0) {
     const status = await readMessageStatus(userId, state.messageId);
+
     if (status !== undefined) {
       await finalizeRunArtifacts(
         userId,
@@ -196,7 +201,9 @@ async function closeChatTurn(
         ["generating"],
       );
     }
+
     await publishCompletedFrame(userId, runId, state);
+
     return;
   }
 
@@ -220,6 +227,7 @@ async function closeChatTurn(
   await publishCompletedFrame(userId, runId, state);
 
   if (!policy.followups) return;
+
   // Re-checked after the write: a cancel can land between the pre-check and
   // here, and the followups below all assume a live conversation.
   if (await runWasCancelled(runId)) return;
@@ -270,7 +278,8 @@ async function upsertCompletedRow(
   reasoningMs: number | null,
   now: Date,
 ): Promise<{ id: string }[]> {
-  const usage = await aggregateRunUsage(runId);
+  const usage = await aggregateRunUsage(runId, routeEffort(state.tier));
+
   // Drizzle types `and()` as `SQL | undefined` because it collapses when every
   // condition is undefined; all three here are unconditional, so it never does.
   // Checked rather than `!`-ed anyway: a collapsed `setWhere` is not a type error
@@ -281,11 +290,13 @@ async function upsertCompletedRow(
     eq(chatMessages.userId, userId),
     eq(chatMessages.threadId, state.threadId),
   );
+
   if (!onlyIfPreviousAttemptFailed) {
     throw new Error(
       "closeChatTurn: failed-row guard collapsed to undefined — refusing an unguarded upsert",
     );
   }
+
   return await db()
     .insert(chatMessages)
     .values({
@@ -326,8 +337,15 @@ async function upsertCompletedRow(
  * The failed-turn insert. `onConflictDoNothing`, not an upsert: a row that
  * already exists for this message is either a completed reply (which a late
  * fault must not demote to an error) or an earlier failure that already said the
- * same thing. No `usage` either — a faulted turn's spend is in `api_call_log`,
- * and the client's failed state reads only `errorKind`.
+ * same thing.
+ *
+ * It carries `usage`, like the completed row. A turn that faults after twenty
+ * tool rounds is often the most expensive turn in the thread, and the row is the
+ * only place the reader ever sees that money: the failed bubble and the thread
+ * total both read this column, so a null here spends the tokens silently.
+ * `aggregateRunUsage` reads the same `api_call_log` rows the completed path
+ * reads, counts the failed calls, and returns null when the turn billed nothing
+ * — which is the honest render for a turn that died before its first call.
  */
 async function insertFailedRow(
   userId: string,
@@ -344,10 +362,12 @@ async function insertFailedRow(
   // diagnosis. Content stays empty (or whatever streamed before the fault) —
   // the failed-state copy is owned client-side, keyed off `errorKind`.
   const errorKind = await classifyChatTurnFailure(userId, state, error);
+  const usage = await aggregateRunUsage(runId, routeEffort(state.tier));
   logger.warn(
     { err: error, event: "chat_turn_failed", runId, threadId: state.threadId, errorKind },
     "Chat turn failed",
   );
+
   return await db()
     .insert(chatMessages)
     .values({
@@ -362,6 +382,7 @@ async function insertFailedRow(
       errorKind,
       toolCalls: fields.toolCalls,
       narration: fields.narration,
+      usage,
       runId,
     })
     .onConflictDoNothing()
@@ -469,7 +490,9 @@ async function runWasCancelled(runId: string): Promise<boolean> {
     .from(agentRuns)
     .where(eq(agentRuns.id, runId))
     .limit(1);
+
   const status = runStatusSchema.safeParse(rows[0]?.status);
+
   return status.success && status.data === "cancelled";
 }
 
@@ -490,6 +513,7 @@ async function readMessageStatus(
     .from(chatMessages)
     .where(and(eq(chatMessages.id, messageId), eq(chatMessages.userId, userId)))
     .limit(1);
+
   return rows[0]?.status;
 }
 
@@ -526,6 +550,7 @@ export function sanitizeChatMessageFields(state: ChatRunState): SanitizedChatMes
   const visibleToolCalls = state.toolCallsLog.filter(
     (toolCall) => !toolCall.nonExecution || toolCall.connectNudge !== undefined,
   );
+
   const raw = {
     content: sanitizeVoice(state.assistantText),
     reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
@@ -535,5 +560,6 @@ export function sanitizeChatMessageFields(state: ChatRunState): SanitizedChatMes
         ? state.narration.map((segment) => ({ ...segment, text: sanitizeVoice(segment.text) }))
         : null,
   };
+
   return sanitizeToolResult(raw).value;
 }

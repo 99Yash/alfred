@@ -10,6 +10,7 @@ export function ConversationPlaceholder({ entry }: { entry: PreviewThreadEntry |
   if (!entry) {
     return <EmptyConversation />;
   }
+
   return (
     <div className="app-card-in space-y-8">
       <UserTurn text={entry.preview} />

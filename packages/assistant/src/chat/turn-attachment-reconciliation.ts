@@ -16,10 +16,12 @@ export type ExistingAttachmentSummary = Pick<
   ChatAttachment,
   "id" | "name" | "mime" | "size" | "position"
 >;
+
 export type RetryAttachmentSource = Pick<
   ChatAttachment,
   "id" | "storageKey" | "name" | "mime" | "size" | "degradedText"
 >;
+
 /**
  * The turn path's view of a fresh attachment: `ChatAttachmentDescriptor`, but with
  * `position` optional because this path derives it (`?? index`) rather than
@@ -34,10 +36,13 @@ export function freshAttachmentRowsMatchSubset(
   rows: readonly ExistingAttachmentSummary[],
 ): boolean {
   const rowsById = new Map(rows.map((row) => [row.id, row]));
+
   for (const [index, input] of inputs.entries()) {
     const row = rowsById.get(input.id);
     const position = input.position ?? index;
+
     if (!row) return false;
+
     if (
       row.name !== input.name ||
       row.mime !== input.mime ||
@@ -47,6 +52,7 @@ export function freshAttachmentRowsMatchSubset(
       return false;
     }
   }
+
   return true;
 }
 
@@ -56,17 +62,24 @@ export function attachmentRequestMatchesExistingRows(args: {
   rows: readonly ExistingAttachmentSummary[];
 }): boolean {
   const expectedCount = args.fresh.length + args.retrySources.length;
+
   if (args.rows.length !== expectedCount) return false;
+
   if (args.fresh.length > 0 && !freshAttachmentRowsMatchSubset(args.fresh, args.rows)) {
     return false;
   }
+
   const freshIds = new Set(args.fresh.map((input) => input.id));
   const retryRows = args.rows.filter((row) => !freshIds.has(row.id));
+
   if (retryRows.length !== args.retrySources.length) return false;
+
   for (const [index, source] of args.retrySources.entries()) {
     const row = retryRows[index];
     const position = args.fresh.length + index;
+
     if (!row) return false;
+
     if (
       row.name !== source.name ||
       row.mime !== source.mime ||
@@ -76,6 +89,7 @@ export function attachmentRequestMatchesExistingRows(args: {
       return false;
     }
   }
+
   return true;
 }
 
@@ -85,10 +99,13 @@ export function sameInsertedAttachmentRows(
 ): boolean {
   if (expected.length !== rows.length) return false;
   const rowsById = new Map(rows.map((row) => [row.id, row]));
+
   for (const expectedRow of expected) {
     if (!expectedRow.id) return false;
     const row = rowsById.get(expectedRow.id);
+
     if (!row) return false;
+
     if (
       row.name !== expectedRow.name ||
       row.mime !== expectedRow.mime ||
@@ -98,5 +115,6 @@ export function sameInsertedAttachmentRows(
       return false;
     }
   }
+
   return true;
 }

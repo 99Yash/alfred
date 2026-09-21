@@ -236,18 +236,21 @@ const INTEGRATION_PAGE_COPY = {
     },
   },
   railway: {
-    description: "Inspect and redeploy Railway services.",
+    description: "Read Railway deployment status.",
     category: "Development",
-    capabilities: ["List Projects", "Check Deployments", "Read Logs", "Redeploy"],
+    capabilities: ["Read Projects", "Read Deployments", "Read Deployment Status"],
     trust: {
-      title: "Your token, your control",
-      body: "Railway has no OAuth, so you paste a workspace-scoped or account API token you generate yourself. Revoke it any time from Railway, or disconnect here.",
+      title: "You approve every call",
+      body: "Railway connects over MCP, and every MCP call is staged for your approval before it runs. Disconnect here to end the grant.",
     },
     overview: {
-      body: "Connect Railway with a workspace-scoped or account API token. Alfred answers questions about your projects and deployments, and redeploys when you ask.",
-      heading: "Deployment Intelligence",
+      body: "Connect Railway to give Alfred your deployment record: the projects, services, environments, and deployment states Railway already tracks.",
+      heading: "Deployment Context",
       detail:
-        "Alfred can list your projects, services, and environments, check deployment status, read deployment logs, and trigger a redeploy.",
+        "When you ask about a failed deploy, Alfred reads the current deployment state over your Railway grant instead of guessing from a log line.",
+      extraHeading: "Connect it on the MCP tile",
+      extraDetail:
+        "Railway has no separate Alfred credential. It is a first-class MCP server: connect it from the MCP section of this page, and the consent screen is Railway's own.",
     },
   },
   vercel: {
@@ -265,11 +268,52 @@ const INTEGRATION_PAGE_COPY = {
         "Alfred can list projects, check recent deployments and their state, and redeploy an existing deployment.",
     },
   },
+  sentry: {
+    description: "Read Sentry issues and error events.",
+    category: "Development",
+    capabilities: ["List Issues", "Read Issue Detail", "Read Stack Traces", "Receive Webhooks"],
+    trust: {
+      title: "Your token, your control",
+      body: "You paste a token from an internal integration in your own Sentry organization. Revoke it any time from Sentry, or disconnect here.",
+    },
+    overview: {
+      body: "Connect Sentry with an internal integration token and your organization slug. Alfred reads your issues and events through that integration, and receives its webhooks.",
+      heading: "Error Intelligence",
+      detail:
+        "Alfred can list an organization's projects and issues, read one issue and its latest event with the stack trace, and receive the webhook when Sentry sends an alert or Seer opens a pull request.",
+    },
+  },
+  polylane: {
+    description: "Read production logs, metrics, traces, and tracked issues.",
+    category: "Development",
+    capabilities: [
+      "Read Logs",
+      "Read Metrics",
+      "Read Traces",
+      "Read Deployments",
+      "Read Tracked Issues",
+      "Read the Infrastructure Graph",
+    ],
+    trust: {
+      title: "You approve every call",
+      body: "Polylane connects over MCP, and every MCP call is staged for your approval before it runs. Disconnect here to end the grant.",
+    },
+    overview: {
+      body: "Connect Polylane to give Alfred your production record: the logs, metrics, and traces Polylane already collects, the infrastructure graph, the deployments, and the issues Polylane opens.",
+      heading: "Production Context",
+      detail:
+        "When you ask about an incident or a failed deploy, Alfred can read the same evidence Polylane watched it with, instead of guessing from a log line.",
+      extraHeading: "Connect it on the MCP tile",
+      extraDetail:
+        "Polylane has no separate Alfred credential. It is a first-class MCP server: connect it from the MCP section of this page, and the consent screen is Polylane's own.",
+    },
+  },
 } satisfies Record<CatalogSlug, IntegrationPageCopy>;
 
 function buildPage(slug: CatalogSlug): IntegrationPage {
   const entry = INTEGRATIONS[slug];
   const live = entry.status === "live";
+
   return {
     slug,
     name: entry.displayName,
@@ -309,11 +353,17 @@ export function getIntegrationPage(value: string): IntegrationPage | undefined {
 /**
  * Brand mark for an integration slug, or `undefined` for a slug without a page
  * (Alfred's own `system` tools, the `mcp` projection, the `imessage` channel).
- * Every provider entry carries a brand, so a slug with a page always renders
- * its own mark.
+ *
+ * A `CatalogSlug` names a PROVIDER entry, and every provider entry carries a
+ * brand, so that overload answers a mark and never `undefined`. Without it a
+ * caller that already holds a provider slug still has to write a fallback
+ * branch for a case the registry cannot produce.
  */
+export function brandForIntegration(slug: CatalogSlug): IntegrationBrand;
+export function brandForIntegration(slug: IntegrationSlug): IntegrationBrand | undefined;
 export function brandForIntegration(slug: IntegrationSlug): IntegrationBrand | undefined {
   const entry = INTEGRATIONS[slug];
+
   return entry.kind === "provider" ? entry.brand : undefined;
 }
 
@@ -323,7 +373,9 @@ export function getRelatedPages(page: IntegrationPage): ReadonlyArray<Integratio
 
 export function matchesIntegration(page: IntegrationPage, query: string): boolean {
   const needle = query.trim().toLowerCase();
+
   if (!needle) return true;
+
   return `${page.name} ${page.description} ${page.capabilities.join(" ")}`
     .toLowerCase()
     .includes(needle);
@@ -340,6 +392,7 @@ export function matchesIntegration(page: IntegrationPage, query: string): boolea
 export function connectPathFor(slug: LiveProviderSlug): string {
   const path = `${integrationRoutePrefix(credentialProviderOf(slug))}/connect`;
   const credential = INTEGRATIONS[slug].credential;
+
   return credential.shape === "google_oauth"
     ? `${path}?features=${credential.features.join(",")}`
     : path;

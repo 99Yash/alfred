@@ -18,8 +18,10 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 // that works. Run the fixtures first, so "no failures" means "looked and found
 // nothing" rather than "looked at nothing".
 const selfTest = packageExportsSelfTestFailures();
+
 if (selfTest.length > 0) {
   console.error("Package exports self-test failed:\n");
+
   for (const failure of selfTest) console.error(`  ${failure}`);
   console.error("\nFix the rules before trusting this check.");
   process.exit(1);
@@ -29,6 +31,7 @@ const { checked, blocked, failures } = packageExportsFailures(ROOT);
 
 if (failures.length > 0) {
   console.error("A workspace advertises an exports subpath that resolves to nothing:\n");
+
   for (const failure of failures) console.error(`- ${failure}`);
   console.error(
     "\nDelete the entry, or repoint it at the file that replaced its target. A package's exports map is its own statement of its public doors, and nothing else re-derives it.",

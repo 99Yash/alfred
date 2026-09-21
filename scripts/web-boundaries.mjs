@@ -113,6 +113,7 @@ const SOURCE_FILE = /\.(ts|tsx)$/;
 function packageName(specifier) {
   if (!specifier.startsWith("@alfred/")) return null;
   const [scope, pkg] = specifier.split("/");
+
   return pkg ? `${scope}/${pkg}` : null;
 }
 
@@ -156,8 +157,10 @@ export function isRuntimeLoad(clause) {
  */
 function scanAlfredImports(source) {
   const imports = [];
+
   for (const entry of parseImports(source)) {
     const pkg = packageName(entry.specifier);
+
     if (!pkg) continue;
     imports.push({
       pkg,
@@ -166,6 +169,7 @@ function scanAlfredImports(source) {
       runtime: isRuntimeLoad(entry.clause),
     });
   }
+
   return imports;
 }
 
@@ -178,6 +182,7 @@ function scanAlfredImports(source) {
  */
 export function findViolations(root, file) {
   const source = readFileSync(join(root, file), "utf8");
+
   return scanAlfredImports(source)
     .filter((entry) => entry.runtime && FORBIDDEN_RUNTIME_PACKAGES.has(entry.pkg))
     .map(({ line, specifier }) => ({ line, specifier }));
@@ -205,6 +210,7 @@ function appDeclarationFailures(root, appDirs) {
   }
 
   const enumerated = new Set(appDirs);
+
   for (const dir of BROWSER_ENTRY_APPS) {
     if (enumerated.has(dir)) continue;
     failures.push(
@@ -228,6 +234,7 @@ function sourceFilesUnder(root, dir) {
   // whose output opens with a raw git warning reads like a crash. A root that is not
   // there is reported by the caller in a sentence that says what to do about it.
   if (!existsSync(join(root, dir))) return [];
+
   return listGitSourceFiles([dir], root).filter((file) => SOURCE_FILE.test(file));
 }
 
@@ -261,10 +268,13 @@ export function browserSurface(root) {
   /** Workspace package name to its repo-relative directory, for the reachability walk. */
   const packageDirs = new Map();
   const appDirs = [];
+
   for (const workspace of workspaces) {
     if (workspace.name !== null) packageDirs.set(workspace.name, workspace.dir);
+
     if (workspace.group === "apps") appDirs.push(workspace.dir);
   }
+
   failures.push(...appDeclarationFailures(root, appDirs));
 
   const roots = [...BROWSER_ENTRY_APPS].map((app) => `${app}/src`).sort();
@@ -274,6 +284,7 @@ export function browserSurface(root) {
 
   /** Entry roots that are not there, so the walk below does not report them twice. */
   const missingRoots = new Set();
+
   for (const entryRoot of roots) {
     if (existsSync(join(root, entryRoot))) continue;
     missingRoots.add(entryRoot);
@@ -285,13 +296,17 @@ export function browserSurface(root) {
   for (let index = 0; index < roots.length; index += 1) {
     for (const file of sourceFilesUnder(root, roots[index])) {
       const source = readFileSync(join(root, file), "utf8");
+
       for (const entry of scanAlfredImports(source)) {
         if (!entry.runtime) continue;
+
         if (FORBIDDEN_RUNTIME_PACKAGES.has(entry.pkg)) continue;
 
         const dir = packageDirs.get(entry.pkg);
+
         if (!dir) continue;
         const next = `${dir}/src`;
+
         if (seen.has(next)) continue;
         seen.add(next);
 
@@ -310,9 +325,11 @@ export function browserSurface(root) {
 
   roots.sort();
   const files = [];
+
   for (const dir of roots) {
     if (missingRoots.has(dir)) continue;
     const scanned = sourceFilesUnder(root, dir);
+
     if (scanned.length === 0) {
       const reached = reachedBy.get(dir);
       failures.push(
@@ -322,6 +339,7 @@ export function browserSurface(root) {
       );
       continue;
     }
+
     files.push(...scanned);
   }
 
@@ -361,19 +379,23 @@ function locateRegion(site, kind, lines, failures) {
   const { start: startMarker, end: endMarker } = /** @type {{start: string, end: string}} */ (
     DOC_REGION_MARKERS.get(kind.name)
   );
+
   const source = lines.join("\n");
 
   const starts = source.split(startMarker).length - 1;
   const ends = source.split(endMarker).length - 1;
+
   if (starts !== 1 || ends !== 1) {
     failures.push(
       `${site} must hold exactly one ${startMarker} / ${endMarker} marker pair, but it holds ${starts} start and ${ends} end markers; only the first pair is ever compared.`,
     );
+
     return null;
   }
 
   if (source.indexOf(endMarker) < source.indexOf(startMarker)) {
     failures.push(`${site} closes the ${endMarker} marker before it opens the pair.`);
+
     return null;
   }
 
@@ -383,17 +405,21 @@ function locateRegion(site, kind, lines, failures) {
   const trailer = lines[startLine].slice(
     lines[startLine].indexOf(startMarker) + startMarker.length,
   );
+
   const leader = lines[endLine].slice(0, lines[endLine].indexOf(endMarker));
+
   if (trailer.trim() !== "") {
     failures.push(
       `${site}:${startLine + 1} puts text after ${startMarker}; the marker must end its line, or the region is a sub-span of a line rather than whole lines.`,
     );
   }
+
   if (leader.trim() !== "") {
     failures.push(
       `${site}:${endLine + 1} puts text before ${endMarker}; the marker must open its line, or the region is a sub-span of a line rather than whole lines.`,
     );
   }
+
   if (trailer.trim() !== "" || leader.trim() !== "") return null;
 
   const listed = new Set(lines.slice(startLine + 1, endLine).flatMap(packageTokens));
@@ -402,6 +428,7 @@ function locateRegion(site, kind, lines, failures) {
     for (const pkg of FORBIDDEN_RUNTIME_PACKAGES) {
       if (!listed.has(pkg)) failures.push(`${site} does not list ${pkg} as forbidden.`);
     }
+
     for (const pkg of listed) {
       if (!FORBIDDEN_RUNTIME_PACKAGES.has(pkg)) {
         failures.push(`${site} lists ${pkg} as forbidden, but it is not in the forbidden set.`);
@@ -428,11 +455,15 @@ function listBlockLines(lines, region) {
     DOC_MARKER_LINE.test(lines[index]);
 
   const block = new Set();
+
   for (let index = region.startLine; index <= region.endLine; index += 1) block.add(index);
+
   for (let index = region.startLine - 1; index >= 0 && holds(index); index -= 1) block.add(index);
+
   for (let index = region.endLine + 1; index < lines.length && holds(index); index += 1) {
     block.add(index);
   }
+
   return block;
 }
 
@@ -448,18 +479,21 @@ function listBlockLines(lines, region) {
 function containmentFailures(site, lines, regions) {
   const failures = [];
   const block = new Set();
+
   for (const region of regions) {
     for (const index of listBlockLines(lines, region)) block.add(index);
   }
 
   for (const index of [...block].sort((left, right) => left - right)) {
     if (regions.some((region) => index > region.startLine && index < region.endLine)) continue;
+
     for (const pkg of packageTokens(lines[index])) {
       failures.push(
         `${site}:${index + 1} names ${pkg} in the same list as a marked region but outside every region; move it into the region it belongs to.`,
       );
     }
   }
+
   return failures;
 }
 
@@ -492,6 +526,7 @@ export function docListFailures(root) {
 
   for (const site of DOC_LIST_SITES) {
     const path = join(root, site);
+
     if (!existsSync(path)) {
       failures.push(`${site} is missing; it must restate the forbidden package list.`);
       continue;
@@ -499,8 +534,10 @@ export function docListFailures(root) {
 
     const lines = readFileSync(path, "utf8").split("\n");
     const regions = [];
+
     for (const kind of DOC_REGION_KINDS) {
       const region = locateRegion(site, kind, lines, failures);
+
       if (region) regions.push(region);
     }
 

@@ -7,7 +7,7 @@ import { AppButton, AppCard, AppPill } from "~/components/ui/v2";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { cn } from "~/lib/utils";
-import { ApprovalCard } from "~/components/approvals/approval-card";
+import { StagedApprovalCard } from "~/components/approvals/staged-approval-card";
 import { decideApproval } from "~/components/approvals/decide-approval";
 import { brandForIntegration } from "~/lib/integrations/integrations";
 
@@ -44,10 +44,12 @@ function buildFacets<T extends string>(
   label: (v: T) => string,
 ): Facet<T>[] {
   const counts = new Map<T, number>();
+
   for (const r of rows) {
     const v = pick(r);
     counts.set(v, (counts.get(v) ?? 0) + 1);
   }
+
   return Array.from(counts, ([value, count]) => ({ value, label: label(value), count }));
 }
 
@@ -64,9 +66,11 @@ function buildFacets<T extends string>(
  */
 export function ApprovalsPage() {
   const { rows, loading, error, retry } = useActionStagings();
+
   const { integration: selIntegration = [], risk: selRisk = [] } = useSearch({
     from: "/approvals",
   });
+
   const navigate = useNavigate({ from: "/approvals" });
   const [visible, setVisible] = useState(WINDOW);
 
@@ -79,6 +83,7 @@ export function ApprovalsPage() {
       ),
     [rows],
   );
+
   const riskFacets = useMemo(
     () =>
       buildFacets(
@@ -88,6 +93,7 @@ export function ApprovalsPage() {
       ),
     [rows],
   );
+
   const selectedIntegrations = useMemo(() => new Set(selIntegration), [selIntegration]);
   const selectedRisks = useMemo(() => new Set(selRisk), [selRisk]);
 
@@ -111,12 +117,16 @@ export function ApprovalsPage() {
   useEffect(() => {
     if (loading) return;
     const targetId = approvalIdFromHash();
+
     if (!targetId) return;
 
     const targetIndex = filtered.findIndex((row) => row.id === targetId);
+
     if (targetIndex === -1) return;
+
     if (targetIndex >= visible) {
       setVisible(targetIndex + 1);
+
       return;
     }
 
@@ -126,6 +136,7 @@ export function ApprovalsPage() {
         behavior: "smooth",
       });
     });
+
     return () => window.cancelAnimationFrame(frame);
   }, [filtered, loading, visible]);
 
@@ -175,6 +186,7 @@ export function ApprovalsPage() {
               <FacetGroup>
                 {integrationFacets.map((f) => {
                   const brand = brandForIntegration(f.value);
+
                   return (
                     <FacetChip
                       key={f.value}
@@ -263,7 +275,7 @@ export function ApprovalsPage() {
                 className="app-card-in scroll-mt-6"
                 style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
               >
-                <ApprovalCard
+                <StagedApprovalCard
                   staging={staging}
                   onDecide={(decision) => decideApproval(staging.id, decision)}
                 />
@@ -285,7 +297,9 @@ export function ApprovalsPage() {
 
 function approvalIdFromHash(): string | null {
   const prefix = "#approval-";
+
   if (typeof window === "undefined" || !window.location.hash.startsWith(prefix)) return null;
+
   try {
     return decodeURIComponent(window.location.hash.slice(prefix.length));
   } catch {

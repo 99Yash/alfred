@@ -36,8 +36,10 @@ function stubFetch(respond: (n: number) => Response): RecordedStubFetch {
     urls.push(String(input instanceof Request ? input.url : input));
     methods.push(String(init?.method ?? "GET"));
     n += 1;
+
     return Promise.resolve(respond(n));
   }) as typeof fetch;
+
   return { urls, methods };
 }
 
@@ -62,6 +64,7 @@ describe("isRetrySafeMethod", () => {
     for (const m of [undefined, "GET", "get", "HEAD", "OPTIONS"]) {
       assert.equal(isRetrySafeMethod(m), true, `${String(m)} should be retry-safe`);
     }
+
     // Idempotent (PUT/DELETE) is deliberately NOT enough — a repeat leaves the
     // same state but answers a different status, which a caller may read.
     for (const m of ["POST", "PATCH", "PUT", "DELETE"]) {
@@ -75,6 +78,7 @@ describe("defineProviderClient", () => {
     const calls = stubFetch((n) =>
       n < 3 ? new Response("nope", { status: 500 }) : new Response(JSON.stringify({ ok: true })),
     );
+
     const body = await client().json("/thing");
     assert.deepEqual(body, { ok: true });
     assert.equal(calls.methods.length, 3);
@@ -100,6 +104,7 @@ describe("defineProviderClient", () => {
     const calls = stubFetch((n) =>
       n < 2 ? new Response("nope", { status: 503 }) : new Response(JSON.stringify({ ok: 1 })),
     );
+
     const body = await client().json("/thing", { method: "PUT", idempotent: true });
     assert.deepEqual(body, { ok: 1 });
     assert.equal(calls.methods.length, 2);
@@ -109,6 +114,7 @@ describe("defineProviderClient", () => {
     stubFetch(() => new Response("page fragment that must not travel", { status: 400 }));
     const realError = console.error;
     console.error = () => {};
+
     try {
       await assert.rejects(
         client({ bodyPolicy: "omit" }).json("/pages/x", { label: "/pages/:id" }),
@@ -117,6 +123,7 @@ describe("defineProviderClient", () => {
           assert.equal(err.status, 400);
           assert.equal(err.url, "/pages/:id");
           assert.equal(err.body, "");
+
           return true;
         },
       );
@@ -132,6 +139,7 @@ describe("defineProviderClient", () => {
     await assert.rejects(client().json("/thing"), (err: unknown) => {
       assert.ok(err instanceof HttpError);
       assert.match(err.body, /upstream said no/);
+
       return true;
     });
   });
@@ -149,12 +157,15 @@ describe("defineProviderClient", () => {
   test("resolve() runs on every request, so nothing caches a token", async () => {
     stubFetch(() => new Response(JSON.stringify({})));
     let resolves = 0;
+
     const c = client({
       resolve: async () => {
         resolves += 1;
+
         return { headers: { Authorization: `Bearer tok_${resolves}` } };
       },
     });
+
     await c.json("/a");
     await c.json("/b");
     assert.equal(resolves, 2);

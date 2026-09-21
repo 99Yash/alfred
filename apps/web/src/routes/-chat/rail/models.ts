@@ -3,6 +3,7 @@ import type { AppTint } from "~/lib/tints";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 
 export type ChatSidePanelMode = "inline" | "overlay";
+
 export type RailTab = "todo" | "inbox" | "meetings";
 
 export interface RailTodoItem {

@@ -36,6 +36,7 @@ const REGISTRY_SLUGS_FILE = resolve(
  */
 function registryUnionFailures() {
   let source;
+
   try {
     source = readFileSync(REGISTRY_SLUGS_FILE, "utf8");
   } catch {
@@ -43,13 +44,17 @@ function registryUnionFailures() {
       `registry unions: cannot read ${REGISTRY_SLUGS_FILE}; repoint REGISTRY_SLUGS_FILE or delete the rule`,
     ];
   }
+
   const names = [...source.matchAll(/^export type (\w+(?:Slug|Provider))\b/gm)].map((m) => m[1]);
+
   if (names.length === 0) {
     return [
       `registry unions: no \`export type …Slug\` in ${REGISTRY_SLUGS_FILE}; the drive has nothing to prove`,
     ];
   }
+
   const union = new RegExp(`^${REGISTRY_UNION}$`);
+
   return names
     .filter((name) => !union.test(name))
     .map(
@@ -72,6 +77,33 @@ const TEST_TREE_FILE = "packages/assistant/test/flags.behavior.test.ts";
  *   path.
  */
 const CASES = [
+  {
+    name: "receipt read must select the typed view, including across line breaks",
+    caught: true,
+    code: `.from(
+ eventReceipts
+)`,
+  },
+  {
+    name: "receipt joins must select the typed view",
+    caught: true,
+    code: `.innerJoin(eventReceipts, condition)`,
+  },
+  {
+    name: "typed receipt view is the safe query source",
+    caught: false,
+    code: `.from(typedEventReceipts)`,
+  },
+  ...[
+    "packages/db/src/schema/integrations.ts",
+    "packages/assistant/src/connections/ingestion/inbound-receive.ts",
+    "packages/assistant/src/connections/raw-receipt-inventory.ts",
+  ].map((file) => ({
+    name: `full receipt reader: ${file}`,
+    caught: false,
+    file,
+    code: `.from(eventReceipts)`,
+  })),
   {
     name: "as-loose-record — direct boundary assertion",
     caught: true,
@@ -285,6 +317,169 @@ const row = await db().transaction(async (tx) => {
     // drift-ok: Better-Auth adapter interface — its transaction wraps db().transaction internally
     adapter.transaction((trx) => callback(decorateOperations(trx, resolved) as typeof trx)),`,
   },
+  // `hand-rolled-object-closure`, one fixture per spelling the rule covers.
+  // The rule is chain-scoped for the `switch` arm alone, so every other arm is
+  // still a one-line fixture — it just lives in this lane because a rule
+  // belongs to exactly one lane.
+  {
+    name: "hand-rolled-object-closure — the category tested against the closing literals",
+    caught: true,
+    code: `if (card.object.stateCategory === "resolved") return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the same test written the other way round",
+    caught: true,
+    code: `if ("abandoned" === object.stateCategory) markHandled(object);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the local rename the sanctioned reader itself makes",
+    caught: true,
+    code: `if (category === "resolved") return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the inversion, which calls a failed build closed",
+    caught: true,
+    code: `if (stateCategory !== "active") markHandled(object);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the membership test re-implemented over the tuple",
+    caught: true,
+    code: `const closed = LOOP_CLOSING_STATE_CATEGORIES.includes(row.stateCategory);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the same membership test spelled with some()",
+    caught: true,
+    code: `const closed = LOOP_CLOSING_STATE_CATEGORIES.some((c) => c === row.category);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the tuple reaching includes() through a cast",
+    caught: true,
+    code: `  return (LOOP_CLOSING_STATE_CATEGORIES as readonly string[]).includes(category);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the tuple spelled out inline as an array literal",
+    caught: true,
+    code: `const closed = ["resolved", "abandoned"].includes(category);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the switch a closed union invites, whose case is a later line",
+    caught: true,
+    code: `
+switch (stateCategory) {
+  case "active":
+    return null;
+  case "resolved":
+    return "closed";
+}`,
+  },
+  {
+    name: "the tuple as a schema enum is a declaration, not a closure reading",
+    caught: false,
+    code: `  stateCategory: z.enum(LOOP_CLOSING_STATE_CATEGORIES),`,
+  },
+  {
+    name: "the registry declaring which categories a kind closes on is the owner of the policy",
+    caught: false,
+    code: `        closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,`,
+  },
+  {
+    name: "the closing tuple's own declaration names both literals and reads nothing",
+    caught: false,
+    code: `export const LOOP_CLOSING_STATE_CATEGORIES = ["resolved", "abandoned"] as const;`,
+  },
+  {
+    name: "isTerminalCategory reads a DIFFERENT tuple, and terminal is not closed",
+    caught: false,
+    code: `  return (TERMINAL_STATE_CATEGORIES as readonly string[]).includes(category);`,
+  },
+  {
+    name: "the sanctioned reader's own absent-category guard is not a closure reading",
+    caught: false,
+    code: `  if (object.stateCategory === undefined) return null;`,
+  },
+  {
+    name: "an honest activeness test is not the inversion",
+    caught: false,
+    code: `  if (stateCategory === "active") return renderOpenAsk(object);`,
+  },
+  {
+    name: "a triage category tested against a triage word is a different vocabulary",
+    caught: false,
+    code: `  if (classification.category !== "action_needed") return false;`,
+  },
+  {
+    name: "a switch on a category whose cases are triage words",
+    caught: false,
+    code: `
+switch (category) {
+  case "chat":
+    return "Chat turn";
+  case "triage":
+    return "Email triage";
+}`,
+  },
+  {
+    name: "delegating to the registry is the intended form",
+    caught: false,
+    code: `  return closesOpenAsk(object.provider, object.kind, object.stateCategory);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the sibling export that answers the same question in one argument",
+    caught: true,
+    code: `if (isTerminalCategory(object.stateCategory)) return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the sharper spelling of the same wrong reading",
+    caught: true,
+    code: `const closed = isTerminalCategory(category) && category !== "failed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the membership test spelled through a Set",
+    caught: true,
+    code: `const closed = new Set(LOOP_CLOSING_STATE_CATEGORIES).has(category);`,
+  },
+  {
+    name: "hand-rolled-object-closure — the membership test spelled with find()",
+    caught: true,
+    code: `const hit = LOOP_CLOSING_STATE_CATEGORIES.find((c) => c === row.category);`,
+  },
+  {
+    name: "isTerminalCategory's own declaration is the definition, not a call",
+    caught: false,
+    code: `export function isTerminalCategory(category: StateCategory): category is TerminalStateCategory {`,
+  },
+  {
+    name: "a second switch standing next to the first owns its own cases",
+    caught: false,
+    code: `
+switch (toolCategory) {
+  case "source":
+    return "Source";
+}
+
+switch (mergeStatus) {
+  case "resolved":
+    return "Merged";
+}`,
+  },
+  {
+    name: "a switch nested inside a category switch owns its own cases",
+    caught: false,
+    code: `
+switch (resultCategory) {
+  case "join": {
+    switch (identity.status) {
+      case "resolved":
+        return "Joined";
+    }
+  }
+}`,
+  },
+  {
+    name: "two unrelated comparisons on one ternary line are not one reading",
+    caught: false,
+    code: `const label = category === "triage" ? "Email" : identity.status === "resolved" ? "Done" : "";`,
+  },
 ];
 
 // Line-scope fixtures. `boot-error-plain-extends` is a per-line rule, so it is
@@ -422,8 +617,10 @@ const LINE_CASES = [
 /** @returns {string[]} One message per failed fixture; empty when all pass. */
 export function selfTestFailures() {
   const failures = registryUnionFailures();
+
   for (const { name, caught, code, file } of CASES) {
     const hits = matchChains(code, file ?? FILE, "gate");
+
     if (hits.length > 0 !== caught) {
       failures.push(
         caught
@@ -432,8 +629,10 @@ export function selfTestFailures() {
       );
     }
   }
+
   for (const { name, caught, code, file } of LINE_CASES) {
     const hits = code.split("\n").flatMap((line) => matchLine(line, file ?? LINE_FILE, "gate"));
+
     if (hits.length > 0 !== caught) {
       failures.push(
         caught
@@ -442,5 +641,6 @@ export function selfTestFailures() {
       );
     }
   }
+
   return failures;
 }

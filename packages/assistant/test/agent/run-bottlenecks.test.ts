@@ -65,9 +65,9 @@ describe("summarizeRunBottlenecks", () => {
         },
       ],
       stagings: [
-        { status: "approved", createdAt: t(2000), decidedAt: t(4000) },
-        { status: "rejected", createdAt: t(6300), decidedAt: t(6300) },
-        { status: "expired", createdAt: t(100), decidedAt: t(100) },
+        { toolName: "gmail.send", status: "approved", createdAt: t(2000), decidedAt: t(4000) },
+        { toolName: "gmail.send", status: "rejected", createdAt: t(6300), decidedAt: t(6300) },
+        { toolName: "gmail.send", status: "expired", createdAt: t(100), decidedAt: t(100) },
       ],
     };
 
@@ -141,7 +141,9 @@ describe("summarizeRunBottlenecks", () => {
           errorReason: null,
         },
       ],
-      stagings: [{ status: "approved", createdAt: t(400), decidedAt: t(1400) }],
+      stagings: [
+        { toolName: "gmail.send", status: "approved", createdAt: t(400), decidedAt: t(1400) },
+      ],
     };
 
     const summary = summarizeRunBottlenecks(input);
@@ -174,6 +176,7 @@ describe("summarizeRunBottlenecks", () => {
       ],
       stagings: [],
     };
+
     const summary = summarizeRunBottlenecks(input);
     assert.equal(summary.queueMs, 900); // 1000 - 100
   });
@@ -212,6 +215,7 @@ describe("summarizeRunBottlenecks", () => {
       steps: [],
       stagings: [],
     });
+
     assert.equal(running.wallClockMs, null);
 
     const empty = summarizeRunBottlenecks({
@@ -220,6 +224,7 @@ describe("summarizeRunBottlenecks", () => {
       steps: [],
       stagings: [],
     });
+
     assert.equal(empty.wallClockMs, null);
     assert.equal(empty.modelMs, 0);
     assert.equal(empty.queueMs, 0);
@@ -235,6 +240,7 @@ describe("summarizeRunBottlenecks", () => {
       steps: [],
       stagings: [],
     });
+
     assert.equal(summary.modelMs, 250);
     assert.equal(summary.inputTokens, 10);
     assert.equal(summary.outputTokens, 5);

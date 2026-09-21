@@ -18,10 +18,13 @@ const TIER_ORDER: ReadonlyArray<{ key: keyof RiskTierCounts; label: string }> = 
 
 function summarizeTiers(counts: RiskTierCounts): string {
   const total = counts.no_risk + counts.low + counts.medium + counts.high;
+
   const parts = TIER_ORDER.flatMap(({ key, label }) =>
     counts[key] > 0 ? [`${counts[key]} ${label}`] : [],
   );
+
   const noun = total === 1 ? "tool" : "tools";
+
   return parts.length > 0 ? `${total} ${noun} · ${parts.join(", ")}` : `${total} ${noun}`;
 }
 

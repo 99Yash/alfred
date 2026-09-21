@@ -14,6 +14,7 @@ describe("sanitizeEmailHtml CSP (#294)", () => {
     const out = sanitizeEmailHtml(
       "<html><head><title>Receipt</title></head><body><p>Hi</p></body></html>",
     );
+
     assert.ok(out);
     assert.ok(out.includes(EMAIL_CSP_META), "the exact CSP meta is present");
     const cspIdx = out.indexOf('http-equiv="Content-Security-Policy"');
@@ -43,6 +44,7 @@ describe("sanitizeEmailHtml CSP (#294)", () => {
     const out = sanitizeEmailHtml(
       `<html><head><meta http-equiv="Content-Security-Policy" content="default-src *"></head><body><p>x</p></body></html>`,
     );
+
     assert.ok(out);
     assert.doesNotMatch(out, /default-src \*/);
     assert.ok(out.includes(EMAIL_CSP_META));

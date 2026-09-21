@@ -49,18 +49,23 @@ export async function requireScopes(
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+
   const row = rows[0];
+
   if (!row) {
     throw new Error(`[google.scopes] credential not found: ${credentialId}`);
   }
+
   if (row.status !== "active") {
     throw new Error(
       `[google.scopes] credential not active: ${credentialId} (status=${row.status})`,
     );
   }
+
   const granted = new Set<string>(toStringArray(row.scopes));
   const required = scopesForFeatures(features);
   const missing = required.filter((s) => !granted.has(s));
+
   if (missing.length > 0) {
     throw new MissingScopesError({
       credentialId,
@@ -68,12 +73,14 @@ export async function requireScopes(
       features: [...features],
     });
   }
+
   return { scopes: [...granted] };
 }
 
 /** Convenience: which features can this credential currently support? */
 export function featuresFromGrantedScopes(grantedScopes: readonly string[]): GoogleFeature[] {
   const granted = new Set(grantedScopes);
+
   // SAFETY: GoogleFeature is `keyof typeof GOOGLE_FEATURE_SCOPES`, so
   // Object.keys of that very table enumerates exactly those features.
   return (Object.keys(GOOGLE_FEATURE_SCOPES) as GoogleFeature[]).filter((f) =>

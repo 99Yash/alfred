@@ -23,7 +23,9 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 type PersonContactEvidence = Pick<Entity, "aliases" | "metadata">;
+
 type SendDraftRecipients = Pick<GmailSendDraftInput, "to" | "cc" | "bcc">;
+
 type LoadPersonContactEvidence = (userId: string) => Promise<readonly PersonContactEvidence[]>;
 
 const priorOutboundCountSchema = z.number().int().positive();
@@ -37,13 +39,17 @@ async function loadPersonContactEvidence(userId: string): Promise<PersonContactE
 
 function normalizedRecipients(input: SendDraftRecipients): Set<string> {
   const recipients = new Set<string>();
+
   for (const value of [...input.to, ...(input.cc ?? []), ...(input.bcc ?? [])]) {
     const normalized = parseEmailAddress(value);
+
     if (!normalized) {
       throw new Error("[gmail.recipient_policy] recipient failed canonical validation");
     }
+
     recipients.add(normalized);
   }
+
   return recipients;
 }
 
@@ -55,10 +61,12 @@ function addPreviouslyContactedAliases(
     const outbound = priorOutboundCountSchema.safeParse(
       getPath(row.metadata, "correspondence", "outbound"),
     );
+
     if (!outbound.success) continue;
 
     for (const alias of toStringArray(row.aliases)) {
       const normalized = parseEmailAddress(alias);
+
       if (normalized) allowed.add(normalized);
     }
   }
@@ -79,12 +87,14 @@ export async function assertGmailRecipientsAllowed(
   const requested = normalizedRecipients(args.input);
   const allowed = new Set<string>();
   const activeMailbox = parseEmailAddress(args.activeMailbox);
+
   if (activeMailbox) allowed.add(activeMailbox);
 
   const contacts = await loadContacts(args.userId);
   addPreviouslyContactedAliases(allowed, contacts);
 
   const denied = [...requested].filter((recipient) => !allowed.has(recipient));
+
   if (denied.length === 0) return;
 
   throw new Error(

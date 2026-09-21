@@ -40,6 +40,7 @@ export interface BriefingScheduleState {
 
 function parseHour(value: unknown): number | null {
   const result = briefingHourSchema.safeParse(value);
+
   return result.success ? result.data : null;
 }
 
@@ -62,6 +63,7 @@ export function useBriefingSchedule(): BriefingScheduleState {
   const tzStored =
     parseTimezone(values[BRIEFING_PREF_KEYS.timezone]) ??
     parseTimezone(values[LEGACY_TIMEZONE_KEY]);
+
   const morningStored = parseHour(values[BRIEFING_PREF_KEYS.morningHour]);
   const eveningStored = parseHour(values[BRIEFING_PREF_KEYS.eveningHour]);
 

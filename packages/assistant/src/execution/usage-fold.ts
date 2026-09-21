@@ -1,4 +1,4 @@
-import type { ChatMessageUsage } from "@alfred/contracts";
+import type { ChatEffort, ChatMessageUsage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns, apiCallLog } from "@alfred/db/schemas";
 import { inArray, sql } from "drizzle-orm";
@@ -12,6 +12,7 @@ import { subAgentParentRunIdMatches } from "./sub-agent-metadata";
  * requested model therefore leaves the two unequal and reads as not degraded.
  */
 export const DEGRADED = sql<boolean>`coalesce((${apiCallLog.responseMeta}->>'servedModelId') = ${apiCallLog.model}, false)`;
+
 /** The pre-call model of a degraded row, recorded beside `servedModelId` since 2026-09-03. */
 export const REQUESTED_MODEL = sql<string | null>`${apiCallLog.responseMeta}->>'requestedModelId'`;
 
@@ -32,6 +33,12 @@ export interface ModelUsageGroup {
   inputTokens: string | number;
   outputTokens: string | number;
   cachedInputTokens: string | number;
+  /**
+   * Cache WRITES for the group. Optional because the backfill's older shape and
+   * fixtures don't group by it; absent leaves the folded total `null`, which
+   * downstream must read as "not recorded", never as zero.
+   */
+  cacheWriteInputTokens?: string | number | undefined;
   modelLatencyMs: string | number;
   costUsd: string | number;
   calls: string | number;
@@ -59,24 +66,34 @@ export interface ModelUsageGroup {
  * model can serve two agents, and one agent can be served by two models, so the
  * caller's GROUP BY is the cross product of the two.
  */
-export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageUsage {
+export function foldModelUsage(
+  groups: readonly ModelUsageGroup[],
+  effort: ChatEffort = "medium",
+): ChatMessageUsage {
   const usage: ChatMessageUsage = {
     inputTokens: 0,
     outputTokens: 0,
     cachedInputTokens: 0,
+    // Stays `null` unless some group actually carried the column, so a caller
+    // that never selects it folds to "not recorded" instead of a false zero.
+    cacheWriteInputTokens: null,
     modelLatencyMs: 0,
     costUsd: 0,
     calls: 0,
     models: [],
     agents: [],
+    effort,
   };
+
   const callsByModel = new Map<
     string,
     { calls: number; fallbackCalls: number; primary: string | null }
   >();
+
   // Keyed on subId with a sentinel for the boss, because `null` is a legitimate
   // agent here and Map keys distinguish it from a child literally named "boss".
   const byAgent = new Map<string | null, { calls: number; costUsd: number }>();
+
   for (const group of groups) {
     // A run id also attributes background work triggered by the turn, such as
     // thread-title generation. The usage receipt is specifically the boss and
@@ -89,21 +106,30 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
     usage.inputTokens += Number(group.inputTokens) || 0;
     usage.outputTokens += Number(group.outputTokens) || 0;
     usage.cachedInputTokens += Number(group.cachedInputTokens) || 0;
+
+    if (group.cacheWriteInputTokens !== undefined) {
+      usage.cacheWriteInputTokens =
+        (usage.cacheWriteInputTokens ?? 0) + (Number(group.cacheWriteInputTokens) || 0);
+    }
+
     usage.modelLatencyMs += Number(group.modelLatencyMs) || 0;
     usage.costUsd += costUsd;
     usage.calls += calls;
     const model = callsByModel.get(group.model) ?? { calls: 0, fallbackCalls: 0, primary: null };
     model.calls += calls;
+
     if (group.degraded === true) {
       model.fallbackCalls += calls;
       model.primary ??= group.requestedModel ?? null;
     }
+
     callsByModel.set(group.model, model);
     const agent = byAgent.get(group.subId) ?? { calls: 0, costUsd: 0 };
     agent.calls += calls;
     agent.costUsd += costUsd;
     byAgent.set(group.subId, agent);
   }
+
   usage.models = [...callsByModel]
     .map(([model, totals]) => ({
       model,
@@ -116,6 +142,7 @@ export function foldModelUsage(groups: readonly ModelUsageGroup[]): ChatMessageU
   usage.agents = [...byAgent]
     .map(([subId, totals]) => ({ subId, ...totals }))
     .sort((a, b) => b.costUsd - a.costUsd);
+
   return usage;
 }
 
@@ -137,12 +164,15 @@ async function listTurnRuns(runId: string): Promise<Map<string, string | null>> 
     })
     .from(agentRuns)
     .where(subAgentParentRunIdMatches(runId));
+
   const runs = new Map<string, string | null>([[runId, null]]);
+
   for (const child of children) {
     // A child without a readable `subId` still spent money; label it so its
     // slice of the split is never silently merged into the boss's.
     runs.set(child.id, child.subId ?? "sub-agent");
   }
+
   return runs;
 }
 
@@ -164,8 +194,12 @@ async function listTurnRuns(runId: string): Promise<Map<string, string | null>> 
  * runs the same pair widened by message id. Changing what usage records means
  * changing this file.
  */
-export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage | null> {
+export async function aggregateRunUsage(
+  runId: string,
+  effort: ChatEffort = "medium",
+): Promise<ChatMessageUsage | null> {
   const runs = await listTurnRuns(runId);
+
   // Grouped by run and model: by model so the readout can name every model that
   // served the turn, by run so each agent's spend stays attributable, and by
   // the degrade fact so a silent `withFallback` cascade is visible without the
@@ -182,6 +216,7 @@ export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage
       inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
       outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
       cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
+      cacheWriteInputTokens: sql<string>`coalesce(sum(${apiCallLog.cacheWriteInputTokens}), 0)`,
       modelLatencyMs: sql<string>`coalesce(sum(case
         when ${apiCallLog.kind} = 'llm'
           and ${apiCallLog.error} is null
@@ -202,12 +237,16 @@ export async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage
       DEGRADED,
       REQUESTED_MODEL,
     );
+
   if (rows.length === 0) return null;
+
   const usage = foldModelUsage(
     rows.map((row) => ({
       ...row,
       subId: row.runId === null ? null : (runs.get(row.runId) ?? null),
     })),
+    effort,
   );
+
   return usage.calls === 0 ? null : usage;
 }

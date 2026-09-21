@@ -26,6 +26,7 @@ export function toVerdict(result: RuntimeReadinessResult): WorkflowReadinessVerd
       return { kind: "blocked", problems: result.problems };
     default: {
       const exhaustive: never = result;
+
       return exhaustive;
     }
   }

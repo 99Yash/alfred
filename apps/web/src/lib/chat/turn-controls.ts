@@ -18,16 +18,19 @@ export async function transcribeRecording(blob: Blob): Promise<string> {
   const ext = blob.type.includes("webm") ? "webm" : blob.type.includes("mp4") ? "m4a" : "audio";
   const form = new FormData();
   form.append("audio", new File([blob], `recording.${ext}`, { type: blob.type }));
+
   const res = await fetch(`${API_URL}/api/chat/transcribe`, {
     method: "POST",
     credentials: "include",
     body: form,
     signal: AbortSignal.timeout(60_000),
   });
+
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(apiErrorMessage(body, `Transcription failed (${res.status})`));
   }
+
   return getStringPath(await res.json(), "text") ?? "";
 }
 
@@ -47,6 +50,7 @@ export async function stopChatRun(runId: string): Promise<boolean> {
       // reports `false` — the normal completion flow still reconciles the UI.
       signal: AbortSignal.timeout(10_000),
     });
+
     return res.ok;
   } catch {
     return false;

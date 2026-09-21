@@ -73,6 +73,7 @@ async function processSubAgentJoinWakeJob(
   job: Job<SubAgentJoinWakeJobData>,
 ): Promise<SubAgentJoinWakeResult> {
   const { childRunId, parentRunId } = subAgentJoinWakeJobDataSchema.parse(job.data);
+
   try {
     const woken = await signalParentOfSubAgent(childRunId);
     // Always enqueue the parent so it resumes — `leaseRun` no-ops on a terminal,
@@ -86,6 +87,7 @@ async function processSubAgentJoinWakeJob(
     // and the enqueue lands on a terminal row as a no-op.
     const target = woken ?? parentRunId;
     await enqueueRun(target);
+
     return { status: woken ? "woken" : "noop", childRunId, parentRunId };
   } catch (err) {
     // Rethrow so BullMQ consumes a configured retry (attempts: 3, exponential

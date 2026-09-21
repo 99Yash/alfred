@@ -33,6 +33,7 @@ test("isIndexable accepts every non-null reference isRecord rejects", () => {
   class Box {
     value = 1;
   }
+
   const err = new Error("boom");
   (err as Error & { code?: string }).code = "23505";
 
@@ -146,6 +147,7 @@ test("withDefaults ignores present-undefined overrides that a spread would honor
     a: number;
     b?: number;
   }
+
   const sparse: SparseDefaultable = { a: 1 };
   assert.deepEqual(withDefaults(sparse, { b: 2 }), { a: 1, b: 2 });
 });

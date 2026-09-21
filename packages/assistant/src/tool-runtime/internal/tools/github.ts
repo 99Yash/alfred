@@ -43,6 +43,7 @@ function githubSearchDateTime(date: Date): string {
 function windowLowerBound(days: number, timezone: IanaTimezone, nowMs: number): string {
   const zone = inZone(timezone);
   const lowerDate = addDays(zone.day(new Date(nowMs)), -(days - 1));
+
   return githubSearchDateTime(zone.startOf(lowerDate));
 }
 
@@ -59,6 +60,7 @@ export function buildGithubSearchQuery(
 ): string {
   const parts: string[] = [];
   const type = input.type ?? "pr";
+
   switch (type) {
     case "pr":
       parts.push("is:pr");
@@ -71,8 +73,10 @@ export function buildGithubSearchQuery(
     default:
       assertNever(type);
   }
+
   if (input.author) parts.push(`author:${input.author}`);
   const state = input.state ?? "all";
+
   switch (state) {
     case "open":
       parts.push("is:open");
@@ -88,6 +92,7 @@ export function buildGithubSearchQuery(
     default:
       assertNever(state);
   }
+
   // Two or more windows become ONE parenthesized OR group, never separate
   // tokens. GitHub joins top-level tokens with AND, so `created:>=D
   // merged:>=D` asks for a PR that was created AND merged inside the window —
@@ -106,15 +111,20 @@ export function buildGithubSearchQuery(
   // reaches here came through `githubSearchWindowDays`.
   const windows = GITHUB_SEARCH_WINDOWS.flatMap((entry) => {
     const days = githubSearchWindowDays(input, entry);
+
     if (days === undefined) return [];
+
     return [`${entry.qualifier}:>=${windowLowerBound(days, timezone, nowMs)}`];
   });
+
   // `advanced_search=true` on the client is what makes `(… OR …)` a boolean
   // group rather than free text (`packages/integrations/src/github/client.ts`).
   if (windows.length > 1) parts.push(`(${windows.join(" OR ")})`);
   else parts.push(...windows);
   const extra = input.query?.trim();
+
   if (extra) parts.push(extra);
+
   return [...new Set(parts.filter(Boolean))].join(" ");
 }
 
@@ -124,9 +134,11 @@ export function resolvePullRequestAuthor(
   _userId = "unknown",
 ): string {
   if (author !== "@me") return author;
+
   if (!accountLogin) {
     throw new AppError("reauth_required", { integration: "github" });
   }
+
   return accountLogin;
 }
 
@@ -152,6 +164,7 @@ export const githubTools: readonly RegisteredTool[] = [
       // Fold any free-typed author:/state:/is:/date qualifiers into the
       // structured fields (silent correctness, ADR-0071) before resolving @me.
       const { sanitized } = sanitizeGithubSearchQuery(input);
+
       // Resolve author honestly (ADR-0071, no silent narrowing): an explicit
       // author (structured field or folded `author:` qualifier) wins; otherwise
       // default to the connected user ONLY for an otherwise-unscoped search ("my
@@ -162,15 +175,19 @@ export const githubTools: readonly RegisteredTool[] = [
         : queryHasNarrowingScope(sanitized.query)
           ? undefined
           : resolvePullRequestAuthor("@me", accountLogin, ctx.userId);
+
       const q = buildGithubSearchQuery(
         { ...input, ...sanitized, state: sanitized.state ?? input.state, author },
         ctx.timezone,
       );
+
       const result = await github.search({ q, perPage: input.perPage });
+
       // Result-honesty (ADR-0071 #6): never present a truncated count as exact.
       const note = result.incompleteResults
         ? "GitHub reported incomplete_results — its search index timed out, so this count may be partial. Narrow the query (repo:, a tighter window) and retry for an exact figure."
         : undefined;
+
       return {
         totalCount: result.totalCount,
         query: q,

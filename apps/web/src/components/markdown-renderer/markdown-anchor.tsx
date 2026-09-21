@@ -20,6 +20,7 @@ export const MarkdownAnchor: NonNullable<Components["a"]> = ({
   if (href && isCitation(title)) {
     return <CitationLink href={href}>{children}</CitationLink>;
   }
+
   return (
     <a href={href} title={title} target="_blank" rel="noreferrer noopener" {...props}>
       {children}

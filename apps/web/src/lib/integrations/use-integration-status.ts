@@ -5,6 +5,7 @@ import {
   isLiveProviderSlug,
   type ConnectedAccount,
   type CredentialProvider,
+  type DeliveryAlert,
   type GoogleSlug,
   type IntegrationConnection,
   type IntegrationStatus,
@@ -39,7 +40,9 @@ function useIntegrationStatus() {
     queryKey: INTEGRATION_STATUS_QUERY_KEY,
     queryFn: async () => {
       const res = await client.api.integrations.get();
+
       if (res.error) throw new Error(`integration status failed (${res.error.status})`);
+
       // The body is one document from one producer the compiler pins to this
       // schema; `parseEdenBody` undoes Eden's date revival, and a field that
       // fails is a contract break to surface, not a stray row to skip.
@@ -65,8 +68,8 @@ async function deleteProviderCredential(provider: CredentialProvider, id: string
       return client.api.integrations.github({ id }).delete();
     case "notion":
       return client.api.integrations.notion({ id }).delete();
-    case "railway":
-      return client.api.integrations.railway({ id }).delete();
+    case "sentry":
+      return client.api.integrations.sentry({ id }).delete();
     case "vercel":
       return client.api.integrations.vercel({ id }).delete();
     default: {
@@ -85,10 +88,13 @@ async function deleteProviderCredential(provider: CredentialProvider, id: string
  */
 export function useDisconnectIntegration(provider: CredentialProvider) {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: async (id: string) => {
       const res = await deleteProviderCredential(provider, id);
+
       if (res.error) throw new Error("Disconnect failed");
+
       return res.data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: INTEGRATION_STATUS_QUERY_KEY }),
@@ -105,6 +111,7 @@ export function useDisconnectIntegration(provider: CredentialProvider) {
 export function useConnectedAccountLabel(provider: CredentialProvider): string | null {
   const { data } = useIntegrationStatus();
   const first = data?.providers[provider]?.[0];
+
   return first ? (first.accountLabel ?? first.accountId) : null;
 }
 
@@ -133,6 +140,7 @@ export interface ResolvedIntegrationsResult {
  */
 export function useResolvedIntegrationsWithReady(): ResolvedIntegrationsResult {
   const { data, isSuccess } = useIntegrationStatus();
+
   const integrations = useMemo(
     () =>
       INTEGRATION_PAGES.map((page) =>
@@ -142,6 +150,7 @@ export function useResolvedIntegrationsWithReady(): ResolvedIntegrationsResult {
       ),
     [data],
   );
+
   return useMemo(() => ({ integrations, ready: isSuccess }), [integrations, isSuccess]);
 }
 
@@ -151,6 +160,7 @@ export function useResolvedIntegrations(): ReadonlyArray<ResolvedIntegration> {
 
 export function useResolvedIntegration(slug: string): ResolvedIntegration | undefined {
   const all = useResolvedIntegrations();
+
   return all.find((p) => p.slug === slug);
 }
 
@@ -159,6 +169,7 @@ function resolveOne(page: IntegrationPage, connection: IntegrationConnection): R
   if (connection.health !== "active") {
     return { ...page, connectedAccounts: [] };
   }
+
   return {
     ...page,
     status: "connected",
@@ -187,15 +198,19 @@ export interface GoogleScopeGaps {
 
 export function useGoogleScopeGaps(): GoogleScopeGaps {
   const { data } = useIntegrationStatus();
+
   return useMemo(() => {
     const active = data?.providers.google;
     const first = active?.[0];
+
     if (!active || !first) {
       return { connected: false, accountLabel: null, missing: [] };
     }
+
     const missing = GOOGLE_SLUGS.filter((slug) =>
       active.every((row) => row.missing.includes(slug)),
     ).map((slug) => ({ slug, name: INTEGRATIONS[slug].displayName }));
+
     return { connected: true, accountLabel: first.accountLabel, missing };
   }, [data]);
 }
@@ -218,11 +233,34 @@ export interface GithubReconnect {
 
 export function useGithubNeedsReconnect(): GithubReconnect {
   const { data } = useIntegrationStatus();
+
   return useMemo(() => {
     const stale = data?.providers.github?.find((row) => row.missing.includes("github"));
+
     return {
       needsReconnect: stale !== undefined,
       accountLabel: stale?.accountLabel ?? null,
     };
   }, [data]);
 }
+
+/**
+ * Integrations that stopped delivering events and that the user can restore
+ * (ADR-0100).
+ *
+ * A thin read, on purpose. Every rule about which verdict a person may see is
+ * the server's, including the one that drops an integration whose credential
+ * already carries a reconnect nag of its own ({@link useGithubNeedsReconnect},
+ * {@link useGoogleScopeGaps}). The first revision of this feature applied that
+ * last rule here instead, which left the emailed alert with no such filter: the
+ * banner and the email then disagreed about what counts, and only the email
+ * could reach the state that mattered.
+ */
+export function useDeliveryAlerts(): readonly DeliveryAlert[] {
+  const { data } = useIntegrationStatus();
+
+  return data?.deliveryAlerts ?? EMPTY_ALERTS;
+}
+
+/** Stable identity, so a caller's `useMemo` on the result does not re-run per poll. */
+const EMPTY_ALERTS: readonly DeliveryAlert[] = [];

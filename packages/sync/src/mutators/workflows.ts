@@ -1,5 +1,5 @@
 import {
-  EVENT_TYPES_BY_SOURCE,
+  authorableEventTriggerSchema,
   isIanaTimezone,
   LOADABLE_INTEGRATION_SLUGS,
 } from "@alfred/contracts";
@@ -7,9 +7,7 @@ import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
 import { workflowStatusSchema } from "../schemas";
-import type { SyncedWorkflow } from "../types";
-
-export const AUTHORABLE_EVENT_SOURCES = ["gmail"] as const;
+import type { SyncedWorkflow } from "../schemas";
 
 const CRON_MONTH_NAMES = {
   JAN: 1,
@@ -38,6 +36,7 @@ const CRON_DAY_NAMES = {
 
 function cronFieldValue(value: string, names?: Readonly<Record<string, number>>): number | null {
   if (/^\d+$/.test(value)) return Number(value);
+
   return names?.[value.toUpperCase()] ?? null;
 }
 
@@ -49,21 +48,29 @@ function isValidCronField(
 ): boolean {
   for (const part of field.split(",")) {
     const [range, step] = part.split("/");
+
     if (!range || (step !== undefined && (!/^\d+$/.test(step) || Number(step) < 1))) {
       return false;
     }
+
     if (range === "*") continue;
     const bounds = range.split("-");
+
     if (bounds.length > 2) return false;
     const values: number[] = [];
+
     for (const bound of bounds) {
       const n = cronFieldValue(bound, names);
+
       if (n === null) return false;
+
       if (n < min || n > max) return false;
       values.push(n);
     }
+
     if (values.length === 2 && values[0]! > values[1]!) return false;
   }
+
   return true;
 }
 
@@ -73,8 +80,10 @@ function isValidCronField(
  */
 export function isLikelyValidWorkflowCron(schedule: string): boolean {
   const parts = schedule.trim().split(/\s+/);
+
   if (parts.length !== 5) return false;
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+
   return (
     isValidCronField(minute ?? "", 0, 59) &&
     isValidCronField(hour ?? "", 0, 23) &&
@@ -94,7 +103,12 @@ export function isLikelyValidWorkflowCron(schedule: string): boolean {
  *     evaluate filters, so accepting one would silently lie. The
  *     empty-filter-only contract is enforced here by simply not modelling
  *     the field.
- *   - event `type` must be a known type for the chosen `source`.
+ *   - the event member is `authorableEventTriggerSchema` from
+ *     `@alfred/contracts`, the same object the chat authoring schema embeds,
+ *     so the editor and chat obey one rule (#990). Whether an inbound source
+ *     has seen a raw kind is a database fact the server's revision service
+ *     checks; the client accepts any kind, so an unseen kind shows in the
+ *     optimistic put until the next pull reverts it.
  */
 export const authorableWorkflowTriggerSchema = z
   .discriminatedUnion("kind", [
@@ -103,44 +117,29 @@ export const authorableWorkflowTriggerSchema = z
       schedule: z.string().min(1).max(120),
       timezone: z.string().max(64).optional(),
     }),
-    z.object({
-      kind: z.literal("event"),
-      source: z.enum(AUTHORABLE_EVENT_SOURCES),
-      type: z.string().min(1),
-    }),
+    authorableEventTriggerSchema,
     z.object({ kind: z.literal("manual") }),
   ])
   .superRefine((trigger, ctx) => {
-    if (trigger.kind === "cron") {
-      if (!isLikelyValidWorkflowCron(trigger.schedule)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Use a valid 5-field cron expression",
-          path: ["schedule"],
-        });
-      }
-      if (trigger.timezone && !isIanaTimezone(trigger.timezone)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `'${trigger.timezone}' is not a valid IANA timezone`,
-          path: ["timezone"],
-        });
-      }
-      return;
-    }
-    if (trigger.kind !== "event") return;
-    // SAFETY: the per-source row is a const tuple of that source's event-type
-    // literals; widening to readonly string[] only types the .includes
-    // receiver for the runtime membership test below.
-    const types = EVENT_TYPES_BY_SOURCE[trigger.source] as readonly string[];
-    if (!types.includes(trigger.type)) {
+    if (trigger.kind !== "cron") return;
+
+    if (!isLikelyValidWorkflowCron(trigger.schedule)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `'${trigger.type}' is not a valid event type for '${trigger.source}'`,
-        path: ["type"],
+        message: "Use a valid 5-field cron expression",
+        path: ["schedule"],
+      });
+    }
+
+    if (trigger.timezone && !isIanaTimezone(trigger.timezone)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `'${trigger.timezone}' is not a valid IANA timezone`,
+        path: ["timezone"],
       });
     }
   });
+
 export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTriggerSchema>;
 
 /**
@@ -160,6 +159,7 @@ export const workflowUpdateArgsSchema = z.object({
   status: workflowStatusSchema.optional(),
   trigger: authorableWorkflowTriggerSchema.optional(),
 });
+
 export type WorkflowUpdateArgs = z.infer<typeof workflowUpdateArgsSchema>;
 
 /**
@@ -172,7 +172,9 @@ export async function workflowUpdateClient(
   args: WorkflowUpdateArgs,
 ): Promise<void> {
   const current = await SYNC_MODEL.workflow.get(tx, { slug: args.slug });
+
   if (!current) return;
+
   if (current.isBuiltin) return;
 
   const next: SyncedWorkflow = {
@@ -187,5 +189,6 @@ export async function workflowUpdateClient(
     ...(args.trigger !== undefined ? { trigger: args.trigger } : {}),
     rowVersion: current.rowVersion + 1,
   };
+
   await SYNC_MODEL.workflow.put(tx, next);
 }

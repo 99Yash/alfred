@@ -41,6 +41,7 @@ describe("exact active tool dispatch", () => {
 
     assert.equal(result.kind, "inactive_tool");
     assert.equal(executions, 0);
+
     if (result.kind !== "inactive_tool") return;
     assert.deepEqual(result.result.recovery, {
       kind: "activate_and_reissue",
@@ -72,6 +73,7 @@ describe("exact active tool dispatch", () => {
         inputSchema: z.object({}).strict(),
         execute: async () => {
           executions++;
+
           return { ok: true };
         },
       }),
@@ -101,6 +103,7 @@ describe("exact active tool dispatch", () => {
 
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
+
     if (result.kind !== "not_allowed") return;
     assert.equal(result.result.status, "capability_mismatch");
   });
@@ -121,6 +124,7 @@ describe("exact active tool dispatch", () => {
 
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
+
     if (result.kind !== "not_allowed") return;
     assert.equal(result.result.status, "capability_mismatch");
   });
@@ -140,6 +144,7 @@ describe("exact active tool dispatch", () => {
 
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
+
     if (result.kind !== "not_allowed") return;
     assert.equal(result.result.status, "capability_mismatch");
   });
@@ -169,6 +174,7 @@ describe("exact active tool dispatch", () => {
 
     const args = { ...baseDispatch, activeTools };
     let result = await dispatchToolCall(args);
+
     if (result.kind === "inactive_tool") {
       activeTools = activateTool(activeTools, result.result.recovery.toolName).filter(
         (name): name is "system.read_scratch" => name === "system.read_scratch",
@@ -288,6 +294,7 @@ function scratchReadTool(onExecute: () => void) {
     inputSchema: z.object({ key: z.string() }).strict(),
     execute: async () => {
       onExecute();
+
       return { ok: true };
     },
   });

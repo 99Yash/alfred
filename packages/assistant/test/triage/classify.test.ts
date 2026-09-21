@@ -38,6 +38,7 @@ import type { Observations } from "@alfred/assistant/triage/observations";
 
 function applyOverrideFloor(...args: Parameters<typeof overrideFloorVerdict>) {
   const audit = overrideFloorVerdict(...args);
+
   return {
     ...audit,
     classification: applyFloorVerdict(args[0], audit.verdict),
@@ -47,6 +48,7 @@ function applyOverrideFloor(...args: Parameters<typeof overrideFloorVerdict>) {
 
 function applySenderKindDemotionFloor(...args: Parameters<typeof senderKindFloorVerdict>) {
   const audit = senderKindFloorVerdict(...args);
+
   return {
     ...audit,
     classification: applyFloorVerdict(args[0], audit.verdict),
@@ -56,6 +58,7 @@ function applySenderKindDemotionFloor(...args: Parameters<typeof senderKindFloor
 
 function applyMeetingDemotionFloor(...args: Parameters<typeof meetingFloorVerdict>) {
   const audit = meetingFloorVerdict(...args);
+
   return {
     ...audit,
     classification: applyFloorVerdict(args[0], audit.verdict),
@@ -76,7 +79,14 @@ function observations(overrides: Partial<Observations> = {}): Observations {
     senderRelationship: null,
     senderRelationshipIsCold: false,
     senderKind: null,
-    gmail: { categories: [], important: false, starred: false, inInbox: true },
+    gmail: {
+      categories: [],
+      important: false,
+      starred: false,
+      inInbox: true,
+      spam: false,
+      trash: false,
+    },
     content: {
       hasUnsubscribe: false,
       hasCurrencyAmount: false,
@@ -105,10 +115,13 @@ function args(over: Partial<ClassifyEmailArgs> = {}): ClassifyEmailArgs {
 /** A canned model that returns a fixed output per pass, recording call count. */
 function scriptedModel(first: TriageClassification, second?: TriageClassification) {
   let calls = 0;
+
   const runPass: RunPass = async ({ pass }) => {
     calls++;
+
     return pass === "second" && second ? second : first;
   };
+
   return { runPass, calls: () => calls };
 }
 
@@ -122,6 +135,7 @@ describe("applyOverrideFloor", () => {
       classification({ category: "newsletter", confidence: 0.8 }),
       "a private api key was leaked in this commit and must be rotated",
     );
+
     assert.equal(r.classification.category, "urgent");
     assert.equal(r.forced, true);
     assert.match(r.classification.rationale, /override floor/i);
@@ -134,6 +148,7 @@ describe("applyOverrideFloor", () => {
       classification({ category: "fyi", confidence: 0.97 }),
       "secret api key was exposed",
     );
+
     assert.equal(r.classification.category, "urgent");
     assert.equal(r.classification.confidence, 0.97);
   });
@@ -143,6 +158,7 @@ describe("applyOverrideFloor", () => {
       classification({ category: "fyi" }),
       "sign in to anthropic — your login code is 123456. verify your email address.",
     );
+
     assert.equal(r.classification.category, "fyi");
     assert.equal(r.forced, false);
   });
@@ -162,6 +178,7 @@ describe("applyOverrideFloor", () => {
       "token found in repository history",
       "a private key was detected by secret scanning",
     ];
+
     for (const text of cases) {
       const r = applyOverrideFloor(classification({ category: "fyi" }), text);
       assert.equal(r.matched, true, text);
@@ -177,6 +194,7 @@ describe("applyOverrideFloor", () => {
       classification({ category: "fyi" }),
       "the credential object is exposed to the network in this design",
     );
+
     assert.equal(r.forced, false);
     assert.equal(r.classification.category, "fyi");
   });
@@ -186,6 +204,7 @@ describe("applyOverrideFloor", () => {
       classification({ category: "fyi" }),
       "dependabot alert: cve-2024-1234 in lodash (moderate)",
     );
+
     assert.equal(r.forced, false);
     assert.equal(r.classification.category, "fyi");
   });
@@ -203,12 +222,14 @@ describe("applySenderKindDemotionFloor", () => {
     entityId: "ent_1",
     displayName: "Some List",
   };
+
   const serviceKind = {
     ...groupKind,
     kind: "service" as const,
     confidence: 0.92,
     evidenceCodes: ["email:local:service_strong"],
   };
+
   const serviceRoleKind = {
     ...serviceKind,
     evidenceCodes: ["email:local:service"],
@@ -225,6 +246,7 @@ describe("applySenderKindDemotionFloor", () => {
       }),
       groupKind,
     );
+
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
     assert.equal(r.classification.todoSuggestion, null);
@@ -238,6 +260,7 @@ describe("applySenderKindDemotionFloor", () => {
       classification({ category: "awaiting_reply" }),
       serviceKind,
     );
+
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
   });
@@ -247,6 +270,7 @@ describe("applySenderKindDemotionFloor", () => {
       classification({ category: "awaiting_reply" }),
       serviceRoleKind,
     );
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "awaiting_reply");
   });
@@ -261,6 +285,7 @@ describe("applySenderKindDemotionFloor", () => {
       serviceKind,
       { signalText: "dvd set the status to: 10 web\nchanged status\n07 merged\n10 web" },
     );
+
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
     assert.equal(r.classification.todoSuggestion, null);
@@ -277,6 +302,7 @@ describe("applySenderKindDemotionFloor", () => {
           "Sakshi Jindal assigned task to you\nConservice: Show all CRM fields as options",
       },
     );
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "action_needed");
   });
@@ -290,6 +316,7 @@ describe("applySenderKindDemotionFloor", () => {
           "Sanyam commented\npls merge this - https://github.com/OlivAIRepo/autosched-mirror/pull/654",
       },
     );
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "action_needed");
   });
@@ -303,6 +330,7 @@ describe("applySenderKindDemotionFloor", () => {
           "fetch-latest-report resolved to a stale report because mixed date formats sorted badly",
       },
     );
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "action_needed");
   });
@@ -326,6 +354,7 @@ describe("applySenderKindDemotionFloor", () => {
           collabActivity: kind,
         },
       );
+
       assert.equal(r.demoted, true);
       assert.equal(r.classification.category, "fyi");
       assert.equal(r.classification.todoSuggestion, null);
@@ -344,6 +373,7 @@ describe("applySenderKindDemotionFloor", () => {
           collabActivity: kind,
         },
       );
+
       assert.equal(r.demoted, false);
       assert.equal(r.classification.category, "action_needed");
     });
@@ -363,6 +393,7 @@ describe("applySenderKindDemotionFloor", () => {
           collabActivity: kind,
         },
       );
+
       assert.equal(r.demoted, false);
       assert.equal(r.reason, null);
       assert.equal(r.classification.category, "awaiting_reply");
@@ -381,6 +412,7 @@ describe("applySenderKindDemotionFloor", () => {
         collabActivity: "assigned_to_user",
       },
     );
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "action_needed");
   });
@@ -402,6 +434,7 @@ describe("applySenderKindDemotionFloor", () => {
         collabActivity: "mentioned_user",
       },
     );
+
     assert.equal(r.demoted, false);
     assert.equal(r.reason, null);
     assert.equal(r.classification.category, "action_needed");
@@ -417,6 +450,7 @@ describe("applySenderKindDemotionFloor", () => {
         collabActivity: "other_activity",
       },
     );
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "action_needed");
   });
@@ -430,6 +464,7 @@ describe("applySenderKindDemotionFloor", () => {
         collabActivity: "digest",
       },
     );
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "action_needed");
   });
@@ -449,6 +484,7 @@ describe("applySenderKindDemotionFloor", () => {
         collabActivity: "other_activity",
       },
     );
+
     assert.equal(r.demoted, true);
     assert.equal(r.reason, "collab_passive_activity");
     assert.equal(r.classification.category, "fyi");
@@ -460,6 +496,7 @@ describe("applySenderKindDemotionFloor", () => {
       serviceRoleKind,
       { signalText: "activity in your workspace", collabActivity: "other_activity" },
     );
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "action_needed");
   });
@@ -474,6 +511,7 @@ describe("applySenderKindDemotionFloor", () => {
         cc: "Yash Gourav Kar <yashgouravkar@gmail.com>, Author <author@noreply.github.com>",
       },
     );
+
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
   });
@@ -488,6 +526,7 @@ describe("applySenderKindDemotionFloor", () => {
         cc: "Ci activity <ci_activity@noreply.github.com>",
       },
     );
+
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
   });
@@ -502,6 +541,7 @@ describe("applySenderKindDemotionFloor", () => {
         cc: "Security alert <security_alert@noreply.github.com>",
       },
     );
+
     assert.equal(security.demoted, false);
     assert.equal(security.classification.category, "action_needed");
 
@@ -514,6 +554,7 @@ describe("applySenderKindDemotionFloor", () => {
         cc: null,
       },
     );
+
     assert.equal(invite.demoted, false);
     assert.equal(invite.classification.category, "action_needed");
   });
@@ -534,6 +575,7 @@ describe("applySenderKindDemotionFloor", () => {
           "If you don't recognize this activity, please review your account security right away.",
       },
     );
+
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
     assert.equal(r.classification.todoSuggestion, null);
@@ -549,6 +591,7 @@ describe("applySenderKindDemotionFloor", () => {
         "If this was you, no action is needed. " +
         "If you don't recognize this activity, please review your account security right away.",
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "urgent");
   });
@@ -557,6 +600,7 @@ describe("applySenderKindDemotionFloor", () => {
     const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
       signalText: "Production outage: deploys are blocked and customer API requests are failing.",
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "urgent");
   });
@@ -582,6 +626,7 @@ describe("applySenderKindDemotionFloor", () => {
         accountEmail: ACCOUNT,
       },
     );
+
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
     assert.equal(r.classification.todoSuggestion, null);
@@ -602,6 +647,7 @@ describe("applySenderKindDemotionFloor", () => {
         accountEmail: ACCOUNT,
       },
     );
+
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
   });
@@ -614,6 +660,7 @@ describe("applySenderKindDemotionFloor", () => {
       to: `On-call <${ACCOUNT}>`,
       accountEmail: ACCOUNT,
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "urgent");
   });
@@ -627,6 +674,7 @@ describe("applySenderKindDemotionFloor", () => {
       cc: ACCOUNT,
       accountEmail: ACCOUNT,
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "urgent");
   });
@@ -639,6 +687,7 @@ describe("applySenderKindDemotionFloor", () => {
       to: "engineering@oliv.ai",
       accountEmail: null,
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "urgent");
   });
@@ -650,6 +699,7 @@ describe("applySenderKindDemotionFloor", () => {
       signalText: "ALARM: prod-db-cpu is high.",
       accountEmail: ACCOUNT,
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "urgent");
   });
@@ -663,6 +713,7 @@ describe("applySenderKindDemotionFloor", () => {
       to: "engineering@oliv.ai",
       accountEmail: ACCOUNT,
     });
+
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
   });
@@ -694,6 +745,7 @@ describe("applySenderKindDemotionFloor", () => {
         accountEmail: ACCOUNT,
       },
     );
+
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
     assert.equal(resolveTodoSuggestion(r.classification, null), null);
@@ -708,6 +760,7 @@ describe("applySenderKindDemotionFloor", () => {
       to: "engineering@oliv.ai",
       accountEmail: ACCOUNT,
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "urgent");
   });
@@ -720,6 +773,7 @@ describe("applySenderKindDemotionFloor", () => {
       to: "engineering@oliv.ai",
       accountEmail: ACCOUNT,
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "urgent");
   });
@@ -734,6 +788,7 @@ describe("applySenderKindDemotionFloor", () => {
       to: `Alerts <yash.k+alerts@oliv.ai>`,
       accountEmail: ACCOUNT,
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "urgent");
   });
@@ -748,6 +803,7 @@ describe("applySenderKindDemotionFloor", () => {
       to: "notyash.k@oliv.ai",
       accountEmail: ACCOUNT,
     });
+
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
   });
@@ -761,6 +817,7 @@ describe("applySenderKindDemotionFloor", () => {
       to: `"Doe, Jane" <jane@oliv.ai>, "Kar, Yash" <${ACCOUNT}>`,
       accountEmail: ACCOUNT,
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "urgent");
   });
@@ -785,6 +842,7 @@ describe("applyMeetingDemotionFloor", () => {
     entityId: "ent_1",
     displayName: "ClickUp",
   };
+
   const groupKind = { ...serviceKind, kind: "group" as const, evidenceCodes: ["gmail:list_id"] };
 
   test("demotes a post-hoc recap → fyi even from a person-parsed sender (oliv.guide)", () => {
@@ -792,6 +850,7 @@ describe("applyMeetingDemotionFloor", () => {
       effectiveAuthor: "person",
       subject: "Meeting notes: Eng standup • Thu, Jul 02, 2026 10:45 AM IST",
     });
+
     assert.equal(r.demoted, true);
     assert.equal(r.reason, "meeting_recap");
     assert.equal(r.classification.category, "fyi");
@@ -803,6 +862,7 @@ describe("applyMeetingDemotionFloor", () => {
       effectiveAuthor: "person",
       subject: "[Beta] Meeting prep: Oliv AI <> Practifi | Weekly Sync",
     });
+
     assert.equal(r.demoted, true);
     assert.equal(r.reason, "meeting_prep");
     assert.equal(r.classification.category, "fyi");
@@ -819,6 +879,7 @@ describe("applyMeetingDemotionFloor", () => {
       }),
       { effectiveAuthor: "service", senderKind: serviceKind, subject: "Offsite" },
     );
+
     assert.equal(r.demoted, true);
     assert.equal(r.reason, "automated_relay");
     assert.equal(r.classification.category, "fyi");
@@ -833,6 +894,7 @@ describe("applyMeetingDemotionFloor", () => {
       senderKind: groupKind,
       subject: "Engineering",
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.reason, null);
   });
@@ -842,6 +904,7 @@ describe("applyMeetingDemotionFloor", () => {
       effectiveAuthor: "person",
       subject: "Updated invitation: Eng standup @ Wed Jul 8, 2026 11am - 12pm (IST)",
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "meeting");
   });
@@ -852,6 +915,7 @@ describe("applyMeetingDemotionFloor", () => {
       senderKind: serviceKind,
       subject: "Invitation: Weekly Sync @ Thu Jul 10",
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "meeting");
   });
@@ -863,12 +927,14 @@ describe("applyMeetingDemotionFloor", () => {
       "Reminder: Weekly Sync starts in 10 minutes",
       "Updated invitation with note: Weekly Sync @ Thu Jul 10",
     ];
+
     for (const subject of subjects) {
       const r = applyMeetingDemotionFloor(classification({ category: "meeting" }), {
         effectiveAuthor: "service",
         senderKind: serviceKind,
         subject,
       });
+
       assert.equal(r.demoted, false, subject);
       assert.equal(r.classification.category, "meeting", subject);
     }
@@ -879,6 +945,7 @@ describe("applyMeetingDemotionFloor", () => {
       effectiveAuthor: "person",
       subject: "Can you do a call this week?",
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "meeting");
   });
@@ -889,6 +956,7 @@ describe("applyMeetingDemotionFloor", () => {
       subject: "SUNDRAM FASTENERS LIMITED - 63rd Annual General Meeting",
       contentFlags: { hasInvestorNotice: true, hasPublicEventLanguage: false },
     });
+
     assert.equal(r.demoted, true);
     assert.equal(r.reason, "investor_notice");
     assert.equal(r.classification.category, "fyi");
@@ -900,6 +968,7 @@ describe("applyMeetingDemotionFloor", () => {
       subject: "Don't Miss Tuesday's Webinar on Practitioner's Guide",
       contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: true },
     });
+
     assert.equal(r.demoted, true);
     assert.equal(r.reason, "public_event");
     assert.equal(r.classification.category, "fyi");
@@ -911,17 +980,20 @@ describe("applyMeetingDemotionFloor", () => {
       subject: "Invitation: Prep sync for the shareholder AGM",
       contentFlags: { hasInvestorNotice: true, hasPublicEventLanguage: true },
     });
+
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "meeting");
   });
 
   test("is a no-op for any non-meeting category", () => {
     const c = classification({ category: "action_needed" });
+
     const r = applyMeetingDemotionFloor(c, {
       effectiveAuthor: "service",
       subject: "Offsite",
       contentFlags: { hasInvestorNotice: true, hasPublicEventLanguage: true },
     });
+
     assert.equal(r.demoted, false);
     assert.deepEqual(r.classification, c);
   });
@@ -938,6 +1010,7 @@ describe("detectConflict", () => {
       observations({ content: { ...observations().content, hasSecurityKeyword: true } }),
       false,
     );
+
     assert.equal(conflict?.kind, "under_classification");
   });
 
@@ -947,6 +1020,7 @@ describe("detectConflict", () => {
       observations({ content: { ...observations().content, hasSecurityKeyword: true } }),
       true,
     );
+
     assert.equal(conflict, null);
   });
 
@@ -962,6 +1036,7 @@ describe("detectConflict", () => {
       }),
       false,
     );
+
     assert.equal(conflict?.kind, "over_classification");
   });
 
@@ -974,10 +1049,18 @@ describe("detectConflict", () => {
           categoryCounts: { newsletter: 9, marketing: 1 },
           lastCategory: "newsletter",
         },
-        gmail: { categories: [], important: true, starred: false, inInbox: true },
+        gmail: {
+          categories: [],
+          important: true,
+          starred: false,
+          inInbox: true,
+          spam: false,
+          trash: false,
+        },
       }),
       false,
     );
+
     assert.equal(conflict, null);
   });
 
@@ -1033,6 +1116,7 @@ describe("detectConflict", () => {
       }),
       false,
     );
+
     assert.equal(conflict?.kind, "loop_state");
   });
 
@@ -1075,6 +1159,7 @@ describe("detectConflict", () => {
       }),
       false, // floor did NOT match — the subject has no exposure verb
     );
+
     assert.equal(conflict?.kind, "over_classification");
   });
 
@@ -1091,6 +1176,7 @@ describe("detectConflict", () => {
       }),
       true, // floor matched → don't challenge; the floor forces urgent regardless
     );
+
     assert.equal(conflict, null);
   });
 
@@ -1106,6 +1192,7 @@ describe("detectConflict", () => {
       }),
       false,
     );
+
     assert.equal(conflict?.kind, "over_classification");
   });
 
@@ -1128,6 +1215,7 @@ describe("detectConflict", () => {
       }),
       false,
     );
+
     assert.equal(conflict?.kind, "over_classification");
   });
 
@@ -1144,6 +1232,7 @@ describe("detectConflict", () => {
       false,
       { effectiveAuthor: "service" },
     );
+
     assert.equal(conflict?.kind, "over_classification");
   });
 
@@ -1192,10 +1281,13 @@ describe("detectConflict", () => {
 describe("classifyEmail", () => {
   test("renders subject and body as distinct evidence without sender inference", async () => {
     let prompt = "";
+
     const runPass: RunPass = async (input) => {
       prompt = input.prompt;
+
       return classification();
     };
+
     await classifyEmail(
       args({
         document: {
@@ -1250,10 +1342,13 @@ describe("classifyEmail", () => {
 
   test("strips stored envelope headers from an ordinary email body", async () => {
     let prompt = "";
+
     const runPass: RunPass = async (input) => {
       prompt = input.prompt;
+
       return classification();
     };
+
     await classifyEmail(
       args({
         document: {
@@ -1297,10 +1392,13 @@ describe("classifyEmail", () => {
 
   test("preserves a header-shaped first line in the real email body", async () => {
     let prompt = "";
+
     const runPass: RunPass = async (input) => {
       prompt = input.prompt;
+
       return classification();
     };
+
     await classifyEmail(
       args({
         document: {
@@ -1328,6 +1426,7 @@ describe("classifyEmail", () => {
       classification({ category: "fyi", collabActivity: "other_activity" }),
       classification({ category: "action_needed", collabActivity: "other_activity" }),
     );
+
     const result = await classifyEmail(
       args({
         observations: observations({
@@ -1357,6 +1456,7 @@ describe("classifyEmail", () => {
     // The model under-classifies (newsletter), but the body exposes a secret —
     // the override floor forces urgent.
     const model = scriptedModel(classification({ category: "newsletter", confidence: 0.95 }));
+
     const result = await classifyEmail(
       args({
         document: {
@@ -1376,6 +1476,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.classification.category, "urgent");
     assert.equal(result.audit.floors.override.verdict.kind, "escalate");
     assert.match(result.model, /\+floor$/);
@@ -1386,6 +1487,7 @@ describe("classifyEmail", () => {
     // under-classification net (no security keyword), so fyi — a passive category —
     // survives without a second pass.
     const model = scriptedModel(classification({ category: "fyi", confidence: 0.9 }));
+
     const result = await classifyEmail(
       args({
         document: {
@@ -1398,6 +1500,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.floors.override.verdict.kind, "keep");
     assert.equal(result.audit.conflict, null);
@@ -1411,6 +1514,7 @@ describe("classifyEmail", () => {
       classification({ category: "fyi" }),
       classification({ category: "action_needed", confidence: 0.7 }),
     );
+
     const result = await classifyEmail(
       args({
         observations: observations({
@@ -1419,6 +1523,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(model.calls(), 2);
     assert.equal(result.audit.conflict?.kind, "under_classification");
     assert.equal(result.audit.secondPass?.category, "action_needed");
@@ -1429,6 +1534,7 @@ describe("classifyEmail", () => {
 
   test("no conflict → single pass, audit reflects no second pass or floor", async () => {
     const model = scriptedModel(classification({ category: "newsletter" }));
+
     const result = await classifyEmail(
       args({
         observations: observations({
@@ -1437,6 +1543,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(model.calls(), 1);
     assert.equal(result.audit.conflict, null);
     assert.equal(result.audit.secondPass, null);
@@ -1456,6 +1563,7 @@ describe("classifyEmail", () => {
         todoDecision: { outcome: "proposed" },
       }),
     );
+
     const result = await classifyEmail(
       args({
         observations: observations({
@@ -1470,6 +1578,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.audit.firstPass.category, "awaiting_reply");
@@ -1486,6 +1595,7 @@ describe("classifyEmail", () => {
         todoDecision: { outcome: "proposed" },
       }),
     );
+
     const result = await classifyEmail(
       args({
         document: {
@@ -1515,6 +1625,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.model, "injected+kindfloor");
@@ -1531,6 +1642,7 @@ describe("classifyEmail", () => {
         collabActivity: "other_activity",
       }),
     );
+
     const result = await classifyEmail(
       args({
         document: {
@@ -1560,6 +1672,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.classification.collabActivity, "other_activity");
     assert.equal(result.audit.firstPass.collabActivity, "other_activity");
@@ -1579,6 +1692,7 @@ describe("classifyEmail", () => {
         collabActivity: "other_activity",
       }),
     );
+
     const result = await classifyEmail(
       args({
         document: {
@@ -1606,6 +1720,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.floors.senderKind.verdict.kind, "keep");
     assert.equal(result.audit.floors.meeting.verdict.kind, "demote");
@@ -1624,6 +1739,7 @@ describe("classifyEmail", () => {
         collabActivity: "mentioned_user",
       }),
     );
+
     const result = await classifyEmail(
       args({
         document: {
@@ -1652,6 +1768,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.classification.category, "awaiting_reply");
     assert.equal(result.classification.collabActivity, "mentioned_user");
     assert.equal(result.audit.floors.senderKind.verdict.kind, "keep");
@@ -1671,6 +1788,7 @@ describe("classifyEmail", () => {
         todoDecision: { outcome: "proposed" },
       }),
     );
+
     const result = await classifyEmail(
       args({
         document: {
@@ -1695,6 +1813,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.model, "injected+kindfloor");
@@ -1710,6 +1829,7 @@ describe("classifyEmail", () => {
         todoDecision: { outcome: "proposed" },
       }),
     );
+
     const result = await classifyEmail(
       args({
         document: {
@@ -1741,6 +1861,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.audit.firstPass.category, "urgent");
@@ -1761,6 +1882,7 @@ describe("classifyEmail", () => {
         todoDecision: { outcome: "proposed" },
       }),
     );
+
     const result = await classifyEmail(
       args({
         document: {
@@ -1789,6 +1911,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.audit.firstPass.category, "urgent");
@@ -1805,6 +1928,7 @@ describe("classifyEmail", () => {
         todoDecision: { outcome: "proposed" },
       }),
     );
+
     const result = await classifyEmail(
       args({
         document: {
@@ -1826,6 +1950,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.classification.category, "urgent");
     assert.equal(result.audit.floors.override.verdict.kind, "escalate");
     assert.equal(result.audit.floors.senderKind.verdict.kind, "keep");
@@ -1843,6 +1968,7 @@ describe("classifyEmail", () => {
         todoDecision: { outcome: "proposed" },
       }),
     );
+
     const result = await classifyEmail(args({ runPass: model.runPass }));
     assert.deepEqual(result.classification.todoSuggestion, { name: "Rotate the key" });
   });
@@ -1859,6 +1985,7 @@ describe("classifyEmail", () => {
         todoDecision: { outcome: "proposed" },
       }),
     );
+
     const result = await classifyEmail(
       args({
         document: {
@@ -1871,6 +1998,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(result.audit.floors.override.verdict.kind, "escalate");
     assert.equal(result.classification.category, "urgent");
     assert.deepEqual(result.classification.todoSuggestion, { name: "Rotate the leaked Redis key" });
@@ -1888,6 +2016,7 @@ describe("classifyEmail", () => {
       classification({ category: "urgent", confidence: 0.8 }),
       classification({ category: "newsletter", confidence: 0.9 }),
     );
+
     const result = await classifyEmail(
       args({
         observations: observations({
@@ -1900,6 +2029,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
+
     assert.equal(model.calls(), 2);
     assert.equal(result.audit.conflict?.kind, "over_classification");
     assert.equal(result.audit.secondPass?.category, "newsletter");
@@ -1907,17 +2037,26 @@ describe("classifyEmail", () => {
     assert.match(result.model, /\+2pass$/);
   });
 
-  test("a failing under-classification second pass records the failure and escalates conservatively", async () => {
+  test("a failing under-classification second pass records the failure and keeps the first pass", async () => {
     // Regression guard: a transient failure on the optional second pass must not
     // propagate (the workflow would force the message to the default `fyi`,
-    // de-escalating it). Under-classification is the safety-critical direction,
-    // so a passive first pass is not preserved either.
+    // de-escalating it). It must not ESCALATE either: the under-classification
+    // net fires on the broad `hasSecurityKeyword` flag, which every vendor auth
+    // echo sets, so escalating on a transient model outage put that whole class
+    // in a demand lane on model weather alone (rule 15a). The exposed-secret
+    // case does not need this branch — the override floor forces `urgent`
+    // deterministically, and `detectConflict` suppresses this conflict whenever
+    // the floor matches, so the escalation branch was unreachable anyway.
     let calls = 0;
+
     const runPass: RunPass = async ({ pass }) => {
       calls++;
+
       if (pass === "second") throw new Error("transient second-pass failure");
+
       return classification({ category: "newsletter", confidence: 0.7 });
     };
+
     const result = await classifyEmail(
       args({
         observations: observations({
@@ -1926,22 +2065,27 @@ describe("classifyEmail", () => {
         runPass,
       }),
     );
+
     assert.equal(calls, 2); // conflict fired, second pass attempted
     assert.equal(result.audit.conflict?.kind, "under_classification");
     assert.equal(result.audit.secondPass, null);
     assert.match(result.audit.secondPassFailure?.message ?? "", /transient second-pass failure/);
-    assert.equal(result.classification.category, "action_needed");
-    assert.match(result.classification.rationale, /conservatively escalated/i);
+    assert.equal(result.classification.category, "newsletter");
+    assert.equal(result.classification.confidence, 0.7);
     assert.equal(result.model, "injected+2pass_failed");
   });
 
   test("a failing over-classification second pass keeps the first pass but records the failure", async () => {
     let calls = 0;
+
     const runPass: RunPass = async ({ pass }) => {
       calls++;
+
       if (pass === "second") throw new Error("temporary outage");
+
       return classification({ category: "urgent", confidence: 0.7 });
     };
+
     const result = await classifyEmail(
       args({
         observations: observations({
@@ -1954,6 +2098,7 @@ describe("classifyEmail", () => {
         runPass,
       }),
     );
+
     assert.equal(calls, 2);
     assert.equal(result.audit.conflict?.kind, "over_classification");
     assert.equal(result.audit.secondPass, null);
@@ -1979,6 +2124,7 @@ describe("triageClassificationSchema.todoSuggestion", () => {
       todoSuggestion: null,
       todoDecision: { outcome: "no_obligation" },
     });
+
     assert.equal(output.confidence, 1);
     assert.equal(output.collabActivity, null);
   });
@@ -2013,6 +2159,7 @@ describe("triageClassificationSchema.todoSuggestion", () => {
       confidence: 0.9,
       rationale: "x",
     });
+
     assert.equal(r.success, true);
   });
 
@@ -2073,13 +2220,16 @@ describe("sanitizeAssist", () => {
       sentAt: new Date("2026-06-10T19:30:00Z"),
       timezone: parseIanaTimezone("Asia/Kolkata"),
     };
+
     assert.equal(sanitizeAssist("due tomorrow", evening), "due Jun 12");
     assert.equal(sanitizeAssist("due today", evening), "due Jun 11");
+
     // Same instant, a zone west of UTC: still the local day, still not UTC's.
     const la = {
       sentAt: new Date("2026-06-11T04:30:00Z"),
       timezone: parseIanaTimezone("America/Los_Angeles"),
     };
+
     assert.equal(sanitizeAssist("due tomorrow", la), "due Jun 11");
   });
 
@@ -2198,6 +2348,7 @@ describe("resolveTodoSuggestion", () => {
       }),
       null,
     );
+
     assert.deepEqual(resolved, suggestion);
   });
 
@@ -2558,6 +2709,7 @@ describe("classifyCallOptions", () => {
 
   test("maxRetries stays absent in production and set for the eval", () => {
     assert.equal("maxRetries" in call(new AbortController().signal), false);
+
     const evalOptions = classifyCallOptions({
       model: "gemini-2.5-flash-lite",
       instructions: SYSTEM_PROMPT,
@@ -2565,6 +2717,7 @@ describe("classifyCallOptions", () => {
       signal: new AbortController().signal,
       maxRetries: 1,
     });
+
     assert.equal(evalOptions.maxRetries, 1);
   });
 });

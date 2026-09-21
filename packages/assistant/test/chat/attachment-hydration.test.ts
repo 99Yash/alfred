@@ -30,6 +30,7 @@ const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 function pngBytes(totalBytes: number): Uint8Array {
   const bytes = new Uint8Array(totalBytes);
   bytes.set(PNG_MAGIC.slice(0, Math.min(PNG_MAGIC.length, totalBytes)));
+
   return bytes;
 }
 
@@ -57,13 +58,16 @@ function userMessage(content: unknown): AgentTranscriptMessage {
 function readerFor(objects: Record<string, Uint8Array>): StoredObjectReader {
   return async (storageKey) => {
     const bytes = objects[storageKey];
+
     if (!bytes) throw new Error(`no such object: ${storageKey}`);
+
     return bytes;
   };
 }
 
 function textParts(content: unknown): string[] {
   assert.ok(Array.isArray(content), "hydrated content should stay a parts array");
+
   return content
     .filter((part): part is { type: "text"; text: string } => {
       return (
@@ -75,6 +79,7 @@ function textParts(content: unknown): string[] {
 
 function filePartCount(content: unknown): number {
   assert.ok(Array.isArray(content));
+
   return content.filter(
     (part) =>
       typeof part === "object" && part !== null && (part as { type?: unknown }).type === "file",
@@ -84,6 +89,7 @@ function filePartCount(content: unknown): number {
 describe("chat attachment hydration — per-turn byte budget", () => {
   test("inlines an image as a base64 file part and charges its encoded size", async () => {
     const raw = pngBytes(3_000);
+
     const { transcript, budget } = await hydrateTranscriptForModel(
       [userMessage([{ type: "text", text: "what is this" }, storedImage("k1", raw.byteLength)])],
       readerFor({ k1: raw }),
@@ -101,6 +107,7 @@ describe("chat attachment hydration — per-turn byte budget", () => {
   test("reads each storage key once even when the same image repeats", async () => {
     const raw = pngBytes(3_000);
     let reads = 0;
+
     const { budget } = await hydrateTranscriptForModel(
       [
         userMessage([storedImage("same", raw.byteLength)]),
@@ -109,6 +116,7 @@ describe("chat attachment hydration — per-turn byte budget", () => {
       async (key) => {
         reads += 1;
         assert.equal(key, "same");
+
         return raw;
       },
     );
@@ -120,10 +128,12 @@ describe("chat attachment hydration — per-turn byte budget", () => {
 
   test("a declared byteSize over budget is skipped without reading the object", async () => {
     let reads = 0;
+
     const { transcript, budget } = await hydrateTranscriptForModel(
       [userMessage([storedImage("huge", MAX_MODEL_ATTACHMENT_BYTES_PER_TURN)])],
       async () => {
         reads += 1;
+
         return pngBytes(8);
       },
     );
@@ -141,6 +151,7 @@ describe("chat attachment hydration — per-turn byte budget", () => {
     // No `byteSize`, so the projection check cannot fire — only the re-check
     // against the real encoded size stops this one.
     const raw = pngBytes(MAX_MODEL_ATTACHMENT_BYTES_PER_TURN);
+
     const { transcript, budget } = await hydrateTranscriptForModel(
       [userMessage([storedImage("undeclared")])],
       readerFor({ undeclared: raw }),
@@ -156,6 +167,7 @@ describe("chat attachment hydration — per-turn byte budget", () => {
     const halfPlus = Math.ceil((MAX_MODEL_ATTACHMENT_BYTES_PER_TURN * 3) / 4 / 2) + 1_000;
     const older = pngBytes(halfPlus);
     const newer = pngBytes(halfPlus);
+
     const { transcript, budget } = await hydrateTranscriptForModel(
       [
         userMessage([{ type: "text", text: "older" }, storedImage("older", older.byteLength)]),
@@ -209,6 +221,7 @@ describe("chat attachment hydration — per-turn byte budget", () => {
 
   test("a skipped image never leaves the turn short a part", async () => {
     const raw = pngBytes(3_000);
+
     const { transcript } = await hydrateTranscriptForModel(
       [
         userMessage([

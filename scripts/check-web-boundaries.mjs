@@ -26,8 +26,10 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 // same drive, the same way `check-consolidation-drift.mjs` hosts the git-source-file
 // fixtures.
 const selfTest = [...workspaceSelfTestFailures(), ...webBoundarySelfTestFailures()];
+
 if (selfTest.length > 0) {
   console.error("Web boundary self-test failed:\n");
+
   for (const failure of selfTest) console.error(`  ${failure}`);
   console.error("\nFix the rules before trusting this check.");
   process.exit(1);
@@ -36,6 +38,7 @@ if (selfTest.length > 0) {
 const { roots, files, failures: surfaceFailures } = browserSurface(ROOT);
 
 const violations = [];
+
 for (const file of files) {
   for (const violation of findViolations(ROOT, file)) {
     violations.push({ file, ...violation });
@@ -46,6 +49,7 @@ const docFailures = docListFailures(ROOT);
 
 if (surfaceFailures.length > 0) {
   console.error("The browser boundary scan surface did not resolve:");
+
   for (const failure of surfaceFailures) console.error(`- ${failure}`);
   console.error(
     "A check that cannot resolve its own surface must not report success. Fix the surface, then re-run.\n",
@@ -54,9 +58,11 @@ if (surfaceFailures.length > 0) {
 
 if (violations.length > 0) {
   console.error(`Forbidden runtime imports in ${roots.join(", ")}:`);
+
   for (const v of violations) {
     console.error(`- ${v.file}:${v.line} imports ${v.specifier}`);
   }
+
   console.error(
     "Use type-only imports where allowed, or move shared runtime code to @alfred/contracts/@alfred/sync.",
   );
@@ -64,6 +70,7 @@ if (violations.length > 0) {
 
 if (docFailures.length > 0) {
   console.error("\nThe forbidden package list has drifted from the prose that restates it:");
+
   for (const failure of docFailures) console.error(`- ${failure}`);
   console.error(
     "Edit the marked regions so the forbidden one names the same packages as FORBIDDEN_RUNTIME_PACKAGES in scripts/web-boundaries.mjs, the browser-safe one names none of them, and every package the list names sits inside one of them.",

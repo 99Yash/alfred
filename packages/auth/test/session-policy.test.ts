@@ -28,6 +28,7 @@ const DAY_SECONDS = 60 * 60 * 24;
 function sessionUpdateHook() {
   const before = authSessionPolicy().databaseHooks.session?.update?.before;
   assert.ok(before, "the session update boundary must clamp sliding expiry");
+
   return before;
 }
 
@@ -91,6 +92,7 @@ describe("session lifetime (#454)", () => {
     const now = Date.UTC(2026, 7, 18, 12, 0, 0);
     t.mock.timers.enable({ apis: ["Date"], now });
     const proposedExpiry = new Date(now + DAY_SECONDS * 7 * 1000);
+
     const result = await sessionUpdateHook()(
       { expiresAt: proposedExpiry },
       updateContext(new Date(now)),
@@ -123,6 +125,7 @@ describe("session lifetime (#454)", () => {
   test("an after hook composes without exposing replacement of the owner before hook", () => {
     const after = createAuthMiddleware(async () => {});
     const attemptedBefore = createAuthMiddleware(async () => {});
+
     const policy = authSessionPolicy({
       hooks: {
         after,

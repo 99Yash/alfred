@@ -59,8 +59,11 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 function inScanSurface(file) {
   const segments = file.split("/");
   const name = segments[segments.length - 1] ?? "";
+
   if (!name.endsWith(".ts") && !name.endsWith(".tsx")) return false;
+
   if (segments.slice(0, -1).includes("test")) return true;
+
   return name.endsWith(".test.ts") || name.endsWith(".test.tsx");
 }
 
@@ -102,9 +105,12 @@ function write(root, relative, content) {
  */
 function withFixture(files, body) {
   const fixture = mkdtempSync(join(tmpdir(), "alfred-test-id-prefixes-"));
+
   try {
     execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+
     for (const [relative, content] of Object.entries(files)) write(fixture, relative, content);
+
     return body(fixture);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
@@ -116,6 +122,7 @@ function scan(files) {
   return withFixture(files, (fixture) => {
     const { prefixes, failures, scanned } = likePrefixPatterns(fixture);
     const literals = testStringLiterals(fixture);
+
     return {
       prefixes,
       failures,
@@ -154,15 +161,19 @@ export function testIdPrefixSelfTestFailures() {
     "packages/one/test/gateway.test.ts": suite("test-settings-"),
     "packages/one/test/tx-core.test.ts": victim("test-settings-tx-"),
   });
+
   expectNoFailures("nested cross-file pair", nested, failures);
   expectCollisions("nested cross-file pair", nested, 1, failures);
+
   if (nested.collisions.length === 1) {
     const collision = nested.collisions[0];
+
     if (collision.prefix.file !== "packages/one/test/gateway.test.ts") {
       failures.push(
         `nested cross-file pair: the perpetrator must be the gateway file, received ${collision.prefix.file}`,
       );
     }
+
     if (collision.match.file !== "packages/one/test/tx-core.test.ts") {
       failures.push(
         `nested cross-file pair: the victim must be the tx-core file, received ${collision.match.file}`,
@@ -182,8 +193,10 @@ export function testIdPrefixSelfTestFailures() {
     "packages/one/test/fold.test.ts": suite("test-gmail-kind-fold-"),
     "packages/one/test/refold.test.ts": suite("test-gmail-kind-refold-"),
   });
+
   expectNoFailures("legal siblings", siblings, failures);
   expectCollisions("legal siblings", siblings, 0, failures);
+
   if (siblings.prefixes.length !== 8) {
     failures.push(
       `legal siblings: expected 8 resolved prefixes, received ${siblings.prefixes.length}`,
@@ -203,6 +216,7 @@ export function testIdPrefixSelfTestFailures() {
       "",
     ].join("\n"),
   });
+
   expectNoFailures("same-file nesting", sameFile, failures);
   expectCollisions("same-file nesting", sameFile, 0, failures);
 
@@ -217,6 +231,7 @@ export function testIdPrefixSelfTestFailures() {
       "",
     ].join("\n"),
   });
+
   if (opaque.failures.length !== 1) {
     failures.push(
       `unresolvable pattern: expected exactly one discovery failure, received ${JSON.stringify(opaque.failures)}`,
@@ -226,6 +241,7 @@ export function testIdPrefixSelfTestFailures() {
       `unresolvable pattern: the failure must say why, received ${JSON.stringify(opaque.failures[0])}`,
     );
   }
+
   if (opaque.prefixes.length !== 0) {
     failures.push(
       `unresolvable pattern: nothing may resolve, received ${JSON.stringify(opaque.prefixes)}`,
@@ -243,6 +259,7 @@ export function testIdPrefixSelfTestFailures() {
       "",
     ].join("\n"),
   });
+
   if (!wildcard.failures.some((entry) => entry.includes("starts with a wildcard"))) {
     failures.push(
       `leading wildcard: expected a wildcard failure, received ${JSON.stringify(wildcard.failures)}`,
@@ -259,7 +276,9 @@ export function testIdPrefixSelfTestFailures() {
     ),
     "packages/one/test/tx-core.test.ts": victim("test-settings-tx-"),
   });
+
   expectCollisions("prefix-ok on the pattern line", exempted, 0, failures);
+
   const bare = scan({
     "packages/one/test/gateway.test.ts": suite("test-settings-").replace(
       "`${ID_PREFIX}%`));",
@@ -267,6 +286,7 @@ export function testIdPrefixSelfTestFailures() {
     ),
     "packages/one/test/tx-core.test.ts": victim("test-settings-tx-"),
   });
+
   expectCollisions("prefix-ok with no reason", bare, 1, failures);
 
   // Arm 7 — an inline mint template is a victim too. `test-objstate-` carries no
@@ -275,6 +295,7 @@ export function testIdPrefixSelfTestFailures() {
     "packages/one/test/owner.test.ts": suite("test-obj"),
     "packages/one/test/state.test.ts": "const id = `test-objstate-${randomUUID()}`;\n",
   });
+
   expectCollisions("inline mint template", inlineMint, 1, failures);
 
   // Arm 8 — a `like()` cleanup that has moved OUT of a `.test.ts` file still
@@ -284,8 +305,10 @@ export function testIdPrefixSelfTestFailures() {
     "packages/one/test/support/row-scope.ts": suite("test-settings-"),
     "packages/one/test/tx-core.test.ts": victim("test-settings-tx-"),
   });
+
   expectNoFailures("cleanup in a support file", support, failures);
   expectCollisions("cleanup in a support file", support, 1, failures);
+
   if (support.scanned !== 2) {
     failures.push(
       `cleanup in a support file: expected 2 scanned files, received ${support.scanned}`,
@@ -305,8 +328,10 @@ export function testIdPrefixSelfTestFailures() {
       "",
     ].join("\n"),
   });
+
   expectNoFailures("assembled prefix", assembled, failures);
   expectCollisions("assembled prefix", assembled, 1, failures);
+
   const concatenated = scan({
     "packages/one/test/gateway.test.ts": suite("test-settings-"),
     "packages/one/test/tx-core.test.ts": [
@@ -315,6 +340,7 @@ export function testIdPrefixSelfTestFailures() {
       "",
     ].join("\n"),
   });
+
   expectCollisions("concatenated prefix", concatenated, 1, failures);
 
   // Arm 10 — a prefix this file cannot resolve is a `failures` entry, on the
@@ -330,17 +356,20 @@ export function testIdPrefixSelfTestFailures() {
       "",
     ].join("\n"),
   });
+
   if (!imported.failures.some((entry) => entry.includes("is imported"))) {
     failures.push(
       `imported prefix: expected an unreadable-declaration failure, received ${JSON.stringify(imported.failures)}`,
     );
   }
+
   const dynamic = scan({
     "packages/one/test/dynamic-prefix.test.ts": [
       "const ID_PREFIX = `test-dyn-${process.pid}-`;",
       "",
     ].join("\n"),
   });
+
   if (!dynamic.failures.some((entry) => entry.includes("does not resolve to one static string"))) {
     failures.push(
       `dynamic prefix: expected an unreadable-declaration failure, received ${JSON.stringify(dynamic.failures)}`,
@@ -355,6 +384,7 @@ export function testIdPrefixSelfTestFailures() {
     "packages/one/test/tx-core.test.ts":
       'const note = "don\'t"; const ID_PREFIX = "test-settings-tx-";\n',
   });
+
   expectCollisions("apostrophe before a prefix", apostrophe, 1, failures);
 
   // Arm 12 — `isScanFile` pinned against a hand-written table, so a narrowing of
@@ -376,6 +406,7 @@ export function testIdPrefixSelfTestFailures() {
     ["scripts/test-id-prefixes.selftest.mjs", false],
     ["packages/assistant/testing/harness.ts", false],
   ];
+
   for (const [file, expected] of scanSurfaceCases) {
     if (isScanFile(file) !== expected) {
       failures.push(
@@ -387,15 +418,19 @@ export function testIdPrefixSelfTestFailures() {
 
   // Arm 13 — the real root, counted twice by two different routes.
   const live = likePrefixPatterns(ROOT);
+
   if (live.prefixes.length === 0) {
     failures.push("real root: no LIKE pattern resolved, so the live gate would compare nothing");
   }
+
   if (testStringLiterals(ROOT).length === 0) {
     failures.push(
       "real root: no test string literal was read, so the live gate would compare nothing",
     );
   }
+
   const walked = testFiles(ROOT);
+
   const independent = execFileSync(
     "git",
     ["ls-files", "--cached", "--others", "--exclude-standard"],
@@ -406,23 +441,28 @@ export function testIdPrefixSelfTestFailures() {
     .filter(inScanSurface)
     .filter((file) => existsSync(resolve(ROOT, file)))
     .sort();
+
   if (independent.length === 0) {
     failures.push("real root: the independent enumeration found 0 files, so it proves nothing");
   }
+
   if (live.scanned !== walked.length) {
     failures.push(
       `real root: the walk reported ${live.scanned} scanned file(s) but listed ${walked.length}`,
     );
   }
+
   const seen = new Set(walked);
   const dropped = independent.filter((file) => !seen.has(file));
   const extra = walked.filter((file) => !independent.includes(file));
+
   if (dropped.length > 0) {
     failures.push(
       `real root: the walk missed ${dropped.length} file(s) of the scan surface, starting with ${dropped[0]}. ` +
         "A scan root was narrowed or removed; widen SCAN_ROOTS until the two enumerations agree.",
     );
   }
+
   if (extra.length > 0) {
     failures.push(
       `real root: the walk listed ${extra.length} file(s) the repository does not, starting with ${extra[0]}`,

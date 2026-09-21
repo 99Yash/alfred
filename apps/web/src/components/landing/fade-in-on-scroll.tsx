@@ -16,7 +16,9 @@ export function FadeInOnScroll({
 
   useEffect(() => {
     const el = ref.current;
+
     if (!el) return;
+
     const obs = new IntersectionObserver(
       ([entry]) => {
         if (entry?.isIntersecting) {
@@ -26,7 +28,9 @@ export function FadeInOnScroll({
       },
       { threshold: 0.15, rootMargin: "0px 0px -10% 0px" },
     );
+
     obs.observe(el);
+
     return () => obs.disconnect();
   }, []);
 

@@ -57,3 +57,12 @@ The realtime path advances the history cursor monotonically (only forward, only 
 **Expected impact.** Predicted p95 total tag latency ≈ 6–8s steady state (pub/sub ~1s + messages.list ~1s + messages.get + persist ~1.2s + triage enqueue ~0.1s + classify ~4s). Embed (~200ms–2s once Voyage is live) is no longer on the critical path. Median was already 8.5s; this collapses the long tail. Verify with a fresh `email_triage` ⨝ `documents` aggregation after a week of production traffic.
 
 **Trace back to the symptom.** 2026-05-22 ~10:24 IST: user reports a GitHub Sudo verification code took ~3 min to be tagged. Logs show the webhook fired at 04:54:06 UTC with `inserted=0 skipped=0` and the cursor advancing 73 ticks (label/system events only); the same message was finally ingested at 04:57:34 UTC on a subsequent webhook and tagged 4.5s later. Median tag latency for the same user in the prior 24h: 8.5s. This ADR replaces that webhook-triggered call with `messages.list`, which sees fresh sends within seconds rather than minutes.
+
+
+**Amended 2026-09-07 (#998 review).** The sweep now considers all active Gmail
+cursors on each five-minute run. It does not filter by sync completion time:
+a slow fallback poll previously made the next sweep skip its credential.
+History jobs use `keepLastIfActive`, retaining at most one follow-up during an
+active poll. Realtime jobs retain their separate 30-second dedup window.
+This adds a history request for recently synced active mailboxes. The schedule
+is not a completion-time guarantee under queue or provider load.

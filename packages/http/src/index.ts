@@ -20,6 +20,7 @@ import {
   invalidateSessionToken,
 } from "./middleware/session-cache";
 import { onboardingRoutes } from "./onboarding";
+import { sharingRoutes } from "./sharing";
 import { events } from "./realtime/events";
 import { skillsRoutes } from "./skills";
 import { replicache } from "./sync/replicache";
@@ -51,6 +52,7 @@ export {
   requireOnboarded,
   securityHeaders,
 };
+
 export type { SecurityHeadersOptions } from "./middleware/security-headers";
 
 // Routes. This is one barrel with no subpaths, so it is also one
@@ -74,12 +76,15 @@ export type { SecurityHeadersOptions } from "./middleware/security-headers";
 // the routes reach: an enumeration in this position is the one prose shape no
 // gate maintains.
 export { agent, approvalsRoutes, chatRoutes, meRoutes };
+
 export type { MeInboxItem, MeInboxMessage, MeLatestBriefing, MeMeetingItem } from "./me";
+
 export {
   connections,
   integrationsRoutes,
   mcpIntegrationRoutes,
   onboardingRoutes,
+  sharingRoutes,
   skillsRoutes,
   workflowRoutes,
 };
@@ -124,6 +129,7 @@ export { replicache };
 // package has no subpath the declaration could point at, so the one root barrel
 // advertises both protocol response types with the app that uses them.
 export type { PullResponse } from "./sync/pull";
+
 export type { PushResponse } from "./sync/push";
 
 /**
@@ -149,8 +155,10 @@ export type { PushResponse } from "./sync/push";
  * barrel still reads no environment and opens nothing.
  */
 let readyRedisConn: BoundedRedis | undefined;
+
 function readyRedis(): BoundedRedis {
   readyRedisConn ??= createRedisConnection("command");
+
   return readyRedisConn;
 }
 
@@ -174,14 +182,17 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
   .use(integrationsRoutes)
   .use(meRoutes)
   .use(onboardingRoutes)
+  .use(sharingRoutes)
   .use(skillsRoutes)
   .use(workflowRoutes)
   .get("/health", async ({ set }) => {
     try {
       await db().execute(sql`SELECT 1`);
+
       return { ok: true, db: "connected" };
     } catch {
       set.status = 503;
+
       return { ok: false, db: "disconnected" };
     }
   })
@@ -203,27 +214,33 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
     }
 
     const allOk = Object.values(checks).every((value) => value === "ok");
+
     if (!allOk) set.status = 503;
+
     return { ok: allOk, checks };
   })
   .get("/api/auth/get-session", async ({ request, set }) => {
     try {
       const session = await getSessionCached(request);
       set.headers["Cache-Control"] = "private, no-store";
+
       return session;
     } catch {
       set.headers["Cache-Control"] = "private, no-store";
+
       return null;
     }
   })
   .onRequest(({ request }) => {
     const url = new URL(request.url);
+
     if (request.method === "POST" && url.pathname === "/api/auth/sign-out") {
       invalidateSessionToken(request.headers);
     }
   })
   .mount(async (request: Request) => {
     const response = await auth().handler(request);
+
     // A Better Auth POST can create, update, or revoke a session. Clear after
     // success so every present and future mutation gets the safe behavior
     // without coordinating a route list. The boundary slash excludes near
@@ -235,6 +252,7 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
     ) {
       clearSessionTokenCache();
     }
+
     return response;
   });
 

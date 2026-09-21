@@ -60,6 +60,7 @@ test("HttpError carries structured fields and a tag, not just a message", () => 
     method: "POST",
     body: "rate limited",
   });
+
   assert.equal(err._tag, "HttpError");
   assert.equal(err.provider, "gmail");
   assert.equal(err.status, 429);
@@ -85,6 +86,7 @@ test("HttpError redacts secrets that ride in the URL", () => {
     url: "https://api.example.com/v1?access_token=topsecret123",
     body: "",
   });
+
   assert.ok(!err.message.includes("topsecret123"));
 });
 
@@ -99,6 +101,7 @@ test("httpErrorFromResponse builds a bounded, redacted error from a Response", a
     status: 403,
     statusText: "Forbidden",
   });
+
   const err = await httpErrorFromResponse("notion", res, { url: "/v1/pages", method: "GET" });
   assert.ok(isHttpError(err));
   assert.equal(err.status, 403);

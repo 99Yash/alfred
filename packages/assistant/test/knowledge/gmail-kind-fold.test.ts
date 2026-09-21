@@ -17,8 +17,11 @@ import {
 import { dbBackedSkip } from "../support/db-backed";
 
 const ID_PREFIX = "test-gmail-kind-fold-";
+
 const OCCURRED_AT = new Date("2026-06-30T08:00:00.000Z");
+
 const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
+
 const createdUserIds: string[] = [];
 
 const SERVER_ENV_FIXTURES = {
@@ -52,6 +55,7 @@ describe("projectGmailKindProfiles (DB-backed)", { skip: SKIP_DB }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -84,6 +88,7 @@ describe("projectGmailKindProfiles (DB-backed)", { skip: SKIP_DB }, () => {
       projectionName: USER_MODEL_PROJECTION_NAME,
       projectionVersion: 1,
     });
+
     const projected = await projectGmailKindProfiles({
       userId,
       projectionRunId: run.id,
@@ -91,6 +96,7 @@ describe("projectGmailKindProfiles (DB-backed)", { skip: SKIP_DB }, () => {
       computedAt: OCCURRED_AT,
       excludeEmailValues: ["yash@example.com"],
     });
+
     assert.equal(projected.profileCount, 2);
     assert.match(projected.checksum, /^sha256:[a-f0-9]{64}$/);
 
@@ -108,10 +114,12 @@ describe("projectGmailKindProfiles (DB-backed)", { skip: SKIP_DB }, () => {
     });
 
     const reader = userModelReader(userId);
+
     const engineering = await reader.getProfileByIdentity({
       kind: "email",
       value: "engineering@oliv.ai",
     });
+
     assert.equal(engineering?.kind, "group");
     assert.equal(engineering.displayName, "Engineering");
     assert.equal(
@@ -139,6 +147,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 

@@ -35,15 +35,18 @@ export function syncEntity<const Model extends SyncEntityModelContract<IDBKeys>,
 ): EntityFetcher<Model["slug"]> {
   return async (tx, userId) => {
     const rows = await config.query(tx, userId);
+
     return rows.flatMap((row) =>
       toEntityRow({
         slug: model.slug,
         make: () => {
           const mapped = config.map(row);
+
           try {
             const { id, storageKey, rowVersion, value } = model.parsePullValue(
               stringifyDates(mapped),
             );
+
             return { id, storageKey, rowVersion, serialized: value };
           } catch (err) {
             if (err instanceof ZodError) {
@@ -54,17 +57,22 @@ export function syncEntity<const Model extends SyncEntityModelContract<IDBKeys>,
                     : "<root>",
                 )
                 .join(", ");
+
               let preview = "<unserializable mapped value>";
+
               try {
                 const serialized = JSON.stringify(mapped);
+
                 if (serialized !== undefined) preview = serialized.slice(0, 200);
               } catch {
                 // The schema error remains recoverable even when its diagnostic cannot serialize the value.
               }
+
               console.warn(
                 `[replicache] invalid ${model.slug} row at ${paths}; mapped value: ${preview}`,
               );
             }
+
             throw err;
           }
         },
@@ -78,16 +86,21 @@ function stringifyDates(value: unknown): unknown {
   if (value instanceof Date) {
     return value.toISOString();
   }
+
   if (Array.isArray(value)) {
     return value.map(stringifyDates);
   }
+
   if (isRecord(value)) {
     const out = Object.assign({}, value);
+
     for (const [key, entry] of Object.entries(value)) {
       out[key] = stringifyDates(entry);
     }
+
     // eslint-disable-next-line anti-slop/no-known-value-widening -- the selected sync schema validates this complete projection immediately
     return out;
   }
+
   return value;
 }

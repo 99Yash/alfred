@@ -52,15 +52,19 @@ function isFiniteNumber(value: unknown): value is number {
 function readCauses(value: unknown): PassthroughTruncation["causes"] {
   if (!Array.isArray(value)) return [];
   const causes: PassthroughTruncation["causes"] = [];
+
   for (const entry of value) {
     if (!isRecord(entry)) continue;
     const { kind, droppedApprox } = entry;
+
     if (typeof kind !== "string" || !TRUNCATION_CAUSE_KINDS.has(kind)) continue;
+
     if (!isFiniteNumber(droppedApprox)) continue;
     // SAFETY: kind was proven a member of TRUNCATION_CAUSE_KINDS and
     // droppedApprox finite above; together they are exactly this union member.
     causes.push({ kind, droppedApprox } as PassthroughTruncation["causes"][number]);
   }
+
   return causes;
 }
 
@@ -77,13 +81,16 @@ export function passthroughTruncationTelemetry(
 ): PassthroughTruncationTelemetry | null {
   if (!isRecord(result) || result.outcome !== "http") return null;
   const { truncation, succeeded } = result;
+
   if (!isRecord(truncation) || truncation.handleEligible !== true) return null;
 
   const causes = readCauses(truncation.causes);
   const returnedBytes = isFiniteNumber(truncation.returnedBytes) ? truncation.returnedBytes : 0;
+
   const originalBytesApprox = isFiniteNumber(truncation.originalBytesApprox)
     ? truncation.originalBytesApprox
     : 0;
+
   const droppedByKind = (target: string): number =>
     causes.reduce((sum, cause) => (cause.kind === target ? sum + cause.droppedApprox : sum), 0);
 

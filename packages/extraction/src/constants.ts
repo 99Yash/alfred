@@ -30,11 +30,13 @@ export interface PdfExtractionLimits {
 export type ExtractionLimits = PdfExtractionLimits;
 
 const CHAT_PDF_EXTRACTION_CHARACTER_LIMIT = 100_000;
+
 // `fetch_url` returns at most FETCH_URL_MAX_TEXT_CHARS characters, but
 // its PDF parser may read farther so the caller can truncate an otherwise valid
 // document instead of treating the output limit as an extraction failure.
 // Derived from the shared tool cap so the two sides cannot drift.
 const FETCH_URL_PDF_EXTRACTION_CHARACTER_LIMIT = FETCH_URL_MAX_TEXT_CHARS * 2;
+
 // Long but valuable docs: keep as much as the 10 MB input allows, truncate
 // at the limit instead of skipping the attachment.
 const GMAIL_ATTACHMENT_PDF_EXTRACTION_CHARACTER_LIMIT = 1_000_000;

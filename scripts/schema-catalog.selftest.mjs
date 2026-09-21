@@ -57,10 +57,13 @@ function collectFailures() {
   // Direct defs: exported vs local, both counted, names exact.
   const two = scanFile(FIXTURE_TWO_SCHEMAS);
   const twoNames = two.map((def) => def.name).sort();
+
   if (twoNames.join(",") !== "internalGadget,widgetSchema") {
     failures.push(`FIXTURE_TWO_SCHEMAS names: [${twoNames.join(", ")}]`);
   }
+
   const exportedStates = Object.fromEntries(two.map((def) => [def.name, def.exported]));
+
   if (exportedStates.widgetSchema !== true || exportedStates.internalGadget !== false) {
     failures.push(`FIXTURE_TWO_SCHEMAS export flags: ${JSON.stringify(exportedStates)}`);
   }
@@ -68,21 +71,26 @@ function collectFailures() {
   // Annotations, let-bindings, and composition off a known base.
   const ann = scanFile(FIXTURE_ANNOTATION_AND_EXPORTS);
   const annNames = ann.map((def) => def.name).sort();
+
   if (!annNames.includes("framedSchema")) {
     failures.push(`annotation-parsed def missing framedSchema: [${annNames.join(", ")}]`);
   }
+
   if (!annNames.includes("mutableSchema")) {
     failures.push(`let-binding def missing mutableSchema: [${annNames.join(", ")}]`);
   }
+
   if (!annNames.includes("derived")) {
     failures.push(`composition def missing derived: [${annNames.join(", ")}]`);
   }
+
   if (annNames.includes("unrelatedChain")) {
     failures.push("composition matched a non-schema fluent chain (unrelatedChain)");
   }
 
   // Absence: referencing z or calling other builders is not a definition.
   const none = scanFile(FIXTURE_NO_SCHEMAS);
+
   if (none.length !== 0) {
     failures.push(`FIXTURE_NO_SCHEMAS expected zero defs, got ${none.length}`);
   }
@@ -91,12 +99,15 @@ function collectFailures() {
   // the comment text, and braces inside the block comment stay balanced.
   const commented = scanFile(FIXTURE_COMMENT_BODY);
   const sigs = commented.map((def) => def.signature);
+
   if (sigs.some((sig) => sig === null || sig === undefined)) {
     failures.push(`FIXTURE_COMMENT_BODY lost a signature: ${JSON.stringify(sigs)}`);
   }
+
   if (commented[0]?.signature !== commented[1]?.signature) {
     failures.push("commented and plain object bodies should normalize to one signature");
   }
+
   if (commented[0]?.signature?.includes("as a comment")) {
     failures.push("line-comment text leaked into the normalized signature");
   }
@@ -110,10 +121,13 @@ function collectFailures() {
       defs: scanFile(FIXTURE_COMMENT_BODY),
     },
   ];
+
   const groups = findDupes(dupeScan);
+
   if (groups.length !== 1 || groups[0][1].length !== 2) {
     failures.push(`expected 1 dupe group of 2 sites, got ${JSON.stringify(groups)}`);
   }
+
   if (groups[0] && !groups[0][1].every((site) => site.includes("packages/one/src/a.ts"))) {
     failures.push(`dupe group sites carry wrong file labels: ${JSON.stringify(groups[0][1])}`);
   }
@@ -129,6 +143,7 @@ function collectFailures() {
       ],
     },
   ];
+
   if (findDupes(distinctScan).length !== 0) {
     failures.push("distinct bodies grouped as duplicates");
   }

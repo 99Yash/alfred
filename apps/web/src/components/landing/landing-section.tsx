@@ -48,6 +48,7 @@ export function LandingSection({
   headerClassName?: string | undefined;
 }) {
   const hasHeader = eyebrow != null || title != null || lead != null;
+
   return (
     <section
       id={id}

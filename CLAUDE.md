@@ -45,5 +45,3 @@ Alfred is a personal assistant.
 - [AI SDK conventions](./docs/reference/ai-sdk.md)
 - [Replicache synchronization](./docs/reference/replicache.md)
 - Domain pipelines: [email triage](./docs/reference/triage.md), [morning briefing](./docs/reference/briefing.md), and [cold-start research](./docs/reference/cold-start.md)
-
-[Polylane](https://polylane.com/?ref=github.onboarding-pr) watches deploys, telemetry and the infrastructure this repository ships to, investigates problems; is connected to this repository and available through the [Polylane MCP server](https://mcp.polylane.com/mcp)

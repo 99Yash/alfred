@@ -54,12 +54,14 @@ export async function ensureEntityNode(
         setWhere: sql`excluded.first_seen_at < ${entityNodes.firstSeenAt}`,
       });
     const [node] = await ex.select().from(entityNodes).where(eq(entityNodes.id, row.id)).limit(1);
+
     if (!node) {
       throw new Error(
         `[user-model.ensureEntityNode] node ${row.id} missing immediately after upsert ` +
           `(user=${args.userId})`,
       );
     }
+
     return node;
   };
 
@@ -171,12 +173,14 @@ export async function recordEntityIdentity(
         ),
       )
       .limit(1);
+
     if (!live) {
       throw new Error(
         `[user-model.recordEntityIdentity] live identity missing after upsert ` +
           `(user=${args.userId}, kind=${identity.kind})`,
       );
     }
+
     if (live.entityId !== args.entityId) {
       throw new EntityIdentityConflictError({
         kind: identity.kind,
@@ -185,6 +189,7 @@ export async function recordEntityIdentity(
         liveEntityId: live.entityId,
       });
     }
+
     return live;
   };
 

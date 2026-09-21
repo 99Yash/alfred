@@ -30,6 +30,7 @@ const SERVER_ENV_FIXTURES = {
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
   ENTITY_ID_NAMESPACE: "stable namespace secret for tests",
 } satisfies Record<string, string>;
+
 for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
   process.env[key] ??= value;
 }
@@ -58,14 +59,17 @@ function makeDeps(
   const addCalls: Array<{ messageId: string; labelId: string }> = [];
   const ensureIds = overrides.ensureIds ?? [LABEL_ID, LABEL_ID];
   let addAttempts = 0;
+
   const deps: LabelSelfMailDeps = {
     ensureLabel: async ({ force }) => {
       const id = ensureIds[ensureCalls.length] ?? ensureIds[ensureIds.length - 1] ?? LABEL_ID;
       ensureCalls.push({ force });
+
       return id;
     },
     addLabel: async ({ messageId, labelId }) => {
       addAttempts++;
+
       if (overrides.failAddCalls && addAttempts <= overrides.failAddCalls) {
         throw new HttpError({
           provider: "gmail",
@@ -75,15 +79,18 @@ function makeDeps(
           body: `attempt ${addAttempts}`,
         });
       }
+
       addCalls.push({ messageId, labelId });
     },
   };
+
   return { deps, ensureCalls, addCalls };
 }
 
 describe("labelSelfAuthoredMail (#285)", () => {
   test("applies the self-label when the message lacks it", async () => {
     const { deps, addCalls } = makeDeps();
+
     const res = await labelSelfAuthoredMail(
       {
         credentialId: "cred_1",
@@ -93,12 +100,14 @@ describe("labelSelfAuthoredMail (#285)", () => {
       },
       deps,
     );
+
     assert.deepEqual(res, { labeled: true, labelId: LABEL_ID });
     assert.deepEqual(addCalls, [{ messageId: "msg_1", labelId: LABEL_ID }]);
   });
 
   test("skips the modify round-trip when the label is already present", async () => {
     const { deps, addCalls } = makeDeps();
+
     const res = await labelSelfAuthoredMail(
       {
         credentialId: "cred_1",
@@ -108,16 +117,19 @@ describe("labelSelfAuthoredMail (#285)", () => {
       },
       deps,
     );
+
     assert.deepEqual(res, { labeled: false, labelId: LABEL_ID });
     assert.equal(addCalls.length, 0, "no write when the label is already on the message");
   });
 
   test("applies when currentLabelIds is absent (defensive: treat as unlabelled)", async () => {
     const { deps, addCalls } = makeDeps();
+
     const res = await labelSelfAuthoredMail(
       { credentialId: "cred_1", messageId: "msg_1", accessToken: "tok" },
       deps,
     );
+
     assert.equal(res.labeled, true);
     assert.equal(addCalls.length, 1);
   });
@@ -129,6 +141,7 @@ describe("labelSelfAuthoredMail (#285)", () => {
       ensureIds: ["Label_stale", "Label_fresh"],
       failAddCalls: 1,
     });
+
     const res = await labelSelfAuthoredMail(
       {
         credentialId: "cred_1",
@@ -138,6 +151,7 @@ describe("labelSelfAuthoredMail (#285)", () => {
       },
       deps,
     );
+
     assert.deepEqual(res, { labeled: true, labelId: "Label_fresh" });
     assert.equal(ensureCalls.length, 2);
     assert.equal(ensureCalls[0]?.force, undefined, "first ensure is cache-first");

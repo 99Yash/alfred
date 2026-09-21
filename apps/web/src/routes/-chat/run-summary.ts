@@ -1,7 +1,7 @@
 import { type LucideIcon } from "lucide-react";
 import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { lowerFirst } from "~/lib/strings";
-import { animatedToolIcon } from "./animated-tool-icons";
+import { brandlessToolIcon } from "./animated-tool-icons";
 import { presentTool, toolCategory, type ToolCallView } from "./tool-call-presentation";
 
 /**
@@ -21,28 +21,41 @@ export type RunGlyph =
 
 /**
  * The distinct glyphs a finished run touched, in first-seen order: an
- * integration's brand coin where the tool has one, otherwise the system tool's
- * own animated mark (web_search → chrome, …). Deduped so repeated calls collapse
- * to a single coin and a Gmail-read-then-web-search run reads as gmail + chrome.
+ * integration's brand coin where the tool has one, otherwise the brandless
+ * tool's own mark (web_search → globe, corpus_search → library, …). Deduped so
+ * repeated calls collapse to a single coin and a Gmail-read-then-web-search run
+ * reads as gmail + globe.
  */
 export function runGlyphs(tools: ToolCallView[]): RunGlyph[] {
   const glyphs: RunGlyph[] = [];
-  const seen = new Set<string>();
+  const seenBrands = new Set<IntegrationBrand>();
+  // Deduped by the component itself, not by a name: several tools deliberately
+  // share one mark (both `mcp.*` tools draw the plug, both workflow authoring
+  // tools draw the flow), and two of them in one run must still collapse to a
+  // single coin.
+  const seenIcons = new Set<LucideIcon>();
+
   for (const tool of tools) {
     const { brand } = presentTool(tool);
+
     if (brand) {
-      if (seen.has(`brand:${brand}`)) continue;
-      seen.add(`brand:${brand}`);
+      if (seenBrands.has(brand)) continue;
+      seenBrands.add(brand);
       glyphs.push({ kind: "brand", key: brand, brand });
       continue;
     }
-    const animatedIcon = animatedToolIcon(tool.toolName);
-    if (animatedIcon) {
-      if (seen.has(`icon:${animatedIcon.key}`)) continue;
-      seen.add(`icon:${animatedIcon.key}`);
-      glyphs.push({ kind: "icon", key: animatedIcon.key, Icon: animatedIcon.Icon });
+
+    const Icon = brandlessToolIcon(tool.toolName);
+
+    if (Icon) {
+      if (seenIcons.has(Icon)) continue;
+      seenIcons.add(Icon);
+      // The first tool name that introduced this mark is unique across the
+      // list — every later one is skipped above — so it is a stable React key.
+      glyphs.push({ kind: "icon", key: tool.toolName, Icon });
     }
   }
+
   return glyphs;
 }
 
@@ -68,6 +81,7 @@ export function runSummary(tools: ToolCallView[]): string {
   const actions = succeeded.filter((t) => toolCategory(t.toolName) === "action");
 
   const distinctSources = new Set(sources.map((t) => t.toolName));
+
   const sourceClause =
     sources.length === 0
       ? null
@@ -85,8 +99,11 @@ export function runSummary(tools: ToolCallView[]): string {
   if (sourceClause && actionClause) {
     return `${sourceClause} and ${lowerFirst(actionClause)}`;
   }
+
   const lone = actionClause ?? sourceClause;
+
   if (lone) return lone;
+
   // Nothing countable landed. If steps failed, say so rather than claiming
   // work; otherwise the run was pure plumbing and "worked on it" is accurate.
   return tools.some((t) => t.status === "failed") ? "Couldn't finish that" : "Worked on it";

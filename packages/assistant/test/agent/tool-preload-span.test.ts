@@ -14,18 +14,23 @@ interface CapturedSpans {
   opened: RuntimeSpanInput[];
   ended: RuntimeSpanEndArgs[];
 }
+
 function capture(run: () => void): CapturedSpans {
   const opened: RuntimeSpanInput[] = [];
   const ended: RuntimeSpanEndArgs[] = [];
+
   const restore = _setRuntimeSpanStarterForTests((input) => {
     opened.push(input);
+
     return { end: (args) => ended.push(args) };
   });
+
   try {
     run();
   } finally {
     restore();
   }
+
   return { opened, ended };
 }
 
@@ -59,6 +64,7 @@ describe("runtime.tool.preload", () => {
     const { opened, ended } = capture(() => {
       startToolPreloadSpan(args).end(["calendar.list_events", "calendar.get_event"], 10, 42);
     });
+
     assert.equal(opened.length, 1);
     assert.deepEqual(ended, [
       {
@@ -87,6 +93,7 @@ describe("runtime.tool.preload", () => {
       span.error();
       span.end(["gmail.search"], 9, 42);
     });
+
     assert.deepEqual(failed.ended, [{ status: "error", level: "ERROR" }]);
   });
 });

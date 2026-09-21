@@ -28,6 +28,7 @@ export function Favicon({
   // so the stale failure never flashes for a frame after the domain swaps.
   const [failed, setFailed] = useState(false);
   const [prevDomain, setPrevDomain] = useState(domain);
+
   if (domain !== prevDomain) {
     setPrevDomain(domain);
     setFailed(false);

@@ -65,14 +65,18 @@ const LOCAL_DATE_KEY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
  */
 export function parseLocalDateKey(value: string): LocalDateKey {
   const match = LOCAL_DATE_KEY_RE.exec(value);
+
   if (!match) {
     throw new Error(`[timezone] not a local date key (expected YYYY-MM-DD): ${value}`);
   }
+
   const [, year, month, day] = match;
   const utc = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+
   if (utc.toISOString().slice(0, 10) !== value) {
     throw new Error(`[timezone] not a real calendar day: ${value}`);
   }
+
   // SAFETY: value passed isLocalDateKey above, which accepts exactly the
   // YYYY-MM-DD calendar-day shape the brand names.
   return value as LocalDateKey;
@@ -87,8 +91,10 @@ export function parseLocalDateKey(value: string): LocalDateKey {
  */
 export function isLocalDateKey(value: unknown): value is LocalDateKey {
   if (typeof value !== "string") return false;
+
   try {
     parseLocalDateKey(value);
+
     return true;
   } catch {
     return false;
@@ -102,6 +108,7 @@ export function isLocalDateKey(value: unknown): value is LocalDateKey {
  */
 function dateParts(key: LocalDateKey): [year: number, monthIndex: number, day: number] {
   const [year, month, day] = key.split("-");
+
   return [Number(year), Number(month) - 1, Number(day)];
 }
 
@@ -144,15 +151,19 @@ const formatterCache = new WeakMap<FormatRecipe, Map<string, Intl.DateTimeFormat
 
 function formatterFor(recipe: FormatRecipe, timeZone: string): Intl.DateTimeFormat {
   let byZone = formatterCache.get(recipe);
+
   if (!byZone) {
     byZone = new Map();
     formatterCache.set(recipe, byZone);
   }
+
   let formatter = byZone.get(timeZone);
+
   if (!formatter) {
     formatter = new Intl.DateTimeFormat(recipe.locale, { ...recipe.options, timeZone });
     byZone.set(timeZone, formatter);
   }
+
   return formatter;
 }
 
@@ -171,9 +182,11 @@ function requirePart(
   timezone: string,
 ): string {
   const value = parts.find((part) => part.type === type)?.value;
+
   if (!value) {
     throw new Error(`[timezone] Intl returned no ${type} part for tz=${timezone}`);
   }
+
   return value;
 }
 
@@ -230,6 +243,7 @@ const WALL_CLOCK_RECIPE: FormatRecipe = {
 export function addDays(key: LocalDateKey, days: number): LocalDateKey {
   const next = noonUtcOn(key);
   next.setUTCDate(next.getUTCDate() + days);
+
   // SAFETY: the first ten chars of an ISO instant are exactly YYYY-MM-DD,
   // which is the LocalDateKey brand's whole claim.
   return next.toISOString().slice(0, 10) as LocalDateKey;
@@ -371,9 +385,11 @@ const clockCache = new Map<IanaTimezone, ZoneClock>();
  */
 export function inZone(timezone: IanaTimezone): ZoneClock {
   const cached = clockCache.get(timezone);
+
   if (cached) return cached;
   const clock = bindZone(timezone);
   clockCache.set(timezone, clock);
+
   return clock;
 }
 
@@ -387,22 +403,27 @@ function bindZone(timezone: IanaTimezone): ZoneClock {
       "timeZoneName",
       timezone,
     );
+
     // `longOffset` yields "GMT-05:00" / "GMT+05:45" / a bare "GMT" for UTC.
     const match = /^GMT(?:(?<sign>[+-])(?<hours>\d{1,2})(?::(?<minutes>\d{2}))?)?$/.exec(value);
+
     if (!match?.groups?.sign) return 0;
 
     const sign = match.groups.sign === "-" ? -1 : 1;
     const hours = Number(match.groups.hours);
     const minutes = Number(match.groups.minutes ?? "0");
+
     return sign * (hours * 60 + minutes) * 60_000;
   };
 
   const startOf = (key: LocalDateKey, hour = 0): Date => {
     const wallClockMs = Date.UTC(...dateParts(key), hour);
     let candidate = new Date(wallClockMs);
+
     for (let i = 0; i < 3; i += 1) {
       candidate = new Date(wallClockMs - offsetMs(candidate));
     }
+
     return candidate;
   };
 
@@ -417,13 +438,16 @@ function bindZone(timezone: IanaTimezone): ZoneClock {
       // `hour: 'numeric'` with `hour12: false` returns "0".."23"; some engines
       // emit "24" at midnight. Normalize.
       const value = Number(requirePart(parts, "hour", timezone));
+
       return value === 24 ? 0 : value;
     },
 
     clock: (at: Date = new Date()): LocalWallClock => {
       const parts = formatterFor(WALL_CLOCK_RECIPE, timezone).formatToParts(at);
+
       const part = (type: Intl.DateTimeFormatPartTypes): string =>
         requirePart(parts, type, timezone);
+
       return {
         localDate: parseLocalDateKey(`${part("year")}-${part("month")}-${part("day")}`),
         localTime: `${part("hour")}:${part("minute")}:${part("second")}`,
@@ -434,6 +458,7 @@ function bindZone(timezone: IanaTimezone): ZoneClock {
 
     dayBounds: (at: Date = new Date()) => {
       const today = day(at);
+
       return { start: startOf(today), end: startOf(addDays(today, 1)) };
     },
 
@@ -447,5 +472,6 @@ function isoOffset(offsetMs: number): string {
   const totalMinutes = Math.abs(offsetMs) / 60_000;
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
+
   return `${sign}${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }

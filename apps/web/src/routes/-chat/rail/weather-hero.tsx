@@ -24,9 +24,11 @@ import type { WeatherCondition } from "~/lib/weather";
  */
 export function WeatherHero() {
   const { data, isError } = useWeather();
+
   if (isError) {
     return null;
   }
+
   // Reserve the hero's height on a cold load so nothing below jumps when
   // the temperature lands (number row + caption).
   if (!data) {

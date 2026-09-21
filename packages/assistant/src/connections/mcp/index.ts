@@ -40,11 +40,21 @@ export {
   type McpCallEnvelope,
   type McpPreparedToolCall,
 } from "./client";
+
 export type { ExternalToolRef } from "@alfred/contracts";
-export { boundedMcpErrorText, isPreDeliveryErrorCode, McpClientError } from "./errors";
+
 export {
-  HostedMcpEndpointAuthorizer,
+  boundedMcpErrorText,
+  isMcpAuthorizationChallenge,
+  isMcpTransportFailure,
+  isPreDeliveryErrorCode,
+  McpClientError,
+} from "./errors";
+
+export {
+  getMcpEndpointAuthorizer,
   withMcpEndpointAuthorization,
+  type McpApiKeyCredentialReader,
   type McpAuthorizedEndpoint,
   type McpAuthorizedOAuth,
   type McpAuthorizedOAuthServer,
@@ -53,17 +63,27 @@ export {
   type McpEndpointConnection,
   type McpEndpointNetworkPolicy,
 } from "./endpoint-authorization";
+
+export { persistApiKeyCredential, readApiKeyAuthForConnection } from "./api-key";
+
 export {
   builtInProviderForEndpoint,
   builtInReadOnlyResource,
   type BuiltInProvider,
 } from "./built-ins";
+
+export { RAILWAY_MCP_ENDPOINT_HREF, RAILWAY_MCP_STORED_ISSUER } from "./constants";
+
 export { mcpConsentAsk, type McpConsentAsk, type McpConsentConnection } from "./consent";
+
 // `projectCatalogRevision` is deliberately absent: publication owns it, and no
 // reader outside this directory has any business minting a catalog projection.
 export { canonicalArgsHash, descriptorHash } from "./hash";
-export { listMcpToolsLocal } from "./list-tools";
+
+export { inspectMcpToolLocal, listMcpToolsLocal, searchMcpToolsLocal } from "./list-tools";
+
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
+
 export {
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
@@ -72,12 +92,18 @@ export {
   type McpOAuthProviderForConnectionInput,
   type McpOAuthSessionFactory,
 } from "./oauth";
+
 export {
   ensureBuiltInConnection,
   listOwnedConnections,
   readOwnedConnection,
   updateConnection,
+  type McpConnectionRemovalGate,
+  type McpConnectionSummary,
 } from "./persistence";
+
+export { addUserMcpServer, isAddUserMcpServerRefusal } from "./provision";
+
 export {
   MCP_CLIENT_CAPABILITIES,
   MCP_INPUT_REQUIRED_PROFILE,
@@ -87,5 +113,9 @@ export {
   type McpProtocolPage,
   type McpProtocolServer,
 } from "./protocol";
+
 export { getMcpConnectionManager } from "./runtime";
+
+export { startMcpConnectionRecovery, stopMcpConnectionRecovery } from "./connection-recovery";
+
 export { startMcpTraceSpan, type McpTraceContext } from "./trace";

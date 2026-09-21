@@ -1,3 +1,4 @@
+import { isNonEmptyString } from "@alfred/contracts";
 import { type FactValue, SYNC_MODEL, type SyncedFact } from "@alfred/sync";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
@@ -24,7 +25,7 @@ export interface BioFactState {
 
 /** The fact's `value` is `unknown`; bio is always a paragraph string. */
 function toText(value: FactValue | undefined): string {
-  return typeof value === "string" ? value : "";
+  return isNonEmptyString(value) ? value : "";
 }
 
 /**
@@ -42,13 +43,16 @@ export function useBioFact(): BioFactState {
   useEffect(() => {
     if (!rep) {
       setRows(null);
+
       return;
     }
+
     return rep.subscribe((tx: ReadTransaction) => SYNC_MODEL.fact.scan(tx), setRows);
   }, [rep]);
 
   const bio = useMemo(() => {
     const active = (rows ?? []).filter((f) => f.key === BIO_KEY && f.validUntil === null);
+
     // Prefer a confirmed row over a still-proposed one if both linger mid-pull.
     return active.find((f) => f.status === "confirmed") ?? active[0] ?? null;
   }, [rows]);
@@ -56,11 +60,13 @@ export function useBioFact(): BioFactState {
   const saveBio = useCallback(
     async (text: string): Promise<void> => {
       const trimmed = text.trim();
+
       // Sync client not ready yet — surface a failure so the caller's catch
       // can toast instead of reporting a phantom save.
       if (!rep || !userId) {
         throw new Error("Sync client not ready — bio not saved.");
       }
+
       if (bio) {
         await rep.mutate.factEdit({
           factId: bio.id,

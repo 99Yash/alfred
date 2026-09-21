@@ -79,6 +79,7 @@ describe("securityHeaders", () => {
   test("web Caddyfile pins the current inline index.html scripts by hash", () => {
     const html = readFileSync(resolve(REPO_ROOT, "apps/web/index.html"), "utf8");
     const caddyfile = readFileSync(resolve(REPO_ROOT, "Caddyfile"), "utf8");
+
     const scripts = Array.from(
       html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g),
       (match) => match[1] ?? "",
@@ -87,6 +88,7 @@ describe("securityHeaders", () => {
     const expectedHashes = scripts.map(
       (script) => `sha256-${createHash("sha256").update(script).digest("base64")}`,
     );
+
     const caddyHashes = Array.from(
       (caddyfile.match(/^.*Content-Security-Policy .*$/m)?.[0] ?? "").matchAll(/'sha256-([^']+)'/g),
       (match) => `sha256-${match[1]}`,
@@ -97,6 +99,7 @@ describe("securityHeaders", () => {
 
   test("web Caddyfile exposes env-backed CSP origins for non-production deploys", () => {
     const caddyfile = readFileSync(resolve(REPO_ROOT, "Caddyfile"), "utf8");
+
     for (const name of [
       "WEB_CSP_API_ORIGIN",
       "WEB_CSP_POSTHOG_ASSET_ORIGIN",

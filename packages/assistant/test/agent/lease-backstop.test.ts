@@ -24,8 +24,11 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-lease-";
+
 const createdUserIds: string[] = [];
+
 const STEP = "dispatch-tools";
+
 // Older than STALE_RUN_LEASE_MS (60s) so the running row is reclaimable.
 const STALE_CHECKPOINT = new Date(Date.now() - 5 * 60_000);
 
@@ -45,6 +48,7 @@ async function seedStaleRunningRun(attempt: number): Promise<{ userId: string; r
     attempt,
     lastCheckpointAt: STALE_CHECKPOINT,
   });
+
   return { userId, runId };
 }
 
@@ -75,6 +79,7 @@ async function runStatus(runId: string): Promise<string | undefined> {
     .select({ status: agentRuns.status, error: agentRuns.error })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId));
+
   return rows[0]?.status;
 }
 
@@ -89,6 +94,7 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -111,6 +117,7 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
       .select({ status: agentSteps.status, error: agentSteps.error })
       .from(agentSteps)
       .where(and(eq(agentSteps.runId, runId), eq(agentSteps.attempt, 5)));
+
     assert.equal(orphan[0]?.status, "failed");
     assert.equal((orphan[0]?.error as { reason?: string })?.reason, "lease_reclaimed");
   });
@@ -153,6 +160,7 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
       .select({ error: agentRuns.error })
       .from(agentRuns)
       .where(eq(agentRuns.id, runId));
+
     const message = (rows[0]?.error as { message?: string })?.message ?? "";
     assert.match(message, /not progressing/, "the terminal message is the synthetic clean string");
   });

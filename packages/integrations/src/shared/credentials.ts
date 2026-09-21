@@ -1,4 +1,9 @@
-import type { BearerSlug, CredentialProvider } from "@alfred/contracts";
+import type {
+  BearerSlug,
+  CredentialProvider,
+  InboundEventSource,
+  JsonObject,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
@@ -7,7 +12,7 @@ import { and, desc, eq } from "drizzle-orm";
 /**
  * Shared persistence layer for providers whose access is a single long-lived
  * bearer token — Notion (OAuth, non-expiring access token), Vercel (OAuth,
- * non-expiring), and Railway (a pasted account/workspace API token). None of them need
+ * non-expiring), and Sentry (a pasted API token). None of them need
  * Google's refresh-on-demand machinery, so the whole layer is "store one
  * bearer token, read it back." Google and GitHub keep their bespoke modules
  * (refresh rotation / installation-token minting); this is the third pattern.
@@ -21,8 +26,8 @@ import { and, desc, eq } from "drizzle-orm";
  * is the obvious follow-up.
  *
  * One of the three owners of credential encryption at rest (#453). The bearer
- * tokens here are the ones a leaked row would hurt most — a Railway workspace
- * token cannot be scoped down — so they are sealed on write and opened only in
+ * tokens here are the ones a leaked row would hurt most — a broadly scoped
+ * team token cannot be scoped down — so they are sealed on write and opened only in
  * the two functions that exist to hand a caller a usable token.
  */
 
@@ -53,7 +58,7 @@ export interface UpsertBearerCredentialArgs {
   /** Null for non-expiring tokens (the common case here). */
   expiresAt?: Date | null | undefined;
   scopes?: string[] | undefined;
-  metadata?: Record<string, unknown> | undefined;
+  metadata?: JsonObject | undefined;
 }
 
 /**
@@ -68,6 +73,7 @@ export async function upsertBearerCredential(
   // Sealed once and reused by both the insert and the on-conflict update.
   const sealedAccessToken = vault.seal(args.accessToken);
   const sealedRefreshToken = args.refreshToken ? vault.seal(args.refreshToken) : null;
+
   const result = await db()
     .insert(integrationCredentials)
     .values({
@@ -101,8 +107,11 @@ export async function upsertBearerCredential(
       },
     })
     .returning({ id: integrationCredentials.id });
+
   const row = result[0];
+
   if (!row) throw new Error(`[${args.provider}.credentials] upsert returned no row`);
+
   return { id: row.id };
 }
 
@@ -131,6 +140,7 @@ export async function deleteIntegrationCredential(args: {
       ),
     )
     .returning({ id: integrationCredentials.id });
+
   return deleted[0] ?? null;
 }
 
@@ -178,8 +188,112 @@ export async function listActiveBearerCredentials(
     )
     .orderBy(desc(integrationCredentials.updatedAt))
     .limit(limit);
+
   const vault = credentialVault();
+
   return rows.map((row) => ({ ...row, accessToken: vault.open(row.accessToken) }));
+}
+
+/**
+ * What an inbound descriptor needs from the credential that owns a delivery:
+ * the user the receipt is filed under, the credential id, and the provider-side
+ * account the receipt names. Both owner lookups below project exactly this.
+ */
+export type CredentialOwnerRef = Pick<IntegrationCredential, "id" | "userId" | "accountId">;
+
+const ownerRefColumns = {
+  id: integrationCredentials.id,
+  userId: integrationCredentials.userId,
+  accountId: integrationCredentials.accountId,
+};
+
+/**
+ * The inbound sources whose deliveries carry no per-account identity and are
+ * attributed by the shared signing secret instead ({@link findSoleActiveCredential}).
+ * Sentry is the one member: an internal-integration token cannot read
+ * `/organizations/{slug}/sentry-app-installations/` (Sentry resolves that
+ * endpoint's organization through the caller's memberships, and the
+ * integration's proxy user has none, so it answers 404; verified live
+ * 2026-09-06), so the connect flow never learns the `installation.uuid` a
+ * delivery names.
+ */
+export type SecretAttributedProvider = Extract<CredentialProvider & InboundEventSource, "sentry">;
+
+/**
+ * The providers whose credential row names a provider-side installation: the
+ * inbound sources whose delivery names the installation and nothing else, so
+ * `installation_id` is the join. The secret-attributed sources are excluded.
+ * Narrower than {@link CredentialProvider} so that a lookup for a provider that
+ * never writes the column (`notion`, `sentry`) is a compile error, not a query
+ * that always returns `null`.
+ */
+export type InstallationProvider = Exclude<
+  CredentialProvider & InboundEventSource,
+  SecretAttributedProvider
+>;
+
+/**
+ * Resolve the active credential that owns one provider-side installation — the
+ * join from an inbound webhook delivery (which carries only the installation id)
+ * back to a user and the account the receipt is filed under. The id space is
+ * the provider's, so the lookup is always scoped by `provider`. Returns the
+ * most-recently-updated active match.
+ */
+export async function findActiveCredentialByInstallationId(args: {
+  provider: InstallationProvider;
+  installationId: string;
+}): Promise<CredentialOwnerRef | null> {
+  const rows = await db()
+    .select(ownerRefColumns)
+    .from(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.provider, args.provider),
+        eq(integrationCredentials.installationId, args.installationId),
+        eq(integrationCredentials.status, "active"),
+      ),
+    )
+    .orderBy(desc(integrationCredentials.updatedAt))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+/**
+ * The one active credential for a provider across all users: the owner of an
+ * inbound delivery that carries no per-account identity and is attributed by
+ * the shared signing secret instead. One secret belongs to one provider-side
+ * app, so a verified delivery can only be that app's, and the only open
+ * question is which credential row owns it. With one active row the answer is
+ * that row. With none there is no owner. With more than one the deployment has
+ * outgrown a single secret, and the caller must refuse rather than pick.
+ */
+export type SoleActiveCredential =
+  | { kind: "one"; credential: CredentialOwnerRef }
+  | { kind: "none" }
+  | { kind: "many" };
+
+export async function findSoleActiveCredential(args: {
+  provider: SecretAttributedProvider;
+}): Promise<SoleActiveCredential> {
+  const rows = await db()
+    .select(ownerRefColumns)
+    .from(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.provider, args.provider),
+        eq(integrationCredentials.status, "active"),
+      ),
+    )
+    .limit(2);
+
+  const [first] = rows;
+
+  if (!first) return { kind: "none" };
+
+  if (rows.length > 1) return { kind: "many" };
+
+  return { kind: "one", credential: first };
 }
 
 /**
@@ -200,11 +314,13 @@ export async function getActiveBearerCredential(
 ): Promise<ActiveBearerCredential> {
   const rows = await listActiveBearerCredentials(userId, provider, 1, accountRef);
   const row = rows[0];
+
   if (!row) {
     throw new Error(
       `[${provider}.credentials] no active ${provider} credential — connect ${provider} in settings`,
     );
   }
+
   // `row` is already an ActiveBearerCredential (the list query selects exactly
   // these columns), so no re-map is needed.
   return row;

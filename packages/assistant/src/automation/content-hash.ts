@@ -59,9 +59,12 @@ function compareCapabilities(
   if (a.tool !== b.tool) return a.tool < b.tool ? -1 : 1;
   const accountA = a.accountRef ?? "";
   const accountB = b.accountRef ?? "";
+
   if (accountA !== accountB) return accountA < accountB ? -1 : 1;
   const scopeA = canonicalJson(a.resourceScope ?? null);
   const scopeB = canonicalJson(b.resourceScope ?? null);
+
   if (scopeA === scopeB) return 0;
+
   return scopeA < scopeB ? -1 : 1;
 }

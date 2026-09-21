@@ -51,12 +51,14 @@ import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
 
 const WORKFLOW_SLUG = "smoke-brief-execution";
+
 const SMOKE_BRIEF =
   "@gmail — Read my most recent inbox email and summarize it in one sentence. Then tell me what's on my calendar tomorrow morning.";
 
 // The boss may iterate a few times: search_tools → load_tool → gmail.search →
 // calendar.list_events → final summary. Five minutes is comfortable.
 const POLL_INTERVAL_MS = 500;
+
 const POLL_TIMEOUT_MS = 5 * 60_000;
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -75,6 +77,7 @@ async function pickGoogleConnectedUser(): Promise<{ id: string; email: string } 
       ),
     )
     .limit(1);
+
   return rows[0] ?? null;
 }
 
@@ -132,6 +135,7 @@ async function findPendingApprovals(runId: string): Promise<PendingStaging[]> {
         eq(actionStagings.requiresApproval, true),
       ),
     );
+
   return rows.map((r) => ({
     id: r.id,
     runId: r.runId,
@@ -171,18 +175,24 @@ async function pollAndAutoApprove(runId: string): Promise<{
 }> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStep: string | null = null;
+
   while (Date.now() < deadline) {
     const rows = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
     const row = rows[0];
+
     if (!row) throw new Error(`run ${runId} not found`);
+
     if (row.currentStep !== lastStep) {
       console.log(`[smoke-brief-execution]   step → ${row.currentStep} (status=${row.status})`);
       lastStep = row.currentStep;
     }
+
     if (row.status === "waiting") {
       const pending = await findPendingApprovals(runId);
+
       for (const p of pending) await autoApprove(p);
     }
+
     if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
       return {
         status: row.status,
@@ -190,8 +200,10 @@ async function pollAndAutoApprove(runId: string): Promise<{
         state: toRecord(row.state),
       };
     }
+
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+
   throw new Error(`timed out waiting for run ${runId}`);
 }
 
@@ -210,6 +222,7 @@ async function loadStagingsForRun(runId: string): Promise<StagingSummary[]> {
     })
     .from(actionStagings)
     .where(eq(actionStagings.runId, runId));
+
   return rows.map((r) => ({
     toolName: r.toolName,
     status: r.status,
@@ -222,6 +235,7 @@ async function countStepRows(runId: string, stepId: string): Promise<number> {
     .select({ count: sql<number>`count(*)::int` })
     .from(agentSteps)
     .where(and(eq(agentSteps.runId, runId), eq(agentSteps.stepId, stepId)));
+
   return rows[0]?.count ?? 0;
 }
 
@@ -230,6 +244,7 @@ async function countApiCalls(runId: string): Promise<number> {
     .select({ count: sql<number>`count(*)::int` })
     .from(apiCallLog)
     .where(eq(apiCallLog.runId, runId));
+
   return rows[0]?.count ?? 0;
 }
 
@@ -247,12 +262,15 @@ async function main(): Promise<void> {
   registerBuiltinWorkflows();
 
   const target = await pickGoogleConnectedUser();
+
   if (!target) {
     console.log(
       "[smoke-brief-execution] no user with an active google credential — connect Gmail+Calendar in the web app first.",
     );
+
     return;
   }
+
   console.log(`[smoke-brief-execution] target: ${target.email} (id=${target.id})`);
 
   await ensureActionPolicyRow(target.id);
@@ -265,6 +283,7 @@ async function main(): Promise<void> {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   console.log(`[smoke-brief-execution] run enqueued: ${runId}`);
 
   const final = await pollAndAutoApprove(runId);
@@ -286,12 +305,15 @@ async function main(): Promise<void> {
 
   const stagings = await loadStagingsForRun(runId);
   console.log(`[smoke-brief-execution] action_stagings rows: ${stagings.length}`);
+
   for (const s of stagings) {
     console.log(`   - ${s.toolName} status=${s.status} requiresApproval=${s.requiresApproval}`);
   }
+
   const executedToolNames = new Set(
     stagings.filter((s) => s.status === "executed").map((s) => s.toolName),
   );
+
   assert(
     Array.from(executedToolNames).some((n) => n.startsWith("gmail.")),
     "expected at least one executed gmail.* staging",

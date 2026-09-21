@@ -19,7 +19,9 @@ const LOOSE_CSP_META =
   `style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`;
 
 const CHROME_STARTUP_TIMEOUT_MS = process.env.CI ? 60_000 : 10_000;
+
 const CHROME_POLL_INTERVAL_MS = 100;
+
 const CHROME_STDERR_TAIL_LINES = 40;
 
 interface Counts {
@@ -50,8 +52,10 @@ describe(
     test("remote image and CSS background requests happen only after explicit opt-in", async () => {
       const fixture = await startFixtureServer();
       const chrome = await startChrome();
+
       try {
         const cdp = await connectToFirstPage(chrome.debugPort);
+
         try {
           await cdp.send("Page.enable");
           await cdp.send("Runtime.enable");
@@ -103,11 +107,13 @@ function findChrome(): string | null {
       // `spawnSync` would work too, but `accessSync` keeps this check cheap and
       // avoids starting Chrome just to decide whether the optional test runs.
       accessSync(candidate);
+
       return candidate;
     } catch {
       /* try next candidate */
     }
   }
+
   return null;
 }
 
@@ -118,22 +124,29 @@ async function startFixtureServer(): Promise<{
 }> {
   const counts: Counts = { pixel: 0, background: 0 };
   const sockets = new Set<Socket>();
+
   const server = http.createServer((req, res) => {
     const reqUrl = req.url ?? "/";
+
     if (reqUrl.startsWith("/pixel")) {
       counts.pixel += 1;
       res.writeHead(200, { "content-type": "image/gif", "cache-control": "no-store" });
       res.end(Buffer.from("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", "base64"));
+
       return;
     }
+
     if (reqUrl.startsWith("/background")) {
       counts.background += 1;
       res.writeHead(200, { "content-type": "image/gif", "cache-control": "no-store" });
       res.end(Buffer.from("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", "base64"));
+
       return;
     }
+
     if (reqUrl.startsWith("/page")) {
       const origin = `http://127.0.0.1:${addressPort(server)}`;
+
       const strict = sanitizeEmailHtml(`
         <html>
           <head><title>remote media fixture</title></head>
@@ -150,6 +163,7 @@ async function startFixtureServer(): Promise<{
           </body>
         </html>
       `);
+
       assert.ok(strict);
       const loose = strict.replace(EMAIL_CSP_META, LOOSE_CSP_META);
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -166,17 +180,21 @@ async function startFixtureServer(): Promise<{
             frame.srcdoc = loose;
           });
         </script>`);
+
       return;
     }
+
     res.writeHead(404);
     res.end("not found");
   });
+
   server.on("connection", (socket) => {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
   });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+
   return {
     url: `http://127.0.0.1:${addressPort(server)}/page`,
     counts,
@@ -188,12 +206,15 @@ async function closeFixtureServer(server: http.Server, sockets: Set<Socket>): Pr
   await new Promise<void>((resolve, reject) => {
     const forceClose = setTimeout(() => {
       server.closeAllConnections();
+
       for (const socket of sockets) socket.destroy();
     }, 500);
+
     forceClose.unref();
 
     server.close((err) => {
       clearTimeout(forceClose);
+
       if (err) reject(err);
       else resolve();
     });
@@ -208,6 +229,7 @@ async function startChrome(): Promise<{
   assert.ok(CHROME);
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "alfred-email-csp-"));
   const stderrLines: string[] = [];
+
   const child = spawn(
     CHROME,
     [
@@ -228,15 +250,18 @@ async function startChrome(): Promise<{
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
+
   child.stderr?.setEncoding("utf8");
   child.stderr?.on("data", (chunk: string) => {
     stderrLines.push(...chunk.split(/\r?\n/).filter(Boolean));
+
     if (stderrLines.length > CHROME_STDERR_TAIL_LINES) {
       stderrLines.splice(0, stderrLines.length - CHROME_STDERR_TAIL_LINES);
     }
   });
 
   let debugPort: number;
+
   try {
     debugPort = await waitForChrome(userDataDir, child, () => stderrLines.join("\n"));
   } catch (err) {
@@ -259,23 +284,29 @@ async function waitForChrome(
 ): Promise<number> {
   const portFile = path.join(userDataDir, "DevToolsActivePort");
   const deadline = Date.now() + CHROME_STARTUP_TIMEOUT_MS;
+
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error(
         `Chrome exited early with ${child.exitCode}${formatChromeStderr(stderrTail())}`,
       );
     }
+
     const port = await readDevToolsPort(portFile);
+
     if (port !== null) {
       try {
         const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+
         if (res.ok) return port;
       } catch {
         /* announced but not accepting yet — keep polling */
       }
     }
+
     await delay(CHROME_POLL_INTERVAL_MS);
   }
+
   throw new Error(`Timed out waiting for Chrome DevTools${formatChromeStderr(stderrTail())}`);
 }
 
@@ -288,15 +319,19 @@ async function waitForChrome(
  */
 async function readDevToolsPort(portFile: string): Promise<number | null> {
   let contents: string;
+
   try {
     contents = await readFile(portFile, "utf8");
   } catch {
     return null;
   }
+
   // Both lines present means the write flushed; a lone port line may be partial.
   const [portLine, targetLine] = contents.split("\n");
+
   if (!portLine || targetLine === undefined) return null;
   const port = Number.parseInt(portLine, 10);
+
   return Number.isInteger(port) && port > 0 ? port : null;
 }
 
@@ -304,6 +339,7 @@ async function stopChrome(child: ChildProcess, userDataDir: string): Promise<voi
   if (child.exitCode === null && child.signalCode === null) {
     child.kill("SIGKILL");
   }
+
   await waitForExit(child, 5_000);
   await rm(userDataDir, {
     recursive: true,
@@ -330,7 +366,9 @@ async function connectToFirstPage(debugPort: number): Promise<CdpClient> {
     type: string;
     webSocketDebuggerUrl?: string;
   }>;
+
   const page = targets.find((target) => target.type === "page" && target.webSocketDebuggerUrl);
+
   if (!page?.webSocketDebuggerUrl) throw new Error("No Chrome page target found");
 
   const ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -342,25 +380,33 @@ async function connectToFirstPage(debugPort: number): Promise<CdpClient> {
   });
 
   let nextId = 1;
+
   const pending = new Map<
     number,
     { resolve: (message: CdpMessage) => void; reject: (err: Error) => void }
   >();
+
   const listeners = new Map<string, Array<(message: CdpMessage) => void>>();
 
   ws.addEventListener("message", (event: { data: unknown }) => {
     const message = parseCdpMessage(event.data);
+
     if (typeof message.id === "number") {
       const waiter = pending.get(message.id);
+
       if (!waiter) return;
       pending.delete(message.id);
+
       if (message.error) waiter.reject(new Error(JSON.stringify(message.error)));
       else waiter.resolve(message);
+
       return;
     }
+
     if (message.method) {
       const waiters = listeners.get(message.method) ?? [];
       listeners.delete(message.method);
+
       for (const resolve of waiters) resolve(message);
     }
   });
@@ -369,6 +415,7 @@ async function connectToFirstPage(debugPort: number): Promise<CdpClient> {
     send(method, params = {}) {
       const id = nextId++;
       const payload = JSON.stringify({ id, method, params });
+
       return new Promise<CdpMessage>((resolve, reject) => {
         pending.set(id, { resolve, reject });
         ws.send(payload);
@@ -380,10 +427,12 @@ async function connectToFirstPage(debugPort: number): Promise<CdpClient> {
           () => reject(new Error(`Timed out waiting for ${method}`)),
           timeoutMs,
         );
+
         const wrapped = (message: CdpMessage) => {
           clearTimeout(timer);
           resolve(message);
         };
+
         const waiters = listeners.get(method) ?? [];
         waiters.push(wrapped);
         listeners.set(method, waiters);
@@ -397,12 +446,15 @@ async function connectToFirstPage(debugPort: number): Promise<CdpClient> {
 
 async function fetchJson(url: string): Promise<unknown> {
   const res = await fetch(url);
+
   if (!res.ok) throw new Error(`GET ${url} returned ${res.status}`);
+
   return await res.json();
 }
 
 function parseCdpMessage(data: unknown): CdpMessage {
   const text = typeof data === "string" ? data : Buffer.from(data as ArrayBuffer).toString("utf8");
+
   return JSON.parse(text) as CdpMessage;
 }
 
@@ -412,6 +464,8 @@ function formatChromeStderr(stderr: string): string {
 
 function addressPort(server: http.Server): number {
   const address = server.address();
+
   if (!address || typeof address === "string") throw new Error("Server did not bind to a port");
+
   return address.port;
 }

@@ -39,14 +39,20 @@ import { dbBackedSkip } from "../support/db-backed";
  */
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-briefing-parity-";
+
 const createdUserIds: string[] = [];
 
 const WINDOW_START = new Date("2026-06-27T00:00:00.000Z");
+
 const WINDOW_END = new Date("2026-06-28T00:00:00.000Z");
+
 /** `gather` is `>= windowStart`; the read path is `> sinceIngestedAt`. */
 const READ_SINCE = new Date(WINDOW_START.getTime() - 1);
+
 const TIMEZONE = ianaTimezoneSchema.parse("Asia/Kolkata");
+
 const BRIEFING_DATE = parseLocalDateKey("2026-06-27");
 
 async function seedUser(): Promise<string> {
@@ -55,6 +61,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Briefing Parity Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -84,6 +91,7 @@ async function seedEmail(args: {
       ingestedAt: at,
       metadata: { from: args.from, snippet: args.subject },
     });
+
   if (args.category) {
     await db().insert(emailTriage).values({
       userId: args.userId,
@@ -94,6 +102,7 @@ async function seedEmail(args: {
       documentId: docId,
     });
   }
+
   return docId;
 }
 
@@ -118,9 +127,11 @@ async function readFor(userId: string) {
 
 function gatheredDocIds(gather: Awaited<ReturnType<typeof gatherFor>>["gather"]): Set<string> {
   const ids = new Set<string>();
+
   for (const items of Object.values(gather.email.categories)) {
     for (const item of items ?? []) ids.add(item.documentId);
   }
+
   return ids;
 }
 
@@ -135,6 +146,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeReplicachePokeBridge();
     await closeRedis();
     await closeConnections();
@@ -142,12 +154,14 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
 
   test("both reads drop the same instruction-suppressed sender", async () => {
     const userId = await seedUser();
+
     const suppressedDocId = await seedEmail({
       userId,
       from: "Acme Coaching <no-reply@shapeshifter.so>",
       subject: 'Your milestone "Professional Networking" is due tomorrow',
       category: "action_needed",
     });
+
     const keptDocId = await seedEmail({
       userId,
       from: "Sakshi <sakshi@example.com>",
@@ -167,6 +181,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       senderEmail: "no-reply@shapeshifter.so",
       senderLabel: "Acme Coaching",
     });
+
     assert.equal(remembered.ok, true);
 
     // After: the same document disappears from both, and only that one.
@@ -188,24 +203,28 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
 
   test("the two paths disagree by design on non-priority mail", async () => {
     const userId = await seedUser();
+
     const priorityDocId = await seedEmail({
       userId,
       from: "Sakshi <sakshi@example.com>",
       subject: "Can you review the migration?",
       category: "action_needed",
     });
+
     const fyiDocId = await seedEmail({
       userId,
       from: "Substack <digest@substack.com>",
       subject: "This week in X",
       category: "fyi",
     });
+
     const newsletterDocId = await seedEmail({
       userId,
       from: "Some List <news@list.example>",
       subject: "Weekly roundup",
       category: "newsletter",
     });
+
     const untriagedDocId = await seedEmail({
       userId,
       from: "Nobody <nobody@example.com>",
@@ -219,6 +238,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
     assert.deepEqual(gatherIds, new Set([priorityDocId]));
     // The agent's list is every gmail document in the window, triaged or not.
     assert.deepEqual(readIds, new Set([priorityDocId, fyiDocId, newsletterDocId, untriagedDocId]));
+
     // The read is a strict superset today. Any reseat of the composer onto the
     // gather has to decide what happens to this difference.
     for (const id of gatherIds) assert.ok(readIds.has(id), `${id} missing from the read path`);
@@ -226,6 +246,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
 
   test("the two paths agree on window edges", async () => {
     const userId = await seedUser();
+
     const atStart = await seedEmail({
       userId,
       from: "Edge <edge@example.com>",
@@ -233,6 +254,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       category: "action_needed",
       ingestedAt: WINDOW_START,
     });
+
     const atEnd = await seedEmail({
       userId,
       from: "Edge <edge@example.com>",
@@ -240,6 +262,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       category: "action_needed",
       ingestedAt: WINDOW_END,
     });
+
     await seedEmail({
       userId,
       from: "Edge <edge@example.com>",
@@ -267,6 +290,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
 
   test("suppression is a no-op audit when no instruction matches", async () => {
     const userId = await seedUser();
+
     const docId = await seedEmail({
       userId,
       from: "Sakshi <sakshi@example.com>",

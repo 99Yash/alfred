@@ -35,6 +35,7 @@ describe("publishEvent executor selection", { skip: SKIP }, () => {
       .insert(user)
       .values({ id: userId, name: "Publish Test", email: `${userId}@example.test` });
     userIds.push(userId);
+
     return userId;
   }
 
@@ -43,6 +44,7 @@ describe("publishEvent executor selection", { skip: SKIP }, () => {
       .select({ id: eventsOutbox.id })
       .from(eventsOutbox)
       .where(and(eq(eventsOutbox.userId, userId), eq(eventsOutbox.kind, "inbox.updated")));
+
     return rows.length;
   }
 

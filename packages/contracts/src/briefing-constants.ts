@@ -34,4 +34,5 @@ export const DEFAULT_BRIEFING_EVENING_HOUR = 18;
  * `@alfred/assistant` and `apps/web` previously restated.
  */
 export const briefingHourSchema = z.coerce.number().int().min(0).max(23);
+
 export type BriefingHour = z.infer<typeof briefingHourSchema>;

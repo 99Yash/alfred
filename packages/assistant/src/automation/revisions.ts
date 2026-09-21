@@ -4,8 +4,11 @@ import {
   canonicalJson,
   getPath,
   integrationFromToolName,
+  isInboundEventSource,
   isIntegrationSlug,
   isLoadableIntegrationSlug,
+  isRawEventType,
+  rawEventTriggerIssue,
   toolCategoryOf,
   toolLabel,
   workflowBlockedGeneration,
@@ -17,6 +20,7 @@ import {
   type WorkflowBlocked,
   type IanaTimezone,
   type WorkflowRevisionDefinition,
+  type WorkflowTrigger,
 } from "@alfred/contracts";
 import { db, type DbRoot, type DbTransaction } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
@@ -28,7 +32,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
-import { readFreshIntegrationAvailability } from "@alfred/assistant/connections";
+import { readFreshIntegrationAvailability, seenRawKinds } from "@alfred/assistant/connections";
 import { workflowToolCatalog, type WorkflowToolCatalog } from "@alfred/assistant/tool-runtime";
 import {
   canonicalizeWorkflowAccounts,
@@ -78,6 +82,10 @@ export type WorkflowRevisionProblemCode =
   | "invalid_definition"
   | "invalid_cron"
   | "unschedulable_cron"
+  /** A raw event trigger without an inbound source or a kind, or a typed trigger carrying a kind (#990). */
+  | "invalid_raw_trigger"
+  /** A raw event trigger on a kind the source has never delivered to this user (#990). */
+  | "unseen_raw_kind"
   | "empty_integration_ceiling"
   | "trigger_source_not_allowed"
   | "tool_outside_ceiling"
@@ -163,6 +171,7 @@ export function validateWorkflowDefinition(
   | { ok: true; definition: WorkflowRevisionDefinition }
   | { ok: false; problems: WorkflowRevisionProblem[] } {
   const parsed = workflowRevisionDefinitionSchema.safeParse(input);
+
   if (!parsed.success) {
     return {
       ok: false,
@@ -178,8 +187,24 @@ export function validateWorkflowDefinition(
   const problems: WorkflowRevisionProblem[] = [];
   const { trigger, allowedIntegrations, allowedTools, requiredCapabilities } = definition;
 
+  // The raw-tier shape rule is pure and shared with authoring (#990). Whether
+  // the source has delivered the kind is a database fact; the create and revise
+  // paths ask {@link unseenRawKindProblem} for it after this function returns.
+  if (trigger.kind === "event") {
+    const issue = rawEventTriggerIssue(trigger);
+
+    if (issue) {
+      problems.push({
+        code: "invalid_raw_trigger",
+        message: issue.message,
+        field: `trigger.${issue.path}`,
+      });
+    }
+  }
+
   if (trigger.kind === "cron") {
     const cron = validateCronTrigger(trigger, { timezone: opts.timezone });
+
     if (!cron.ok) {
       problems.push({ code: "invalid_cron", message: cron.message, field: "trigger.schedule" });
     } else if (!computeNextRunAt(trigger, { timezone: opts.timezone })) {
@@ -195,6 +220,7 @@ export function validateWorkflowDefinition(
   // draft may sit in that state; a workflow about to run unattended may not,
   // because its runs could load any integration the user never approved for it.
   const hasCeiling = allowedIntegrations.length > 0;
+
   if (!hasCeiling && opts.requireActivatable) {
     problems.push({
       code: "empty_integration_ceiling",
@@ -224,7 +250,9 @@ export function validateWorkflowDefinition(
   // outside the coarse ceiling by design; only loadable integrations are capped.
   for (const tool of hasCeiling ? allowedTools : []) {
     const integration = integrationFromToolName(tool);
+
     if (!isLoadableIntegrationSlug(integration)) continue;
+
     if (allowedIntegrations.includes(integration)) continue;
     problems.push({
       code: "tool_outside_ceiling",
@@ -243,6 +271,7 @@ export function validateWorkflowDefinition(
   }
 
   const capabilityTools = new Set(requiredCapabilities.map((capability) => capability.tool));
+
   for (const tool of allowedTools) {
     if (capabilityTools.has(tool)) continue;
     problems.push({
@@ -253,12 +282,14 @@ export function validateWorkflowDefinition(
   }
 
   const capabilityCountByTool = new Map<string, number>();
+
   for (const capability of requiredCapabilities) {
     capabilityCountByTool.set(
       capability.tool,
       (capabilityCountByTool.get(capability.tool) ?? 0) + 1,
     );
   }
+
   for (const [tool, count] of capabilityCountByTool) {
     if (count === 1) continue;
     problems.push({
@@ -269,11 +300,14 @@ export function validateWorkflowDefinition(
   }
 
   const derivedIntegrations = new Set(allowedTools.map((tool) => integrationFromToolName(tool)));
+
   if (trigger.kind === "event" && isIntegrationSlug(trigger.source)) {
     derivedIntegrations.add(trigger.source);
   }
+
   for (const integration of allowedIntegrations) {
     if (derivedIntegrations.has(integration)) continue;
+
     if (!opts.requireActivatable) continue;
     problems.push({
       code: "integration_outside_derived_ceiling",
@@ -283,6 +317,38 @@ export function validateWorkflowDefinition(
   }
 
   return problems.length > 0 ? { ok: false, problems } : { ok: true, definition };
+}
+
+/**
+ * A raw event trigger may name only a kind its source has delivered to this
+ * user (#990). The inventory is the source of truth for "what kinds exist", so
+ * the message lists what it holds: chat authoring reads the problem back and
+ * proposes again with a real kind. Runs on the definition-writing paths
+ * (create, revise, and the patch and activation edits that delegate to
+ * revise), not on activation itself: activation republishes a definition that
+ * already passed here.
+ */
+async function unseenRawKindProblem(
+  userId: string,
+  trigger: WorkflowTrigger,
+): Promise<WorkflowRevisionProblem | null> {
+  if (trigger.kind !== "event" || !isRawEventType(trigger.type)) return null;
+
+  if (!isInboundEventSource(trigger.source) || !trigger.rawKind) return null;
+  const kinds = await seenRawKinds(userId, trigger.source);
+
+  if (kinds.includes(trigger.rawKind)) return null;
+
+  const seen =
+    kinds.length > 0
+      ? `Kinds it has delivered: ${kinds.join(", ")}.`
+      : "It has delivered no unmapped events yet.";
+
+  return {
+    code: "unseen_raw_kind",
+    message: `'${trigger.source}' has not delivered a '${trigger.rawKind}' event. ${seen}`,
+    field: "trigger.rawKind",
+  };
 }
 
 // ── Create ───────────────────────────────────────────────────────────────────
@@ -312,12 +378,18 @@ export async function createWorkflowDraft(
 ): Promise<WorkflowServiceResult<WorkflowRevisionOutcome>> {
   const timezone = await resolveTimezoneForInput(args.userId, args.definition);
   const validated = validateWorkflowDefinition(args.definition, { timezone });
+
   if (!validated.ok) {
     return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
   }
 
+  const unseen = await unseenRawKindProblem(args.userId, validated.definition.trigger);
+
+  if (unseen) return { ok: false, failure: { kind: "validation_failed", problems: [unseen] } };
+
   const definition = validated.definition;
   const revisionId = createId("wfr");
+
   const run = async (
     tx: DbTransaction,
   ): Promise<WorkflowServiceResult<WorkflowRevisionOutcome>> => {
@@ -335,6 +407,7 @@ export async function createWorkflowDraft(
       })
       .onConflictDoNothing({ target: [workflows.userId, workflows.slug] })
       .returning();
+
     if (!created) return { ok: false, failure: { kind: "slug_taken", slug: args.slug } };
 
     const revision = await insertRevision(tx, {
@@ -346,15 +419,18 @@ export async function createWorkflowDraft(
       authoringProposal: args.authoringProposal,
       createdByRunId: args.createdByRunId,
     });
+
     const [workflow] = await tx
       .update(workflows)
       .set({ currentRevisionId: revisionId })
       .where(eq(workflows.id, created.id))
       .returning();
+
     if (!workflow) return { ok: false, failure: { kind: "not_found" } };
 
     return { ok: true, workflow, revision };
   };
+
   return args.tx ? run(args.tx) : db().transaction(run);
 }
 
@@ -407,23 +483,34 @@ export async function reviseWorkflow(
 ): Promise<WorkflowServiceResult<WorkflowRevisedOutcome>> {
   const timezone = await resolveTimezoneForInput(args.userId, args.definition);
   const validated = validateWorkflowDefinition(args.definition, { timezone });
+
   if (!validated.ok) {
     return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
   }
 
+  const unseen = await unseenRawKindProblem(args.userId, validated.definition.trigger);
+
+  if (unseen) return { ok: false, failure: { kind: "validation_failed", problems: [unseen] } };
+
   const definition = validated.definition;
+
   const run = async (tx: DbTransaction): Promise<WorkflowServiceResult<WorkflowRevisedOutcome>> => {
     const existing = await loadWorkflow(tx, args.userId, args.workflowId);
+
     if (!existing) return { ok: false, failure: { kind: "not_found" } };
+
     if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
 
     const current = existing.currentRevisionId
       ? await loadRevision(tx, existing.currentRevisionId)
       : null;
+
     const contentHash = workflowRevisionContentHash(definition);
+
     const proposalUnchanged =
       canonicalJson(current?.authoringProposal ?? null) ===
       canonicalJson(args.authoringProposal ?? null);
+
     if (current && current.contentHash === contentHash && proposalUnchanged) {
       return { ok: true, workflow: existing, revision: current, created: false };
     }
@@ -432,10 +519,12 @@ export async function reviseWorkflow(
     // The published revision keeps running, so only a workflow that has never
     // been activated refreshes its denormalized copy from this edit.
     const mirrors = existing.publishedRevisionId === null;
+
     const nextRunAt =
       mirrors && existing.status === "active"
         ? computeNextRunAt(definition.trigger, { timezone })
         : undefined;
+
     const expectedRowVersion = args.expectedRowVersion ?? existing.rowVersion;
 
     const [claimed] = await tx
@@ -445,6 +534,7 @@ export async function reviseWorkflow(
       })
       .where(rowVersionGuard(existing.id, expectedRowVersion))
       .returning();
+
     if (!claimed) {
       return {
         ok: false,
@@ -475,10 +565,12 @@ export async function reviseWorkflow(
       })
       .where(eq(workflows.id, existing.id))
       .returning();
+
     if (!workflow) return { ok: false, failure: { kind: "not_found" } };
 
     return { ok: true, workflow, revision, created: true };
   };
+
   return args.tx ? run(args.tx) : db().transaction(run);
 }
 
@@ -503,12 +595,15 @@ export async function reviseWorkflowFromPatch(args: {
 }): Promise<WorkflowServiceResult<WorkflowRevisedOutcome>> {
   const run = async (tx: DbTransaction): Promise<WorkflowServiceResult<WorkflowRevisedOutcome>> => {
     const existing = await loadWorkflow(tx, args.userId, args.workflowId);
+
     if (!existing) return { ok: false, failure: { kind: "not_found" } };
+
     if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
 
     const current = existing.currentRevisionId
       ? await loadRevision(tx, existing.currentRevisionId)
       : null;
+
     const base: WorkflowDefinitionDraft = current
       ? definitionOf(current)
       : {
@@ -533,6 +628,7 @@ export async function reviseWorkflowFromPatch(args: {
       tx,
     });
   };
+
   return args.tx ? run(args.tx) : db().transaction(run);
 }
 
@@ -590,6 +686,7 @@ export async function refreshWorkflowActivationProposal(args: {
   WorkflowServiceResult<{ input: ReturnType<typeof activateWorkflowInputSchema.parse> }>
 > {
   const parsed = activateWorkflowInputSchema.safeParse(args.input);
+
   if (!parsed.success) {
     return {
       ok: false,
@@ -603,40 +700,54 @@ export async function refreshWorkflowActivationProposal(args: {
       },
     };
   }
+
   const requested = parsed.data;
   const existing = await loadWorkflow(db(), args.userId, requested.workflowId);
+
   if (!existing) return { ok: false, failure: { kind: "not_found" } };
+
   if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
+
   if (!existing.currentRevisionId) {
     return { ok: false, failure: { kind: "no_current_revision" } };
   }
+
   const current = await loadRevision(db(), existing.currentRevisionId);
+
   if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
+
   const stale = staleRevisionFailure(existing, current, {
     revisionId: requested.baseRevisionId,
     contentHash: requested.baseContentHash,
     rowVersion: requested.baseRowVersion,
   });
+
   if (stale) return { ok: false, failure: stale };
 
-  const { availability, gmailEventHealth, inboundTriggerHealth } =
-    await readWorkflowReadinessContext(args.userId);
+  const context = await readWorkflowReadinessContext(args.userId);
+  const { availability } = context;
   const toolCatalog = workflowToolCatalog();
+
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: requested.definition,
     availability,
     toolCatalog,
   });
+
   const timezone = await resolveTimezoneForInput(args.userId, canonicalDefinition);
+
   const validated = validateWorkflowDefinition(canonicalDefinition, {
     timezone,
     requireActivatable: true,
   });
+
   if (!validated.ok) {
     return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
   }
+
   const definition = authorableWorkflowDefinitionSchema.parse(validated.definition);
   const baseProposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
+
   if (!baseProposal.success) {
     return {
       ok: false,
@@ -652,14 +763,14 @@ export async function refreshWorkflowActivationProposal(args: {
       },
     };
   }
+
   const blockers = resolveWorkflowReadiness({
     definition,
-    availability,
+    context,
     requestedCapabilities: definition.requiredCapabilities,
-    gmailEventHealth,
-    inboundTriggerHealth,
     toolCatalog,
   });
+
   if (blockers.length > 0) {
     return { ok: false, failure: { kind: "readiness_blocked", blockers } };
   }
@@ -695,11 +806,15 @@ export async function recoverWorkflowDraft(args: {
   revisionId: string;
 }): Promise<WorkflowServiceResult<RecoveredWorkflowDraftOutcome>> {
   const initialWorkflow = await loadWorkflow(db(), args.userId, args.workflowId);
+
   if (!initialWorkflow) return { ok: false, failure: { kind: "not_found" } };
+
   if (initialWorkflow.isBuiltin) {
     return { ok: false, failure: { kind: "builtin_immutable" } };
   }
+
   const baseRevision = await loadRevision(db(), args.revisionId);
+
   if (
     !baseRevision ||
     baseRevision.userId !== args.userId ||
@@ -707,10 +822,12 @@ export async function recoverWorkflowDraft(args: {
   ) {
     return { ok: false, failure: { kind: "not_found" } };
   }
+
   if (initialWorkflow.currentRevisionId !== baseRevision.id) {
     const current = initialWorkflow.currentRevisionId
       ? await loadRevision(db(), initialWorkflow.currentRevisionId)
       : null;
+
     return {
       ok: false,
       failure: {
@@ -725,6 +842,7 @@ export async function recoverWorkflowDraft(args: {
 
   const storedDefinition = definitionOf(baseRevision);
   const baseProposal = workflowAuthoringProposalSchema.safeParse(baseRevision.authoringProposal);
+
   if (!baseProposal.success) {
     return {
       ok: false,
@@ -741,38 +859,45 @@ export async function recoverWorkflowDraft(args: {
     };
   }
 
-  const { availability, gmailEventHealth, inboundTriggerHealth } =
-    await readWorkflowReadinessContext(args.userId);
+  const context = await readWorkflowReadinessContext(args.userId);
+  const { availability } = context;
   const toolCatalog = workflowToolCatalog();
+
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: storedDefinition,
     availability,
     toolCatalog,
   });
+
   const timezone = await resolveTimezoneForInput(args.userId, canonicalDefinition);
+
   const validated = validateWorkflowDefinition(canonicalDefinition, {
     timezone,
     requireActivatable: true,
   });
+
   if (!validated.ok) {
     return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
   }
+
   const definition = authorableWorkflowDefinitionSchema.parse(validated.definition);
+
   const readiness = resolveWorkflowReadiness({
     definition,
-    availability,
+    context,
     requestedCapabilities: baseProposal.data.requestedCapabilities,
-    gmailEventHealth,
-    inboundTriggerHealth,
     toolCatalog,
   });
 
   return db().transaction(async (tx) => {
     const workflow = await loadWorkflow(tx, args.userId, args.workflowId);
+
     if (!workflow) return { ok: false, failure: { kind: "not_found" } };
+
     const current = workflow.currentRevisionId
       ? await loadRevision(tx, workflow.currentRevisionId)
       : null;
+
     if (
       !current ||
       current.id !== baseRevision.id ||
@@ -798,6 +923,7 @@ export async function recoverWorkflowDraft(args: {
       target: "draft",
       tx,
     });
+
     if (!reconciled.ok) return reconciled;
 
     return {
@@ -836,8 +962,10 @@ export function approvalProposalForDefinition(
     ) {
       return [];
     }
+
     return [toolLabel(capability.tool)?.title ?? capability.tool];
   });
+
   return {
     intent: base.intent,
     assumptions: base.assumptions,
@@ -861,10 +989,12 @@ export function buildWorkflowActivationProposal(args: {
   previewedAt?: Date | undefined;
 }): ActivateWorkflowInput {
   const previewedAt = args.previewedAt ?? new Date();
+
   const nextRunAt = computeNextRunAt(args.definition.trigger, {
     from: previewedAt,
     timezone: args.timezone,
   });
+
   return {
     workflowId: args.workflowId,
     baseRevisionId: args.baseRevisionId,
@@ -895,6 +1025,7 @@ export async function activateWorkflowDefinition(
   args: ActivateWorkflowDefinitionArgs,
 ): Promise<WorkflowServiceResult<WorkflowRevisionOutcome & { revised: boolean }>> {
   const parsed = activateWorkflowInputSchema.safeParse(args.input);
+
   if (!parsed.success) {
     return {
       ok: false,
@@ -908,10 +1039,13 @@ export async function activateWorkflowDefinition(
       },
     };
   }
+
   const input = parsed.data;
   const inputHash = workflowRevisionContentHash(input.definition);
+
   const alreadyApplied = await db().transaction(async (tx) => {
     const existing = await loadWorkflow(tx, args.userId, input.workflowId);
+
     if (
       !existing ||
       existing.status !== "active" ||
@@ -920,7 +1054,9 @@ export async function activateWorkflowDefinition(
     ) {
       return null;
     }
+
     const current = await loadRevision(tx, existing.currentRevisionId);
+
     if (
       !current?.approvedAt ||
       current.contentHash !== inputHash ||
@@ -928,8 +1064,10 @@ export async function activateWorkflowDefinition(
     ) {
       return null;
     }
+
     return { workflow: existing, revision: current };
   });
+
   if (alreadyApplied) {
     return {
       ok: true,
@@ -943,28 +1081,36 @@ export async function activateWorkflowDefinition(
   // callers need the typed stale result so they can restage the same draft.
   // The write transaction repeats this check to protect against a later race.
   const staleWorkflow = await loadWorkflow(db(), args.userId, input.workflowId);
+
   const staleRevision = staleWorkflow?.currentRevisionId
     ? await loadRevision(db(), staleWorkflow.currentRevisionId)
     : null;
+
   if (staleWorkflow && staleRevision) {
     const stale = staleRevisionFailure(staleWorkflow, staleRevision, {
       revisionId: input.baseRevisionId,
       contentHash: input.baseContentHash,
     });
+
     if (stale) return { ok: false, failure: stale };
   }
+
   const availability = await readFreshIntegrationAvailability(args.userId);
   const toolCatalog = workflowToolCatalog();
+
   const canonicalInputDefinition = canonicalizeWorkflowAccounts({
     definition: input.definition,
     availability,
     toolCatalog,
   });
+
   const timezone = await resolveTimezoneForInput(args.userId, canonicalInputDefinition);
+
   const validated = validateWorkflowDefinition(canonicalInputDefinition, {
     timezone,
     requireActivatable: true,
   });
+
   if (!validated.ok) {
     return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
   }
@@ -972,6 +1118,7 @@ export async function activateWorkflowDefinition(
   const definition = validated.definition;
   const approvedHash = workflowRevisionContentHash(definition);
   const expectedDisplay = resolveWorkflowApprovalDisplay(definition, availability, toolCatalog);
+
   if (
     canonicalJson(input.resolvedAccounts) !== canonicalJson(expectedDisplay.resolvedAccounts) ||
     canonicalJson(input.resolvedCapabilities) !==
@@ -998,30 +1145,39 @@ export async function activateWorkflowDefinition(
   // publishing the recomputed schedule would activate a contract the card did
   // not show.
   const scheduleProblems = validateActivationSchedule(input, timezone);
+
   if (scheduleProblems.length > 0) {
     return { ok: false, failure: { kind: "validation_failed", problems: scheduleProblems } };
   }
 
   return db().transaction(async (tx) => {
     const existing = await loadWorkflow(tx, args.userId, input.workflowId);
+
     if (!existing) return { ok: false, failure: { kind: "not_found" } };
+
     if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
+
     if (!existing.currentRevisionId) {
       return { ok: false, failure: { kind: "no_current_revision" } };
     }
 
     const current = await loadRevision(tx, existing.currentRevisionId);
+
     if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
+
     const stale = staleRevisionFailure(existing, current, {
       revisionId: input.baseRevisionId,
       contentHash: input.baseContentHash,
     });
+
     if (stale) return { ok: false, failure: stale };
 
     const baseProposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
+
     const expectedProposal = baseProposal.success
       ? approvalProposalForDefinition(baseProposal.data, definition)
       : null;
+
     if (
       !expectedProposal ||
       canonicalJson(input.authoringProposal) !== canonicalJson(expectedProposal)
@@ -1043,6 +1199,7 @@ export async function activateWorkflowDefinition(
 
     let revised = false;
     let expectedRowVersion = input.baseRowVersion;
+
     if (approvedHash !== current.contentHash) {
       const result = await reviseWorkflow({
         userId: args.userId,
@@ -1053,6 +1210,7 @@ export async function activateWorkflowDefinition(
         expectedRowVersion: input.baseRowVersion,
         tx,
       });
+
       if (!result.ok) return result;
       revised = result.created;
       expectedRowVersion = result.workflow.rowVersion;
@@ -1065,6 +1223,7 @@ export async function activateWorkflowDefinition(
       expectedRowVersion,
       tx,
     });
+
     return activated.ok ? { ...activated, revised } : activated;
   });
 }
@@ -1078,6 +1237,7 @@ function validateActivationSchedule(
   const expectedNext = computeNextRunAt(input.definition.trigger, { from: previewedAt, timezone });
   const currentNext = computeNextRunAt(input.definition.trigger, { from: new Date(), timezone });
   const expectedSummary = workflowScheduleSummary(input.definition.trigger);
+
   if (input.schedule.timezone !== timezone) {
     problems.push({
       code: "invalid_definition",
@@ -1085,6 +1245,7 @@ function validateActivationSchedule(
       field: "schedule.timezone",
     });
   }
+
   if (input.schedule.summary !== expectedSummary) {
     problems.push({
       code: "invalid_definition",
@@ -1092,6 +1253,7 @@ function validateActivationSchedule(
       field: "schedule.summary",
     });
   }
+
   if ((input.schedule.nextRunAt ?? null) !== (expectedNext?.toISOString() ?? null)) {
     problems.push({
       code: "invalid_definition",
@@ -1099,6 +1261,7 @@ function validateActivationSchedule(
       field: "schedule.nextRunAt",
     });
   }
+
   if ((input.schedule.nextRunAt ?? null) !== (currentNext?.toISOString() ?? null)) {
     problems.push({
       code: "invalid_definition",
@@ -1106,6 +1269,7 @@ function validateActivationSchedule(
       field: "schedule.nextRunAt",
     });
   }
+
   return problems;
 }
 
@@ -1126,11 +1290,15 @@ export async function activateWorkflow(
     tx: DbTransaction,
   ): Promise<WorkflowServiceResult<WorkflowRevisionOutcome>> => {
     const existing = await loadWorkflow(tx, args.userId, args.workflowId);
+
     if (!existing) return { ok: false, failure: { kind: "not_found" } };
+
     if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
+
     if (!existing.currentRevisionId) return { ok: false, failure: { kind: "no_current_revision" } };
 
     const current = await loadRevision(tx, existing.currentRevisionId);
+
     if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
 
     if (args.expectedContentHash && args.expectedContentHash !== current.contentHash) {
@@ -1145,29 +1313,30 @@ export async function activateWorkflow(
     }
 
     const timezone = await resolveWorkflowTimezone(args.userId, current.trigger);
+
     const validated = validateWorkflowDefinition(definitionOf(current), {
       timezone,
       requireActivatable: true,
     });
+
     if (!validated.ok) {
       return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
     }
 
     const definition = validated.definition;
     const proposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
-    const { availability, gmailEventHealth, inboundTriggerHealth } =
-      await readWorkflowReadinessContext(args.userId);
+    const context = await readWorkflowReadinessContext(args.userId);
     const toolCatalog = workflowToolCatalog();
+
     const blockers = resolveWorkflowReadiness({
       definition,
-      availability,
+      context,
       requestedCapabilities: proposal.success
         ? proposal.data.requestedCapabilities
         : definition.requiredCapabilities,
-      gmailEventHealth,
-      inboundTriggerHealth,
       toolCatalog,
     });
+
     if (blockers[0]) {
       const reconciled = await reconcileWorkflowReadiness({
         userId: args.userId,
@@ -1177,10 +1346,14 @@ export async function activateWorkflow(
         target: "activation",
         tx,
       });
+
       if (!reconciled.ok) return reconciled;
+
       return { ok: false, failure: { kind: "readiness_blocked", blockers } };
     }
+
     const expectedRowVersion = args.expectedRowVersion ?? existing.rowVersion;
+
     const [published] = await tx
       .update(workflows)
       .set({
@@ -1193,6 +1366,7 @@ export async function activateWorkflow(
       })
       .where(rowVersionGuard(existing.id, expectedRowVersion))
       .returning();
+
     if (!published) {
       return {
         ok: false,
@@ -1213,6 +1387,7 @@ export async function activateWorkflow(
 
     return { ok: true, workflow: published, revision: revision ?? current };
   };
+
   return args.tx ? run(args.tx) : db().transaction(run);
 }
 
@@ -1235,9 +1410,11 @@ export async function reconcileWorkflowReadiness(args: {
     args.target === "activation" ||
     args.workflow.publishedRevisionId === null ||
     args.workflow.publishedRevisionId === args.revisionId;
+
   if (!ownsBlockedState) return { ok: true, workflow: args.workflow };
 
   const first = args.readiness[0];
+
   if (first) {
     const next: WorkflowBlocked = {
       code: first.code,
@@ -1245,6 +1422,7 @@ export async function reconcileWorkflowReadiness(args: {
       detectedAt: new Date().toISOString(),
       revisionId: args.revisionId,
     };
+
     // Same generation = same blocker: keep the row (and its `notifiedAt`).
     if (
       args.workflow.blocked &&
@@ -1252,11 +1430,14 @@ export async function reconcileWorkflowReadiness(args: {
     ) {
       return { ok: true, workflow: args.workflow };
     }
+
     return writeBlocked(args.userId, args.workflow.id, next, args.tx);
   }
+
   if (args.target === "activation" || args.workflow.blocked === null) {
     return { ok: true, workflow: args.workflow };
   }
+
   return writeBlocked(args.userId, args.workflow.id, null, args.tx);
 }
 
@@ -1281,6 +1462,7 @@ export async function setWorkflowStatus(args: {
   tx?: WorkflowExecutor;
 }): Promise<WorkflowServiceResult<{ workflow: Workflow }>> {
   const executor = args.tx ?? db();
+
   const [workflow] = await executor
     .update(workflows)
     .set({ status: args.status, nextRunAt: null, rowVersion: sql`${workflows.rowVersion} + 1` })
@@ -1291,6 +1473,7 @@ export async function setWorkflowStatus(args: {
       ),
     )
     .returning();
+
   return workflow
     ? { ok: true, workflow }
     : args.expectedRowVersion === undefined
@@ -1333,11 +1516,13 @@ async function writeBlocked(
   tx?: WorkflowExecutor,
 ): Promise<WorkflowServiceResult<{ workflow: Workflow }>> {
   const executor = tx ?? db();
+
   const [workflow] = await executor
     .update(workflows)
     .set({ blocked, rowVersion: sql`${workflows.rowVersion} + 1` })
     .where(and(eq(workflows.id, workflowId), eq(workflows.userId, userId)))
     .returning();
+
   return workflow ? { ok: true, workflow } : { ok: false, failure: { kind: "not_found" } };
 }
 
@@ -1355,6 +1540,7 @@ function staleRevisionFailure(
   ) {
     return null;
   }
+
   return {
     kind: "stale_revision",
     expected: expected.contentHash,
@@ -1408,6 +1594,7 @@ async function loadWorkflow(
     .from(workflows)
     .where(and(eq(workflows.id, workflowId), eq(workflows.userId, userId)))
     .limit(1);
+
   return row ?? null;
 }
 
@@ -1420,6 +1607,7 @@ async function loadRevision(
     .from(workflowRevisions)
     .where(eq(workflowRevisions.id, revisionId))
     .limit(1);
+
   return row ?? null;
 }
 
@@ -1454,7 +1642,9 @@ async function insertRevision(
       createdByRunId: args.createdByRunId ?? null,
     })
     .returning();
+
   if (!revision) throw new Error("workflow revision insert returned no row");
+
   return revision;
 }
 
@@ -1468,6 +1658,7 @@ async function resolveTimezoneForInput(userId: string, input: unknown): Promise<
   const trigger = workflowRevisionDefinitionSchema.shape.trigger.safeParse(
     getPath(input, "trigger"),
   );
+
   return trigger.success
     ? resolveWorkflowTimezone(userId, trigger.data)
     : resolveWorkflowTimezone(userId, { kind: "manual" });

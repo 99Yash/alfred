@@ -12,26 +12,39 @@ import { EntityChip } from "./entity-chip";
  */
 function linkBrand(href: string): IntegrationBrand | null {
   let url: URL;
+
   try {
     // Fake base resolves relative hrefs without throwing; flagged via the host.
     url = new URL(href, "http://_relative_");
   } catch {
     return null;
   }
+
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   const host = url.hostname.replace(/^www\./, "");
+
   if (host === "_relative_") return null;
+
   if (host === "github.com" || host.endsWith(".github.com")) return "github";
+
   if (host === "mail.google.com") return "gmail";
+
   if (host === "calendar.google.com") return "google_calendar";
+
   if (host === "drive.google.com") return "google_drive";
+
   if (host === "docs.google.com") {
     if (url.pathname.startsWith("/spreadsheets")) return "google_sheets";
+
     if (url.pathname.startsWith("/presentation")) return "google_slides";
+
     return "google_docs";
   }
+
   if (host === "linear.app") return "linear";
+
   if (host.endsWith("slack.com")) return "slack";
+
   return "web";
 }
 
@@ -55,6 +68,7 @@ export const BriefingLink: Components["a"] = ({
 }) => {
   if (!href) return <span>{children}</span>;
   const brand = linkBrand(href);
+
   return (
     <a
       href={href}
@@ -92,5 +106,6 @@ export function BriefingRef({
   href?: string | undefined;
 }) {
   if (!kind || !isBriefingReferenceKind(kind) || !label) return label ?? null;
+
   return <EntityChip kind={kind} label={label} href={href} />;
 }

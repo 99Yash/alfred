@@ -19,10 +19,15 @@ import type { ServerMutatorCtx } from "./mutator";
  *   - the savepoint rolls back and the LMID still advances so the
  *     client doesn't re-queue the failed mutation forever.
  *
- * Memory primitives (`@alfred/assistant/knowledge`) open their
- * own transactions via `db()`, which would escape this savepoint. The
- * fact mutators below re-implement the same logic inline against the
- * supplied `tx` so atomicity is preserved.
+ * Memory primitives in `@alfred/assistant/knowledge` split two ways for this
+ * savepoint. An export that takes a trailing executor argument runs inside
+ * the caller's transaction when it gets one, so pass `tx`:
+ * `ensureEntityNode(args, tx)` is the shape, and its writes commit with the
+ * LMID advance. Every other db-touching export opens its own transaction
+ * via `db()` or issues bare `db()` statements, so its writes escape this
+ * savepoint. The fact-correction writers (`proposeFact` and its siblings) are
+ * that second shape, which is why the fact mutators below re-implement their
+ * logic inline against the supplied `tx`.
  */
 async function lockFactKey(tx: DbTransaction, userId: string, key: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${key}`}, 0))`);
@@ -30,12 +35,15 @@ async function lockFactKey(tx: DbTransaction, userId: string, key: string): Prom
 
 function canonicalFactKey(rawKey: string): string {
   const canon = canonicalizeFactKey(rawKey);
+
   return canon.ok ? canon.key : rawKey;
 }
 
 function canonicalSource(rawKey: string, source: MemorySource): MemorySource {
   const canon = canonicalizeFactKey(rawKey);
+
   if (!canon.ok || !canon.wasAlias) return source;
+
   return { ...source, meta: { ...source.meta, originalKey: canon.originalKey } };
 }
 
@@ -69,12 +77,14 @@ async function supersedeConflictingConfirmedFacts(
 ): Promise<UserFact[]> {
   if (!isSingleValuedKey(key)) return [];
   const incomingSig = valueSignature(incomingValue);
+
   const conflicts = (await activeFactsForKey(tx, userId, key)).filter(
     (row) =>
       row.id !== excludeFactId &&
       row.status === "confirmed" &&
       valueSignature(row.value) !== incomingSig,
   );
+
   if (conflicts.length === 0) return [];
   await tx
     .update(userFacts)
@@ -92,6 +102,7 @@ async function supersedeConflictingConfirmedFacts(
         ),
       ),
     );
+
   return conflicts;
 }
 
@@ -119,6 +130,7 @@ export async function factConfirm(
       ),
     )
     .limit(1);
+
   if (!candidate) return;
 
   const key = canonicalFactKey(candidate.key);
@@ -128,6 +140,7 @@ export async function factConfirm(
   const source = canonicalSource(candidate.key, candidate.source as MemorySource);
   await lockFactKey(tx, ctx.userId, key);
   const now = new Date();
+
   const conflicts = await supersedeConflictingConfirmedFacts(
     tx,
     ctx.userId,
@@ -175,6 +188,7 @@ export async function factCreate(
 
   const sig = valueSignature(args.value);
   const active = await activeFactsForKey(tx, ctx.userId, key);
+
   if (active.some((row) => valueSignature(row.value) === sig)) return;
 
   const now = new Date();
@@ -211,6 +225,7 @@ export async function factReject(
     .from(userFacts)
     .where(and(eq(userFacts.id, args.factId), eq(userFacts.userId, ctx.userId)))
     .limit(1);
+
   if (!old) return;
 
   await tx
@@ -249,12 +264,14 @@ export async function factEdit(
     .from(userFacts)
     .where(and(eq(userFacts.id, args.factId), eq(userFacts.userId, ctx.userId)))
     .limit(1);
+
   if (!old) return;
 
   const key = canonicalFactKey(old.key);
   const source = canonicalSource(old.key, args.source ?? { kind: "user" });
   const now = new Date();
   await lockFactKey(tx, ctx.userId, key);
+
   const conflicts = await supersedeConflictingConfirmedFacts(
     tx,
     ctx.userId,

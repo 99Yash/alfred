@@ -261,6 +261,7 @@ describe("event replay state", () => {
       activeRuns: { "run-1": 41, "run-2": 60 },
       completedRuns: {},
     };
+
     const completed = advanceReplayState(
       state,
       chatMessage(81, { runId: "run-1", phase: "completed" }),
@@ -279,6 +280,7 @@ describe("event replay state", () => {
       completed,
       chatMessage(82, { runId: "run-2", phase: "completed" }),
     );
+
     assert.equal(replaySince(idle), 82);
   });
 
@@ -309,6 +311,7 @@ describe("event replay state", () => {
     });
 
     assert.equal(frame.kind, "chat.message");
+
     if (frame.kind === "chat.message") {
       const phase: EventPayload<"chat.message">["phase"] = frame.payload.phase;
       assert.equal(phase, "completed");
@@ -317,12 +320,14 @@ describe("event replay state", () => {
 
   test("controllers re-read shared storage so a stale tab cannot lower the cursor", () => {
     let stored = emptyState();
+
     const store = {
       read: () => stored,
       write: (state: ReplayState) => {
         stored = state;
       },
     };
+
     const firstTab = createReplayStateController(store);
     const secondTab = createReplayStateController(store);
 
@@ -380,6 +385,7 @@ describe("event replay state", () => {
       activeRuns: { "run-low": 5, "run-1": 41 },
       completedRuns: {},
     };
+
     const completed = advanceReplayState(
       state,
       chatMessage(81, { runId: "run-1", phase: "completed" }),
@@ -395,10 +401,12 @@ describe("event replay state", () => {
       activeRuns: { "run-low": 5 },
       completedRuns: {},
     };
+
     const belowFloor = advanceReplayState(
       stale,
       chatMessage(3, { runId: "run-old", phase: "completed" }),
     );
+
     assert.equal(replaySince(belowFloor), 5);
     assert.equal(belowFloor.completedRuns["run-old"], undefined);
   });
@@ -423,7 +431,9 @@ describe("event replay state", () => {
       activeRuns: { "run-2": 60 },
       completedRuns: {},
     };
+
     let writes = 0;
+
     const replay = createReplayStateController({
       read: () => stored,
       write: (state) => {
@@ -445,6 +455,7 @@ describe("event replay state", () => {
   test("does not write localStorage for every delta while a barrier is active", () => {
     let stored = emptyState();
     let writes = 0;
+
     const replay = createReplayStateController({
       read: () => stored,
       write: (state) => {
@@ -454,9 +465,11 @@ describe("event replay state", () => {
     });
 
     replay.noteFrame(chatMessage(10, { phase: "started" }));
+
     for (let id = 11; id < 30; id += 1) {
       replay.noteFrame(chatDelta(id, { seq: id - 11 }));
     }
+
     assert.equal(writes, 1);
 
     replay.noteFrame(chatMessage(30, { phase: "completed" }));

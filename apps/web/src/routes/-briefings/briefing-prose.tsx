@@ -29,6 +29,7 @@ export function BriefingProse({
     () => (gather ? [briefingRefsPlugin(gather)] : undefined),
     [gather],
   );
+
   // No gather → strip tokens to plain labels so raw `[[…]]` never reaches the page.
   const content = gather ? markdown : briefingPlainText(markdown, null);
 

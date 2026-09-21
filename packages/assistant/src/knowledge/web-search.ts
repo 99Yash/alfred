@@ -97,7 +97,9 @@ function buildPrompt(query: string): string {
  */
 function extractSearchQueries(providerMetadata: unknown): string[] {
   const queries = getPath(providerMetadata, "google", "groundingMetadata", "webSearchQueries");
+
   if (!Array.isArray(queries)) return [];
+
   return queries.filter((q): q is string => isNonEmptyString(q));
 }
 
@@ -121,6 +123,7 @@ function extractCitations(
 ): WebSearchSource[] {
   const seen = new Set<string>();
   const out: WebSearchSource[] = [];
+
   const push = (url: unknown, title: unknown): void => {
     if (isNonEmptyString(url) && !seen.has(url)) {
       seen.add(url);
@@ -133,9 +136,11 @@ function extractCitations(
   }
 
   const chunks = getPath(providerMetadata, "google", "groundingMetadata", "groundingChunks");
+
   if (Array.isArray(chunks)) {
     for (const chunk of chunks) {
       const web = getPath(chunk, "web");
+
       if (isRecord(web)) push(web.uri, web.title);
     }
   }

@@ -1,25 +1,32 @@
 import type {
+  BriefingClosedLoop,
   BriefingGather,
   BriefingSlot,
   CalendarContribution,
   DayShape,
   IanaTimezone,
   IntegrationActivityItem,
-  StateCategory,
   WeatherContribution,
   WeatherFallbackLocation,
 } from "@alfred/contracts";
 import {
   GOOGLE_SCOPE,
-  isLoopClosingCategory,
+  getStringPath,
   isRecord,
+  parseEventTypeName,
   parseGmailDocumentMetadata,
   toMessage,
   toStringArray,
   weatherFallbackFor,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { documents, emailTriage, integrationCredentials, webhookEvents } from "@alfred/db/schemas";
+import { INBOUND_SOURCES } from "@alfred/assistant/connections/ingress";
+import {
+  documents,
+  emailTriage,
+  typedEventReceipts,
+  integrationCredentials,
+} from "@alfred/db/schemas";
 import {
   type CalendarEvent,
   getFreshAccessToken,
@@ -29,10 +36,12 @@ import {
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
-  extractGithubKeys,
-  isGithubNotificationSender,
-  type ObjectState,
+  firstClosingObject,
   objectStateStore,
+  proposeObjectKeys,
+  reconcileEvidence,
+  type ObjectState,
+  type ReconcileCandidates,
 } from "@alfred/assistant/connections";
 import { getPreference } from "@alfred/assistant/settings";
 import { findSenderSuppression, listActiveSuppressionInstructions } from "../knowledge";
@@ -44,6 +53,7 @@ import {
   type LocalDateKey,
 } from "@alfred/assistant/time";
 import { scorePriorityEmailDemand } from "./read";
+import { gatherRailwayVerifiedPull } from "./railway-pull";
 import { shortenFrom } from "./sender";
 
 /**
@@ -82,9 +92,11 @@ const SUPPRESSED_CATEGORIES = [
 ] as const satisfies readonly TriageCategory[];
 
 export type PriorityCategory = (typeof PRIORITY_CATEGORIES)[number];
+
 export type SuppressedCategory = (typeof SUPPRESSED_CATEGORIES)[number];
 
 const PRIORITY_CATEGORY_SET: ReadonlySet<string> = new Set(PRIORITY_CATEGORIES);
+
 const SUPPRESSED_CATEGORY_SET: ReadonlySet<string> = new Set(SUPPRESSED_CATEGORIES);
 
 export interface BriefingItem {
@@ -107,6 +119,13 @@ export interface BriefingDigest {
   buckets: Record<PriorityCategory, BriefingItem[]>;
   /** Last-24h counts for the suppressed categories — surfaced as a tail line. */
   suppressedCounts: Record<SuppressedCategory, number>;
+  /**
+   * Minimal trigger fields for every triaged row in the window, including
+   * `fyi`-suppressed status noise. The Railway verified-pull trigger reads
+   * this — never `buckets` — so a failure notice triaged as `fyi` still
+   * triggers a live read.
+   */
+  triggerItems: { subject: string | null; from: string | null; snippet: string | null }[];
   /** Priority items dropped because a standing instruction matched the sender. */
   suppressedByInstruction: BriefingInstructionSuppression[];
   /**
@@ -125,19 +144,6 @@ export interface BriefingInstructionSuppression {
   sender: string | null;
   factId: string;
   effect: "exclude_briefing_priority";
-}
-
-interface BriefingClosedLoop {
-  documentId: string;
-  category: PriorityCategory;
-  subject: string | null;
-  /** The work object that closed the loop. */
-  objectTitle: string | null;
-  objectUrl: string | null;
-  /** Agnostic terminal bucket — `resolved | abandoned | failed`. */
-  stateCategory: StateCategory;
-  /** Native provider state for display — `merged`/`closed`/… */
-  nativeState: string | null;
 }
 
 export interface GatherBriefingDigestArgs {
@@ -168,8 +174,11 @@ export interface GatherBriefingWithSuppressionAuditResult {
 }
 
 const DEFAULT_WINDOW_HOURS = 24;
+
 const DEFAULT_MAX_PER_BUCKET = 8;
+
 const MAX_CALENDAR_EVENTS = 40;
+
 const WEATHER_FETCH_TIMEOUT_MS = 30_000;
 
 /**
@@ -181,8 +190,10 @@ export async function gatherBriefingDigest(
   args: GatherBriefingDigestArgs,
 ): Promise<BriefingDigest> {
   const windowEnd = args.windowEnd ?? new Date();
+
   const windowStart =
     args.windowStart ?? new Date(windowEnd.getTime() - DEFAULT_WINDOW_HOURS * 3_600_000);
+
   const maxPerBucket = args.maxPerBucket ?? DEFAULT_MAX_PER_BUCKET;
 
   // One query gets every triaged document in window — we partition into
@@ -225,6 +236,7 @@ export async function gatherBriefingDigest(
   ]);
 
   const newPriorityBucket = (): BriefingItem[] => [];
+
   const buckets = {
     urgent: newPriorityBucket(),
     action_needed: newPriorityBucket(),
@@ -233,35 +245,50 @@ export async function gatherBriefingDigest(
     meeting: newPriorityBucket(),
     payment: newPriorityBucket(),
   };
+
   const suppressedCounts = {
     fyi: 0,
     done: 0,
     newsletter: 0,
     marketing: 0,
   };
+
   const suppressedByInstruction: BriefingInstructionSuppression[] = [];
-  // documentId → candidate GitHub `head_sha`s, for the post-partition
-  // loop-reconciliation pass (ADR-0062). Only GitHub-notification priority
-  // rows land here. Priority buckets stay uncapped until after reconciliation
-  // so closed loops do not consume one of the visible slots.
-  const githubShasByDoc = new Map<string, string[]>();
+  // Trigger fields for every triaged row (priority and suppressed alike), so
+  // a Railway failure notice triaged as `fyi` still reaches the verified-pull
+  // trigger. Built here, where the body and metadata are already in hand.
+  const triggerItems: BriefingDigest["triggerItems"] = [];
+  // One entry per priority row whose text proposes a work-object key, for the
+  // post-partition loop-reconciliation pass (ADR-0062). Priority buckets stay
+  // uncapped until after reconciliation so closed loops do not consume one of
+  // the visible slots.
+  const keyCandidates: ReconcileCandidates<"about">[] = [];
 
   for (const r of rows) {
     const cat = r.category;
     const meta = parseGmailDocumentMetadata(r.metadata);
 
+    triggerItems.push({
+      subject: r.title,
+      from: meta.from ?? null,
+      snippet: meta.snippet ?? null,
+    });
+
     if (isSuppressed(cat)) {
       suppressedCounts[cat] += 1;
       continue;
     }
+
     if (!isPriority(cat)) continue;
 
     const from = meta.from ?? null;
+
     const instructionSuppression = findSenderSuppression(suppressionInstructions, {
       senderEmail: from,
       accountId: r.accountId,
       effect: "exclude_briefing_priority",
     });
+
     if (instructionSuppression) {
       suppressedByInstruction.push({
         documentId: r.documentId,
@@ -285,20 +312,24 @@ export async function gatherBriefingDigest(
       threadUrl: r.sourceThreadId ? gmailThreadUrl(r.sourceThreadId) : null,
     });
 
-    // A GitHub CI/notification email carries a head_sha but no PR number; pull
-    // the sha so the reconciliation pass can resolve it back to its PR's state.
-    if (isGithubNotificationSender(from)) {
-      const shas = extractGithubKeys({ subject: r.title, content: r.content }).map(
-        (k) => k.keyValue,
-      );
-      if (shas.length > 0) githubShasByDoc.set(r.documentId, shas);
-    }
+    // Every deterministic work-object identity this notification carries, as
+    // its provider's adapter reads it. The mail is ABOUT one object, so the
+    // adapter demands the sender-domain gate and refuses an ambiguous
+    // reference. Proposed here, inside the loop that already holds the body,
+    // so the row's content is never carried into the resolve phase.
+    const keys = proposeObjectKeys(
+      { id: r.documentId, text: { subject: r.title ?? "", content: r.content } },
+      { reading: "about", sender: from },
+    );
+
+    if (keys.length > 0) keyCandidates.push({ id: r.documentId, keys });
   }
 
   // Loop reconciliation (ADR-0062): drop any priority item whose underlying
   // GitHub PR has reached a loop-closing state. State unknown ⇒ the loop stays
   // live (absence never closes — ADR-0048-D).
-  const closedLoops = await reconcileGithubLoops(args.userId, buckets, githubShasByDoc);
+  const closedLoops = await dropClosedLoops(args.userId, buckets, keyCandidates);
+
   for (const category of PRIORITY_CATEGORIES) {
     buckets[category] = buckets[category].slice(0, maxPerBucket);
   }
@@ -306,6 +337,7 @@ export async function gatherBriefingDigest(
   const totalPriority = PRIORITY_CATEGORIES.reduce((sum, category) => {
     return sum + buckets[category].length;
   }, 0);
+
   const totalSuppressed = Object.values(suppressedCounts).reduce((sum, n) => sum + n, 0);
 
   return {
@@ -313,6 +345,7 @@ export async function gatherBriefingDigest(
     windowEnd,
     buckets,
     suppressedCounts,
+    triggerItems,
     suppressedByInstruction,
     closedLoops,
     totalPriority,
@@ -321,58 +354,52 @@ export async function gatherBriefingDigest(
 }
 
 /**
- * Resolve each candidate GitHub CI loop to its PR's projected state and drop
- * the closed ones from the priority buckets (mutates `buckets`), returning the
+ * Resolve each candidate loop to its work object's projected state and drop the
+ * closed ones from the priority buckets (mutates `buckets`), returning the
  * dropped set for the evening "closed today" recap.
  *
- * Shas are resolved in parallel — at single-user scale a briefing window holds
- * only a handful of GitHub-notification emails, and `resolveByKey` is a single
- * indexed lookup. A sha that resolves to nothing, or to a non-terminal state,
- * leaves its loop live (the determinism contract: absence never closes).
+ * The resolve, the exact-beats-prefix precedence, and the closure test are the
+ * shared `reconcileEvidence` operation (#1088); this function owns only what is
+ * briefing-specific — which bucket an item sits in, and what a closed loop
+ * reports. A key that resolves to nothing, to more than one object, or to a
+ * state its kind does not treat as closing leaves its loop live (the
+ * determinism contract: absence never closes).
  */
-async function reconcileGithubLoops(
+async function dropClosedLoops(
   userId: string,
   buckets: Record<PriorityCategory, BriefingItem[]>,
-  shasByDoc: Map<string, string[]>,
+  candidates: readonly ReconcileCandidates<"about">[],
 ): Promise<BriefingClosedLoop[]> {
-  if (shasByDoc.size === 0) return [];
+  if (candidates.length === 0) return [];
 
-  const distinctShas = [...new Set([...shasByDoc.values()].flat())];
-  const stateBySha = new Map<string, ObjectState>();
-  await Promise.all(
-    distinctShas.map(async (sha) => {
-      const ref = await objectStateStore.resolveByKey(userId, "github", "head_sha", sha);
-      if (!ref) return; // unknown PR → loop stays live
-      const state = await objectStateStore.getState(userId, ref);
-      if (state) stateBySha.set(sha, state);
-    }),
-  );
+  const reconciled = await reconcileEvidence({ userId, subjects: candidates });
 
   const closedLoops: BriefingClosedLoop[] = [];
+
   for (const category of PRIORITY_CATEGORIES) {
     const kept: BriefingItem[] = [];
+
     for (const item of buckets[category]) {
-      const terminal = (shasByDoc.get(item.documentId) ?? [])
-        .map((sha) => stateBySha.get(sha))
-        .find(
-          (state): state is ObjectState => !!state && isLoopClosingCategory(state.stateCategory),
-        );
-      if (terminal) {
+      const closed = firstClosingObject(reconciled.get(item.documentId));
+
+      if (closed) {
         closedLoops.push({
           documentId: item.documentId,
           category,
           subject: item.subject,
-          objectTitle: terminal.title,
-          objectUrl: terminal.url,
-          stateCategory: terminal.stateCategory,
-          nativeState: terminal.nativeState,
+          objectTitle: closed.state.title,
+          objectUrl: closed.state.url,
+          stateCategory: closed.closesAskAs,
+          nativeState: closed.state.nativeState,
         });
       } else {
         kept.push(item);
       }
     }
+
     buckets[category] = kept;
   }
+
   return closedLoops;
 }
 
@@ -388,6 +415,7 @@ export async function gatherBriefingWithSuppressionAudit(
   // Integration activity shares the email digest's window so the briefing
   // covers one coherent slice of time across sources.
   const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
+
   const [digest, calendar, weather, integrationActivity] = await Promise.all([
     gatherBriefingDigest({
       userId: args.userId,
@@ -411,7 +439,9 @@ export async function gatherBriefingWithSuppressionAudit(
       windowEnd,
     }),
   ]);
+
   const categories: BriefingGather["email"]["categories"] = {};
+
   for (const category of PRIORITY_CATEGORIES) {
     categories[category] = digest.buckets[category].map((item) => ({
       documentId: item.documentId,
@@ -422,13 +452,27 @@ export async function gatherBriefingWithSuppressionAudit(
     }));
   }
 
+  // Verified pull (#1094): a triaged deployment failure from a connected
+  // provider triggers a live status read at gather time. Runs after the
+  // digest resolves (the failure-mail trigger reads every triaged row,
+  // including `fyi`-suppressed status noise) and appends deployment verdict
+  // lines beside the receipt-sourced activity — never through the email
+  // slice, which only carries triage buckets.
+  const railwayPull = await gatherRailwayVerifiedPull({
+    userId: args.userId,
+    digestItems: digest.triggerItems,
+  });
+
   // Day-shape (ADR-0064 / #230): reuse the already-fetched activity count so we
-  // don't re-query webhook_events; the resolved-object recap is one cheap list.
+  // don't re-query event_receipts; the resolved-object recap is one cheap list.
+  // Runs AFTER the verified pull so a day whose only activity is a Railway
+  // failure counts that line — otherwise the same briefing would score the
+  // day quiet and list the failure.
   const dayShape = await gatherDayShape({
     userId: args.userId,
     windowStart: activityStart,
     windowEnd,
-    activityCount: integrationActivity.length,
+    activityCount: integrationActivity.length + railwayPull.length,
   });
 
   // Attention-aware email demand over the FINALIZED priority buckets (#259 /
@@ -458,7 +502,7 @@ export async function gatherBriefingWithSuppressionAudit(
         categories,
       },
       calendar,
-      integration_activity: { items: integrationActivity },
+      integration_activity: { items: [...integrationActivity, ...railwayPull] },
       weather,
       day_of_week: dayContribution(args.briefingDate),
       day_shape: {
@@ -478,6 +522,7 @@ export async function gatherBriefingWithSuppressionAudit(
  * "quiet" — the whole point of #230 is that any real activity disqualifies it.
  */
 const DAY_SHAPE_BUSY_AT = 8;
+
 const MAX_SHIPPED = 6;
 
 /**
@@ -513,6 +558,7 @@ export async function gatherDayShape(args: {
     deliveredWithin: { start: args.windowStart, end: args.windowEnd },
     limit: MAX_SHIPPED,
   });
+
   const shipped = resolved
     .filter((o): o is ObjectState & { title: string } => typeof o.title === "string" && !!o.title)
     .slice(0, MAX_SHIPPED)
@@ -526,66 +572,11 @@ export async function gatherDayShape(args: {
 
 const MAX_ACTIVITY_ITEMS = 25;
 
-interface GithubWebhookPayload {
-  ref?: string;
-  commits?: unknown[];
-  compare?: string;
-  pull_request?: { number?: number; title?: string; html_url?: string; merged?: boolean };
-  issue?: { number?: number; title?: string; html_url?: string };
-  repository?: { full_name?: string; html_url?: string };
-  review?: { state?: string; html_url?: string };
-}
-
-/**
- * Turn a stored GitHub webhook into a one-line activity description. Reads
- * defensively from the retained payload — any field can be absent on an older
- * or partial delivery, so everything degrades to a sensible generic line.
- */
-interface GithubActivitySummary {
-  title: string;
-  status?: IntegrationActivityItem["status"] | undefined;
-  url?: string | undefined;
-}
-
-function describeGithubActivity(
-  eventType: string,
-  action: string | null,
-  repo: string | null,
-  payload: GithubWebhookPayload,
-): GithubActivitySummary {
-  const where = repo ? ` in ${repo}` : "";
-  switch (eventType) {
-    case "pull_request": {
-      const pr = payload.pull_request ?? {};
-      const verb = action === "closed" ? (pr.merged ? "merged" : "closed") : (action ?? "updated");
-      const title = `PR #${pr.number ?? "?"} ${verb}${where}${pr.title ? `: ${pr.title}` : ""}`;
-      return { title, status: action === "closed" ? "resolved" : "open", url: pr.html_url };
-    }
-    case "issues": {
-      const issue = payload.issue ?? {};
-      const title = `Issue #${issue.number ?? "?"} ${action ?? "updated"}${where}${issue.title ? `: ${issue.title}` : ""}`;
-      return { title, status: action === "closed" ? "resolved" : "open", url: issue.html_url };
-    }
-    case "push": {
-      const count = Array.isArray(payload.commits) ? payload.commits.length : 0;
-      const branch = (payload.ref ?? "").replace("refs/heads/", "");
-      const title = `${count} commit${count === 1 ? "" : "s"} pushed${branch ? ` to ${branch}` : ""}${where}`;
-      return { title, url: payload.compare };
-    }
-    case "pull_request_review": {
-      const pr = payload.pull_request ?? {};
-      const title = `PR #${pr.number ?? "?"} ${payload.review?.state ?? "reviewed"}${where}`;
-      return { title, status: "open", url: payload.review?.html_url ?? pr.html_url };
-    }
-    default:
-      return { title: `${eventType}${action ? ` ${action}` : ""}${where}` };
-  }
-}
-
 /**
  * Recent GitHub App activity for the briefing window (ADR-0052), sourced from
- * the idempotent `webhook_events` log. Empty when nothing fired or GitHub
- * isn't connected — represented as `[]`, never an error.
+ * the `event_receipts` rows the ingress route stores for `provider = 'github'`
+ * (ADR-0097). Empty when nothing fired or GitHub isn't connected —
+ * represented as `[]`, never an error.
  */
 async function gatherIntegrationActivity(args: {
   userId: string;
@@ -594,50 +585,69 @@ async function gatherIntegrationActivity(args: {
 }): Promise<IntegrationActivityItem[]> {
   const rows = await db()
     .select({
-      id: webhookEvents.id,
-      eventType: webhookEvents.eventType,
-      action: webhookEvents.action,
-      repo: webhookEvents.repo,
-      payload: webhookEvents.payload,
-      deliveredAt: webhookEvents.deliveredAt,
+      id: typedEventReceipts.id,
+      eventType: typedEventReceipts.eventType,
+      payload: typedEventReceipts.payload,
+      deliveredAt: typedEventReceipts.deliveredAt,
     })
-    .from(webhookEvents)
+    .from(typedEventReceipts)
     .where(
       and(
-        eq(webhookEvents.userId, args.userId),
-        eq(webhookEvents.provider, "github"),
-        gte(webhookEvents.deliveredAt, args.windowStart),
-        lte(webhookEvents.deliveredAt, args.windowEnd),
+        eq(typedEventReceipts.userId, args.userId),
+        eq(typedEventReceipts.provider, "github"),
+        gte(typedEventReceipts.deliveredAt, args.windowStart),
+        lte(typedEventReceipts.deliveredAt, args.windowEnd),
       ),
     )
-    .orderBy(desc(webhookEvents.deliveredAt))
+    .orderBy(desc(typedEventReceipts.deliveredAt))
     .limit(MAX_ACTIVITY_ITEMS);
 
-  return rows.map((row) => {
-    // SAFETY: documents.payload is the webhook envelope stored verbatim at
-    // ingest; this read views it as that payload shape.
-    const payload = (row.payload ?? {}) as GithubWebhookPayload;
-    const { title, status, url } = describeGithubActivity(
-      row.eventType,
-      row.action,
-      row.repo,
-      payload,
-    );
-    return {
-      id: row.id,
-      provider: "github",
-      source: "direct_api",
-      activityCategory: "work",
-      providerKind: row.action
-        ? `github.${row.eventType}.${row.action}`
-        : `github.${row.eventType}`,
-      title,
-      status,
-      severity: "info",
-      occurredAt: row.deliveredAt.toISOString(),
-      url,
-      relatedRepo: row.repo ?? undefined,
-    } satisfies IntegrationActivityItem;
+  // One deployment relays several receipts — `pending`, then `ready`, then
+  // `promoted`. Measured on dev, 2026-09-20: 8 `repository_dispatch` receipts
+  // for 5 distinct deployments on the busiest such day. This list is what
+  // `gatherDayShape` counts, and `DAY_SHAPE_BUSY_AT` is 8, so without a
+  // collapse one machine relay reads as several units of the USER's day. Rows
+  // arrive newest first, so the surviving line is the deployment's latest
+  // state — which is the only state a succession object has (#1167).
+  const seenDeployments = new Set<string>();
+
+  return rows.flatMap((row) => {
+    // The receipt stores `github.<type>`; a name the github entry does not
+    // declare is a row the deliver job already marked `failed`, so it has no
+    // activity line either.
+    const eventType = parseEventTypeName("github", row.eventType);
+
+    if (!eventType) return [];
+
+    if (eventType === "repository_dispatch") {
+      const deploymentId = getStringPath(row.payload, "client_payload", "id");
+
+      if (deploymentId) {
+        if (seenDeployments.has(deploymentId)) return [];
+
+        seenDeployments.add(deploymentId);
+      }
+    }
+
+    const action = getStringPath(row.payload, "action");
+    const repo = getStringPath(row.payload, "repository", "full_name");
+    const { title, status, url } = INBOUND_SOURCES.github.describe(eventType, row.payload);
+
+    return [
+      {
+        id: row.id,
+        provider: "github",
+        source: "direct_api",
+        activityCategory: "work",
+        providerKind: action ? `github.${eventType}.${action}` : `github.${eventType}`,
+        title,
+        status,
+        severity: "info",
+        occurredAt: row.deliveredAt.toISOString(),
+        url,
+        relatedRepo: repo ?? undefined,
+      } satisfies IntegrationActivityItem,
+    ];
   });
 }
 
@@ -668,11 +678,13 @@ export async function gatherCalendarContribution(
 
   const calendarCreds = creds.filter((cred) => {
     const granted = toStringArray(cred.scopes);
+
     return (
       granted.includes(GOOGLE_SCOPE.calendar.readonly) ||
       granted.includes(GOOGLE_SCOPE.calendar.events)
     );
   });
+
   if (calendarCreds.length === 0) return null;
 
   const { timeMin, timeMax } = calendarWindow(args.briefingDate, args.timezone, args.slot);
@@ -682,6 +694,7 @@ export async function gatherCalendarContribution(
   for (const cred of calendarCreds) {
     try {
       const accessToken = await getFreshAccessToken(cred.id);
+
       const result = await listEvents({
         accessToken,
         timeMin: timeMin.toISOString(),
@@ -690,7 +703,9 @@ export async function gatherCalendarContribution(
         orderBy: "startTime",
         maxResults: MAX_CALENDAR_EVENTS,
       });
+
       successfulReads++;
+
       for (const event of result.events) {
         events.push(calendarEventToContributionEvent(cred.id, event));
       }
@@ -701,6 +716,7 @@ export async function gatherCalendarContribution(
 
   if (successfulReads === 0) return null;
   events.sort((a, b) => a.start.localeCompare(b.start));
+
   return { events: events.slice(0, MAX_CALENDAR_EVENTS) };
 }
 
@@ -710,6 +726,7 @@ function calendarWindow(briefingDate: LocalDateKey, timezone: IanaTimezone, slot
   const windowEnd = zone.startOf(addDays(briefingDate, 2));
   const now = new Date();
   const timeMin = slot === "evening" && now > dayStart && now < windowEnd ? now : dayStart;
+
   return { timeMin, timeMax: windowEnd };
 }
 
@@ -725,6 +742,7 @@ function calendarEventToContributionEvent(
     attendees: (event.attendees ?? [])
       .map((a) => {
         if (!a.email) return null;
+
         return a.displayName ? `${a.displayName} <${a.email}>` : a.email;
       })
       .filter((a): a is string => a !== null),
@@ -738,6 +756,7 @@ async function gatherWeatherContribution(args: {
   timezone: IanaTimezone;
 }): Promise<WeatherContribution | null> {
   const location = await resolveWeatherLocation(args.userId, args.timezone);
+
   if (!location) return null;
 
   try {
@@ -754,13 +773,16 @@ async function gatherWeatherContribution(args: {
     url.searchParams.set("timezone", "auto");
 
     const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
+
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(`[weather] ${res.status} ${body.slice(0, 300)}`);
     }
+
     const parsed = openMeteoSchema.parse(await res.json());
     const current = parsed.current;
     const daily = parsed.daily;
+
     if (!current) return null;
 
     return {
@@ -781,6 +803,7 @@ async function gatherWeatherContribution(args: {
       `[briefing.gather] weather unavailable location=${location.label}:`,
       toMessage(err),
     );
+
     return null;
   }
 }
@@ -809,6 +832,7 @@ async function resolveWeatherLocation(
 ): Promise<WeatherFallbackLocation | null> {
   const pref = await getPreference(userId, "location");
   const parsed = parseWeatherLocation(pref?.value);
+
   return parsed ?? weatherFallbackFor(timezone);
 }
 
@@ -817,7 +841,9 @@ function parseWeatherLocation(value: unknown): WeatherFallbackLocation | null {
   const record = value;
   const lat = parseCoord(record.lat ?? record.latitude);
   const lng = parseCoord(record.lng ?? record.lon ?? record.longitude);
+
   if (lat === null || lng === null) return null;
+
   const label =
     typeof record.label === "string"
       ? record.label
@@ -826,30 +852,45 @@ function parseWeatherLocation(value: unknown): WeatherFallbackLocation | null {
         : typeof record.name === "string"
           ? record.name
           : `${lat},${lng}`;
+
   return { lat, lng, label };
 }
 
 function parseCoord(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
+
   if (typeof value === "string") {
     const n = Number.parseFloat(value);
+
     return Number.isFinite(n) ? n : null;
   }
+
   return null;
 }
 
 function describeWeatherCode(code: number): string {
   if (code === 0) return "clear sky";
+
   if (code === 1) return "mainly clear";
+
   if (code === 2) return "partly cloudy";
+
   if (code === 3) return "overcast";
+
   if (code >= 45 && code <= 48) return "fog";
+
   if (code >= 51 && code <= 57) return "drizzle";
+
   if (code >= 61 && code <= 67) return "rain";
+
   if (code >= 71 && code <= 77) return "snow";
+
   if (code >= 80 && code <= 82) return "rain showers";
+
   if (code >= 85 && code <= 86) return "snow showers";
+
   if (code >= 95 && code <= 99) return "thunderstorm";
+
   return "unknown conditions";
 }
 
@@ -874,10 +915,12 @@ function gmailThreadUrl(threadId: string): string {
 function threadIdFromGmailUrl(url: string | null): string {
   if (!url) return "";
   const tail = url.slice(url.lastIndexOf("/") + 1);
+
   return decodeURIComponent(tail);
 }
 
 const SUNDAY = 0;
+
 const SATURDAY = 6;
 
 // `briefingDate` is already a local date key in the user's zone, so the weekday
@@ -890,6 +933,7 @@ const SATURDAY = 6;
 // load-bearing for a briefing decision.
 function dayContribution(briefingDate: LocalDateKey): BriefingGather["day_of_week"] {
   const index = weekdayIndex(briefingDate);
+
   return {
     dayName: formatDay(briefingDate, "weekday"),
     isWeekend: index === SATURDAY || index === SUNDAY,

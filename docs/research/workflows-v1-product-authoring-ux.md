@@ -154,7 +154,7 @@ Different failure reasons need different copy and affordances:
 | `choose_account`          | Show the available identities and require a choice.                                          |
 | `insufficient_permission` | Name the required capability and how to grant it.                                            |
 | `no_tool_surface`         | “Alfred cannot automate Slack yet.” Do not offer a fake connection fix.                      |
-| `provider_unhealthy`      | Preserve the draft and offer retry/status; do not describe this as an authorization problem. |
+| `trigger_degraded`        | Preserve the draft and offer retry/status; do not describe this as an authorization problem. |
 
 The existing pure capability resolver remains useful. It should compute
 readiness and block `active`, rather than decide whether the user's draft is

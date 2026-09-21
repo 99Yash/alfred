@@ -37,24 +37,34 @@ a provider or database graph. `system.corpus_search`
 | tool-runtime        | owns definitions, dispatch, catalog, discovery, schema projection, and boot seams; imports no user surface directly |
 | runtime composition | installs product adapters without adding reverse owner dependencies                                                 |
 
-## The eight seams
+Runtime composition follows the same rule for trigger consumers. A consumer
+lives beside the state it drives, and `runtime/adapters/trigger-consumers.ts`
+holds only the registration line. The object-state fold is the example:
+`packages/assistant/src/connections/object-state/activity-consumer.ts` sits
+beside the ADR-0062 reducers and store it calls (#986), and it builds one
+consumer per provider rather than one file per provider (#1090).
+
+## The eleven seams
 
 Each seam is a `bootPort<T>` slot. The composition root installs one concrete
 value at boot, and a peer reads it. The `boot-port.ts` file defines the factory;
 it is not itself a seam.
 
-| Seam interface                 | Surface   | Install → read                                                           |
-| ------------------------------ | --------- | ------------------------------------------------------------------------ |
-| `ToolRuntimeAdapter`           | chat      | `surface-adapter.ts` installs → the runtime forwarders read              |
-| `ToolCallRoundAdapter`         | chat      | dispatch installs → `executeToolCallRound` reads                         |
-| `SystemToolAgentAdapter`       | chat      | agent installs → the system tools read                                   |
-| `SystemToolChatHistoryAdapter` | chat      | chat installs → the system tools read                                    |
-| `SystemToolWorkflowAdapter`    | chat      | workflows installs → the system tools read                               |
-| `SystemToolKnowledgeAdapter`   | chat      | runtime composition installs → the system tools read                     |
-| `SystemToolTaskAdapter`        | chat      | runtime composition installs → the system tools read                     |
-| `WorkflowToolCatalogSource`    | workflows | `workflow-tool-catalog-source.ts` installs → `workflowToolCatalog` reads |
+| Seam interface                   | Surface   | Install → read                                                           |
+| -------------------------------- | --------- | ------------------------------------------------------------------------ |
+| `ToolRuntimeAdapter`             | chat      | `surface-adapter.ts` installs → the runtime forwarders read              |
+| `ToolCallRoundAdapter`           | chat      | dispatch installs → `executeToolCallRound` reads                         |
+| `SystemToolAgentAdapter`         | chat      | agent installs → the system tools read                                   |
+| `SystemToolChatHistoryAdapter`   | chat      | chat installs → the system tools read                                    |
+| `SystemToolWorkflowAdapter`      | chat      | workflows installs → the system tools read                               |
+| `SystemToolKnowledgeAdapter`     | chat      | runtime composition installs → the system tools read                     |
+| `SystemToolInstructionAdapter`   | chat      | runtime composition installs → the system tools read                     |
+| `SystemToolWebSearchAdapter`     | chat      | runtime composition installs → the system tools read                     |
+| `SystemToolTaskAdapter`          | chat      | runtime composition installs → the system tools read                     |
+| `SystemToolContextSearchAdapter` | chat      | runtime composition installs → the `system.search_context` tool reads    |
+| `WorkflowToolCatalogSource`      | workflows | `workflow-tool-catalog-source.ts` installs → `workflowToolCatalog` reads |
 
-The first seven seams live in `tool-runtime/index.ts`. The eighth lives in
+The first ten seams live in `tool-runtime/index.ts`. The eleventh lives in
 `tool-runtime/workflow-tool-catalog.ts`. Each seam carries a fixed four-field
 header (`Surface:`, `Owns/hides:`, `Why the seam:`, `Wiring:`), and
 `scripts/check-module-architecture.mjs` fails when a `bootPort` file lacks it.
@@ -71,7 +81,8 @@ small boot-time interface:
 - `SystemToolAgentAdapter` inverts `tool-runtime -> execution`.
 - `SystemToolChatHistoryAdapter` inverts `tool-runtime -> chat`.
 - `SystemToolWorkflowAdapter` inverts `tool-runtime -> workflows`.
-- `SystemToolKnowledgeAdapter` and `SystemToolTaskAdapter` invert the product
+- `SystemToolKnowledgeAdapter`, `SystemToolInstructionAdapter`,
+  `SystemToolWebSearchAdapter`, and `SystemToolTaskAdapter` invert the product
   operations. Runtime composition owns the suppression-write then todo-dismiss
   sequence because neither product owner can import the other.
 - `WorkflowToolCatalogSource` keeps workflow readers on a facts projection and

@@ -17,6 +17,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { use, useId, useState } from "react";
 import { AppThemeContext, type AppResolvedTheme } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
+import { TIER_OPTIONS, tierOption } from "./model-tier-options";
 import { Tip } from "./tip";
 
 // Per-tier, theme-tuned Alfred marks. Like dimension's agent-mode picker, each
@@ -36,24 +37,6 @@ const TIER_MARK = {
   },
 } satisfies Record<ChatModelTier, Record<AppResolvedTheme, string>>;
 
-interface TierOption {
-  value: ChatModelTier;
-  label: string;
-  description: string;
-}
-
-const STANDARD_OPTION: TierOption = {
-  value: "standard",
-  label: "Alfred",
-  description: "Great for almost everything",
-};
-const DEEP_OPTION: TierOption = {
-  value: "deep",
-  label: "Alfred Pro",
-  description: "Flagship reasoning for complex tasks",
-};
-const TIER_OPTIONS: ReadonlyArray<TierOption> = [STANDARD_OPTION, DEEP_OPTION];
-
 export function ModelTierPicker({
   value,
   onChange,
@@ -70,9 +53,11 @@ export function ModelTierPicker({
   // still flows through portals). Same pattern as `AppSelect`.
   const themeCtx = use(AppThemeContext);
   const resolved: AppResolvedTheme = themeCtx?.resolved ?? "dark";
+
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
-  const selected = value === "deep" ? DEEP_OPTION : STANDARD_OPTION;
+
+  const selected = tierOption(value);
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -92,7 +77,7 @@ export function ModelTierPicker({
               "hover:text-app-fg-4 hover:shadow-(--app-shadow-elevated-hover)",
               "data-[state=open]:text-app-fg-4 data-[state=open]:shadow-(--app-shadow-elevated-hover)",
               "disabled:cursor-not-allowed disabled:opacity-50",
-              "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+              "app-focus",
             )}
           >
             <img
@@ -130,6 +115,7 @@ export function ModelTierPicker({
         >
           {TIER_OPTIONS.map((option) => {
             const checked = option.value === value;
+
             return (
               <button
                 key={option.value}
@@ -138,9 +124,9 @@ export function ModelTierPicker({
                 aria-selected={checked}
                 onClick={() => onChange(option.value)}
                 className={cn(
-                  "flex w-full items-start gap-2.5 rounded-xl p-2 text-left outline-none",
+                  "app-press flex w-full items-start gap-2.5 rounded-xl p-2 text-left outline-none",
                   "transition-[background-color,transform] hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
-                  "active:scale-[0.98] active:bg-app-bg-a3",
+                  "active:bg-app-bg-a3",
                   // Selected row holds a quiet tint so the active tier reads even
                   // before the eye finds the check.
                   checked && "bg-app-bg-a2",

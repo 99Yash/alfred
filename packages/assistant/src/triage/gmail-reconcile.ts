@@ -59,8 +59,10 @@ export function planGmailThreadReconcile(args: {
   const confirmedDead = args.storedDocs.filter(
     (doc) => !args.liveSourceIds.has(doc.sourceId) && doc.ingestedAt <= args.liveFetchedAt,
   );
+
   const deadIds = new Set(confirmedDead.map((doc) => doc.id));
   const protectedIds = args.protectedDocumentIds ?? new Set<string>();
+
   const repointTarget =
     args.storedDocs
       .filter((doc) => args.liveSourceIds.has(doc.sourceId) && !doc.isSent)
@@ -68,12 +70,15 @@ export function planGmailThreadReconcile(args: {
 
   let deadToDelete = confirmedDead.filter((doc) => !protectedIds.has(doc.id));
   let repointDocumentId: string | null = null;
+
   const pointedDoc = args.triageDocumentId
     ? (args.storedDocs.find((doc) => doc.id === args.triageDocumentId) ?? null)
     : null;
+
   const pointerNeedsRepoint = Boolean(
     args.triageDocumentId && (deadIds.has(args.triageDocumentId) || pointedDoc?.isSent === true),
   );
+
   if (pointerNeedsRepoint) {
     if (repointTarget) {
       repointDocumentId = repointTarget.id;
@@ -118,6 +123,7 @@ export async function reconcileGmailThreads(
   args: ReconcileGmailThreadsArgs,
 ): Promise<ReconcileGmailThreadsResult> {
   const distinct = Array.from(new Set(args.threadIds.filter(Boolean)));
+
   const empty: ReconcileGmailThreadsResult = {
     threadsChecked: distinct.length,
     threadsReconciled: 0,
@@ -125,9 +131,11 @@ export async function reconcileGmailThreads(
     triageRepointed: 0,
     repointedThreadIds: [],
   };
+
   if (distinct.length === 0) return empty;
 
   const cred = await loadGoogleCredentialOrThrow(args.credentialId);
+
   if (cred.userId !== args.userId) {
     throw new Error(
       `[gmail.reconcile] credential=${args.credentialId} belongs to user=${cred.userId}, not user=${args.userId}`,
@@ -146,10 +154,12 @@ export async function reconcileGmailThreads(
       ),
     )
     .groupBy(documents.sourceThreadId);
+
   const multi = counts
     .filter((c) => c.n > 1)
     .map((c) => c.threadId)
     .filter((threadId): threadId is string => Boolean(threadId));
+
   if (multi.length === 0) return empty;
 
   const accessToken = await getFreshAccessToken(args.credentialId);
@@ -164,6 +174,7 @@ export async function reconcileGmailThreads(
       const liveFetchedAt = new Date();
       const live = await getThreadMessageLabels({ accessToken, threadId });
       const liveIds = new Set(live.map((message) => message.id));
+
       if (liveIds.size === 0) return;
 
       const outcome = await db().transaction(async (tx) => {
@@ -194,6 +205,7 @@ export async function reconcileGmailThreads(
           .from(emailTriage)
           .where(and(eq(emailTriage.userId, args.userId), eq(emailTriage.sourceThreadId, threadId)))
           .limit(1);
+
         const pointedDocId = triageRow[0]?.documentId ?? null;
 
         const plan = planGmailThreadReconcile({
@@ -244,10 +256,12 @@ export async function reconcileGmailThreads(
 
       if (!outcome.reconciled) return;
       docsDeleted += outcome.docsDeleted;
+
       if (outcome.repointed) {
         triageRepointed++;
         repointedThreadIds.push(threadId);
       }
+
       threadsReconciled++;
     } catch (err) {
       console.warn(`[gmail.reconcile] thread=${threadId} skipped:`, toMessage(err));
@@ -269,9 +283,11 @@ export async function findNewestLiveInboundGmailDocuments(args: {
   threadIds: string[];
 }): Promise<LiveInboundGmailDocument[]> {
   const distinct = Array.from(new Set(args.threadIds.filter(Boolean)));
+
   if (distinct.length === 0) return [];
 
   const cred = await loadGoogleCredentialOrThrow(args.credentialId);
+
   if (cred.userId !== args.userId) {
     throw new Error(
       `[gmail.live-inbound] credential=${args.credentialId} belongs to user=${cred.userId}, not user=${args.userId}`,
@@ -284,7 +300,9 @@ export async function findNewestLiveInboundGmailDocuments(args: {
     try {
       const live = await getThreadMessageLabels({ accessToken, threadId });
       const liveIds = live.map((message) => message.id);
+
       if (liveIds.length === 0) return;
+
       const rows = await db()
         .select({ id: documents.id })
         .from(documents)
@@ -300,12 +318,15 @@ export async function findNewestLiveInboundGmailDocuments(args: {
         )
         .orderBy(sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`)
         .limit(1);
+
       const documentId = rows[0]?.id;
+
       if (documentId) targets.push({ threadId, documentId });
     } catch (err) {
       console.warn(`[gmail.live-inbound] thread=${threadId} skipped:`, toMessage(err));
     }
   });
+
   return targets;
 }
 
@@ -313,7 +334,9 @@ function compareNewestFirst(a: ReconcileStoredGmailDoc, b: ReconcileStoredGmailD
   const timeDiff =
     (b.authoredAt?.getTime() ?? Number.NEGATIVE_INFINITY) -
     (a.authoredAt?.getTime() ?? Number.NEGATIVE_INFINITY);
+
   if (timeDiff !== 0) return timeDiff;
+
   return b.id.localeCompare(a.id);
 }
 
@@ -321,6 +344,7 @@ async function loadGoogleCredentialOrThrow(
   credentialId: string,
 ): Promise<{ id: string; userId: string; accountId: string }> {
   const { integrationCredentials } = await import("@alfred/db/schemas");
+
   const rows = await db()
     .select({
       id: integrationCredentials.id,
@@ -330,10 +354,14 @@ async function loadGoogleCredentialOrThrow(
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+
   const row = rows[0];
+
   if (!row) throw new Error(`[gmail.reconcile] credential not found: ${credentialId}`);
+
   if (row.provider !== "google") {
     throw new Error(`[gmail.reconcile] credential provider must be google, got ${row.provider}`);
   }
+
   return { id: row.id, userId: row.userId, accountId: row.accountId };
 }

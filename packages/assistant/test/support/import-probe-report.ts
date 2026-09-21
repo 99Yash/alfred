@@ -33,7 +33,9 @@ const RAW_EXCERPT_LIMIT = 400;
 
 function excerpt(raw: unknown): string {
   const text = typeof raw === "string" ? raw : JSON.stringify(raw);
+
   if (text === undefined) return String(raw);
+
   return text.length > RAW_EXCERPT_LIMIT ? `${text.slice(0, RAW_EXCERPT_LIMIT)}…` : text;
 }
 
@@ -50,6 +52,7 @@ export function parseImportProbeReport(raw: unknown): ImportProbeReport {
   }
 
   let json: unknown;
+
   try {
     json = JSON.parse(raw);
   } catch (error) {
@@ -59,6 +62,7 @@ export function parseImportProbeReport(raw: unknown): ImportProbeReport {
   }
 
   const result = importProbeReportSchema.safeParse(json);
+
   if (!result.success) {
     throw new Error(
       `import probe child wrote a report of the wrong shape (${result.error.issues
@@ -66,5 +70,6 @@ export function parseImportProbeReport(raw: unknown): ImportProbeReport {
         .join("; ")}): ${excerpt(raw)}`,
     );
   }
+
   return result.data;
 }

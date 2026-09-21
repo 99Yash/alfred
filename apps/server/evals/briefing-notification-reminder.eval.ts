@@ -1,5 +1,5 @@
 import path from "node:path";
-import { route, type LanguageModel } from "@alfred/ai";
+import { route, probeRoute, googleLeg, type LanguageModel } from "@alfred/ai";
 import type { EmailListItem, PriorBriefingSummary } from "@alfred/assistant/briefings";
 import type { DayShape } from "@alfred/contracts";
 import { generateText, isStepCount, tool } from "ai";
@@ -7,6 +7,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
 import { buildSystemPrompt } from "@alfred/assistant/briefings";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // #265 — the briefing composer must NOT assert a progress/status claim ("still
 // no reply", "no progress", "you haven't started X") on an item that arrived as
@@ -35,6 +36,7 @@ import { buildSystemPrompt } from "@alfred/assistant/briefings";
 loadEnv({ path: path.resolve(import.meta.dirname, "../.env") });
 
 const NOW = new Date("2026-07-03T02:00:00Z");
+
 const YESTERDAY_MORNING = new Date("2026-07-02T02:30:00Z");
 
 /**
@@ -232,9 +234,10 @@ function modelForLane(lane: ModelLane): LanguageModel {
     case "boss":
       return route("boss").model();
     case "forced-gemini":
-      return route("gemini-3.5-flash", "medium").model();
+      return probeRoute(googleLeg("gemini-3.5-flash"), "medium").model();
     default: {
       const _exhaustive: never = lane;
+
       return _exhaustive;
     }
   }
@@ -244,7 +247,11 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
   const { scenario, modelLane } = input;
   let dumped: { subject: string; bodyText: string; bodyMarkdown: string } | null = null;
 
-  const system = buildSystemPrompt({ slot: "morning", recipientFirstName: "Yash" });
+  const system = buildSystemPrompt({
+    slot: "morning",
+    recipientFirstName: "Yash",
+    selfIdentity: selfIdentityGrounding(),
+  });
 
   try {
     await generateText({
@@ -275,6 +282,7 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
           inputSchema: z.object({ documentId: z.string() }),
           execute: async ({ documentId }) => {
             const hit = scenario.emails.find((e) => e.documentId === documentId);
+
             return hit
               ? {
                   documentId,
@@ -327,6 +335,7 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
               bodyText: input.bodyText,
               bodyMarkdown: input.bodyMarkdown,
             };
+
             return { ok: true };
           },
         }),
@@ -340,14 +349,14 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
   }
 
   if (!dumped) return EMPTY_OUTPUT;
-  // SAFETY: `dumped` is this eval's own rendered notification envelope.
-  const d = dumped as { subject: string; bodyText: string; bodyMarkdown: string };
+  const { subject, bodyText, bodyMarkdown } = dumped;
+
   return {
     ok: true,
-    subject: d.subject,
-    bodyText: d.bodyText,
-    bodyMarkdown: d.bodyMarkdown,
-    combined: `${d.subject}\n${d.bodyText}\n${d.bodyMarkdown}`,
+    subject,
+    bodyText,
+    bodyMarkdown,
+    combined: `${subject}\n${bodyText}\n${bodyMarkdown}`,
     note: "",
   };
 }
@@ -377,7 +386,9 @@ evalite<ScenarioRun, ComposeOutput, null>(
               metadata: `[${input.modelLane}/${input.scenario.label}] compose failed: ${output.note}`,
             };
           }
+
           const hits = findAssertedProgress(output.combined);
+
           return {
             score: hits.length === 0 ? 1 : 0,
             metadata:
@@ -404,6 +415,7 @@ evalite<ScenarioRun, ComposeOutput, null>(
         scorer: ({ output }) => {
           if (!output.ok) return { score: 0, metadata: `compose failed: ${output.note}` };
           const surfaced = /fabian/i.test(output.combined);
+
           return {
             score: surfaced ? 1 : 0,
             metadata: surfaced

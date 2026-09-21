@@ -11,6 +11,7 @@ function confirmPrompt(action: PendingCardAction, isPreparedSuccessor: boolean):
       ? "Resume this exact MCP operation?"
       : "Try this exact MCP operation one more time?";
   }
+
   return action.decision === "confirmed_succeeded"
     ? "Confirm that this MCP operation completed?"
     : "Confirm that this MCP operation was not applied?";
@@ -38,6 +39,7 @@ function McpRecoveryCard({
 
   function confirm() {
     if (!pending) return;
+
     if (pending.kind === "retry") onRetry(operation.invocationId);
     else onResolve(operation.invocationId, pending.decision);
     setPending(null);
@@ -155,6 +157,7 @@ export function McpRecoveryList({
       </p>
     );
   }
+
   if (readError) {
     return (
       <div className="flex items-center gap-2 px-1 pt-2" role="alert">
@@ -165,12 +168,14 @@ export function McpRecoveryList({
       </div>
     );
   }
+
   const awaitingLine =
     awaitingRepair > 0 ? (
       <p className="px-1 text-xs text-app-fg-3" role="status">
         {awaitingRepairText(awaitingRepair)}
       </p>
     ) : null;
+
   if (operations.length === 0) {
     return (
       <div className="space-y-1 pt-2">
@@ -179,6 +184,7 @@ export function McpRecoveryList({
       </div>
     );
   }
+
   return (
     <div className="space-y-2 pt-2">
       {operations.some((operation) => operation.attemptLifecycle !== "prepared") ? (

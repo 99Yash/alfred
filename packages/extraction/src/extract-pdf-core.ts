@@ -23,6 +23,7 @@ interface PdfInspector {
   ) => Promise<{ readonly pages: readonly PageMarkdownResult[] }>;
   readonly extractText: (buffer: Buffer) => string;
 }
+
 type LoadPdfInspector = () => Promise<PdfInspector>;
 
 const PDF_DOCUMENT_TYPES = {
@@ -31,16 +32,22 @@ const PDF_DOCUMENT_TYPES = {
   ImageBased: "image_based",
   Mixed: "mixed",
 } satisfies Readonly<Record<`${PdfType}`, PdfDocumentType>>;
+
 const VENDOR_FAILURE_CODE = "GenericFailure";
+
 const ENCRYPTED_MESSAGE = "PDF is encrypted";
+
 const NOT_A_PDF_PREFIX = "Not a PDF: ";
+
 const PDF_STRUCTURE_MARKERS = ["%PDF-", "startxref", "%%EOF"] as const;
+
 const RUST_FUNCTION_PREFIX = /^[a-z][a-z0-9_]*: /;
 
 let inspectorPromise: Promise<PdfInspector> | undefined;
 
 function loadInspector(): Promise<PdfInspector> {
   inspectorPromise ??= import("@firecrawl/pdf-inspector");
+
   return inspectorPromise;
 }
 
@@ -58,14 +65,17 @@ function hasPdfMarkers(buffer: Buffer): boolean {
 
 function toInvalidPdfCause(reason: string, buffer: Buffer): InvalidPdfCause {
   if (hasPdfMarkers(buffer)) return "damaged";
+
   return reason.startsWith(NOT_A_PDF_PREFIX) ? "not_a_pdf" : "damaged";
 }
 
 function toExtractedPdfFailure(error: unknown, buffer: Buffer): ExtractedPdf | undefined {
   if (!isVendorFailure(error)) return undefined;
   const { message } = error;
+
   if (message.includes(ENCRYPTED_MESSAGE)) return { kind: "encrypted" };
   const reason = message.replace(RUST_FUNCTION_PREFIX, "");
+
   return { kind: "invalid", cause: toInvalidPdfCause(reason, buffer), reason };
 }
 
@@ -79,12 +89,14 @@ function pageHasText(page: ExtractedPdfPage): boolean {
 
 function readDocumentText(inspector: PdfInspector, buffer: Buffer): string | undefined {
   let text: string;
+
   try {
     text = inspector.extractText(buffer);
   } catch (error) {
     if (isVendorFailure(error)) return undefined;
     throw error;
   }
+
   return hasText(text) ? text : undefined;
 }
 
@@ -135,6 +147,7 @@ export async function extractPdfCore(
 
     if (mutablePages.some(pageHasText)) {
       let documentText = text ?? "";
+
       let result: ExtractedPdf = {
         kind: "extracted",
         pdfType,
@@ -145,7 +158,9 @@ export async function extractPdfCore(
           .map((page) => page.pageNumber),
         text: documentText,
       };
+
       const totalCharacters = pdfExtractionContentCharacterCount(result);
+
       if (totalCharacters > maxCharacters) {
         if (limits.truncateOnOutputExceed) {
           // Truncate text to fit remaining budget after pages
@@ -170,32 +185,41 @@ export async function extractPdfCore(
           );
         }
       }
+
       return result;
     }
 
     if (text !== undefined) {
       let truncatedText = text;
+
       const result: ExtractedPdf = {
         kind: "text_without_pages",
         pdfType,
         pageCount,
         text: truncatedText,
       };
+
       const totalCharacters = pdfExtractionContentCharacterCount(result);
+
       if (totalCharacters > maxCharacters) {
         if (limits.truncateOnOutputExceed) {
           truncatedText = truncateTextToFit(text, maxCharacters);
+
           return { kind: "text_without_pages", pdfType, pageCount, text: truncatedText };
         }
+
         return createPdfExtractionLimitResult("output_characters", totalCharacters, maxCharacters);
       }
+
       return result;
     }
 
     return { kind: "needs_ocr", pdfType, pageCount };
   } catch (error) {
     const failure = toExtractedPdfFailure(error, buffer);
+
     if (failure === undefined) throw new PdfExtractionError(error);
+
     return failure;
   }
 }

@@ -113,9 +113,11 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
   const userId = session?.user?.id;
   const [sync, dispatch] = useReducer(syncLifecycleReducer, initialSyncLifecycle);
   const { rep, loadError, pullError, initialPullPending, retryNonce } = sync;
+
   const retry = useCallback(() => {
     if (rep) {
       const lifecycle = sync.lifecycle;
+
       if (!lifecycle) return;
       dispatch({ type: "retryPull", rep });
       void rep
@@ -131,10 +133,13 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
             message: syncErrorMessage(error),
           });
         });
+
       return;
     }
+
     dispatch({ type: "retryLoad" });
   }, [rep, sync.lifecycle]);
+
   const contextValue = useMemo<ReplicacheContextValue>(
     () => ({ rep, loadError, pullError, initialPullPending, retry }),
     [initialPullPending, loadError, pullError, rep, retry],
@@ -143,8 +148,10 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (!userId) {
       dispatch({ type: "signedOut" });
+
       return;
     }
+
     const lifecycle = {};
     let cancelled = false;
     let close: (() => void) | undefined;
@@ -161,6 +168,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
     };
 
     const MAX_ATTEMPTS = 3;
+
     const waitForRetry = (ms: number) =>
       new Promise<void>((resolve) => {
         resolveRetry = resolve;
@@ -175,7 +183,9 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
       for (let attempt = 1; attempt <= MAX_ATTEMPTS && !cancelled; attempt++) {
         try {
           const { createReplicache } = await import("./client");
+
           if (cancelled) return;
+
           const instance = createReplicache(userId, {
             onAuthError: handleAuthError,
             onPullSuccess: () => {
@@ -187,6 +197,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
               dispatch({ type: "pullReportedError", lifecycle, message });
             },
           });
+
           close = instance.close;
           dispatch({ type: "ready", lifecycle, rep: instance.rep });
           void instance.rep
@@ -204,9 +215,11 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
                 message: syncErrorMessage(error),
               });
             });
+
           return;
         } catch (err) {
           if (cancelled) return;
+
           if (attempt === MAX_ATTEMPTS) {
             dispatch({
               type: "loadFailed",
@@ -216,16 +229,20 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
                   ? `Sync client failed to load: ${err.message}`
                   : "Sync client failed to load.",
             });
+
             return;
           }
+
           await waitForRetry(500 * attempt);
         }
       }
     };
+
     void load();
 
     return () => {
       cancelled = true;
+
       if (retryTimeout) clearTimeout(retryTimeout);
       retryTimeout = undefined;
       const resolve = resolveRetry;

@@ -5,11 +5,15 @@ import pg from "pg";
 import { toMessage } from "@alfred/contracts";
 
 const POOL_IDLE_TIMEOUT_MS = 5 * 60_000;
+
 const POOL_CONNECTION_TIMEOUT_MS = 10_000;
+
 const POOL_HEARTBEAT_INTERVAL_MS = 20_000;
 
 let _db: ReturnType<typeof drizzle> | undefined;
+
 let _pool: pg.Pool | undefined;
+
 let _heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 function startPoolHeartbeat() {
@@ -17,6 +21,7 @@ function startPoolHeartbeat() {
 
   const heartbeat = setInterval(() => {
     if (!_pool) return;
+
     // Saturation is otherwise invisible: an oversubscribed pool doesn't error,
     // it queues, and the added wait is indistinguishable from a slow model
     // (#437). `waitingCount` is the one number that tells the two apart, so say
@@ -28,6 +33,7 @@ function startPoolHeartbeat() {
           `${_pool.totalCount}/${_pool.options.max} connections, ${_pool.idleCount} idle`,
       );
     }
+
     void _pool.query("SELECT 1").catch((err) => {
       console.warn("[db] Pool heartbeat failed:", toMessage(err));
     });
@@ -63,6 +69,7 @@ export function db() {
     startPoolHeartbeat();
     _db = drizzle(_pool);
   }
+
   return _db;
 }
 
@@ -91,9 +98,11 @@ export type DbSession = {
 export async function withDbSession<T>(body: (session: DbSession) => Promise<T>): Promise<T> {
   db();
   const client = await _pool!.connect();
+
   try {
     const result = await body({ db: drizzle(client), client });
     client.release();
+
     return result;
   } catch (err) {
     client.release(true);
@@ -127,6 +136,7 @@ function hasRows(result: unknown): result is { rows: unknown[] } {
 
 export function rowsFromExecute<T>(result: unknown): T[] {
   const rawRows = hasRows(result) ? result.rows : result;
+
   // SAFETY: the driver returns rows untyped; T is the caller's named Drizzle
   // row type for this query — the contract every rowsFromExecute caller owns.
   return Array.isArray(rawRows) ? (rawRows as T[]) : [];
@@ -139,9 +149,11 @@ export function rowsFromExecute<T>(result: unknown): T[] {
  */
 export async function warmPool() {
   db(); // ensure pool is created
+
   if (_pool) {
     try {
       const clients = await Promise.all(Array.from({ length: POOL_MIN }, () => _pool!.connect()));
+
       for (const c of clients) c.release();
     } catch (err) {
       console.warn(
@@ -157,5 +169,6 @@ export async function closeConnections() {
     clearInterval(_heartbeatTimer);
     _heartbeatTimer = undefined;
   }
+
   if (_pool) await _pool.end();
 }

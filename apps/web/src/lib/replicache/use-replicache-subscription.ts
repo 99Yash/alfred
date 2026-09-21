@@ -35,6 +35,7 @@ export function useReplicacheSubscription<T, U>(
   select?: (data: T) => U,
 ): (T | U) | null {
   const { rep } = useReplicacheStatus();
+
   const [snapshot, setSnapshot] = useState<{
     rep: Replicache<ClientMutators>;
     value: T | U;
@@ -43,6 +44,7 @@ export function useReplicacheSubscription<T, U>(
   useEffect(() => {
     if (!rep || !query) {
       setSnapshot(null);
+
       return;
     }
 
@@ -50,8 +52,10 @@ export function useReplicacheSubscription<T, U>(
     setSnapshot(null);
 
     let cancelled = false;
+
     const unsubscribe = rep.subscribe(query, (data: T) => {
       if (cancelled) return;
+
       if (select) {
         setSnapshot({ rep, value: select(data) });
       } else {

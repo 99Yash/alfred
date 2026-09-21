@@ -2,13 +2,18 @@ import type { BetterAuthOptions } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 
 type AuthDatabaseHooks = NonNullable<BetterAuthOptions["databaseHooks"]>;
+
 type NonSessionDatabaseHooks = Omit<AuthDatabaseHooks, "session">;
+
 type AuthRequestHooks = NonNullable<BetterAuthOptions["hooks"]>;
+
 type NonBeforeAuthRequestHooks = Omit<AuthRequestHooks, "before">;
+
 type AuthSessionPolicyInput = {
   databaseHooks?: NonSessionDatabaseHooks;
   hooks?: NonBeforeAuthRequestHooks;
 };
+
 type AuthSessionPolicy = {
   session: NonNullable<BetterAuthOptions["session"]>;
   databaseHooks: AuthDatabaseHooks;
@@ -93,6 +98,7 @@ const absoluteLifetimeGuard = createAuthMiddleware(async (context) => {
     context.context.authCookies.sessionToken.name,
     context.context.secret,
   );
+
   if (!token) return;
 
   // The update hook cannot repair a pre-policy row before its first read:
@@ -101,9 +107,11 @@ const absoluteLifetimeGuard = createAuthMiddleware(async (context) => {
   // Retire such a row before any endpoint runs. The endpoint then performs its
   // normal session read and cannot authorize with the removed row.
   const current = await context.context.internalAdapter.findSession(token);
+
   if (!current) return;
 
   const deadlineMs = absoluteSessionDeadlineMs(current.session.createdAt.getTime());
+
   if (!Number.isFinite(deadlineMs) || Date.now() >= deadlineMs) {
     // Cleanup is best-effort for this request. Better Auth can swallow its
     // pre-delete snapshot failure and skip the delete, so request admission
@@ -118,12 +126,15 @@ const absoluteLifetimeGuard = createAuthMiddleware(async (context) => {
     // caller, including a policy-neutral HTTP cache, receives the native
     // exclusive deadline instead of the legacy value.
     context.context.session = current;
+
     const normalized = await context.context.internalAdapter.updateSession(token, {
       expiresAt: new Date(deadlineMs),
     });
+
     if (!normalized || normalized.expiresAt.getTime() > deadlineMs) {
       throw new APIError("UNAUTHORIZED");
     }
+
     context.context.session = { ...current, session: normalized };
   }
 });
@@ -163,10 +174,12 @@ export function authSessionPolicy({
             const createdAt = context?.context.session?.session.createdAt;
             const createdMs = createdAt instanceof Date ? createdAt.getTime() : Number.NaN;
             const proposedMs = update.expiresAt.getTime();
+
             if (!Number.isFinite(createdMs) || !Number.isFinite(proposedMs)) return false;
 
             const idleDeadlineMs = Date.now() + SESSION_IDLE_SECONDS * 1000;
             const absoluteDeadlineMs = absoluteSessionDeadlineMs(createdMs);
+
             return {
               data: {
                 ...update,

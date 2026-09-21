@@ -25,12 +25,14 @@ describe("chat request pressure", () => {
       transcript: [{ role: "user", content: "hello" }],
       outputReserveTokens: 16_000,
     });
+
     const composed = await estimateChatRequestTokens({
       systemPrompt: "system with more grounding",
       tools,
       transcript: [{ role: "user", content: "hello with a longer transcript" }],
       outputReserveTokens: 16_000,
     });
+
     assert.ok(composed.systemTokens > base.systemTokens);
     assert.ok(composed.toolTokens > base.toolTokens);
     assert.ok(composed.transcriptTokens > base.transcriptTokens);
@@ -44,12 +46,14 @@ describe("chat request pressure", () => {
         content: [{ type: "file", data: "a".repeat(1_000_000), mediaType: "image/png" }],
       },
     ];
+
     const estimate = await estimateChatRequestTokens({
       systemPrompt: "system",
       tools: {},
       transcript,
       outputReserveTokens: 16_000,
     });
+
     assert.equal(estimate.hydratedImageTokens, CHAT_HYDRATED_IMAGE_TOKENS);
     assert.ok(estimate.transcriptTokens < 100);
   });
@@ -62,6 +66,7 @@ describe("chat request pressure", () => {
       contextWindowTokens: 20_000,
       outputReserveTokens: 16_000,
     });
+
     assert.equal(atBoundary.synchronousCompactionThresholdTokens, 3_400);
     assert.equal(atBoundary.requiresSynchronousCompaction, false);
 
@@ -72,6 +77,7 @@ describe("chat request pressure", () => {
       contextWindowTokens: 20_000,
       outputReserveTokens: 16_000,
     });
+
     assert.equal(pressured.requiresSynchronousCompaction, true);
   });
 });

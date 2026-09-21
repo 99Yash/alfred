@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { isInboundEventSource, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { isDuplicateRunIndex, workflows } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
@@ -8,6 +8,7 @@ import { startRun } from "@alfred/assistant/execution";
 import {
   domainEventSchema,
   gmailMessagePayloadSchema,
+  inboundDeliveryPayloadSchema,
   type DomainEvent,
 } from "@alfred/assistant/triggers";
 
@@ -30,6 +31,7 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
   // Keep validation at this public automation seam as well as at publication,
   // so a direct caller cannot bypass the owning domain-event contract.
   const args = domainEventSchema.parse(input);
+
   // Only `message_received` carries the message-shaped payload. The batch
   // `documents_ingested` fact has a different (non-message) payload and no
   // workflow trigger, so parsing it with the strict message schema would throw
@@ -38,12 +40,20 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
     args.source === "gmail" && args.type === "message_received"
       ? gmailMessagePayloadSchema.parse(args.payload ?? {})
       : undefined;
+
   const reason = gmailPayload?.reason;
   const documentId = gmailPayload?.documentId;
   // Threaded into the run input so a re-key on an already-classified doc (the
   // outbound-reply re-eval, issue #282) bypasses the triage already-tagged
   // skip guard instead of no-op'ing.
   const force = gmailPayload?.force;
+
+  // An inbound receipt (typed or raw) carries the pointer to its
+  // `event_receipts` row, not the body (ADR-0097). The run keeps the pointer so
+  // the trigger message can read the receipt's describe-slot document (#990).
+  const receiptId = isInboundEventSource(args.source)
+    ? inboundDeliveryPayloadSchema.parse(args.payload ?? {}).receiptId
+    : undefined;
 
   const rows = await db()
     .select({
@@ -64,6 +74,10 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
           and(
             sql`${workflows.trigger}->>'source' = ${args.source}`,
             sql`${workflows.trigger}->>'type' = ${args.type}`,
+            // A raw trigger names the provider kind it subscribes to; a typed
+            // trigger and a typed event both leave it unset, so the two empty
+            // strings compare equal (#990).
+            sql`coalesce(${workflows.trigger}->>'rawKind', '') = ${args.rawKind ?? ""}`,
             or(
               sql`${workflows.trigger}->>'accountRef' IS NULL`,
               args.accountRef
@@ -92,14 +106,18 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
           console.warn(
             `[workflows:event] skipping workflow=${row.slug}: source=${args.source} outside allowed_integrations`,
           );
+
           return;
         }
+
         if (!row.isBuiltin && !row.publishedRevisionId) {
           throw new Error(`[workflows:event] workflow=${row.slug} has no published revision`);
         }
+
         const workflowRevisionId = row.isBuiltin ? null : row.publishedRevisionId;
 
         let created: boolean;
+
         try {
           // `startRun` persists the occurrence and delivers it in one call. The
           // duplicate-run throw comes from the persist before any deliver, so
@@ -116,25 +134,30 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
             },
             input: {
               documentId,
+              receiptId,
               reason,
               force,
               source: args.source,
               type: args.type,
+              rawKind: args.rawKind,
               accountRef: args.accountRef,
             },
             metadata: {
               source: args.source,
               type: args.type,
+              ...(args.rawKind !== undefined ? { rawKind: args.rawKind } : {}),
               eventId: args.eventId,
-              documentId,
-              accountRef: args.accountRef,
+              ...(documentId !== undefined ? { documentId } : {}),
+              ...(receiptId !== undefined ? { receiptId } : {}),
+              ...(args.accountRef !== undefined ? { accountRef: args.accountRef } : {}),
             },
             trigger: {
               kind: "event",
               source: args.source,
               type: args.type,
+              rawKind: args.rawKind,
               eventId: args.eventId,
-              payload: { documentId, reason, accountRef: args.accountRef },
+              payload: { documentId, receiptId, reason, accountRef: args.accountRef },
             },
           }));
         } catch (err) {
@@ -150,8 +173,10 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
           // benign drop. Anything else really is a fault and rethrows.
           if (!isDuplicateRunIndex(uniqueViolationConstraint(err))) throw err;
           result.skippedDuplicate++;
+
           return;
         }
+
         if (created) result.created++;
         else result.skippedDuplicate++;
       } catch (err) {
@@ -178,5 +203,6 @@ function legacyEventTriggerCondition(args: DomainEvent) {
   if (args.source === "gmail" && args.type === "message_received") {
     return sql`${workflows.trigger}->>'source' = 'gmail.ingest'`;
   }
+
   return sql`false`;
 }

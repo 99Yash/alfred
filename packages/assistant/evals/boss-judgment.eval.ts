@@ -19,6 +19,7 @@ import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { awaitSubAgentInputSchema, spawnSubAgentInputSchema } from "@alfred/assistant/tool-runtime";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { buildSubAgentSystemPrompt } from "@alfred/assistant/execution/workflows/user-authored-brief";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // ADR-0077 amendment: behavioral guard for the boss charter. The old rulebook
 // routed people questions inward (memory + Gmail) and never mentioned the live
@@ -32,18 +33,29 @@ import { buildSubAgentSystemPrompt } from "@alfred/assistant/execution/workflows
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
 const NOW = new Date("2026-07-02T07:30:00Z");
+
 const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
+
 const EVAL_TIMEOUT_MS = 60_000;
 
 const READ_CONTEXT_TOOL = "system.read_user_context";
+
 const WEB_SEARCH_TOOL = "system.web_search";
+
 const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent";
+
 const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent";
+
 const GMAIL_SEARCH_TOOL = "gmail.search";
+
 const GMAIL_READ_MESSAGE_TOOL = "gmail.read_message";
+
 const CALENDAR_TOOL = "calendar.list_events";
+
 const FETCH_URL_TOOL = "system.fetch_url";
+
 const GITHUB_SEARCH_TOOL = "github.search";
+
 const GITHUB_GET_PR_TOOL = "github.get_pull_request";
 
 const TIERS: ChatModelTier[] = ["standard", "deep"];
@@ -56,6 +68,7 @@ const WEB_INVESTIGATION_TOOLS = new Set<string>([
   WEB_SEARCH_TOOL,
   FETCH_URL_TOOL,
 ]);
+
 const GITHUB_INVESTIGATION_TOOLS = new Set<string>([
   READ_CONTEXT_TOOL,
   GITHUB_SEARCH_TOOL,
@@ -72,7 +85,11 @@ const CONNECTED_SUMMARY = [
   "- system.spawn_sub_agent, system.await_sub_agent — delegate and await a focused multi-step investigation",
 ].join("\n");
 
-const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+const SYSTEM = buildChatSystemPrompt(
+  formatDateGrounding(TIMEZONE, NOW),
+  CONNECTED_SUMMARY,
+  selfIdentityGrounding(),
+);
 
 const WEB_SEARCH_DESCRIPTION =
   "Search the live public web for current facts, public background on people or companies, and information outside Alfred's memory or connected services. Returns a synthesized answer plus result URLs/citations; use system.fetch_url on a promising result when you need to verify or read the page behind the search result.";
@@ -104,7 +121,9 @@ function collectOutput(result: GenerateTextView): TaskOutput {
   const calls: ToolCall[] = result.steps.flatMap((step) =>
     step.toolCalls.map((call) => ({ name: call.toolName, input: call.input })),
   );
+
   const toolNames = calls.map((c) => c.name);
+
   return { toolNames, calls, first: toolNames[0] ?? null, text: result.text };
 }
 
@@ -129,10 +148,12 @@ function bossDepthVerdict(calls: ToolCall[]): DepthVerdict {
   let usedWeb = false;
   let usedFetch = false;
   let delegated = false;
+
   for (const c of calls) {
     if (c.name === WEB_SEARCH_TOOL) {
       usedWeb = true;
       const q = callQuery(c.input);
+
       if (q) webQueries.add(q);
     } else if (c.name === FETCH_URL_TOOL) {
       usedFetch = true;
@@ -140,7 +161,9 @@ function bossDepthVerdict(calls: ToolCall[]): DepthVerdict {
       delegated = true;
     }
   }
+
   const ok = delegated || webQueries.size >= 2 || (usedWeb && usedFetch);
+
   return {
     ok,
     detail: `distinct web queries=${webQueries.size}, web+fetch=${usedWeb && usedFetch}, delegated=${delegated}`,
@@ -159,13 +182,17 @@ function investigationDepthVerdict(calls: ToolCall[], kind: "web" | "github"): D
   const relevant = calls.filter((c) => allowed.has(c.name) && c.name !== READ_CONTEXT_TOOL);
   const offDomain = calls.filter((c) => !allowed.has(c.name));
   const distinct = new Set(relevant.map((c) => `${c.name}:${JSON.stringify(c.input)}`));
+
   const searched = relevant.some(
     (c) => c.name === (kind === "web" ? WEB_SEARCH_TOOL : GITHUB_SEARCH_TOOL),
   );
+
   const drilled = relevant.some(
     (c) => c.name === (kind === "web" ? FETCH_URL_TOOL : GITHUB_GET_PR_TOOL),
   );
+
   const ok = offDomain.length === 0 && distinct.size >= 2 && searched && drilled;
+
   return {
     ok,
     detail: `kind=${kind}, distinct relevant actions=${distinct.size}, searched=${searched}, drilled a record=${drilled}, off-domain=[${offDomain.map((c) => c.name).join(", ")}], tools=[${calls.map((c) => c.name).join(", ")}]`,
@@ -228,11 +255,13 @@ function toolSurface(): Record<string, Tool> {
       inputSchema: calendarListEventsInput,
     }),
   };
+
   return Object.assign<Record<string, Tool>, object>({}, surface);
 }
 
 async function runSourceChoice(input: string): Promise<TaskOutput> {
   const modelRoute = route("standard");
+
   const result = await generateText({
     model: modelRoute.model(),
     instructions: SYSTEM,
@@ -241,6 +270,7 @@ async function runSourceChoice(input: string): Promise<TaskOutput> {
     providerOptions: modelRoute.providerOptions(),
     tools: toolSurface(),
   });
+
   return collectOutput(result);
 }
 
@@ -248,6 +278,7 @@ evalite<string, TaskOutput, SourceCase["expected"]>("Boss judgment — source la
   data: () => SOURCE_CASES.map((c) => ({ input: c.input, expected: c.expected })),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
+
     try {
       return await runSourceChoice(input);
     } catch (err) {
@@ -266,6 +297,7 @@ evalite<string, TaskOutput, SourceCase["expected"]>("Boss judgment — source la
         const reachedWeb = output.toolNames.includes(WEB_SEARCH_TOOL);
         const reachedCalendar = output.toolNames.includes(CALENDAR_TOOL);
         const ok = expected === "web" ? reachedWeb : reachedCalendar;
+
         return {
           score: ok ? 1 : 0,
           metadata: ok
@@ -278,8 +310,10 @@ evalite<string, TaskOutput, SourceCase["expected"]>("Boss judgment — source la
       name: "Does not over-search calendar requests",
       scorer: ({ output, expected }) => {
         if (expected !== "calendar") return { score: 1, metadata: "n/a" };
+
         const ok =
           output.toolNames.includes(CALENDAR_TOOL) && !output.toolNames.includes(WEB_SEARCH_TOOL);
+
         return {
           score: ok ? 1 : 0,
           metadata: ok
@@ -308,6 +342,7 @@ async function runThinPersonResearchReplay(
   tier: ChatModelTier,
 ): Promise<TaskOutput> {
   const modelRoute = route(tier);
+
   const result = await generateText({
     model: modelRoute.model(),
     instructions: SYSTEM,
@@ -420,6 +455,7 @@ async function runThinPersonResearchReplay(
       }),
     },
   });
+
   return collectOutput(result);
 }
 
@@ -438,6 +474,7 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — thin person research re
     ),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
+
     try {
       return await runThinPersonResearchReplay(input.message, input.tier);
     } catch (err) {
@@ -456,6 +493,7 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — thin person research re
         const ok =
           output.toolNames.includes(WEB_SEARCH_TOOL) ||
           output.toolNames.includes(SPAWN_SUB_AGENT_TOOL);
+
         return {
           score: ok ? 1 : 0,
           metadata: ok
@@ -469,6 +507,7 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — thin person research re
       scorer: ({ output }) => {
         const text = output.text.toLowerCase();
         const ok = text.includes("clickup") && (text.includes("unlock") || text.includes("detail"));
+
         return {
           score: ok ? 1 : 0,
           metadata: ok
@@ -483,13 +522,17 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — thin person research re
         const searchedOrDelegated =
           output.toolNames.includes(WEB_SEARCH_TOOL) ||
           output.toolNames.includes(SPAWN_SUB_AGENT_TOOL);
+
         const text = output.text.toLowerCase();
+
         const puntsToFutureWeb =
           text.includes("i can look") ||
           text.includes("i can search") ||
           text.includes("if you know") ||
           text.includes("if you share");
+
         const ok = searchedOrDelegated || !puntsToFutureWeb;
+
         return {
           score: ok ? 1 : 0,
           metadata: ok
@@ -517,6 +560,7 @@ async function runPersonResearchDepth(
   tier: ChatModelTier,
 ): Promise<TaskOutput> {
   const modelRoute = route(tier);
+
   const result = await generateText({
     model: modelRoute.model(),
     instructions: SYSTEM,
@@ -588,6 +632,7 @@ async function runPersonResearchDepth(
       }),
     },
   });
+
   return collectOutput(result);
 }
 
@@ -598,6 +643,7 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — person research depth",
     ),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
+
     try {
       return await runPersonResearchDepth(input.message, input.tier);
     } catch (err) {
@@ -614,6 +660,7 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — person research depth",
       name: "Investigates in depth (>=2 angles, a fetch_url drill, or delegation)",
       scorer: ({ output }) => {
         const v = bossDepthVerdict(output.calls);
+
         return {
           score: v.ok ? 1 : 0,
           metadata: `${v.detail}; text=${output.text.slice(0, 200)}`,
@@ -626,6 +673,7 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — person research depth",
         const ok =
           output.toolNames.includes(WEB_SEARCH_TOOL) ||
           output.toolNames.includes(SPAWN_SUB_AGENT_TOOL);
+
         return {
           score: ok ? 1 : 0,
           metadata: ok
@@ -656,6 +704,7 @@ const SUB_CONNECTED_SUMMARY = [
 const SUB_SYSTEM = buildSubAgentSystemPrompt(
   formatDateGrounding(TIMEZONE, NOW),
   SUB_CONNECTED_SUMMARY,
+  selfIdentityGrounding(),
   "sub-eval",
 );
 
@@ -664,6 +713,7 @@ const githubSearchInputMock = z.object({
   type: z.string().optional(),
   state: z.string().optional(),
 });
+
 const githubGetPrInputMock = z.object({
   repo: z.string(),
   number: z.number(),
@@ -770,6 +820,7 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
       }),
     },
   });
+
   return collectOutput(result);
 }
 
@@ -777,6 +828,7 @@ evalite<SubAgentCase, TaskOutput, null>("Sub-agent — investigation depth (gene
   data: () => SUB_AGENT_CASES.map((c) => ({ input: c, expected: null })),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
+
     try {
       return await runSubAgentInvestigation(input.brief);
     } catch (err) {
@@ -793,6 +845,7 @@ evalite<SubAgentCase, TaskOutput, null>("Sub-agent — investigation depth (gene
       name: "Works >=2 distinct angles and drills a specific record",
       scorer: ({ output, input }) => {
         const v = investigationDepthVerdict(output.calls, input.kind);
+
         return { score: v.ok ? 1 : 0, metadata: v.detail };
       },
     },
@@ -800,6 +853,7 @@ evalite<SubAgentCase, TaskOutput, null>("Sub-agent — investigation depth (gene
       name: "Does not conclude from a single lookup",
       scorer: ({ output }) => {
         const ok = output.calls.length >= 2;
+
         return {
           score: ok ? 1 : 0,
           metadata: `total tool calls=${output.calls.length}; tools=[${output.toolNames.join(", ")}]`,

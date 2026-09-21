@@ -18,11 +18,14 @@ describe("extractGmailSignals", () => {
       "STARRED",
       "UNREAD",
     ]);
+
     assert.deepEqual(signals, {
       categories: ["promotions", "updates"],
       important: true,
       starred: true,
       inInbox: true,
+      spam: false,
+      trash: false,
     });
   });
 
@@ -32,6 +35,8 @@ describe("extractGmailSignals", () => {
       important: false,
       starred: false,
       inInbox: false,
+      spam: false,
+      trash: false,
     });
   });
 });
@@ -68,6 +73,7 @@ describe("extractContentFlags", () => {
       "Your recovery email was updated.",
       "A third-party OAuth application was added to your account.",
     ];
+
     for (const text of cases) {
       assert.equal(extractContentFlags(text).hasSecurityKeyword, true, text);
     }
@@ -175,7 +181,18 @@ describe("assembleObservations", () => {
         entityId: "ent_group",
         displayName: "Engineering",
       },
-      gmail: { categories: ["updates"], important: false, starred: false, inInbox: true },
+      standingInstruction: null,
+      standingInstructionReadFailed: false,
+      userContext: null,
+      userContextReadFailed: false,
+      gmail: {
+        categories: ["updates"],
+        important: false,
+        starred: false,
+        inInbox: true,
+        spam: false,
+        trash: false,
+      },
       content: {
         hasUnsubscribe: true,
         hasCurrencyAmount: true,

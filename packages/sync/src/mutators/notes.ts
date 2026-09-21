@@ -1,8 +1,8 @@
+import { isoDateTimeStringSchema } from "@alfred/contracts";
 import { z } from "zod";
 import type { WriteTransaction } from "replicache";
 import { SYNC_MODEL } from "../sync-model";
-import { isoDateTimeStringSchema } from "../schemas";
-import type { SyncedNote } from "../types";
+import type { SyncedNote } from "../schemas";
 
 export const noteCreateArgsSchema = z.object({
   id: z.string().min(1).max(100),
@@ -10,6 +10,7 @@ export const noteCreateArgsSchema = z.object({
   text: z.string().min(1).max(10_000),
   createdAt: isoDateTimeStringSchema,
 });
+
 export type NoteCreateArgs = z.infer<typeof noteCreateArgsSchema>;
 
 export async function noteCreateClient(tx: WriteTransaction, args: NoteCreateArgs): Promise<void> {

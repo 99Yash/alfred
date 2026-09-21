@@ -11,6 +11,7 @@ const documentRowUsesContract = true satisfies Equal<Document["source"], Documen
 describe("documentSourceSchema", () => {
   test("accepts every canonical document source", () => {
     assert.equal(documentRowUsesContract, true);
+
     for (const source of DOCUMENT_SOURCES) {
       assert.equal(documentSourceSchema.parse(source), source);
     }

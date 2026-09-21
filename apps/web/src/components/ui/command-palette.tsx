@@ -185,6 +185,7 @@ function Legend({ hints }: { hints?: ReadonlyArray<{ keys: ReactNode; label: str
     { keys: "↵", label: "Select" },
     { keys: "Esc", label: "Close" },
   ];
+
   return (
     <div className="tabular flex items-center justify-end gap-4 text-[11px] text-gray-700">
       {items.map((h) => (
@@ -198,7 +199,9 @@ function Legend({ hints }: { hints?: ReadonlyArray<{ keys: ReactNode; label: str
 }
 
 const groupComponent = Group;
+
 const itemComponent = Item;
+
 const legendComponent = Legend;
 
 export namespace CommandPalette {

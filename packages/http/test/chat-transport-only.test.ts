@@ -24,16 +24,20 @@ import { describe, test } from "node:test";
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+
 const ROUTE_FILE = path.join(HERE, "..", "src", "chat.ts");
 
 /** Every module specifier the file imports, static or dynamic. */
 export function importSpecifiers(source: string): string[] {
   const found: string[] = [];
   const pattern = /(?:\bfrom\s*|\bimport\s*\(\s*)(["'])([^"']+)\1/g;
+
   for (const match of source.matchAll(pattern)) {
     const specifier = match[2];
+
     if (specifier) found.push(specifier);
   }
+
   return found;
 }
 
@@ -88,8 +92,10 @@ describe("packages/http/src/chat.ts is transport only", () => {
   test("it names no database, Redis, storage or query address", () => {
     const violations = specifiers.flatMap((specifier) => {
       const rule = FORBIDDEN.find((candidate) => candidate.matches(specifier));
+
       return rule ? [`${specifier} — ${rule.why}`] : [];
     });
+
     assert.deepEqual(
       violations,
       [],

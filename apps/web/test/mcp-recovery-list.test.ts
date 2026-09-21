@@ -11,12 +11,16 @@ import { flattenMcpRecoveryPages } from "../src/routes/-integrations/helpers";
 import { McpRecoveryList } from "../src/routes/-integrations/mcp-recovery-list";
 
 type McpRecoveryRoute = ReturnType<typeof client.api.integrations.mcp.recovery>;
+
 type McpResolveBody = Parameters<McpRecoveryRoute["resolve"]["post"]>[0];
 
 const validResolveBody: McpResolveBody = { decision: "confirmed_succeeded" };
+
 // @ts-expect-error the Eden request body must stay the canonical closed decision union.
 const invalidResolveBody: McpResolveBody = { decision: "not_a_recovery_decision" };
+
 void validResolveBody;
+
 void invalidResolveBody;
 
 const operation: McpRecoveryOperation = {
@@ -111,6 +115,7 @@ test("MCP recovery distinguishes loading, failed reads, and an empty result", ()
       loading: true,
     }),
   );
+
   const errorHtml = renderToStaticMarkup(
     createElement(McpRecoveryList, {
       ...baseProps,
@@ -118,6 +123,7 @@ test("MCP recovery distinguishes loading, failed reads, and an empty result", ()
       readError: true,
     }),
   );
+
   const emptyHtml = renderToStaticMarkup(
     createElement(McpRecoveryList, {
       ...baseProps,
@@ -136,6 +142,7 @@ test("MCP recovery distinguishes loading, failed reads, and an empty result", ()
 
 test("MCP recovery read error binds the retry action", () => {
   let retries = 0;
+
   const tree = McpRecoveryList({
     ...baseProps,
     operations: [],
@@ -166,6 +173,7 @@ test("MCP recovery accumulates operations from every loaded page", () => {
 
 test("MCP recovery binds the explicit load-more control", () => {
   let loads = 0;
+
   const tree = McpRecoveryList({
     ...baseProps,
     operations: [operation],
@@ -176,10 +184,12 @@ test("MCP recovery binds the explicit load-more control", () => {
   });
 
   assert.ok(isValidElement<{ children?: ReactNode }>(tree));
+
   const loadMore = Children.toArray(tree.props.children).find(
     (child) =>
       isValidElement<{ children?: ReactNode }>(child) && child.props.children === "Load more",
   );
+
   assert.ok(isValidElement<{ onClick?: () => void }>(loadMore));
   loadMore.props.onClick?.();
   assert.equal(loads, 1);
@@ -193,6 +203,7 @@ test("MCP recovery reports rows that are still being recorded without a button",
       awaitingRepair: 3,
     }),
   );
+
   const listHtml = renderToStaticMarkup(
     createElement(McpRecoveryList, {
       ...baseProps,
@@ -215,8 +226,10 @@ test("MCP recovery confirms inline instead of through window.confirm", async () 
   );
 
   assert.doesNotMatch(source, /window\.confirm/);
+
   const html = renderToStaticMarkup(
     createElement(McpRecoveryList, { ...baseProps, operations: [operation] }),
   );
+
   assert.doesNotMatch(html, />Confirm<|>Cancel</, "the confirm step is closed at first render");
 });

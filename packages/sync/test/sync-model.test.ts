@@ -21,6 +21,7 @@ function scanTransaction(
     // values().toArray(); this fake implements that exact capability.
     scan: ((options?: { prefix?: string }) => {
       prefixes.push(options?.prefix ?? "");
+
       return {
         values: () => ({
           toArray: async () => [...values],
@@ -38,6 +39,7 @@ function assertModelOperationTypes(
   void result;
   // @ts-expect-error the model owns its schema; callers cannot provide another one
   void SYNC_MODEL.note.get(readTx, { id: "note_1" }, SYNC_MODEL.fact.schema);
+
   const wrongModelValue = {
     id: "todo_1",
     userId: "user_1",
@@ -50,6 +52,7 @@ function assertModelOperationTypes(
     createdAt: "2026-08-29T00:00:00.000Z",
     updatedAt: "2026-08-29T00:00:00.000Z",
   };
+
   // @ts-expect-error a note model cannot write a todo
   void SYNC_MODEL.note.put(writeTx, wrongModelValue);
   // @ts-expect-error workflow identity is its slug, not an arbitrary entity id
@@ -71,11 +74,13 @@ function assertModelOperationTypes(
   const mismatchedRegistry = {
     note: SYNC_MODEL.fact,
   };
+
   // @ts-expect-error an entry's slug must match its registry key
   void (mismatchedRegistry satisfies {
     [K in keyof typeof mismatchedRegistry]: { slug: K };
   });
 }
+
 void assertModelOperationTypes;
 
 describe("SYNC_MODEL storage keys", () => {
@@ -185,9 +190,11 @@ describe("SYNC_MODEL client operations", () => {
   test("gets valid rows and maps absent or malformed rows to null", async () => {
     const keys: string[] = [];
     const values: Array<ReadonlyJSONValue | undefined> = [note, undefined, { ...note, id: 42 }];
+
     const tx: Pick<ReadTransaction, "get"> = {
       get: async (key: string) => {
         keys.push(key);
+
         return values.shift();
       },
     };
@@ -200,11 +207,13 @@ describe("SYNC_MODEL client operations", () => {
 
   test("parses and normalizes before deriving the write key", async () => {
     const writes: Array<readonly [string, ReadonlyJSONValue]> = [];
+
     const tx: Pick<WriteTransaction, "set"> = {
       set: async (key, value) => {
         writes.push([key, value]);
       },
     };
+
     const input = { ...note, ignored: "schema strips this" };
 
     await SYNC_MODEL.note.put(tx, input);
@@ -214,6 +223,7 @@ describe("SYNC_MODEL client operations", () => {
 
   test("refuses an invalid write before set", async () => {
     let setCalls = 0;
+
     const tx: Pick<WriteTransaction, "set"> = {
       set: async () => {
         setCalls += 1;
@@ -229,9 +239,11 @@ describe("SYNC_MODEL client operations", () => {
 
   test("derives the delete key and hides the substrate result", async () => {
     const keys: string[] = [];
+
     const tx: Pick<WriteTransaction, "del"> = {
       del: async (key) => {
         keys.push(key);
+
         return true;
       },
     };

@@ -22,6 +22,8 @@ export interface StreamingToolCall {
   status: "started" | "succeeded" | "failed";
   argsPreview?: string | undefined;
   resultPreview?: string | undefined;
+  /** `preview()` pruned `resultPreview`, so it is not the whole result. */
+  resultTruncated?: boolean | undefined;
   /** ADR-0070: non-text bytes were stripped from this result before storage. */
   sanitized?: boolean | undefined;
   /** Narration segment this call follows, ordering it against the narration trail. */
@@ -109,6 +111,12 @@ export interface StreamingMessage {
   awaitingApproval: boolean;
   /** Context is being condensed before the next provider call. */
   compacting: boolean;
+  /**
+   * The turn hit a capacity error before anything streamed and is waiting out
+   * a backoff. Distinct from `compacting`: nothing is being done to the turn,
+   * it is queued behind the provider's budget.
+   */
+  awaitingCapacity: boolean;
   /** The turn finished; the durable synced message will replace this shortly. */
   done: boolean;
   /** Client-side stream failure (SSE disconnect, watchdog) — shown inline. */
@@ -161,6 +169,7 @@ interface StreamRef {
   subAgentRuns: Map<string, string>;
   awaitingApproval: boolean;
   compacting: boolean;
+  awaitingCapacity: boolean;
   done: boolean;
   error: string | null;
   /**
@@ -213,6 +222,7 @@ export function subAgentEventAddressesStream<
   T extends { messageId: string; runId: string; stopped: boolean },
 >(current: T | null, event: { messageId: string; runId: string }): current is T {
   if (!current || current.stopped) return false;
+
   return current.messageId === event.messageId && current.runId === event.runId;
 }
 
@@ -230,10 +240,12 @@ export function applyStreamingToolEvent(
 ): void {
   if (event.nonExecution) {
     tools.delete(event.toolCallId);
+
     return;
   }
 
   const previous = tools.get(event.toolCallId);
+
   // A terminal card is absorbing. `started` can arrive *after* it — the same
   // batch is re-dispatched on resume/reclaim and republishes its `started`, and
   // SSE frames are not ordered — and un-freezing the card would restart the
@@ -245,6 +257,7 @@ export function applyStreamingToolEvent(
     status: event.status,
     argsPreview: event.argsPreview ?? previous?.argsPreview,
     resultPreview: event.resultPreview ?? previous?.resultPreview,
+    resultTruncated: event.resultTruncated ?? previous?.resultTruncated,
     sanitized: event.sanitized ?? previous?.sanitized,
     segmentIndex: event.segmentIndex ?? previous?.segmentIndex ?? 0,
     startedTs: previous?.startedTs ?? now,
@@ -275,6 +288,22 @@ export function applyStreamingToolEvent(
  * the live ref would corrupt it. A same-turn frame reuses the ref regardless of
  * id, so a replayed frame for the live turn is not a mount at all.
  */
+/**
+ * Retire the approval wait, because the frame the caller just accepted proves
+ * the run is moving again. Mirrors the sub-agent trail's `waiting` clear.
+ *
+ * Called only from an arm that goes on to return `true`. Mounting used to clear
+ * the flag, which put the write ahead of that arm's `stopped` and seq-dedup
+ * guards: a replayed frame retired the wait and then returned `false`, so the
+ * projection never ran and the composer stayed disabled over a run that had
+ * already resumed. Without a clear the flag only ever fell on `completed`,
+ * which left the composer and the stall watchdog reading "parked" for the rest
+ * of the turn — so the write has to happen, just past the guards.
+ */
+function clearApprovalWait(ref: StreamRef): void {
+  ref.awaitingApproval = false;
+}
+
 function ensureStreamRef(
   cell: ChatStreamCell,
   frameId: number,
@@ -282,8 +311,11 @@ function ensureStreamRef(
   runId: string,
 ): StreamRef | null {
   const existing = cell.current;
+
   if (existing && existing.messageId === messageId && existing.runId === runId) return existing;
+
   if (existing && frameId < existing.mountId) return null;
+
   const fresh: StreamRef = {
     messageId,
     runId,
@@ -305,11 +337,14 @@ function ensureStreamRef(
     subAgentRuns: new Map(),
     awaitingApproval: false,
     compacting: false,
+    awaitingCapacity: false,
     done: false,
     error: null,
     stopped: false,
   };
+
   cell.current = fresh;
+
   return fresh;
 }
 
@@ -348,11 +383,13 @@ export function applyChatFrame(
   now: number,
 ): boolean {
   const named = frameThreadId(frame);
+
   if (named !== null && named !== cell.threadId) return false;
 
   if (frame.kind === "chat.message") {
     const p = frame.payload;
     const r = cell.current;
+
     // The freeze applies to the ref this frame *names*, exactly as in the five
     // arms below — but it cannot be hoisted above the kind dispatch the way the
     // thread check is. Four arms can *mount*: `started` just below, plus
@@ -369,19 +406,36 @@ export function applyChatFrame(
     // one lives inside `ensureStreamRef` (a cross-identity mount below the live
     // ref's `mountId` returns `null`), so this arm neither reads nor restates it.
     if (r !== null && r.stopped && r.messageId === p.messageId && r.runId === p.runId) return false;
+
     if (p.phase === "started") {
       if (ensureStreamRef(cell, frame.id, p.messageId, p.runId) === null) return false;
       markChatTimingByAssistant(p.messageId, "stream_started_event", undefined, {
         threadId: cell.threadId,
         runId: p.runId,
       });
+
       return true;
     }
+
     if (!r || r.messageId !== p.messageId || r.runId !== p.runId) return false;
+
     if (p.phase === "compaction_started" || p.phase === "compaction_finished") {
       r.compacting = p.phase === "compaction_started";
+      // Compaction is the turn moving again, so it retires the capacity wait.
+      // The two labels are mutually exclusive by construction, which is why no
+      // renderer has to order them.
+      r.awaitingCapacity = false;
+
       return true;
     }
+
+    if (p.phase === "capacity_retry") {
+      r.awaitingCapacity = true;
+      r.compacting = false;
+
+      return true;
+    }
+
     if (p.phase === "completed") {
       markChatTimingByAssistant(p.messageId, "completion_event", undefined, {
         threadId: cell.threadId,
@@ -391,13 +445,17 @@ export function applyChatFrame(
       r.done = true;
       r.awaitingApproval = false;
       r.compacting = false;
+      r.awaitingCapacity = false;
+
       return true;
     }
+
     // `phase` is a closed four-member enum, so this is unreachable — the payload
     // was parsed by this build's own schema. It is here so that adding a member
     // (`failed`, `cancelled`, …) fails to compile rather than falling into the
     // completion branch and silently tearing down a live bubble.
     const _exhaustive: never = p.phase;
+
     return _exhaustive;
   }
 
@@ -407,9 +465,13 @@ export function applyChatFrame(
     // a late frame for a stopped run is dropped, a frame for a new
     // (messageId, runId) is a new turn and mounts fresh.
     const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
+
     if (r === null || r.stopped) return false;
+
     if (p.seq <= r.reasoningSeq) return false;
+    clearApprovalWait(r);
     r.reasoningSeq = p.seq;
+
     if (r.reasoningStartTs === null) r.reasoningStartTs = now;
     r.reasoning += p.text;
     markChatTimingByAssistant(
@@ -424,33 +486,43 @@ export function applyChatFrame(
       { seq: p.seq, chars: p.text.length, totalReasoningChars: r.reasoning.length },
       { threadId: cell.threadId, runId: p.runId, repeat: "update", log: false },
     );
+
     return true;
   }
 
   if (frame.kind === "chat.delta") {
     const p = frame.payload;
     const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
+
     if (r === null || r.stopped) return false;
+
     if (p.seq <= r.deltaSeq) return false;
+    clearApprovalWait(r);
     r.deltaSeq = p.seq;
+
     // First reply token: thinking for the answer is over — freeze its duration.
     if (!r.replyStarted) {
       r.replyStarted = true;
+
       if (r.reasoningStartTs !== null && r.reasoningMs === null) {
         r.reasoningMs = now - r.reasoningStartTs;
       }
     }
+
     // Append to this delta's segment. A higher segment means the prior
     // segment just closed (the model wrote it before a tool step) — it
     // drops into the narration trail and this becomes the live reply.
     const segment = p.segmentIndex ?? 0;
     r.segments.set(segment, (r.segments.get(segment) ?? "") + p.text);
+
     if (segment > r.currentSegment) r.currentSegment = segment;
+
     const detail = {
       seq: p.seq,
       chars: p.text.length,
       totalTextChars: r.segments.get(segment)?.length ?? 0,
     };
+
     markChatTimingByAssistant(p.messageId, "first_delta_frame", detail, {
       threadId: cell.threadId,
       runId: p.runId,
@@ -461,11 +533,13 @@ export function applyChatFrame(
       repeat: "update",
       log: false,
     });
+
     return true;
   }
 
   if (frame.kind === "chat.tool") {
     const p = frame.payload;
+
     // A spawned sub-agent's call nests under the `spawn_sub_agent` card that
     // started it rather than joining the boss's own trail. The event
     // deliberately carries the parent's runId/messageId (see
@@ -474,6 +548,7 @@ export function applyChatFrame(
     // parent turn and must not hijack whatever is streaming now.
     if (p.subAgent) {
       const current = cell.current;
+
       if (!subAgentEventAddressesStream(current, p)) return false;
       // A connection-health bounce carries the repair (#378 item 3). It
       // belongs to the turn, not to one trail, and records even when there is
@@ -481,15 +556,19 @@ export function applyChatFrame(
       // has no trail, and dropping the repair with the retracted card would
       // hide it forever.
       let nudged = false;
+
       if (p.connectNudge) {
         current.connectNudges.set(p.connectNudge.integration, p.connectNudge);
         nudged = true;
       }
+
       const { parentToolCallId, subId, childRunId } = p.subAgent;
       const existing = current.subAgents.get(parentToolCallId);
+
       // A bounce retracts a card; with no trail there is nothing to retract,
       // and drawing an empty container for it would be worse than silence.
       if (!existing && p.nonExecution) return nudged;
+
       const trail = existing ?? {
         parentToolCallId,
         subId,
@@ -500,14 +579,22 @@ export function applyChatFrame(
         outcome: null,
         waiting: false,
       };
+
       applyStreamingToolEvent(trail.tools, p, now);
       current.subAgents.set(parentToolCallId, trail);
       current.subAgentRuns.set(childRunId, parentToolCallId);
+
       return true;
     }
+
     const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
+
     if (r === null || r.stopped) return false;
+    // Every arm below this line returns `true`, so the clear and the
+    // re-projection that shows it land on the same frame.
+    clearApprovalWait(r);
     applyStreamingToolEvent(r.tools, p, now);
+
     if (p.connectNudge) {
       // The bounced call is retracted above; the repair is what the user sees
       // instead (#378 item 3). Set, never cleared: connection state cannot
@@ -515,8 +602,10 @@ export function applyChatFrame(
       // wins — the rule splitPersistedToolCalls applies on reload, so the
       // two dedupe homes cannot disagree.
       r.connectNudges.set(p.connectNudge.integration, p.connectNudge);
+
       return true;
     }
+
     // A retraction changed the trail, so the view still has to re-project —
     // it just has no timing mark to record.
     if (p.nonExecution) return true;
@@ -532,6 +621,7 @@ export function applyChatFrame(
       { toolName: p.toolName, status: p.status },
       { threadId: cell.threadId, runId: p.runId, repeat: "update", log: false },
     );
+
     return true;
   }
 
@@ -545,24 +635,32 @@ export function applyChatFrame(
     // structurally incapable of mounting a turn.
     const p = frame.payload;
     const r = cell.current;
+
     if (!r || r.stopped) return false;
     const parentToolCallId = r.subAgentRuns.get(p.runId);
+
     if (!parentToolCallId) return false;
     const trail = r.subAgents.get(parentToolCallId);
+
     // Terminal is absorbing: a later frame for a landed child changes nothing.
     if (!trail || trail.outcome !== null) return false;
+
     if (p.phase === "completed" || p.phase === "failed" || p.phase === "cancelled") {
       trail.outcome = p.phase;
       trail.endedTs = now;
       trail.waiting = false;
+
       return true;
     }
+
     if (p.phase === "interrupted") {
       // The child parked — most often on an approval, so the time from here
       // is the user's, not the agent's. The card stops claiming it is busy.
       trail.waiting = true;
+
       return true;
     }
+
     // Any other frame from a parked child means it is moving again. Note
     // `resumed` is in the enum but nothing publishes it: a resuming run
     // emits `step_started`, so this clears on activity rather than on a
@@ -570,12 +668,14 @@ export function applyChatFrame(
     // changes nothing on screen.
     if (!trail.waiting) return false;
     trail.waiting = false;
+
     return true;
   }
 
   if (frame.kind === "approval.requested") {
     const p = frame.payload;
     const r = cell.current;
+
     if (!r || r.stopped || p.runId !== r.runId) return false;
     r.awaitingApproval = true;
     markChatTimingByAssistant(
@@ -584,6 +684,7 @@ export function applyChatFrame(
       { approvalId: p.approvalId },
       { threadId: cell.threadId, runId: r.runId },
     );
+
     return true;
   }
 
@@ -601,11 +702,13 @@ function freezeAndFinalizeTurn(ref: StreamRef, error: string | null): void {
   const eased = anchorEasedSegment(ref);
   ref.segments.set(eased.segment, eased.text.slice(0, eased.shown));
   ref.reasoning = ref.reasoning.slice(0, ref.reasoningShown);
+
   if (error !== null) ref.error = error;
   ref.stopped = true;
   ref.done = true;
   ref.awaitingApproval = false;
   ref.compacting = false;
+  ref.awaitingCapacity = false;
 }
 
 /**
@@ -634,8 +737,10 @@ function freezeAndFinalizeTurn(ref: StreamRef, error: string | null): void {
  */
 export function applyOptimisticStop(cell: ChatStreamCell): boolean {
   const r = cell.current;
+
   if (!r || r.stopped) return false;
   freezeAndFinalizeTurn(r, null);
+
   return true;
 }
 
@@ -650,12 +755,15 @@ export function applyOptimisticStop(cell: ChatStreamCell): boolean {
  */
 export function applyStreamError(cell: ChatStreamCell, message: string): boolean {
   const r = cell.current;
+
   if (!r || r.stopped) return false;
+
   // `done` already true means the turn completed normally before the error
   // arrived (a late CLOSED after `completed`); do not overwrite a successful
   // finish with a failure.
   if (r.done) return false;
   freezeAndFinalizeTurn(r, message);
+
   return true;
 }
 
@@ -691,6 +799,7 @@ function anchorEasedSegment(ref: StreamRef): EasedSegment {
     ref.shownSegment = ref.currentSegment;
     ref.shown = 0;
   }
+
   return {
     segment: ref.shownSegment,
     text: ref.segments.get(ref.shownSegment) ?? "",
@@ -714,16 +823,20 @@ export function tickDrip(
   cell: ChatStreamCell,
 ): { snapshot: StreamingMessage; caughtUp: boolean } | null {
   const ref = cell.current;
+
   if (!ref) return null;
   const eased = anchorEasedSegment(ref);
   const shown = ease(eased.shown, eased.text.length);
   ref.reasoningShown = ease(ref.reasoningShown, ref.reasoning.length);
   ref.shown = shown;
   const narration: SyncedChatNarration[] = [];
+
   for (const [index, text] of ref.segments) {
     if (index < ref.currentSegment && text.trim().length > 0) narration.push({ index, text });
   }
+
   narration.sort((a, b) => a.index - b.index);
+
   return {
     snapshot: {
       messageId: ref.messageId,
@@ -741,6 +854,7 @@ export function tickDrip(
       })),
       awaitingApproval: ref.awaitingApproval,
       compacting: ref.compacting,
+      awaitingCapacity: ref.awaitingCapacity,
       done: ref.done,
       error: ref.error,
     },
@@ -760,6 +874,7 @@ export function tickDrip(
  */
 export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): boolean {
   if (!a) return false;
+
   if (
     a.messageId !== b.messageId ||
     a.runId !== b.runId ||
@@ -769,6 +884,7 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
     a.reasoningMs !== b.reasoningMs ||
     a.awaitingApproval !== b.awaitingApproval ||
     a.compacting !== b.compacting ||
+    a.awaitingCapacity !== b.awaitingCapacity ||
     a.done !== b.done ||
     a.error !== b.error ||
     a.tools.length !== b.tools.length ||
@@ -778,14 +894,18 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
   ) {
     return false;
   }
+
   for (let i = 0; i < a.connectNudges.length; i += 1) {
     const left = a.connectNudges[i]!;
     const right = b.connectNudges[i]!;
+
     if (left.integration !== right.integration || left.action !== right.action) return false;
   }
+
   for (let i = 0; i < a.subAgents.length; i += 1) {
     const left = a.subAgents[i]!;
     const right = b.subAgents[i]!;
+
     if (
       left.parentToolCallId !== right.parentToolCallId ||
       left.outcome !== right.outcome ||
@@ -796,11 +916,14 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
       return false;
     }
   }
+
   for (let i = 0; i < a.narration.length; i += 1) {
     const left = a.narration[i]!;
     const right = b.narration[i]!;
+
     if (left.index !== right.index || left.text !== right.text) return false;
   }
+
   return toolListsEqual(a.tools, b.tools);
 }
 
@@ -812,20 +935,24 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
  */
 function toolListsEqual(a: StreamingToolCall[], b: StreamingToolCall[]): boolean {
   if (a.length !== b.length) return false;
+
   for (let i = 0; i < a.length; i += 1) {
     const left = a[i]!;
     const right = b[i]!;
+
     if (
       left.toolCallId !== right.toolCallId ||
       left.toolName !== right.toolName ||
       left.status !== right.status ||
       left.argsPreview !== right.argsPreview ||
       left.resultPreview !== right.resultPreview ||
+      left.resultTruncated !== right.resultTruncated ||
       left.sanitized !== right.sanitized ||
       left.segmentIndex !== right.segmentIndex
     ) {
       return false;
     }
   }
+
   return true;
 }

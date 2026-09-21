@@ -1,7 +1,8 @@
 /**
  * MCP OAuth (RFC 8707 resource indicators + RFC 8414 discovery + RFC 7591 DCR).
  *
- * Execution order — start (`GET /github/connect` -> `beginAuthorization` in
+ * Execution order — start (`GET /built-ins/:provider/connect` or
+ * `GET /connections/:id/authorize` -> `beginAuthorization` in
  * `packages/http/src/mcp.ts`):
  *  1. `authorize()` runs SDK `auth()`: `saveDiscoveryState` (upsert
  *     `mcp_oauth_credentials`) -> `clientInformation` (DCR or built-in env
@@ -51,7 +52,11 @@ import { and, eq, gt, lt } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { rememberOAuthNonce, signOAuthState } from "@alfred/assistant/connections";
-import { resolveBuiltInClient } from "./built-ins";
+import {
+  builtInClientUnavailableMessage,
+  resolveBuiltInClient,
+  type BuiltInClientResolution,
+} from "./built-ins";
 import type { McpAuthorizedOAuth, McpAuthorizedOAuthServer } from "./endpoint-authorization";
 
 const oauthMetadataSchema = z.looseObject({
@@ -93,7 +98,9 @@ const oauthTokensSchema = z.object({
 });
 
 const MCP_OAUTH_FETCH_TIMEOUT_MS = 30_000;
+
 const MCP_OAUTH_REFRESH_SKEW_MS = 60_000;
+
 const MCP_OAUTH_ATTEMPT_TTL_MS = 10 * 60_000;
 
 type OAuthCredentialPatch = Partial<
@@ -162,6 +169,7 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
       )
       .where(and(eq(mcpConnections.id, connectionId), eq(mcpConnections.userId, userId)))
       .limit(1);
+
     return row?.credential;
   }
 
@@ -179,6 +187,7 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
           and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)),
         )
         .limit(1);
+
       if (!owned) throw new Error("MCP OAuth connection does not belong to this user");
 
       const [existing] = await tx
@@ -186,6 +195,7 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
         .from(mcpOauthCredentials)
         .where(eq(mcpOauthCredentials.connectionId, input.connectionId))
         .limit(1);
+
       if (existing && existing.issuer !== input.issuer) {
         throw new Error("MCP OAuth authorization server changed for this connection");
       }
@@ -206,18 +216,24 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
           },
         })
         .returning();
+
       if (!credential) throw new Error("MCP OAuth discovery upsert returned no row");
 
       await tx
         .update(mcpConnections)
         .set({
           credentialId: credential.id,
+          // One credential mode per connection (the CHECK in `schema/mcp.ts`):
+          // a keyed connection that authorizes OAuth drops its key pointer in
+          // this same write, and `persistApiKeyCredential` clears the inverse.
+          apiKeyCredentialId: null,
           authServerIdentity: input.issuer,
           updatedAt: new Date(),
         })
         .where(
           and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)),
         );
+
       return credential;
     });
   }
@@ -244,6 +260,7 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
             lt(mcpOauthAuthorizationAttempts.expiresAt, now),
           ),
         );
+
       const [attempt] = await tx
         .insert(mcpOauthAuthorizationAttempts)
         .values({
@@ -251,7 +268,9 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
           expiresAt: new Date(now.getTime() + MCP_OAUTH_ATTEMPT_TTL_MS),
         })
         .returning();
+
       if (!attempt) throw new Error("MCP OAuth attempt insert returned no row");
+
       return attempt;
     });
   }
@@ -273,6 +292,7 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
         ),
       )
       .limit(1);
+
     return attempt;
   }
 
@@ -323,6 +343,7 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
 }
 
 const DEFAULT_STORE = new DbMcpOAuthCredentialStore();
+
 function canonicalIssuer(value: string): string {
   return new URL(value).href;
 }
@@ -337,16 +358,38 @@ function parseAuthorizationServerMetadata(
 ): AuthorizationServerMetadata {
   const parsed = oauthMetadataSchema.parse(value);
   const issuer = server.validateEndpoint(parsed.issuer);
+
   if (issuer.href !== server.issuer) {
     throw new Error("MCP OAuth metadata issuer changed the authorization server");
   }
+
   const authorizationEndpoint = server.validateEndpoint(parsed.authorization_endpoint);
   const tokenEndpoint = server.validateEndpoint(parsed.token_endpoint);
+
   const registrationEndpoint = parsed.registration_endpoint
     ? server.validateEndpoint(parsed.registration_endpoint)
     : undefined;
+
   return {
-    issuer: issuer.href,
+    // The issuer identifier travels EXACTLY as the server published it, not as
+    // `URL` would normalize it. Both RFC 8414 §2 and RFC 9207 §2.4 compare an
+    // issuer by simple string comparison, and `new URL("https://host").href`
+    // appends a path `/` that the origin-only form never had. Every built-in
+    // publishes the origin-only form, so normalizing here rewrote the value
+    // into one no server would ever echo.
+    //
+    // Only Sentry sets `authorization_response_iss_parameter_supported`, so
+    // only Sentry sends `iss` back and only Sentry reached the comparison: it
+    // expected `https://mcp.sentry.dev/` and received `https://mcp.sentry.dev`,
+    // and the callback failed with the code already in hand. The client's
+    // METADATA echo check tolerates a trailing slash and its authorization-
+    // RESPONSE check does not, which is why discovery passed and the callback
+    // did not.
+    //
+    // `validateEndpoint` above still pins the origin and `issuer.href` still
+    // has to equal it, so the raw string is proven to name the same server
+    // before it is returned.
+    issuer: parsed.issuer,
     authorization_endpoint: authorizationEndpoint.href,
     token_endpoint: tokenEndpoint.href,
     response_types_supported: parsed.response_types_supported,
@@ -372,18 +415,22 @@ function parseProtectedResourceMetadata(
 ): OAuthProtectedResourceMetadata {
   const parsed = protectedResourceMetadataSchema.parse(value);
   const resource = authorization.validateResourceEndpoint(parsed.resource);
+
   if (resource.href !== authorization.resource.href) {
     throw new Error("MCP OAuth resource metadata changed the protected resource");
   }
+
   const authorizationServers = parsed.authorization_servers?.map((candidate) =>
     authorization.validateDiscoveryEndpoint(candidate),
   );
+
   if (
     authorizationServers &&
     !authorizationServers.some((candidate) => candidate.href === server.issuer)
   ) {
     throw new Error("MCP OAuth resource metadata does not authorize the selected server");
   }
+
   return {
     resource: resource.href,
     ...(authorizationServers
@@ -398,16 +445,21 @@ function parseDiscoveryState(
   expectedIssuer?: string,
 ): OAuthDiscoveryState {
   const parsed = discoveryStateSchema.parse(value);
+
   const authorizationServerUrl = authorization.validateDiscoveryEndpoint(
     parsed.authorizationServerUrl,
   );
+
   const server = authorization.authorizeServer(authorizationServerUrl);
+
   if (expectedIssuer && canonicalIssuer(expectedIssuer) !== server.issuer) {
     throw new Error("MCP OAuth credential issuer changed the authorization server");
   }
+
   const resourceMetadataUrl = parsed.resourceMetadataUrl
     ? authorization.validateResourceEndpoint(parsed.resourceMetadataUrl)
     : undefined;
+
   return {
     authorizationServerUrl: authorizationServerUrl.href,
     ...(resourceMetadataUrl ? { resourceMetadataUrl: resourceMetadataUrl.href } : {}),
@@ -502,6 +554,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     // token-endpoint auth method from client INFORMATION, not from it, so the
     // built-in secret declares its method in `clientInformation()` below.
     this.clientMetadata = options.clientMetadata;
+
     if (options.clientMetadataUrl) {
       validateClientMetadataUrl(options.clientMetadataUrl);
       this.clientMetadataUrl = options.clientMetadataUrl;
@@ -515,17 +568,20 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
       nonce,
       userId: this.#userId,
     });
+
     const state = signOAuthState({
       userId: this.#userId,
       nonce,
       connectionId: this.#connectionId,
     });
+
     this.#attemptStateHash = stateHash(state);
     await this.#store.createAttempt({
       connectionId: this.#connectionId,
       userId: this.#userId,
       stateHash: this.#attemptStateHash,
     });
+
     return state;
   }
 
@@ -533,37 +589,55 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     ctx?: OAuthClientInformationContext,
   ): Promise<StoredOAuthClientInformation | undefined> {
     const credential = await this.#credentialForIssuer(ctx?.issuer);
+
     if (credential?.clientInformation) {
       const parsed = clientInformationSchema.safeParse(credential.clientInformation);
+
       if (!parsed.success) throw new Error("Persisted MCP OAuth client information is invalid");
+
       const secret = credential.clientSecret
         ? this.#vault.open(credential.clientSecret)
         : undefined;
+
       return {
         ...parsed.data,
         issuer: credential.issuer,
         ...(secret ? { client_secret: secret } : {}),
       };
     }
+
     // Built-in providers whose authorization server has no DCR (#934). When
     // `GITHUB_MCP_CLIENT_ID` is set, answer from the environment so the SDK
     // skips `registerClient` entirely. Nothing persists this client: the
     // environment stays canonical, so a rotated secret takes effect on the very
     // next token exchange. `token_endpoint_auth_method` travels WITH the secret
     // because the SDK's `selectClientAuthMethod` reads it off this object.
-    const staticClient = this.#staticBuiltInClient(ctx?.issuer ?? credential?.issuer);
-    if (staticClient) {
+    const resolution = this.#staticBuiltInClient(ctx?.issuer ?? credential?.issuer);
+
+    // A provider that pins a client and cannot produce one is a REFUSAL, and
+    // `undefined` here does not report it: the SDK reads that as consent to
+    // register a client of its own, against the very issuer the pin refused.
+    // Throwing is what makes the PR's "fails closed" true. `beginAuthorization`
+    // records the message on the connection, so the card states the reason.
+    if (resolution.kind === "unavailable") {
+      throw new Error(builtInClientUnavailableMessage(resolution));
+    }
+
+    if (resolution.kind === "static") {
+      const { client } = resolution;
+
       return {
-        client_id: staticClient.clientId,
-        issuer: staticClient.issuer,
-        ...(staticClient.clientSecret
+        client_id: client.clientId,
+        issuer: client.issuer,
+        ...(client.clientSecret
           ? {
-              client_secret: staticClient.clientSecret,
+              client_secret: client.clientSecret,
               token_endpoint_auth_method: "client_secret_post",
             }
           : {}),
       };
     }
+
     return undefined;
   }
 
@@ -583,7 +657,9 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
   async tokens(ctx?: OAuthClientInformationContext): Promise<StoredOAuthTokens | undefined> {
     const credential = await this.#credentialForIssuer(ctx?.issuer);
+
     if (!credential?.accessToken || !credential.tokenType) return undefined;
+
     return {
       access_token: this.#vault.open(credential.accessToken),
       token_type: credential.tokenType,
@@ -619,6 +695,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
       userId: this.#userId,
       grantedScopes: parseOAuthScopeList(parsed.scope ?? credential.scope),
     });
+
     if (this.#attemptStateHash) {
       await this.#store.deleteAttempt(this.#attemptStateHash, this.#userId);
       this.#attemptStateHash = null;
@@ -627,6 +704,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
   async redirectToAuthorization(authorizationUrl: URL): Promise<never> {
     const discovery = await this.discoveryState();
+
     if (!discovery) throw new Error("MCP OAuth discovery state is missing");
     const server = this.#authorization.authorizeServer(discovery.authorizationServerUrl);
     throw new McpOAuthAuthorizationRequiredError(server.validateEndpoint(authorizationUrl));
@@ -643,20 +721,25 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
   async codeVerifier(): Promise<string> {
     const attemptStateHash = this.#requireAttemptStateHash();
+
     const attempt = await this.#store.readAttempt({
       connectionId: this.#connectionId,
       userId: this.#userId,
       stateHash: attemptStateHash,
     });
+
     if (!attempt?.codeVerifier) throw new Error("MCP OAuth PKCE verifier is missing");
+
     return this.#vault.open(attempt.codeVerifier);
   }
 
   async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
     const parsed = parseDiscoveryState(state, this.#authorization);
+
     const issuer = canonicalIssuer(
       parsed.authorizationServerMetadata?.issuer ?? parsed.authorizationServerUrl,
     );
+
     await this.#store.attachDiscovery({
       connectionId: this.#connectionId,
       userId: this.#userId,
@@ -667,7 +750,9 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
     const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+
     if (!credential?.discoveryState) return undefined;
+
     try {
       return parseDiscoveryState(credential.discoveryState, this.#authorization, credential.issuer);
     } catch {
@@ -677,13 +762,16 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
   async matchesState(state: string): Promise<boolean> {
     const candidate = stateHash(state);
+
     const attempt = await this.#store.readAttempt({
       connectionId: this.#connectionId,
       userId: this.#userId,
       stateHash: candidate,
     });
+
     if (!attempt) return false;
     this.#attemptStateHash = candidate;
+
     return true;
   }
 
@@ -691,7 +779,9 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     scope: "all" | "client" | "tokens" | "verifier" | "discovery",
   ): Promise<void> {
     const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+
     if (!credential) return;
+
     const patches = {
       all: {
         accessToken: null,
@@ -706,7 +796,9 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
       verifier: {},
       discovery: { discoveryState: null },
     } satisfies Record<typeof scope, OAuthCredentialPatch>;
+
     await this.#store.update(credential.id, this.#userId, patches[scope]);
+
     if ((scope === "all" || scope === "verifier") && this.#attemptStateHash) {
       await this.#store.deleteAttempt(this.#attemptStateHash, this.#userId);
       this.#attemptStateHash = null;
@@ -715,6 +807,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
   async authorizationNeedsRefresh(now = Date.now()): Promise<boolean> {
     const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+
     if (
       !credential?.accessToken ||
       credential.expiresIn === null ||
@@ -722,7 +815,9 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     ) {
       return false;
     }
+
     const expiresAt = credential.lastAuthorizedAt.getTime() + credential.expiresIn * 1_000;
+
     return expiresAt <= now + MCP_OAUTH_REFRESH_SKEW_MS;
   }
 
@@ -732,13 +827,17 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
       this.#authorization.fetch,
       options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
     );
+
     const flightKey = [
       this.#authorization.resource.href,
       options.forceReauthorization ? "force" : "normal",
       options.scope ?? "",
     ].join(":");
+
     const existing = this.#authorizationFlights.get(flightKey);
+
     if (existing) return existing;
+
     const flight = auth(this, {
       serverUrl: this.#authorization.resource,
       fetchFn,
@@ -749,7 +848,9 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
         this.#authorizationFlights.delete(flightKey);
       }
     });
+
     this.#authorizationFlights.set(flightKey, flight);
+
     return flight;
   }
 
@@ -772,6 +873,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
         options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
       ),
     });
+
     await transport.finishAuth(callbackParams);
   }
 
@@ -781,24 +883,27 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
   async #credentialForIssuer(issuer?: string): Promise<McpOauthCredential | undefined> {
     const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+
     if (!credential || !issuer) return credential;
+
     return credential.issuer === new URL(issuer).href ? credential : undefined;
   }
 
   async #requireCredential(issuer?: string): Promise<McpOauthCredential> {
     const credential = await this.#credentialForIssuer(issuer);
+
     if (!credential) throw new Error("MCP OAuth discovery state is missing");
+
     return credential;
   }
 
   #requireAttemptStateHash(): string {
     if (!this.#attemptStateHash) throw new Error("MCP OAuth authorization attempt is missing");
+
     return this.#attemptStateHash;
   }
 
-  #staticBuiltInClient(
-    issuerHint?: string,
-  ): { clientId: string; clientSecret?: string; issuer: string } | undefined {
+  #staticBuiltInClient(issuerHint?: string): BuiltInClientResolution {
     // The authorized resource IS the connection's endpoint: the authorizer
     // validated it against the stored server definition before this provider
     // existed, so no second copy of the URL can drift from it.
@@ -806,17 +911,64 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   }
 }
 
-export interface McpOAuthClientConfiguration {
+export type McpOAuthClientConfiguration = {
   redirectUrl: URL;
-  clientMetadataUrl?: string;
   clientMetadata: OAuthClientMetadata;
-}
+} & (
+  | {
+      /**
+       * The Client Identifier URL Alfred sends as `client_id`, present only
+       * over HTTPS and always paired with `clientMetadataDocument`.
+       *
+       * A Client Identifier URL must be absolute HTTPS, so on an `http://`
+       * API base there is no URL to advertise and no document to serve. The
+       * union below carries both or neither, so a later edit cannot
+       * advertise a URL whose document names a different one — that equality
+       * is the whole check an authorization server runs.
+       */
+      clientMetadataUrl: string;
+      /**
+       * The document Alfred SERVES at `clientMetadataUrl`, which is not the
+       * same body as `clientMetadata`.
+       *
+       * RFC 7591 registration and a Client ID Metadata Document carry the
+       * same fields and differ in `client_id`: RFC 7591 defines it as a
+       * server-minted response field rather than a request field, while a
+       * CIMD requires it, set to the document's own URL. Serving one object
+       * as both is therefore always wrong for one of the two, and the served
+       * half is the wrong one.
+       *
+       * Measured on 2026-09-13 against the three built-ins that advertise
+       * `client_id_metadata_document_supported`. With `client_id` absent, Sentry's
+       * authorization server answered `500 Internal Server Error` in plain text
+       * (its `lookupClient` throws a `CimdFetchError` that the route does not
+       * catch), Linear answered `400 Invalid client. The clientId provided does
+       * not match to this client.`, and Notion accepted the request because it
+       * does not validate the document at authorize time. One defect, three error
+       * styles, so a per-provider workaround would have chased the loudest one.
+       *
+       * The type stays inline rather than becoming a named alias: Elysia infers
+       * the whole route tree, and a name this package exports but `@alfred/http`
+       * cannot reach makes that inferred type unportable (TS2883).
+       */
+      clientMetadataDocument: OAuthClientMetadata & { readonly client_id: string };
+    }
+  | { clientMetadataUrl?: undefined; clientMetadataDocument?: undefined }
+);
 
 export function mcpOAuthClientConfiguration(): McpOAuthClientConfiguration {
   const env = serverEnv();
   const apiBase = new URL(env.BETTER_AUTH_URL);
   const redirectUrl = new URL("/api/integrations/mcp/callback", apiBase);
   const candidateMetadataUrl = new URL("/api/integrations/mcp/client-metadata", apiBase);
+
+  // `CORS_ORIGIN` is a free-form string, not a validated URL, and RFC 7591
+  // requires `client_uri` to be a URL with an `https:` scheme when present.
+  // Omit it rather than send a value the authorization server must reject.
+  // It is informational (the client's homepage) and may be cross-origin to
+  // `client_id`; only the document's own `client_id` must equal its URL.
+  const clientUri = validatedHttpUrl(env.CORS_ORIGIN);
+
   const clientMetadata: OAuthClientMetadata = {
     redirect_uris: [redirectUrl.href],
     token_endpoint_auth_method: "none",
@@ -824,15 +976,32 @@ export function mcpOAuthClientConfiguration(): McpOAuthClientConfiguration {
     response_types: ["code"],
     application_type: "web",
     client_name: "Alfred",
-    client_uri: env.CORS_ORIGIN,
+    ...(clientUri ? { client_uri: clientUri } : {}),
   };
+
   return {
     redirectUrl,
     clientMetadata,
     ...(candidateMetadataUrl.protocol === "https:"
-      ? { clientMetadataUrl: candidateMetadataUrl.href }
+      ? {
+          clientMetadataUrl: candidateMetadataUrl.href,
+          clientMetadataDocument: {
+            ...clientMetadata,
+            client_id: candidateMetadataUrl.href,
+          },
+        }
       : {}),
   };
+}
+
+function validatedHttpUrl(candidate: string): string | undefined {
+  try {
+    const url = new URL(candidate);
+
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export type McpOAuthProviderForConnectionInput = Pick<McpConnection, "id" | "userId"> & {
@@ -842,11 +1011,20 @@ export type McpOAuthProviderForConnectionInput = Pick<McpConnection, "id" | "use
 export function mcpOAuthProviderForConnection(
   input: McpOAuthProviderForConnectionInput,
 ): McpOAuthProvider {
+  const config = mcpOAuthClientConfiguration();
+
   return new McpOAuthProvider({
     connectionId: input.id,
     userId: input.userId,
     authorization: input.authorization,
-    ...mcpOAuthClientConfiguration(),
+    redirectUrl: config.redirectUrl,
+    clientMetadata: config.clientMetadata,
+    // Omitted rather than passed as `undefined`: under
+    // `exactOptionalPropertyTypes` the absent key is what selects "no Client
+    // Identifier URL", and an explicit `undefined` is a different type.
+    ...(config.clientMetadataUrl !== undefined
+      ? { clientMetadataUrl: config.clientMetadataUrl }
+      : {}),
   });
 }
 
@@ -854,6 +1032,7 @@ function timeoutBoundFetch(fetchFn: FetchLike, timeoutMs: number): FetchLike {
   return (input, init) => {
     const timeout = AbortSignal.timeout(timeoutMs);
     const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+
     return fetchFn(input, { ...init, signal });
   };
 }

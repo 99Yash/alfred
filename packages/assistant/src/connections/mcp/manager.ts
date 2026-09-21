@@ -33,17 +33,23 @@ import {
   McpRawClient,
   type McpCallEnvelope,
   type McpCatalogSnapshot,
+  type McpClientAuth,
   type McpPreparedToolCall,
 } from "./client";
-import { builtInClientPolicy } from "./built-ins";
-import { HostedMcpEndpointAuthorizer } from "./endpoint-authorization";
-import { boundedMcpErrorText, McpClientError } from "./errors";
+import { readApiKeyAuthForConnection } from "./api-key";
+import { builtInClientPolicy, builtInProviderForEndpoint } from "./built-ins";
+import { getMcpEndpointAuthorizer } from "./endpoint-authorization";
+import { boundedMcpErrorText, isMcpAuthorizationChallenge, McpClientError } from "./errors";
 import {
   compareAndSetCatalogRevision,
+  deleteOwnedConnection,
   insertCatalogRevision,
   readConnection,
   readOwnedConnection,
+  renameOwnedConnection,
   updateConnection,
+  type McpConnectionRemovalGate,
+  type McpConnectionRemovalOutcome,
   type McpConnectionWithServer,
   type McpConnectionUpdate,
 } from "./persistence";
@@ -51,12 +57,16 @@ import type { McpNegotiatedServer } from "./protocol";
 import { McpOAuthAuthorizationRequiredError, mcpOAuthProviderForConnection } from "./oauth";
 import { startMcpTraceSpan, type McpTraceContext } from "./trace";
 
-export type McpClientFactory = (connection: McpConnectionWithServer) => McpRawClient;
+export type McpClientFactory = (
+  connection: McpConnectionWithServer,
+) => McpRawClient | Promise<McpRawClient>;
 
 export interface McpConnectionManagerPersistence {
   readConnection: typeof readConnection;
   readOwnedConnection: typeof readOwnedConnection;
   updateConnection: typeof updateConnection;
+  renameOwnedConnection: typeof renameOwnedConnection;
+  deleteOwnedConnection: typeof deleteOwnedConnection;
   insertCatalogRevision: typeof insertCatalogRevision;
   compareAndSetCatalogRevision: typeof compareAndSetCatalogRevision;
 }
@@ -70,11 +80,36 @@ const DEFAULT_PERSISTENCE: McpConnectionManagerPersistence = {
   readConnection,
   readOwnedConnection,
   updateConnection,
+  renameOwnedConnection,
+  deleteOwnedConnection,
   insertCatalogRevision,
   compareAndSetCatalogRevision,
 };
 
+/** The closed answer a rename returns, mirroring the HTTP route's three branches. */
+export type McpConnectionRenameOutcome =
+  | { outcome: "renamed"; id: string; label: string }
+  | { outcome: "not_found" }
+  | { outcome: "built_in" };
+
 const MAX_CATALOG_STABILIZATION_ATTEMPTS = 3;
+
+/**
+ * What a disconnect writes. The revision pointer travels WITH the status,
+ * because the pointer — not the status — is what the model can see.
+ *
+ * Both catalog readers ignore `status`: `listOwnedCurrentCatalogSlices` filters
+ * on `currentCatalogRevisionId is not null`, and `resolveMcpToolIdentity` joins
+ * the revision the pointer names. Clearing the status alone would leave
+ * `mcp.list_tools` listing every tool of a server the owner just removed, and
+ * `mcp.call` resolving against it and reopening the connection. The clear is
+ * unconditional rather than a compare-and-set: a disconnect is the owner's
+ * terminal instruction, not a publication race.
+ */
+const DISCONNECTED_PATCH: McpConnectionUpdate = {
+  status: "disconnected",
+  currentCatalogRevisionId: null,
+};
 
 interface CatalogRefreshState {
   dirty: boolean;
@@ -82,7 +117,17 @@ interface CatalogRefreshState {
   generation: McpManagerGeneration;
 }
 
-type McpManagerCloseIntent = "shutdown" | "failure" | "disconnect";
+type McpManagerCloseIntent =
+  | "shutdown"
+  | "failure"
+  | "disconnect"
+  // Closes the client and writes no durable state: the row was just deleted, so
+  // there is nothing left to write and a status patch would target no row.
+  | "removal"
+  // Closes the client and writes no durable state: the caller replaced the
+  // credential and immediately asks for a fresh generation, which writes the
+  // next status itself.
+  | "credential_replaced";
 
 interface McpManagerGeneration {
   readonly connectionId: string;
@@ -102,32 +147,70 @@ export class McpConnectionNotFoundError extends Error {
 }
 
 /**
+ * The one owner of "connection row → transport auth mode" on the persisted
+ * path. Reads the sealed API-key credential first; a key wins over any residual
+ * OAuth pointer because the `persistApiKeyCredential` bind clears
+ * `credentialId` in the same transaction (the single-credential CHECK admits
+ * one). Otherwise a stored OAuth pointer yields the `oauth` arm, and a row with
+ * neither credential is `none`.
+ *
+ * This is a deliberate tier-3 seam: the transport leaf cannot read the
+ * credential store without importing `@alfred/db`, so correctness on the
+ * persisted path rests on `liveClientFactory` being the only production caller.
+ */
+async function resolveMcpClientAuth(connection: McpConnectionWithServer): Promise<McpClientAuth> {
+  const reader = await readApiKeyAuthForConnection(connection.id, connection.userId);
+
+  if (reader !== undefined) return { mode: "api_key", reader };
+
+  if (connection.credentialId !== null || connection.authServerIdentity !== null) {
+    return {
+      mode: "oauth",
+      provider: (authorization) =>
+        mcpOAuthProviderForConnection({
+          id: connection.id,
+          userId: connection.userId,
+          authorization,
+        }),
+    };
+  }
+
+  return { mode: "none" };
+}
+
+/**
  * The production factory: a live client per connection row, authorized by
  * `authorization`. OAuth discovery runs before transport connect. The transport
  * itself receives only a token reader, so it cannot refresh and replay an
  * in-flight call.
+ *
+ * A connection carries at most one credential source (the database check
+ * constraint), and `resolveMcpClientAuth` is the single reader of that fact, so
+ * the API-key reader and the OAuth provider are mutually exclusive by
+ * construction.
  */
 function liveClientFactory(): McpClientFactory {
-  const endpointAuthorizer = new HostedMcpEndpointAuthorizer();
-  return (connection) => {
-    const usesOAuth = connection.credentialId !== null || connection.authServerIdentity !== null;
+  const endpointAuthorizer = getMcpEndpointAuthorizer();
+
+  return async (connection) => {
+    const auth = await resolveMcpClientAuth(connection);
+
     return new McpRawClient({
       connectionId: connection.id,
       endpoint: connection.server,
       endpointAuthorizer,
+      auth,
       // The registry is the only thing that knows an endpoint serves a
       // read-only catalog (ADR-0094) or must be held to the legacy protocol era
       // (ADR-0095). `McpRawClient` owns both refusals; it must not reach the
       // registry to learn the policy.
       ...builtInClientPolicy(connection.server.endpointUrl),
-      ...(usesOAuth
+      // The renewal callbacks describe OAuth consent, so they ride the oauth
+      // arm only: an API-key connection that gets an `insufficient_scope`
+      // response must not be sent back through a consent screen it has no
+      // authorization server for.
+      ...(auth.mode === "oauth"
         ? {
-            oauthProviderFactory: (authorization) =>
-              mcpOAuthProviderForConnection({
-                id: connection.id,
-                userId: connection.userId,
-                authorization,
-              }),
             onAuthorizationRequired: async () => {
               await updateConnection(connection.id, {
                 status: "auth_required",
@@ -137,6 +220,7 @@ function liveClientFactory(): McpClientFactory {
             onInsufficientScope: async (requiredScopes: string[]) => {
               const suffix =
                 requiredScopes.length > 0 ? ` Required: ${requiredScopes.join(", ")}.` : "";
+
               await updateConnection(connection.id, {
                 status: "auth_required",
                 requiredScopes,
@@ -155,6 +239,13 @@ export class McpConnectionManager {
   readonly #activeRevisionIds = new Map<string, string>();
   readonly #clientFactory: McpClientFactory;
   readonly #persistence: McpConnectionManagerPersistence;
+  /**
+   * Connection ids whose durable row deletion has begun. The fence is checked by
+   * BOTH `#assertAdmission` (at the entry of a request) and `#isOpenGeneration`
+   * (after every awaited step of a startup that already passed the entry check),
+   * so a client can never be opened for a row that is being deleted.
+   */
+  readonly #removals = new Set<string>();
   #shuttingDown = false;
 
   constructor(options: McpConnectionManagerOptions = {}) {
@@ -174,8 +265,11 @@ export class McpConnectionManager {
     await this.#waitForCatalogRefresh(connectionId);
     this.#assertAdmission(connectionId);
     const current = this.#generations.get(connectionId);
+
     if (current?.phase === "ready" && current.client) return current.client;
+
     if (current?.phase === "starting" && current.start) return current.start;
+
     if (current?.phase === "closing") throw this.#notConnected(connectionId);
 
     const generation: McpManagerGeneration = {
@@ -187,9 +281,11 @@ export class McpConnectionManager {
       closeIntent: null,
       closeFailure: null,
     };
+
     this.#generations.set(connectionId, generation);
     const start = this.#startClient(connectionId, generation, trace);
     generation.start = start;
+
     return start;
   }
 
@@ -200,36 +296,43 @@ export class McpConnectionManager {
   ): Promise<McpRawClient> {
     const connection = await this.#persistence.readConnection(connectionId);
     this.#assertOpenGeneration(generation);
+
     if (!connection) {
       this.#generations.delete(connectionId);
       throw new McpConnectionNotFoundError(connectionId);
     }
 
     let client: McpRawClient;
+
     try {
-      client = this.#clientFactory(connection);
+      client = await this.#clientFactory(connection);
     } catch (error) {
       if (this.#generations.get(connectionId) === generation) {
         this.#generations.delete(connectionId);
       }
+
       throw error;
     }
+
     let initializing = true;
     client.onCatalogInvalidated(() => {
       if (initializing) return;
       this.#scheduleCatalogRefresh(generation, client);
     });
+
     try {
       await this.#patch(connectionId, {
         status: "connecting",
         lastError: null,
       });
       this.#assertOpenGeneration(generation);
+
       const connectSpan = startMcpTraceSpan({
         name: "runtime.mcp.connect",
         ...(trace ? { parent: trace } : {}),
         metadata: { connectionId },
       });
+
       try {
         await client.connect(connectSpan.context);
         this.#assertOpenGeneration(generation);
@@ -238,9 +341,12 @@ export class McpConnectionManager {
         connectSpan.end({ status: "error", level: "ERROR" });
         throw error;
       }
+
       for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
         await this.#refreshAndPersistStable(generation, client, undefined, connectSpan.context);
+
         if (client.catalog) break;
+
         if (attempt === MAX_CATALOG_STABILIZATION_ATTEMPTS) {
           throw new McpClientError(
             "catalog_stale",
@@ -248,30 +354,42 @@ export class McpConnectionManager {
           );
         }
       }
+
       this.#assertOpenGeneration(generation);
       generation.client = client;
       generation.phase = "ready";
       initializing = false;
+
       return client;
     } catch (err) {
       initializing = false;
+
       if (!this.#isOpenGeneration(generation)) {
         await client.close().catch(() => undefined);
         throw this.#notConnected(connectionId);
       }
-      if (err instanceof McpOAuthAuthorizationRequiredError) {
+
+      if (
+        err instanceof McpOAuthAuthorizationRequiredError ||
+        (connection.credentialId !== null && isMcpAuthorizationChallenge(err))
+      ) {
         await client.close().catch(() => undefined);
         this.#assertOpenGeneration(generation);
         await this.#patch(connectionId, {
           status: "auth_required",
-          lastError: "Authorization is required to connect this MCP server.",
+          lastError:
+            err instanceof McpOAuthAuthorizationRequiredError
+              ? "Authorization is required to connect this MCP server."
+              : boundedMcpErrorText(err),
         });
         this.#assertOpenGeneration(generation);
         this.#generations.delete(connectionId);
         throw err;
       }
+
       const expectedCurrentRevisionId =
         this.#activeRevisionIds.get(connectionId) ?? connection.currentCatalogRevisionId;
+
       this.#activeRevisionIds.delete(connectionId);
       await client.close().catch(() => undefined);
       this.#assertOpenGeneration(generation);
@@ -299,6 +417,7 @@ export class McpConnectionManager {
    */
   async refreshCatalog(connectionId: string, trace?: McpTraceContext): Promise<McpCatalogSnapshot> {
     const client = await this.getReadyClient(connectionId, trace);
+
     return this.#refreshAndPersistStable(
       this.#requireReadyGeneration(connectionId, client),
       client,
@@ -313,6 +432,7 @@ export class McpConnectionManager {
     trace?: McpTraceContext,
   ): Promise<McpPreparedToolCall> {
     const client = await this.getReadyClient(connectionId, trace);
+
     return this.#prepareAndPersistStable(
       this.#requireReadyGeneration(connectionId, client),
       client,
@@ -328,22 +448,150 @@ export class McpConnectionManager {
     options: { signal?: AbortSignal } = {},
   ): Promise<McpCallEnvelope> {
     const prepared = await this.prepareToolCall(ref.connectionId, options.signal);
+
     return prepared.call(ref, args, options);
   }
 
   /** Close and forget a connection's live client; mark the row disconnected. */
   async disconnect(connectionId: string, userId: string): Promise<boolean> {
     const owned = await this.#persistence.readOwnedConnection(connectionId, userId);
+
     if (!owned) return false;
     const generation = this.#beginClosing(connectionId);
     await this.#closeGeneration(generation, "disconnect");
+
     return true;
+  }
+
+  /**
+   * Close the live client and open a fresh generation, or leave the row exactly
+   * as it was.
+   *
+   * `false` means the connection is not the caller's (or does not exist).
+   *
+   * The restore is the point. Disconnect-then-connect is two writes, and the
+   * remote decides whether the second one lands: 20 seconds of downtime between
+   * them used to leave `status = "failed"` and a NULL revision pointer, so a
+   * user who pressed Reconnect on a working server lost its published catalog
+   * and got an error. Doing nothing was strictly better than the button. So the
+   * pre-click status and pointer are read first and written back on a throw,
+   * with the reason recorded in `lastError` — the failure is reported, and
+   * nothing that worked before the click stops working after it.
+   */
+  async reconnect(connectionId: string, userId: string): Promise<boolean> {
+    const before = await this.#persistence.readOwnedConnection(connectionId, userId);
+
+    if (!before) return false;
+    await this.disconnect(connectionId, userId);
+
+    try {
+      await this.getReadyClient(connectionId);
+    } catch (error) {
+      await this.#patch(connectionId, {
+        status: before.status,
+        currentCatalogRevisionId: before.currentCatalogRevisionId,
+        lastError: boundedMcpErrorText(error),
+      });
+      throw error;
+    }
+
+    return true;
+  }
+
+  /**
+   * Change only the display label of a connection the caller owns.
+   *
+   * A built-in connection is refused. Its label is reclaimed from
+   * `BUILT_IN_MCP_CATALOG` by `ensureBuiltInConnection` on every connect, so a
+   * rename would report success and then silently revert on the next connect.
+   * `not_found` covers both a nonexistent id and another owner's connection with
+   * no side effect.
+   */
+  async rename(
+    connectionId: string,
+    userId: string,
+    label: string,
+  ): Promise<McpConnectionRenameOutcome> {
+    const owned = await this.#persistence.readOwnedConnection(connectionId, userId);
+
+    if (!owned) return { outcome: "not_found" };
+
+    if (builtInProviderForEndpoint(owned.server.endpointUrl) !== undefined) {
+      return { outcome: "built_in" };
+    }
+
+    const renamed = await this.#persistence.renameOwnedConnection({
+      connectionId,
+      userId,
+      label,
+    });
+
+    if (!renamed) return { outcome: "not_found" };
+
+    return { outcome: "renamed", id: renamed.id, label: renamed.label };
+  }
+
+  /**
+   * Delete a connection the caller owns and close its live client.
+   *
+   * The removal fence is raised BEFORE the durable delete, so a `getReadyClient`
+   * already in flight cannot open a client for a row that is about to disappear.
+   * The client is closed (and no durable state written) only when the delete
+   * actually removed the row; `not_found` and `blocked` leave a working
+   * connection completely alone.
+   *
+   * `gate` is required: a caller that wants to skip the ambiguity barrier must
+   * spell `"none"`, so a barrier-skipping removal cannot happen by omission.
+   */
+  async remove(
+    connectionId: string,
+    userId: string,
+    gate: McpConnectionRemovalGate | "none",
+  ): Promise<McpConnectionRemovalOutcome> {
+    this.#removals.add(connectionId);
+
+    try {
+      const outcome = await this.#persistence.deleteOwnedConnection({
+        connectionId,
+        userId,
+        gate,
+      });
+
+      if (outcome !== "removed") return outcome;
+
+      const generation = this.#beginClosing(connectionId);
+      await this.#closeGeneration(generation, "removal");
+
+      return "removed";
+    } finally {
+      this.#removals.delete(connectionId);
+    }
+  }
+
+  /**
+   * Forget the live client for a connection so the next `getReadyClient` reads
+   * its credential again and reconnects. Durable state is untouched.
+   *
+   * A ready generation holds a client whose API-key reader closed over the
+   * sealed row it read at construction, so replacing that row (a re-add with a
+   * new key) stores the new secret while the cache keeps sending the old one.
+   * `addUserMcpServer` calls this between sealing the replacement and asking
+   * for a ready client. It never overrides a disconnect or failure already
+   * closing the generation, so those terminal writes still land.
+   */
+  async invalidateLiveClient(connectionId: string): Promise<void> {
+    const generation = this.#generations.get(connectionId);
+
+    if (!generation) return;
+
+    await this.#closeGeneration(generation, "credential_replaced");
   }
 
   /** Drop all live clients (e.g. on shutdown). Does not touch persisted rows. */
   async closeAll(): Promise<void> {
     this.#shuttingDown = true;
     const generations = [...this.#generations.values()];
+
     for (const generation of generations) generation.phase = "closing";
     await Promise.all(
       generations.map((generation) => this.#closeGeneration(generation, "shutdown")),
@@ -359,6 +607,7 @@ export class McpConnectionManager {
       revisionHash: snapshot.revision,
       descriptors: snapshot.tools,
     });
+
     return revision.id;
   }
 
@@ -390,6 +639,7 @@ export class McpConnectionManager {
           : {}),
       },
     });
+
     return activated !== undefined;
   }
 
@@ -419,11 +669,13 @@ export class McpConnectionManager {
   ): Promise<McpPreparedToolCall> {
     const { connectionId } = generation;
     this.#assertOpenGeneration(generation);
+
     const span = startMcpTraceSpan({
       name: "runtime.mcp.catalog_refresh",
       ...(trace ? { parent: trace } : {}),
       metadata: { connectionId },
     });
+
     try {
       const prepared = await this.#prepareAndPersistStableInner(
         generation,
@@ -431,6 +683,7 @@ export class McpConnectionManager {
         signal,
         span.context,
       );
+
       span.end({
         status: "ready",
         metadata: {
@@ -438,6 +691,7 @@ export class McpConnectionManager {
           toolCount: prepared.catalog.tools.length,
         },
       });
+
       return prepared;
     } catch (error) {
       span.end({ status: "error", level: "ERROR" });
@@ -452,13 +706,16 @@ export class McpConnectionManager {
     trace: McpTraceContext,
   ): Promise<McpPreparedToolCall> {
     const { connectionId } = generation;
+
     for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
       this.#assertOpenGeneration(generation);
       const durableBefore = await this.#persistence.readConnection(connectionId);
+
       if (!durableBefore) throw new McpConnectionNotFoundError(connectionId);
       this.#assertOpenGeneration(generation);
       let priorCatalog = client.catalog;
       const activeRevisionId = this.#activeRevisionIds.get(connectionId);
+
       if (
         priorCatalog &&
         (activeRevisionId === undefined ||
@@ -467,7 +724,9 @@ export class McpConnectionManager {
         client.invalidateCatalogAuthority();
         priorCatalog = null;
       }
+
       let prepared: McpPreparedToolCall;
+
       try {
         prepared = await client.prepareToolCall(signal, trace);
         this.#assertOpenGeneration(generation);
@@ -479,9 +738,12 @@ export class McpConnectionManager {
         ) {
           continue;
         }
+
         throw err;
       }
+
       const snapshot = prepared.catalog;
+
       if (
         snapshot === priorCatalog &&
         activeRevisionId !== undefined &&
@@ -492,6 +754,7 @@ export class McpConnectionManager {
 
       const revisionId = await this.#insertCatalog(connectionId, snapshot);
       this.#assertOpenGeneration(generation);
+
       if (client.catalog !== snapshot) continue;
 
       const activated = await this.#activateCatalog(
@@ -500,12 +763,16 @@ export class McpConnectionManager {
         revisionId,
         client.negotiatedServer,
       );
+
       this.#assertOpenGeneration(generation);
+
       if (!activated) {
         client.invalidateCatalogAuthority();
         continue;
       }
+
       this.#activeRevisionIds.set(connectionId, revisionId);
+
       if (client.catalog === snapshot) return prepared;
 
       // An event won the race with pointer activation. Remove the stale door
@@ -519,6 +786,7 @@ export class McpConnectionManager {
       this.#assertOpenGeneration(generation);
       this.#activeRevisionIds.delete(connectionId);
     }
+
     throw new McpClientError(
       "catalog_stale",
       `The MCP catalog changed during ${MAX_CATALOG_STABILIZATION_ATTEMPTS} consecutive refresh attempts`,
@@ -528,21 +796,27 @@ export class McpConnectionManager {
   /** Coalesce list-change bursts into one durable invalidate → refresh cycle. */
   #scheduleCatalogRefresh(generation: McpManagerGeneration, client: McpRawClient): void {
     const { connectionId } = generation;
+
     if (!this.#isReadyGeneration(generation, client)) return;
     const existing = this.#catalogRefreshes.get(connectionId);
+
     if (existing) {
       existing.dirty = true;
+
       return;
     }
+
     const state: CatalogRefreshState = {
       dirty: true,
       promise: Promise.resolve(),
       generation,
     };
+
     state.promise = this.#drainCatalogRefreshes(generation, client, state).finally(() => {
       if (this.#catalogRefreshes.get(connectionId) === state) {
         this.#catalogRefreshes.delete(connectionId);
       }
+
       if (state.dirty && this.#isReadyGeneration(generation, client)) {
         this.#scheduleCatalogRefresh(generation, client);
       }
@@ -569,6 +843,7 @@ export class McpConnectionManager {
     client: McpRawClient,
   ): Promise<void> {
     const { connectionId } = generation;
+
     try {
       this.#assertOpenGeneration(generation);
       // Fail closed while the replacement is fetched: local catalog readers
@@ -601,13 +876,18 @@ export class McpConnectionManager {
   async #waitForCatalogRefresh(connectionId: string): Promise<void> {
     for (;;) {
       const state = this.#catalogRefreshes.get(connectionId);
+
       if (!state) return;
       await state.promise;
     }
   }
 
   #assertAdmission(connectionId: string): void {
-    if (this.#shuttingDown || this.#generations.get(connectionId)?.phase === "closing") {
+    if (
+      this.#shuttingDown ||
+      this.#removals.has(connectionId) ||
+      this.#generations.get(connectionId)?.phase === "closing"
+    ) {
       throw this.#notConnected(connectionId);
     }
   }
@@ -622,6 +902,7 @@ export class McpConnectionManager {
   #isOpenGeneration(generation: McpManagerGeneration): boolean {
     return (
       !this.#shuttingDown &&
+      !this.#removals.has(generation.connectionId) &&
       this.#generations.get(generation.connectionId) === generation &&
       generation.phase !== "closing"
     );
@@ -641,18 +922,23 @@ export class McpConnectionManager {
 
   #requireReadyGeneration(connectionId: string, client: McpRawClient): McpManagerGeneration {
     const generation = this.#generations.get(connectionId);
+
     if (!generation || !this.#isReadyGeneration(generation, client)) {
       throw this.#notConnected(connectionId);
     }
+
     return generation;
   }
 
   #beginClosing(connectionId: string): McpManagerGeneration {
     const current = this.#generations.get(connectionId);
+
     if (current) {
       current.phase = "closing";
+
       return current;
     }
+
     const tombstone: McpManagerGeneration = {
       connectionId,
       phase: "closing",
@@ -662,7 +948,9 @@ export class McpConnectionManager {
       closeIntent: null,
       closeFailure: null,
     };
+
     this.#generations.set(connectionId, tombstone);
+
     return tombstone;
   }
 
@@ -672,26 +960,40 @@ export class McpConnectionManager {
     failure?: string,
   ): Promise<void> {
     generation.phase = "closing";
+
+    // `disconnect` and `removal` are terminal owner instructions, so they always
+    // win; a `failure` may not overwrite either (removal's row is already gone,
+    // and a late `failed` write would target no row). A `shutdown` or
+    // `credential_replaced` only takes hold when nothing more terminal is set.
     if (
       intent === "disconnect" ||
-      (intent === "failure" && generation.closeIntent !== "disconnect") ||
+      intent === "removal" ||
+      (intent === "failure" &&
+        generation.closeIntent !== "disconnect" &&
+        generation.closeIntent !== "removal") ||
       generation.closeIntent === null
     ) {
       generation.closeIntent = intent;
     }
+
     if (failure !== undefined) generation.closeFailure = failure;
+
     return (generation.closeDone ??= (async () => {
       await generation.start?.catch(() => undefined);
+
       for (;;) {
         const refresh = this.#catalogRefreshes.get(generation.connectionId);
+
         if (!refresh || refresh.generation !== generation) break;
         await refresh.promise.catch(() => undefined);
       }
+
       this.#activeRevisionIds.delete(generation.connectionId);
       await generation.client?.close().catch(() => undefined);
       const selectedIntent = generation.closeIntent;
+
       if (selectedIntent === "disconnect") {
-        await this.#patch(generation.connectionId, { status: "disconnected" });
+        await this.#patch(generation.connectionId, DISCONNECTED_PATCH);
       } else if (selectedIntent === "failure") {
         await this.#persistence.compareAndSetCatalogRevision({
           connectionId: generation.connectionId,
@@ -702,10 +1004,12 @@ export class McpConnectionManager {
             lastError: generation.closeFailure ?? "The MCP catalog refresh failed",
           },
         });
+
         if (generation.closeIntent === "disconnect") {
-          await this.#patch(generation.connectionId, { status: "disconnected" });
+          await this.#patch(generation.connectionId, DISCONNECTED_PATCH);
         }
       }
+
       if (this.#generations.get(generation.connectionId) === generation) {
         this.#generations.delete(generation.connectionId);
       }

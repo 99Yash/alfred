@@ -1,0 +1,1 @@
+ALTER TABLE "integration_objects" ADD COLUMN "provider_event_at" timestamp with time zone;

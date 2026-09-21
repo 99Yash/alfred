@@ -55,13 +55,16 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             .returning({ id: skills.id, slug: skills.slug });
 
           const skill = inserted[0];
+
           if (!skill) throw Errors.InternalServerError("Failed to insert skill");
 
           const trimmedPrompt = body.prompt?.trim() ?? "";
+
           if (trimmedPrompt.length === 0) {
             /* No learn run for an empty draft. Fire a poke so the client
              * sees the new row before its detail page renders. */
             emitReplicachePokes([user.id], skill.id);
+
             return { skillId: skill.id, slug: skill.slug, runId: null };
           }
 
@@ -70,6 +73,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             prompt: trimmedPrompt,
             reason: "manual",
           };
+
           const created = await startRun({
             userId: user.id,
             workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
@@ -80,6 +84,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
               requestId: `initial:${skill.id}`,
             },
           });
+
           // Record the learn run up-front so the skill-detail UI can render
           // "in progress" immediately. `gather` re-records idempotently on
           // agent_run_id, so `startRun` enqueueing before this write commits is
@@ -108,6 +113,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             .from(skills)
             .where(and(eq(skills.id, params.id), eq(skills.userId, user.id)))
             .limit(1);
+
           if (!owner[0]) throw Errors.NotFoundError("Skill not found");
 
           const input: LearnSkillWorkflowInput = {
@@ -115,6 +121,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             prompt: body.prompt,
             reason: "regen",
           };
+
           try {
             const created = await startRun({
               userId: user.id,
@@ -126,6 +133,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
                 requestId: randomUUID(),
               },
             });
+
             // Up-front UI-progress record; the `gather` step re-records
             // idempotently, so enqueue-before-commit here is safe.
             await recordSkillRun({
@@ -134,6 +142,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
               kind: "learn",
               agentRunId: created.runId,
             });
+
             return { runId: created.runId };
           } catch (err) {
             if (isUniqueViolation(err)) {
@@ -141,6 +150,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
                 dedupKey: learnSkillDedupKey(params.id),
               });
             }
+
             throw err;
           }
         },

@@ -1,9 +1,7 @@
 import type { BriefingSlot } from "@alfred/contracts";
-import { db } from "@alfred/db";
-import { user as userTable } from "@alfred/db/schemas";
-import { eq } from "drizzle-orm";
 import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@alfred/db/redis";
+import { selectEmailableUsers } from "@alfred/assistant/delivery";
 import { startRun } from "@alfred/assistant/execution";
 import { resolveFeatureFlags } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
@@ -33,6 +31,7 @@ export type BriefingJobData =
   | { kind: "briefing.run"; userId: string; slot?: BriefingSlot; reason?: "manual" | "forced" };
 
 let _queue: Queue<BriefingJobData> | undefined;
+
 let _worker: Worker<BriefingJobData> | undefined;
 
 export function getBriefingQueue(): Queue<BriefingJobData> {
@@ -46,6 +45,7 @@ export function getBriefingQueue(): Queue<BriefingJobData> {
       removeOnFail: { count: 50, age: 30 * 24 * 60 * 60 },
     },
   });
+
   return _queue;
 }
 
@@ -81,6 +81,7 @@ export async function closeBriefingQueue(): Promise<void> {
 
 async function processBriefingJob(job: Job<BriefingJobData>): Promise<unknown> {
   const data = job.data;
+
   switch (data.kind) {
     case "briefing.tick":
       return handleTick(new Date(job.timestamp));
@@ -100,31 +101,6 @@ interface TickResult {
 }
 
 /**
- * The users an hourly tick is allowed to fan out to.
- *
- * Scoped to a **verified** email, because the tick is the one place that turns
- * a bare `user` row into paid LLM work and an outbound email. An unverified
- * address is one nobody has proven they control, so a recurring briefing must
- * never go there. Google social sign-in is the only way to create a real Alfred
- * user and Better Auth marks it verified from the provider's `email_verified`
- * claim, so no real user is excluded.
- *
- * This is defense in depth, not the primary fix: rows seeded by a test that
- * forgets to clean up (`user` carries no `test` flag to key on) were fanned out
- * to for real — 83 leftover `@example.test` users each drew an evening briefing
- * every hour, which alone exceeded the AI-gateway rate limit and billed real
- * tokens against addresses nobody owns. Tests own their cleanup; this predicate
- * makes the blast radius of a missed cleanup zero instead of unbounded.
- *
- * Exported as its own seam so the predicate is assertable against a real
- * database without standing up Redis and the whole BullMQ worker that
- * {@link handleTick} needs.
- */
-export async function selectBriefingFanoutUsers(): Promise<Array<{ id: string }>> {
-  return db().select({ id: userTable.id }).from(userTable).where(eq(userTable.emailVerified, true));
-}
-
-/**
  * Hourly fan-out. For each user, resolve their tz + delivery hour and
  * compare to "now in their local time." The actual no-double-send
  * guard is the slot-scoped `briefings` unique index plus the
@@ -133,7 +109,7 @@ export async function selectBriefingFanoutUsers(): Promise<Array<{ id: string }>
  * the same terminal briefing row.
  */
 async function handleTick(now: Date = new Date()): Promise<TickResult> {
-  const users = await selectBriefingFanoutUsers();
+  const users = await selectEmailableUsers();
 
   let enqueued = 0;
   let skipped = 0;
@@ -144,9 +120,11 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
         resolveBriefingPreferences(u.id),
         resolveFeatureFlags(u.id),
       ]);
+
       const zone = inZone(prefs.timezone);
       const localHour = zone.hour(now);
       const briefingDate = zone.day(now);
+
       // Each slot is its own background-agent toggle (Settings → Features).
       // A disabled slot is dropped here, not at compose-time, so a switched-off
       // briefing never creates a run. UNSET defaults to ON (see resolveFeatureFlags).
@@ -154,15 +132,19 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
         { slot: "morning", hour: prefs.deliveryHour, enabled: flags.morningBriefing },
         { slot: "evening", hour: prefs.eveningHour, enabled: flags.eveningRecap },
       ];
+
       const slots = allSlots.filter((s) => s.enabled);
       // Slots the user switched off count as skipped for the tick metric.
       skipped += allSlots.length - slots.length;
       const matchingSlots = slots.filter((s) => localHour === s.hour);
+
       if (matchingSlots.length === 0) {
         skipped += slots.length;
         continue;
       }
+
       skipped += slots.length - matchingSlots.length;
+
       if (matchingSlots.length > 1) {
         console.warn(
           `[briefing:worker] user=${u.id} local hour=${localHour} matches ${matchingSlots
@@ -191,6 +173,7 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
   console.log(
     `[briefing:worker] tick scanned=${users.length} enqueued=${enqueued} skipped=${skipped}`,
   );
+
   return { scanned: users.length, enqueued, skipped };
 }
 
@@ -201,6 +184,7 @@ async function handleManualRun(
 ): Promise<{ runId: string }> {
   const prefs = await resolveBriefingPreferences(userId);
   const briefingDate = inZone(prefs.timezone).day();
+
   return enqueueBriefingRun({ userId, slot, briefingDate, reason });
 }
 
@@ -219,10 +203,12 @@ interface EnqueueBriefingRunArgs {
  */
 export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<{ runId: string }> {
   const slot = args.slot ?? "morning";
+
   const trigger =
     args.reason === "cron"
       ? ({ kind: "cron", scheduledFor: args.scheduledFor ?? new Date().toISOString() } as const)
       : ({ kind: "manual" } as const);
+
   const occurrence =
     trigger.kind === "cron"
       ? {
@@ -242,6 +228,7 @@ export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<
             requestId: `${args.briefingDate}:${slot}:${args.reason}`,
           },
         };
+
   const { runId } = await startRun({
     userId: args.userId,
     workflowSlug: DAILY_BRIEFING_WORKFLOW_SLUG,
@@ -257,5 +244,6 @@ export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<
     // rather than at a central dispatcher.
     ...occurrence,
   });
+
   return { runId };
 }

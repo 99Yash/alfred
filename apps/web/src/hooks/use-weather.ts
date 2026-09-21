@@ -5,6 +5,7 @@ import { fetchWeather, type WeatherSnapshot } from "~/lib/weather";
 
 /** Cache window — survives reloads and gates refetches. */
 const WEATHER_TTL_MS = 30 * 60 * 1000;
+
 const CACHE_KEY = "alfred.weather.cache";
 
 /**
@@ -15,7 +16,9 @@ const CACHE_KEY = "alfred.weather.cache";
  */
 function readCache(): { data: WeatherSnapshot; fetchedAt: number } | null {
   const cached = getLocalStorageItem(CACHE_KEY);
+
   if (!cached.data || Date.now() - cached.fetchedAt > WEATHER_TTL_MS) return null;
+
   return { data: cached.data, fetchedAt: cached.fetchedAt };
 }
 
@@ -36,11 +39,13 @@ function writeCache(data: WeatherSnapshot): void {
  */
 export function useWeather() {
   const [cached] = useState(() => readCache());
+
   return useQuery<WeatherSnapshot>({
     queryKey: ["weather"],
     queryFn: async () => {
       const data = await fetchWeather();
       writeCache(data);
+
       return data;
     },
     staleTime: WEATHER_TTL_MS,

@@ -70,12 +70,15 @@ function outcomeHeadline(
       // after the terminal write, so its succeeded count is the frozen one.
       const landed = effects.filter((effect) => effect.outcome === "succeeded").length;
       const unknown = outcome.unknownEffects.length;
+
       const parts = [
         landed === 0 ? "No write landed before the cancel." : `${landed} write(s) landed first.`,
         unknown > 0 ? `${unknown} write(s) have no observed result.` : null,
       ].filter((part): part is string => part !== null);
+
       return { title: "Cancelled", detail: parts.join(" "), tone: "muted" };
     }
+
     case "unknown_write_outcome":
       return {
         title: "Write result unknown",
@@ -89,6 +92,7 @@ function outcomeHeadline(
 /** What the row says first: the frozen outcome when there is one, else the live status. */
 export function runHeadline(row: WorkflowRunHistoryRow): RunHeadline {
   if (row.outcome) return outcomeHeadline(row.outcome, row.effects);
+
   return { title: STATUS_TITLE[row.status], detail: null, tone: STATUS_TONE[row.status] };
 }
 
@@ -96,6 +100,7 @@ export function runHeadline(row: WorkflowRunHistoryRow): RunHeadline {
 export function triggerIdentity(trigger: WorkflowRunHistoryTrigger | null): string {
   if (!trigger) return "Trigger unknown";
   const label = triggerLabel(trigger);
+
   switch (trigger.kind) {
     case "cron":
       return `${label} for ${formatTimestamp(trigger.scheduledFor)}`;
@@ -111,11 +116,13 @@ export function triggerIdentity(trigger: WorkflowRunHistoryTrigger | null): stri
 export function revisionLabel(row: WorkflowRunHistoryRow): string {
   if (row.revisionNumber === null) return "Built-in";
   const state = row.isPublished ? "published" : row.isCurrent ? "current" : "superseded";
+
   return `Revision ${row.revisionNumber} · ${state}`;
 }
 
 export function timingLabel(row: WorkflowRunHistoryRow): string {
   const started = formatTimestamp(row.startedAt ?? row.createdAt);
+
   return row.endedAt ? `${started} → ${formatTimestamp(row.endedAt)}` : started;
 }
 
@@ -129,6 +136,7 @@ export interface EffectCount {
 /** Tally the write receipts into the five states a user can act on or worry about. */
 export function effectCounts(effects: readonly EffectReceipt[]): EffectCount[] {
   const tally = { succeeded: 0, awaiting: 0, rejected: 0, failed: 0, unknown: 0 };
+
   for (const effect of effects) {
     if (effect.outcome === "succeeded") tally.succeeded += 1;
     else if (effect.outcome === "awaiting_approval") tally.awaiting += 1;
@@ -136,6 +144,7 @@ export function effectCounts(effects: readonly EffectReceipt[]): EffectCount[] {
     else if (effect.outcome === "failed") tally.failed += 1;
     else if (effect.outcome === "unknown") tally.unknown += 1;
   }
+
   const all: EffectCount[] = [
     { key: "succeeded", label: "succeeded", count: tally.succeeded, tone: "green" },
     { key: "awaiting", label: "waiting", count: tally.awaiting, tone: "amber" },
@@ -143,5 +152,6 @@ export function effectCounts(effects: readonly EffectReceipt[]): EffectCount[] {
     { key: "failed", label: "failed", count: tally.failed, tone: "red" },
     { key: "unknown", label: "unknown", count: tally.unknown, tone: "purple" },
   ];
+
   return all.filter((entry) => entry.count > 0);
 }

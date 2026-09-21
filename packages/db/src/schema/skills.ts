@@ -174,5 +174,7 @@ export const skillRuns = pgTable(
 );
 
 export type Skill = typeof skills.$inferSelect;
+
 export type SkillRevision = typeof skillRevisions.$inferSelect;
+
 export type SkillRun = typeof skillRuns.$inferSelect;

@@ -2,17 +2,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { getObjectDef, isLoopClosingCategory, isTerminalCategory } from "@alfred/contracts";
+import { closesOpenAsk, getObjectDef, isTerminalCategory } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 
-import {
-  extractGithubKeys,
-  isGithubNotificationSender,
-  objectStateStore,
-  reduceGithubEvent,
-} from "../src/connections/object-state";
+import { objectStateStore } from "../src/connections/object-state";
+import { githubObjectStateAdapter } from "../src/connections/object-state/github-adapter";
+import { reduceGithubEvent } from "../src/connections/object-state/github-reducer";
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
@@ -26,6 +23,7 @@ import { dbBackedSkip } from "./support/db-backed";
  */
 
 const SHA_A = "a1b2c3d4".repeat(5); // 40 hex
+
 const SHA_B = "f0e1d2c3".repeat(5);
 
 function prPayload(
@@ -52,7 +50,7 @@ function prPayload(
 describe("github reducer (pure)", () => {
   test("opened / synchronize / reopened map to the open native state + head_sha key", () => {
     for (const action of ["opened", "synchronize", "reopened"]) {
-      const delta = reduceGithubEvent("pull_request", action, prPayload(7, SHA_A));
+      const [delta] = reduceGithubEvent("pull_request", action, prPayload(7, SHA_A));
       assert.ok(delta, `${action} should produce a delta`);
       assert.equal(delta?.kind, "pull_request");
       assert.equal(delta?.externalId, "7");
@@ -66,24 +64,25 @@ describe("github reducer (pure)", () => {
 
   test("closed collapses the merged boolean into merged vs closed", () => {
     assert.equal(
-      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: true }))
+      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: true }))[0]
         ?.nativeState,
       "merged",
     );
     assert.equal(
-      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: false }))
+      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: false }))[0]
         ?.nativeState,
       "closed",
     );
   });
 
   test("externalId uses GitHub's global PR id, not the repo-scoped PR number", () => {
-    const first = reduceGithubEvent(
+    const [first] = reduceGithubEvent(
       "pull_request",
       "opened",
       prPayload(1, SHA_A, { id: 111, repo: "o/one" }),
     );
-    const second = reduceGithubEvent(
+
+    const [second] = reduceGithubEvent(
       "pull_request",
       "opened",
       prPayload(1, SHA_B, { id: 222, repo: "o/two" }),
@@ -95,9 +94,9 @@ describe("github reducer (pure)", () => {
   });
 
   test("non-lifecycle actions and non-PR events are no-ops", () => {
-    assert.equal(reduceGithubEvent("pull_request", "labeled", prPayload(7, SHA_A)), null);
-    assert.equal(reduceGithubEvent("push", "created", prPayload(7, SHA_A)), null);
-    assert.equal(reduceGithubEvent("pull_request", "opened", {}), null);
+    assert.deepEqual(reduceGithubEvent("pull_request", "labeled", prPayload(7, SHA_A)), []);
+    assert.deepEqual(reduceGithubEvent("push", "created", prPayload(7, SHA_A)), []);
+    assert.deepEqual(reduceGithubEvent("pull_request", "opened", {}), []);
   });
 });
 
@@ -117,36 +116,73 @@ describe("github registry normalize", () => {
     assert.equal(isTerminalCategory("active"), false);
   });
 
-  test("briefing loop closure excludes failed because failed is usually the opener", () => {
-    assert.equal(isLoopClosingCategory("resolved"), true);
-    assert.equal(isLoopClosingCategory("abandoned"), true);
-    assert.equal(isLoopClosingCategory("failed"), false);
-    assert.equal(isLoopClosingCategory("active"), false);
+  test("a pull request closes an ask on merged/closed, never on failed", () => {
+    assert.equal(closesOpenAsk("github", "pull_request", "resolved"), "resolved");
+    assert.equal(closesOpenAsk("github", "pull_request", "abandoned"), "abandoned");
+    assert.equal(closesOpenAsk("github", "pull_request", "failed"), null);
+    assert.equal(closesOpenAsk("github", "pull_request", "active"), null);
+  });
+
+  test("an undeclared kind closes nothing: absence never closes", () => {
+    assert.equal(closesOpenAsk("github", "deployment", "resolved"), null);
   });
 });
 
-describe("extractGithubKeys", () => {
-  test("pulls and dedupes 40-hex head shas from subject + body", () => {
-    const keys = extractGithubKeys({
-      subject: `Run failed for ${SHA_A}`,
-      content: `commit ${SHA_A} on branch; see ${SHA_B}`,
-    });
+describe("githubObjectStateAdapter.proposeKeys", () => {
+  test("about: pulls and dedupes 40-hex head shas from subject + body", () => {
+    const keys = githubObjectStateAdapter.proposeKeys(
+      {
+        id: "mail-1",
+        text: {
+          subject: `Run failed for ${SHA_A}`,
+          content: `commit ${SHA_A} on branch; see ${SHA_B}`,
+        },
+      },
+      { reading: "about", sender: "notifications@github.com" },
+    );
+
     assert.deepEqual(
       keys.map((k) => k.keyValue),
       [SHA_A, SHA_B],
     );
   });
 
-  test("ignores short / non-hex tokens", () => {
-    assert.deepEqual(extractGithubKeys({ subject: "deadbeef", content: "no sha here" }), []);
+  test("about: ignores short / non-hex tokens", () => {
+    assert.deepEqual(
+      githubObjectStateAdapter.proposeKeys(
+        { id: "mail-2", text: { subject: "deadbeef", content: "no sha here" } },
+        { reading: "about", sender: "notifications@github.com" },
+      ),
+      [],
+    );
   });
-});
 
-describe("isGithubNotificationSender", () => {
-  test("requires an exact github.com sender domain", () => {
-    assert.equal(isGithubNotificationSender("GitHub <notifications@github.com>"), true);
-    assert.equal(isGithubNotificationSender("spoof@notgithub.com"), false);
-    assert.equal(isGithubNotificationSender("GitHub <notifications@github.com.evil.test>"), false);
+  test("about: demands the github.com sender-domain gate", () => {
+    const subject = {
+      id: "mail-3",
+      text: { subject: `Run failed for ${SHA_A}`, content: "" },
+    };
+
+    assert.ok(
+      githubObjectStateAdapter.proposeKeys(subject, {
+        reading: "about",
+        sender: "GitHub <notifications@github.com>",
+      }).length > 0,
+    );
+    assert.deepEqual(
+      githubObjectStateAdapter.proposeKeys(subject, {
+        reading: "about",
+        sender: "spoof@notgithub.com",
+      }),
+      [],
+    );
+    assert.deepEqual(
+      githubObjectStateAdapter.proposeKeys(subject, {
+        reading: "about",
+        sender: "GitHub <notifications@github.com.evil.test>",
+      }),
+      [],
+    );
   });
 });
 

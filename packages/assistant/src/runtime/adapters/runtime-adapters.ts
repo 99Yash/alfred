@@ -23,6 +23,10 @@ import {
 import { registerSystemToolAgent, unregisterSystemToolAgent } from "./system-tool-agent";
 import { registerSystemToolChat, unregisterSystemToolChat } from "./system-tool-chat";
 import {
+  registerSystemToolContextSearch,
+  unregisterSystemToolContextSearch,
+} from "./system-tool-context-search";
+import {
   registerSystemToolWorkflows,
   unregisterSystemToolWorkflows,
 } from "./system-tool-workflows";
@@ -45,6 +49,7 @@ export function createRuntimeAdapterLifecycle(
   definitions: readonly RuntimeAdapterDefinition[],
 ): RuntimeAdapterLifecycle {
   const startupAdapters = [...definitions];
+
   const shutdownAdapters = [...definitions].sort(
     (left, right) => left.shutdownOrder - right.shutdownOrder,
   );
@@ -56,6 +61,7 @@ export function createRuntimeAdapterLifecycle(
     unregister({ agentWorkerStopped, ingestionWorkerStopped }) {
       for (const adapter of shutdownAdapters) {
         if (!agentWorkerStopped && adapter.retainIfAgentWorkerActive) continue;
+
         if (!ingestionWorkerStopped && adapter.retainIfIngestionWorkerActive) continue;
         adapter.unregister();
       }
@@ -95,6 +101,14 @@ export const RUNTIME_ADAPTERS = [
     retainIfAgentWorkerActive: true,
     retainIfIngestionWorkerActive: false,
     shutdownOrder: 9,
+  },
+  {
+    name: "system-tool-context-search",
+    register: registerSystemToolContextSearch,
+    unregister: unregisterSystemToolContextSearch,
+    retainIfAgentWorkerActive: true,
+    retainIfIngestionWorkerActive: false,
+    shutdownOrder: 13,
   },
   {
     name: "chat-attachment-enrichment",

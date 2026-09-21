@@ -6,6 +6,7 @@ export const errorHandler = new Elysia({ name: "error-handler", normalize: "type
   ({ code, error, set }) => {
     const respond = (apiError: ApiError) => {
       set.status = apiError.statusCode;
+
       return apiErrorResponse(apiError);
     };
 
@@ -14,6 +15,7 @@ export const errorHandler = new Elysia({ name: "error-handler", normalize: "type
     if (code === "VALIDATION") {
       const first = error.all[0];
       const summary = first?.summary ? `Validation failed: ${first.summary}` : undefined;
+
       return respond(Errors.ValidationError(summary));
     }
 
@@ -22,6 +24,7 @@ export const errorHandler = new Elysia({ name: "error-handler", normalize: "type
     if (code === "PARSE") return respond(Errors.ParseError());
 
     console.error("[api] Unhandled error:", toMessage(error));
+
     return respond(Errors.InternalServerError());
   },
 );

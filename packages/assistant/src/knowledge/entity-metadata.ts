@@ -27,6 +27,7 @@ export const correspondenceStatsSchema = z.object({
   /** ISO timestamp of the latest message touching this contact (`null` if unknown). */
   lastSeenAt: z.string().nullable().default(null),
 });
+
 export type CorrespondenceStats = z.infer<typeof correspondenceStatsSchema>;
 
 /**
@@ -41,6 +42,7 @@ export const significanceScoreComponentsSchema = z.object({
   reciprocity: z.number(),
   sameOrg: z.number(),
 });
+
 export type SignificanceScoreComponents = z.infer<typeof significanceScoreComponentsSchema>;
 
 /**
@@ -53,6 +55,7 @@ export const significanceSchema = z.object({
   /** ISO timestamp of the pass that produced this score. */
   computedAt: z.string(),
 });
+
 export type Significance = z.infer<typeof significanceSchema>;
 
 /** Typed view of a `person` entity's metadata bag. All fields optional — the bag is additive. */
@@ -64,10 +67,12 @@ export const personEntityMetadataSchema = z.object({
   correspondence: correspondenceStatsSchema.optional(),
   significance: significanceSchema.optional(),
 });
+
 export type PersonEntityMetadata = z.infer<typeof personEntityMetadataSchema>;
 
 /** Parse a raw jsonb metadata value into the typed person-entity view (lenient — unknown keys preserved separately). */
 export function parsePersonEntityMetadata(raw: unknown): PersonEntityMetadata {
   const parsed = personEntityMetadataSchema.safeParse(raw ?? {});
+
   return parsed.success ? parsed.data : {};
 }

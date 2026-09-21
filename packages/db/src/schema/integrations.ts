@@ -2,9 +2,19 @@ import {
   CREDENTIAL_PROVIDERS,
   type AccountPersona,
   type CredentialProvider,
+  type JsonObject,
 } from "@alfred/contracts";
-import { sql } from "drizzle-orm";
-import { check, index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { getTableColumns, isNull, sql } from "drizzle-orm";
+import {
+  check,
+  index,
+  jsonb,
+  pgTable,
+  pgView,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import type { SealedCredentialSecret } from "../credential-vault";
 import { createId, inList, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
@@ -63,7 +73,7 @@ export const integrationCredentials = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     /**
      * The credential provider (ADR-0093): `google` for every Google product,
-     * else the live provider's slug (`github`, `notion`, `railway`, `vercel`).
+     * else the live provider's slug (`github`, `notion`, `sentry`, `vercel`).
      * The vocabulary is derived from the integration registry, and the CHECK
      * below holds the column to it, so a new provider is a migration.
      */
@@ -83,14 +93,17 @@ export const integrationCredentials = pgTable(
       .default(sql`'[]'::jsonb`),
     /** Free-form provider-specific bag: id_token claims, raw refresh response, watch-channel ids, etc. */
     metadata: jsonb("metadata")
-      .$type<Record<string, unknown>>()
+      .$type<JsonObject>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     /**
-     * GitHub App installation id (ADR-0052). NULL for every other provider
-     * and for legacy classic-OAuth GitHub rows. Inbound webhooks carry only
-     * `installation.id`, so this is the join key from a delivery back to the
-     * owning user; the indexed lookup lives in `webhook_events` resolution.
+     * The provider-side installation id an inbound webhook delivery names: the
+     * GitHub App installation id (ADR-0052) or the Sentry integration
+     * installation uuid. NULL for every provider that sends no webhooks and
+     * for legacy classic-OAuth GitHub rows. A delivery carries only this id,
+     * so it is the indexed join key from a delivery back to the owning
+     * credential; the lookup is always scoped by `provider` as well, because
+     * the id space is the provider's, not Alfred's.
      */
     installationId: text("installation_id"),
     status: text("status").notNull().default("active"),
@@ -113,7 +126,7 @@ export const integrationCredentials = pgTable(
       sql`${t.provider} IN (${inList(CREDENTIAL_PROVIDERS)})`,
     ),
     uniqueIndex("integration_credentials_unique_idx").on(t.userId, t.provider, t.accountId),
-    // Webhook deliveries resolve their owning user by GitHub installation id.
+    // Inbound webhook deliveries resolve their owning credential by installation id.
     index("integration_credentials_installation_idx").on(t.installationId),
   ],
 );
@@ -127,6 +140,10 @@ export const integrationCredentials = pgTable(
  *  - `last_sync_at` and `last_full_sync_at` distinguish incremental
  *    pulls from full re-ingestion (used after a watch-channel expiry
  *    or a token rotation that invalidates the cursor).
+ *  - `last_fallback_insert_at` (#998) is the start of a history poll that
+ *    inserted a message whose addition was not covered by a push receipt.
+ *    The stale-push reader compares this observation with the last push
+ *    receipt in `event_receipts` (ADR-0090 keeps push facts there).
  *  - `stream` discriminates multiple sync streams under one credential
  *    ("messages" vs "labels" vs "drafts" — we'll only use "messages"
  *    initially but the column lets us add streams without migrations).
@@ -149,67 +166,16 @@ export const ingestionState = pgTable(
       .notNull()
       .default(sql`'{}'::jsonb`),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    /** Successful webhook-driven fetch/persist completion; excludes embedding and triage. */
+    lastWebhookSyncAt: timestamp("last_webhook_sync_at", { withTimezone: true }),
     lastFullSyncAt: timestamp("last_full_sync_at", { withTimezone: true }),
+    /** Start of the latest history poll that inserted mail not covered by a push receipt. */
+    lastFallbackInsertAt: timestamp("last_fallback_insert_at", { withTimezone: true }),
     ...lifecycle_dates,
   },
   (t) => [
     uniqueIndex("ingestion_state_unique_idx").on(t.credentialId, t.stream),
     index("ingestion_state_user_idx").on(t.userId, t.provider),
-  ],
-);
-
-/**
- * Inbound provider webhook deliveries (ADR-0024 / ADR-0052). v1 carries
- * GitHub App activity — `pull_request`, `push`, `issues`,
- * `pull_request_review` — but the shape is provider-generic so other push
- * sources can land here later.
- *
- * Idempotency is the whole point: GitHub redelivers on any non-2xx and on
- * manual replay, so the receiver inserts `on conflict do nothing` keyed by
- * `(provider, provider_event_id)` — the `X-GitHub-Delivery` UUID — and a
- * duplicate is a no-op rather than a double-counted activity item. This
- * matches the replay-safe story in ADR-0014.
- *
- * The raw `payload` is retained so the briefing's `integration_activity`
- * contributor (and future surfaces) can re-derive richer detail without a
- * schema change; `event_type`/`action`/`repo` are denormalized out for
- * cheap filtering and rollup.
- */
-export const webhookEvents = pgTable(
-  "webhook_events",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => createId("whe")),
-    /** 'github' today; matches `integration_credentials.provider`. */
-    provider: text("provider").notNull(),
-    /** Provider-side unique delivery id — GitHub's `X-GitHub-Delivery` UUID. */
-    providerEventId: text("provider_event_id").notNull(),
-    /** GitHub `X-GitHub-Event` header: 'pull_request', 'push', 'issues', … */
-    eventType: text("event_type").notNull(),
-    /** Payload `action` when present ('opened', 'closed', 'merged', …); NULL for events like `push`. */
-    action: text("action"),
-    /** Affected repo full name ('owner/repo') when the payload carries one. */
-    repo: text("repo"),
-    /** GitHub App installation id the delivery came from — the join key to the owning user. */
-    installationId: text("installation_id"),
-    /**
-     * Owning user, resolved from `installation_id` at receive time. Nullable:
-     * a delivery for an installation we can't map (e.g. mid-uninstall) is
-     * still persisted for audit rather than dropped.
-     */
-    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
-    /** Full webhook body, retained for re-derivation. */
-    payload: jsonb("payload")
-      .notNull()
-      .default(sql`'{}'::jsonb`),
-    /** When GitHub says it delivered (header timestamp) — defaults to receipt time. */
-    deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull().defaultNow(),
-    ...lifecycle_dates,
-  },
-  (t) => [
-    uniqueIndex("webhook_events_dedup_idx").on(t.provider, t.providerEventId),
-    index("webhook_events_user_provider_idx").on(t.userId, t.provider, t.deliveredAt),
   ],
 );
 
@@ -236,11 +202,22 @@ export const webhookEvents = pgTable(
  * acknowledged. Gmail rows leave `payload` NULL because the Pub/Sub envelope
  * carries only a pointer.
  *
+ * Raw receipts (ADR-0097 item 9, #988): a verified, owner-attributed delivery
+ * whose kind the source's entry does not name is stored too, with `raw_kind`
+ * set to the provider's own kind (`comment.created`, `issue_comment.created`),
+ * `event_type = <slug>.raw`, and `provider_delivery_id = raw:<raw_kind>:<payload_hash>`. Such a
+ * row is `completed` at insert: no `ingress.deliver` job runs for it and it
+ * publishes nothing. `raw_kind IS NULL` is the typed tier; every reader that
+ * folds, briefs, or triggers on receipts uses `typedEventReceipts`.
+ *
  * The full unique index on `(provider, provider_delivery_id)` deduplicates
  * redeliveries at the DB level. The webhook handler uses `onConflictDoNothing`
  * so a duplicate insert is a no-op. Failed deliveries are not retried with a
  * new row — the index prevents duplicate receipts for the same delivery.
  */
+// Gmail push health and gap detection depend on retained receipts. A reaper
+// must preserve each credential's latest delivery time and highest historyId
+// in a durable summary before it deletes the receipts that supply those facts.
 export const eventReceipts = pgTable(
   "event_receipts",
   {
@@ -259,8 +236,19 @@ export const eventReceipts = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** The `<source>.<type>` domain-event name (`eventTypeName` in contracts): 'gmail.message_received', 'github.pull_request'. */
+    /**
+     * The `<source>.<type>` domain-event name (`eventTypeName` in contracts):
+     * 'gmail.message_received', 'github.pull_request'. A raw receipt stores
+     * `<source>.raw` (`rawEventTypeName`), which no entry declares.
+     */
     eventType: text("event_type").notNull(),
+    /**
+     * The provider's own kind of a raw receipt (ADR-0097 item 9): the delivery's
+     * `<resource>.<action>` as the provider names it, kept verbatim so the
+     * inventory can show a kind the registry has never seen. NULL on every typed
+     * receipt; this column is the tier discriminator.
+     */
+    rawKind: text("raw_kind"),
     /** Gmail historyId from the push notification (presence gate + cursor). */
     historyId: text("history_id"),
     /** Verification outcome: 'oidc_valid', 'oidc_skipped' (dev), 'oidc_failed' for Gmail; 'signature_valid' for inbound webhook rows. */
@@ -276,7 +264,10 @@ export const eventReceipts = pgTable(
      * Processing state: 'pending' (received, not yet ingested), 'completed'
      * (ingestion job ran), 'failed' (ingestion job errored).
      */
-    processingStatus: text("processing_status").notNull().default("pending"),
+    processingStatus: text("processing_status")
+      .$type<"pending" | "completed" | "failed">()
+      .notNull()
+      .default("pending"),
     /** When the provider delivered (Pub/Sub push timestamp). Defaults to DB receive time. */
     deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull().defaultNow(),
     /** When the ingestion job completed or failed. */
@@ -284,14 +275,27 @@ export const eventReceipts = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
+    check(
+      "event_receipts_raw_type_check",
+      sql`(${t.rawKind} IS NULL) = (${t.eventType} NOT LIKE '%.raw')`,
+    ),
     uniqueIndex("event_receipts_dedup_idx").on(t.provider, t.providerDeliveryId),
     index("event_receipts_credential_idx").on(t.credentialId, t.deliveredAt),
     index("event_receipts_user_idx").on(t.userId, t.provider, t.deliveredAt),
   ],
 );
 
+/** Typed consumers read this view so raw traffic cannot consume a query's LIMIT. */
+export const typedEventReceipts = pgView("typed_event_receipts").as((qb) => {
+  const { rawKind, ...columns } = getTableColumns(eventReceipts);
+
+  return qb.select(columns).from(eventReceipts).where(isNull(rawKind));
+});
+
 export type IntegrationCredential = typeof integrationCredentials.$inferSelect;
+
 export type IngestionState = typeof ingestionState.$inferSelect;
-export type WebhookEvent = typeof webhookEvents.$inferSelect;
+
 export type EventReceipt = typeof eventReceipts.$inferSelect;
+
 export type NewEventReceipt = typeof eventReceipts.$inferInsert;

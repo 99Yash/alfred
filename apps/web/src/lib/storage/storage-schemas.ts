@@ -109,6 +109,7 @@ export const LOCAL_STORAGE_SCHEMAS = {
 } as const satisfies Record<string, z.ZodDefault>;
 
 export type LocalStorageKey = keyof typeof LOCAL_STORAGE_SCHEMAS;
+
 export type LocalStorageValue<K extends LocalStorageKey> = z.infer<
   (typeof LOCAL_STORAGE_SCHEMAS)[K]
 >;

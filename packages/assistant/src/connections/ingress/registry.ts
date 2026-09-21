@@ -1,6 +1,7 @@
 import { isInboundEventSource, type InboundEventSource } from "@alfred/contracts";
 import type { InboundSourceDescriptor } from "./descriptor";
 import { githubInboundSource } from "./github";
+import { sentryInboundSource } from "./sentry";
 
 /**
  * Every inbound source descriptor, keyed by its contracts slug (ADR-0097). The
@@ -11,6 +12,7 @@ import { githubInboundSource } from "./github";
  */
 export const INBOUND_SOURCES = {
   github: githubInboundSource,
+  sentry: sentryInboundSource,
 } satisfies { readonly [S in InboundEventSource]: InboundSourceDescriptor<S> };
 
 /** The descriptor for one route `:source` segment, or `null` when the slug is not an inbound source. */

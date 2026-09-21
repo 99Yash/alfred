@@ -22,4 +22,5 @@ export const EMBEDDING_DIMENSIONS = 1024;
 
 /** Voyage per-request batch limits. */
 export const VOYAGE_MAX_BATCH_INPUTS = 1000;
+
 export const VOYAGE_MAX_BATCH_TOKENS = 120_000;

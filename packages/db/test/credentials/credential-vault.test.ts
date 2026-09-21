@@ -14,7 +14,9 @@ import {
  */
 
 const KEY = randomBytes(32);
+
 const OTHER_KEY = randomBytes(32);
+
 const vault = createCredentialVault(KEY);
 
 /** Assert a call fails with a specific redacted failure kind. */
@@ -24,14 +26,17 @@ function assertFailure(fn: () => unknown, failure: CredentialVaultFailure, secre
   } catch (err) {
     assert.ok(err instanceof CredentialVaultError, `expected CredentialVaultError, got ${err}`);
     assert.equal(err.failure, failure);
+
     if (secret !== undefined) {
       assert.ok(
         !err.message.includes(secret),
         "the error message must never quote the value it rejected",
       );
     }
+
     return;
   }
+
   assert.fail(`expected ${failure}`);
 }
 
@@ -39,6 +44,7 @@ function assertFailure(fn: () => unknown, failure: CredentialVaultFailure, secre
 function replacePart(envelope: string, index: number, value: string): string {
   const parts = envelope.split(".");
   parts[index] = value;
+
   return parts.join(".");
 }
 
@@ -48,6 +54,7 @@ function corruptPart(envelope: string, index: number): string {
   const bytes = Buffer.from(parts[index] ?? "", "base64url");
   assert.ok(bytes.length > 0, "cannot corrupt an empty part");
   bytes[0] = (bytes[0] ?? 0) ^ 0xff;
+
   return replacePart(envelope, index, bytes.toString("base64url"));
 }
 
@@ -83,6 +90,7 @@ describe("credential vault: round trip", () => {
       // Multi-byte input must survive the utf8 round trip.
       "tökén-🔐-値",
     ];
+
     for (const plaintext of cases) {
       assert.equal(vault.open(vault.seal(plaintext)), plaintext);
     }

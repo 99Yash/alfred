@@ -78,6 +78,7 @@ export function commentBlocks(source) {
         index += 2;
         continue;
       }
+
       index += 1;
       continue;
     }
@@ -100,20 +101,26 @@ export function commentBlocks(source) {
     if (QUOTES.includes(char)) {
       const quote = char;
       index += 1;
+
       while (index < length) {
         const inside = source[index];
+
         if (inside === "\\") {
           index += 2;
           continue;
         }
+
         if (inside === quote) {
           index += 1;
           break;
         }
+
         if (inside === "\n" && quote !== "`") break;
+
         if (inside === "\n") line += 1;
         index += 1;
       }
+
       continue;
     }
 
@@ -121,6 +128,7 @@ export function commentBlocks(source) {
   }
 
   if (blockStart !== -1) blocks.push({ line: blockLine, text: source.slice(blockStart, length) });
+
   return blocks;
 }
 
@@ -130,6 +138,7 @@ export function excludedMarkdownLines(text) {
   const excluded = new Set();
 
   let inFence = false;
+
   for (let index = 0; index < lines.length; index += 1) {
     if (lines[index].startsWith("```")) {
       inFence = !inFence;
@@ -140,13 +149,16 @@ export function excludedMarkdownLines(text) {
   }
 
   const sectionStarts = [];
+
   for (let index = 0; index < lines.length; index += 1) {
     if (lines[index].startsWith("## ")) sectionStarts.push(index);
   }
+
   for (let section = 0; section < sectionStarts.length; section += 1) {
     const start = sectionStarts[section];
     const end = section + 1 < sectionStarts.length ? sectionStarts[section + 1] : lines.length;
     const content = lines.slice(start, end).join("\n");
+
     if (DESIGN_SECTION_BANNER.test(content)) {
       for (let index = start; index < end; index += 1) excluded.add(index);
     }
@@ -155,8 +167,11 @@ export function excludedMarkdownLines(text) {
   for (let index = 0; index < lines.length; index += 1) {
     if (lines[index].trim() === "") continue;
     const paragraphStart = index === 0 || lines[index - 1].trim() === "";
+
     if (!paragraphStart) continue;
+
     if (!DESIGN_ENTRY_LEAD.test(lines[index].trimStart())) continue;
+
     for (let end = index; end < lines.length && lines[end].trim() !== ""; end += 1) {
       excluded.add(end);
     }
@@ -174,9 +189,12 @@ export function excludedMarkdownLines(text) {
 export function enclosingParagraph(text, lineIndex) {
   const lines = text.split("\n");
   let start = lineIndex;
+
   while (start > 0 && lines[start - 1].trim() !== "") start -= 1;
   let end = lineIndex;
+
   while (end < lines.length - 1 && lines[end + 1].trim() !== "") end += 1;
+
   return lines.slice(start, end + 1).join("\n");
 }
 
@@ -185,13 +203,16 @@ export function markdownSpans(text) {
   const lines = text.split("\n");
   const excluded = excludedMarkdownLines(text);
   const spans = [];
+
   for (let index = 0; index < lines.length; index += 1) {
     if (excluded.has(index)) continue;
     const lineText = lines[index];
+
     for (const match of lineText.matchAll(/`([^`\n]+)`/g)) {
       spans.push({ span: match[1], line: index + 1, context: enclosingParagraph(text, index) });
     }
   }
+
   return spans;
 }
 
@@ -199,11 +220,13 @@ export function markdownSpans(text) {
 export function commentSpans(block) {
   const spans = [];
   const lines = block.text.split("\n");
+
   for (let index = 0; index < lines.length; index += 1) {
     for (const match of lines[index].matchAll(/`([^`\n]+)`/g)) {
       spans.push({ span: match[1], line: block.line + index + 1, context: block.text });
     }
   }
+
   return spans;
 }
 
@@ -212,8 +235,11 @@ function absenceStatement(context, span) {
   const normalized = context.replace(/\s+/g, " ");
   const sentences = context.split(/(?<=[.!?])\s+/).map((sentence) => sentence.replace(/\s+/g, " "));
   const mentions = sentences.filter((sentence) => sentence.includes(span));
+
   if (mentions.length === 0) return false;
+
   if (NEGATIVE_CONTEXT.test(normalized)) return true;
+
   return mentions.every((sentence) => NEGATIVE_CONTEXT.test(sentence));
 }
 
@@ -225,31 +251,40 @@ function absenceStatement(context, span) {
  */
 export function locatorProblem(span, context, { packages, listed, topLevelDirs }) {
   const trimmed = span.trim();
+
   if (trimmed === "") return null;
+
   if (PLACEHOLDER.test(trimmed)) return null;
   // A trailing `:NNN` is a line reference ("packages/foo.ts:12"), not part of
   // the path. Strip it before resolving so line citations resolve by file.
   const candidate = trimmed.replace(/:\d+$/, "");
+
   if (absenceStatement(context, candidate)) return null;
 
   if (candidate.startsWith("@alfred/")) {
     const classified = specifierKind(candidate);
+
     if (classified.kind === "relative") return null;
     const { packageName, subpath } = classified;
 
     const entry = packages.get(packageName);
+
     if (entry === undefined) {
       return `names "${packageName}", which no workspace package declares — the package was deleted or renamed. Repoint it at the package that owns the door now.`;
     }
+
     if (subpath === ".") return null;
+
     if (entry.problem !== null) return null;
 
     const key = publishedKey(entry.keys, subpath);
+
     if (key === null) {
       return `names subpath "${subpath}" that ${packageName}'s exports map does not publish, so no importer can write it. Repoint it at the subpath that carries the door now.`;
     }
 
     const published = entry.keys.get(key);
+
     if (published.blocked) {
       return `names subpath "${subpath}" that ${packageName}'s exports map SEALS — the door is deliberately closed. Reword the reference.`;
     }
@@ -258,26 +293,32 @@ export function locatorProblem(span, context, { packages, listed, topLevelDirs }
       const resolvedPaths = published.targets.map((target) =>
         wildcardTargetPath(entry.dir, key, target, subpath),
       );
+
       if (!resolvedPaths.some((path) => path !== null && listed.has(path))) {
         return `resolves through ${packageName}'s wildcard exports key "${key}" to ${resolvedPaths
           .map((path) => `"${path}"`)
           .join(" / ")}, which no file git lists.`;
       }
     }
+
     return null;
   }
 
   const slash = candidate.indexOf("/");
   const firstSegment = slash === -1 ? candidate : candidate.slice(0, slash);
   const isPath = slash === -1 ? listed.has(candidate) : topLevelDirs.has(firstSegment);
+
   if (!isPath) return null;
 
   const normalized = candidate.endsWith("/") ? candidate.slice(0, -1) : candidate;
+
   const exists =
     listed.has(normalized) || [...listed].some((file) => file.startsWith(`${normalized}/`));
+
   if (!exists) {
     return "names a path that no git-listed file or directory has — the file moved or was deleted. Repoint it at the current location.";
   }
+
   return null;
 }
 
@@ -303,17 +344,21 @@ export function proseLocatorFailures({ docs, sources, packages, listed, allowed 
   }
 
   const topLevelDirs = new Set();
+
   for (const file of listed) {
     const slash = file.indexOf("/");
+
     if (slash !== -1) topLevelDirs.add(file.slice(0, slash));
   }
 
   const contexts = [];
+
   for (const doc of docs) {
     for (const { span, line, context } of markdownSpans(doc.text)) {
       contexts.push({ file: doc.file, line, span, context });
     }
   }
+
   for (const source of sources) {
     for (const block of commentBlocks(source.text)) {
       for (const { span, line, context } of commentSpans(block)) {
@@ -324,15 +369,19 @@ export function proseLocatorFailures({ docs, sources, packages, listed, allowed 
 
   for (const { file, line, span, context } of contexts) {
     const allowedKey = `${file}:\`${span}\``;
+
     if (allowed.has(allowedKey)) {
       usedAllowed.add(allowedKey);
       continue;
     }
+
     const problem = locatorProblem(span, context, { packages, listed, topLevelDirs });
+
     if (problem === null) {
       checked += 1;
       continue;
     }
+
     failures.push(`${file}:${line} \`${span}\` ${problem}`);
   }
 
@@ -345,5 +394,6 @@ export function proseLocatorFailures({ docs, sources, packages, listed, allowed 
   }
 
   failures.sort();
+
   return { failures, checked };
 }

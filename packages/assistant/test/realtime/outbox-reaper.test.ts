@@ -60,6 +60,7 @@ async function seed(userId: string, now: Date): Promise<Seeded> {
     .returning({ id: eventsOutbox.id });
 
   assert.equal(rows.length, 3);
+
   return {
     oldPublished: rows[0]?.id as number,
     freshPublished: rows[1]?.id as number,
@@ -80,10 +81,12 @@ async function seed(userId: string, now: Date): Promise<Seeded> {
 function signalAbortingAfterReads(reads: number): AbortSignal {
   const controller = new AbortController();
   let seen = 0;
+
   return new Proxy(controller.signal, {
     get(target, prop, receiver) {
       if (prop === "aborted") return seen++ >= reads;
       const value = Reflect.get(target, prop, receiver);
+
       return typeof value === "function" ? value.bind(target) : value;
     },
   });
@@ -94,6 +97,7 @@ async function survivors(ids: number[]): Promise<Set<number>> {
     .select({ id: eventsOutbox.id })
     .from(eventsOutbox)
     .where(inArray(eventsOutbox.id, ids));
+
   return new Set(rows.map((r) => r.id));
 }
 
@@ -111,6 +115,7 @@ describe("events_outbox retention", { skip: SKIP }, () => {
       .insert(user)
       .values({ id: userId, name: "Reaper Test", email: `${userId}@example.test` });
     userIds.push(userId);
+
     return userId;
   }
 
@@ -126,6 +131,7 @@ describe("events_outbox retention", { skip: SKIP }, () => {
       seeded.freshPublished,
       seeded.oldUnpublished,
     ]);
+
     assert.equal(alive.has(seeded.oldPublished), false, "an expired published row must be deleted");
     assert.equal(
       alive.has(seeded.freshPublished),
@@ -195,6 +201,7 @@ describe("events_outbox retention", { skip: SKIP }, () => {
         })),
       )
       .returning({ id: eventsOutbox.id });
+
     const ids = rows.map((r) => r.id);
 
     const deleted = await reapOutboxOnce(now, { batchSize: 2, maxBatches: 3 });
@@ -241,6 +248,7 @@ describe("events_outbox retention", { skip: SKIP }, () => {
         })),
       )
       .returning({ id: eventsOutbox.id });
+
     const ids = rows.map((r) => r.id);
 
     // Aborted before the first batch: nothing may be deleted at all.
@@ -257,6 +265,7 @@ describe("events_outbox retention", { skip: SKIP }, () => {
       batchSize: 2,
       signal: signalAbortingAfterReads(1),
     });
+
     assert.equal(deleted, 2, "exactly one batch may land before the abort is noticed");
     assert.equal((await survivors(ids)).size, 4);
   });

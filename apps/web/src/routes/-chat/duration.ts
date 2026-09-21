@@ -7,9 +7,11 @@
  */
 export function formatDuration(ms: number): string {
   const totalSeconds = ms / 1000;
+
   if (totalSeconds < 60)
     return `${totalSeconds < 10 ? totalSeconds.toFixed(1) : Math.round(totalSeconds)}s`;
   const m = Math.floor(totalSeconds / 60);
   const s = Math.round(totalSeconds % 60);
+
   return `${m}m ${s}s`;
 }

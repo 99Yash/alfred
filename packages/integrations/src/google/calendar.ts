@@ -45,6 +45,7 @@ const eventSchema = z.object({
 });
 
 export type CalendarEvent = z.infer<typeof eventSchema>;
+
 export type CalendarAttendee = z.infer<typeof attendeeSchema>;
 
 const listEventsResponseSchema = z.object({
@@ -98,6 +99,7 @@ export async function listEvents(
   const parsed = await getJson(listEventsResponseSchema, url.toString(), args.accessToken, retry);
   // Filter out cancelled occurrences so callers don't need to special-case them.
   const events = (parsed.items ?? []).filter((e) => e.status !== "cancelled");
+
   return { events, timeZone: parsed.timeZone };
 }
 
@@ -120,6 +122,7 @@ export interface CreateEventArgs {
 export async function createEvent(args: CreateEventArgs): Promise<CalendarEvent> {
   const calendarId = encodeURIComponent(args.calendarId ?? "primary");
   const url = new URL(`${API_BASE}/calendars/${calendarId}/events`);
+
   if (calendarCreateEventSendsInvitations(args)) {
     url.searchParams.set("sendUpdates", "all");
   }
@@ -138,6 +141,7 @@ export async function createEvent(args: CreateEventArgs): Promise<CalendarEvent>
     },
     attendees: args.attendees?.map((email) => ({ email })),
   };
+
   return postJson(eventSchema, url.toString(), args.accessToken, payload);
 }
 

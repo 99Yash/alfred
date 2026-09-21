@@ -41,6 +41,7 @@ export function createGmailTriageHandler(
   overrides: Partial<GmailTriageAdapterDeps> = {},
 ): GmailTriageHandler {
   const deps = withDefaults(DEFAULT_DEPS, overrides);
+
   return {
     async postInsert(request) {
       try {
@@ -50,6 +51,7 @@ export function createGmailTriageHandler(
           threadIds: request.reconcileThreadIds,
           protectedDocumentIds: request.protectedDocumentIds,
         });
+
         if (result.docsDeleted > 0 || result.triageRepointed > 0) {
           console.log(
             `[ingestion:worker] gmail.reconcile credential=${request.credentialId} ` +
@@ -57,6 +59,7 @@ export function createGmailTriageHandler(
               `docsDeleted=${result.docsDeleted} triageRepointed=${result.triageRepointed}`,
           );
         }
+
         await mapConcurrent(
           result.repointedThreadIds,
           RELABEL_ENQUEUE_CONCURRENCY,
@@ -79,6 +82,7 @@ export function createGmailTriageHandler(
       }
 
       let replyReevalTargets: Array<{ threadId: string; documentId: string }> = [];
+
       try {
         replyReevalTargets = (
           await deps.findNewestLiveInbound({
@@ -93,6 +97,7 @@ export function createGmailTriageHandler(
           toMessage(err),
         );
       }
+
       return { replyReevalTargets };
     },
     async relabel(request) {

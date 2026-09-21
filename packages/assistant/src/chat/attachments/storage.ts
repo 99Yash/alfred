@@ -23,8 +23,10 @@ import { s3 } from "files-sdk/s3";
 
 /** How long a minted upload/download URL stays valid. */
 const SIGNED_URL_TTL_SECONDS = 15 * 60;
+
 /** Bound object-store calls so chat sends cannot hang behind a stuck provider. */
 const STORAGE_TIMEOUT_MS = 30_000;
+
 const STORAGE_RETRIES = { max: 1 };
 
 let _files: Files | undefined;
@@ -36,6 +38,7 @@ let _files: Files | undefined;
  */
 export function isStorageConfigured(): boolean {
   const env = serverEnv();
+
   return Boolean(
     env.CHAT_S3_BUCKET &&
     env.CHAT_S3_REGION &&
@@ -60,6 +63,7 @@ type ChatStorageEnv = {
 
 function storageEnv(): ChatStorageEnv {
   const env = serverEnv();
+
   if (
     !env.CHAT_S3_BUCKET ||
     !env.CHAT_S3_REGION ||
@@ -68,6 +72,7 @@ function storageEnv(): ChatStorageEnv {
   ) {
     throw new Error("Chat file storage is not configured (CHAT_S3_* env vars missing)");
   }
+
   return {
     bucket: env.CHAT_S3_BUCKET,
     region: env.CHAT_S3_REGION,
@@ -82,6 +87,7 @@ function storageEnv(): ChatStorageEnv {
 function files(): Files {
   if (_files) return _files;
   const env = storageEnv();
+
   const adapter = s3({
     bucket: env.bucket,
     region: env.region,
@@ -98,7 +104,9 @@ function files(): Files {
     ...(env.publicBaseUrl ? { publicBaseUrl: env.publicBaseUrl } : {}),
     defaultUrlExpiresIn: SIGNED_URL_TTL_SECONDS,
   });
+
   _files = new Files({ adapter, timeout: STORAGE_TIMEOUT_MS, retries: STORAGE_RETRIES });
+
   return _files;
 }
 
@@ -106,6 +114,7 @@ function files(): Files {
 function sanitizeFileName(name: string): string {
   const base = name.split(/[/\\]/).pop() ?? "file";
   const cleaned = base.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/^\.+/, "");
+
   return cleaned.length > 0 ? cleaned.slice(0, 120) : "file";
 }
 
@@ -165,6 +174,7 @@ export async function attachmentUrl(key: string): Promise<string> {
  */
 export async function readObject(key: string): Promise<Uint8Array> {
   const file = await files().download(key);
+
   return new Uint8Array(await file.arrayBuffer());
 }
 
@@ -193,6 +203,7 @@ export async function objectExists(key: string): Promise<boolean> {
 /** Metadata for a stored object, without downloading its body. */
 export async function headObject(key: string): Promise<{ size: number; contentType: string }> {
   const file = await files().head(key);
+
   return { size: file.size, contentType: file.type };
 }
 
@@ -211,9 +222,11 @@ export async function deleteObjects(keys: readonly string[]): Promise<number> {
   if (keys.length === 0) return 0;
   const result = await files().delete([...keys]);
   const errors = result.errors ?? [];
+
   if (errors.length > 0) {
     throw new Error(`Failed to delete ${errors.length} object(s) from storage`);
   }
+
   return result.deleted.length;
 }
 
@@ -226,18 +239,23 @@ export async function deletePrefix(prefix: string): Promise<number> {
   const client = files();
   let removed = 0;
   let cursor: string | undefined;
+
   do {
     const page = await client.list({ prefix, ...(cursor ? { cursor } : {}) });
     const keys = page.items.map((f) => f.key);
+
     if (keys.length > 0) {
       const result = await client.delete(keys);
       removed += result.deleted.length;
       const errors = result.errors ?? [];
+
       if (errors.length > 0) {
         throw new Error(`Failed to delete ${errors.length} object(s) under storage prefix`);
       }
     }
+
     cursor = page.cursor;
   } while (cursor);
+
   return removed;
 }

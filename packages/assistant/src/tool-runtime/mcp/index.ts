@@ -35,15 +35,30 @@ export {
   type McpBrokerOutcome,
   type McpReservedSuccessorInput,
 } from "./broker";
+
 export {
+  mcpUnresolvedInvocationGate,
   reconcileInflightInvocations,
   resolveMcpToolIdentity,
   type McpToolIdentityResolution,
+  type McpToolIdentityUnresolvedReason,
   type OwnedMcpConnectionRef,
   type ReconcileSummary,
 } from "./invocations";
+
+export {
+  clearMcpToolPolicy,
+  readMcpToolPolicyState,
+  reviewMcpToolPolicy,
+  type McpToolPolicyClearState,
+  type McpToolPolicyReviewState,
+  type McpToolPolicyState,
+} from "./policy";
+
 export { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "./risk";
+
 export { getMcpExecutionBroker } from "./runtime";
+
 export {
   listMcpRecoveryOperations,
   resolveMcpRecoveryOperation,

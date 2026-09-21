@@ -36,3 +36,26 @@ default would turn every current send workflow into a save-only workflow. This
 amendment keeps the live send contract and adds the smaller structural
 restriction instead. A future separate create-draft tool can add draft-first
 behavior without changing an existing action's effect.
+
+## Amendment — reviewed MCP downgrades cannot lower non-read tools
+
+`railway.redeploy` no longer exists as a native tool: the Railway capability
+rides on `mcp.call` through the Railway MCP server. `mcp.call` keeps a static
+`high` floor, but its `resolveRiskTier` hook honors a reviewed
+`mcp_tool_policy` row. Before this amendment that row won outright in both
+directions (ADR-0096 sub-decision 1), so a user who reviewed the redeploy
+descriptor once as `no_risk` and then turned the global Auto toggle on got an
+unstaged production redeploy — the exact outcome this ADR's floor exists to
+close, with this ADR's central example.
+
+The floor is restored without removing the reviewed path: a reviewed row can
+always RAISE to `high`, and it can LOWER below `high` only when the persisted
+catalog records that tool's own `annotations.readOnlyHint`. The claim is
+projected at publication from the descriptor the catalog actually published
+(ADR-0096), read from durable state at the gate — never from the model or the
+call. A write tool with no read-only claim (Railway `redeploy`,
+`accept-deploy`, and any future equivalent) therefore keeps the `high` floor
+no matter what tier a review recorded. A clamped reviewed downgrade takes the
+floor and does not fall through to the structural branch. The autonomy toggle
+still cannot lower anything; a per-descriptor review still can, but only for
+reads.

@@ -12,17 +12,20 @@ import {
 } from "@alfred/assistant/knowledge";
 
 const GITHUB_SENDER = "notifications@github.com";
+
 const SNS_SENDER = "no-reply@sns.amazonaws.com";
 
 function globalKey(key: ReferentKey | null): GlobalReferentKey {
   assert.ok(key, "expected a referent key");
   assert.equal(key.scope, "global");
+
   return key;
 }
 
 function senderKey(key: ReferentKey | null): SenderScopedReferentKey {
   assert.ok(key, "expected a referent key");
   assert.equal(key.scope, "sender");
+
   return key;
 }
 
@@ -39,6 +42,7 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
         },
       }),
     );
+
     const comment = globalKey(
       referentKeyForEmail({
         subject: "Re: [99Yash/alfred] fix(onboarding): polish flow (PR #913)",
@@ -49,6 +53,7 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
         },
       }),
     );
+
     assert.equal(review.value, "github:pull_request:99yash/alfred#913");
     assert.equal(comment.value, review.value);
     assert.equal(review.evidence, "github_threading_header");
@@ -66,6 +71,7 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
         },
       }),
     );
+
     assert.equal(key.value, "github:pull_request:99yash/alfred#913");
   });
 
@@ -79,6 +85,7 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
         },
       }),
     );
+
     const lower = globalKey(
       referentKeyForEmail({
         subject: null,
@@ -88,6 +95,7 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
         },
       }),
     );
+
     assert.equal(upper.value, lower.value);
   });
 
@@ -140,6 +148,7 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
         },
       }),
     );
+
     assert.equal(key.value, "github:check_suite:99yash/alfred/CS_kwDOSNoYNM8AAAAU6cdJog");
   });
 
@@ -154,6 +163,7 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
         },
       }),
     );
+
     assert.equal(key.value, "github:pull_request:99yash/alfred#786");
   });
 
@@ -259,6 +269,7 @@ describe("referentKeyForEmail — the observation payload seam", () => {
 
   test("the payload's headers pass whole and resolve the referent", () => {
     const payload = gmailPayload("<99Yash/alfred/pull/913@github.com>", "1993f0a1b2c3d4e5");
+
     const key = globalKey(
       referentKeyForEmail({
         subject: payload.subject,
@@ -266,6 +277,7 @@ describe("referentKeyForEmail — the observation payload seam", () => {
         headers: payload.headers,
       }),
     );
+
     assert.equal(key.value, "github:pull_request:99yash/alfred#913");
   });
 
@@ -293,6 +305,7 @@ describe("referentKeyForEmail — subject grammar fallback", () => {
         sender: GITHUB_SENDER,
       }),
     );
+
     assert.equal(fromSubject.value, "github:pull_request:99yash/alfred#913");
     assert.equal(fromSubject.evidence, "loop_key_entity");
   });
@@ -304,6 +317,7 @@ describe("referentKeyForEmail — subject grammar fallback", () => {
         sender: "notifications@linear.app",
       }),
     );
+
     assert.equal(key.value, "linear:issue:eng-123");
   });
 
@@ -314,12 +328,14 @@ describe("referentKeyForEmail — subject grammar fallback", () => {
         sender: SNS_SENDER,
       }),
     );
+
     const second = senderKey(
       referentKeyForEmail({
         subject: 'ALARM: "baserow-response-time" in US East (N. Virginia)',
         sender: SNS_SENDER,
       }),
     );
+
     assert.equal(first.name, "baserow-response-time");
     assert.equal(second.name, first.name);
   });
@@ -335,6 +351,7 @@ describe("referentKeyForEmail — subject grammar fallback", () => {
         sender: "noreply@github.com",
       }),
     );
+
     assert.equal(key.name, "[github] sudo email verification code");
   });
 
@@ -379,6 +396,7 @@ describe("referent identity values", () => {
         },
       }),
     );
+
     const identity = globalReferentIdentity(key);
     assert.equal(identity.kind, REFERENT_IDENTITY_KIND);
     assert.ok(identityValueMatchesKind(identity.kind, identity.value));
@@ -391,6 +409,7 @@ describe("referent identity values", () => {
         sender: SNS_SENDER,
       }),
     );
+
     const fromSns = senderScopedReferentIdentity(key, "ent_aaaaaaaa");
     const fromHuman = senderScopedReferentIdentity(key, "ent_bbbbbbbb");
     assert.equal(fromSns.value, "alfred:referent:ent_aaaaaaaa/baserow-response-time");
@@ -408,6 +427,7 @@ describe("referent identity values", () => {
         sender: SNS_SENDER,
       }),
     );
+
     assert.ok(
       identityValueMatchesKind(REFERENT_IDENTITY_KIND, `alfred:referent:${"x".repeat(4000)}/a`),
     );
@@ -424,6 +444,7 @@ describe("referent identity values", () => {
         sender: SNS_SENDER,
       }),
     );
+
     assert.throws(() => senderScopedReferentIdentity(key, "  "), /sender node id/);
   });
 });

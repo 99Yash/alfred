@@ -85,11 +85,15 @@ export function parseEventFrame<K extends EventKind>(
 ): Extract<EventStreamFrame, { kind: K }> | null {
   if (!isNonEmptyString(msg.data) || !isNonEmptyString(msg.lastEventId)) return null;
   const parsed = safeJsonParse(msg.data);
+
   if (!isRecord(parsed)) return null;
   const payload = eventPayloadSchemas[kind].safeParse(parsed.payload);
+
   if (!payload.success) return null;
   const id = eventFrameSchema.shape.id.safeParse(Number(msg.lastEventId));
+
   if (!id.success) return null;
+
   // Two checks on the literal below, and they cover different things — do not
   // read either as covering the other:
   //

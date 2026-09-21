@@ -12,6 +12,7 @@ function statuses(
 }
 
 const connected = statuses(["gmail", "connected"]);
+
 const disconnected = statuses(["gmail", "available"]);
 
 describe("classifyMentionValue", () => {

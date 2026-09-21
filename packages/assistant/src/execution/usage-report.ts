@@ -57,6 +57,7 @@ const KNOWN_SLUGS = Object.keys(SLUG_CATEGORY);
 /** Coerce a Postgres aggregate (string | number | null) to a finite number. */
 function num(value: unknown): number {
   const n = Number(value);
+
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -68,12 +69,14 @@ function num(value: unknown): number {
 function toIso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   const d = new Date(String(value));
+
   return Number.isNaN(d.getTime()) ? new Date(0).toISOString() : d.toISOString();
 }
 
 /** A run's category: mapped slug, user-workflow, or uncategorized (no run row). */
 function categoryOf(workflowSlug: string | null): UsageRunCategory {
   if (workflowSlug === null) return "uncategorized";
+
   return Object.entries(SLUG_CATEGORY).find(([slug]) => slug === workflowSlug)?.[1] ?? "workflow";
 }
 
@@ -88,10 +91,14 @@ function labelOf(category: UsageRunCategory, workflowSlug: string | null, state:
       return "Chat turn";
     case "briefing": {
       const slot = getPath(state, "slot") ?? getPath(state, "input", "slot");
+
       if (slot === "evening") return "Evening briefing";
+
       if (slot === "morning") return "Morning briefing";
+
       return "Daily briefing";
     }
+
     case "triage":
       return "Email triage";
     case "reply_drafting":
@@ -124,6 +131,7 @@ function categoryPredicate(category: UsageRunCategory): SQL {
       const slugs = Object.entries(SLUG_CATEGORY)
         .filter(([, c]) => c === category)
         .map(([slug]) => slug);
+
       return inArray(agentRuns.workflowSlug, slugs);
     }
   }
@@ -152,7 +160,9 @@ export async function getUsageSummary(
         lt(apiCallLog.createdAt, end),
       ),
     );
+
   const r = rows[0];
+
   return {
     costUsd: num(r?.cost),
     inputTokens: num(r?.input),
@@ -198,8 +208,10 @@ export async function getUsageBreakdown(
     .groupBy(agentRuns.workflowSlug);
 
   const byCategory = new Map<UsageRunCategory, UsageCategoryBreakdown>();
+
   for (const row of slugRows) {
     const category = categoryOf(row.workflowSlug ?? null);
+
     const acc = byCategory.get(category) ?? {
       category,
       costUsd: 0,
@@ -207,12 +219,14 @@ export async function getUsageBreakdown(
       runs: 0,
       calls: 0,
     };
+
     acc.costUsd += num(row.cost);
     acc.tokens += num(row.tokens);
     acc.runs += num(row.runs);
     acc.calls += num(row.calls);
     byCategory.set(category, acc);
   }
+
   const categories: UsageCategoryBreakdown[] = [...byCategory.values()].sort(
     (a, b) => b.costUsd - a.costUsd,
   );
@@ -246,11 +260,14 @@ export async function getUsageActivity(
     // Activity rows are runs; ad-hoc no-run calls have nothing to group on.
     isNotNull(apiCallLog.runId),
   ];
+
   if (q.categories && q.categories.length > 0) {
     const preds = q.categories.map(categoryPredicate);
     const combined = preds.length === 1 ? preds[0] : or(...preds);
+
     if (combined) filters.push(combined);
   }
+
   const where = and(...filters);
 
   const countRows = await db()
@@ -258,6 +275,7 @@ export async function getUsageActivity(
     .from(apiCallLog)
     .leftJoin(agentRuns, eq(agentRuns.id, apiCallLog.runId))
     .where(where);
+
   const total = num(countRows[0]?.n);
 
   const createdExpr = sql<string>`min(${apiCallLog.createdAt})`;
@@ -266,6 +284,7 @@ export async function getUsageActivity(
   // caller's string with sql.raw — keeps this exported function injection-safe
   // even if a future caller passes an unsanitized `sortDir`.
   const dir = q.sortDir === "asc" ? sql`asc` : sql`desc`;
+
   const orderExpr =
     q.sortField === "costUsd" ? sql`${costExpr} ${dir}` : sql`${createdExpr} ${dir}`;
 
@@ -298,6 +317,7 @@ export async function getUsageActivity(
   const runs: UsageActivityRun[] = runRows.map((row) => {
     const workflowSlug = row.workflowSlug ?? null;
     const category = categoryOf(workflowSlug);
+
     return {
       runId: row.runId ?? "",
       createdAt: toIso(row.createdAt),
@@ -324,7 +344,9 @@ async function modelsForRuns(
   end: Date,
 ): Promise<Map<string, UsageModelBreakdown[]>> {
   const byRun = new Map<string, UsageModelBreakdown[]>();
+
   if (runIds.length === 0) return byRun;
+
   const rows = await db()
     .select({
       runId: apiCallLog.runId,
@@ -345,12 +367,15 @@ async function modelsForRuns(
       ),
     )
     .groupBy(apiCallLog.runId, apiCallLog.model);
+
   for (const row of rows) {
     if (row.runId === null) continue;
     const list = byRun.get(row.runId) ?? [];
     list.push({ model: row.model, calls: num(row.calls) });
     byRun.set(row.runId, list);
   }
+
   for (const list of byRun.values()) list.sort((a, b) => b.calls - a.calls);
+
   return byRun;
 }

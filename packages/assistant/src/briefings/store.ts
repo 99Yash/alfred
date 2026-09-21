@@ -1,4 +1,10 @@
-import type { BriefingGather, BriefingSlot, FullBriefing, IanaTimezone } from "@alfred/contracts";
+import type {
+  BriefingClosedLoop,
+  BriefingGather,
+  BriefingSlot,
+  FullBriefing,
+  IanaTimezone,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, type Briefing, type NewBriefing } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
@@ -40,9 +46,11 @@ export async function beginBriefing(args: {
     .returning();
 
   const insertedRow = inserted[0];
+
   if (insertedRow) return { action: "created", row: rowToBriefing(insertedRow) };
 
   const existing = await getBriefingByUserDateSlot(args.userId, args.briefingDate, args.slot);
+
   if (!existing) {
     throw new Error(
       `[briefing.store] conflict path found no row user=${args.userId} date=${args.briefingDate} slot=${args.slot}`,
@@ -52,12 +60,14 @@ export async function beginBriefing(args: {
   if (existing.status === "sent" || existing.status === "suppressed") {
     return { action: "skip_terminal", row: existing };
   }
+
   if (existing.status === "failed") {
     const retry = await updateBriefing(existing.id, {
       status: "pending",
       timezone: args.timezone,
       watermarkAt: null,
       gather: null,
+      closedLoops: [],
       breakingSummary: null,
       fullBriefing: null,
       model: null,
@@ -67,6 +77,7 @@ export async function beginBriefing(args: {
       emailSendId: null,
       agentRunId: args.agentRunId,
     });
+
     return { action: "retry", row: retry };
   }
 
@@ -76,10 +87,12 @@ export async function beginBriefing(args: {
 export async function markBriefingGathering(args: {
   briefingId: string;
   gather: BriefingGather;
+  closedLoops: BriefingClosedLoop[];
 }): Promise<BriefingRow> {
   return updateBriefing(args.briefingId, {
     status: "gathering",
     gather: args.gather,
+    closedLoops: args.closedLoops,
   });
 }
 
@@ -122,13 +135,54 @@ export async function markBriefingSent(args: {
   emailSendId: string | null;
   watermarkAt: Date;
   gateReason?: string | null;
+  /**
+   * Pre-send guard correction: the delivered email carries less than the
+   * composed row (a send-time downgrade dropped sentences), so patch the
+   * persisted prose and citations to match what actually went out. Sections
+   * and source panels the row already holds are preserved — only the
+   * headline, the markdown body, and the continuity ids move. Without this
+   * the next slot would treat a dropped item as delivered and suppress it.
+   */
+  downgraded?: {
+    breakingSummary: string;
+    headline: string;
+    surfacedDocumentIds: string[];
+  };
 }): Promise<BriefingRow> {
+  if (!args.downgraded) {
+    return updateBriefing(args.briefingId, {
+      status: "sent",
+      watermarkAt: args.watermarkAt,
+      sendDecision: "sent",
+      gateReason: args.gateReason ?? null,
+      emailSendId: args.emailSendId,
+    });
+  }
+
+  const current = await db()
+    .select({ breakingSummary: briefings.breakingSummary, fullBriefing: briefings.fullBriefing })
+    .from(briefings)
+    .where(eq(briefings.id, args.briefingId))
+    .limit(1);
+
+  const existing = current[0]?.fullBriefing;
+
+  const fullBriefing: FullBriefing = {
+    headline: args.downgraded.headline,
+    sections: existing?.sections ?? [],
+    ...(existing?.sourcePanels ? { sourcePanels: existing.sourcePanels } : {}),
+    ...(existing?.auditSummary ? { auditSummary: existing.auditSummary } : {}),
+    surfacedDocumentIds: args.downgraded.surfacedDocumentIds,
+  };
+
   return updateBriefing(args.briefingId, {
     status: "sent",
     watermarkAt: args.watermarkAt,
     sendDecision: "sent",
     gateReason: args.gateReason ?? null,
     emailSendId: args.emailSendId,
+    breakingSummary: args.downgraded.breakingSummary,
+    fullBriefing,
   });
 }
 
@@ -168,7 +222,9 @@ async function getBriefingByUserDateSlot(
       ),
     )
     .limit(1);
+
   const row = rows[0];
+
   return row ? rowToBriefing(row) : null;
 }
 
@@ -181,8 +237,11 @@ async function updateBriefing(briefingId: string, set: Partial<NewBriefing>): Pr
     })
     .where(eq(briefings.id, briefingId))
     .returning();
+
   const row = rows[0];
+
   if (!row) throw new Error(`[briefing.store] update returned no row id=${briefingId}`);
+
   return rowToBriefing(row);
 }
 
@@ -196,6 +255,7 @@ function rowToBriefing(row: Briefing): BriefingRow {
     status: row.status,
     watermarkAt: row.watermarkAt,
     gather: row.gather ?? null,
+    closedLoops: row.closedLoops,
     breakingSummary: row.breakingSummary,
     fullBriefing: row.fullBriefing ?? null,
     model: row.model,

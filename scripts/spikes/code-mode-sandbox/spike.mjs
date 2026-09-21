@@ -22,11 +22,13 @@
 import { Sandbox } from "@vercel/sandbox";
 
 const RUNTIME = "node22"; // match Alfred's Node baseline
+
 const OUTPUT_READ_CAP_BYTES = 64 * 1024; // parent-side bound on what we read back
 
 /** @typedef {{ name: string; pass: boolean; detail: string; ms?: number }} ProbeResult */
 /** @type {ProbeResult[]} */
 const results = [];
+
 /** @type {Record<string, unknown>} */
 const measured = {};
 
@@ -40,6 +42,7 @@ function requireEnv() {
   const missing = ["VERCEL_TOKEN", "VERCEL_TEAM_ID", "VERCEL_PROJECT_ID"].filter(
     (k) => !process.env[k],
   );
+
   if (missing.length) {
     console.error(
       `Missing required env: ${missing.join(", ")}.\n` +
@@ -53,9 +56,11 @@ function requireEnv() {
 async function boundedStdout(cmd) {
   const full = await cmd.stdout();
   const bytes = Buffer.byteLength(full, "utf8");
+
   if (bytes > OUTPUT_READ_CAP_BYTES) {
     return { text: full.slice(0, OUTPUT_READ_CAP_BYTES), bytes, capped: true };
   }
+
   return { text: full, bytes, capped: false };
 }
 
@@ -73,6 +78,7 @@ function withParentTimeout(promise, ms, label) {
 async function probeBaselineCompute() {
   const t0 = Date.now();
   let sandbox;
+
   try {
     sandbox = await Sandbox.create({
       runtime: RUNTIME,
@@ -91,6 +97,7 @@ async function probeBaselineCompute() {
       author: `user${i % 17}`,
       bytes: i * 7,
     }));
+
     const runner = [
       "import { readFileSync, writeFileSync } from 'node:fs';",
       "const rows = JSON.parse(readFileSync('handle.json','utf8'));",
@@ -113,6 +120,7 @@ async function probeBaselineCompute() {
       45_000,
       "baseline",
     );
+
     const out = await boundedStdout(cmd);
     const parsed = JSON.parse(out.text);
     const ok = cmd.exitCode === 0 && parsed.totalRows === 2000 && parsed.openCount > 0;
@@ -135,12 +143,14 @@ async function probeBaselineCompute() {
 async function probeEgressDenied() {
   const t0 = Date.now();
   let sandbox;
+
   try {
     sandbox = await Sandbox.create({
       runtime: RUNTIME,
       timeout: 60_000,
       networkPolicy: "deny-all",
     });
+
     const probe = [
       "let dns=false, http=false;",
       "try { await (await import('node:dns/promises')).resolve('example.com'); dns=true; } catch {}",
@@ -148,12 +158,15 @@ async function probeEgressDenied() {
       "  await fetch('https://example.com',{signal:c.signal}); clearTimeout(t); http=true; } catch {}",
       "console.log(JSON.stringify({ dns, http }));",
     ].join("\n");
+
     await sandbox.writeFiles([{ path: "probe.mjs", content: Buffer.from(probe) }]);
+
     const cmd = await withParentTimeout(
       sandbox.runCommand({ cmd: "node", args: ["probe.mjs"] }),
       30_000,
       "egress",
     );
+
     const out = await boundedStdout(cmd);
     const { dns, http } = JSON.parse(out.text);
     const ok = dns === false && http === false;
@@ -174,6 +187,7 @@ async function probeEgressDenied() {
 async function probeInfiniteLoop() {
   const t0 = Date.now();
   let sandbox;
+
   try {
     sandbox = await Sandbox.create({
       runtime: RUNTIME,
@@ -182,6 +196,7 @@ async function probeInfiniteLoop() {
     });
     await sandbox.writeFiles([{ path: "spin.mjs", content: Buffer.from("while(true){}") }]);
     let terminated = false;
+
     try {
       // Parent guard is generous vs the 15s session cap; if the session cap
       // works, runCommand settles/rejects well before the parent guard fires.
@@ -190,11 +205,13 @@ async function probeInfiniteLoop() {
         40_000,
         "infinite-loop",
       );
+
       terminated = cmd.exitCode !== 0; // killed → nonzero/again signal
     } catch (err) {
       // Session-timeout surfacing as a rejection is also a valid "terminated".
       terminated = !String(err).startsWith("Error: parent-timeout");
     }
+
     record(
       "infinite-loop-terminates",
       terminated,
@@ -214,24 +231,29 @@ async function probeInfiniteLoop() {
 async function probeMemoryPressure() {
   const t0 = Date.now();
   let sandbox;
+
   try {
     sandbox = await Sandbox.create({
       runtime: RUNTIME,
       timeout: 60_000,
       networkPolicy: "deny-all",
     });
+
     // Grow an array until V8/OOM kills the process inside the VM.
     const hog = [
       "const chunks=[];",
       "try { while(true){ chunks.push(new Array(1e7).fill(7)); } }",
       "catch(e){ console.log('caught:'+e.name); }",
     ].join("\n");
+
     await sandbox.writeFiles([{ path: "hog.mjs", content: Buffer.from(hog) }]);
+
     const cmd = await withParentTimeout(
       sandbox.runCommand({ cmd: "node", args: ["--max-old-space-size=256", "hog.mjs"] }),
       45_000,
       "memory",
     );
+
     // Whether it exits nonzero (OOM-killed) or catches RangeError, the point is
     // the parent got control back cleanly.
     record(
@@ -258,22 +280,27 @@ async function probeMemoryPressure() {
 async function probeOutputFlood() {
   const t0 = Date.now();
   let sandbox;
+
   try {
     sandbox = await Sandbox.create({
       runtime: RUNTIME,
       timeout: 60_000,
       networkPolicy: "deny-all",
     });
+
     const flood = [
       "const line='x'.repeat(1024);",
       "for(let i=0;i<50000;i++) console.log(line);", // ~50 MB
     ].join("\n");
+
     await sandbox.writeFiles([{ path: "flood.mjs", content: Buffer.from(flood) }]);
+
     const cmd = await withParentTimeout(
       sandbox.runCommand({ cmd: "node", args: ["flood.mjs"] }),
       45_000,
       "flood",
     );
+
     const out = await boundedStdout(cmd);
     record(
       "output-flood-bounded",
@@ -293,6 +320,7 @@ async function probeOutputFlood() {
 async function probeCrash() {
   const t0 = Date.now();
   let sandbox;
+
   try {
     sandbox = await Sandbox.create({
       runtime: RUNTIME,
@@ -302,11 +330,13 @@ async function probeCrash() {
     await sandbox.writeFiles([
       { path: "boom.mjs", content: Buffer.from("throw new Error('boom')") },
     ]);
+
     const cmd = await withParentTimeout(
       sandbox.runCommand({ cmd: "node", args: ["boom.mjs"] }),
       30_000,
       "crash",
     );
+
     const stderr = await cmd.stderr();
     record(
       "crash-clean-exit",
@@ -338,6 +368,7 @@ async function main() {
   const failed = results.filter((r) => !r.pass);
   console.log(`\n=== Verdict: ${failed.length === 0 ? "GO" : "REVIEW"} ===`);
   console.log(`${results.length - failed.length}/${results.length} probes passed.`);
+
   if (failed.length) {
     console.log("Failing probes:", failed.map((r) => r.name).join(", "));
     process.exit(1);

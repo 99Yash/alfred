@@ -6,13 +6,15 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray } from "drizzle-orm";
 
-import { selectBriefingFanoutUsers } from "../../src/briefings/queue";
+import { selectEmailableUsers } from "../../src/delivery/emailable-users";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * The hourly briefing tick is the one place that turns a bare `user` row into
- * paid LLM work and an outbound email, so its fan-out scope is a spend and
- * deliverability boundary, not a convenience filter.
+ * A recurring fan-out is where a bare `user` row turns into paid LLM work and an
+ * outbound email, so its scope is a spend and deliverability boundary, not a
+ * convenience filter. The hourly briefing tick was the first such fan-out; the
+ * inbound delivery-alert sweep (ADR-0100) is the second, and both read the one
+ * predicate this file drives.
  *
  * Regression cover for a live incident: a DB-backed suite seeded `user` rows and
  * never deleted them, the tick selected every row unconditionally, and 83
@@ -22,7 +24,9 @@ import { dbBackedSkip } from "../support/db-backed";
  */
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-fanout-scope-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(emailVerified: boolean): Promise<string> {
@@ -36,6 +40,7 @@ async function seedUser(emailVerified: boolean): Promise<string> {
       email: `${userId}@example.test`,
       emailVerified,
     });
+
   return userId;
 }
 
@@ -58,7 +63,7 @@ describe("briefing fan-out scope (DB-backed)", { skip: SKIP }, () => {
     const verifiedId = await seedUser(true);
     const unverifiedId = await seedUser(false);
 
-    const selected = await selectBriefingFanoutUsers();
+    const selected = await selectEmailableUsers();
     const ids = new Set(selected.map((row) => row.id));
 
     assert.ok(
@@ -78,7 +83,7 @@ describe("briefing fan-out scope (DB-backed)", { skip: SKIP }, () => {
     await seedUser(true);
     await seedUser(false);
 
-    const selected = await selectBriefingFanoutUsers();
+    const selected = await selectEmailableUsers();
     assert.ok(
       selected.length > 0,
       "expected the fan-out to select at least the seeded verified user",
@@ -93,6 +98,7 @@ describe("briefing fan-out scope (DB-backed)", { skip: SKIP }, () => {
           selected.map((row) => row.id),
         ),
       );
+
     const unverified = rows.filter((row) => !row.emailVerified).map((row) => row.id);
 
     assert.deepEqual(

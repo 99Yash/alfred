@@ -19,6 +19,7 @@ export interface SkillsState {
 
 export function useSkills(): SkillsState {
   const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
+
   const [snapshot, setSnapshot] = useState<{
     rep: Replicache<ClientMutators>;
     skills: SyncedSkill[];
@@ -26,6 +27,7 @@ export function useSkills(): SkillsState {
 
   useEffect(() => {
     if (!rep) return;
+
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.skill.scan(tx),
       (skills) => {
@@ -39,6 +41,7 @@ export function useSkills(): SkillsState {
 
   const skills = snapshot?.rep === rep ? snapshot.skills : null;
   const error = loadError ?? pullError;
+
   return {
     skills: skills ?? [],
     loading: !error && (skills === null || (skills.length === 0 && initialPullPending)),
@@ -72,6 +75,7 @@ export function useSkillDetail(slug: string): SkillDetailState {
 
   useEffect(() => {
     if (!rep) return;
+
     return rep.subscribe(
       async (tx: ReadTransaction) =>
         Promise.all([
@@ -97,6 +101,7 @@ export function useSkillDetail(slug: string): SkillDetailState {
 
   const current = snapshot?.rep === rep && snapshot.slug === slug ? snapshot : null;
   const error = loadError ?? pullError;
+
   return {
     skill: current?.skill ?? null,
     revision: current?.revision ?? null,

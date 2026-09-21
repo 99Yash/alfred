@@ -6,6 +6,9 @@ import {
 } from "@alfred/ai";
 import {
   compactionThresholdTokens,
+  getStringPath,
+  isInboundEventSource,
+  jsonObjectSchema,
   parseIanaTimezone,
   parseIntegrationMentions,
   isIntegrationSlug,
@@ -14,6 +17,9 @@ import {
   workflowRevisionDefinitionSchema,
   workflowRequiredCapabilitySchema,
   type AgentTranscriptMessage,
+  type InboundEventSource,
+  type JsonObject,
+  type JsonValue,
   type ToolRunContext,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -38,11 +44,11 @@ import {
 } from "./tool-card-events";
 import { toolEventOutcome } from "./tool-event-outcome";
 import { writeScratch } from "../scratchpad/index";
-import { readIntegrationAvailability } from "@alfred/assistant/connections";
+import { readIntegrationAvailability, readReceiptDocument } from "@alfred/assistant/connections";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding } from "../grounding";
 import { composeAgentInstructions } from "@alfred/ai/voice";
-import { resolveTimezone } from "@alfred/assistant/settings";
+import { resolveTimezone, selfIdentityGrounding } from "@alfred/assistant/settings";
 import {
   foldToolSurfaceState,
   systemToolKernel,
@@ -54,7 +60,8 @@ import {
   subAgentMetadataSchema,
   SUB_AGENT_WORKFLOW_SLUG,
 } from "../sub-agent-metadata";
-import { isTerminalStatus, type Step, type Workflow } from "../types";
+import { isTerminalStatus } from "@alfred/contracts";
+import type { Step, Workflow, WorkflowInput } from "../registry";
 import { getRun } from "../service";
 import { pendingToolCallSchema } from "./pending-tool-call";
 import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";
@@ -96,6 +103,9 @@ const briefRunStateSchema = z
     // ADR-0053 connected summary, snapshotted once at run start (first boss turn)
     // and reused every turn so the system-prompt prefix stays cache-stable.
     connectedSummary: z.string().optional(),
+    // Deployment identity block (`selfIdentityGrounding`), snapshotted with the
+    // connected summary so the prompt prefix stays stable across a redeploy.
+    selfIdentity: z.string().optional(),
     // User's IANA timezone, snapshotted once per run so tool-dispatch windows
     // match the date grounding shown to the boss. Stored as a plain string and
     // re-parsed into a zone at each read (`parseIanaTimezone`).
@@ -122,11 +132,15 @@ const briefRunStateSchema = z
     readinessDeferrals: z.number().int().min(0).default(0),
   })
   .transform((state) => foldToolSurfaceState(state));
+
 type BriefRunState = z.infer<typeof briefRunStateSchema>;
 
 const COMPACT_TRANSCRIPT_STEP_ID = "compact-transcript";
+
 const CHECK_READINESS_STEP_ID = "check-readiness";
+
 const READINESS_RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const;
+
 /**
  * Skip the compactor call when the prior transcript is below this byte
  * size — the boss has barely begun and the round-trip would cost more
@@ -135,6 +149,7 @@ const READINESS_RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const;
  * skip decision today.
  */
 const COMPACTION_MIN_PRIOR_CHARS = 20_000;
+
 const TRIGGER_EVENT_EXCERPT_CHARS = 4_000;
 
 // Structured after the Anthropic prompt template: role first, operating rules
@@ -167,11 +182,15 @@ const BOSS_SYSTEM_PROMPT_BASE = [
   "End the run with one user-facing summary message and no tool calls.",
 ].join("\n\n");
 
-function buildBossSystemPrompt(grounding: string, connectedSummary: string): string {
+function buildBossSystemPrompt(
+  grounding: string,
+  connectedSummary: string,
+  selfIdentity: string,
+): string {
   return composeAgentInstructions({
     purpose: "assistant_response",
     role: BOSS_SYSTEM_PROMPT_BASE,
-    grounding: [`The current date is ${grounding}.`, connectedSummary],
+    grounding: [`The current date is ${grounding}.`, selfIdentity, connectedSummary],
   });
 }
 
@@ -199,12 +218,13 @@ function buildSubAgentSystemPromptBase(subId: string): string {
 export function buildSubAgentSystemPrompt(
   grounding: string,
   connectedSummary: string,
+  selfIdentity: string,
   subId: string,
 ): string {
   return composeAgentInstructions({
     purpose: "source_faithful",
     role: buildSubAgentSystemPromptBase(subId),
-    grounding: [`The current date is ${grounding}.`, connectedSummary],
+    grounding: [`The current date is ${grounding}.`, selfIdentity, connectedSummary],
   });
 }
 
@@ -227,11 +247,14 @@ const bossTurnStep: Step<BriefRunState> = {
       ...ctx.state,
       turnCount: ctx.state.turnCount + 1,
     };
+
     const transcript = [...ctx.transcript];
     const subAgent = state.subAgent;
+
     if (state.timezone === undefined) {
       state.timezone = await resolveTimezone(ctx.userId);
     }
+
     // Persisted state carries the zone as a plain string; re-establish the type.
     const grounding = formatDateGrounding(parseIanaTimezone(state.timezone));
     // This is a background interaction. Even a chat-spawned child only reports
@@ -239,6 +262,7 @@ const bossTurnStep: Step<BriefRunState> = {
     // to read or change that conversation.
     const toolRunContext = briefToolRunIdentity(subAgent).runContext;
     const availability = await readIntegrationAvailability(ctx.userId);
+
     const tools = toolRuntimeForRun({
       userId: ctx.userId,
       runId: ctx.runId,
@@ -248,6 +272,7 @@ const bossTurnStep: Step<BriefRunState> = {
       allowedIntegrations: state.allowedIntegrations,
       availability,
     });
+
     if (state.connectedSummary === undefined) {
       state.connectedSummary = buildConnectedSummaryFromAvailability(
         availability,
@@ -255,12 +280,23 @@ const bossTurnStep: Step<BriefRunState> = {
         tools.context,
       );
     }
+
+    if (state.selfIdentity === undefined) {
+      state.selfIdentity = selfIdentityGrounding();
+    }
+
     await tools.preload(state, transcript);
+
     const agent = new AlfredAgent({
       id: subAgent ? subAgent.subId : "boss",
       system: subAgent
-        ? buildSubAgentSystemPrompt(grounding, state.connectedSummary, subAgent.subId)
-        : buildBossSystemPrompt(grounding, state.connectedSummary),
+        ? buildSubAgentSystemPrompt(
+            grounding,
+            state.connectedSummary,
+            state.selfIdentity,
+            subAgent.subId,
+          )
+        : buildBossSystemPrompt(grounding, state.connectedSummary, state.selfIdentity),
       tools: () => tools.forModel(state.activeTools),
       model: subAgent ? route("subAgent").model() : route("boss").model(),
       attribution: {
@@ -274,6 +310,7 @@ const bossTurnStep: Step<BriefRunState> = {
     // the failure site below cannot reach for `nextTranscript` (whose empty
     // assistant message Anthropic 400s on) — it has no transcript to pass.
     const retries = openBriefTurnRetries(transcript);
+
     const result = await agent.turn({
       ctx,
       // SAFETY: AgentTranscriptMessage is the persisted superset view of the
@@ -295,6 +332,7 @@ const bossTurnStep: Step<BriefRunState> = {
     const stepCallIds = new Set(
       result.kind === "tool-calls" ? result.toolCalls.map((call) => call.toolCallId) : [],
     );
+
     const nextTranscript = appendModelResponseMessages(
       transcript,
       // SAFETY: response.messages is the SDK's transcript output; the agent
@@ -302,6 +340,7 @@ const bossTurnStep: Step<BriefRunState> = {
       result.raw.responseMessages as AgentTranscriptMessage[],
       stepCallIds,
     );
+
     state.inFlightTailStart = transcript.length;
     state.lastInputTokens = result.usage.inputTokens ?? 0;
 
@@ -312,13 +351,16 @@ const bossTurnStep: Step<BriefRunState> = {
       // SDK call succeeded with an empty stream), so degrade here: regenerate up to
       // a bounded budget, then fail the run loudly.
       const retry = retries.afterEmptyCompletion(state);
+
       if (retry) {
         console.warn(
           `[boss-turn] empty completion (finishReason:${result.finishReason}); retry ` +
             `${retry.attempt}/${retry.max} (run ${ctx.runId})`,
         );
+
         return retry.step;
       }
+
       throw new Error("boss_turn_empty_completion");
     }
 
@@ -330,6 +372,7 @@ const bossTurnStep: Step<BriefRunState> = {
             text: result.text,
           })
         : { text: result.text };
+
       return {
         kind: "done",
         state: { ...state, emptyRetries: 0 },
@@ -347,6 +390,7 @@ const bossTurnStep: Step<BriefRunState> = {
         toolName: call.toolName,
         input: call.input,
       }));
+
       return {
         kind: "next",
         state,
@@ -382,6 +426,7 @@ const bossTurnStep: Step<BriefRunState> = {
  */
 export async function parentRunStillOpen(parentRunId: string, userId: string): Promise<boolean> {
   const status = (await getRun(parentRunId, userId))?.status;
+
   return status !== undefined && !isTerminalStatus(status);
 }
 
@@ -393,6 +438,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
       pendingToolCalls: [...ctx.state.pendingToolCalls],
       activeTools: [...ctx.state.activeTools],
     };
+
     let transcript = [...ctx.transcript];
 
     const runIdentity = briefToolRunIdentity(state.subAgent);
@@ -441,10 +487,13 @@ const dispatchToolsStep: Step<BriefRunState> = {
         }
       },
     });
+
     state.activeTools = round.activeNames;
+
     if (round.kind === "waiting") {
       return { kind: "interrupt", state, transcript, wake: round.wake };
     }
+
     for (const completion of round.calls) {
       if (!chatTarget) continue;
       // Terminal card for the nested trail. `nonExecution` rides along so the
@@ -460,6 +509,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
         }),
       });
     }
+
     transcript = round.transcript;
     state.pendingToolCalls = [];
 
@@ -476,6 +526,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
     // would otherwise sneak the estimate under the threshold.
     const isSubAgent = state.subAgent !== null;
     const threshold = await resolvePressureThresholdTokens(isSubAgent);
+
     const estimated = estimateNextTurnInputTokens({
       priorInputTokens: state.lastInputTokens,
       inFlightTail: transcript.slice(state.inFlightTailStart),
@@ -536,10 +587,12 @@ const compactTranscriptStep: Step<BriefRunState> = {
     // compactor so Guard 3 can fail loud if the tail cannot fit.
     const priorChars = JSON.stringify(prior).length;
     const pressureThreshold = await resolvePressureThresholdTokens(false);
+
     const nextTurnInputTokens = estimateNextTurnInputTokens({
       priorInputTokens: state.lastInputTokens,
       inFlightTail,
     });
+
     if (
       shouldSkipCompaction({
         priorChars,
@@ -576,6 +629,7 @@ const compactTranscriptStep: Step<BriefRunState> = {
     // threshold. There is no further reduction we can make — fail loud
     // rather than risk hallucination from overflow.
     const postTokens = estimateTranscriptTokens(result.transcript);
+
     if (postTokens > pressureThreshold) {
       throw new Error("context_overflow_post_compaction");
     }
@@ -584,6 +638,7 @@ const compactTranscriptStep: Step<BriefRunState> = {
     // from scratch; the `<run_summary>` system note plus tail is the new
     // baseline.
     const nextState: BriefRunState = { ...state, inFlightTailStart: 0 };
+
     return {
       kind: "next",
       state: nextState,
@@ -595,9 +650,11 @@ const compactTranscriptStep: Step<BriefRunState> = {
 
 async function resolvePressureThresholdTokens(isSubAgent: boolean): Promise<number> {
   const agentModel = isSubAgent ? route("subAgent").model() : route("boss").model();
+
   const effectiveWindow = await resolveEffectiveInputWindowTokens({
     models: isSubAgent ? [agentModel] : [agentModel, route("compactor").model()],
   });
+
   return compactionThresholdTokens(effectiveWindow);
 }
 
@@ -613,17 +670,21 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
     const allowedIntegrations = authoredMetadata.allowedIntegrations ?? [];
     const allowedTools = authoredMetadata.allowedTools;
     const requiredCapabilities = authoredMetadata.requiredCapabilities;
+
     const eventSeed =
       input.trigger.kind === "event" &&
       input.trigger.source &&
       isIntegrationSlug(input.trigger.source)
         ? [input.trigger.source]
         : [];
+
     const seededIntegrations = uniqueIntegrations([
       ...parseIntegrationMentions(input.brief, allowedIntegrations),
       ...eventSeed.filter((slug) => integrationAllowed(slug, allowedIntegrations)),
     ]);
+
     const preloadedTools = allowedTools ?? toolNamesForIntegrations(seededIntegrations);
+
     return {
       activeTools: allowedTools ?? [...systemToolKernel(), ...preloadedTools],
       preloadedTools,
@@ -644,7 +705,9 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
     if (!input.brief) throw new Error("user-authored brief workflow requires a brief");
     const transcript: AgentTranscriptMessage[] = [{ role: "user", content: input.brief }];
     const triggerEvent = await buildTriggerEventMessage(input);
+
     if (triggerEvent) transcript.push(triggerEvent);
+
     return transcript;
   },
   steps: {
@@ -652,6 +715,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       id: CHECK_READINESS_STEP_ID,
       async run(ctx) {
         const verdict = await checkWorkflowReadiness({ runId: ctx.runId, userId: ctx.userId });
+
         if (verdict.kind === "ready") {
           return {
             kind: "next",
@@ -659,13 +723,17 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
             nextStep: "boss-turn",
           };
         }
+
         if (verdict.kind === "blocked") {
           return { kind: "blocked", state: ctx.state, output: { readiness: verdict.problems } };
         }
+
         const delay = READINESS_RETRY_DELAYS_MS[ctx.state.readinessDeferrals];
+
         if (delay === undefined) {
           throw new Error("Workflow readiness stayed unavailable after the bounded retry policy");
         }
+
         return {
           kind: "defer",
           state: { ...ctx.state, readinessDeferrals: ctx.state.readinessDeferrals + 1 },
@@ -692,6 +760,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   // briefs (no subAgent metadata) return null and are unaffected.
   dedupKey(input) {
     const sub = readSubAgentMetadata(input.metadata);
+
     return sub ? `sub:${sub.parentRunId}:${sub.parentToolCallId}` : null;
   },
 };
@@ -710,6 +779,7 @@ async function writeSubAgentSummary(args: {
     value: { text: args.text },
     writtenBy: args.subId,
   });
+
   return { text: args.text, scratchKey };
 }
 
@@ -734,27 +804,39 @@ const briefAuthoredMetadataSchema = workflowRevisionDefinitionSchema
     requiredCapabilities: true,
   })
   .partial();
+
 type BriefAuthoredMetadata = z.infer<typeof briefAuthoredMetadataSchema>;
 
 function readBriefAuthoredMetadata(metadata: unknown): BriefAuthoredMetadata {
   return briefAuthoredMetadataSchema.parse(metadata ?? {});
 }
 
-async function buildTriggerEventMessage(input: {
-  userId: string;
-  trigger: {
-    kind: string;
-    source?: string | undefined;
-    type?: string | undefined;
-    payload?: Record<string, unknown> | undefined;
-  };
-}): Promise<AgentTranscriptMessage | null> {
+async function buildTriggerEventMessage(
+  input: WorkflowInput,
+): Promise<AgentTranscriptMessage | null> {
   const trigger = input.trigger;
+
   if (trigger.kind !== "event") return null;
 
-  const documentId =
-    typeof trigger.payload?.documentId === "string" ? trigger.payload.documentId : undefined;
-  const reason = typeof trigger.payload?.reason === "string" ? trigger.payload.reason : undefined;
+  const parsedPayload = jsonObjectSchema.safeParse(trigger.payload ?? {});
+  const payload = parsedPayload.success ? parsedPayload.data : {};
+
+  const documentId = getStringPath(payload, "documentId");
+
+  const receiptId = getStringPath(payload, "receiptId");
+
+  const reason = getStringPath(payload, "reason");
+
+  if (!documentId && receiptId && trigger.source && isInboundEventSource(trigger.source)) {
+    return buildReceiptTriggerMessage({
+      userId: input.userId,
+      source: trigger.source,
+      type: trigger.type,
+      rawKind: trigger.rawKind,
+      receiptId,
+    });
+  }
+
   if (!documentId) {
     return {
       role: "user",
@@ -784,6 +866,7 @@ async function buildTriggerEventMessage(input: {
     .from(documents)
     .where(and(eq(documents.userId, input.userId), eq(documents.id, documentId)))
     .limit(1);
+
   const doc = rows[0];
 
   if (!doc) {
@@ -801,10 +884,8 @@ async function buildTriggerEventMessage(input: {
     };
   }
 
-  const metadata = toRecord(doc.metadata);
-  const excerpt = doc.content.slice(0, TRIGGER_EVENT_EXCERPT_CHARS);
-  const truncated = doc.content.length > excerpt.length;
-  const metadataSubset = pickTriggerMetadata(metadata);
+  const parsedMetadata = jsonObjectSchema.safeParse(doc.metadata);
+  const metadataSubset = pickTriggerMetadata(parsedMetadata.success ? parsedMetadata.data : {});
 
   return {
     role: "user",
@@ -819,9 +900,8 @@ async function buildTriggerEventMessage(input: {
       doc.authoredAt ? xmlTag("authored_at", doc.authoredAt.toISOString()) : "",
       doc.url ? xmlTag("url", doc.url) : "",
       reason ? xmlTag("reason", reason) : "",
-      xmlTag("truncated", String(truncated)),
       xmlTag("metadata", JSON.stringify(metadataSubset)),
-      xmlTag("excerpt", excerpt),
+      ...triggerEventExcerptTags(doc.content),
       "</trigger_event>",
     ]
       .filter(Boolean)
@@ -829,11 +909,91 @@ async function buildTriggerEventMessage(input: {
   };
 }
 
-function pickTriggerMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
-  return (["from", "to", "cc", "labelIds", "snippet", "historyId", "sizeEstimate"] as const).reduce<
-    Record<string, unknown>
-  >((out, key) => {
+/**
+ * The `<trigger_event>` for an inbound receipt (ADR-0097, #990). The run
+ * carries only the receipt pointer, and the receipt's body is never handed to
+ * the model as JSON: the corpus document the receive path wrote for it already
+ * holds the describe slot's title, summary, body, and provider URL, so the
+ * message reads that row through `readReceiptDocument` (the key's one owner)
+ * and bounds the body. `documents.raw` is the stored payload and stays out.
+ */
+async function buildReceiptTriggerMessage(input: {
+  userId: string;
+  source: InboundEventSource;
+  type: string | undefined;
+  rawKind: string | undefined;
+  receiptId: string;
+}): Promise<AgentTranscriptMessage> {
+  const doc = await readReceiptDocument({
+    id: input.receiptId,
+    userId: input.userId,
+    provider: input.source,
+  });
+
+  const identity = [
+    xmlTag("source", input.source),
+    xmlTag("type", input.type ?? "unknown"),
+    input.rawKind ? xmlTag("raw_kind", input.rawKind) : "",
+    xmlTag("receipt_id", input.receiptId),
+  ];
+
+  if (!doc) {
+    return {
+      role: "user",
+      content: [
+        '<trigger_event unavailable="true">',
+        ...identity,
+        xmlTag("unavailable_reason", "receipt_document_not_found"),
+        "</trigger_event>",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+  }
+
+  const summary = getStringPath(toRecord(doc.metadata), "summary");
+
+  return {
+    role: "user",
+    content: [
+      "<trigger_event>",
+      ...identity,
+      doc.title ? xmlTag("title", doc.title) : "",
+      doc.authoredAt ? xmlTag("authored_at", doc.authoredAt.toISOString()) : "",
+      doc.url ? xmlTag("url", doc.url) : "",
+      summary ? xmlTag("summary", summary) : "",
+      ...triggerEventExcerptTags(doc.content),
+      "</trigger_event>",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
+/** The bounded body every `<trigger_event>` carries, and whether the bound cut it. */
+function triggerEventExcerptTags(content: string): string[] {
+  const excerpt = content.slice(0, TRIGGER_EVENT_EXCERPT_CHARS);
+
+  return [xmlTag("truncated", String(content.length > excerpt.length)), xmlTag("excerpt", excerpt)];
+}
+
+/** The 7 Gmail trigger keys `<trigger_event>` carries; everything else is dropped. */
+interface TriggerMetadata {
+  from?: JsonValue | undefined;
+  to?: JsonValue | undefined;
+  cc?: JsonValue | undefined;
+  labelIds?: JsonValue | undefined;
+  snippet?: JsonValue | undefined;
+  historyId?: JsonValue | undefined;
+  sizeEstimate?: JsonValue | undefined;
+}
+
+function pickTriggerMetadata(metadata: JsonObject): TriggerMetadata {
+  return (
+    ["from", "to", "cc", "labelIds", "snippet", "historyId", "sizeEstimate"] as const
+  ).reduce<TriggerMetadata>((out, key) => {
     if (metadata[key] !== undefined) out[key] = metadata[key];
+
     return out;
   }, {});
 }

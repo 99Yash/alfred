@@ -23,6 +23,7 @@ export function registerConsumer(consumer: TriggerConsumer): () => void {
   if (consumers.has(consumer.name)) {
     throw new Error(`[triggers] consumer '${consumer.name}' is already registered`);
   }
+
   consumers.set(consumer.name, consumer);
 
   return () => {
@@ -32,18 +33,23 @@ export function registerConsumer(consumer: TriggerConsumer): () => void {
 
 export async function publishToConsumers(event: DomainEvent): Promise<PublishedEvent> {
   const registered = [...consumers.values()];
+
   if (registered.length === 0) {
     throw new NoTriggerConsumersRegisteredError();
   }
+
   const outcomes = await Promise.allSettled(registered.map((consumer) => consumer.accept(event)));
   const failures: Array<{ consumer: string; cause: unknown }> = [];
   let acceptedConsumers = 0;
+
   for (const [index, outcome] of outcomes.entries()) {
     const consumer = registered[index];
+
     if (outcome.status === "fulfilled") {
       acceptedConsumers += 1;
       continue;
     }
+
     // A `best-effort` consumer's own failure must never fail the publish (and so
     // the job that awaited it) — EXCEPT a boot-wiring failure, which must still
     // reject so a broken boot path surfaces on retry. A `propagate` consumer's
@@ -56,6 +62,7 @@ export async function publishToConsumers(event: DomainEvent): Promise<PublishedE
       );
       continue;
     }
+
     failures.push({ consumer: consumer?.name ?? "unknown", cause: outcome.reason });
   }
 

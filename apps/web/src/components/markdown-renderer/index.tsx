@@ -6,6 +6,7 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { cn } from "~/lib/utils";
+import { altTextImageComponents } from "./alt-text-image";
 import { markdownComponents } from "./elements";
 
 import "katex/dist/katex.min.css";
@@ -16,7 +17,13 @@ import "katex/dist/katex.min.css";
 // is exported too, for surfaces that show a code/data payload outside markdown
 // (e.g. a tool result's pretty-printed JSON).
 export { MarkdownPre } from "./markdown-pre";
+
 export { CodeBlock } from "./code-block";
+
+// The `alt-text` image override lives in its own module so this file exports
+// components only: a component file that also exports a plain function loses
+// React Fast Refresh, and editing it forces a full reload instead of a hot swap.
+export { altTextImageComponents } from "./alt-text-image";
 
 type RemarkPlugins = ComponentProps<typeof ReactMarkdown>["remarkPlugins"];
 
@@ -167,12 +174,9 @@ export function MarkdownRenderer({
   const components: Components = {
     ...markdownComponents,
     ...extraComponents,
-    ...(images === "alt-text"
-      ? {
-          img: ({ alt }) => (alt ? <span className="text-white/55 italic">[{alt}]</span> : null),
-        }
-      : {}),
+    ...(images === "alt-text" ? altTextImageComponents(tone) : {}),
   };
+
   return (
     <div
       className={cn(

@@ -2,10 +2,13 @@ import { z } from "zod";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 const identifierSchema = z.string().min(1).max(500);
+
 const storageKeySchema = z.string().min(1).max(2_000);
+
 const countSchema = z.number().int().nonnegative();
 
 const attachmentRequestSchema = z.object({ attachmentId: identifierSchema }).strict();
+
 const enrichmentRequestSchema = z
   .object({
     userId: identifierSchema,
@@ -13,9 +16,11 @@ const enrichmentRequestSchema = z
     estimatedCostMicrousd: countSchema,
   })
   .strict();
+
 const prefixCleanupRequestSchema = z
   .object({ userId: identifierSchema, prefix: storageKeySchema })
   .strict();
+
 const pendingUploadCleanupRequestSchema = z
   .object({
     userId: identifierSchema,
@@ -25,27 +30,36 @@ const pendingUploadCleanupRequestSchema = z
   .strict();
 
 const claimResultSchema = z.enum(["claimed", "existing"]);
+
 const enrichmentResultSchema = z.enum(["persisted", "superseded", "missing"]);
+
 const storageUnconfiguredResultSchema = z
   .object({ removed: z.literal(0), skipped: z.literal("storage-unconfigured") })
   .strict();
+
 const prefixCleanupResultSchema = z.object({ removed: countSchema }).strict();
+
 const pendingUploadCleanupResultSchema = z
   .object({ checked: countSchema, removed: countSchema })
   .strict();
 
 const prefixResultSchema = z.union([storageUnconfiguredResultSchema, prefixCleanupResultSchema]);
+
 const pendingUploadResultSchema = z.union([
   storageUnconfiguredResultSchema,
   pendingUploadCleanupResultSchema,
 ]);
 
 type ChatMediaEnrichmentRequest = z.infer<typeof enrichmentRequestSchema>;
+
 type ChatMediaPrefixCleanupRequest = z.infer<typeof prefixCleanupRequestSchema>;
+
 export type ChatMediaPendingUploadCleanupRequest = z.infer<
   typeof pendingUploadCleanupRequestSchema
 >;
+
 export type ChatMediaPrefixCleanupResult = z.infer<typeof prefixResultSchema>;
+
 export type ChatMediaPendingUploadCleanupResult = z.infer<typeof pendingUploadResultSchema>;
 
 export interface ChatMediaHandler {
@@ -74,6 +88,7 @@ export function registerChatMediaHandler(handler: ChatMediaHandler): () => void 
   if (chatMediaHandler) {
     throw new Error("[integrations] a chat media handler is already registered");
   }
+
   chatMediaHandler = handler;
 
   return () => {
@@ -83,11 +98,13 @@ export function registerChatMediaHandler(handler: ChatMediaHandler): () => void 
 
 function handler(): ChatMediaHandler {
   if (!chatMediaHandler) throw new NoChatMediaHandlerRegisteredError();
+
   return chatMediaHandler;
 }
 
 export async function claimChatMediaEnrichment(request: unknown): Promise<"claimed" | "existing"> {
   const parsed = attachmentRequestSchema.parse(request);
+
   return claimResultSchema.parse(await handler().claimEnrichment(parsed));
 }
 
@@ -100,6 +117,7 @@ export async function enrichChatMedia(
   request: unknown,
 ): Promise<z.infer<typeof enrichmentResultSchema>> {
   const parsed = enrichmentRequestSchema.parse(request);
+
   return enrichmentResultSchema.parse(await handler().enrich(parsed));
 }
 
@@ -107,6 +125,7 @@ export async function cleanupChatMediaPrefix(
   request: unknown,
 ): Promise<ChatMediaPrefixCleanupResult> {
   const parsed = prefixCleanupRequestSchema.parse(request);
+
   return prefixResultSchema.parse(await handler().cleanupPrefix(parsed));
 }
 
@@ -114,5 +133,6 @@ export async function cleanupPendingChatMediaUploads(
   request: unknown,
 ): Promise<ChatMediaPendingUploadCleanupResult> {
   const parsed = pendingUploadCleanupRequestSchema.parse(request);
+
   return pendingUploadResultSchema.parse(await handler().cleanupPendingUploads(parsed));
 }

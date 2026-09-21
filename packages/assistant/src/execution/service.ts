@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { toJsonValue, toMessage } from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { runAtomic } from "@alfred/db/helpers";
 import {
@@ -11,9 +11,13 @@ import {
 import {
   agentRunTriggerSchema,
   boundAgentRunError,
+  isTerminalStatus,
   runStatusSchema,
   wakeConditionSchema,
   type AgentRunTrigger,
+  type ApprovalKind,
+  type RunStatus,
+  type WakeCondition,
 } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes, publishEvent } from "@alfred/assistant/triggers";
@@ -27,7 +31,7 @@ import {
 } from "@alfred/assistant/tool-runtime";
 import { snapshotScratchToPostgres } from "./scratchpad/index";
 import { enqueueRun } from "./queue";
-import { getWorkflow, listWorkflows } from "./registry";
+import { getWorkflow, listWorkflows, type AgentDbExecutor, type WorkflowInput } from "./registry";
 import { resolveWorkflowForRun } from "./resolve-workflow";
 import {
   readSubAgentMetadata,
@@ -37,14 +41,6 @@ import {
 import { startSubAgentWaitSpan, type SubAgentWaitOutcome } from "./runtime-spans";
 import { finalizeCancelledRun } from "./terminal-closure";
 import { deriveRunOutcome, pokeWorkflowOwner, recordWorkflowLastRun } from "./run-outcome";
-import {
-  isTerminalStatus,
-  type AgentDbExecutor,
-  type ApprovalKind,
-  type RunStatus,
-  type WakeCondition,
-  type WorkflowInput,
-} from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
 import {
   workflowOccurrenceKey,
@@ -74,6 +70,7 @@ export const STALE_RUN_LEASE_MS = 60_000;
  */
 export function resolveStaleAfterMs(workflowSlug: string, stepId: string): number {
   const step = getWorkflow(workflowSlug)?.steps[stepId] ?? userAuthoredBriefWorkflow.steps[stepId];
+
   return step?.staleAfterMs ?? STALE_RUN_LEASE_MS;
 }
 
@@ -87,20 +84,26 @@ export function resolveStaleAfterMs(workflowSlug: string, stepId: string): numbe
  */
 export function minStaleAfterMs(): number {
   let min = STALE_RUN_LEASE_MS;
+
   for (const wf of listWorkflows()) {
     for (const step of Object.values(wf.steps)) {
-      if (typeof step.staleAfterMs === "number" && step.staleAfterMs < min) {
+      if (step.staleAfterMs !== undefined && step.staleAfterMs < min) {
         min = step.staleAfterMs;
       }
     }
   }
+
   return min;
 }
 
 type CronOccurrence = Extract<WorkflowOccurrenceIdentity, { kind: "cron" }>;
+
 type EventOccurrence = Extract<WorkflowOccurrenceIdentity, { kind: "event" }>;
+
 type ManualOccurrence = Extract<WorkflowOccurrenceIdentity, { kind: "manual" }>;
+
 type ManualOccurrenceRequest = Omit<ManualOccurrence, "workflowId">;
+
 type ReplayOccurrence = Extract<WorkflowOccurrenceIdentity, { kind: "replay" }>;
 
 type CreateRunBase = Omit<WorkflowInput, "trigger"> & {
@@ -180,9 +183,12 @@ export async function createRun(
   const trigger = agentRunTriggerSchema.parse(args.trigger);
   const ex = tx ?? db();
   const occurrence = "occurrence" in args ? args.occurrence : undefined;
+
   const selectedRevisionId =
     "workflowRevisionId" in args ? (args.workflowRevisionId ?? undefined) : undefined;
+
   const replay = occurrence?.kind === "replay";
+
   const resolved = await resolveWorkflowForRun({
     userId: args.userId,
     workflowSlug: args.workflowSlug,
@@ -190,13 +196,16 @@ export async function createRun(
     requireSelectedRevision: trigger.kind === "cron" || trigger.kind === "event" || replay,
     tx: ex,
   });
+
   const workflow = resolved.workflow;
   const workflowSlug = resolved.workflowSlug;
+
   if (workflow.resumeOnly) {
     throw new Error(
       `[agent] workflow slug=${workflowSlug} is available only to resume existing runs`,
     );
   }
+
   let brief = args.brief;
   let metadata = args.metadata ?? {};
 
@@ -209,8 +218,8 @@ export async function createRun(
     metadata = {
       ...metadata,
       allowedIntegrations: row.allowedIntegrations,
-      allowedTools: row.allowedTools,
-      requiredCapabilities: row.requiredCapabilities,
+      allowedTools: row.allowedTools.map((tool) => toJsonValue(tool)),
+      requiredCapabilities: row.requiredCapabilities.map((capability) => toJsonValue(capability)),
     };
   }
 
@@ -229,6 +238,7 @@ export async function createRun(
     resolved.userAuthoredRow && trigger.kind === "manual" && occurrence?.kind === "manual"
       ? `manual:${occurrence.requestId}`
       : null;
+
   const occurrenceIdentity: WorkflowOccurrenceIdentity | undefined =
     occurrence?.kind === "manual"
       ? {
@@ -236,6 +246,7 @@ export async function createRun(
           workflowId: resolved.userAuthoredRow?.workflowId ?? workflowSlug,
         }
       : occurrence;
+
   const occurrenceKey = occurrenceIdentity ? workflowOccurrenceKey(occurrenceIdentity) : undefined;
   const dedupKey = manualRequestKey ?? workflow.dedupKey?.(workflowInput) ?? null;
 
@@ -258,6 +269,7 @@ export async function createRun(
     occurrenceKey,
     replayOfRunId: occurrence?.kind === "replay" ? occurrence.replayOfRunId : undefined,
   });
+
   const inserted = occurrenceKey
     ? await insert
         .onConflictDoNothing({ target: [agentRuns.userId, agentRuns.occurrenceKey] })
@@ -267,6 +279,7 @@ export async function createRun(
       : await insert.returning({ id: agentRuns.id });
 
   const row = inserted[0];
+
   if (!row && (occurrenceKey || manualRequestKey)) {
     const [existing] = await ex
       .select({ id: agentRuns.id })
@@ -281,9 +294,12 @@ export async function createRun(
         ),
       )
       .limit(1);
+
     if (existing) return { runId: existing.id, created: false };
   }
+
   if (!row) throw new Error("[agent] failed to insert run row");
+
   return { runId: row.id, created: true };
 }
 
@@ -305,6 +321,7 @@ export async function startRun(
 ): Promise<CreateRunResult> {
   const result = await createRun(args);
   await enqueueRun(result.runId, enqueueOpts);
+
   return result;
 }
 
@@ -325,11 +342,15 @@ export async function startRunInTx(spec: {
 }): Promise<CreateRunResult | null> {
   const created = await db().transaction(async (tx) => {
     const args = await spec.claim(tx);
+
     if (!args) return null;
+
     return createRun(args, tx);
   });
+
   if (!created) return null;
   await enqueueRun(created.runId, spec.enqueue);
+
   return created;
 }
 
@@ -377,6 +398,7 @@ export async function replayRun(args: ReplayRunArgs): Promise<CreateRunResult> {
     .from(agentRuns)
     .where(and(eq(agentRuns.id, args.runId), eq(agentRuns.userId, args.userId)))
     .limit(1);
+
   if (!original) throw new Error(`[agent] replay source run not found: ${args.runId}`);
 
   const [workflow] = await db()
@@ -388,12 +410,14 @@ export async function replayRun(args: ReplayRunArgs): Promise<CreateRunResult> {
     .from(workflows)
     .where(and(eq(workflows.userId, args.userId), eq(workflows.slug, original.workflowSlug)))
     .limit(1);
+
   if (!workflow || workflow.isBuiltin) {
     throw new Error("Only user-authored workflow runs can be replayed");
   }
 
   const workflowRevisionId =
     args.revisionChoice === "original" ? original.workflowRevisionId : workflow.publishedRevisionId;
+
   if (!workflowRevisionId) {
     throw new Error(`[agent] replay revision is unavailable for run=${args.runId}`);
   }
@@ -443,11 +467,13 @@ type AgentTx = any;
  */
 export async function signalRun(args: SignalArgs): Promise<boolean> {
   const outcome = await db().transaction((tx) => signalRunInTx(tx, args));
+
   return outcome === "woken";
 }
 
 export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<SignalOutcome> {
   const match = args.match ?? { kind: "any" };
+
   const rows = await tx
     .select({
       id: agentRuns.id,
@@ -457,27 +483,35 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
     .from(agentRuns)
     .where(eq(agentRuns.id, args.runId))
     .for("update");
+
   const row = rows[0];
+
   if (!row) return "not_found";
   const status = runStatusSchema.parse(row.status);
+
   if (status !== "waiting") {
     return isTerminalStatus(status) ? "already_terminal" : "not_waiting";
   }
 
   if (match.kind !== "any") {
     const wake = wakeConditionSchema.nullable().parse(row.wakeCondition);
+
     if (!wake || wake.kind !== match.kind) return "wake_mismatch";
+
     if (match.kind === "hil" && wake.kind === "hil" && wake.approvalId !== match.approvalId) {
       return "wake_mismatch";
     }
+
     if (match.kind === "hil" && wake.kind === "hil" && match.approvalKind) {
       // Treat a missing `approvalKind` on the wake as "step" — pre-m13
       // HIL wakes predate the field, and the only kind that existed
       // then was the implicit step approval. Symmetric with the
       // executor's interrupt-commit default (see executor.ts).
       const wakeKind = wake.approvalKind ?? "step";
+
       if (wakeKind !== match.approvalKind) return "wake_mismatch";
     }
+
     if (match.kind === "signal" && wake.kind === "signal" && wake.name !== match.name) {
       return "wake_mismatch";
     }
@@ -493,6 +527,7 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
       lastCheckpointAt: new Date(),
     })
     .where(eq(agentRuns.id, args.runId));
+
   return "woken";
 }
 
@@ -511,26 +546,33 @@ export async function signalParentOfSubAgent(childRunId: string): Promise<string
     .from(agentRuns)
     .where(eq(agentRuns.id, childRunId))
     .limit(1);
+
   const sub = readSubAgentMetadata(rows[0]?.metadata);
+
   if (!sub) return null;
+
   const woken = await signalRun({
     runId: sub.parentRunId,
     match: { kind: "signal", name: subAgentDoneSignalName(childRunId) },
   });
+
   if (woken) {
     // #409: the parent just woke from its `await_sub_agent` park — record the
     // wait it spent joining this child, tagged with the child's terminal status.
     const outcome = subAgentOutcomeFromStatus(rows[0]?.status);
+
     if (outcome) {
       await emitSubAgentWaitSpan({ ex: db(), parentRunId: sub.parentRunId, childRunId, outcome });
     }
   }
+
   return woken ? sub.parentRunId : null;
 }
 
 /** Map a child run's raw status to a sub-agent-wait outcome; null when non-terminal. */
 function subAgentOutcomeFromStatus(status: string | undefined): SubAgentWaitOutcome | null {
   if (status === "completed" || status === "failed" || status === "cancelled") return status;
+
   return null;
 }
 
@@ -554,7 +596,9 @@ async function emitSubAgentWaitSpan(args: {
       .where(and(eq(agentSteps.runId, args.parentRunId), eq(agentSteps.status, "interrupted")))
       .orderBy(desc(agentSteps.id))
       .limit(1);
+
     const park = rows[0];
+
     if (!park?.endedAt) return;
     startSubAgentWaitSpan({
       runId: args.parentRunId,
@@ -642,6 +686,7 @@ async function dischargeCancelObligations(args: {
   // that is the only obligation here they can see. Internally best-effort.
   await finalizeCancelledRun(args.runId, args.reason);
   await dischargeStagingSweep(args);
+
   try {
     await snapshotScratchToPostgres(args.runId);
   } catch (err) {
@@ -651,6 +696,7 @@ async function dischargeCancelObligations(args: {
       toMessage(err),
     );
   }
+
   if (args.wokenParentRunId) {
     try {
       await enqueueRun(args.wokenParentRunId);
@@ -682,6 +728,7 @@ async function dischargeStagingSweep(args: {
   // roll back its step commit, but the staging row itself is an earlier
   // autocommit. The sweep closes that visibility gap.
   await rejectLateCancelledRunStagings(args.runId, args.reason);
+
   for (const stagingId of args.rejectedStagingIds) {
     // Guarded per queue, not per staging: the two jobs are independent, so a
     // failure removing one must not leave the other behind as well.
@@ -711,11 +758,14 @@ export async function rejectLateCancelledRunStagings(
       .from(agentRuns)
       .where(eq(agentRuns.id, runId))
       .limit(1);
+
     const run = runRows[0];
     const status = runStatusSchema.safeParse(run?.status);
+
     if (!run || !status.success || status.data !== "cancelled") return [];
 
     const now = new Date();
+
     const rejected = await db()
       .update(actionStagings)
       .set({
@@ -733,8 +783,10 @@ export async function rejectLateCancelledRunStagings(
         ),
       )
       .returning({ id: actionStagings.id });
+
     if (rejected.length > 0) emitReplicachePokes([run.userId]);
     const ids = rejected.map((row) => row.id);
+
     for (const stagingId of ids) {
       for (const remove of [removeApprovalNotificationJob, removeApprovalExpiryJob]) {
         try {
@@ -744,9 +796,11 @@ export async function rejectLateCancelledRunStagings(
         }
       }
     }
+
     return ids;
   } catch (err) {
     console.warn("[agent] late cancelled-run staging sweep failed", runId, toMessage(err));
+
     return [];
   }
 }
@@ -766,6 +820,7 @@ export async function rejectLateCancelledRunStagings(
 export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
   const { outcome, afterCommit } = await db().transaction((tx) => cancelRunInTx(tx, args));
   await afterCommit();
+
   return outcome;
 }
 
@@ -803,7 +858,9 @@ export async function cancelRunInTx(
     .from(agentRuns)
     .where(eq(agentRuns.id, args.runId))
     .for("update");
+
   const row = rows[0];
+
   if (!row) return { outcome: "not_found", afterCommit: noCancelObligations };
   const status = runStatusSchema.parse(row.status);
 
@@ -847,11 +904,13 @@ export async function cancelRunInTx(
   // the caller enqueues it after commit.
   let wokenParentRunId: string | null = null;
   const sub = readSubAgentMetadata(row.metadata);
+
   if (sub) {
     const signalOutcome = await signalRunInTx(tx, {
       runId: sub.parentRunId,
       match: { kind: "signal", name: subAgentDoneSignalName(args.runId) },
     });
+
     if (signalOutcome === "woken") {
       wokenParentRunId = sub.parentRunId;
       // #409: the parent woke because we cancelled the child it was joining;
@@ -896,6 +955,7 @@ export async function cancelRunInTx(
       error: boundAgentRunError(args.reason),
     },
   });
+
   // #559b: cascade the cancel to every sub-agent child this run spawned. A
   // child is a separate `agent_runs` row with its own fence, so the parent's
   // fence says nothing about it: without this, cancelling a boss leaves its
@@ -911,10 +971,12 @@ export async function cancelRunInTx(
   });
 
   const rejectedStagingIds = rejectedStagings.map((r: { id: string }) => r.id);
+
   return {
     outcome: "cancelled",
     afterCommit: async () => {
       pokeWorkflowOwner(row);
+
       if (opts.obligations === "full") {
         await dischargeCancelObligations({
           runId: args.runId,
@@ -925,6 +987,7 @@ export async function cancelRunInTx(
       } else {
         await dischargeStagingSweep({ runId: args.runId, reason: args.reason, rejectedStagingIds });
       }
+
       // Each child's obligations are its own closure, discharged after this
       // run's. Guarded per child so one child's fault cannot strand another
       // child's sweep.
@@ -989,6 +1052,7 @@ async function cancelSpawnedChildrenInTx(
     .orderBy(agentRuns.createdAt);
 
   const obligations: Array<() => Promise<void>> = [];
+
   for (const child of children) {
     const { outcome, afterCommit } = await cancelRunInTx(
       tx,
@@ -1001,8 +1065,10 @@ async function cancelSpawnedChildrenInTx(
       },
       { obligations: "staging_sweep" },
     );
+
     if (outcome === "cancelled") obligations.push(afterCommit);
   }
+
   return obligations;
 }
 
@@ -1029,8 +1095,11 @@ export async function getRun(runId: string, userId: string): Promise<RunSummary 
     .select()
     .from(agentRuns)
     .where(and(eq(agentRuns.id, runId), eq(agentRuns.userId, userId)));
+
   const row = rows[0];
+
   if (!row) return null;
+
   return {
     id: row.id,
     userId: row.userId,
@@ -1064,54 +1133,84 @@ export async function getRun(runId: string, userId: string): Promise<RunSummary 
  * live long-window rows could hide genuinely-stale rows behind it.
  */
 export async function findResumableRunIds(opts: { limit?: number }): Promise<string[]> {
-  const limit = opts.limit ?? 100;
+  return collectResumableRunIds(opts.limit ?? 100, readResumeSweepPage);
+}
+
+/** One candidate row of the resume sweep, before the per-step refinement. */
+export type ResumeSweepCandidate = {
+  readonly id: string;
+  readonly workflowSlug: string;
+  readonly currentStep: string;
+  readonly status: string;
+  readonly staleMs: number | string | null;
+};
+
+/** Reads one ordered page of sweep candidates at the {@link minStaleAfterMs} floor. */
+async function readResumeSweepPage(page: {
+  limit: number;
+  offset: number;
+}): Promise<ResumeSweepCandidate[]> {
+  const result = await db().execute(sql`
+    SELECT id, workflow_slug AS "workflowSlug", current_step AS "currentStep", status,
+           EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
+    FROM agent_runs
+    WHERE status IN ('pending', 'runnable')
+       OR (status = 'deferred' AND deferred_until <= now())
+       OR (status = 'running' AND (
+         last_checkpoint_at IS NULL
+         OR last_checkpoint_at < (now() - make_interval(secs => ${minStaleAfterMs() / 1000}))
+       ))
+    ORDER BY last_checkpoint_at NULLS FIRST, id
+    LIMIT ${page.limit}
+    OFFSET ${page.offset}
+  `);
+
+  return rowsFromExecute<ResumeSweepCandidate>(result);
+}
+
+/**
+ * The page loop of {@link findResumableRunIds}, with the page reader injected.
+ *
+ * The reader is a parameter because the pagination invariant — a page filled by
+ * refined-out rows must not hide a claimable row behind it — cannot be proved
+ * against the real sweep. That query reads `agent_runs` for every user, so in a
+ * shared test database any other suite's pending row lands on the page first and
+ * the assertion becomes a race.
+ */
+export async function collectResumableRunIds(
+  limit: number,
+  readPage: (page: { limit: number; offset: number }) => Promise<readonly ResumeSweepCandidate[]>,
+): Promise<string[]> {
   if (limit <= 0) return [];
   const resumable: string[] = [];
   let offset = 0;
+
   while (resumable.length < limit) {
-    const result = await db().execute(sql`
-      SELECT id, workflow_slug AS "workflowSlug", current_step AS "currentStep", status,
-             EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
-      FROM agent_runs
-      WHERE status IN ('pending', 'runnable')
-         OR (status = 'deferred' AND deferred_until <= now())
-         OR (status = 'running' AND (
-           last_checkpoint_at IS NULL
-           OR last_checkpoint_at < (now() - make_interval(secs => ${minStaleAfterMs() / 1000}))
-         ))
-      ORDER BY last_checkpoint_at NULLS FIRST, id
-      LIMIT ${limit}
-      OFFSET ${offset}
-    `);
-    const rows = rowsFromExecute<{
-      id: string;
-      workflowSlug: string;
-      currentStep: string;
-      status: string;
-      staleMs: number | string | null;
-    }>(result);
+    const rows = await readPage({ limit, offset });
+
     if (rows.length === 0) break;
     offset += rows.length;
+
     for (const row of rows) {
       // Pending/runnable and due deferred rows are claimable; only `running`
       // rows are gated on the per-step stale window.
       if (row.status !== "running") {
         resumable.push(row.id);
+
         if (resumable.length >= limit) break;
         continue;
       }
-      const staleMs =
-        row.staleMs == null
-          ? null
-          : typeof row.staleMs === "string"
-            ? Number(row.staleMs)
-            : row.staleMs;
+
+      const staleMs = row.staleMs == null ? null : Number(row.staleMs);
+
       if (staleMs == null || staleMs >= resolveStaleAfterMs(row.workflowSlug, row.currentStep)) {
         resumable.push(row.id);
+
         if (resumable.length >= limit) break;
       }
     }
   }
+
   return resumable;
 }
 
@@ -1122,11 +1221,14 @@ export async function findResumableRunIds(opts: { limit?: number }): Promise<str
  */
 export async function heartbeatRun(runId: string, attempt?: number): Promise<boolean> {
   const conds = [eq(agentRuns.id, runId), eq(agentRuns.status, "running")];
+
   if (attempt !== undefined) conds.push(eq(agentRuns.attempt, attempt));
+
   const touched = await db()
     .update(agentRuns)
     .set({ lastCheckpointAt: new Date() })
     .where(and(...conds))
     .returning({ id: agentRuns.id });
+
   return touched.length > 0;
 }

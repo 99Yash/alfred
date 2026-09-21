@@ -67,6 +67,7 @@ describe("mediaFailureMessage", () => {
         "PDF extraction exceeded the limit: output character limit exceeded: 200 > 100",
       ],
     ];
+
     for (const [result, expected] of cases) {
       assert.equal(mediaFailureMessage(result), expected);
     }

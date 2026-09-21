@@ -62,6 +62,7 @@ describe("briefingContextSignalSchema", () => {
       evidence: ["email:thread_123"],
       confidence: 0.8,
     });
+
     assert.equal(parsed.kind, "open_loop");
     assert.equal(parsed.summary, "PR #42 is still awaiting review");
     assert.deepEqual(parsed.evidence, ["email:thread_123"]);
@@ -72,6 +73,7 @@ describe("briefingContextSignalSchema", () => {
       kind: "development",
       evidence: ["activity:act_1"],
     });
+
     assert.equal(result.success, false);
   });
 
@@ -81,6 +83,7 @@ describe("briefingContextSignalSchema", () => {
       summary: "PR #42 merged",
       evidence: [],
     });
+
     assert.equal(result.success, false);
   });
 
@@ -90,6 +93,7 @@ describe("briefingContextSignalSchema", () => {
       summary: "PR #42 merged",
       evidence: ["not-a-reference"],
     });
+
     assert.equal(result.success, false);
   });
 
@@ -99,6 +103,7 @@ describe("briefingContextSignalSchema", () => {
       summary: "Interview moved to Tuesday",
       evidence: ["meeting:event_123"],
     });
+
     assert.equal(result.success, false);
   });
 
@@ -111,6 +116,7 @@ describe("briefingContextSignalSchema", () => {
         (_unused, i) => `activity:act_${i}`,
       ),
     });
+
     assert.equal(tooMuchEvidence.success, false);
 
     const summaryTooLong = briefingContextSignalSchema.safeParse({
@@ -118,6 +124,7 @@ describe("briefingContextSignalSchema", () => {
       summary: "x".repeat(MAX_BRIEFING_SIGNAL_SUMMARY_LENGTH + 1),
       evidence: ["activity:act_1"],
     });
+
     assert.equal(summaryTooLong.success, false);
   });
 
@@ -128,6 +135,7 @@ describe("briefingContextSignalSchema", () => {
       evidence: ["email:thread_123"],
       durability: "grounded_projection",
     });
+
     assert.equal(result.success, false);
   });
 });

@@ -27,6 +27,7 @@ export function RiskPill({ riskTier }: { riskTier: ToolRiskTier }) {
  */
 export function RiskChip({ riskTier }: { riskTier: ToolRiskTier }) {
   const tone = TONE[riskTier];
+
   return (
     <span
       className={cn(

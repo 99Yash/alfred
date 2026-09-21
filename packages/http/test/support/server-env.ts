@@ -66,6 +66,7 @@ export function applyServerEnvFixtures(serviceUrls?: {
   for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
     process.env[key] ??= value; // drift-ok: seeds the fixture environment, does not gate a suite
   }
+
   if (!serviceUrls) return;
   // `??=` here too, so a CI job's real services keep winning over the caller's
   // local defaults.

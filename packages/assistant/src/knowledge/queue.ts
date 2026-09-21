@@ -33,6 +33,7 @@ export type MemoryJobData =
   | { kind: "memory.drift_health_check" };
 
 let _queue: Queue<MemoryJobData> | undefined;
+
 let _worker: Worker<MemoryJobData> | undefined;
 
 export function getMemoryQueue(): Queue<MemoryJobData> {
@@ -46,6 +47,7 @@ export function getMemoryQueue(): Queue<MemoryJobData> {
       removeOnFail: { count: 50, age: 30 * 24 * 60 * 60 },
     },
   });
+
   return _queue;
 }
 
@@ -81,34 +83,44 @@ export async function closeMemoryQueue(): Promise<void> {
 
 async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
   const data = job.data;
+
   switch (data.kind) {
     case "memory.extract.daily": {
       // Single-user today, but the shape carries us forward.
       const users = await db().select({ id: userTable.id }).from(userTable);
       const scheduledFor = new Date(job.timestamp).toISOString();
       let enqueued = 0;
+
       for (const u of users) {
         await enqueueExtractionForUser(u.id, {
           trigger: { kind: "cron", scheduledFor },
         });
         enqueued++;
       }
+
       console.log(`[memory:worker] memory.extract.daily fan-out users=${enqueued}`);
+
       return { enqueued };
     }
+
     case "memory.extract.run": {
       const result = await enqueueExtractionForUser(data.userId, {
         requestId: `memory-job:${job.id ?? job.timestamp}`,
       });
+
       console.log(`[memory:worker] memory.extract.run user=${data.userId} runId=${result.runId}`);
+
       return result;
     }
+
     case "memory.embed_sweep": {
       const candidates = await findPendingEmbedChunks(50);
       let succeeded = 0;
       let failed = 0;
+
       for (const c of candidates) {
         let vec: number[];
+
         try {
           vec = await embed(c.content, {
             inputType: "document",
@@ -135,6 +147,7 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
           );
           continue;
         }
+
         try {
           await embedMemoryChunk(c.id, c.userId, vec);
           succeeded++;
@@ -152,11 +165,14 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
           );
         }
       }
+
       console.log(
         `[memory:worker] memory.embed_sweep candidates=${candidates.length} succeeded=${succeeded} failed=${failed}`,
       );
+
       return { candidates: candidates.length, succeeded, failed };
     }
+
     case "memory.drift_health_check": {
       // Single-user today; the per-user fan-out carries us forward. Sweep every
       // user, but rethrow after the loop if any check failed so BullMQ retries a
@@ -165,6 +181,7 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
       let checked = 0;
       let breached = 0;
       const failures: string[] = [];
+
       for (const u of users) {
         try {
           const result = await runDriftHealthCheck(u.id);
@@ -176,14 +193,18 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
           console.error(`[memory:worker] drift_health_check failed user=${u.id}:`, message);
         }
       }
+
       console.log(
         `[memory:worker] memory.drift_health_check users=${checked} breached=${breached}`,
       );
+
       if (failures.length > 0) {
         throw new Error(`[memory:worker] drift_health_check failures: ${failures.join("; ")}`);
       }
+
       return { checked, breached };
     }
+
     default: {
       const _exhaustive: never = data;
       throw new Error(`unknown memory job kind: ${JSON.stringify(_exhaustive)}`);
@@ -210,6 +231,7 @@ export async function enqueueExtractionForUser(
   },
 ): Promise<{ runId: string }> {
   const trigger = opts?.trigger ?? { kind: "manual" as const };
+
   const occurrence =
     trigger.kind === "cron"
       ? {
@@ -242,6 +264,7 @@ export async function enqueueExtractionForUser(
               },
             }
           : { trigger };
+
   const { runId } = await startRun({
     userId,
     workflowSlug: "memory-extraction",
@@ -254,5 +277,6 @@ export async function enqueueExtractionForUser(
     },
     ...occurrence,
   });
+
   return { runId };
 }

@@ -6,8 +6,10 @@
  * interface production reads.
  *
  * `upsertToolPolicy` writes the reviewed-downgrade row that ADR-0088 makes the one
- * input able to lower an MCP call BELOW the risk floor. Nothing in `src` mints one
- * — the approval flow does, and it does not live here yet.
+ * input able to lower an MCP call BELOW the risk floor. Production mints one
+ * through `reviewMcpToolPolicy` in `policy.ts`, which owns the descriptor
+ * binding; this export stays for fixtures that seed an exact row without a
+ * review transaction.
  *
  * `_setMcpExecutionBrokerForTests` drops the process-lifetime broker singleton.
  * Nothing in `src` replaces it, and the same rule already put its twin
@@ -35,6 +37,7 @@ import {
 import { and, eq } from "drizzle-orm";
 
 export { upsertToolPolicy } from "./invocations";
+
 export { _setMcpExecutionBrokerForTests } from "./runtime";
 
 type TestInvocationReservation = Pick<
@@ -70,10 +73,12 @@ async function insertMcpInvocationFixture(
     .from(actionStagings)
     .where(and(eq(actionStagings.id, values.stagingId), eq(actionStagings.userId, values.userId)))
     .limit(1);
+
   const [row] = await runner
     .insert(mcpInvocation)
     .values({ ...values, ...requireRow(staging, `${label} staging`) })
     .returning();
+
   return requireRow(row, label);
 }
 
@@ -94,9 +99,11 @@ export async function reserveMcpInvocationForTests(
       runner,
       "reserveMcpInvocationForTests",
     );
+
     return { ok: true, invocation };
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
+
     return uniqueViolationConstraint(error) === "mcp_invocation_staging_idx"
       ? { ok: false, reason: "duplicate_staging" }
       : { ok: false, reason: "barrier" };
@@ -122,5 +129,6 @@ export async function patchMcpInvocationForTests(
     .set(patch)
     .where(eq(mcpInvocation.id, id))
     .returning();
+
   return row;
 }

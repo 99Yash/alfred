@@ -8,6 +8,7 @@ export const AGENT_OUTPUT_PURPOSES = {
 } as const satisfies Record<string, { voice: VoicePolicy }>;
 
 type AgentOutputPurpose = keyof typeof AGENT_OUTPUT_PURPOSES;
+
 export type VoicePolicy = "default" | "none";
 
 export interface ComposeAgentInstructionsArgs {

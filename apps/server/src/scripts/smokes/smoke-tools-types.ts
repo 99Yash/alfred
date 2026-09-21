@@ -15,6 +15,7 @@ declare const registry: BuiltinToolRegistry;
 
 // Resolves: `'gmail.search'` is a member of the `ToolName` template union.
 const _searchTool: RegisteredTool | undefined = registry.get("gmail.search");
+
 void _searchTool;
 
 // Compile errors below are the contract — if any of them stop erroring,

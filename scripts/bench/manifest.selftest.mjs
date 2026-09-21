@@ -19,10 +19,15 @@ function expect(condition, message) {
 }
 
 const tmp = mkdtempSync(join(tmpdir(), "bench-manifest-"));
+
 const dir = join(tmp, "t-a-1");
+
 mkdirSync(dir, { recursive: true });
+
 writeFileSync(join(dir, "prompt.md"), "do the thing\n");
+
 writeFileSync(join(dir, "test.patch"), "diff --git a/a.test.ts b/a.test.ts\n");
+
 writeFileSync(join(dir, "gold.patch"), "diff --git a/a.ts b/a.ts\n");
 
 /** @returns {Record<string, unknown>} */
@@ -43,6 +48,7 @@ function validFixture() {
 }
 
 const valid = validFixture();
+
 expect(validateManifest(valid, tmp).length === 0, "valid fixture passes");
 
 /** @param {Partial<Record<string, unknown>>} change @returns {string[]} */
@@ -51,27 +57,40 @@ function failuresFor(change) {
 }
 
 expect(failuresFor({ id: "A-834" }).length > 0, "uppercase id rejected");
+
 expect(failuresFor({ tier: "z" }).length > 0, "unknown tier rejected");
+
 expect(failuresFor({ base: "abc" }).length > 0, "short base rejected");
+
 expect(
   failuresFor({ source: { kind: "pr", pr: null, mergedAt: null } }).length > 0,
   "pr task with null pr rejected",
 );
+
 expect(
   failuresFor({ source: { kind: "synthetic", pr: null, mergedAt: null } }).length === 0,
   "synthetic source passes",
 );
+
 expect(failuresFor({ promptFile: "nope.md" }).length > 0, "missing promptFile rejected");
+
 expect(failuresFor({ testPatch: null }).length > 0, "tier a without testPatch rejected");
+
 expect(failuresFor({ goldPatch: "nope.patch" }).length > 0, "missing goldPatch rejected");
+
 expect(failuresFor({ goldPatch: "prompt.md" }).length > 0, "patch with no diff header rejected");
+
 expect(failuresFor({ hiddenFiles: [] }).length > 0, "tier a with empty hiddenFiles rejected");
+
 expect(
   failuresFor({ hiddenFiles: ["a.test.ts", "a.test.ts"] }).length > 0,
   "duplicate hiddenFiles rejected",
 );
+
 expect(failuresFor({ verify: [] }).length > 0, "empty verify rejected");
+
 expect(failuresFor({ verify: ["node x"] }).length === 0, "single verify command passes");
+
 expect(failuresFor({ createdAt: "yesterday" }).length > 0, "bad createdAt rejected");
 
 const tierC = {
@@ -84,17 +103,21 @@ const tierC = {
   hiddenFiles: [],
   targetFiles: ["packages/contracts/src/tools.ts"],
 };
+
 expect(validateManifest(tierC, tmp).length === 0, "valid tier c fixture passes");
+
 expect(
   failuresFor({ tier: "c", testPatch: "test.patch", hiddenFiles: [] }).length > 0,
   "tier c with testPatch rejected",
 );
+
 expect(
   failuresFor({ tier: "c", hiddenFiles: ["a.test.ts"] }).length > 0,
   "tier c with hiddenFiles rejected",
 );
 
 const root = repoRoot();
+
 for (const id of ["a-834", "c-contracts-slack-action"]) {
   try {
     const { manifest } = readManifest(root, id);
@@ -110,6 +133,7 @@ for (const id of ["a-834", "c-contracts-slack-action"]) {
 }
 
 const taskDirs = [];
+
 try {
   for (const entry of readdirSync(tasksRoot(root), { withFileTypes: true })) {
     if (entry.isDirectory()) taskDirs.push(entry.name);

@@ -48,6 +48,7 @@ describe("syncEntity", () => {
     t.mock.method(console, "warn", (message: unknown) => {
       warnings.push(String(message));
     });
+
     const mapped = {
       id: "note_1",
       userId: "user_1",
@@ -56,6 +57,7 @@ describe("syncEntity", () => {
       rowVersion: 4,
       diagnosticPadding: `included-before-the-boundary-${"x".repeat(220)}excluded-after-boundary`,
     };
+
     const fetchNotes = syncEntity(SYNC_MODEL.note, {
       query: async () => [mapped],
       map: (row) => row,
@@ -73,6 +75,7 @@ describe("syncEntity", () => {
     t.mock.method(console, "warn", (message: unknown) => {
       warnings.push(String(message));
     });
+
     const fetchNotes = syncEntity(SYNC_MODEL.note, {
       query: async () => [
         {

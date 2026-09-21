@@ -111,30 +111,39 @@ function model<
   identity: { readonly key: TKeys },
 ): SyncEntityModel<Prefix, TSchema, TKeys> {
   const { key } = identity;
+
   const identityOf = (value: z.output<TSchema>): SyncIdentity<TSchema, TKeys> => {
     // SAFETY: TKeys can contain only string-valued keys from TSchema's output,
     // so the parsed value satisfies the identity record by construction.
     return value as z.output<TSchema> & SyncIdentity<TSchema, TKeys>;
   };
+
   // SAFETY: Prefix is the literal type of prefixRaw, so appending `/` produces
   // the exact template-literal type declared here.
   const prefix = `${prefixRaw}/` as `${Prefix}/`;
+
   const storageKeyForCVRId = (id: string): `${Prefix}/${string}` => {
     // SAFETY: prefix carries Prefix and id is the persisted identity suffix,
     // so their concatenation has the declared storage-key template shape.
     return `${prefix}${id}` as `${Prefix}/${string}`;
   };
+
   const storageKeyForId = (id: SyncIdentity<TSchema, TKeys>): `${Prefix}/${string}` => {
     return storageKeyForCVRId(identityPart(id, key));
   };
+
   const parseSynced = (values: readonly unknown[]): z.output<TSchema>[] => {
     const parsed: z.output<TSchema>[] = [];
+
     for (const value of values) {
       const result = schema.safeParse(value);
+
       if (result.success) parsed.push(result.data);
     }
+
     return parsed;
   };
+
   return {
     slug: prefixRaw,
     schema,
@@ -143,16 +152,20 @@ function model<
     storageKeyFor: (entity) => storageKeyForId(identityOf(entity)),
     scan: async (tx) => {
       const values = await tx.scan({ prefix }).values().toArray();
+
       return parseSynced(values);
     },
     scanPrefix: async (tx, id) => {
       const boundedPrefix = `${prefix}${identityPart(id, [key[0]])}/`;
       const values = await tx.scan({ prefix: boundedPrefix }).values().toArray();
+
       return parseSynced(values);
     },
     get: async (tx, id) => {
       const value = await tx.get(storageKeyForId(id));
+
       if (value === undefined) return null;
+
       return parseSynced([value])[0] ?? null;
     },
     put: async (tx, input) => {
@@ -166,6 +179,7 @@ function model<
       const value = schema.parse(input);
       const valueIdentity = identityOf(value);
       const storageKey = storageKeyForId(valueIdentity);
+
       return {
         id: identityPart(valueIdentity, key),
         storageKey,

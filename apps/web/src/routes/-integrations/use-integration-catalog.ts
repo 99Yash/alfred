@@ -4,8 +4,8 @@ import {
   buildConnectedSection,
   filterSections,
   matches,
-  MCP_HAYSTACK,
   type Section,
+  BUILT_IN_MCP_HAYSTACK,
 } from "./helpers";
 
 export interface IntegrationCatalog {
@@ -32,6 +32,7 @@ export function useIntegrationCatalog(query: string): IntegrationCatalog {
   const { connectedSection, remainingProviders } = useMemo(() => {
     const connected = buildConnectedSection(resolved, query);
     const remaining = connected ? resolved.filter((p) => p.status !== "connected") : resolved;
+
     return { connectedSection: connected, remainingProviders: remaining };
   }, [resolved, query]);
 
@@ -39,12 +40,13 @@ export function useIntegrationCatalog(query: string): IntegrationCatalog {
     () => filterSections(remainingProviders, query),
     [remainingProviders, query],
   );
+
   const sections = useMemo(
     () => (connectedSection ? [connectedSection, ...filtered] : filtered),
     [connectedSection, filtered],
   );
 
-  const mcpVisible = matches(MCP_HAYSTACK, query);
+  const mcpVisible = matches(BUILT_IN_MCP_HAYSTACK, query);
   const empty = sections.length === 0 && !mcpVisible;
 
   return { sections, mcpVisible, empty };

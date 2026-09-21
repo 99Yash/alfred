@@ -14,9 +14,11 @@ interface ParsedActivitySubtitle {
 
 export function parseActivitySubtitle(subtitle: string): ParsedActivitySubtitle {
   const [provider = "", ...rest] = subtitle.split(" · ");
+
   const detail = rest
     .map((part) => (part.startsWith(`${provider}.`) ? part.slice(provider.length + 1) : part))
     .join(" · ");
+
   return { provider, detail };
 }
 
@@ -34,11 +36,13 @@ export const PROVIDER_COLOR = new Map<IntegrationSlug, string>([["github", "#181
  */
 export function formatEventRange(subtitle: string, timeZone: string): string {
   const parts = subtitle.split(" - ");
+
   if (parts.length !== 2) return subtitle;
   // SAFETY: the length check above proves the split yielded exactly two parts.
   const [start, end] = parts as [string, string];
   const startDate = new Date(start);
   const endDate = new Date(end);
+
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return subtitle;
 
   const time = (d: Date) =>
@@ -47,6 +51,7 @@ export function formatEventRange(subtitle: string, timeZone: string): string {
       minute: "2-digit",
       timeZone: timeZone || undefined,
     }).format(d);
+
   const day = (d: Date) =>
     new Intl.DateTimeFormat(undefined, {
       weekday: "short",
@@ -57,6 +62,7 @@ export function formatEventRange(subtitle: string, timeZone: string): string {
 
   // Same calendar day → time range only; otherwise prefix the start's date.
   const sameDay = day(startDate) === day(endDate);
+
   return sameDay
     ? `${time(startDate)} – ${time(endDate)}`
     : `${day(startDate)}, ${time(startDate)} – ${day(endDate)}, ${time(endDate)}`;

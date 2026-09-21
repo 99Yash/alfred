@@ -1,4 +1,5 @@
 import type {
+  AskUserUnansweredResult,
   CancellationEnvelope,
   IntegrationSlug,
   ToolName,
@@ -10,13 +11,23 @@ import type {
 import type { PublicAppError } from "@alfred/contracts/app-errors";
 import type { ToolCallDispatchArgs } from "../index";
 
-interface RejectedToolResult {
+export interface RejectedToolResult {
   status: "rejected_by_user";
   toolName: ToolName;
   proposedInput: unknown;
   reason: string;
   retryPolicy: "do_not_retry_identical";
 }
+
+/**
+ * A `staging: "question"` call the user dismissed or let expire (ADR-0099).
+ * The row reached `rejected` or `expired` by the same route as a vetoed write,
+ * but it rides its own `unanswered` dispatch kind: the model must read it as
+ * "no answer", and the chat card, the tool-call log, and the metrics must not
+ * count it as a failed call. The envelope fields are the rejection's.
+ */
+export type UnansweredQuestionsToolResult = AskUserUnansweredResult &
+  Pick<RejectedToolResult, "toolName" | "retryPolicy">;
 
 interface InvalidInputToolResult {
   status: "invalid_input";
@@ -63,6 +74,7 @@ export type ToolCallDispatchResult =
     }
   | { kind: "failed"; stagingId: string | null; error: PublicAppError }
   | { kind: "rejected"; stagingId: string | null; result: RejectedToolResult }
+  | { kind: "unanswered"; stagingId: string | null; result: UnansweredQuestionsToolResult }
   | {
       kind: "blocked";
       stagingId: string | null;

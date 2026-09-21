@@ -72,6 +72,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-umrails-";
+
 const createdUserIds: string[] = [];
 
 /**
@@ -92,11 +93,13 @@ function rejectsConstraint(
   return assert.rejects(fn, (err: unknown) => {
     const parts: string[] = [];
     let cur: unknown = err;
+
     for (let i = 0; i < 5 && cur && typeof cur === "object"; i++) {
       const e = cur as { message?: string; code?: string; constraint?: string; cause?: unknown };
       parts.push(e.message ?? "", e.code ?? "", e.constraint ?? "");
       cur = e.cause;
     }
+
     const haystack = parts.join(" ");
     assert.match(haystack, new RegExp(expected.code), `expected SQLSTATE ${expected.code}`);
     assert.match(
@@ -104,6 +107,7 @@ function rejectsConstraint(
       new RegExp(expected.constraint),
       `expected constraint ${expected.constraint}`,
     );
+
     return true;
   });
 }
@@ -114,6 +118,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -130,6 +135,7 @@ const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
 // observation timestamp (the merge tie-break, D2), never a wall clock, so replay
 // ordering stays deterministic. A constant is fine for these structural rails.
 const SEED_FIRST_SEEN_AT = new Date("2026-06-23T00:00:00.000Z");
+
 const SEED_VALID_UNTIL = new Date("2026-06-24T00:00:00.000Z");
 
 async function seedNode(userId: string, value: string): Promise<string> {
@@ -143,7 +149,9 @@ async function seedNode(userId: string, value: string): Promise<string> {
     { kind: "email", value },
     SEED_FIRST_SEEN_AT,
   );
+
   await db().insert(entityNodes).values(row);
+
   return row.id;
 }
 
@@ -174,7 +182,9 @@ async function seedRun(
         : {}),
     })
     .returning({ id: projectionRuns.id });
+
   assert.ok(run);
+
   return run.id;
 }
 
@@ -195,6 +205,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -233,10 +244,12 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
   test("rail 2: supersession self-FK rejects superseding an observation in another family", async () => {
     const userId = await seedUser();
+
     const [obsA] = await db()
       .insert(observations)
       .values(gmailObs(userId, "famA", "evidence-a"))
       .returning({ id: observations.id });
+
     assert.ok(obsA);
 
     // An observation in famB cannot supersede one in famA — the composite FK is
@@ -266,10 +279,12 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
   test("rail 3: no-fork partial-unique rejects a second successor for the same predecessor", async () => {
     const userId = await seedUser();
+
     const [root] = await db()
       .insert(observations)
       .values(gmailObs(userId, "famFork", "root"))
       .returning({ id: observations.id });
+
     assert.ok(root);
 
     // First successor is allowed.
@@ -321,6 +336,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       .insert(observations)
       .values(gmailObs(userId, "famRootB", "root"))
       .returning({ id: observations.id });
+
     assert.ok(root);
     await assert.doesNotReject(() =>
       db()
@@ -748,6 +764,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       identityKind: "email",
       normalizedValue: "no-first-seen@example.com",
     });
+
     await rejectsConstraint(
       () =>
         db()
@@ -767,38 +784,42 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     const nodeA = await seedNode(userId, "reuse-a@example.com");
     const nodeB = await seedNode(userId, "reuse-b@example.com");
 
-    // A live github_login `alice` on nodeA.
+    // A live `email` on nodeA. The kind is one the `gmail` reducer really
+    // mints: `entity_identities.source` is an `ObservationSource`, so a
+    // fixture must not pair a kind with a source that cannot write it (#987).
     const [live] = await db()
       .insert(entityIdentities)
       .values({
         userId,
         entityId: nodeA,
-        kind: "github_login",
-        value: "alice",
-        source: "github",
+        kind: "email",
+        value: "alice@example.com",
+        source: "gmail",
         validFrom: SEED_FIRST_SEEN_AT,
       })
       .returning({ id: entityIdentities.id });
+
     assert.ok(live);
 
     // A SECOND live row for the same (kind, value) — even on a different entity —
-    // collides on the partial unique (a `github_login` resolves to one live entity).
+    // collides on the partial unique (an address resolves to one live entity).
     await rejectsConstraint(
       () =>
         db().insert(entityIdentities).values({
           userId,
           entityId: nodeB,
-          kind: "github_login",
-          value: "alice",
-          source: "github",
+          kind: "email",
+          value: "alice@example.com",
+          source: "gmail",
           validFrom: SEED_FIRST_SEEN_AT,
         }),
       { code: "23505", constraint: "entity_identities_active_unique_idx" },
     );
 
-    // Close the original (the GitHub login was freed), then a NEW live row for the
-    // reclaimed login on a DIFFERENT entity is allowed — the mutable-handle reuse
-    // the temporal columns exist for, which a globally-unique index would block.
+    // Close the original (the address was freed when its owner left), then a NEW
+    // live row for the reclaimed address on a DIFFERENT entity is allowed — the
+    // mutable-handle reuse the temporal columns exist for, which a
+    // globally-unique index would block.
     await db()
       .update(entityIdentities)
       .set({ validUntil: SEED_VALID_UNTIL })
@@ -808,9 +829,9 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       db().insert(entityIdentities).values({
         userId,
         entityId: nodeB,
-        kind: "github_login",
-        value: "alice",
-        source: "github",
+        kind: "email",
+        value: "alice@example.com",
+        source: "gmail",
         validFrom: SEED_VALID_UNTIL,
       }),
     );
@@ -883,10 +904,12 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // observation — but no prior rail exercised it. A plain FK on
     // head_observation_id alone would prove only that the observation exists.
     const userId = await seedUser();
+
     const [obs] = await db()
       .insert(observations)
       .values(gmailObs(userId, "famHead", "evidence-head"))
       .returning({ id: observations.id });
+
     assert.ok(obs);
 
     // A head claiming family "wrongFam" but pointing at an observation in
@@ -963,9 +986,9 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           .values({
             userId,
             entityId: node,
-            kind: "slack_id",
-            value: "x".repeat(1025),
-            source: "github",
+            kind: "email",
+            value: `${"x".repeat(1020)}@example.com`,
+            source: "gmail",
             validFrom: SEED_FIRST_SEEN_AT,
           }),
       { code: "23514", constraint: "entity_identities_value_nonempty" },

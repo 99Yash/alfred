@@ -11,20 +11,26 @@ import {
   ChevronDown,
   ExternalLink,
   Loader2,
+  MessageCircleQuestion,
   Pencil,
   RefreshCw,
   ShieldCheck,
   X,
 } from "lucide-react";
 import { useEffect, useRef, use, useId, useState } from "react";
+import { asQuestionStaging, type QuestionStaging } from "~/components/approvals/ask-user";
 import { cardTitle, toolChipLabel } from "~/components/approvals/card-spec";
 import { formatTimestamp } from "~/components/approvals/format";
 import { ApprovalInputEditor } from "~/components/approvals/input-editor";
 import { RiskChip } from "~/components/approvals/risk-pill";
 import { ToolIcon } from "~/components/approvals/tool-icon";
+import { QuestionSheet } from "~/components/approvals/question-sheet";
 import {
   useApprovalDecision,
-  type ApprovalDecision,
+  type ApprovalDecisionState,
+  type QuestionDecision,
+  type RecordedDecision,
+  type WriteDecision,
 } from "~/components/approvals/use-approval-decision";
 import { AppButton, AppSwitch, AppTextarea } from "~/components/ui/v2";
 import { AppThemeContext } from "~/components/ui/v2/theme";
@@ -37,9 +43,13 @@ import { cn } from "~/lib/utils";
 
 // Hoisted so the `leading` props below don't allocate a fresh element per render.
 const ICON_X = <X size={13} />;
+
 const ICON_REVISE = <RefreshCw size={13} />;
+
 const ICON_BAN = <Ban size={13} />;
+
 const ICON_CHECK = <Check size={13} />;
+
 const ICON_PENCIL = <Pencil size={13} />;
 
 /** The single accordion item value — one card holds one expandable panel. */
@@ -71,6 +81,7 @@ export function ChatApprovalTray({
 }) {
   const [recentDecision, setRecentDecision] = useState(false);
   const [previousRunId, setPreviousRunId] = useState(runId);
+
   if (runId !== previousRunId) {
     setPreviousRunId(runId);
     setRecentDecision(false);
@@ -79,21 +90,72 @@ export function ChatApprovalTray({
   // Chime once per freshly-arrived batch of approvals. A per-card effect would
   // fire N toasts and stack N overlapping sounds when several actions gate at
   // once; centralizing it here keeps a single "review this" signal.
-  const notifiedRef = useRef<Set<string>>(new Set());
+  //
+  // The map is both the dedupe ledger and the handle on the chime it raised:
+  // the key answers "did this row chime already?", and the value is the toast
+  // to dismiss once the row no longer waits for the user. A retired chime
+  // keeps a `null` value, because deleting the key re-chimes the row on the
+  // next poke. Lazily allocated: `useRef(new Map())` builds and discards a Map
+  // on every render. Pruned to the rows still on screen on each fire, so a
+  // long thread does not accumulate an id per approval it ever showed — a row
+  // that leaves `pending` never comes back, so dropping it cannot re-chime.
+  const chimesRef = useRef<Map<string, string | number | null> | null>(null);
+
+  // A chime means "come and look". The user who decides has looked, so the
+  // toast goes on the click itself — not when the server answers, and not five
+  // seconds later. One chime can cover a batch, so a decision on any row it
+  // announced retires it for every row in that batch.
+  const dismissChime = (stagingId: string) => {
+    const chimes = chimesRef.current;
+    const toastId = chimes?.get(stagingId) ?? null;
+
+    if (!chimes || toastId === null) return;
+
+    toast.dismiss(toastId);
+
+    for (const [id, raised] of chimes) if (raised === toastId) chimes.set(id, null);
+  };
+
   useEffect(() => {
     if (preview) return;
-    const fresh = approvals.filter((row) => !notifiedRef.current.has(row.id));
+    const chimes = (chimesRef.current ??= new Map());
+    const fresh = approvals.filter((row) => !chimes.has(row.id));
+    const live = new Set(approvals.map((row) => row.id));
+
+    // A row leaves `pending` when someone decides it — on this card, on the
+    // approvals page, or through an expiry — so its chime is stale either way.
+    for (const [id, toastId] of chimes) {
+      if (live.has(id)) continue;
+
+      if (toastId !== null) toast.dismiss(toastId);
+      chimes.delete(id);
+    }
+
     if (fresh.length === 0) return;
-    for (const row of fresh) notifiedRef.current.add(row.id);
+
     const first = fresh[0];
-    callToast({
-      message: "Approval needed",
-      description:
-        fresh.length === 1 && first
-          ? cardTitle(first.toolName, first.proposedInput)
+    // A question is not a permission request, so it gets its own chime copy —
+    // "Approval needed" over a card asking which recipient to use reads as a
+    // warning about an action the user never proposed.
+    const lone = fresh.length === 1 ? first : undefined;
+    const loneQuestion = lone ? asQuestionStaging(lone) : null;
+
+    const toastId = callToast({
+      message: loneQuestion ? "Alfred has a question" : "Approval needed",
+      description: loneQuestion
+        ? (loneQuestion.input.questions[0]?.question ?? "Answer to continue the turn.")
+        : lone
+          ? cardTitle(lone.toolName, lone.proposedInput)
           : `${fresh.length} actions need your review`,
-      icon: <ShieldCheck size={14} className="text-app-purple-3" />,
+      icon: loneQuestion ? (
+        <MessageCircleQuestion size={14} className="text-app-purple-3" />
+      ) : (
+        <ShieldCheck size={14} className="text-app-purple-3" />
+      ),
     });
+
+    for (const row of fresh) chimes.set(row.id, toastId);
+
     const audio = new Audio("/sounds/run-finished.mp3");
     audio.volume = 0.42;
     void audio.play().catch(() => {
@@ -106,12 +168,16 @@ export function ChatApprovalTray({
 
   if (approvals.length === 0) {
     if (!awaitingApproval) return null;
+
     return (
       <div className="app-frost-overlay animate-chat-in rounded-2xl px-4 py-3">
         <div className="flex items-center gap-2 text-[13px] text-app-fg-3">
           <Loader2 size={14} className="animate-spin" />
           <span className={cn(!recentDecision && "animate-chat-shimmer")}>
-            {recentDecision ? "Resuming after your decision…" : "Waiting for approval…"}
+            {/* Neutral over both card kinds: the pending row below may be a
+             * question, and "Waiting for approval" reads as a permission
+             * prompt the user never asked for. */}
+            {recentDecision ? "Resuming after your decision…" : "Waiting for your decision…"}
           </span>
         </div>
       </div>
@@ -120,25 +186,133 @@ export function ChatApprovalTray({
 
   return (
     <div className="flex flex-col gap-2">
-      {approvals.map((staging) => (
-        <InlineApprovalCard
-          key={staging.id}
-          staging={staging}
-          preview={preview}
-          onDecision={() => setRecentDecision(true)}
-        />
-      ))}
+      {approvals.map((staging) => {
+        // A question is an approval with a different card (ADR-0099): same
+        // staged row, same decision route, but the body is an answer sheet and
+        // the actions are Continue / Dismiss. A staged input that does not
+        // parse falls back to the ordinary card rather than to nothing.
+        const question = asQuestionStaging(staging);
+
+        return question ? (
+          <InlineQuestionCard
+            key={staging.id}
+            question={question}
+            preview={preview}
+            onDecisionStart={() => dismissChime(staging.id)}
+            onDecision={() => setRecentDecision(true)}
+          />
+        ) : (
+          <InlineApprovalCard
+            key={staging.id}
+            staging={staging}
+            preview={preview}
+            onDecisionStart={() => dismissChime(staging.id)}
+            onDecision={() => setRecentDecision(true)}
+          />
+        );
+      })}
     </div>
   );
+}
+
+/** The toast a landed decision raises. */
+interface DecisionToast {
+  tone: "success" | "info";
+  message: string;
+  description: string;
+}
+
+/**
+ * Posts one decision for a staged row and lands the card's local state: which
+ * decision it was (drives the resolved badge) and the "resuming" affordance.
+ * Shared by the write card and the question card, which differ only in the
+ * copy they raise for a run-ending decision — the route, the error wording,
+ * and the preview no-op are the same for both. Approve/reject decisions raise
+ * no toast: the inline card already collapses to a "Resuming…" state, so a
+ * toast would double-announce the same signal.
+ */
+function useRecordDecision<Decision extends RecordedDecision>({
+  staging,
+  preview,
+  onDecisionStart,
+  onDecision,
+  run,
+  setDecided,
+  toastFor,
+}: {
+  staging: SyncedActionStaging;
+  preview: boolean | undefined;
+  /** The user recorded a decision. Fires on the click, before the API call. */
+  onDecisionStart: () => void;
+  onDecision: () => void;
+  run: ApprovalDecisionState["run"];
+  setDecided: (value: boolean) => void;
+  toastFor: (decision: Decision) => DecisionToast | null;
+}) {
+  // Generic over the decision union, so a write card cannot record a
+  // reason-less rejection and a question card cannot record a `cancel_run`.
+  // The card passes its own union, so each copy builder below covers exactly
+  // the kinds its own card raises — and a `never` guard in each proves it.
+  const [decisionKind, setDecisionKind] = useState<Decision["decision"] | null>(null);
+
+  const decide = (decision: Decision) => {
+    setDecisionKind(decision.decision);
+    onDecisionStart();
+
+    if (preview) {
+      // Styleguide: land the decision locally so the collapse + badge states
+      // are demonstrable without an API.
+      setDecided(true);
+
+      return;
+    }
+
+    return run(async () => {
+      const { data, error: responseError } = await client.api
+        .approvals({ stagingId: staging.id })
+        .decision.post(decision);
+
+      if (responseError) {
+        throw new Error(
+          responseErrorMessage(responseError.value, responseError.status, "Approval decision"),
+        );
+      }
+
+      if (data && "refreshed" in data && data.refreshed) {
+        toast.info({
+          message: "Review the refreshed contract",
+          description:
+            "Alfred updated the derived schedule and account details. Approve it again to activate the workflow.",
+          position: "top-center",
+        });
+
+        return;
+      }
+
+      setDecided(true);
+      onDecision();
+      const pendingToast = toastFor(decision);
+
+      if (pendingToast) {
+        const { tone, message, description } = pendingToast;
+        const recorded = tone === "success" ? toast.success : toast.info;
+        recorded({ message, description, position: "top-center" });
+      }
+    });
+  };
+
+  return { decisionKind, decide };
 }
 
 function InlineApprovalCard({
   staging,
   preview = false,
+  onDecisionStart,
   onDecision,
 }: {
   staging: SyncedActionStaging;
   preview?: boolean | undefined;
+  onDecisionStart: () => void;
   onDecision: () => void;
 }) {
   const {
@@ -160,66 +334,32 @@ function InlineApprovalCard({
     approveDecision,
     run,
   } = useApprovalDecision(staging);
+
   const { modeFor, setIntegrationMode } = useActionPolicy();
 
   // Which decision landed — drives the resolved badge (check = approved,
   // ✕ = sent back / run ended).
-  const [decisionKind, setDecisionKind] = useState<ApprovalDecision["decision"] | null>(null);
+  const { decisionKind, decide } = useRecordDecision({
+    staging,
+    preview,
+    onDecisionStart,
+    onDecision,
+    run,
+    setDecided,
+    toastFor: writeDecisionToast,
+  });
 
   // Open while the decision is pending; auto-collapse the moment it lands,
   // leaving the collapsed trigger row with the resolved badge. Render-phase
   // tracking (no effect) so the collapse lands on the same frame as `decided`.
   const [panelValue, setPanelValue] = useState(decided ? "" : PANEL_ITEM);
   const [prevDecided, setPrevDecided] = useState(decided);
+
   if (prevDecided !== decided) {
     setPrevDecided(decided);
+
     if (decided) setPanelValue("");
   }
-
-  const decide = (decision: ApprovalDecision) => {
-    setDecisionKind(decision.decision);
-    if (preview) {
-      // Styleguide: land the decision locally so the collapse + badge states
-      // are demonstrable without an API.
-      setDecided(true);
-      return;
-    }
-    return run(async () => {
-      const { data, error: responseError } = await client.api
-        .approvals({ stagingId: staging.id })
-        .decision.post(decision);
-      if (responseError) {
-        throw new Error(
-          responseErrorMessage(responseError.value, responseError.status, "Approval decision"),
-        );
-      }
-      if (data && "refreshed" in data && data.refreshed) {
-        toast.info({
-          message: "Review the refreshed contract",
-          description:
-            "Alfred updated the derived schedule and account details. Approve it again to activate the workflow.",
-          position: "top-center",
-        });
-        return;
-      }
-      setDecided(true);
-      onDecision();
-      const recorded = decision.decision === "approve" ? toast.success : toast.info;
-      recorded({
-        message:
-          decision.decision === "approve"
-            ? "Approval recorded"
-            : decision.decision === "reject"
-              ? "Sent back to Alfred"
-              : "Run ended",
-        description:
-          decision.decision === "cancel_run"
-            ? "Alfred stopped this run."
-            : "Alfred is resuming the run.",
-        position: "top-center",
-      });
-    });
-  };
 
   const approveLabel = approvalLabel(staging.toolName, staging.riskTier, edited);
   const policy = policyCopy(staging.riskTier);
@@ -236,8 +376,7 @@ function InlineApprovalCard({
             <Accordion.Header>
               <Accordion.Trigger
                 className={cn(
-                  "group/approval flex w-full items-center gap-3 px-3 py-3 text-left outline-none sm:px-4",
-                  "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-purple-2",
+                  "app-focus-inset group/approval flex w-full items-center gap-3 p-3 text-left sm:px-4",
                 )}
               >
                 <ToolIcon integration={staging.integration} />
@@ -275,8 +414,8 @@ function InlineApprovalCard({
                       "bg-linear-to-b from-app-bg-1 transition-[margin] duration-200",
                       "group-hover/app:mr-0 group-focus-visible/app:mr-0 group-data-[state=open]/app:mr-0",
                       approved
-                        ? "text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)] to-app-green-2"
-                        : "text-app-red-4 shadow-[0_0_0_1px_var(--app-red-2)] to-app-red-1",
+                        ? "to-app-green-2 text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)]"
+                        : "to-app-red-1 text-app-red-4 shadow-[0_0_0_1px_var(--app-red-2)]",
                     )}
                   >
                     {approved ? (
@@ -314,7 +453,7 @@ function InlineApprovalCard({
             ) : null}
           </div>
           <Accordion.Content className="data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down overflow-hidden">
-            <div className="border-t border-app-bg-a2 px-3 pt-3 pb-3 sm:px-4">
+            <div className="border-t border-app-bg-a2 p-3 sm:px-4">
               {/* Fields are always live — no read-only/Adjust step. Edit in place, then
                * the primary button reads "Approve changes". */}
               <ApprovalInputEditor
@@ -369,7 +508,7 @@ function InlineApprovalCard({
                     className={cn(
                       "inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-[12px] font-medium text-app-fg-3",
                       "transition-[background-color,color] hover:bg-app-bg-a2 hover:text-app-fg-4",
-                      "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                      "app-focus",
                     )}
                   >
                     View all
@@ -455,6 +594,129 @@ function InlineApprovalCard({
   );
 }
 
+/** The toast copy for a write approval's run-ending decision. Approve and
+ * reject resume the run, which the inline card already announces with its
+ * "Resuming…" state — so they raise no toast. */
+function writeDecisionToast(decision: WriteDecision): DecisionToast | null {
+  if (decision.decision === "approve") return null;
+
+  if (decision.decision === "reject") return null;
+
+  if (decision.decision === "cancel_run") {
+    return { tone: "info", message: "Run ended", description: "Alfred stopped this run." };
+  }
+
+  // A new arm on `WriteDecision` fails to compile here instead of falling
+  // through to another decision's copy.
+  const unhandled: never = decision;
+
+  return unhandled;
+}
+
+/**
+ * The toast copy for a question's decisions. Both arms continue the turn,
+ * which the inline card already announces — so neither raises a toast. The
+ * builder stays so a future run-ending question decision fails to compile
+ * instead of silently raising nothing.
+ */
+function questionDecisionToast(decision: QuestionDecision): DecisionToast | null {
+  if (decision.decision === "approve") return null;
+
+  if (decision.decision === "reject") return null;
+
+  const unhandled: never = decision;
+
+  return unhandled;
+}
+
+/**
+ * A parked `system.ask_user` question, inline under the tool trail (ADR-0099).
+ *
+ * The row is an ordinary staged approval, so this card rides the same decision
+ * route and the same Replicache row as a write approval — a reload during the
+ * park draws the same open card, and the composer stays disabled the whole
+ * time. Only three things differ: the body is an answer sheet instead of a
+ * field editor, the panel stays open (a question is the point of the turn, not
+ * a detail to fold away), and the actions read Dismiss / Continue.
+ *
+ * The card owns the chrome only. {@link QuestionSheet} owns the answer sheet,
+ * the action row, and the keyboard contract, so the `/approvals` queue's card
+ * draws the identical body from the identical component.
+ *
+ * The answers ride the approval's `editedInput`. Continuing without answering
+ * anything sends a plain approval, which the tool reports to the model as
+ * `no_answers` rather than as a sheet full of blanks.
+ */
+function InlineQuestionCard({
+  question,
+  preview = false,
+  onDecisionStart,
+  onDecision,
+}: {
+  question: QuestionStaging;
+  preview?: boolean | undefined;
+  onDecisionStart: () => void;
+  onDecision: () => void;
+}) {
+  const staging = question.staging;
+
+  const { draftInput, setDraftInput, busy, decided, setDecided, error, approveDecision, run } =
+    useApprovalDecision(staging);
+
+  const { decisionKind, decide } = useRecordDecision<QuestionDecision>({
+    staging,
+    preview,
+    onDecisionStart,
+    onDecision,
+    run,
+    setDecided,
+    toastFor: questionDecisionToast,
+  });
+
+  const count = question.input.questions.length;
+
+  return (
+    <section
+      aria-label="Question from Alfred"
+      className="app-frost-overlay animate-chat-in overflow-hidden rounded-2xl"
+    >
+      <div className="flex items-center gap-3 p-3 sm:px-4">
+        <img src="/images/logo/alfred-logo.svg" alt="" className="size-8 shrink-0 rounded-[9px]" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] leading-6 font-medium text-app-fg-4">
+            {count === 1 ? "Alfred has a question" : `Alfred has ${count} questions`}
+          </p>
+          <p className="mt-0.5 truncate text-[12px] leading-5 text-app-fg-3">
+            {decided
+              ? decisionKind === "approve"
+                ? "Answers sent. Alfred is continuing."
+                : "Dismissed. Alfred is continuing without an answer."
+              : "Answer to continue this turn."}
+          </p>
+        </div>
+      </div>
+
+      <QuestionSheet
+        question={question}
+        draftInput={draftInput}
+        onDraftChange={setDraftInput}
+        busy={busy}
+        decided={decided}
+        error={error}
+        idPrefix={`chat-question-${staging.id}`}
+        settledLabel="Continuing…"
+        onContinue={() => void decide(approveDecision())}
+        // A dismissal IS the answer, so it goes on the wire as a plain
+        // reason-less rejection — the same shape the route already accepts for
+        // a question (ADR-0099). No separate decision kind exists.
+        onDismiss={() =>
+          void decide({ decision: "reject", expectedRowVersion: staging.rowVersion })
+        }
+      />
+    </section>
+  );
+}
+
 /**
  * "Always allow {integration}" moved off the action row into a Permissions
  * popover pinned to the collapsed trigger's top-right — the card body keeps
@@ -482,6 +744,7 @@ function PermissionsAffordance({
   // on the content directly (context still flows through the portal). Same
   // pattern as ApprovalModePicker / AppSelect.
   const themeCtx = use(AppThemeContext);
+
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
 
@@ -493,9 +756,8 @@ function PermissionsAffordance({
           aria-controls={popoverId}
           className={cn(
             "absolute top-2.5 right-3 inline-flex h-7 items-center gap-1 rounded-lg px-2 text-[12px] font-medium text-app-fg-3",
-            "app-press transition-[box-shadow,color,background-color] outline-none",
+            "app-focus app-press transition-[box-shadow,color,background-color]",
             "hover:bg-app-bg-a2 hover:text-app-fg-4",
-            "focus-visible:ring-2 focus-visible:ring-app-purple-2",
           )}
         >
           <ShieldCheck size={12} className="shrink-0" />
@@ -553,13 +815,20 @@ function PermissionsAffordance({
   );
 }
 
-/** The trigger's subline once the decision has landed. */
-function ResolvedCopy({ kind, edited }: { kind: ApprovalDecision["decision"]; edited: boolean }) {
+/** The trigger's subline once the decision has landed. Write cards only — the
+ * question card carries its own subline, whose "reject" reads as a dismissal
+ * rather than as a revision note. */
+function ResolvedCopy({ kind, edited }: { kind: WriteDecision["decision"]; edited: boolean }) {
   if (kind === "approve") {
     return edited ? "Approved with changes — resuming the run." : "Approved — resuming the run.";
   }
+
   if (kind === "reject") return "Sent back to Alfred with a revision note.";
-  return "Run ended at your request.";
+
+  if (kind === "cancel_run") return "Run ended at your request.";
+  const unhandled: never = kind;
+
+  return unhandled;
 }
 
 /** "Always allow" is only offerable where it can actually take effect: high-tier
@@ -572,7 +841,9 @@ function canAlwaysAllow(staging: SyncedActionStaging): boolean {
 
 function approvalLabel(toolName: string, riskTier: ToolRiskTier, edited: boolean): string {
   if (edited && toolName === "system.activate_workflow") return "Review changes";
+
   if (edited) return isWriteRiskTier(riskTier) ? "Approve changes" : "Allow changes";
+
   return isWriteRiskTier(riskTier) ? "Approve" : "Allow once";
 }
 
@@ -580,8 +851,10 @@ function policyCopy(riskTier: ToolRiskTier): string {
   if (riskTier === "no_risk") {
     return "This integration is set to ask first. This action does not change external data.";
   }
+
   if (riskTier === "low") {
     return "This integration is set to ask first. Review the target before Alfred reads more context.";
   }
+
   return "This action can change data outside Alfred. Review the details before it runs.";
 }

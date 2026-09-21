@@ -50,11 +50,15 @@ export function encodeInboxCursor(parsed: ParsedInboxCursor): string {
 export function parseInboxCursor(raw: string | undefined): ParsedInboxCursor | null | "invalid" {
   if (!raw) return null;
   const sep = raw.indexOf(INBOX_CURSOR_SEPARATOR);
+
   if (sep < 0) return "invalid";
   const iso = raw.slice(0, sep);
   const documentId = raw.slice(sep + 1);
+
   if (!iso || !documentId) return "invalid";
   const authoredAt = new Date(iso);
+
   if (Number.isNaN(authoredAt.getTime())) return "invalid";
+
   return { authoredAt, documentId };
 }

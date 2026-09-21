@@ -80,12 +80,15 @@ function formatDate(date: Date): string {
   const weekday = date.toLocaleDateString(undefined, { weekday: "long" });
   const month = date.toLocaleDateString(undefined, { month: "long" });
   const day = date.getDate();
+
   return `${weekday}, ${month} ${day}${ordinal(day)}`;
 }
 
 function ordinal(n: number): string {
   const s = n % 100;
+
   if (s >= 11 && s <= 13) return "th";
+
   switch (n % 10) {
     case 1:
       return "st";

@@ -9,6 +9,7 @@ import { z } from "zod";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // GROUND: behavioral guard that the boss answers relative calendar questions
 // ("today" / "tomorrow" / "this week") through the STRUCTURED `window` /
@@ -26,7 +27,9 @@ import type { GroundingTaskOutput } from "./lib/grounding";
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
 const NOW = new Date("2026-06-26T04:44:00Z");
+
 const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
+
 const EVAL_TIMEOUT_MS = 60_000;
 
 const LIST_EVENTS_TOOL = "calendar.list_events";
@@ -41,7 +44,7 @@ const CONNECTED_SUMMARY = [
 // Mirror prod: chat's system prompt states no date; "now" rides the ephemeral
 // runtime line delivered as an assistant turn just before the user's message
 // (see runFirstCall), the single source of the current date and time (#410).
-const SYSTEM = buildChatSystemPrompt("", CONNECTED_SUMMARY);
+const SYSTEM = buildChatSystemPrompt("", CONNECTED_SUMMARY, selfIdentityGrounding());
 
 // The advertised parameters (from the model-facing JSON schema). The runtime
 // schema also tolerates window-key synonyms (`timeframe`/`range`/…), but the
@@ -52,6 +55,7 @@ const SYSTEM = buildChatSystemPrompt("", CONNECTED_SUMMARY);
 const ADVERTISED = z.toJSONSchema(calendarListEventsInput, { io: "input" }) as {
   properties?: Record<string, unknown>;
 };
+
 const ACCEPTED_PARAMS = new Set(Object.keys(ADVERTISED.properties ?? {}));
 
 interface ExpectedCalendarCall {
@@ -112,8 +116,10 @@ evalite<string, GroundingTaskOutput, ExpectedCalendarCall>("Agent calendar groun
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
     const result = await runFirstCall(input);
+
     const call =
       result.toolCalls.find((c) => c.toolName === LIST_EVENTS_TOOL) ?? result.toolCalls[0];
+
     return {
       toolName: call?.toolName ?? null,
       // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
@@ -139,6 +145,7 @@ evalite<string, GroundingTaskOutput, ExpectedCalendarCall>("Agent calendar groun
       scorer: ({ output }) => {
         const args = output.args ?? {};
         const invented = Object.keys(args).filter((k) => !ACCEPTED_PARAMS.has(k));
+
         return {
           score: invented.length === 0 ? 1 : 0,
           metadata:
@@ -158,6 +165,7 @@ evalite<string, GroundingTaskOutput, ExpectedCalendarCall>("Agent calendar groun
         const partOk = expected.partOfDay === undefined || args.partOfDay === expected.partOfDay;
         const noBounds = args.timeMin === undefined && args.timeMax === undefined;
         const ok = windowOk && partOk && noBounds;
+
         return {
           score: ok ? 1 : 0,
           metadata: ok

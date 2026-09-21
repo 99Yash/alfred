@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 
 import { standingInstructionValueSchema } from "@alfred/contracts";
 import type { RememberSenderSuppressionResult } from "@alfred/assistant/knowledge";
-import type { ResolveTodosForGmailSenderResult } from "@alfred/assistant/tasks";
+import type { ResolveTodosForGmailSourceResult } from "@alfred/assistant/tasks";
 import type { SystemToolRequest } from "@alfred/assistant/tool-runtime";
 import { createRememberSenderSuppressionCoordinator } from "../../src/runtime/adapters/system-tool-product";
 
@@ -39,26 +39,33 @@ const instruction = standingInstructionValueSchema.parse({
 describe("sender suppression coordinator", () => {
   test("writes the instruction before it dismisses todos", async () => {
     const calls: Array<{ name: string; args: unknown }> = [];
+
     const remembered: RememberSenderSuppressionResult = {
       ok: true,
       status: "remembered",
       factId: "fact_1",
       instruction,
+      resolvedSenderEmail: "sender@example.com",
     };
-    const dismissed: ResolveTodosForGmailSenderResult = {
+
+    const dismissed: ResolveTodosForGmailSourceResult = {
       ok: true,
       status: "dismissed",
       dismissedCount: 1,
       todoIds: ["todo_1"],
       matchedThreadIds: ["thread_1"],
+      auditReason: "standing_instruction_sender_suppression",
     };
+
     const coordinate = createRememberSenderSuppressionCoordinator({
       remember: (args) => {
         calls.push({ name: "remember", args });
+
         return Promise.resolve(remembered);
       },
       dismissTodos: (args) => {
         calls.push({ name: "dismiss", args });
+
         return Promise.resolve(dismissed);
       },
     });
@@ -74,6 +81,7 @@ describe("sender suppression coordinator", () => {
           accountId: null,
           directive: undefined,
           phrasing: undefined,
+          scope: undefined,
           source: {
             kind: "tool_call",
             id: "call_1",
@@ -88,6 +96,7 @@ describe("sender suppression coordinator", () => {
           senderEmail: "sender@example.com",
           accountId: null,
           reason: "standing_instruction_sender_suppression",
+          actor: "agent",
         },
       },
     ]);
@@ -100,17 +109,21 @@ describe("sender suppression coordinator", () => {
       reason: "invalid_sender_email",
       message: "Which sender should I suppress?",
     };
+
     let dismissCount = 0;
+
     const coordinate = createRememberSenderSuppressionCoordinator({
       remember: () => Promise.resolve(clarification),
       dismissTodos: () => {
         dismissCount += 1;
+
         return Promise.resolve({
           ok: true,
           status: "not_found",
           dismissedCount: 0,
           todoIds: [],
           matchedThreadIds: [],
+          auditReason: "standing_instruction_sender_suppression",
         });
       },
     });

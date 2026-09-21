@@ -30,6 +30,7 @@ declare module "@tanstack/react-router" {
 for (const el of document.querySelectorAll("[data-seo-baseline]")) el.remove();
 
 const rootEl = document.getElementById("root");
+
 if (!rootEl) throw new Error("#root element not found");
 
 createRoot(rootEl).render(
@@ -53,9 +54,12 @@ function scheduleObservabilityInit() {
       .catch(() => {});
 
   const requestIdle = window.requestIdleCallback;
+
   if (typeof requestIdle === "function") {
     requestIdle(load, { timeout: 2_000 });
+
     return;
   }
+
   globalThis.setTimeout(load, 1_000);
 }

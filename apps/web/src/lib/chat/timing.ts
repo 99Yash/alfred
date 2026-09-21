@@ -1,8 +1,12 @@
 import type { JsonObject } from "@alfred/contracts";
 
+declare global {
+  var __alfredChatTimings: (() => ReturnType<typeof getChatTimingSnapshot>) | undefined;
+}
+
 const DEV =
-  // SAFETY: import.meta.env is Vite's injected env record; this only types the
-  // optional field access.
+  // SAFETY: import.meta.env is Vite's injected env record; the optional read
+  // keeps non-Vite contexts (unit tests) working.
   (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true &&
   typeof window !== "undefined" &&
   typeof performance !== "undefined";
@@ -42,8 +46,11 @@ interface MarkOptions {
 }
 
 const byUserMessageId = new Map<string, ChatTurnTiming>();
+
 const byAssistantMessageId = new Map<string, ChatTurnTiming>();
+
 const order: ChatTurnTiming[] = [];
+
 const MAX_TURNS = 30;
 
 export function markChatSubmit(args: {
@@ -52,6 +59,7 @@ export function markChatSubmit(args: {
   contentChars: number;
 }): void {
   if (!DEV) return;
+
   const turn = {
     clientTurnId: args.userMessageId,
     threadId: args.threadId,
@@ -59,6 +67,7 @@ export function markChatSubmit(args: {
     contentChars: args.contentChars,
     marks: new Map<string, ChatTimingMark>(),
   };
+
   byUserMessageId.set(args.userMessageId, turn);
   order.push(turn);
   trimOldTurns();
@@ -73,6 +82,7 @@ export function markChatTimingByUser(
 ): void {
   if (!DEV) return;
   const turn = byUserMessageId.get(userMessageId);
+
   if (!turn) return;
   mark(turn, stage, detail, options);
 }
@@ -87,6 +97,7 @@ export function attachChatAssistantTiming(args: {
   const userTurn = byUserMessageId.get(args.userMessageId);
   const assistantTurn = byAssistantMessageId.get(args.assistantMessageId);
   const turn = mergeTurns(userTurn, assistantTurn) ?? userTurn ?? assistantTurn;
+
   if (!turn) return;
 
   turn.assistantMessageId = args.assistantMessageId;
@@ -104,6 +115,7 @@ export function markChatTimingByAssistant(
 ): void {
   if (!DEV) return;
   let turn = byAssistantMessageId.get(assistantMessageId);
+
   if (!turn) {
     if (options?.requireExisting) return;
     turn = {
@@ -117,7 +129,9 @@ export function markChatTimingByAssistant(
     order.push(turn);
     trimOldTurns();
   }
+
   if (options?.threadId && turn.threadId === "unknown") turn.threadId = options.threadId;
+
   if (options?.runId && !turn.runId) turn.runId = options.runId;
   mark(turn, stage, detail, options);
 }
@@ -143,13 +157,16 @@ function mergeTurns(
   assistantTurn: ChatTurnTiming | undefined,
 ): ChatTurnTiming | undefined {
   if (!userTurn || !assistantTurn || userTurn === assistantTurn) return userTurn ?? assistantTurn;
+
   for (const [stage, assistantMark] of assistantTurn.marks) {
     if (!userTurn.marks.has(stage)) userTurn.marks.set(stage, assistantMark);
   }
+
   byAssistantMessageId.set(
     assistantTurn.assistantMessageId ?? assistantTurn.clientTurnId,
     userTurn,
   );
+
   return userTurn;
 }
 
@@ -161,15 +178,18 @@ function mark(
 ): void {
   const existing = turn.marks.get(stage);
   const repeat = options?.repeat ?? "ignore";
+
   if (existing && repeat === "ignore") return;
 
   const at = performance.now();
+
   const next: ChatTimingMark = {
     stage,
     at,
     iso: new Date().toISOString(),
     detail,
   };
+
   turn.marks.set(stage, next);
 
   if (options?.log !== false) {
@@ -196,10 +216,13 @@ function previousMark(
   currentAt: number,
 ): ChatTimingMark | null {
   let previous: ChatTimingMark | null = null;
+
   for (const mark of turn.marks.values()) {
     if (mark.stage === currentStage || mark.at > currentAt) continue;
+
     if (!previous || mark.at > previous.at) previous = mark;
   }
+
   return previous;
 }
 
@@ -220,8 +243,10 @@ function printSummary(turn: ChatTurnTiming, stage: string): void {
 function timelineRows(turn: ChatTurnTiming): ChatTimingTimelineRow[] {
   const rows = Array.from(turn.marks.values()).toSorted((a, b) => a.at - b.at);
   const submitAt = turn.marks.get("submit")?.at ?? rows[0]?.at ?? 0;
+
   return rows.map((row, index) => {
     const previous = rows[index - 1];
+
     return {
       stage: row.stage,
       sinceSubmitMs: round(row.at - submitAt),
@@ -235,8 +260,11 @@ function timelineRows(turn: ChatTurnTiming): ChatTimingTimelineRow[] {
 function trimOldTurns(): void {
   while (order.length > MAX_TURNS) {
     const removed = order.shift();
+
     if (!removed) continue;
+
     if (removed.userMessageId) byUserMessageId.delete(removed.userMessageId);
+
     if (removed.assistantMessageId) byAssistantMessageId.delete(removed.assistantMessageId);
   }
 }
@@ -246,9 +274,5 @@ function round(value: number): number {
 }
 
 function exposeDebugHandle(): void {
-  // SAFETY: augmenting globalThis with this module's own debug accessor; no
-  // other writer uses the key.
-  (
-    globalThis as { __alfredChatTimings?: () => ReturnType<typeof getChatTimingSnapshot> }
-  ).__alfredChatTimings = getChatTimingSnapshot;
+  globalThis.__alfredChatTimings = getChatTimingSnapshot;
 }

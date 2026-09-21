@@ -8,6 +8,8 @@ export interface LoginSearch {
  */
 export function sanitizeRedirect(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
+
   if (!value.startsWith("/") || value.startsWith("//")) return undefined;
+
   return value;
 }

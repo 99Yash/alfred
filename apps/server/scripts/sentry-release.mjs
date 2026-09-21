@@ -15,8 +15,11 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
 const authToken = process.env.SENTRY_AUTH_TOKEN;
+
 const org = process.env.SENTRY_ORG;
+
 const project = process.env.SENTRY_PROJECT;
+
 // Match the runtime release (Sentry.init({ release })). SENTRY_RELEASE is set in
 // prod to ${{ RAILWAY_GIT_COMMIT_SHA }}; fall back to Railway's raw commit var.
 const release = process.env.SENTRY_RELEASE || process.env.RAILWAY_GIT_COMMIT_SHA;
@@ -25,12 +28,14 @@ if (!authToken) {
   console.log("[sentry-release] SENTRY_AUTH_TOKEN unset - skipping.");
   process.exit(0);
 }
+
 if (!org || !project) {
   console.warn("[sentry-release] SENTRY_ORG/SENTRY_PROJECT unset - skipping upload.");
   process.exit(0);
 }
 
 let bin;
+
 try {
   // @sentry/cli ships the platform binary as an optional dep; getPath() resolves
   // it in the monorepo. v3 exports the class as a named `SentryCli`.
@@ -46,9 +51,11 @@ const env = { ...process.env, SENTRY_ORG: org, SENTRY_PROJECT: project };
 function run(args) {
   try {
     execFileSync(bin, args, { stdio: "inherit", env });
+
     return true;
   } catch (err) {
     console.warn(`[sentry-release] \`${args.join(" ")}\` failed:`, err?.message);
+
     return false;
   }
 }
@@ -58,6 +65,7 @@ console.log(`[sentry-release] org=${org} project=${project} release=${release ||
 // Source maps match by injected debug IDs, so this works even without a release
 // name. Inject rewrites ./dist in place (same bundle that ships), then upload.
 run(["sourcemaps", "inject", "./dist"]);
+
 run(["sourcemaps", "upload", ...(release ? ["--release", release] : []), "./dist"]);
 
 // Commit association (Suspect Commits / "resolved in commit") needs the release
@@ -72,4 +80,5 @@ if (release) {
       "uploaded source maps but skipped commit association.",
   );
 }
+
 process.exit(0);

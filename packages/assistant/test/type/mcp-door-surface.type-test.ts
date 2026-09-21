@@ -42,11 +42,15 @@
 // ---------------------------------------------------------------------------
 
 type ConnectionsDoor = typeof import("@alfred/assistant/connections/mcp");
+
 type ToolRuntimeDoor = typeof import("@alfred/assistant/tool-runtime/mcp");
 
 type _AssertConnectionsDoorResolves = ConnectionsDoor["getMcpConnectionManager"];
+
 type _AssertToolRuntimeDoorResolves = ToolRuntimeDoor["getMcpExecutionBroker"];
+
 type _AssertClosedBuiltInDoor = ConnectionsDoor["ensureBuiltInConnection"];
+
 type ConnectionPatch = Parameters<ConnectionsDoor["updateConnection"]>[1];
 
 const _validConnectionPatch = { status: "ready" } satisfies ConnectionPatch;
@@ -122,10 +126,13 @@ type _NoRiskOnConnections = ConnectionsDoor["resolveMcpCallRiskTier"];
 // ---------------------------------------------------------------------------
 
 type ConnectionsTestSupport = typeof import("@alfred/assistant/connections/mcp/test-support");
+
 type ToolRuntimeTestSupport = typeof import("@alfred/assistant/tool-runtime/mcp/test-support");
 
 type _AssertConnTestSupportResolves = ConnectionsTestSupport["publishCatalogRevision"];
+
 type _AssertToolRuntimeTestSupportResolves = ToolRuntimeTestSupport["upsertToolPolicy"];
+
 type _AssertBrokerSetterIsTestSupport = ToolRuntimeTestSupport["_setMcpExecutionBrokerForTests"];
 
 // @ts-expect-error - the unguarded catalog-pointer write is test-support, not product surface.
@@ -157,10 +164,13 @@ type _NoBrokerSetterOnToolRuntime = ToolRuntimeDoor["_setMcpExecutionBrokerForTe
 // A successor resume must not share an HTTP request's lifetime, so its input
 // type has no `signal`. If one is added, this line stops compiling.
 type SuccessorResumeInput = import("@alfred/assistant/tool-runtime/mcp").McpReservedSuccessorInput;
+
 type _NoSignalOnSuccessorResume = "signal" extends keyof SuccessorResumeInput ? never : true;
+
 const _successorResumeHasNoSignal: _NoSignalOnSuccessorResume = true;
 
 type ToolRuntimeLeaf = typeof import("@alfred/assistant/tool-runtime/mcp/invocations");
+
 type _AssertToolRuntimeLeafStillResolves = ToolRuntimeLeaf["resolveMcpToolIdentity"];
 
 // @ts-expect-error - callers cannot mint arbitrary lifecycle or successor state.

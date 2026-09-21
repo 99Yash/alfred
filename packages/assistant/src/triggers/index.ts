@@ -6,16 +6,21 @@ import {
   isEventType,
   isEventTypeForSource,
   isInboundEventSource,
+  isRawEventType,
   jsonObjectSchema,
+  rawEventKindSchema,
+  rawEventTriggerIssue,
   replyDraftTriageSnapshotSchema,
   type EventSource,
   type EventType,
+  type RawReceiptType,
   eventPayloadSchemas,
   type EventKind,
   type EventPayload,
 } from "@alfred/contracts";
 import { z } from "zod";
 import { publishToConsumers, registerConsumer } from "./internal/consumer-registry";
+
 export {
   NoTriggerConsumersRegisteredError,
   TriggerConsumerBootError,
@@ -78,6 +83,7 @@ export const emailTriageClassifiedPayloadSchema = z
     }),
   })
   .strict();
+
 export type EmailTriageClassifiedPayload = z.infer<typeof emailTriageClassifiedPayloadSchema>;
 
 /** The three Gmail insert job kinds that can raise `gmail.documents_ingested`. */
@@ -141,6 +147,7 @@ export type InboundDeliveryPayload = z.infer<typeof inboundDeliveryPayloadSchema
  */
 function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unknown> {
   if (isInboundEventSource(source)) return inboundDeliveryPayloadSchema;
+
   switch (source) {
     case "gmail":
       return type === "documents_ingested"
@@ -153,6 +160,7 @@ function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unkno
       return jsonObjectSchema;
     default: {
       const _exhaustive: never = source;
+
       return _exhaustive;
     }
   }
@@ -162,6 +170,11 @@ function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unkno
  * The legal source/type taxonomy stays owned by `@alfred/contracts` because it
  * also shapes persisted run identity and browser workflow authoring. This
  * module adds only the source-specific payload rule it owns.
+ *
+ * A raw event (#990) is `type: "raw"` plus `rawKind`, published only for an
+ * inbound source by the `ingress.deliver` job; its payload is the same receipt
+ * pointer a typed inbound event carries. Every consumer that narrows on
+ * `source`/`type` equality is unaffected: `raw` equals no declared type.
  */
 export const domainEventSchema = z
   .object({
@@ -170,15 +183,23 @@ export const domainEventSchema = z
       (value) => typeof value === "string" && isEventSource(value),
       "Unknown event source",
     ),
-    type: z.custom<EventType>(
-      (value) => typeof value === "string" && isEventType(value),
+    type: z.custom<EventType | RawReceiptType>(
+      (value) => typeof value === "string" && (isEventType(value) || isRawEventType(value)),
       "Unknown event type",
     ),
+    /** The provider's own kind of a raw event; present exactly when `type` is `raw`. */
+    rawKind: rawEventKindSchema.optional(),
     payload: jsonObjectSchema.optional(),
   })
   .strict()
   .superRefine((event, context) => {
-    if (!isEventTypeForSource(event.source, event.type)) {
+    // The raw pairing rule (`raw` needs an inbound source and a rawKind; every
+    // other type leaves rawKind unset) is the shared contracts rule (#990).
+    const tierIssue = rawEventTriggerIssue(event);
+
+    if (tierIssue) {
+      context.addIssue({ code: "custom", message: tierIssue.message, path: [tierIssue.path] });
+    } else if (!isRawEventType(event.type) && !isEventTypeForSource(event.source, event.type)) {
       context.addIssue({
         code: "custom",
         message: `Event type '${event.type}' is invalid for source '${event.source}'`,
@@ -187,8 +208,15 @@ export const domainEventSchema = z
     }
 
     if (event.payload === undefined) return;
-    const parsedPayload = payloadSchemaFor(event.source, event.type).safeParse(event.payload);
+
+    const schema = isRawEventType(event.type)
+      ? inboundDeliveryPayloadSchema
+      : payloadSchemaFor(event.source, event.type);
+
+    const parsedPayload = schema.safeParse(event.payload);
+
     if (parsedPayload.success) return;
+
     for (const issue of parsedPayload.error.issues) {
       context.addIssue({
         code: "custom",
@@ -284,11 +312,13 @@ export type PublishEventArgs<K extends EventKind> = {
 export async function publishEvent<K extends EventKind>(args: PublishEventArgs<K>): Promise<void> {
   const schema = eventPayloadSchemas[args.kind];
   const parsed = schema.safeParse(args.payload);
+
   if (!parsed.success) {
     throw new Error(
       `[events:publish] payload for kind=${args.kind} failed validation: ${parsed.error.message}`,
     );
   }
+
   const executor = args.untransacted ? db() : args.tx;
   await executor.insert(eventsOutbox).values({
     userId: args.userId,
@@ -316,6 +346,7 @@ let replicachePokeAdapter: ReplicachePokeAdapter | null = null;
 export function registerReplicachePokeAdapter(adapter: ReplicachePokeAdapter): () => void {
   const prev = replicachePokeAdapter;
   replicachePokeAdapter = adapter;
+
   return () => {
     replicachePokeAdapter = prev;
   };
@@ -367,6 +398,7 @@ export function registerChatAttachmentEnrichmentScheduler(
 ): () => void {
   const prev = chatAttachmentEnrichmentScheduler;
   chatAttachmentEnrichmentScheduler = scheduler;
+
   return () => {
     chatAttachmentEnrichmentScheduler = prev;
   };

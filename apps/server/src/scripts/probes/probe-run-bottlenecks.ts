@@ -21,11 +21,13 @@ const ms = (n: number | null): string => (n == null ? "   n/a" : `${Math.round(n
 /** Fraction of wall-clock a bucket accounts for, when wall-clock is known. */
 function pct(part: number, whole: number | null): string {
   if (!whole || whole <= 0) return "";
+
   return ` (${((part / whole) * 100).toFixed(1)}%)`;
 }
 
 function print(runId: string, s: RunBottleneckSummary): void {
   const wall = s.wallClockMs;
+
   const lines = [
     `# Run bottleneck summary — ${runId}`,
     ``,
@@ -41,17 +43,22 @@ function print(runId: string, s: RunBottleneckSummary): void {
     `# Note: per-tool and scratchpad timings live only in Langfuse spans (#406/#408);`,
     `# 'tool' here is the dispatch-tools step wall time and scratch time is omitted.`,
   ];
+
   console.log(lines.join("\n"));
 }
 
 async function main(): Promise<void> {
   const runId = process.argv[2];
+
   if (!runId) throw new Error("usage: probe-run-bottlenecks <runId>");
   const summary = await getRunBottleneckSummary(runId);
+
   if (!summary) {
     console.log(`# no agent_runs row for ${runId}`);
+
     return;
   }
+
   print(runId, summary);
 }
 

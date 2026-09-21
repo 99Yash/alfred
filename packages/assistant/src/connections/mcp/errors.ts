@@ -1,4 +1,6 @@
+import { SdkError, SdkHttpError, UnauthorizedError } from "@modelcontextprotocol/client";
 import {
+  causeChain,
   sanitizeErrorMessage,
   summarizeBody,
   toMessage,
@@ -61,8 +63,6 @@ export function isPreDeliveryErrorCode(code: McpClientErrorCode): boolean {
 
 /** Cap on error text persisted to an MCP row (connection `lastError`, ledger row). */
 const MAX_MCP_ERROR_CHARS = 500;
-/** How many `Error.cause` links the durable text keeps. */
-const MAX_MCP_ERROR_CAUSES = 3;
 
 /**
  * The text of an error AND its cause chain. Node's `fetch` reports every
@@ -71,17 +71,18 @@ const MAX_MCP_ERROR_CAUSES = 3;
  * `toMessage` alone would persist "fetch failed" for a DNS-rebinding refusal,
  * which is the one case an operator most needs to see. A hosted-endpoint
  * refusal wins outright so both of its encodings land as the same sentence.
+ *
+ * {@link causeChain} reads the SDK's `data.cause` as well as `Error.cause`. That
+ * second shape is the whole chain when the SDK's version-negotiation probe is
+ * what failed, so without it a blocked host, a timeout and a refused connection
+ * all persist the same four words.
  */
 function causeChainText(err: unknown): string {
   const hosted = hostedEndpointErrorFrom(err);
+
   if (hosted) return hosted.message;
-  const parts = [toMessage(err)];
-  let cause: unknown = err instanceof Error ? err.cause : undefined;
-  for (let depth = 0; depth < MAX_MCP_ERROR_CAUSES && cause !== undefined; depth += 1) {
-    parts.push(toMessage(cause));
-    cause = cause instanceof Error ? cause.cause : undefined;
-  }
-  return parts.join(": ");
+
+  return causeChain(err).map(toMessage).join(": ");
 }
 
 /**
@@ -106,6 +107,84 @@ export function boundedMcpErrorText(err: unknown): string {
   return summarizeBody(sanitizeErrorMessage(causeChainText(err)), MAX_MCP_ERROR_CHARS);
 }
 
+/**
+ * True when a connect attempt failed because the server demands sign-in.
+ *
+ * Kept BESIDE the other MCP error classifiers, for the reason stated above the
+ * pre-delivery set: a denylist that shadows this boundary from another module
+ * drifts from the SDK's shapes without any reader noticing. The transport
+ * throws `UnauthorizedError` on a 401 when no `authProvider` can retry, and the
+ * version-negotiation probe reports the same fact as an `SdkHttpError` with
+ * status 401, so both are one question with one answer.
+ */
+export function isMcpAuthorizationChallenge(err: unknown): boolean {
+  return causeChain(err).some(
+    (link) =>
+      UnauthorizedError.isInstance(link) || (link instanceof SdkHttpError && link.status === 401),
+  );
+}
+
+/** Retry only socket and fetch failures, never a remote authorization or protocol answer. */
+export function isMcpTransportFailure(err: unknown): boolean {
+  if (isMcpAuthorizationChallenge(err) || hostedEndpointErrorFrom(err)) return false;
+
+  return causeChain(err).some((link) => {
+    if (link instanceof TypeError && link.message === "fetch failed") return true;
+
+    if (!(link instanceof Error) || !("code" in link)) return false;
+
+    return [
+      "ECONNRESET",
+      "ECONNREFUSED",
+      "ETIMEDOUT",
+      "EAI_AGAIN",
+      "UND_ERR_CONNECT_TIMEOUT",
+    ].includes(String(link.code));
+  });
+}
+
+/**
+ * True when a failure is the ENDPOINT's answer, and false when it is Alfred's
+ * own fault.
+ *
+ * A route that maps every throw to one status tells the owner to fix a URL that
+ * is fine, or hides a failed insert behind a sentence about the network. The
+ * four shapes below are the only ones that reach a caller from an MCP
+ * conversation: a `HostedEndpointError` (URL shape or blocked address), this
+ * module's own deterministic rejection, any SDK transport or protocol error,
+ * and Node's bare `TypeError: fetch failed`.
+ *
+ * Here, with the code union and the pre-delivery set, for the reason stated
+ * above them: a shape list that shadows this boundary from another module drifts
+ * from the SDK without a reader noticing. The `cause` test is what separates
+ * `fetch failed` from an ordinary programming `TypeError`, which carries none.
+ */
+export function isMcpEndpointRefusal(err: unknown): boolean {
+  return (
+    hostedEndpointErrorFrom(err) !== null ||
+    err instanceof McpClientError ||
+    err instanceof McpApiKeyRejectedError ||
+    SdkError.isInstance(err) ||
+    (err instanceof TypeError && err.cause !== undefined)
+  );
+}
+
+/**
+ * An owner-supplied API key was configured and the endpoint still answered with
+ * an authorization challenge.
+ *
+ * There is no authorization server to walk the browser to on this path, so a
+ * challenge is the endpoint's answer about the KEY — it is the owner's doing,
+ * and the add door refuses rather than parking an `auth_required` row that no
+ * consent screen can ever finish.
+ */
+export class McpApiKeyRejectedError extends Error {
+  constructor() {
+    super("The MCP server rejected the supplied API key.");
+    this.name = "McpApiKeyRejectedError";
+  }
+}
+
 /** A deterministic client/broker rejection, safe for callers to branch on. */
 export class McpClientError extends Error {
   readonly code: McpClientErrorCode;
@@ -126,6 +205,7 @@ export class McpClientError extends Error {
     super(message);
     this.name = "McpClientError";
     this.code = code;
+
     if (options?.provenance) this.provenance = options.provenance;
   }
 }

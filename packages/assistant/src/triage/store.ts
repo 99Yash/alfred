@@ -64,8 +64,10 @@ export async function withTriageThreadLock<T>(
   fn: (tx: DbTransaction) => Promise<T>,
 ): Promise<T> {
   const key = triageThreadLockKey(userId, sourceThreadId);
+
   return db().transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`);
+
     return fn(tx);
   });
 }
@@ -85,8 +87,11 @@ export async function getTriage(userId: string, sourceThreadId: string): Promise
     .select()
     .from(emailTriage)
     .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, sourceThreadId)));
+
   const row = rows[0];
+
   if (!row) return null;
+
   return rowToTriage(row);
 }
 
@@ -183,6 +188,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         ),
       )
       .limit(1);
+
     const existing = existingRows[0];
 
     // User overrides are sticky: the classifier may still run on a new inbound
@@ -198,6 +204,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
     // and either category is defensible; the label-write converges anyway.
     if (args.authoredAt) {
       const existingDocId = existing?.documentId;
+
       if (existingDocId && existingDocId !== args.documentId) {
         const priorRows = await tx
           .select({ authoredAt: documents.authoredAt })
@@ -209,7 +216,9 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
               eq(documents.source, "gmail"),
             ),
           );
+
         const priorAuthoredAt = priorRows[0]?.authoredAt ?? null;
+
         if (priorAuthoredAt && priorAuthoredAt.getTime() > args.authoredAt.getTime()) {
           return { row: rowToTriage(existing), written: false };
         }
@@ -217,6 +226,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
     }
 
     const now = new Date();
+
     const updateSet: PgUpdateSetSource<typeof emailTriage> = {
       category: args.category,
       confidence: args.confidence,
@@ -263,7 +273,9 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         setWhere: sql`${emailTriage.source} <> 'user'`,
       })
       .returning();
+
     const row = result[0];
+
     if (!row) {
       const storedRows = await tx
         .select()
@@ -275,16 +287,20 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
           ),
         )
         .limit(1);
+
       const stored = storedRows[0] ? rowToTriage(storedRows[0]) : null;
+
       if (stored) return { row: stored, written: false };
       throw new Error(
         `[triage] upsert skipped but no stored row for user=${args.userId} thread=${args.sourceThreadId}`,
       );
     }
+
     if (args.decisionTrace) {
       if (!args.runId) {
         throw new Error("[triage] decision trace requires a run id");
       }
+
       const runRows = await tx
         .select({
           userId: agentRuns.userId,
@@ -295,10 +311,13 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         .from(agentRuns)
         .where(eq(agentRuns.id, args.runId))
         .limit(1);
+
       const run = runRows[0];
+
       if (!run) {
         throw new Error(`[triage] decision trace run not found: ${args.runId}`);
       }
+
       if (
         run.userId !== args.userId ||
         run.currentStep !== args.decisionTrace.stepId ||
@@ -308,6 +327,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
           `[triage] decision trace run mismatch for run=${args.runId} user=${args.userId}`,
         );
       }
+
       await tx
         .insert(agentDecisionTraces)
         .values({
@@ -322,6 +342,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         })
         .onConflictDoNothing();
     }
+
     return { row: rowToTriage(row), written: true };
   });
 }
@@ -388,6 +409,7 @@ export async function getDocumentAuthoredAt(
         eq(documents.source, "gmail"),
       ),
     );
+
   return rows[0]?.authoredAt ?? null;
 }
 
@@ -444,11 +466,15 @@ export async function loadTriageContext(
     .select()
     .from(documents)
     .where(and(eq(documents.id, documentId), eq(documents.userId, userId)));
+
   const doc = docRows[0];
+
   if (!doc) return null;
+
   if (doc.source !== "gmail") {
     throw new Error(`[triage] document ${documentId} has source=${doc.source}, expected gmail`);
   }
+
   if (!doc.accountId) {
     throw new Error(`[triage] document ${documentId} missing accountId`);
   }
@@ -478,10 +504,13 @@ export async function loadTriageContext(
       ),
     db().select({ name: user.name, email: user.email }).from(user).where(eq(user.id, userId)),
   ]);
+
   const cred = credRows[0];
+
   if (!cred) {
     throw new Error(`[triage] no google credential for user=${userId} account=${doc.accountId}`);
   }
+
   const userRow = userRows[0];
 
   return {

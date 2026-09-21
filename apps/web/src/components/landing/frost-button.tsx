@@ -3,6 +3,7 @@ import type { ButtonHTMLAttributes, CSSProperties, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 export type FrostButtonTone = "dark" | "light";
+
 export type FrostButtonSize = "sm" | "md" | "lg";
 
 /**

@@ -42,10 +42,13 @@ export async function estimateChatRequestTokens({
       .sort((left, right) => left.localeCompare(right))
       .map(async (name) => {
         const definition = tools[name];
+
         if (!definition) return null;
+
         if (definition.type === "provider") {
           return { name, type: definition.type, id: definition.id, args: definition.args };
         }
+
         return {
           name,
           description: definition.description,
@@ -53,6 +56,7 @@ export async function estimateChatRequestTokens({
         };
       }),
   );
+
   const normalized = normalizeTranscript(transcript);
   const systemTokens = estimateSerializedTokens(systemPrompt);
   const toolTokens = estimateSerializedTokens(canonicalTools);
@@ -79,11 +83,14 @@ export async function assessChatRequestPressure(args: {
   outputReserveTokens: number;
 }): Promise<ChatRequestPressure> {
   const estimate = await estimateChatRequestTokens(args);
+
   const inputWindow = effectiveInputWindowTokens({
     contextWindowTokens: args.contextWindowTokens,
     outputReserveTokens: args.outputReserveTokens,
   });
+
   const threshold = Math.floor(inputWindow * CHAT_SYNC_COMPACTION_RATIO);
+
   return {
     ...estimate,
     effectiveInputWindowTokens: inputWindow,
@@ -99,15 +106,18 @@ interface NormalizedTranscript {
 
 function normalizeTranscript(messages: readonly ModelMessage[]): NormalizedTranscript {
   let hydratedImages = 0;
+
   // SAFETY: JSON.stringify emitted this text, so parsing it back yields plain
   // JSON values; the input was the messages array, so the result is an array.
   const normalized = JSON.parse(
     JSON.stringify(messages, (_key, value: unknown) => {
       if (!isHydratedFilePart(value)) return value;
       hydratedImages += 1;
+
       return { type: "file", mediaType: value.mediaType, data: "[hydrated-image]" };
     }),
   ) as unknown[];
+
   return { messages: normalized, hydratedImages };
 }
 

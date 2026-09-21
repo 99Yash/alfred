@@ -21,6 +21,7 @@ import {
 import { closeRedis } from "@alfred/db/redis";
 
 const startedAt = new Date("2026-06-29T00:00:00.000Z");
+
 const UTC = parseIanaTimezone("UTC");
 
 const baseDispatch: ToolCallDispatchArgs = {
@@ -45,6 +46,7 @@ const redactingTool: RegisteredTool = liveTool({
   execute: async () => null,
   redactInput: (input: unknown) => {
     const url = getStringPath(input, "url") ?? "";
+
     return { url: url.replace(/token=[^&#]*/i, "token=[REDACTED]") };
   },
 });
@@ -136,9 +138,11 @@ describe("buildDispatchRejectionTraceInput", () => {
 describe("dispatchToolCall rejection tracing", () => {
   test("records the undeclared-tool branch with a candidate-specific signature", async () => {
     const captured: DispatchRejectionInput[] = [];
+
     const restore = _setDispatchTraceSinksForTests({
       rejectionRecorder: (input) => captured.push(input),
     });
+
     try {
       const result = await dispatchToolCall({
         ...baseDispatch,
@@ -169,9 +173,11 @@ describe("dispatchToolCall rejection tracing", () => {
       }),
     );
     const captured: DispatchRejectionInput[] = [];
+
     const restore = _setDispatchTraceSinksForTests({
       rejectionRecorder: (input) => captured.push(input),
     });
+
     try {
       const result = await dispatchToolCall({
         ...baseDispatch,
@@ -194,9 +200,11 @@ describe("dispatchToolCall rejection tracing", () => {
   test("records registered-but-inactive calls distinctly from schema failures", async () => {
     registerTool(redactingTool);
     const captured: DispatchRejectionInput[] = [];
+
     const restore = _setDispatchTraceSinksForTests({
       rejectionRecorder: (input) => captured.push(input),
     });
+
     try {
       const result = await dispatchToolCall({
         ...baseDispatch,
@@ -230,15 +238,18 @@ describe("dispatchToolCall rejection tracing", () => {
     );
     const starts: string[] = [];
     const completions: string[] = [];
+
     const restore = _setDispatchTraceSinksForTests({
       toolSpanStarter: (input) => {
         starts.push(input.toolName);
+
         return {
           success: () => completions.push("success"),
           error: () => completions.push("error"),
         };
       },
     });
+
     try {
       await dispatchToolCall({
         ...baseDispatch,

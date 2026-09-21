@@ -24,6 +24,7 @@ const PAGE_SIZE_OPTIONS = [
 function ModelChip({ model }: { model: string }) {
   const provider = providerOf(model);
   const Icon = provider?.Icon;
+
   return (
     <span className="inline-flex items-center gap-1 rounded-md bg-app-bg-a2 px-1.5 py-0.5 text-[11px] text-app-fg-3">
       {Icon ? (
@@ -106,6 +107,7 @@ export function ActivityTable({ start, end, categories }: ActivityTableProps) {
   // Reset to page 1 when the filter or window changes, without an effect.
   const resetKey = `${start}|${end}|${categories.toSorted().join(",")}`;
   const [prevResetKey, setPrevResetKey] = useState(resetKey);
+
   if (resetKey !== prevResetKey) {
     setPrevResetKey(resetKey);
     setPage(1);
@@ -128,6 +130,7 @@ export function ActivityTable({ start, end, categories }: ActivityTableProps) {
       setSortField(field);
       setSortDir("desc");
     }
+
     setPage(1);
   };
 
@@ -200,6 +203,7 @@ export function ActivityTable({ start, end, categories }: ActivityTableProps) {
             ) : (
               runs.map((run) => {
                 const tokens = run.inputTokens + run.outputTokens;
+
                 return (
                   <tr key={run.runId} className="border-b border-app-bg-2 last:border-0">
                     <td className="px-5 py-3 whitespace-nowrap text-app-fg-3 tabular-nums">

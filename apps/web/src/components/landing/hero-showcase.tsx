@@ -90,14 +90,17 @@ export function HeroShowcase({ className }: { className?: string }) {
   // manual click changes `tab`, which restarts the dwell from the top.
   useEffect(() => {
     if (prefersReducedMotion()) return;
+
     const id = window.setInterval(() => {
       if (hoverRef.current || offScreenRef.current) return;
       setTab((current) => {
         const idx = TAB_VALUES.indexOf(current);
         const nextValue = TAB_VALUES[(idx + 1) % TAB_VALUES.length];
+
         return nextValue ?? current;
       });
     }, TAB_DURATION_MS[tab]);
+
     return () => window.clearInterval(id);
   }, [tab]);
 
@@ -106,14 +109,18 @@ export function HeroShowcase({ className }: { className?: string }) {
   // avoids burning CPU on a re-render no one sees.
   useEffect(() => {
     const el = containerRef.current;
+
     if (!el) return;
+
     const obs = new IntersectionObserver(
       ([entry]) => {
         offScreenRef.current = !entry?.isIntersecting;
       },
       { threshold: 0.2 },
     );
+
     obs.observe(el);
+
     return () => obs.disconnect();
   }, []);
 
@@ -196,6 +203,7 @@ function Slot({
     "transition-[opacity,transform,filter] duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
     "motion-reduce:transition-none",
   );
+
   // Split the active/inactive cases into two render paths so a static
   // a11y checker can see that `aria-hidden` is never paired with a
   // focusable `tabIndex` on the same element — a focusable subtree that's
@@ -214,6 +222,7 @@ function Slot({
       </div>
     );
   }
+
   return (
     <div
       id={id}
@@ -230,5 +239,6 @@ function Slot({
 
 function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || !window.matchMedia) return false;
+
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }

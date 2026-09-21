@@ -87,6 +87,7 @@ export const GITHUB_PR_SEARCH_QUALIFIERS: ReadonlySet<string> = new Set([
  * original failure class when the model wraps it in parentheses.
  */
 const QUALIFIER_TOKEN = String.raw`-?([A-Za-z][\w-]*):(?:"[^"]*"|[^\s)]*)`;
+
 const QUALIFIER_SCAN_RE = new RegExp(String.raw`(^|[\s(])(${QUALIFIER_TOKEN})`, "g");
 
 /**
@@ -132,6 +133,7 @@ function qualifierIdentity(q: Pick<ParsedQualifier, "key" | "value" | "negated">
 /** Pull the `qualifier:` heads out of a free-form query; bare words are skipped. */
 export function parseSearchQualifiers(query: string): ParsedQualifier[] {
   const out: ParsedQualifier[] = [];
+
   for (const match of query.matchAll(QUALIFIER_SCAN_RE)) {
     const raw = match[3]!;
     const token = match[2]!;
@@ -139,6 +141,7 @@ export function parseSearchQualifiers(query: string): ParsedQualifier[] {
     const value = token.slice(token.indexOf(":") + 1);
     out.push({ raw, key: raw.toLowerCase(), value, negated });
   }
+
   return out;
 }
 
@@ -174,9 +177,13 @@ function windowEntry(qualifier: string): GithubSearchWindowEntry | undefined {
 }
 
 const ISO_DATE = String.raw`\d{4}-\d{2}-\d{2}`;
+
 const ISO_DATE_TIME = String.raw`${ISO_DATE}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})`;
+
 const DATE_BOUND = String.raw`(?:${ISO_DATE}|${ISO_DATE_TIME})`;
+
 const DATE_COMPARISON_RE = new RegExp(String.raw`^(?:[<>]=?)?${DATE_BOUND}$`, "i");
+
 const DATE_RANGE_RE = new RegExp(String.raw`^${DATE_BOUND}\.\.${DATE_BOUND}$`, "i");
 
 function normalizeQualifierValue(value: string): string {
@@ -192,10 +199,12 @@ function cleanQualifierValue(value: string): string {
 
 function isValidDateQualifierValue(value: string): boolean {
   const clean = cleanQualifierValue(value);
+
   return DATE_COMPARISON_RE.test(clean) || DATE_RANGE_RE.test(clean);
 }
 
 export type GithubSearchType = "issue" | "pr" | "both";
+
 export type GithubSearchState = "open" | "closed" | "merged" | "all";
 
 const IS_STATE_VALUES = ["open", "closed", "merged"] as const;
@@ -236,6 +245,7 @@ const NARROWING_SCOPE_QUALIFIERS: ReadonlySet<string> = new Set([
  */
 export function queryHasNarrowingScope(query: string | undefined): boolean {
   if (!query?.trim()) return false;
+
   // Only a *positive* scope qualifier narrows the search. A negated one
   // (`-author:octocat`, `-repo:x`) is an exclusion, not a scope — it doesn't
   // name where/whom to look, so it must NOT suppress the `author:@me` default.
@@ -276,8 +286,10 @@ export function githubActivityWindows(
 ): readonly GithubSearchWindow[] {
   // An open item has neither closed nor merged, so only creation is observable.
   if (input.state === "open") return ["created"];
+
   // An issue never merges.
   if (input.type === "issue") return ["closed", "created"];
+
   return ["closed", "created", "merged"];
 }
 
@@ -291,8 +303,11 @@ export function githubSearchWindowDays(
   window: GithubSearchWindowEntry,
 ): number | undefined {
   const explicit = input[window.field];
+
   if (explicit !== undefined) return explicit;
+
   if (input.activeWithinDays === undefined) return undefined;
+
   return githubActivityWindows(input).includes(window.qualifier)
     ? input.activeWithinDays
     : undefined;
@@ -320,9 +335,11 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
   if (input.state === "open" && input.closedWithinDays !== undefined) {
     issues.push("`closedWithinDays` conflicts with `state:'open'` — open PRs have not closed.");
   }
+
   if (input.state === "open" && input.mergedWithinDays !== undefined) {
     issues.push("`mergedWithinDays` conflicts with `state:'open'` — merged PRs are closed.");
   }
+
   if (
     input.type === "issue" &&
     (input.state === "merged" || input.mergedWithinDays !== undefined)
@@ -331,12 +348,14 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
       "`merged` filters conflict with `type:'issue'` — issues are never merged. Use `type:'pr'` (or `'both'`) to filter by merge.",
     );
   }
+
   // Positive `is:unmerged` in `query` while merged filters are set is a true
   // semantic contradiction (a PR can't be both) — sanitize can't pick a side,
   // so reject. A negated `-is:unmerged` is compatible with merged filters.
   const hasUnmergedFilter = qualifiers.some(
     (q) => !q.negated && q.key === "is" && normalizeQualifierValue(q.value) === "unmerged",
   );
+
   if (hasUnmergedFilter && (input.state === "merged" || input.mergedWithinDays !== undefined)) {
     issues.push(
       "`is:unmerged` conflicts with merged PR filters — remove it or search closed/unmerged PRs without `state:'merged'` or `mergedWithinDays`.",
@@ -356,6 +375,7 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
         .map((q) => `${q.raw}:${q.value}`),
     ),
   ];
+
   if (badStateValues.length > 0) {
     issues.push(
       `Unrecognized GitHub state value(s) in \`query\`: ${badStateValues.join(", ")}. ` +
@@ -383,6 +403,7 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
         .map((q) => `-is:${normalizeQualifierValue(q.value)}`),
     ),
   ];
+
   if (negatedTypeQualifiers.length > 0) {
     issues.push(
       `Negated type qualifier(s) in \`query\`: ${negatedTypeQualifiers.join(", ")}. ` +
@@ -397,6 +418,7 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
   const unknown = [
     ...new Set(qualifiers.filter((q) => !GITHUB_PR_SEARCH_QUALIFIERS.has(q.key)).map((q) => q.raw)),
   ];
+
   if (unknown.length > 0) {
     issues.push(
       `Unknown GitHub search qualifier(s) in \`query\`: ${unknown.join(", ")}. ` +
@@ -418,6 +440,7 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
   const setWindows = GITHUB_SEARCH_WINDOWS.filter(
     (entry) => githubSearchWindowDays(input, entry) !== undefined,
   );
+
   if (setWindows.length > 0) {
     const freeFormWindows = [
       ...new Set(
@@ -428,6 +451,7 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
           .map((q) => `${q.raw}:${q.value}`),
       ),
     ];
+
     if (freeFormWindows.length > 0) {
       issues.push(
         `\`query\` mixes a free-form date window with a structured one: ${freeFormWindows.join(", ")}. ` +
@@ -446,6 +470,7 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
   const malformedDateQualifiers = qualifiers
     .filter((q) => isWindowQualifier(q.key) && !isValidDateQualifierValue(q.value))
     .map((q) => `${q.raw}:${q.value}`);
+
   if (malformedDateQualifiers.length > 0) {
     issues.push(
       `Malformed GitHub date qualifier value(s) in \`query\`: ${malformedDateQualifiers.join(", ")}. ` +
@@ -487,6 +512,7 @@ export function sanitizeGithubSearchQuery(
   const sanitized: GithubSearchQueryContext = { ...input };
   const stripped: string[] = [];
   const query = input.query?.trim();
+
   if (!query) return { sanitized, stripped };
 
   const qualifiers = parseSearchQualifiers(query);
@@ -503,25 +529,31 @@ export function sanitizeGithubSearchQuery(
     // would silently invert the user's intent, so leave it verbatim in the
     // free-form query — GitHub understands the `-` directly.
     if (q.negated) continue;
+
     if (q.key === "author") {
       sanitized.author = cleanQualifierValue(q.value) || sanitized.author;
       toRemove.push(q);
       continue;
     }
+
     if (q.key === "state") {
       const v = normalizeQualifierValue(q.value);
+
       if (isRecognizedIsState(v)) {
         sanitized.state = v;
         toRemove.push(q);
       }
+
       // An unrecognized value (`state:done`) is NOT folded and NOT stripped:
       // dropping it would silently rewrite the query into a different one. Leave
       // it for `githubSearchQueryIssues` to reject instead of shipping a query
       // GitHub would silently demote to a zero-match free-text term.
       continue;
     }
+
     if (q.key === "is") {
       const v = normalizeQualifierValue(q.value);
+
       if (v === "pr") {
         sanitized.type = sanitized.type === "issue" ? "both" : "pr";
         toRemove.push(q);
@@ -532,9 +564,11 @@ export function sanitizeGithubSearchQuery(
         sanitized.state = v;
         toRemove.push(q);
       }
+
       // Other `is:` values (is:draft, is:queued, …) are valid extra filters; keep.
       continue;
     }
+
     if (q.key === "type") {
       // GitHub's free-form `type:pr`/`type:issue` is a synonym for `is:pr`/
       // `is:issue`; fold it into the structured `type` field with the same
@@ -543,6 +577,7 @@ export function sanitizeGithubSearchQuery(
       // `type:issue` token leaks through as inert text — a self-contradictory
       // `is:pr … type:issue` query that returns the wrong count (#276).
       const v = normalizeQualifierValue(q.value);
+
       if (v === "pr") {
         sanitized.type = sanitized.type === "issue" ? "both" : "pr";
         toRemove.push(q);
@@ -550,10 +585,13 @@ export function sanitizeGithubSearchQuery(
         sanitized.type = sanitized.type === "pr" ? "both" : "issue";
         toRemove.push(q);
       }
+
       // Other `type:` values aren't ones the structured field expresses; keep.
       continue;
     }
+
     const entry = windowEntry(q.key);
+
     if (entry && hasStructuredWindow(entry) && isValidDateQualifierValue(q.value)) {
       // Duplicates a structured window — the field wins; drop the free-form one.
       toRemove.push(q);
@@ -563,6 +601,7 @@ export function sanitizeGithubSearchQuery(
 
   if (toRemove.length > 0) {
     sanitized.query = stripQualifiers(query, toRemove);
+
     for (const q of toRemove) stripped.push(`${q.raw}:${q.value}`);
   }
 
@@ -591,17 +630,20 @@ function stripQualifiers(query: string, toRemove: readonly ParsedQualifier[]): s
   // A fresh regex instance: QUALIFIER_STRIP_RE is global and module-shared, so
   // reusing it in `.replace` could collide with another scan's `lastIndex`.
   const scanner = new RegExp(QUALIFIER_STRIP_RE.source, QUALIFIER_STRIP_RE.flags);
+
   const out = query.replace(
     scanner,
     (match, boundary: string, _operator: string, token: string, name: string) => {
       const negated = token.startsWith("-");
       const value = token.slice(token.indexOf(":") + 1);
       const identity = qualifierIdentity({ key: name.toLowerCase(), value, negated });
+
       // Keep the leading boundary char (space/`(`/start) so neighbouring tokens
       // don't fuse; drop the operator and the qualifier it bound.
       return drop.has(identity) ? boundary : match;
     },
   );
+
   return tidyBooleanResidue(out);
 }
 
@@ -619,6 +661,7 @@ function stripQualifiers(query: string, toRemove: readonly ParsedQualifier[]): s
  */
 function tidyBooleanResidue(query: string): string | undefined {
   let cleaned = query;
+
   for (;;) {
     const next = cleaned
       .replace(/\(\s*(?:AND|OR)\s+/g, "(")
@@ -632,8 +675,10 @@ function tidyBooleanResidue(query: string): string | undefined {
       .replace(/^\s*(AND|OR|NOT)\s+/i, "")
       .replace(/\s+(AND|OR|NOT)\s*$/i, "")
       .trim();
+
     if (next === cleaned) break;
     cleaned = next;
   }
+
   return cleaned.length > 0 ? cleaned : undefined;
 }

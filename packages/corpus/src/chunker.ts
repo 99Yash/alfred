@@ -51,6 +51,7 @@ export interface PageInput {
 }
 
 const PARAGRAPH_SPLIT = /\n{2,}/;
+
 const SENTENCE_SPLIT = /(?<=[.!?])\s+/;
 
 export function chunkText(text: string, opts: ChunkerOptions = {}): Chunk[] {
@@ -63,7 +64,9 @@ export function chunkText(text: string, opts: ChunkerOptions = {}): Chunk[] {
   const overlap = overlapTokens * APPROXIMATE_CHARS_PER_TOKEN;
 
   const trimmed = text.trim();
+
   if (!trimmed) return [];
+
   if (trimmed.length <= max) {
     return [{ position: 0, content: trimmed, tokenCount: estimateTokens(trimmed) }];
   }
@@ -76,6 +79,7 @@ export function chunkText(text: string, opts: ChunkerOptions = {}): Chunk[] {
   // Greedy merge with a hard ceiling.
   const merged: string[] = [];
   let buffer = "";
+
   for (const para of paragraphs) {
     if (para.length > max) {
       // Flush the buffer, then split the oversized paragraph itself.
@@ -83,13 +87,16 @@ export function chunkText(text: string, opts: ChunkerOptions = {}): Chunk[] {
         merged.push(buffer);
         buffer = "";
       }
+
       for (const slice of splitOversized(para, max)) merged.push(slice);
       continue;
     }
+
     if (!buffer) {
       buffer = para;
       continue;
     }
+
     if (buffer.length + 2 + para.length > target) {
       merged.push(buffer);
       buffer = para;
@@ -97,38 +104,46 @@ export function chunkText(text: string, opts: ChunkerOptions = {}): Chunk[] {
       buffer += "\n\n" + para;
     }
   }
+
   if (buffer) merged.push(buffer);
 
   // Apply overlap by prepending the tail of the previous chunk.
   const chunks: Chunk[] = [];
+
   for (let i = 0; i < merged.length; i++) {
     const prev = i > 0 ? merged[i - 1]! : "";
     const tail = prev.slice(Math.max(0, prev.length - overlap));
     const piece = i > 0 && tail ? `${tail}\n\n${merged[i]!}` : merged[i]!;
     chunks.push({ position: i, content: piece, tokenCount: estimateTokens(piece) });
   }
+
   return chunks;
 }
 
 function splitOversized(paragraph: string, max: number): string[] {
   // Try sentence-level split first; fall back to fixed-width slicing.
   const sentences = paragraph.split(SENTENCE_SPLIT).filter(Boolean);
+
   if (sentences.length === 1) return sliceByChars(paragraph, max);
   const out: string[] = [];
   let buf = "";
+
   for (const s of sentences) {
     if (s.length > max) {
       if (buf) {
         out.push(buf);
         buf = "";
       }
+
       for (const piece of sliceByChars(s, max)) out.push(piece);
       continue;
     }
+
     if (!buf) {
       buf = s;
       continue;
     }
+
     if (buf.length + 1 + s.length > max) {
       out.push(buf);
       buf = s;
@@ -136,13 +151,17 @@ function splitOversized(paragraph: string, max: number): string[] {
       buf += " " + s;
     }
   }
+
   if (buf) out.push(buf);
+
   return out;
 }
 
 function sliceByChars(text: string, max: number): string[] {
   const out: string[] = [];
+
   for (let i = 0; i < text.length; i += max) out.push(text.slice(i, i + max));
+
   return out;
 }
 
@@ -155,12 +174,15 @@ export function chunkPages(pages: readonly PageInput[], opts: ChunkerOptions = {
   if (pages.length === 0) return [];
   const chunks: Chunk[] = [];
   let position = 0;
+
   for (const page of pages) {
     if (!isValidPage(page.page)) continue;
     const trimmed = page.text.trim();
+
     if (!trimmed) continue;
     // Reuse the paragraph-aware splitter per page, but never bleed across pages.
     const pageChunks = chunkText(trimmed, opts);
+
     for (const pc of pageChunks) {
       chunks.push({
         position: position++,
@@ -172,6 +194,7 @@ export function chunkPages(pages: readonly PageInput[], opts: ChunkerOptions = {
     // chunkText for a single short page yields one chunk already; the per-page call
     // inherently disables cross-page overlap — the boundary is the call itself.
   }
+
   // Re-assign positions globally so they remain dense 0..N-1 after empty pages are skipped.
   return chunks;
 }

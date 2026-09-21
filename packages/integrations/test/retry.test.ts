@@ -16,10 +16,13 @@ import { fetchWithRetry } from "../src/shared/retry";
 
 function respondWith(headers: Record<string, string>) {
   let attempts = 0;
+
   const send = () => {
     attempts += 1;
+
     return Promise.resolve(new Response("rate limited", { status: 429, headers }));
   };
+
   return { send, attempts: () => attempts };
 }
 
@@ -27,9 +30,11 @@ describe("fetchWithRetry Retry-After handling", () => {
   test("bounds an oversized Retry-After by the policy ceiling", async () => {
     const upstream = respondWith({ "retry-after": "3600" });
     const started = Date.now();
+
     const res = await fetchWithRetry(upstream.send, {
       policy: { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 5 },
     });
+
     const elapsed = Date.now() - started;
     assert.equal(res.status, 429, "the last response is returned once attempts are spent");
     assert.equal(upstream.attempts(), 3);
@@ -40,9 +45,11 @@ describe("fetchWithRetry Retry-After handling", () => {
 
   test("honors a Retry-After that is already within the ceiling", async () => {
     const upstream = respondWith({ "retry-after": "0" });
+
     const res = await fetchWithRetry(upstream.send, {
       policy: { maxAttempts: 2, baseDelayMs: 0, maxDelayMs: 1_000 },
     });
+
     assert.equal(res.status, 429);
     assert.equal(upstream.attempts(), 2);
   });
@@ -50,9 +57,11 @@ describe("fetchWithRetry Retry-After handling", () => {
   test("ignores a malformed or HTTP-date Retry-After and falls back to backoff", async () => {
     for (const header of ["Wed, 21 Oct 2026 07:28:00 GMT", "not-a-number", "-5"]) {
       const upstream = respondWith({ "retry-after": header });
+
       const res = await fetchWithRetry(upstream.send, {
         policy: { maxAttempts: 2, baseDelayMs: 0, maxDelayMs: 0 },
       });
+
       assert.equal(res.status, 429, header);
       assert.equal(upstream.attempts(), 2, header);
     }

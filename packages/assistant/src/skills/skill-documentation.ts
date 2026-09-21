@@ -79,7 +79,9 @@ const skillDocumentationContextSchema = z.object({
   // The hit shapes are large; persist them opaquely rather than
   // re-validating jsonb between steps. State is checkpointed to DB
   // and re-loaded on resume — full round-trips through zod for the
-  // raw search hits buy nothing here.
+  // raw search hits buy nothing here. The hits are already model-facing
+  // (`ModelFacingHit`: the collect step stripped the corpus `record`), so
+  // no credential-scoping identity enters the run store through this field.
   documentHits: z.array(z.custom<SkillDocumentationContext["documentHits"][number]>()),
   memoryHits: z.array(z.custom<SkillDocumentationContext["memoryHits"][number]>()),
   sourceCounts: z.record(z.string(), z.number()),
@@ -98,6 +100,7 @@ const stateSchema = z.object({
     .optional(),
   revisionId: z.string().optional(),
 });
+
 type State = z.infer<typeof stateSchema>;
 
 export const skillDocumentationWorkflow: Workflow<State> = {
@@ -114,6 +117,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
 
   initialState(input) {
     const parsed = skillDocumentationInputSchema.parse(input.input ?? {});
+
     return {
       skillId: parsed.skillId,
       triggeringLearnRunId: parsed.triggeringLearnRunId,
@@ -124,6 +128,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
   // one doc run, not two; the surviving run re-reads the latest v1.
   dedupKey: ({ input }) => {
     const parsed = skillDocumentationInputSchema.parse(input ?? {});
+
     return skillDocumentationDedupKey(parsed.skillId);
   },
 
@@ -137,9 +142,11 @@ export const skillDocumentationWorkflow: Workflow<State> = {
       switch (ctx.outcome) {
         case "failed":
           await finalizeSkillRun({ agentRunId: ctx.runId, status: "failed" });
+
           return;
         case "cancelled":
           await finalizeSkillRun({ agentRunId: ctx.runId, status: "cancelled" });
+
           return;
         default: {
           const unhandled: never = ctx;
@@ -168,6 +175,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
           userId: ctx.userId,
           skillId: ctx.state.skillId,
         });
+
         await ctx.log(
           `gather-context: facts=${context.facts.length} docHits=${context.documentHits.length} memHits=${context.memoryHits.length} sources=${Object.keys(context.sourceCounts).join(",") || "none"}`,
         );
@@ -186,16 +194,20 @@ export const skillDocumentationWorkflow: Workflow<State> = {
         if (!ctx.state.context) {
           throw new Error("[skill-doc] compose entered without context");
         }
+
         const { context } = ctx.state;
+
         const composed = await composeSkillDocumentation({
           context,
           runId: ctx.runId,
           stepId: "compose",
           idempotencyKey: `skill-doc.compose:${ctx.runId}`,
         });
+
         await ctx.log(
           `compose: body=${composed.body.length}ch tokens=${composed.inputTokens ?? "?"}/${composed.outputTokens ?? "?"}`,
         );
+
         return {
           kind: "next",
           state: { ...ctx.state, documented: composed },
@@ -210,7 +222,9 @@ export const skillDocumentationWorkflow: Workflow<State> = {
         if (!ctx.state.context || !ctx.state.documented) {
           throw new Error("[skill-doc] persist-revision entered without context/documented");
         }
+
         const { context } = ctx.state;
+
         const commit = await commitSkillRevision({
           userId: ctx.userId,
           skillId: ctx.state.skillId,
@@ -223,14 +237,22 @@ export const skillDocumentationWorkflow: Workflow<State> = {
             sourceCounts: context.sourceCounts,
             documentHitCount: context.documentHits.length,
             memoryHitCount: context.memoryHits.length,
-            inputTokens: ctx.state.documented.inputTokens,
-            outputTokens: ctx.state.documented.outputTokens,
-            triggeringLearnRunId: ctx.state.triggeringLearnRunId,
+            ...(ctx.state.documented.inputTokens !== undefined
+              ? { inputTokens: ctx.state.documented.inputTokens }
+              : {}),
+            ...(ctx.state.documented.outputTokens !== undefined
+              ? { outputTokens: ctx.state.documented.outputTokens }
+              : {}),
+            ...(ctx.state.triggeringLearnRunId !== undefined
+              ? { triggeringLearnRunId: ctx.state.triggeringLearnRunId }
+              : {}),
           },
         });
+
         await ctx.log(
           `persist-revision: revisionId=${commit.revisionId} previousId=${context.skill.currentRevisionId}`,
         );
+
         return {
           kind: "next",
           state: { ...ctx.state, revisionId: commit.revisionId },
@@ -245,6 +267,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
         if (!ctx.state.context || !ctx.state.documented || !ctx.state.revisionId) {
           throw new Error("[skill-doc] notify entered without context/documented/revisionId");
         }
+
         const { context } = ctx.state;
 
         const email = await composeSkillDocumentationEmail({

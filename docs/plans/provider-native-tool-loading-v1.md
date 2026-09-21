@@ -380,6 +380,30 @@ No production behavior change.
    gives Gemini only the eager application surface.
 6. Record sanitized fixtures for offline tests.
 
+**Built 2026-09-10 (#1031).** Probe:
+`packages/ai/src/scripts/probe-native-tool-loading.ts`. Fixtures:
+`packages/ai/test/fixtures/native-tool-loading/` (`anthropic-native.json`,
+`openai-native.json`, `anthropic-to-gemini-fallback.json`). Findings that
+constrain Slice 3:
+
+1. Both providers expose native discovery as a provider-executed
+   `tool-call`/`tool-result` pair (`providerExecuted: true`). The discovery
+   evidence is the result payload (`tool_search_tool_result` references on
+   Anthropic, `tool_search_output.tools` on OpenAI), never the final call name.
+   The final client call is an ordinary `tool-call` the adapter decodes back to
+   the registered name.
+2. The reserved ToolSet key for a provider search tool must contain neither `.`
+   nor `__`. The adapter's inner name shim decodes `__` to `.` on every
+   `tool-call`, including provider-executed ones, so a reserved key with either
+   character returns mangled and is rejected as an unknown tool. Slice 3 must
+   confirm whether the shim should skip provider-executed parts.
+3. Raw wire bodies require `include: { requestBody: true, responseBody: true }`
+   on `generateText`/`streamText`; AI SDK 7 omits them by default.
+4. Application mode must not advertise native discovery in its prompt. The probe
+   advertised it; the fallback then declared only the eager surface, could not
+   discover the requested tool, emitted calls to names it was never given (see
+   the fixture), and never completed the task.
+
 This slice is a gate. Do not design response classification from documentation
 alone when the installed SDK's normalized shape is directly testable.
 

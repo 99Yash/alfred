@@ -21,4 +21,5 @@ export const HARD_MUTATION_LIMIT = 1000;
  * `prevVersion + 1`. One below max is the highest order we store.
  */
 export const POSTGRES_INTEGER_MAX = 2_147_483_647;
+
 export const MAX_ACCEPTED_COOKIE_ORDER = POSTGRES_INTEGER_MAX - 1;

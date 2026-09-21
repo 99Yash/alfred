@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   SUPPRESSION_EFFECTS,
   rememberInput,
+  standingInstructionTargetKey,
   standingInstructionValueSchema,
   type StandingInstructionValue,
 } from "@alfred/contracts";
@@ -90,15 +91,15 @@ describe("findSenderSuppression", () => {
     );
   });
 
-  test("does not match when the requested effect is absent", () => {
+  test("derives membership at read time — the stored effects array never filters", () => {
     const value = instruction({ effects: ["exclude_briefing_priority"] });
     assert.equal(
       findSenderSuppression([active(value)], {
         senderEmail: "ben@example.com",
         accountId: null,
         effect: "block_todo_suggestion",
-      }),
-      null,
+      })?.factId,
+      "fact_1",
     );
   });
 });
@@ -133,7 +134,7 @@ describe("system.remember input vs persisted standing instruction schema", () =>
       },
     });
 
-    assert.equal(parsed.target.email, "ben@example.com");
+    assert.equal(standingInstructionTargetKey(parsed.target), "sender_email:ben@example.com");
     assert.equal(
       standingInstructionValueSchema.safeParse({
         ...instruction(),

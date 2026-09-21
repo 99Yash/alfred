@@ -1,18 +1,18 @@
 /**
  * COMMITTED team-graph backfill (ADR-0059 P4a, one-off 2026-06-16).
  *
- * Populates the `entities` / `entity_relations` graph from already-ingested
- * Gmail `documents` for a target user — the missing passive-capture extractor
- * behind "prod `entities` = 0". Header-level only, no LLM, no network: parses
- * `from`/`to`/`cc` into person + organization entities and a first significance
- * pass. Idempotent (upsert/no-op-on-conflict/overwrite), so safe to re-run.
+ * Populates the `entities` graph from already-ingested Gmail `documents` for a
+ * target user — the missing passive-capture extractor behind "prod `entities`
+ * = 0". Header-level only, no LLM, no network: parses `from`/`to`/`cc` into
+ * contact + organization entities and a first significance pass. Idempotent
+ * (upsert/overwrite), so safe to re-run. It writes NO edge (#1108).
  *
  * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
  * `node dist/scripts/backfills/backfill-team-graph-committed.js` — the prod image has no
  * `tsx`/loose `@alfred/*` sources.
  *
- * SAFETY: dry by default — aggregates + ranks but writes nothing. Pass
- * `--commit` to write entities/relations/scores.
+ * Dry by default — aggregates + ranks but writes nothing. Pass
+ * `--commit` to write entities/scores.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfills/backfill-team-graph-committed.js
@@ -37,21 +37,24 @@ const TARGET_EMAILS = (process.env.TEAM_GRAPH_EMAILS ?? "yashgouravkar@gmail.com
   .filter(Boolean);
 
 const MAX_DOCS = Number(process.env.TEAM_GRAPH_MAX_DOCS ?? "5000");
+
 const COMMIT = process.argv.includes("--commit");
 
 async function processUser(u: { userId: string; email: string }): Promise<void> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
+
   const result = await backfillTeamGraph(u.userId, u.email, gmailSenderAdapter.correspondents, {
     commit: COMMIT,
     maxDocs: Number.isFinite(MAX_DOCS) ? MAX_DOCS : 5000,
   });
 
   console.log(
-    `  scanned ${result.docsScanned} docs → ${result.contacts} contacts, ` +
-      `${result.organizations} orgs, ${result.relations} works_at edges ` +
+    `  scanned ${result.docsScanned} docs → ${result.contacts} contacts ` +
+      `(${result.nonPersonContacts} non-person), ${result.organizations} orgs ` +
       `(${result.persisted ? "PERSISTED" : "dry — no writes"})`,
   );
   console.log("  top contacts by significance:");
+
   for (const t of result.top) {
     console.log(
       `    ${t.score.toFixed(3)}  ${t.name} <${t.address}>  (in=${t.inbound} out=${t.outbound})`,
@@ -71,6 +74,7 @@ async function main() {
     .where(inArray(userTable.email, TARGET_EMAILS));
 
   const found = new Set(users.map((u) => u.email));
+
   for (const email of TARGET_EMAILS) {
     if (!found.has(email)) console.log(`! no user row for ${email} — skipping`);
   }

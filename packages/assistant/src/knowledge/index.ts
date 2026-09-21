@@ -25,8 +25,11 @@
  * crisp, tagged propositions. No durable writes happen here — the observation
  * write path lands in #399; the idle end-of-thread TRIGGER lives next to the
  * compaction it drives in `chat/idle-capture-queue.ts`.
+ *
+ * Terminology: see `docs/reference/glossary.md`.
  */
 export { requireEntityIdNamespace } from "./namespace";
+
 export {
   appendObservationFamilyMember,
   insertObservation,
@@ -34,13 +37,16 @@ export {
   type AppendObservationFamilyMemberResult,
   type InsertObservationResult,
 } from "./observations";
+
 export {
   reduceGmailDocument,
   type GmailDocumentForReduction,
   type GmailReductionIssue,
   type GmailReductionResult,
 } from "./gmail-reducer";
+
 export { projectGmailKindProfiles, type ProjectGmailKindProfilesResult } from "./gmail-kind-fold";
+
 export {
   globalReferentIdentity,
   referentKeyForEmail,
@@ -53,6 +59,7 @@ export {
   type ReferentThreadingHeaders,
   type SenderScopedReferentKey,
 } from "./referent-identity";
+
 export {
   buildOrgAffiliationObservationInput,
   isOrgAffiliationObservationAppendConflict,
@@ -67,7 +74,9 @@ export {
   type RecordOrgAffiliationOnCredentialUpsertResult,
   type RecordOrgAffiliationResult,
 } from "./affiliation";
+
 export { ensureEntityNode, recordEntityIdentity, EntityIdentityConflictError } from "./entities";
+
 export {
   activateProjectionVersion,
   completeProjectionRun,
@@ -75,8 +84,11 @@ export {
   startProjectionRun,
   writeProjectionCursor,
 } from "./projection";
+
 export { userModelReader, type ActiveEntityProfile } from "./reader";
+
 export { refoldActiveGmailKindProjection } from "./refold";
+
 export * from "./extractor";
 
 /**
@@ -133,11 +145,11 @@ export * from "./extractor";
  *     `./queue`, of which this barrel exports only the worker lifecycle. So a
  *     curated-barrel entry is not a complete account of what a caller can see.
  *
- * `./types` stays `export *` — pure enums / schemas / contract re-exports, no
- * behavior-bearing symbol, so curating it buys no encapsulation.
+ * `./types` was removed (#1118). Each vocabulary now lives with the store that
+ * mints it — facts, chunks, style profiles, entities — and the contract
+ * re-exports (`MemorySource`, `jsonRecordSchema`, `memorySourceSchema`,
+ * `parseMemorySourceOrDefault`) come straight from `@alfred/contracts`.
  */
-export * from "./types";
-
 // recall + applyCorrection (facts) — both sanctioned groupings share this file.
 export {
   // recall
@@ -154,9 +166,38 @@ export {
   proposeFactArgsSchema,
   type FactRow,
   type ProposeFactArgs,
+  // fact vocabulary owned by this store
+  FACT_STATUSES,
+  factStatusSchema,
+  AUTO_CONFIRM_THRESHOLD,
+  type FactStatus,
 } from "./facts";
+
 // recall (chunks) + the cold-start write door.
-export { recallMemory, writeMemoryChunk, type RecallMemoryHit } from "./chunks";
+export {
+  recallMemory,
+  writeMemoryChunk,
+  type RecallMemoryHit,
+  // chunk vocabulary owned by this store
+  MEMORY_CHUNK_KINDS,
+  memoryChunkKindSchema,
+  type MemoryChunkKind,
+  USER_FACING_MEMORY_CHUNK_KINDS,
+} from "./chunks";
+
+// Style-profile vocabulary (the `./style-profiles` subpath also exports the CRUD).
+export {
+  STYLE_CHANNELS,
+  styleChannelSchema,
+  type StyleChannel,
+  STYLE_AUDIENCE_BUCKETS,
+  styleAudienceBucketSchema,
+  type StyleAudienceBucket,
+} from "./style-profiles";
+
+// Entity-kind vocabulary owned by the entity graph store.
+export { ENTITY_KINDS, entityKindSchema, type EntityKind } from "./entity-graph";
+
 // contextFor.
 export { readUserContext, type UserContext } from "./user-context";
 
@@ -165,14 +206,18 @@ export { readUserContext, type UserContext } from "./user-context";
 // sanctioned observe/recall/contextFor/applyCorrection set, but genuinely
 // cross-module — curated here rather than left as a wholesale `export *`.
 export { valueSignature } from "./signature";
+
 export { isSingleValuedKey, isUninformativeRelationshipFact } from "./fact-policy";
+
 export {
   getSenderSignificance,
   getSenderSignificanceBatch,
   findPersonMetadataByAddress,
   type SenderSignificance,
 } from "./significance";
+
 export { type Significance } from "./entity-metadata";
+
 export {
   editStandingInstruction,
   forgetStandingInstruction,
@@ -191,11 +236,27 @@ export {
 
 // Worker lifecycle — names preserved so `runtime.ts` re-exports resolve unchanged.
 export { startMemoryWorker, stopMemoryWorker, closeMemoryQueue } from "./queue";
+
 export { scheduleRepeatableMemoryJobs } from "./repeatable";
 
 // Product recipe owned by the knowledge module; the composition root builds it
 // with the injected Gmail sender adapter (ADR-0089) and registers the result.
 export { buildMemoryExtractionWorkflow } from "./memory-extraction";
+
+// What a memory-extraction run did, as ONE discriminated value (#1109). Read by
+// the extraction smoke, which parses `agent_runs.output` back out of jsonb.
+export {
+  describeMemoryExtractionOutcome,
+  memoryExtractionOutcomeSchema,
+  summarizeMemoryExtractionRun,
+  type MemoryExtractionOutcome,
+  type MemoryExtractionRunCounts,
+} from "./memory-extraction-outcome";
+
+// The cold-start prior the triage classifier renders into its observations block
+// (ADR-0050 D1, first slice). One indexed point read; no query parameter, so no
+// memory search is expressible on the triage hot path.
+export { readUserContextLine, type UserContextLine } from "./user-context-line";
 
 /**
  * ── memory acquisition sub-areas folded into knowledge (item 07) ─────────────
@@ -208,5 +269,7 @@ export { buildMemoryExtractionWorkflow } from "./memory-extraction";
  * search) moves in alongside its now-primary consumer, cold-start research.
  */
 export * from "./cold-start";
+
 export * from "./drift-audit";
+
 export { runWebSearch, type WebSearchArgs, type WebSearchResult } from "./web-search";

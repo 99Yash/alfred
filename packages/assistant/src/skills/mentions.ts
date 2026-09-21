@@ -20,6 +20,7 @@ import { z } from "zod";
  */
 
 export const MENTION_KINDS = ["integration", "skill", "collaborator", "unresolved"] as const;
+
 export type MentionKind = (typeof MENTION_KINDS)[number];
 
 export const parsedMentionSchema = z.object({
@@ -32,6 +33,7 @@ export const parsedMentionSchema = z.object({
   /** Character offset in the source text — handy for inline highlighting later. */
   index: z.number().int().nonnegative(),
 });
+
 export type ParsedMention = z.infer<typeof parsedMentionSchema>;
 
 const MENTION_RE = /(?:^|\s)@(?:(skill|integration|person):)?([a-z0-9][a-z0-9-]{0,63})/gi;
@@ -43,8 +45,10 @@ const MENTION_RE = /(?:^|\s)@(?:(skill|integration|person):)?([a-z0-9][a-z0-9-]{
  */
 export function parseMentions(text: string): ParsedMention[] {
   const out: ParsedMention[] = [];
+
   for (const match of text.matchAll(MENTION_RE)) {
     const [full, prefix, slug] = match;
+
     if (!slug || match.index === undefined) continue;
     const atOffset = full.indexOf("@");
     const slugLower = slug.toLowerCase();
@@ -67,6 +71,7 @@ export function parseMentions(text: string): ParsedMention[] {
       index: match.index + atOffset,
     });
   }
+
   return out;
 }
 
@@ -92,8 +97,11 @@ export function resolveMentions(
 ): ParsedMention[] {
   return mentions.map((m) => {
     if (m.kind !== "unresolved") return m;
+
     if (registry.integrationSlugs.has(m.slug)) return { ...m, kind: "integration" };
+
     if (registry.skillSlugs.has(m.slug)) return { ...m, kind: "skill" };
+
     return m;
   });
 }

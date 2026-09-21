@@ -4,17 +4,6 @@ export function compactionThresholdTokens(modelContextWindow: number): number {
   return Math.floor(modelContextWindow * COMPACTION_THRESHOLD_PCT);
 }
 
-/**
- * How long BullMQ deduplicates `gmail.poll_recent` / `gmail.poll_history`
- * jobs for one credential. Two sides must agree on this window or they
- * disagree about whether a push was "recently seen": the Pub/Sub webhook
- * (`@alfred/http`) collapses bursts with it, and the 5-min poll sweep
- * (`@alfred/assistant`) overlaps its own enqueue against the same window.
- * Short enough that a genuinely new Gmail change 30s later enqueues a
- * fresh poll; long enough to absorb Pub/Sub redeliveries.
- */
-export const GMAIL_POLL_DEDUP_TTL_MS = 30_000;
-
 export const SCRATCH_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 /**
@@ -57,6 +46,7 @@ export function sharedKey(
 ): `alfred:scratch:${string}:shared.${string}` {
   assertScratchKeyPart("runId", runId);
   assertScratchKeyPart("path", path);
+
   return `${scratchKeyPrefix(runId)}shared.${path}`;
 }
 
@@ -68,6 +58,7 @@ export function subAgentKey(
   assertScratchKeyPart("runId", runId);
   assertScratchKeyPart("subId", subId);
   assertScratchKeyPart("path", path);
+
   return `${scratchKeyPrefix(runId)}scratch.${subId}.${path}`;
 }
 
@@ -84,6 +75,7 @@ export function logicalScratchKey(runId: string, fullKey: string): string {
 
 /** The two scratchpad zones: boss-owned `shared.*` and per-sub-agent `scratch.*`. */
 export const SCRATCH_ZONES = ["shared", "scratch"] as const;
+
 export type ScratchZone = (typeof SCRATCH_ZONES)[number];
 
 export interface ScratchEntry<T = unknown> {

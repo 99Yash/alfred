@@ -42,6 +42,7 @@ import { dbBackedSkip } from "../../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-pt-budget-";
+
 const createdUserIds: string[] = [];
 
 // Bumped every time the github.request double actually executes, so a test can
@@ -89,6 +90,7 @@ async function seedUser(): Promise<{ userId: string; runId: string }> {
     currentStep: "dispatch-tools",
   });
   clearPolicyCacheForTests();
+
   return { userId, runId };
 }
 
@@ -155,6 +157,7 @@ describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
         inputSchema: restPassthroughInput,
         execute: async () => {
           executeCount += 1;
+
           return { outcome: "http", status: 200, succeeded: true, body: [], call: executeCount };
         },
       }),
@@ -171,9 +174,11 @@ describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
   after(async () => {
     clearToolRegistryForTests();
     clearPolicyCacheForTests();
+
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 

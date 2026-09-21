@@ -32,13 +32,16 @@ export interface BriefingsState {
 export function useBriefings(): BriefingsState {
   const { loadError, retry } = useReplicacheStatus();
   const query = useCallback((tx: ReadTransaction) => SYNC_MODEL.briefing.scan(tx), []);
+
   const briefings = useReplicacheSubscription<SyncedBriefing[], SyncedBriefing[]>(
     query,
     useCallback((rows: SyncedBriefing[]) => {
       rows.sort((a, b) => {
         if (a.briefingDate !== b.briefingDate) return b.briefingDate.localeCompare(a.briefingDate);
+
         return compareSlots(a, b);
       });
+
       return rows;
     }, []),
   );
@@ -66,14 +69,17 @@ export interface BriefingDayState {
  */
 export function useBriefing(date: string): BriefingDayState {
   const { loadError, retry } = useReplicacheStatus();
+
   const query = useCallback(
     (tx: ReadTransaction) => SYNC_MODEL.briefing.scanPrefix(tx, { briefingDate: date }),
     [date],
   );
+
   const slots = useReplicacheSubscription<SyncedBriefing[], SyncedBriefing[]>(
     query,
     useCallback((rows: SyncedBriefing[]) => {
       rows.sort(compareSlots);
+
       return rows;
     }, []),
   );

@@ -4,6 +4,7 @@
 // Drive/other pointer artifact inline. Cross-module callers (the `system.*` and
 // `drive` tools) import these here, not the private files.
 export { buildThreadArtifactsContext } from "./read";
+
 export {
   createArtifact,
   appendArtifactPage,
@@ -12,6 +13,7 @@ export {
   finalizeRunArtifacts,
   type ArtifactWriteContext,
 } from "./write";
+
 export {
   surfaceExternalFileArtifact,
   type SurfaceExternalFileInput,

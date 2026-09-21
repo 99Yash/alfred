@@ -44,6 +44,7 @@ describe("summarizeToolSurfaceUsage", () => {
       kernelTools: KERNEL,
       invokedTools: new Set(),
     });
+
     assert.deepEqual(usage.loaded, []);
     assert.deepEqual(usage.usedLoaded, []);
     assert.deepEqual(usage.unusedLoaded, []);
@@ -59,6 +60,7 @@ describe("summarizeToolSurfaceUsage", () => {
       kernelTools: KERNEL,
       invokedTools: new Set(["gmail.search"]),
     });
+
     assert.deepEqual(usage.loaded, ["calendar.list_events", "gmail.search"]);
     assert.deepEqual(usage.usedLoaded, ["gmail.search"]);
     assert.deepEqual(usage.unusedLoaded, ["calendar.list_events"]);
@@ -86,6 +88,7 @@ describe("invokedToolNamesFromTranscript", () => {
         { type: "tool-call", toolCallId: "c3", toolName: "calendar.list_events", input: {} },
       ]),
     ];
+
     const invoked = invokedToolNamesFromTranscript(transcript);
     assert.deepEqual([...invoked].sort(), ["calendar.list_events", "gmail.search"]);
   });
@@ -100,6 +103,7 @@ describe("invokedToolNamesFromTranscript", () => {
         { type: "tool-call", toolCallId: "c9", toolName: "not_a_real_tool", input: {} },
       ]),
     ];
+
     assert.equal(invokedToolNamesFromTranscript(transcript).size, 0);
   });
 });

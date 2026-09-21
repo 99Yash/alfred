@@ -27,6 +27,7 @@ export function TrustDial() {
         const y1 = 48 + Math.sin(angle) * inner;
         const x2 = 48 + Math.cos(angle) * outer;
         const y2 = 48 + Math.sin(angle) * outer;
+
         return (
           <line
             key={i}

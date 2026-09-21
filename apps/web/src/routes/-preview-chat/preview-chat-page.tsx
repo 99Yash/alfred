@@ -45,6 +45,7 @@ export function PreviewChatPage() {
   // When the viewport crosses the rail breakpoint, snap the rail to that
   // mode's sensible default: wide screens show it, narrow screens hide it.
   const [prevMode, setPrevMode] = useState(railMode);
+
   if (prevMode !== railMode) {
     setPrevMode(railMode);
     setRailOpen(railMode === "inline");
@@ -53,10 +54,13 @@ export function PreviewChatPage() {
   // ESC closes the overlay rail.
   useEffect(() => {
     if (railMode !== "overlay" || !railOpen) return;
+
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") setRailOpen(false);
     };
+
     window.addEventListener("keydown", handler);
+
     return () => window.removeEventListener("keydown", handler);
   }, [railMode, railOpen]);
 
@@ -78,6 +82,7 @@ export function PreviewChatPage() {
     ),
     [railOpen, railMode],
   );
+
   useRightRail(railNode);
 
   return (

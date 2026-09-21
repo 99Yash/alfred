@@ -1,10 +1,10 @@
 import dns from "node:dns";
 import { isIP, type LookupFunction } from "node:net";
+import { causeChain } from "@alfred/contracts";
 import { Agent, type Dispatcher } from "undici";
 
 const DEFAULT_MAX_REDIRECTS = 5;
-/** How far `hostedEndpointErrorFrom` follows an `Error.cause` chain. */
-const MAX_CAUSE_DEPTH = 4;
+
 const HOSTED_ENDPOINT_SENSITIVE_HEADERS = new Set([
   "authorization",
   "cookie",
@@ -23,6 +23,66 @@ function stripHostedEndpointSensitiveHeaders(headers: Headers): void {
   for (const name of HOSTED_ENDPOINT_SENSITIVE_HEADERS) headers.delete(name);
 }
 
+/**
+ * Characters a path segment may carry UNESCAPED (RFC 3986 `pchar`, minus the
+ * percent sign itself). A `%XX` escape that decodes to one of these says the
+ * same thing as the bare character, so {@link canonicalPercentEncoding} may
+ * decode it. Everything else — `/`, `?`, `#`, a space, any byte of a UTF-8
+ * sequence — keeps its escape, because decoding one of those would merge two
+ * different resources into one key.
+ */
+const UNESCAPED_PATH_CHARACTER = /^[A-Za-z0-9\-._~!$&'()*+,;=:@]$/;
+
+/**
+ * One spelling for a path that percent-encoding can spell many ways.
+ *
+ * `URL` does not do this: `new URL("https://host/%6Dcp").pathname` is `/%6Dcp`,
+ * not `/mcp`. That let a supplied URL name a built-in's own endpoint while
+ * reading as a different key, so the registry did not claim it and the generic
+ * add door did not refuse it — two connections, two catalogs and two tool
+ * namespaces for one server, the second with no scope baseline and no
+ * read-only pin.
+ *
+ * A redundant escape is decoded; every other escape is kept and its hex digits
+ * are upper-cased, which is the one remaining spelling choice. `%2F` therefore
+ * stays `%2F`, so `/a%2Fb` and `/a/b` remain two resources.
+ */
+function canonicalPercentEncoding(path: string): string {
+  return path.replace(/%[0-9A-Fa-f]{2}/g, (escape) => {
+    const decoded = String.fromCharCode(Number.parseInt(escape.slice(1), 16));
+
+    return UNESCAPED_PATH_CHARACTER.test(decoded) ? decoded : escape.toUpperCase();
+  });
+}
+
+/**
+ * The identity of a hosted endpoint: its origin plus its path, canonically
+ * spelled, with any trailing slashes removed.
+ *
+ * Two hrefs that name the same endpoint produce one key, and `URL` does the
+ * parsing. `URL` itself normalizes neither of the two spellings this function
+ * owns:
+ *
+ * - a trailing slash, so `…/mcp` and `…/mcp/` would be two servers;
+ * - a redundant percent escape, so `…/%6Dcp` and `…/mcp` would be two;
+ * - a fully qualified host, so `https://host./mcp` and `https://host/mcp` would
+ *   be two. The root label a trailing dot names is implicit in every other
+ *   spelling, and DNS resolves both to one host, so the dot is dropped.
+ *
+ * Every door that mints or matches an endpoint identity — the built-in registry
+ * lookup and the generic add — keys on this one function, so a spelling this
+ * function does not fold is a spelling that walks past the built-in refusal.
+ *
+ * The query and the fragment are deliberately absent: they are request
+ * parameters, not identity. A caller that must refuse them does so itself.
+ */
+export function hostedEndpointKey(url: URL): string {
+  const path = canonicalPercentEncoding(url.pathname).replace(/\/+$/, "");
+  const host = url.host.replace(/\.(?=:|$)/, "");
+
+  return `${url.protocol}//${host}${path === "" ? "/" : path}`;
+}
+
 export type HostedEndpointErrorCode =
   | "malformed_url"
   | "blocked_scheme"
@@ -30,6 +90,13 @@ export type HostedEndpointErrorCode =
   | "blocked_port"
   | "credential_url"
   | "invalid_origin"
+  /**
+   * A STORED placement column no longer parses. Like `invalid_origin`, this is
+   * a bad column value rather than fresh owner input: the row was written before
+   * a name rule tightened, so the owner is told to remove and re-add the key
+   * instead of meeting a raw parse error as a 500.
+   */
+  | "invalid_placement"
   | "origin_mismatch"
   | "redirect_refused"
   | "too_many_redirects";
@@ -54,19 +121,26 @@ const BLOCKED_HOST_ERRNO = "EBLOCKEDHOST";
  * buries it as the `cause` of a bare `TypeError: fetch failed`. Both are the
  * same fact — this host is blocked — so both come back as `blocked_host`.
  *
+ * The walk is {@link causeChain}, not a bare `cause` loop, because the MCP SDK
+ * wraps a connect failure in an `SdkError` that keeps its cause on `data`. A
+ * `cause`-only walk answers `null` for every refused private address reached
+ * through that SDK, and the caller then reports `fetch failed`.
+ *
  * Returns `null` for anything else so callers keep their own generic text.
  */
 export function hostedEndpointErrorFrom(err: unknown): HostedEndpointError | null {
-  let current: unknown = err;
-  for (let depth = 0; depth < MAX_CAUSE_DEPTH && current instanceof Error; depth += 1) {
-    if (current instanceof HostedEndpointError) return current;
+  for (const link of causeChain(err)) {
+    if (link instanceof HostedEndpointError) return link;
+
+    if (!(link instanceof Error)) continue;
+
     // SAFETY: `code` is the errno field Node puts on network errors; reading it
     // off an `Error` is a presence check, not a shape assertion.
-    if ((current as NodeJS.ErrnoException).code === BLOCKED_HOST_ERRNO) {
-      return new HostedEndpointError("blocked_host", current.message);
+    if ((link as NodeJS.ErrnoException).code === BLOCKED_HOST_ERRNO) {
+      return new HostedEndpointError("blocked_host", link.message);
     }
-    current = current.cause;
   }
+
   return null;
 }
 
@@ -95,70 +169,92 @@ const BLOCKED_V4_CIDRS: readonly V4Cidr[] = [
 
 function ipv4ToInt(ip: string): number | null {
   const match = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+
   if (!match) return null;
   const parts = match.slice(1).map(Number);
+
   if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
   const [a = 0, b = 0, c = 0, d = 0] = parts;
+
   return a * 2 ** 24 + b * 2 ** 16 + c * 2 ** 8 + d;
 }
 
 function ipv4InCidr(value: number, base: string, prefixBits: number): boolean {
   const baseValue = ipv4ToInt(base);
+
   if (baseValue === null) return false;
   const divisor = 2 ** (32 - prefixBits);
+
   return Math.floor(value / divisor) === Math.floor(baseValue / divisor);
 }
 
 function isBlockedV4(ip: string): boolean {
   const value = ipv4ToInt(ip);
+
   if (value === null) return true;
+
   return BLOCKED_V4_CIDRS.some(([base, prefixBits]) => ipv4InCidr(value, base, prefixBits));
 }
 
 function expandDottedV4Tail(host: string): string {
   const dotted = host.match(/^(.*:)((?:\d{1,3}\.){3}\d{1,3})$/);
+
   if (!dotted?.[1] || !dotted[2]) return host;
   const parts = dotted[2].split(".").map(Number);
+
   if (parts.length !== 4 || parts.some((part) => part < 0 || part > 255)) return host;
   const hi = ((parts[0]! << 8) | parts[1]!).toString(16);
   const lo = ((parts[2]! << 8) | parts[3]!).toString(16);
+
   return `${dotted[1]}${hi}:${lo}`;
 }
 
 function ipv6ToBigInt(ip: string): bigint | null {
   const pieces = expandDottedV4Tail(ip).split("::");
+
   if (pieces.length > 2) return null;
   const left = pieces[0] ? pieces[0].split(":") : [];
   const right = pieces.length === 2 && pieces[1] ? pieces[1].split(":") : [];
+
   if (left.length + right.length > 8) return null;
   const fill = pieces.length === 2 ? Array(8 - left.length - right.length).fill("0") : [];
   const hextets = [...left, ...fill, ...right];
+
   if (hextets.length !== 8) return null;
   let value = 0n;
+
   for (const part of hextets) {
     if (!/^[0-9a-f]{1,4}$/i.test(part)) return null;
     value = (value << 16n) + BigInt(Number.parseInt(part, 16));
   }
+
   return value;
 }
 
 function ipv6InRange(value: bigint, prefix: string, prefixBits: number): boolean {
   const base = ipv6ToBigInt(prefix);
+
   if (base === null) return false;
   const shift = 128n - BigInt(prefixBits);
+
   return value >> shift === base >> shift;
 }
 
 function isBlockedV6(host: string): boolean {
   const value = ipv6ToBigInt(host);
+
   if (value === null) return true;
+
   if (ipv6InRange(value, "::", 96)) return true;
+
   if (ipv6InRange(value, "::ffff:0:0", 96)) {
     const v4 = Number(value & 0xffffffffn);
+
     return isBlockedV4(
       `${(v4 >>> 24) & 0xff}.${(v4 >>> 16) & 0xff}.${(v4 >>> 8) & 0xff}.${v4 & 0xff}`,
     );
   }
+
   return (
     value === 0n ||
     value === 1n ||
@@ -181,15 +277,21 @@ export function isBlockedIp(ip: string): boolean {
     .toLowerCase()
     .replace(/^\[|\]$/g, "")
     .replace(/%.*$/, "");
+
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) return isBlockedV4(host);
+
   if (host.includes(":")) return isIP(host) !== 6 || isBlockedV6(host);
+
   return false;
 }
 
 export function isBlockedHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+
   if (host === "localhost" || host.endsWith(".localhost")) return true;
+
   if (host.endsWith(".internal") || host.endsWith(".local")) return true;
+
   return isBlockedIp(host);
 }
 
@@ -212,10 +314,12 @@ const CREDENTIAL_EXACT_NAMES = new Set([
   "key",
   "code",
 ]);
+
 const CREDENTIAL_SEGMENT_STEMS = new Set(["token", "secret", "signature", "sig", "auth", "jwt"]);
 
 function segmentParamName(decoded: string): string[] {
   const boundary = "\u0000";
+
   return decoded
     .replace(/([a-z0-9])([A-Z])/g, `$1${boundary}$2`)
     .replace(/([A-Z]+)([A-Z][a-z])/g, `$1${boundary}$2`)
@@ -227,6 +331,7 @@ function segmentParamName(decoded: string): string[] {
 
 export function isCredentialParamName(name: string): boolean {
   if (CREDENTIAL_EXACT_NAMES.has(name.toLowerCase())) return true;
+
   return segmentParamName(name).some((segment) => CREDENTIAL_SEGMENT_STEMS.has(segment));
 }
 
@@ -234,6 +339,7 @@ export function hasCredentialQuery(url: URL): boolean {
   for (const [name] of url.searchParams) {
     if (isCredentialParamName(name)) return true;
   }
+
   return false;
 }
 
@@ -241,6 +347,7 @@ function parseUrl(input: unknown): URL {
   if (typeof input !== "string" && !(input instanceof URL)) {
     throw new HostedEndpointError("malformed_url", "The endpoint URL is invalid.");
   }
+
   try {
     return new URL(input instanceof URL ? input.href : input);
   } catch {
@@ -250,21 +357,27 @@ function parseUrl(input: unknown): URL {
 
 export function validatePublicWebUrl(input: unknown): URL {
   const url = parseUrl(input);
+
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new HostedEndpointError("blocked_scheme", "Only HTTP and HTTPS endpoints are allowed.");
   }
+
   if (url.username || url.password) {
     throw new HostedEndpointError("credential_url", "Endpoint URLs cannot embed credentials.");
   }
+
   if (isBlockedHost(url.hostname)) {
     throw new HostedEndpointError("blocked_host", "The endpoint host is private or internal.");
   }
+
   if (url.port !== "") {
     throw new HostedEndpointError("blocked_port", "Only the default web port is allowed.");
   }
+
   if (hasCredentialQuery(url)) {
     throw new HostedEndpointError("credential_url", "Endpoint URLs cannot carry credentials.");
   }
+
   return url;
 }
 
@@ -274,34 +387,55 @@ export function validatePublicWebUrl(input: unknown): URL {
  */
 function parseExpectedOrigin(input: string): string {
   let origin: URL;
+
   try {
     origin = new URL(input);
   } catch {
     throw new HostedEndpointError("invalid_origin", "The stored origin is invalid.");
   }
+
   if (origin.href !== `${origin.origin}/`) {
     throw new HostedEndpointError("invalid_origin", "The stored origin is not an origin.");
   }
+
   return origin.origin;
 }
 
-export function validatePinnedHttpsEndpoint(input: unknown, expectedOrigin: string): URL {
+/**
+ * The shape every hosted endpoint must have — public web URL, HTTPS, no
+ * fragment — and, when the caller has a stored origin, the pin to it.
+ *
+ * `expectedOrigin` is `null` for a URL Alfred has never stored: a brand-new
+ * endpoint the owner just typed, or an OAuth discovery hop that may legally
+ * leave the resource origin. There is no prior origin to disagree with, so the
+ * pin is not merely skipped, it does not yet exist. Passing the URL's OWN
+ * origin instead reads like a pin and is a tautology — `origin_mismatch`
+ * becomes unreachable — so the absence is spelled `null` and typed.
+ *
+ * The pin becomes load-bearing on every LATER connect, where the expected
+ * origin comes from the `mcp_servers` row rather than from the candidate.
+ */
+export function validatePinnedHttpsEndpoint(input: unknown, expectedOrigin: string | null): URL {
   const url = validatePublicWebUrl(input);
+
   if (url.protocol !== "https:") {
     throw new HostedEndpointError("blocked_scheme", "Hosted MCP endpoints must use HTTPS.");
   }
+
   if (url.hash !== "") {
     throw new HostedEndpointError(
       "malformed_url",
       "Hosted MCP endpoints cannot contain fragments.",
     );
   }
-  if (url.origin !== parseExpectedOrigin(expectedOrigin)) {
+
+  if (expectedOrigin !== null && url.origin !== parseExpectedOrigin(expectedOrigin)) {
     throw new HostedEndpointError(
       "origin_mismatch",
       "The endpoint does not match its stored origin.",
     );
   }
+
   return url;
 }
 
@@ -331,27 +465,36 @@ export function pinningLookup(
     (error, addresses) => {
       if (error) {
         callback(error);
+
         return;
       }
+
       const list = addresses ?? [];
       const blocked = list.find((address) => isBlockedIp(address.address));
+
       if (blocked) {
         // SAFETY: Node network errors carry their machine-readable code on Error.
         const blockedError = new Error(
           `'${hostname}' resolves to a private or internal address (${blocked.address}).`,
         ) as NodeJS.ErrnoException;
+
         blockedError.code = BLOCKED_HOST_ERRNO;
         callback(blockedError);
+
         return;
       }
+
       const first = list[0];
+
       if (!first) {
         // SAFETY: Node network errors carry their machine-readable code on Error.
         const notFound = new Error(`'${hostname}' did not resolve.`) as NodeJS.ErrnoException;
         notFound.code = "ENOTFOUND";
         callback(notFound);
+
         return;
       }
+
       if ("all" in options && options.all) callback(null, list);
       else callback(null, first.address, first.family);
     },
@@ -426,6 +569,7 @@ export interface GuardedFetchOptions {
 export function dispatcherRequester(dispatcher: Dispatcher): GuardedFetchRequester {
   return (input, init) => {
     const withDispatcher: GuardedRequestInit & { dispatcher: unknown } = { ...init, dispatcher };
+
     // SAFETY: Node's Fetch implementation accepts Undici's runtime `dispatcher`
     // extension; the DOM `RequestInit` declaration omits only that extra key.
     return globalThis.fetch(input, withDispatcher as RequestInit);
@@ -437,25 +581,50 @@ export interface HostedRequestFacts {
   method: string;
   headers: Headers;
   body: RequestInit["body"];
+  /**
+   * The effective abort signal under native Fetch precedence. `undefined`
+   * exactly when neither the `init` nor the `Request` supplies one — the guard
+   * invents no `AbortSignal` of its own. An explicit `null` (present, so it
+   * replaces) is carried through: handing `null` to `fetch` mints a fresh,
+   * never-aborting signal, which is how a caller detaches a `Request`'s signal.
+   */
+  signal: AbortSignal | null | undefined;
 }
 
 /**
  * Flatten the two ways a fetch caller can spell one request (`Request` object
- * or `input + init`) into the facts a policy check reads. `init` wins over the
- * `Request` on every field, matching Fetch's own precedence.
+ * or `input + init`) into the facts a policy check reads, under native Fetch
+ * precedence:
+ *
+ *  - a supplied `init.headers` REPLACES the `Request`'s headers (it does not
+ *    merge them), and an absent one falls back to the `Request`'s own;
+ *  - a supplied `init.signal` replaces the `Request`'s signal — including an
+ *    explicit `null`, which native carries through so `fetch` detaches the
+ *    `Request`'s signal — and an absent one falls back to it;
+ *  - `url`/`method`/`body` keep the same `init`-wins ordering they already had,
+ *    which already matches native (`init.body == null` falls back, a non-null
+ *    value replaces).
+ *
+ * "Supplied" is `!== undefined`, not `??`: an explicit `null` is a value, and
+ * collapsing it into the fallback would re-couple a request the caller asked to
+ * detach. The one place the guard deliberately stops short of native is when
+ * NOTHING is supplied: `new Request(url)` mints a fresh never-aborting signal,
+ * while this returns `undefined`, because callers that add no signal must not
+ * be given one (item 02's "the protocol fetch adds no signal of its own").
  */
 export function requestFacts(
   input: string | URL | Request,
   init: RequestInit | undefined,
 ): HostedRequestFacts {
   const request = input instanceof Request ? input : null;
-  const headers = new Headers(request?.headers);
-  if (init?.headers) new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  const headers = init?.headers != null ? new Headers(init.headers) : new Headers(request?.headers);
+
   return {
     url: request?.url ?? (input instanceof URL ? input.href : String(input)),
     method: (init?.method ?? request?.method ?? "GET").toUpperCase(),
     headers,
     body: init?.body ?? request?.body ?? undefined,
+    signal: init?.signal !== undefined ? init.signal : request?.signal,
   };
 }
 
@@ -476,22 +645,19 @@ async function cancelResponse(response: Response): Promise<void> {
 export function createGuardedFetch(options: GuardedFetchOptions): typeof globalThis.fetch {
   const expectedOrigin =
     options.expectedOrigin === undefined ? null : parseExpectedOrigin(options.expectedOrigin);
+
   const { requester } = options;
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
 
   return async (input, init) => {
-    const { url, method, headers, body } = requestFacts(input, init);
-    const validate = (candidate: unknown): URL => {
-      if (expectedOrigin !== null) return validatePinnedHttpsEndpoint(candidate, expectedOrigin);
-      const url = validatePublicWebUrl(candidate);
-      if (url.protocol !== "https:") {
-        throw new HostedEndpointError("blocked_scheme", "Hosted requests must use HTTPS.");
-      }
-      if (url.hash !== "") {
-        throw new HostedEndpointError("malformed_url", "Hosted requests cannot contain fragments.");
-      }
-      return url;
-    };
+    const { url, method, headers, body, signal } = requestFacts(input, init);
+
+    // One validator for both modes: `expectedOrigin` is `null` exactly when the
+    // chain is unpinned, which is the argument `validatePinnedHttpsEndpoint`
+    // takes for "no stored origin yet".
+    const validate = (candidate: unknown): URL =>
+      validatePinnedHttpsEndpoint(candidate, expectedOrigin);
+
     let current = validate(url);
 
     for (let hop = 0; hop <= maxRedirects; hop += 1) {
@@ -499,34 +665,49 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
         ...init,
         method,
         headers,
+        // Written AFTER `...init` so the effective signal holds on the first hop
+        // and on every redirect hop: a Request's signal survives when `init`
+        // supplies none, and a supplied `init.signal` is never replaced by
+        // whatever `...init` already carried. Spread conditionally because
+        // `exactOptionalPropertyTypes` refuses an explicit `undefined` for
+        // `signal?: AbortSignal | null`.
+        ...(signal !== undefined ? { signal } : {}),
         ...(body != null ? { body, duplex: "half" } : {}),
         redirect: "manual",
       };
+
       const response = await requester(current.href, requestInit);
       const location = response.headers.get("location");
+
       if (response.status < 300 || response.status >= 400 || !location) return response;
 
       if (init?.redirect === "manual") return response;
 
       await cancelResponse(response);
+
       if (method !== "GET" && method !== "HEAD") {
         throw new HostedEndpointError(
           "redirect_refused",
           `A redirected ${method} request is not replayed.`,
         );
       }
+
       if (hop === maxRedirects) {
         throw new HostedEndpointError(
           "too_many_redirects",
           "The endpoint redirected too many times.",
         );
       }
+
       const next = validate(new URL(location, current));
+
       if (next.origin !== current.origin) {
         stripHostedEndpointSensitiveHeaders(headers);
       }
+
       current = next;
     }
+
     throw new HostedEndpointError("too_many_redirects", "The endpoint redirected too many times.");
   };
 }

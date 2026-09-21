@@ -37,7 +37,9 @@ const KINDS: readonly RedisConnectionKind[] = ["queue", "command", "subscriber",
 
 function parseKind(value: string | undefined): RedisConnectionKind {
   const kind = KINDS.find((candidate) => candidate === value);
+
   if (!kind) throw new Error(`unknown connection kind: ${String(value)}`);
+
   return kind;
 }
 
@@ -49,10 +51,13 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const kind = parseKind(process.argv[2]);
+
 const redisUrl = process.argv[3];
+
 if (redisUrl === undefined) throw new Error("expected a Redis URL as the second argument");
 
 applyServerEnv(redisUrl);
+
 const { createRedisConnection } = await import("../../src/redis");
 
 // The kind is a VALUE here, so this resolves to the widening overload and the
@@ -60,12 +65,15 @@ const { createRedisConnection } = await import("../../src/redis");
 // gets `BoundedRedis` for the bounded kinds — see
 // `test/type/redis-kind-surface.type-test.ts`.
 const conn = createRedisConnection(kind);
+
 // Every refused or torn-down attempt emits one; ioredis throws on an unhandled
 // `error` event, which would exit 1 for a reason the parent is not testing.
 conn.on("error", () => {});
+
 conn.on("ready", () => console.log("READY"));
 
 await conn.subscribe("subscriber-reconnect-probe");
+
 console.log("SUBSCRIBED");
 
 // No `disconnect()` first: a manual close flushes the in-flight queue with

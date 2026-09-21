@@ -49,6 +49,7 @@ export function buildColdStartWebTool(args: {
     }),
     execute: async ({ query }, { toolCallId }) => {
       count++;
+
       const { answer, citations: cites } = await runWebSearch({
         query,
         userId: args.userId,
@@ -58,12 +59,14 @@ export function buildColdStartWebTool(args: {
         // Stable per-search key so a retried turn re-uses the same trace id.
         idempotencyKey: toolCallId,
       });
+
       for (const c of cites) {
         if (c.url && !seen.has(c.url)) {
           seen.add(c.url);
           citations.push(c.url);
         }
       }
+
       return { answer, citations: cites };
     },
   });

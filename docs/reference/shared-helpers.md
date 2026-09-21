@@ -32,7 +32,7 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | a check that a _genuinely `unknown`_ value at a boundary is a plain object before indexing it | `isRecord(x)` / `toRecord(x)`                                                                                                                                                                                                                                                                                      | `@alfred/contracts`           | `typeof x === "object" && x !== null`                                                                                                                                       |
 | coerce `unknown` into a `string[]`                                                            | `toStringArray(x)`                                                                                                                                                                                                                                                                                                 | `@alfred/contracts`           | `x as string[]` — **the drift check bans this**                                                                                                                             |
-| read a nested field off `unknown`/parsed JSON                                                 | `getPath` / `getStringPath`                                                                                                                                                                                                                                                                                        | `@alfred/contracts`           | chained `?.` with casts                                                                                                                                                     |
+| read a nested field off `unknown`/parsed JSON                                                 | `getPath` / `getStringPath` / `getIdPath` (string-or-integer id to one string)                                                                                                                                                                                                                                                                                     | `@alfred/contracts`           | chained `?.` with casts                                                                                                                                                     |
 | check a value is a present, non-empty string                                                  | `isNonEmptyString(x)`                                                                                                                                                                                                                                                                                              | `@alfred/contracts`           | `typeof x === "string" && x.length`                                                                                                                                         |
 | turn a caught error into a display string                                                     | `toMessage(err)`                                                                                                                                                                                                                                                                                                   | `@alfred/contracts`           | `String(err)` / `err.message`                                                                                                                                               |
 | redact secrets from an error/body before logging                                              | `redactSecrets` / `summarizeBody`                                                                                                                                                                                                                                                                                  | `@alfred/contracts`           | ad-hoc regex                                                                                                                                                                |
@@ -49,10 +49,12 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | validate a timezone string                                                                    | `isIanaTimezone(value)`                                                                                                                                                                                                                                                                                            | `@alfred/contracts`           | `function isValidTimezone` / a raw `Intl.DateTimeFormat` trial — **drift check bans it**                                                                                    |
 | any calendar-day, wall-clock, or UTC-offset reading                                           | `settings.resolveTimezone` for the zone, then the `@alfred/assistant/time` module — `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` / `.format(at)`, and `addDays` / `weekdayIndex` / `formatDay` on the key ([full list](#timezone--alfredassistanttime-packagesassistantsrctime)) | `@alfred/assistant/time`      | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant; passing a bare `string` where `IanaTimezone` / `LocalDateKey` is expected |
 | get a language-model handle and reasoning policy                                              | `route`                                                                                                                                                                                                                                                                                                            | `@alfred/ai`                  | constructing a provider client                                                                                                                                              |
+| hash a JSON value for dedup, idempotency, or change detection | `sha256Canonical(value)` | `@alfred/db/hash` | `createHash("sha256").update(JSON.stringify(v))` — key-insertion-order dependent; **drift check bans the raw idiom** |
 | run a query and read typed rows                                                               | `rowsFromExecute` + named Drizzle row types                                                                                                                                                                                                                                                                        | `@alfred/db`                  | `(res as Row[])`                                                                                                                                                            |
 | restrict a query or partial index to live `agent_runs`                                        | `runIsNotTerminal(t.status)`                                                                                                                                                                                                                                                                                       | `@alfred/db` schemas          | `status NOT IN ('completed', 'failed', 'cancelled')` written out per site                                                                                                   |
 | merge Tailwind class names (web)                                                              | `cn(...)`                                                                                                                                                                                                                                                                                                          | `apps/web/src/lib/utils.ts`   | template-string concatenation                                                                                                                                               |
 | capitalize / lower-first / relative-time a string (web)                                       | `capitalize` / `lowerFirst` / `formatRelative`                                                                                                                                                                                                                                                                     | `apps/web/src/lib/strings.ts` | inline `slice(0,1).toUpperCase()`                                                                                                                                           |
+| render retrieved evidence as bounded model context                                             | `packEvidenceCards`                                                                                                                                                                                                                                                                                                | `@alfred/assistant/context-search` | hand-joining snippets and citations, or letting a full body or raw bytes reach the model                                                                                    |
 
 ## Catalog — canonical owners
 
@@ -65,7 +67,8 @@ Validate external / persisted / protocol data instead of asserting it.
 
 - `isRecord`, `isIndexable`, `isNonEmptyString`
 - `toRecord` (unknown → `Record` or `{}`), `toStringArray` (element-checked)
-- `getPath`, `getStringPath` (safe nested read)
+- `flattenJson` (`src/flatten-json.ts`): bounded scalar leaves with paths from unknown JSON; used by inbound receipt descriptions.
+- `getPath`, `getStringPath`, `getIdPath` (safe nested read; `getIdPath` collapses a string or integer provider id to one string)
 - `parseEmailAddress`
 
 `isRecord` answers "is this a plain JSON object?" — a **boundary** question for a value that
@@ -110,9 +113,10 @@ column carries. A public failure is `{ code, params?, message, fix }`. Consumers
 
 ### Integration registry — `@alfred/contracts` (`src/integrations/`)
 
-One record per integration (ADR-0093), in four files: `types.ts` (entry shapes), `registry.ts`
-(the record; its keys are the slug space, so `IntegrationSlug` is `keyof` the record), `slugs.ts`
-(derived unions and lists), `projections.ts` (slug-keyed tables built from the record). Every
+One record per integration (ADR-0093), in four modules: `registry.ts` (the record and its entry
+shapes; its keys are the slug space, so `IntegrationSlug` is `keyof` the record), `slugs.ts`
+(derived unions and lists), `projections.ts` (slug-keyed tables built from the record), and
+`connected.ts` (the executable connected rule each `CredentialSpec` declares). Every
 per-integration fact, the tool actions included, is a field on `INTEGRATIONS[slug]`; every table
 keyed by an integration is a projection of it or an exhaustive sibling keyed by a union derived
 from it. `pnpm check` fails on a `Partial<Record<…Slug, …>>` over a registry union or a literal
@@ -123,7 +127,7 @@ from it. `pnpm check` fails on a `Partial<Record<…Slug, …>>` over a registry
 - `LIVE_PROVIDERS` — the live entries with their slug and credential provider attached, in
   registry order. The one loop the assistant and the web iterate.
 - Derived unions (`LiveProviderSlug`, `PlannedSlug`, `CatalogSlug`, `LoadableIntegrationSlug`,
-  `BearerSlug`, `GoogleSlug`, `CredentialProvider`, `SupportedPassthroughSlug`,
+  `BearerSlug`, `TokenPasteSlug`, `GoogleSlug`, `CredentialProvider`, `SupportedPassthroughSlug`,
   `IntegrationBrandKey`) are mapped conditionals over the record, never hand-listed. Where a
   union has a runtime list (`LIVE_PROVIDER_SLUGS`, `CATALOG_SLUGS`, `BEARER_PROVIDER_SLUGS`,
   `CREDENTIAL_PROVIDERS`, …), the list is a `filter` over the tuple and its `is*` guard is an
@@ -230,6 +234,18 @@ a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
   a new discriminated index has to state whether its loser is a dropped duplicate
   or a busy resource. Don't hand-roll a null check plus an `.includes` against a
   local list of index names.
+- LIKE/ILIKE literals: `escapeLike(value)` (`@alfred/db/helpers`) — escape `\`, `%`
+  and `_` in any value that is a literal rather than a pattern. A raw `%` from
+  user text or from a key value silently widens the match, which for a key
+  lookup means resolving the wrong object.
+- Content hash: `sha256Canonical(value)` (`@alfred/db/hash`) — SHA-256 over
+  `canonicalJson` (keys sorted, present-`undefined` skipped), prefixed `sha256:`.
+  The one digest behind `observations.evidence_hash` (the dedup rail), the
+  user-model projection checksum, the artifact base-content token, and the
+  workflow revision content hash. A `JSON.stringify` pre-image hashes the same
+  logical payload differently per key order, so it cannot be a dedup key; the
+  drift check bans it. Hashing raw bytes (a webhook body, a document) is a
+  different operation and stays on `createHash` directly.
 
 ### Models — `@alfred/ai`
 

@@ -20,5 +20,6 @@ import { getPreference } from "./preferences";
  */
 export async function resolveTimezone(userId: string): Promise<IanaTimezone> {
   const rows = await Promise.all(TIMEZONE_PREFERENCE_KEYS.map((key) => getPreference(userId, key)));
+
   return firstValidTimezone(rows.map((row) => row?.value));
 }

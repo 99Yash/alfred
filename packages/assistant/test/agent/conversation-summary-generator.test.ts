@@ -47,16 +47,19 @@ function validSummary() {
 describe("conversation summary generator", () => {
   test("returns a structured summary whose citations belong to eligible evidence", async () => {
     let prompt = "";
+
     const summary = await generateConversationSummary(
       { evidence, attribution: { userId: "user_1", runId: "run_1" } },
       {
         selectRoute: async () => "primary",
         run: async (args) => {
           prompt = args.prompt;
+
           return validSummary();
         },
       },
     );
+
     assert.equal(summary.actionOutcomes[0]?.status, "failed");
     assert.match(prompt, /msg_1/);
     assert.match(prompt, /tool_1/);
@@ -87,6 +90,7 @@ describe("conversation summary generator", () => {
           selectRoute: async () => "primary",
           run: async () => {
             calls += 1;
+
             return validSummary();
           },
         },
@@ -106,6 +110,7 @@ describe("conversation summary generator", () => {
           selectRoute: async () => "primary",
           run: async () => {
             calls += 1;
+
             return validSummary();
           },
         },
@@ -117,34 +122,42 @@ describe("conversation summary generator", () => {
 
   test("retries malformed primary output once, then falls back", async () => {
     const routes: string[] = [];
+
     const summary = await generateConversationSummary(
       { evidence, attribution: { userId: "user_1" } },
       {
         selectRoute: async () => "primary",
         run: async ({ route }) => {
           routes.push(route);
+
           if (routes.length < 3) return { malformed: true };
+
           return validSummary();
         },
       },
     );
+
     assert.equal(summary.schemaVersion, 1);
     assert.deepEqual(routes, ["primary", "primary", "fallback"]);
   });
 
   test("a primary call failure skips directly to one fallback attempt", async () => {
     const routes: string[] = [];
+
     const summary = await generateConversationSummary(
       { evidence, attribution: { userId: "user_1" } },
       {
         selectRoute: async () => "primary",
         run: async ({ route }) => {
           routes.push(route);
+
           if (route === "primary") throw new Error("provider_unavailable");
+
           return validSummary();
         },
       },
     );
+
     assert.equal(summary.schemaVersion, 1);
     assert.deepEqual(routes, ["primary", "fallback"]);
   });
@@ -157,6 +170,7 @@ describe("conversation summary generator", () => {
         selectRoute: async () => "primary",
         run: async ({ route }) => {
           routes.push(route);
+
           if (routes.length === 1) {
             throw new NoObjectGeneratedError({
               message: "invalid structured output",
@@ -172,6 +186,7 @@ describe("conversation summary generator", () => {
               finishReason: "stop",
             });
           }
+
           return validSummary();
         },
       },

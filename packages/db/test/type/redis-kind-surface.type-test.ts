@@ -25,30 +25,44 @@
 import { createRedisConnection } from "../../src/redis";
 
 const command = createRedisConnection("command");
+
 const failFast = createRedisConnection("fail-fast");
+
 const subscriber = createRedisConnection("subscriber");
+
 const queue = createRedisConnection("queue");
 
 // The rule the fourth kind exists to carry, now checked rather than named.
 // @ts-expect-error a "command" handle must not hold subscriptions
 void command.subscribe;
+
 // @ts-expect-error a "command" handle must not hold pattern subscriptions
 void command.psubscribe;
+
 // @ts-expect-error a "command" handle must not hold shard subscriptions
 void command.ssubscribe;
+
 // @ts-expect-error a "fail-fast" handle must not hold subscriptions
 void failFast.subscribe;
+
 // @ts-expect-error a "fail-fast" handle must not hold pattern subscriptions
 void failFast.psubscribe;
+
 // @ts-expect-error a "fail-fast" handle must not hold shard subscriptions
 void failFast.ssubscribe;
 
 // The two kinds that MAY subscribe still can, and the bounded kinds keep every
 // ordinary command — an `Omit` that took too much would show up here.
 void subscriber.subscribe;
+
 void subscriber.psubscribe;
+
 void queue.subscribe;
+
 void command.publish;
+
 void command.get;
+
 void command.quit;
+
 void failFast.set;

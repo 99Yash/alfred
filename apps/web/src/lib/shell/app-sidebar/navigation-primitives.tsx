@@ -98,6 +98,7 @@ export function RailTip({
   children: ReactNode;
 }) {
   const { resolved } = useAppTheme();
+
   return (
     <Tooltip.Root>
       <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>

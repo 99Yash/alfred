@@ -32,6 +32,7 @@ import { user } from "./auth";
  * row is always a finished turn — partial streamed text is never persisted.
  */
 export type ChatMessageRole = "user" | "assistant";
+
 export type ChatMessageStatus = "complete" | "failed";
 
 /**
@@ -45,6 +46,13 @@ export interface ChatMessageToolCall {
   status: "succeeded" | "failed";
   argsPreview?: string | undefined;
   resultPreview?: string | undefined;
+  /**
+   * `preview()` pruned the result to fit its cap: a string shortened, an array
+   * sliced, or an object key dropped. Persisted because a pruned preview still
+   * parses, so a reader that re-reads it as the record it came from cannot
+   * tell (#1018 review, S2).
+   */
+  resultTruncated?: boolean | undefined;
   /**
    * ADR-0070: the dispatch-boundary sanitizer stripped non-text bytes from this
    * result before storage. Persisted so a reload re-renders the "trimmed" flag
@@ -300,10 +308,17 @@ export const chatAttachmentRepresentations = pgTable(
 );
 
 export type ChatThread = typeof chatThreads.$inferSelect;
+
 export type ChatMessage = typeof chatMessages.$inferSelect;
+
 export type ChatThreadContext = typeof chatThreadContext.$inferSelect;
+
 export type NewChatThreadContext = typeof chatThreadContext.$inferInsert;
+
 export type ChatAttachment = typeof chatAttachments.$inferSelect;
+
 export type NewChatAttachment = typeof chatAttachments.$inferInsert;
+
 export type ChatAttachmentRepresentation = typeof chatAttachmentRepresentations.$inferSelect;
+
 export type NewChatAttachmentRepresentation = typeof chatAttachmentRepresentations.$inferInsert;

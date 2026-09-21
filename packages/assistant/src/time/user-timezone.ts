@@ -18,6 +18,7 @@ import { assertIanaTimezone, isIanaTimezone, type IanaTimezone } from "@alfred/c
 export const DEFAULT_USER_TIMEZONE: IanaTimezone = ((): IanaTimezone => {
   const value = "UTC";
   assertIanaTimezone(value);
+
   return value;
 })();
 
@@ -36,6 +37,7 @@ export function firstValidTimezone(values: readonly unknown[]): IanaTimezone {
   for (const value of values) {
     if (isIanaTimezone(value)) return value;
   }
+
   return DEFAULT_USER_TIMEZONE;
 }
 

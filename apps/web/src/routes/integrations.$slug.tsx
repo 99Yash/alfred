@@ -16,6 +16,7 @@ const LEGACY_GOOGLE_PREFIX = "google_";
 function legacyPageTarget(id: string): GoogleSlug | undefined {
   if (!id.startsWith(LEGACY_GOOGLE_PREFIX)) return undefined;
   const slug = id.slice(LEGACY_GOOGLE_PREFIX.length);
+
   return isGoogleSlug(slug) ? slug : undefined;
 }
 
@@ -37,6 +38,7 @@ export const Route = createFileRoute("/integrations/$slug")({
   beforeLoad: ({ params }) => {
     if (isCatalogSlug(params.slug)) return;
     const target = legacyPageTarget(params.slug);
+
     if (target) {
       throw redirect({ to: "/integrations/$slug", params: { slug: target }, replace: true });
     }

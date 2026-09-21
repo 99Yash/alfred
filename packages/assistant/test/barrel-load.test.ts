@@ -88,16 +88,19 @@ import { type ImportProbeReport, parseImportProbeReport } from "./support/import
  */
 
 const PACKAGE_DIR = path.resolve(import.meta.dirname, "..");
+
 const CHILD_PROGRAM = path.join(import.meta.dirname, "support", "import-probe.ts");
 
 /** ~0.75 s per child measured locally; this is the "the import hung" bound, not the budget. */
 const CHILD_TIMEOUT_MS = 60_000;
+
 /**
  * A runaway report is a spawn failure, not a truncated green. This can bind: the child exits
  * from its write callback, so its line is not capped at the 64 KiB pipe buffer. The largest
  * real report today is ~2.2 KB (`./knowledge`).
  */
 const CHILD_OUTPUT_LIMIT_BYTES = 8 * 1024 * 1024;
+
 /** 39 children at ~0.75 s each is ~5 s here; the ceiling only has to cover a cold tsx boot. */
 const SUBTEST_TIMEOUT_MS = 120_000;
 
@@ -163,6 +166,7 @@ function classifySubpaths(exportsMap: unknown): ClassifiedSubpaths {
   const advertised = Object.keys(exportsMap).length;
   const probed: ProbedSubpath[] = [];
   const wildcards: string[] = [];
+
   for (const [subpath, target] of Object.entries(exportsMap)) {
     if (typeof target !== "string") {
       throw new Error(
@@ -170,12 +174,15 @@ function classifySubpaths(exportsMap: unknown): ClassifiedSubpaths {
           `run. Teach the probe that shape — do not let a subpath go unmeasured.`,
       );
     }
+
     if (subpath.includes("*")) {
       wildcards.push(subpath);
       continue;
     }
+
     probed.push({ subpath, file: path.resolve(PACKAGE_DIR, target) });
   }
+
   return { probed, wildcards, advertised };
 }
 
@@ -189,12 +196,15 @@ const execFileAsync = promisify(execFile);
  */
 async function probeImport(file: string): Promise<ImportProbeReport> {
   const minimalEnv: Record<string, string> = {};
+
   for (const key of ["PATH", "HOME", "TMPDIR"]) {
     const value = process.env[key];
+
     if (value !== undefined) minimalEnv[key] = value;
   }
 
   let stdout: string;
+
   try {
     ({ stdout } = await execFileAsync(process.execPath, ["--import", "tsx", CHILD_PROGRAM, file], {
       cwd: PACKAGE_DIR,
@@ -215,6 +225,7 @@ async function probeImport(file: string): Promise<ImportProbeReport> {
 const packageManifest: unknown = JSON.parse(
   readFileSync(path.join(PACKAGE_DIR, "package.json"), "utf8"),
 );
+
 const { probed, wildcards, advertised } = classifySubpaths(getPath(packageManifest, "exports"));
 
 describe("@alfred/assistant exports map", () => {
@@ -237,6 +248,7 @@ describe("@alfred/assistant exports map", () => {
     // A pinned name set whose subpath was renamed or dropped would otherwise stop being
     // checked without anything going red.
     const subpaths = new Set(probed.map((entry) => entry.subpath));
+
     for (const pinned of Object.keys(EXPECTED_EXPORTS)) {
       assert.ok(subpaths.has(pinned), `${pinned} has a pinned name set but is not probed`);
     }
@@ -272,6 +284,7 @@ describe("every advertised subpath imports inertly", { concurrency: 8 }, () => {
       );
 
       const expected = Object.entries(EXPECTED_EXPORTS).find(([p]) => p === subpath)?.[1];
+
       if (expected !== undefined) assert.deepEqual(report.names, expected);
     });
   }

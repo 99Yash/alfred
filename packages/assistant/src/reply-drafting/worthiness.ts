@@ -85,6 +85,7 @@ export function noDraftResult(
 function userAlreadyReplied(input: ReplyWorthinessBase): boolean {
   if (input.triageReason === "reply") return true;
   const { inboundAuthoredAt, lastUserReplyAt } = input.thread;
+
   return (
     inboundAuthoredAt != null &&
     lastUserReplyAt != null &&
@@ -97,34 +98,43 @@ export function decideReplyWorthiness(input: ReplyWorthinessInput): ReplyWorthin
   if (input.sender.effectiveAuthor !== "person") {
     return declined("sender_not_person", input.sender.effectiveAuthor);
   }
+
   if (userAlreadyReplied(input)) return declined("user_already_replied", input.triageReason);
 
   if (input.invocation === "manual") return { worthy: true };
 
   // ── Proactive rubric, in evaluation order ────────────────────────────────
   if (!input.featureFlagEnabled) return declined("feature_disabled");
+
   if (input.standingInstruction !== "none") {
     return declined("standing_instruction", input.standingInstruction);
   }
 
   const triage = input.triage;
+
   if (triage.model === "fallback") return declined("classifier_fallback");
+
   if (!isReplyExpectedTriageCategory(triage.category)) {
     return declined("category_not_reply_expected", triage.category);
   }
+
   if (triage.confidence < REPLY_DRAFT_MIN_TRIAGE_CONFIDENCE) {
     return declined("low_confidence", triage.confidence.toFixed(2));
   }
+
   // Rule 16b: `true` is a corroborated cold contact; `null` means the graph
   // read did not corroborate a two-way relationship (non-human, unscored, or
   // a read failure). A proactive outbound draft needs corroboration, so both
   // decline — under different names, because only the first is a fact about
   // the sender.
   if (triage.senderRelationshipIsCold === true) return declined("cold_sender");
+
   if (triage.senderRelationshipIsCold === null) return declined("relationship_unverified");
 
   const todo = triage.todoDecision;
+
   if (todo?.outcome === "already_handled") return declined("already_handled", todo.note ?? null);
+
   if (todo?.outcome === "no_obligation" || todo?.outcome === "not_significant") {
     return declined("not_significant", todo.note ?? todo.outcome);
   }

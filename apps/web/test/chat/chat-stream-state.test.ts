@@ -23,14 +23,19 @@ import type { EventStreamFrame } from "../../src/lib/events/frame";
  */
 
 const THREAD = "thread_1";
+
 const TURN = { threadId: THREAD, messageId: "msg_1", runId: "run_1" } as const;
+
 const TURN_2 = { threadId: THREAD, messageId: "msg_2", runId: "run_2" } as const;
+
 const SUB = { parentToolCallId: "spawn_1", subId: "sub_a", childRunId: "child_1" } as const;
 
 type Turn = { threadId: string; messageId: string; runId: string };
 
 const CREATED_AT = "2026-07-28T00:00:00.000Z";
+
 let frameId = 0;
+
 const nextId = () => (frameId += 1);
 
 // Per-kind builders rather than one generic factory: a literal `kind` beside a
@@ -42,30 +47,35 @@ const messageFrame = (payload: EventPayload<"chat.message">): EventStreamFrame =
   payload,
   createdAt: CREATED_AT,
 });
+
 const deltaFrame = (payload: EventPayload<"chat.delta">): EventStreamFrame => ({
   id: nextId(),
   kind: "chat.delta",
   payload,
   createdAt: CREATED_AT,
 });
+
 const reasoningFrame = (payload: EventPayload<"chat.reasoning">): EventStreamFrame => ({
   id: nextId(),
   kind: "chat.reasoning",
   payload,
   createdAt: CREATED_AT,
 });
+
 const toolFrame = (payload: EventPayload<"chat.tool">): EventStreamFrame => ({
   id: nextId(),
   kind: "chat.tool",
   payload,
   createdAt: CREATED_AT,
 });
+
 const runFrame = (payload: EventPayload<"agent.run">): EventStreamFrame => ({
   id: nextId(),
   kind: "agent.run",
   payload,
   createdAt: CREATED_AT,
 });
+
 const approvalFrame = (payload: EventPayload<"approval.requested">): EventStreamFrame => ({
   id: nextId(),
   kind: "approval.requested",
@@ -74,7 +84,9 @@ const approvalFrame = (payload: EventPayload<"approval.requested">): EventStream
 });
 
 const started = (turn: Turn = TURN) => messageFrame({ ...turn, phase: "started" });
+
 const completed = (turn: Turn = TURN) => messageFrame({ ...turn, phase: "completed" });
+
 const compaction = (
   phase: "compaction_started" | "compaction_finished",
   turn: Turn = TURN,
@@ -82,6 +94,7 @@ const compaction = (
 
 const delta = (seq: number, text: string, opts: { segmentIndex?: number; turn?: Turn } = {}) =>
   deltaFrame({ ...(opts.turn ?? TURN), seq, text, segmentIndex: opts.segmentIndex ?? 0 });
+
 const reasoning = (seq: number, text: string, turn: Turn = TURN) =>
   reasoningFrame({ ...turn, seq, text });
 
@@ -112,8 +125,10 @@ const tool = (
 
 const run = (runId: string, phase: EventPayload<"agent.run">["phase"]) =>
   runFrame({ runId, phase });
+
 const approval = (runId: string) =>
   approvalFrame({ runId, approvalId: "appr_1", approvalKind: "step", prompt: "Send it?" });
+
 /** A kind a chat turn does not read — the `default` arm the design keeps open. */
 const unrelated = (): EventStreamFrame => ({
   id: nextId(),
@@ -121,6 +136,7 @@ const unrelated = (): EventStreamFrame => ({
   payload: { runId: "run_1", step: "triage" },
   createdAt: CREATED_AT,
 });
+
 /**
  * The one non-`chat.*` kind that *does* carry a `threadId`, and so is subject to
  * the hoisted thread check like any other — `frameThreadId` classifies by the
@@ -154,6 +170,7 @@ const cellOf = () => createChatStreamCell(THREAD);
 function refOf(cell: ChatStreamCell) {
   const ref = cell.current;
   assert.ok(ref, "expected a mounted turn");
+
   return ref;
 }
 
@@ -161,6 +178,7 @@ function refOf(cell: ChatStreamCell) {
 function tick(cell: ChatStreamCell): { snapshot: StreamingMessage; caughtUp: boolean } {
   const projected = tickDrip(cell);
   assert.ok(projected, "expected a mounted turn");
+
   return projected;
 }
 
@@ -177,8 +195,10 @@ interface DrainedTick {
 function drain(cell: ChatStreamCell, bound = 500): DrainedTick {
   for (let i = 0; i < bound; i += 1) {
     const { snapshot, caughtUp } = tick(cell);
+
     if (caughtUp) return { snapshot, ticks: i + 1 };
   }
+
   throw new Error(`tickDrip did not reach caughtUp within ${bound} ticks`);
 }
 
@@ -330,11 +350,14 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     const cell = cellOf();
     applyChatFrame(cell, started(), 1_000);
     applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "child_tool_1" }), 1_000);
+
     return cell;
   };
+
   const trailOf = (cell: ChatStreamCell) => {
     const trail = refOf(cell).subAgents.get(SUB.parentToolCallId);
     assert.ok(trail, "expected a sub-agent trail");
+
     return trail;
   };
 
@@ -584,6 +607,7 @@ describe("applyChatFrame — monotonicity (clause 3)", () => {
 
 describe("applyChatFrame — thread filter (the cell's own identity)", () => {
   const other: Turn = { threadId: "thread_other", messageId: "msg_x", runId: "run_x" };
+
   /** Every kind whose payload names a thread, in both shapes `chat.message` has. */
   const foreignFrames = (): EventStreamFrame[] => [
     started(other),
@@ -645,10 +669,12 @@ describe("applyChatFrame — thread filter (the cell's own identity)", () => {
     const cell = cellOf();
     applyChatFrame(cell, started(), 1_000);
     const before = drain(cell).snapshot;
+
     for (const threadId of [THREAD, "thread_other"]) {
       assert.equal(applyChatFrame(cell, artifactDelta(threadId), 1_000), false);
       assert.equal(applyChatFrame(cell, unrelated(), 1_000), false);
     }
+
     assert.deepEqual(drain(cell).snapshot, before);
   });
 });
@@ -674,6 +700,7 @@ describe("SubAgentTrail — identity is write-once", () => {
       subId: "sub_b",
       childRunId: "child_2",
     };
+
     assert.equal(
       applyChatFrame(cell, tool({ subAgent: impostor, toolCallId: "child_tool_2" }), 2_000),
       true,
@@ -735,6 +762,7 @@ describe("applyChatFrame — return value per branch", () => {
   const mounted = () => {
     const cell = cellOf();
     applyChatFrame(cell, started(), 1_000);
+
     return cell;
   };
 
@@ -828,6 +856,7 @@ describe("tickDrip", () => {
 
     let previous = 0;
     let ticks = 0;
+
     for (;;) {
       ticks += 1;
       assert.ok(ticks <= 500, "tickDrip did not converge");
@@ -842,8 +871,10 @@ describe("tickDrip", () => {
         snapshot.text === answer && snapshot.reasoning === thinking,
         `caughtUp disagreed with the buffers at tick ${ticks}`,
       );
+
       if (caughtUp) break;
     }
+
     assert.ok(ticks > 1, "a single tick should not drain 61 chars — the easing is the point");
   });
 
@@ -895,6 +926,7 @@ describe("streamSnapshotsEqual", () => {
     applyChatFrame(cell, started(), 1_000);
     applyChatFrame(cell, delta(1, "done"), 1_000);
     applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "ct_1" }), 1_000);
+
     return cell;
   };
 
@@ -987,6 +1019,7 @@ describe("connection-health nudges (#378 item 3)", () => {
       tool({ subAgent: SUB, status: "failed", nonExecution: true }), // spawn card never drew
       2_000,
     );
+
     const applied = applyChatFrame(
       cell,
       tool({
@@ -1000,6 +1033,7 @@ describe("connection-health nudges (#378 item 3)", () => {
       }),
       3_000,
     );
+
     assert.equal(applied, true, "the repair must re-project even with no trail to retract");
     const { snapshot } = drain(cell);
     assert.deepEqual(snapshot.connectNudges, [{ integration: "notion", action: "connect" }]);
@@ -1015,8 +1049,10 @@ describe("connection-health nudges (#378 item 3)", () => {
         bounced({ toolCallId: "t5", connectNudge: { integration: "gmail", action } }),
         2_000,
       );
+
       return drain(cell).snapshot;
     };
+
     assert.equal(streamSnapshotsEqual(build("connect"), build("connect")), true);
     assert.equal(streamSnapshotsEqual(build("connect"), build("reconnect")), false);
   });

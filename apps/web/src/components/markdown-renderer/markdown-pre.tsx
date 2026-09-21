@@ -5,6 +5,7 @@ import { CodeBlock } from "./code-block";
 /** Pull the `language-xxx` token react-markdown puts on the inner `<code>`. */
 function languageOf(className: unknown): string | undefined {
   if (typeof className !== "string") return undefined;
+
   return /language-(\w+)/.exec(className)?.[1];
 }
 
@@ -24,6 +25,7 @@ export const MarkdownPre: NonNullable<Components["pre"]> = ({ node: _node, child
 
   if (child) {
     const code = String(child.props.children ?? "").replace(/\n$/, "");
+
     return <CodeBlock language={languageOf(child.props.className)} code={code} />;
   }
 

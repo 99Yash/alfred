@@ -24,9 +24,11 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
  * single prompt, so it sits only ~10-15% above the measured surface — enough for
  * ordinary description edits, but a new tool declared `surface:"kernel"` (even a
  * medium ~1KB one, well under the old 8KB ceiling) trips it. The full-surface
- * ceiling keeps a looser ~30% margin since it is only paid when everything loads.
- * When a ceiling legitimately needs to rise, bump it deliberately — the bump is
- * the review signal.
+ * ceiling is only paid when everything loads, so it needs no per-prompt
+ * tightness, but it sits about one small tool (~1.5 KB) above the measured
+ * surface so that every new tool records its own measurement here. When a
+ * ceiling legitimately needs to rise, bump it deliberately — the bump is the
+ * review signal.
  */
 
 // Measured 2026-07-16: kernel 5,904 B / 1,477 tok across 8 tools; full 51,127 B across 57 tools.
@@ -38,9 +40,34 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 // revalidates a blocked immutable draft before the existing high-risk activation tool runs.
 // Measured 2026-08-21: full 81,604 B — system.corpus_search (lane 08 of #649) added one lazy
 // read-only search over the ingested corpus.
-const KERNEL_SCHEMA_BYTES_CEILING = 6_600;
-const KERNEL_SCHEMA_TOKENS_CEILING = 1_700;
-const FULL_SCHEMA_BYTES_CEILING = 85_000;
+// Measured 2026-09-05: full 86,649 B across 75 tools — the Sentry provider (#563) added one lazy
+// read-only `sentry.request` REST passthrough, the same ~1.9 KB shape as the Vercel/Notion ones.
+// Measured 2026-09-09: full 90,494 B across 76 tools — the surface stood at 89,982 B before #990
+// (the ask_user tool, #1016, used the remaining margin without a bump); #990 adds `rawKind` and
+// its one-line grounding to the authorable event trigger, which both `system.author_workflow`
+// and `system.activate_workflow` embed (+256 B each). Ceiling raised 90,000 → 92,000: the #990
+// delta plus ~1.5 KB, so the next tool addition trips it and records its own line.
+// Measured 2026-09-12: kernel 6,420 → 9,481 B / ~2,370 tok and full 90,494 → 93,131 B —
+// `system.search_context` (#426) is the model-facing door to the Context Search boundary and the
+// chat prompt names it as the first-pass cross-source read, so it is kernel (the spec's "chat
+// guidance prefers it" cannot hold if the tool must be searched and loaded first). Its envelope
+// (query + task + exact object references + limit) carries the boundary's full request shape,
+// which is most of the kernel delta; keeping the exact-object path is what lets the fabric's
+// object-state adapter contribute instead of always reporting empty. The tool prose was trimmed
+// to keep the ratchet tight; the exact-object union is still ~1.3 KB of the tool and is the first
+// candidate to move behind a later drill-down if the first-pass query path proves sufficient.
+// Ceilings raised for this deliberate review signal.
+// Measured 2026-09-17: full 93,131 → 94,488 B across 77 tools — the standing-instruction
+// `scope` field (#1107) adds one optional enum to `system.remember`, at the top level and on
+// each `senders` entry, plus the tool prose that steers the domain option and names the
+// domain classes that fall back to `sender`. NO ceiling bump: 94,488 B still sits under
+// 95,000 B, and the ~512 B of margin left is the intended tightness — the next tool addition
+// trips the ceiling and records its own line.
+const KERNEL_SCHEMA_BYTES_CEILING = 10_500;
+
+const KERNEL_SCHEMA_TOKENS_CEILING = 2_600;
+
+const FULL_SCHEMA_BYTES_CEILING = 95_000;
 
 /** The artifact/search giants must never bootstrap the kernel. */
 const NON_KERNEL_GIANTS: readonly ToolName[] = [
@@ -53,6 +80,7 @@ function toolsByName(names: readonly ToolName[]): RegisteredTool[] {
   return names.map((name) => {
     const tool = getTool(name);
     assert.ok(tool, `${name} should be registered for this budget scenario`);
+
     return tool;
   });
 }
@@ -74,12 +102,15 @@ describe("tool-schema budget", () => {
 
   test("kernel, preloaded, and subsequently loaded surfaces grow predictably", () => {
     const kernel = estimateToolSurfaceBudget(toolsByName(systemToolKernel()));
+
     const preloaded = estimateToolSurfaceBudget(
       toolsByName([...systemToolKernel(), "calendar.list_events", "gmail.search"]),
     );
+
     const loaded = estimateToolSurfaceBudget(
       toolsByName([...systemToolKernel(), "calendar.list_events", "gmail.search", "github.search"]),
     );
+
     const full = estimateToolSurfaceBudget([...listRegisteredTools()]);
 
     // The lazy-tool win: each exact activation pays only for its own schema,
@@ -103,6 +134,7 @@ describe("tool-schema budget", () => {
 
   test("the large artifact/search schemas are never in the kernel", () => {
     const kernel = new Set(systemToolKernel());
+
     for (const giant of NON_KERNEL_GIANTS) {
       assert.ok(!kernel.has(giant), `${giant} must stay lazy, not bootstrap the kernel`);
     }
@@ -111,6 +143,7 @@ describe("tool-schema budget", () => {
   test("per-tool sizes are deterministic and memoized to a stable value", () => {
     const tool = getTool("system.web_search");
     assert.ok(tool, "system.web_search should be registered");
+
     if (!tool) return;
     const first = toolSchemaSize(tool);
     const second = toolSchemaSize(tool);
@@ -121,15 +154,17 @@ describe("tool-schema budget", () => {
 
   test("tools sharing one schema keep distinct name/description sizes", () => {
     const sharedSchema = z.object({ query: z.string() });
+
     const compact = toolSchemaSize({
       name: "gmail.search",
       description: "Search mail",
-      inputSchema: sharedSchema,
+      modelInputSchema: sharedSchema,
     });
+
     const verbose = toolSchemaSize({
       name: "github.search",
       description: "Search repositories, issues, and pull requests across GitHub",
-      inputSchema: sharedSchema,
+      modelInputSchema: sharedSchema,
     });
 
     assert.ok(verbose.bytes > compact.bytes);
@@ -140,12 +175,13 @@ describe("tool-schema budget", () => {
     const ascii = toolSchemaSize({
       name: "gmail.search",
       description: "Search mail - quickly",
-      inputSchema: z.object({}),
+      modelInputSchema: z.object({}),
     });
+
     const unicode = toolSchemaSize({
       name: "gmail.search",
       description: "Search mail — quickly",
-      inputSchema: z.object({}),
+      modelInputSchema: z.object({}),
     });
 
     assert.equal(unicode.tokens, ascii.tokens);

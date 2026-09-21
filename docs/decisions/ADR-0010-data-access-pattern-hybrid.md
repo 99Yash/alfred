@@ -20,3 +20,6 @@
 **Alternatives.** Live-only (rejected — no semantic history, no offline reasoning). Ingest-everything (rejected — stale calendar within a week).
 
 **Implementation shape.** `packages/integrations/<provider>/` exports `oauthFlow`, `liveTools`, `ingestor`, `webhookHandler`. `packages/ingestion/` holds shared chunker, embedder, dedup, vector-write helpers. One `documents` + `chunks` schema, source-tagged, vector column on chunks.
+
+
+**Amended 2026-09-06 (#989).** GitHub and Sentry inbound receipts now enter the shared document corpus for semantic activity history. Live API reads still supply current object state. Receipt documents use a shared description slot, a per-source daily admission cap, and the existing embedding sweep. ADR-0097 item 10 owns the details.

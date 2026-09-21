@@ -15,21 +15,12 @@ import { workflowBlockedGeneration } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { sha256Canonical } from "@alfred/db/hash";
 import { workflows } from "@alfred/db/schemas";
-import { serverEnv } from "@alfred/env/server";
 import { renderWorkflowBlockedEmail } from "@alfred/mailer";
 import { and, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { send } from "@alfred/assistant/delivery";
+import { emailLogoUrl, webOrigin } from "@alfred/assistant/settings";
 import type { WorkflowBlockedNotificationJobData } from "@alfred/assistant/tool-runtime";
-
-export function webOrigin(): string {
-  return serverEnv().CORS_ORIGIN.replace(/\/$/, "");
-}
-
-// Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
-export function emailLogoUrl(): string {
-  return `${webOrigin()}/images/logo/alfred-logo-email.png`;
-}
 
 /**
  * Opens the workflow page; with a revision, the recovery panel for it opens
@@ -37,14 +28,30 @@ export function emailLogoUrl(): string {
  */
 function workflowRecoveryDeepLink(slug: string, revisionId: string | undefined): string {
   const base = `${webOrigin()}/workflows/${encodeURIComponent(slug)}`;
+
   if (!revisionId) return base;
   const params = new URLSearchParams({ workflow_recovery: "1", revision_id: revisionId });
+
   return `${base}?${params.toString()}`;
 }
 
+/**
+ * The outcome of one workflow-blocked notification job. A failed send throws
+ * for a BullMQ retry instead of returning, so `sent`/`duplicate` are the only
+ * send outcomes a caller ever sees.
+ */
+export type WorkflowBlockedNotificationResult =
+  | { status: "missing"; workflowId: string }
+  | {
+      status: "skipped";
+      reason: "unblocked" | "already_notified" | "superseded";
+      workflowId: string;
+    }
+  | { status: "sent" | "duplicate"; workflowId: string; emailSendId: string };
+
 export async function processWorkflowBlockedNotification(
   data: WorkflowBlockedNotificationJobData,
-): Promise<unknown> {
+): Promise<WorkflowBlockedNotificationResult> {
   const [row] = await db()
     .select({
       id: workflows.id,
@@ -58,9 +65,12 @@ export async function processWorkflowBlockedNotification(
 
   if (!row) return { status: "missing", workflowId: data.workflowId };
   const blocked = row.blocked;
+
   if (!blocked) return { status: "skipped", reason: "unblocked", workflowId: row.id };
+
   if (blocked.notifiedAt)
     return { status: "skipped", reason: "already_notified", workflowId: row.id };
+
   // The job names one blocker generation; a row that moved on belongs to a newer job.
   if (workflowBlockedGeneration(blocked) !== data.generation) {
     return { status: "skipped", reason: "superseded", workflowId: row.id };
@@ -68,6 +78,7 @@ export async function processWorkflowBlockedNotification(
 
   const workflowUrl = workflowRecoveryDeepLink(row.slug, blocked.revisionId);
   const subject = `${row.name} is blocked`;
+
   const html = await renderWorkflowBlockedEmail({
     workflowName: row.name,
     message: blocked.message,
@@ -75,6 +86,7 @@ export async function processWorkflowBlockedNotification(
     workflowUrl,
     logoUrl: emailLogoUrl(),
   });
+
   const text = [
     subject,
     "",
@@ -111,6 +123,7 @@ export async function processWorkflowBlockedNotification(
   }
 
   const now = new Date();
+
   const updated = await db()
     .update(workflows)
     .set({
@@ -130,5 +143,6 @@ export async function processWorkflowBlockedNotification(
     .returning({ id: workflows.id });
 
   if (updated[0]) emitReplicachePokes([data.userId]);
+
   return { status: result.status, workflowId: row.id, emailSendId: result.emailSendId };
 }

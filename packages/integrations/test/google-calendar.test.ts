@@ -15,17 +15,21 @@ async function capturedCreateEventUrl(attendees?: string[]): Promise<URL> {
   let requestedUrl: URL | null = null;
   globalThis.fetch = (async (input) => {
     requestedUrl = new URL(String(input));
+
     return new Response(JSON.stringify({ id: "evt_test" }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
   }) as typeof fetch;
+
   try {
     await createEvent({ ...CREATE_ARGS, attendees });
   } finally {
     globalThis.fetch = realFetch;
   }
+
   assert.ok(requestedUrl, "Calendar create_event must issue one request");
+
   return requestedUrl;
 }
 

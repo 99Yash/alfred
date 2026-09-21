@@ -32,6 +32,7 @@ import {
 } from "~/lib/storage/storage-schemas";
 
 export type { LocalStorageKey, LocalStorageValue };
+
 export { LOCAL_STORAGE_KEY, LOCAL_STORAGE_SCHEMAS };
 
 // ---------------------------------------------------------------------------
@@ -42,6 +43,7 @@ export { LOCAL_STORAGE_KEY, LOCAL_STORAGE_SCHEMAS };
 
 export function safeGet(key: string): string | null {
   if (typeof window === "undefined") return null;
+
   try {
     return window.localStorage.getItem(key);
   } catch {
@@ -51,6 +53,7 @@ export function safeGet(key: string): string | null {
 
 export function safeSet(key: string, value: string): void {
   if (typeof window === "undefined") return;
+
   try {
     window.localStorage.setItem(key, value);
   } catch {
@@ -60,6 +63,7 @@ export function safeSet(key: string, value: string): void {
 
 export function safeRemove(key: string): void {
   if (typeof window === "undefined") return;
+
   try {
     window.localStorage.removeItem(key);
   } catch {
@@ -92,24 +96,29 @@ export function getLocalStorageItem<K extends LocalStorageKey>(
   const resolveDefault = (): LocalStorageValue<K> => {
     if (defaultValue !== undefined) {
       const r = schema.safeParse(defaultValue);
+
       if (r.success) {
         // SAFETY: same per-key schema contract as schemaDefault above.
         return r.data as LocalStorageValue<K>;
       }
+
       console.error(
         `[storage] default value for "${key}" does not match its schema`,
         r.error.issues,
       );
     }
+
     return schemaDefault(key);
   };
 
   const serialized = safeGet(key);
+
   if (serialized === null) return resolveDefault();
 
   // Parse as JSON, but tolerate the legacy raw-string format (values written
   // before this module existed) by validating the raw string on parse failure.
   let candidate: unknown;
+
   try {
     candidate = JSON.parse(serialized);
   } catch {
@@ -117,6 +126,7 @@ export function getLocalStorageItem<K extends LocalStorageKey>(
   }
 
   const result = schema.safeParse(candidate);
+
   if (result.success) {
     // SAFETY: same per-key schema contract as schemaDefault above.
     return result.data as LocalStorageValue<K>;
@@ -126,6 +136,7 @@ export function getLocalStorageItem<K extends LocalStorageKey>(
     `[storage] stored value for "${key}" is invalid — falling back to default`,
     result.error.issues,
   );
+
   return resolveDefault();
 }
 
@@ -135,10 +146,13 @@ export function setLocalStorageItem<K extends LocalStorageKey>(
   value: LocalStorageValue<K>,
 ): void {
   const result = LOCAL_STORAGE_SCHEMAS[key].safeParse(value);
+
   if (!result.success) {
     console.error(`[storage] refusing to write invalid value for "${key}"`, result.error.issues);
+
     return;
   }
+
   safeSet(key, JSON.stringify(result.data));
 }
 
@@ -152,10 +166,13 @@ export function subscribeToStorage<K extends LocalStorageKey>(
   onChange: (value: LocalStorageValue<K>) => void,
 ): () => void {
   if (typeof window === "undefined") return () => {};
+
   const handler = (event: StorageEvent) => {
     if (event.key !== null && event.key !== key) return;
     onChange(getLocalStorageItem(key));
   };
+
   window.addEventListener("storage", handler);
+
   return () => window.removeEventListener("storage", handler);
 }

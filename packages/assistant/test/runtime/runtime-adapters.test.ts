@@ -11,13 +11,17 @@ import { runShutdownStep } from "../../src/runtime/runtime";
 import {
   registerSystemToolAgentAdapter,
   registerSystemToolChatHistoryAdapter,
+  registerSystemToolInstructionAdapter,
   registerSystemToolKnowledgeAdapter,
   registerSystemToolTaskAdapter,
+  registerSystemToolWebSearchAdapter,
   registerSystemToolWorkflowAdapter,
   type SystemToolAgentAdapter,
   type SystemToolChatHistoryAdapter,
+  type SystemToolInstructionAdapter,
   type SystemToolKnowledgeAdapter,
   type SystemToolTaskAdapter,
+  type SystemToolWebSearchAdapter,
   type SystemToolWorkflowAdapter,
 } from "../../src/tool-runtime";
 
@@ -46,6 +50,7 @@ describe("runtime adapter lifecycle", () => {
         "system-tool-chat",
         "system-tool-workflows",
         "system-tool-product",
+        "system-tool-context-search",
         "chat-attachment-enrichment",
         "chat-media",
         "gmail-triage",
@@ -75,13 +80,20 @@ describe("runtime adapter lifecycle", () => {
         "system-tool-workflows",
         "system-tool-chat",
         "system-tool-agent",
+        "system-tool-context-search",
       ],
     );
     assert.deepEqual(
       RUNTIME_ADAPTERS.filter(({ retainIfAgentWorkerActive }) =>
         Boolean(retainIfAgentWorkerActive),
       ).map(({ name }) => name),
-      ["system-tool-agent", "system-tool-chat", "system-tool-workflows", "system-tool-product"],
+      [
+        "system-tool-agent",
+        "system-tool-chat",
+        "system-tool-workflows",
+        "system-tool-product",
+        "system-tool-context-search",
+      ],
     );
     assert.deepEqual(
       RUNTIME_ADAPTERS.filter(({ retainIfIngestionWorkerActive }) =>
@@ -100,6 +112,7 @@ describe("runtime adapter lifecycle", () => {
 
   test("registers adapters in manifest order", () => {
     const calls: string[] = [];
+
     const lifecycle = createRuntimeAdapterLifecycle([
       adapter("first", calls, {
         retainIfAgentWorkerActive: false,
@@ -120,6 +133,7 @@ describe("runtime adapter lifecycle", () => {
 
   test("unregisters every adapter in declared shutdown order after ingestion stops", () => {
     const calls: string[] = [];
+
     const lifecycle = createRuntimeAdapterLifecycle([
       adapter("first", calls, {
         retainIfAgentWorkerActive: false,
@@ -140,6 +154,7 @@ describe("runtime adapter lifecycle", () => {
 
   test("retains ingestion adapters when ingestion remains active", () => {
     const calls: string[] = [];
+
     const lifecycle = createRuntimeAdapterLifecycle([
       adapter("ingestion-first", calls, {
         retainIfAgentWorkerActive: false,
@@ -173,11 +188,20 @@ describe("runtime adapter lifecycle", () => {
       const agentWorkerStopped = await runShutdownStep("agent worker", () =>
         Promise.reject(new Error("worker close failed")),
       );
+
       unregisterRuntimeAdapters({ agentWorkerStopped, ingestionWorkerStopped: true });
 
       const agent: SystemToolAgentAdapter = {
-        spawnSubAgent: () => Promise.resolve(null),
-        readChildRunOutcome: () => Promise.resolve(null),
+        spawnSubAgent: () =>
+          Promise.resolve({
+            ok: true,
+            status: "spawned",
+            parentRunId: "run_parent",
+            childRunId: "run_child",
+            subId: "sub_1",
+          } as const),
+        readChildRunOutcome: () =>
+          Promise.resolve({ ok: true, done: true, status: "completed" } as const),
         resolveAwaitSubAgent: () =>
           Promise.resolve({
             kind: "executed",
@@ -189,25 +213,95 @@ describe("runtime adapter lifecycle", () => {
         writeScratch: () => Promise.resolve(undefined),
         promoteScratch: () => Promise.resolve(null),
       };
+
       const chat: SystemToolChatHistoryAdapter = {
-        readChatHistory: () => Promise.resolve(null),
+        readChatHistory: () =>
+          Promise.resolve({
+            ok: true,
+            mode: "fetch",
+            found: false,
+            kind: "message",
+            id: "x",
+          } as const),
       };
+
       const workflows: SystemToolWorkflowAdapter = {
-        authorWorkflow: () => Promise.resolve(null),
-        recoverWorkflow: () => Promise.resolve(null),
-        activateWorkflow: () => Promise.resolve(null),
+        authorWorkflow: () =>
+          Promise.resolve({
+            ok: false,
+            status: "not_found",
+            failure: { kind: "not_found" },
+          } as const),
+        recoverWorkflow: () =>
+          Promise.resolve({
+            ok: false,
+            status: "not_found",
+            failure: { kind: "not_found" },
+          } as const),
+        activateWorkflow: () =>
+          Promise.resolve({
+            ok: false,
+            status: "not_found",
+            failure: { kind: "not_found" },
+          } as const),
       };
+
       const knowledge: SystemToolKnowledgeAdapter = {
-        readUserContext: () => Promise.resolve(null),
-        rememberSenderSuppressionAndDismissTodos: () => Promise.resolve(null),
-        listInstructions: () => Promise.resolve(null),
-        forgetInstruction: () => Promise.resolve(null),
-        editInstruction: () => Promise.resolve(null),
-        webSearch: () => Promise.resolve(null),
+        readUserContext: () =>
+          Promise.resolve({
+            profile: null,
+            activeIntegrations: [],
+            confirmedFacts: [],
+            preferences: [],
+            entities: [],
+            relations: [],
+            recentMemory: [],
+          } as const),
       };
+
+      const instructions: SystemToolInstructionAdapter = {
+        rememberSenderSuppressionAndDismissTodos: () =>
+          Promise.resolve({
+            ok: false,
+            status: "needs_clarification",
+            reason: "invalid_sender_email",
+            message: "not an email address",
+          } as const),
+        listInstructions: () =>
+          Promise.resolve({
+            instructions: [],
+            totalActive: 0,
+            truncated: false,
+            limit: 50,
+          } as const),
+        forgetInstruction: () => Promise.resolve({ ok: false, status: "not_found" } as const),
+        editInstruction: () => Promise.resolve({ ok: false, status: "not_found" } as const),
+      };
+
+      const search: SystemToolWebSearchAdapter = {
+        webSearch: () =>
+          Promise.resolve({
+            ok: true,
+            query: "q",
+            answer: "a",
+            citations: [],
+            results: [],
+            searchQueries: ["q"],
+          } as const),
+      };
+
       const tasks: SystemToolTaskAdapter = {
-        resolveTodo: () => Promise.resolve(null),
-        suggestTodo: () => Promise.resolve(null),
+        resolveTodo: () =>
+          Promise.resolve({
+            ok: true,
+            status: "dismissed",
+            dismissedCount: 0,
+            todoIds: [],
+            matchedThreadIds: [],
+            auditReason: null,
+          } as const),
+        suggestTodo: () =>
+          Promise.resolve({ ok: true, status: "created", todoId: "todo_1" } as const),
       };
 
       for (const install of [
@@ -215,10 +309,13 @@ describe("runtime adapter lifecycle", () => {
         () => registerSystemToolChatHistoryAdapter(chat),
         () => registerSystemToolWorkflowAdapter(workflows),
         () => registerSystemToolKnowledgeAdapter(knowledge),
+        () => registerSystemToolInstructionAdapter(instructions),
+        () => registerSystemToolWebSearchAdapter(search),
         () => registerSystemToolTaskAdapter(tasks),
       ]) {
         assert.throws(install, /already registered/);
       }
+
       assert.equal(agentWorkerStopped, false);
       assert.equal(errors.length, 1);
     } finally {

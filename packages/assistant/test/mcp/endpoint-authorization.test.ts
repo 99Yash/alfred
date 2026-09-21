@@ -6,16 +6,20 @@ const CONNECTION = {
   endpointUrl: "https://mcp.example.test/mcp",
   endpointOrigin: "https://mcp.example.test",
 };
+
 const NETWORK = { requestTimeoutMs: 5_000 };
 
 test("MCP authorization correlates the resource with public OAuth and origin-pinned protocol fetches", async () => {
   const seen: string[] = [];
+
   const authorizer = new HostedMcpEndpointAuthorizer({
     requester: async (input) => {
       seen.push(String(input));
+
       return new Response("ok");
     },
   });
+
   const authorized = await authorizer.authorize(CONNECTION, NETWORK);
 
   assert.equal(authorized.protocol.endpoint.href, authorized.oauth.resource.href);
@@ -59,22 +63,28 @@ test("MCP authorization correlates the resource with public OAuth and origin-pin
 
 test("the protocol fetch follows same-origin redirects and refuses to leave the stored origin", async () => {
   const seen: string[] = [];
+
   const authorizer = new HostedMcpEndpointAuthorizer({
     requester: async (input) => {
       seen.push(input);
+
       if (input.endsWith("/start")) {
         return new Response(null, { status: 307, headers: { location: "/mcp" } });
       }
+
       if (input.endsWith("/leave")) {
         return new Response(null, {
           status: 302,
           headers: { location: "https://other.example.test/mcp" },
         });
       }
+
       return new Response("ok");
     },
   });
+
   const authorized = await authorizer.authorize(CONNECTION, NETWORK);
+
   try {
     const response = await authorized.protocol.fetch("https://mcp.example.test/start");
     assert.equal(await response.text(), "ok");
@@ -99,13 +109,17 @@ test("the protocol fetch follows same-origin redirects and refuses to leave the 
 
 test("OAuth requests carry the connection's request deadline; protocol requests leave time to the SDK", async () => {
   const signals: Array<AbortSignal | null | undefined> = [];
+
   const authorizer = new HostedMcpEndpointAuthorizer({
     requester: async (_input, init) => {
       signals.push(init.signal);
+
       return new Response("ok");
     },
   });
+
   const authorized = await authorizer.authorize(CONNECTION, NETWORK);
+
   try {
     await authorized.oauth.fetch("https://mcp.example.test/.well-known/oauth-protected-resource");
     const caller = new AbortController();

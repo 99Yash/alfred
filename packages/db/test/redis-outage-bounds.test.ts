@@ -23,32 +23,41 @@ import { settleWithin, settlementMessage } from "./support/settle";
 
 /** Bound a `"command"` connection must settle inside: `commandTimeout` + slack. */
 const COMMAND_DEADLINE_MS = 3_000;
+
 /**
  * How long the `"queue"` control must stay pending. Strictly longer than
  * `COMMAND_DEADLINE_MS`, so "the harness sees a hang" and "the harness sees a
  * bounded rejection" cannot both be satisfied by the same observation.
  */
 const QUEUE_PENDING_MS = 3_500;
+
 /** `"fail-fast"` rejects synchronously in `sendCommand`; this is pure slack. */
 const FAIL_FAST_DEADLINE_MS = 250;
+
 /** `closeRedis()`'s own `QUIT_TIMEOUT_MS` plus slack. */
 const SHUTDOWN_DEADLINE_MS = 2_500;
 
 /** A port that was bound long enough to be sure it is free, then released. */
 async function reserveClosedPort(): Promise<number> {
   const server = createServer();
+
   const port = await new Promise<number>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
+
       if (address === null || typeof address === "string") {
         reject(new Error(`unexpected server address: ${String(address)}`));
+
         return;
       }
+
       resolve(address.port);
     });
   });
+
   await new Promise<void>((resolve) => server.close(() => resolve()));
+
   return port;
 }
 

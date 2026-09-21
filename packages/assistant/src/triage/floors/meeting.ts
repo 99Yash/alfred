@@ -54,8 +54,10 @@ export type MeetingDemotionReason =
 // notes") never trips them — only a subject that IS a recap/prep does.
 const MEETING_RECAP_SUBJECT_RE =
   /^\s*(?:re:\s*|fwd:\s*)*(?:meeting\s+(?:notes|minutes|recap|summary)|notes\s+from\b|minutes\s+(?:from|of)\b|recap\s+of\b|recap:|post[- ]?meet(?:ing)?\s+summary)/i;
+
 const MEETING_PREP_SUBJECT_RE =
   /^\s*(?:\[[^\]]*\]\s*)*(?:meeting\s+prep\b|prep\s+for\b|agenda\s+for\b|pre[- ]?read\s+for\b)/i;
+
 // Google-Calendar action subject shapes — the carve-out that keeps genuine
 // invite/schedule/attendance mail from a service/no-reply calendar address in
 // `meeting`.
@@ -76,12 +78,14 @@ export function applyMeetingDemotionFloor(
   if (classification.category !== "meeting") {
     return { verdict: { kind: "keep" }, reason: null };
   }
+
   const subject = context.subject ?? "";
   // The calendar-action subject shape is the single carve-out shared by every
   // trigger: a genuine "Invitation:"/"Proposed new time:" stays `meeting` even
   // when it comes from a service or mentions the event topic in its body.
   const isCalendarAction = CALENDAR_ACTION_SUBJECT_RE.test(subject);
   const collabActivity = classification.collabActivity ?? context.collabActivity ?? null;
+
   const reason: MeetingDemotionReason | null = MEETING_RECAP_SUBJECT_RE.test(subject)
     ? "meeting_recap"
     : MEETING_PREP_SUBJECT_RE.test(subject)
@@ -93,7 +97,9 @@ export function applyMeetingDemotionFloor(
           : context.contentFlags?.hasPublicEventLanguage && !isCalendarAction
             ? "public_event"
             : null;
+
   if (!reason) return { verdict: { kind: "keep" }, reason: null };
+
   const note =
     reason === "meeting_recap"
       ? "recap of a meeting that already happened"
@@ -104,6 +110,7 @@ export function applyMeetingDemotionFloor(
           : reason === "investor_notice"
             ? "AGM/shareholder/proxy notice, not the user's meeting (rule 9)"
             : "public event (webinar/conference/launch), not the user's meeting (rule 8)";
+
   return {
     verdict: { kind: "demote", key: "meeting_floor", note, reason: `Meeting floor: ${note}` },
     reason,

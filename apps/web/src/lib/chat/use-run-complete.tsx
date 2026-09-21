@@ -13,7 +13,9 @@ import type { StreamingMessage } from "./chat-stream-state";
 export type ChatSoundPreference = LocalStorageValue<"alfred.chat.soundPreference">;
 
 const PREF_KEY = "alfred.chat.soundPreference";
+
 const ONBOARDED_KEY = "alfred.chat.notifyOnboarded";
+
 const SFX_SRC = "/sounds/run-finished.mp3";
 
 /**
@@ -26,6 +28,11 @@ export const SCROLL_CHAT_TO_BOTTOM_EVENT = "alfred:scroll-chat-to-bottom";
 /** Longest reply preview we'll show in the toast before eliding. */
 const SNIPPET_MAX = 140;
 
+/** Leading mark for run-complete toasts — same glyph as the chat think pulse. */
+const ALFRED_TOAST_ICON = (
+  <img src="/images/logo/alfred-logo.svg" alt="" className="size-4.5 rounded-[5px]" />
+);
+
 /**
  * Distil the streamed reply into a one-line preview: collapse whitespace, trim,
  * and elide on a word boundary. Returns `null` when the turn closed with no
@@ -33,12 +40,15 @@ const SNIPPET_MAX = 140;
  */
 function replySnippet(text: string | undefined): string | null {
   const collapsed = text?.replace(/\s+/g, " ").trim();
+
   if (!collapsed) return null;
+
   if (collapsed.length <= SNIPPET_MAX) return collapsed;
   const clipped = collapsed.slice(0, SNIPPET_MAX);
   const lastSpace = clipped.lastIndexOf(" ");
   // Prefer a word boundary, but don't claw back more than ~a quarter of the line.
   const cut = lastSpace > SNIPPET_MAX * 0.75 ? clipped.slice(0, lastSpace) : clipped;
+
   return `${cut.trimEnd()}…`;
 }
 
@@ -64,11 +74,13 @@ export function useRunComplete(stream: StreamingMessage | null): void {
 
   useEffect(() => {
     if (!stream?.done) return;
+
     if (firedRef.current === stream.messageId) return;
     firedRef.current = stream.messageId;
 
     const focused = typeof document !== "undefined" && document.hasFocus();
     const pref = getChatSoundPreference();
+
     if (pref === "always" || (pref === "unfocused" && !focused)) {
       // Create inline so the element's lifecycle doesn't outlive the play.
       const audio = new Audio(SFX_SRC);
@@ -86,11 +98,12 @@ export function useRunComplete(stream: StreamingMessage | null): void {
       toast.custom({
         message: "Alfred can notify you when a reply lands",
         description: "A chime + toast when a turn finishes while you're away. Tune it in Settings.",
-        icon: <span className="text-[15px] leading-none">✨</span>,
+        icon: ALFRED_TOAST_ICON,
         position: "bottom-right",
         duration: 8000,
         action: { label: "Settings", onClick: () => void navigate({ to: "/settings" }) },
       });
+
       return;
     }
 
@@ -110,7 +123,7 @@ export function useRunComplete(stream: StreamingMessage | null): void {
       ) : (
         "Your turn is ready."
       ),
-      icon: <span className="text-[15px] leading-none">✨</span>,
+      icon: ALFRED_TOAST_ICON,
       position: "bottom-right",
       duration: 6000,
       action: {

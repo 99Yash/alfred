@@ -28,6 +28,7 @@ describe("composition readiness verdict mapping", () => {
       problems: [problem],
       newlyBlocked: true,
     };
+
     const verdict = toVerdict(result);
     assert.deepEqual(verdict, { kind: "blocked", problems: [problem] });
     // The narrow verdict never carries newlyBlocked — the engine does not read it.

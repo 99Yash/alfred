@@ -187,14 +187,17 @@ function onlyObservation(observations: readonly ObservationInsertInput[]): Obser
   assert.equal(observations.length, 1);
   const observation = observations[0];
   assert.ok(observation);
+
   return observationInsertSchema.parse(observation);
 }
 
 function emailSubjectValue(observation: ObservationInsert): string {
   assert.equal(observation.subjectIdentity.kind, "email");
+
   if (observation.subjectIdentity.kind !== "email") {
     throw new Error("expected email subject identity");
   }
+
   return observation.subjectIdentity.value;
 }
 
@@ -216,7 +219,9 @@ function gmailDoc(
     ["From", "Alice <alice@example.com>"],
     ["To", "Yash <yash@example.com>"],
   ];
+
   const rawHeaders = overrides.rawPayloadHeaders ?? headers;
+
   return {
     id: "doc_1",
     userId: "usr_1",
@@ -245,5 +250,6 @@ function gmailDoc(
 
 function headerValue(headers: readonly (readonly [string, string])[], name: string): string | null {
   const match = headers.find(([candidate]) => candidate.toLowerCase() === name.toLowerCase());
+
   return match?.[1] ?? null;
 }

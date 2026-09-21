@@ -1,6 +1,8 @@
 import {
   calendarListEventsInput,
   toolInputFields,
+  toJsonValue,
+  toStringArray,
   type FieldSpec,
   type ToolName,
 } from "@alfred/contracts";
@@ -11,6 +13,7 @@ import { asRecord, type JsonRecord } from "~/lib/json-record";
 import { formatJson, parseJson } from "./format";
 
 type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
+
 type CalendarListEventsKey = keyof z.infer<typeof calendarListEventsInput>;
 
 /**
@@ -19,6 +22,11 @@ type CalendarListEventsKey = keyof z.infer<typeof calendarListEventsInput>;
  * a dropdown, a bounded integer a stepper, a datetime a picker, an email list
  * a multi-line editor — so the form can't drift from what the server accepts.
  * Tools without a derivable schema fall back to a raw-JSON editor.
+ *
+ * One editor, one job: review a proposed *write*. A `system.ask_user` row is
+ * not that (ADR-0099) — the user authors its input rather than reviewing it —
+ * and it never reaches here: both surfaces resolve a question to their own
+ * card, which draws `AskUserQuestionPanel` with the input already parsed.
  */
 export function ApprovalInputEditor({
   toolName,
@@ -53,8 +61,9 @@ export function ApprovalInputEditor({
           disabled={disabled || field.readOnly}
           onChange={(next) => {
             const updated = { ...record };
+
             if (next === undefined) delete updated[field.key];
-            else updated[field.key] = next;
+            else updated[field.key] = toJsonValue(next);
             onChange(updated);
           }}
         />
@@ -73,6 +82,7 @@ const CALENDAR_EXPLICIT_TIME_KEYS: ReadonlySet<CalendarListEventsKey> = new Set(
   "timeMin",
   "timeMax",
 ]);
+
 const CALENDAR_RELATIVE_TIME_KEYS: ReadonlySet<CalendarListEventsKey> = new Set([
   "window",
   "partOfDay",
@@ -88,6 +98,7 @@ function editorFieldsForTool(
   const hasExplicitWindow = [...CALENDAR_EXPLICIT_TIME_KEYS].some((key) =>
     hasFieldValue(record, key),
   );
+
   if (hasExplicitWindow) {
     return fields.filter((field) => !hasCalendarListKey(CALENDAR_RELATIVE_TIME_KEYS, field.key));
   }
@@ -103,6 +114,7 @@ function hasCalendarListKey(keys: ReadonlySet<CalendarListEventsKey>, key: strin
 
 function hasFieldValue(record: JsonRecord, key: CalendarListEventsKey): boolean {
   const value = record[key];
+
   return value !== undefined && value !== null && value !== "";
 }
 
@@ -210,15 +222,17 @@ function FieldControl({
       return (
         <AppTextarea
           id={id}
-          value={Array.isArray(value) ? value.filter((v) => typeof v === "string").join("\n") : ""}
+          value={toStringArray(value).join("\n")}
           rows={3}
           disabled={disabled}
           placeholder="One per line"
           onChange={(e) => {
             const items = e.target.value.split("\n").flatMap((item) => {
               const trimmed = item.trim();
+
               return trimmed ? [trimmed] : [];
             });
+
             onChange(items.length > 0 ? items : undefined);
           }}
           className="min-h-24"
@@ -268,6 +282,7 @@ function JsonField({
   const [text, setText] = useState(() => formatJson(value));
   const [error, setError] = useState<string | null>(null);
   const [prevValue, setPrevValue] = useState(value);
+
   if (value !== prevValue) {
     setPrevValue(value);
     setText(formatJson(value));
@@ -285,6 +300,7 @@ function JsonField({
         onChange={(e) => {
           setText(e.target.value);
           const parsed = parseJson(e.target.value);
+
           if (parsed.ok) {
             setError(null);
             onChange(parsed.value);
@@ -317,6 +333,7 @@ function JsonFallbackEditor({
   // React discards the queued setState with the render if it bails out,
   // whereas a ref write would leak and desync the tracker.
   const [prevValue, setPrevValue] = useState(value);
+
   if (value !== prevValue) {
     setPrevValue(value);
     setText(formatJson(value));
@@ -336,6 +353,7 @@ function JsonFallbackEditor({
         onChange={(e) => {
           setText(e.target.value);
           const parsed = parseJson(e.target.value);
+
           if (parsed.ok) {
             setError(null);
             onChange(parsed.value);
@@ -352,6 +370,7 @@ function JsonFallbackEditor({
 
 function emptyToUndefined(value: string, optional: boolean): string | undefined {
   if (value.trim().length === 0 && optional) return undefined;
+
   return value;
 }
 

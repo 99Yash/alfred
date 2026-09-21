@@ -13,11 +13,10 @@ import { throwUpstreamError } from "./upstream-error";
  * throw-and-parse step on top.
  *
  * The two curated clients that genuinely need the raw {@link Response} —
- * `githubGet` (`res.json()` → `zod`) and Railway (its `{ data, errors }`
- * envelope) — stay on `authedFetch` directly; they are not JSON-body-in,
+ * `githubGet` (`res.json()` → `zod`) — stay on `authedFetch` directly; they are not JSON-body-in,
  * parsed-JSON-out calls. Everything that *is* collapses here:
  *
- *   authedFetch  → Response          (github, railway build on this)
+ *   authedFetch  → Response          (github builds on this)
  *     └ authedJson → unknown         (notion, vercel, google collapse here)
  *
  * Returns `unknown` on purpose: the caller validates the parsed body with a
@@ -61,10 +60,12 @@ export async function authedJson(
 ): Promise<unknown> {
   const send = () => authedFetch(profile, request);
   const eligible = options.idempotent === true || isRetrySafeMethod(request.method);
+
   const res =
     options.retry && options.retry !== "none" && eligible
       ? await fetchWithRetry(send, { policy: options.retry })
       : await send();
+
   if (!res.ok) {
     return throwUpstreamError({
       provider: options.provider,
@@ -74,6 +75,8 @@ export async function authedJson(
       bodyPolicy: options.bodyPolicy,
     });
   }
+
   const text = await res.text();
+
   return text ? JSON.parse(text) : {};
 }

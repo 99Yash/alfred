@@ -2,6 +2,7 @@ import type { ServerEnv } from "@alfred/env/server";
 import type { BetterAuthOptions } from "better-auth";
 
 type BetterAuthAdvanced = NonNullable<BetterAuthOptions["advanced"]>;
+
 type BetterAuthCookieAttributes = NonNullable<BetterAuthAdvanced["defaultCookieAttributes"]>;
 
 type AuthCookiePolicy =

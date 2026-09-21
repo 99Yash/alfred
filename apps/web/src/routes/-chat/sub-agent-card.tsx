@@ -5,7 +5,7 @@ import { useId, useState } from "react";
 import type { SubAgentTrail } from "~/lib/chat/chat-stream-state";
 import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
-import { animatedToolIcon, RunningToolIcon } from "./animated-tool-icons";
+import { brandlessToolIcon, RunningToolIcon } from "./animated-tool-icons";
 import { Elapsed } from "./elapsed";
 import { RunGlyphCluster } from "./run-glyph-cluster";
 import { runGlyphs, runSummary } from "./run-summary";
@@ -42,6 +42,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
   // avoid a flash, and the user can still toggle freely between transitions.
   const [value, setValue] = useState(live ? ITEM : "");
   const [prevLive, setPrevLive] = useState(live);
+
   if (prevLive !== live) {
     setPrevLive(live);
     setValue(live ? ITEM : "");
@@ -68,7 +69,8 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
           ? runSummary(steps)
           : spawn.done;
 
-  const spawnIcon = animatedToolIcon(tool.toolName);
+  const SpawnIcon = brandlessToolIcon(tool.toolName);
+
   const stepCount =
     steps.length > 0 ? `${steps.length} step${steps.length === 1 ? "" : "s"}` : null;
 
@@ -97,8 +99,8 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
                 aria-hidden
                 className="chat-node-glow inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated)"
               >
-                {spawnIcon ? (
-                  <RunningToolIcon icon={spawnIcon.Icon} running={running} size={13} />
+                {SpawnIcon ? (
+                  <RunningToolIcon icon={SpawnIcon} running={running} size={13} />
                 ) : (
                   <spawn.fallbackIcon size={13} />
                 )}

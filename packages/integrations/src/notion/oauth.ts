@@ -11,6 +11,7 @@ import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
  */
 
 const NOTION_AUTHORIZE_URL = "https://api.notion.com/v1/oauth/authorize";
+
 const NOTION_TOKEN_URL = "https://api.notion.com/v1/oauth/token";
 
 /**
@@ -45,6 +46,7 @@ export interface NotionOAuthConfig {
 /** Read + assert the Notion OAuth env. Throws when the integration isn't configured yet. */
 export function getNotionOAuthConfig(): NotionOAuthConfig {
   const env = serverEnv();
+
   if (
     !env.NOTION_OAUTH_CLIENT_ID ||
     !env.NOTION_OAUTH_CLIENT_SECRET ||
@@ -54,6 +56,7 @@ export function getNotionOAuthConfig(): NotionOAuthConfig {
       "[notion.oauth] Notion is not configured — set NOTION_OAUTH_CLIENT_ID, NOTION_OAUTH_CLIENT_SECRET, NOTION_OAUTH_REDIRECT_URI",
     );
   }
+
   return {
     clientId: env.NOTION_OAUTH_CLIENT_ID,
     clientSecret: env.NOTION_OAUTH_CLIENT_SECRET,
@@ -64,6 +67,7 @@ export function getNotionOAuthConfig(): NotionOAuthConfig {
 export function isNotionConfigured(): boolean {
   try {
     getNotionOAuthConfig();
+
     return true;
   } catch {
     return false;
@@ -78,6 +82,7 @@ export function buildNotionAuthorizeUrl(state: string): string {
   url.searchParams.set("owner", "user");
   url.searchParams.set("redirect_uri", cfg.redirectUri);
   url.searchParams.set("state", state);
+
   return url.toString();
 }
 
@@ -95,6 +100,7 @@ export interface NotionTokenResult {
 export async function exchangeNotionCode(code: string): Promise<NotionTokenResult> {
   const cfg = getNotionOAuthConfig();
   const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
+
   const res = await fetch(NOTION_TOKEN_URL, {
     method: "POST",
     headers: {
@@ -109,6 +115,7 @@ export async function exchangeNotionCode(code: string): Promise<NotionTokenResul
     }),
     signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
+
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     // Log the upstream body for debugging, but don't forward it in the thrown
@@ -116,12 +123,16 @@ export async function exchangeNotionCode(code: string): Promise<NotionTokenResul
     console.error(`[notion.oauth] token exchange ${res.status} :: ${body.slice(0, 300)}`);
     throw new Error(`[notion.oauth] token exchange failed (${res.status})`);
   }
+
   const parsed = tokenResponseSchema.safeParse(await res.json());
+
   if (!parsed.success) {
     throw new Error("[notion.oauth] token exchange returned an unexpected shape");
   }
+
   const json = parsed.data;
   const ownerName = json.owner?.user?.name ?? json.owner?.user?.person?.email ?? null;
+
   return {
     accessToken: json.access_token,
     workspaceId: json.workspace_id,

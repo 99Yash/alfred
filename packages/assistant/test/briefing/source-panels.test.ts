@@ -178,6 +178,7 @@ describe("buildBriefingSourcePanels", () => {
       sender: "Someone",
       snippet: "s",
     });
+
     const [emailPanel] = buildBriefingSourcePanels(
       gather({
         email: {
@@ -263,6 +264,7 @@ describe("buildBriefingSourcePanels", () => {
       sender: "Someone",
       snippet: "s",
     }));
+
     const [emailPanel] = buildBriefingSourcePanels(
       gather({ email: { categories: { action_needed: items } } }),
     );

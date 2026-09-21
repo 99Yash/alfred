@@ -8,6 +8,7 @@ test("publishes the completed Google callback through the domain event interface
 
   await publishGoogleCallbackCompleted("user-1", "credential-1", async (event) => {
     events.push(event);
+
     return { acceptedConsumers: 2 };
   });
 

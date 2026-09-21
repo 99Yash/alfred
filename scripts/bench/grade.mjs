@@ -22,6 +22,7 @@ import { runCommand, timestamp } from "./run.mjs";
 const USAGE = `node scripts/bench/grade.mjs <taskId> [--patch <file> | --gold | --check-discriminator] [--install | --no-install] [--timeout-s <n>]`;
 
 const DEFAULT_TIMEOUT_S = 600;
+
 const INSTALL_TIMEOUT_MS = 20 * 60 * 1000;
 
 /**
@@ -56,8 +57,10 @@ const INSTALL_TIMEOUT_MS = 20 * 60 * 1000;
 export function parseArgs(argv) {
   /** @type {GradeArgs} */
   const args = { taskId: "", mode: "run", patch: null, install: null, timeoutS: DEFAULT_TIMEOUT_S };
+
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
+
     switch (flag) {
       case "--patch":
         args.patch = argv[++i] ?? null;
@@ -85,10 +88,13 @@ export function parseArgs(argv) {
         }
     }
   }
+
   if (!/^[a-z][a-z0-9-]*$/.test(args.taskId))
     throw new Error(`bad taskId ${JSON.stringify(args.taskId)}\n${USAGE}`);
+
   if (!Number.isFinite(args.timeoutS) || args.timeoutS <= 0)
     throw new Error(`bad --timeout-s ${args.timeoutS}`);
+
   return args;
 }
 
@@ -101,15 +107,19 @@ function absolute(root, path) {
 function newestAgentPatch(root, id) {
   const base = join(runsRoot(root), id);
   let entries;
+
   try {
     entries = readdirSync(base, { withFileTypes: true });
   } catch {
     return null;
   }
+
   const patches = [];
+
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const file = join(base, entry.name, "agent.patch");
+
     try {
       const stat = statSync(file);
       patches.push({ file, mtime: stat.mtimeMs });
@@ -117,8 +127,10 @@ function newestAgentPatch(root, id) {
       // This run directory has no patch.
     }
   }
+
   if (patches.length === 0) return null;
   patches.sort((a, b) => b.mtime - a.mtime);
+
   return patches[0]?.file ?? null;
 }
 
@@ -129,7 +141,9 @@ function newestAgentPatch(root, id) {
  */
 async function applyPatch(worktree, patch) {
   const plain = await runCommand(worktree, ["git", "apply", "--whitespace=nowarn", patch]);
+
   if (plain.code === 0) return { ok: true, detail: "applied cleanly" };
+
   const threeWay = await runCommand(worktree, [
     "git",
     "apply",
@@ -137,7 +151,9 @@ async function applyPatch(worktree, patch) {
     "--whitespace=nowarn",
     patch,
   ]);
+
   if (threeWay.code === 0) return { ok: true, detail: "applied via 3-way merge" };
+
   return { ok: false, detail: `git apply failed (${plain.code}), 3-way failed (${threeWay.code})` };
 }
 
@@ -149,10 +165,13 @@ async function applyPatch(worktree, patch) {
  */
 async function changedSince(worktree, base, files) {
   const changed = [];
+
   for (const file of files) {
     const result = await runCommand(worktree, ["git", "diff", "--quiet", base, "--", file]);
+
     if (result.code !== 0) changed.push(file);
   }
+
   return changed;
 }
 
@@ -184,15 +203,18 @@ export async function gradeTask(args) {
   const { manifest } = readManifest(root, args.taskId);
 
   let submission = /** @type {string | null} */ (null);
+
   if (args.mode === "gold") {
     submission = join(root, manifest.goldPatch ?? "");
   } else if (args.mode === "run") {
     const patch = args.patch ?? newestAgentPatch(root, manifest.id);
+
     if (patch === null) {
       throw new Error(
         `no run patch found under ${join(runsRoot(root), manifest.id)}; pass --patch <file>`,
       );
     }
+
     submission = absolute(root, patch);
   }
 
@@ -201,6 +223,7 @@ export async function gradeTask(args) {
   mkdirSync(gradeDir, { recursive: true });
 
   await runCommand(root, ["git", "fetch", "origin", manifest.base], { timeoutMs: 5 * 60 * 1000 });
+
   const addResult = await runCommand(root, [
     "git",
     "worktree",
@@ -209,12 +232,14 @@ export async function gradeTask(args) {
     worktree,
     manifest.base,
   ]);
+
   if (addResult.code !== 0) {
     throw new Error(`git worktree add failed (${addResult.code})`);
   }
 
   const needsInstall =
     args.install ?? manifest.verify.some((command) => command.startsWith("pnpm"));
+
   if (needsInstall) {
     const installResult = await runCommand(
       worktree,
@@ -223,6 +248,7 @@ export async function gradeTask(args) {
         timeoutMs: INSTALL_TIMEOUT_MS,
       },
     );
+
     if (installResult.code !== 0) {
       console.error(`install failed (${installResult.code}); verify commands will likely fail`);
     }
@@ -246,12 +272,16 @@ export async function gradeTask(args) {
   if (submission !== null) {
     report.submission = submission.replace(root, ".");
     report.apply = await applyPatch(worktree, submission);
+
     if (!report.apply.ok) {
       await runCommand(root, ["git", "worktree", "remove", "--force", worktree]);
       writeFileSync(join(gradeDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+
       return report;
     }
+
     const touched = await changedSince(worktree, manifest.base, manifest.hiddenFiles);
+
     // Also check if hidden files exist on disk but not at the base (the agent
     // created them as untracked files, which git diff doesn't detect).
     for (const file of manifest.hiddenFiles) {
@@ -261,11 +291,14 @@ export async function gradeTask(args) {
         "-e",
         `${manifest.base}:${file}`,
       ]);
+
       const existsOnDisk = existsSync(join(worktree, file));
+
       if (check.code !== 0 && existsOnDisk && !touched.includes(file)) {
         touched.push(file);
       }
     }
+
     for (const file of manifest.hiddenFiles) {
       report.conduct.push({
         file,
@@ -273,6 +306,7 @@ export async function gradeTask(args) {
         detail: touched.includes(file) ? "submission edits a hidden test file" : "untouched",
       });
     }
+
     // Remove hidden files that don't exist at the base (the agent shouldn't have
     // created them; the test patch will provide them if needed).
     for (const file of manifest.hiddenFiles) {
@@ -282,20 +316,24 @@ export async function gradeTask(args) {
         "-e",
         `${manifest.base}:${file}`,
       ]);
+
       if (check.code !== 0) {
         await runCommand(worktree, ["rm", "-f", file]);
       }
     }
+
     await restoreToBase(worktree, manifest.base, manifest.hiddenFiles);
   }
 
   if (manifest.testPatch !== null) {
     const applied = await applyPatch(worktree, join(root, manifest.testPatch));
     report.testPatchApplied = applied.ok;
+
     if (!applied.ok) {
       await runCommand(root, ["git", "worktree", "remove", "--force", worktree]);
       report.apply = { ok: false, detail: applied.detail };
       writeFileSync(join(gradeDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+
       return report;
     }
   }
@@ -303,16 +341,20 @@ export async function gradeTask(args) {
   for (let i = 0; i < manifest.verify.length; i += 1) {
     const command = manifest.verify[i] ?? "";
     const log = join(gradeDir, `verify-${i}.log`);
+
     const result = await runCommand(worktree, ["/bin/sh", "-c", command], {
       capture: log,
       timeoutMs: args.timeoutS * 1000,
     });
+
     let detail = "";
+
     try {
       detail = readFileSync(log, "utf8").trim().slice(0, 500);
     } catch {
       // No log captured.
     }
+
     report.verify.push({
       command,
       exitCode: result.code,
@@ -329,6 +371,7 @@ export async function gradeTask(args) {
 
   // Tier c discriminator: the agent's patch must modify at least one target file.
   let targetFilesPass = true;
+
   if (submission !== null && manifest.tier === "c" && manifest.targetFiles?.length > 0) {
     const patchContent = readFileSync(submission, "utf8");
     const touched = patchPaths(patchContent);
@@ -341,7 +384,9 @@ export async function gradeTask(args) {
     const runDir = submission.includes("/agent.patch")
       ? submission.replace(/\/agent\.patch$/, "")
       : null;
+
     const trajectoryPath = runDir ? join(runDir, "trajectory.jsonl") : null;
+
     if (trajectoryPath !== null && existsSync(trajectoryPath)) {
       report.processLane = await gradeProcessLane(trajectoryPath, manifest);
     }
@@ -356,27 +401,33 @@ export async function gradeTask(args) {
   }
 
   writeFileSync(join(gradeDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+
   return report;
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+
   try {
     const report = await gradeTask(args);
     console.log(`${report.verdict} (mode ${args.mode})`);
+
     for (const entry of report.verify) {
       console.log(
         `  [${entry.ok ? "ok" : "FAIL"}] ${entry.command}${entry.timedOut ? " (timed out)" : ""}`,
       );
     }
+
     for (const entry of report.conduct) {
       console.log(`  [${entry.ok ? "ok" : "FAIL"}] hidden: ${entry.file} — ${entry.detail}`);
     }
+
     if (report.processLane !== null) {
       for (const entry of report.processLane) {
         console.log(`  [${entry.ok ? "ok" : "FAIL"}] process: ${entry.rule} — ${entry.detail}`);
       }
     }
+
     if (report.verdict === "pass" || report.verdict === "discriminator-holds") process.exitCode = 0;
     else process.exitCode = 1;
   } catch (error) {

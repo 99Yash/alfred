@@ -31,21 +31,25 @@ import { INTEGRATION_SLUGS } from "@alfred/contracts";
 // Routed through the real dispatch helpers so the tool-name shim + provider
 // options match prod. `route("standard").model()` = Haiku (the chat Auto tier),
 // `route("deep").model()` = Opus + adaptive thinking (the Deep tier), and
-// `route("boss").model()` = Sonnet (the background boss) — all withFallback-wrapped
+// `route("boss").model()` = Luna (the background boss) — all withFallback-wrapped
 // (transparent on success). `thinking` carries the per-tier reasoning block so
 // the Deep tier faithfully emits reasoning tokens BEFORE tool calls — the exact
 // "5-7s thinking before tool calls" symptom this probe exists to isolate.
 type ChatProviderOptions = ReturnType<ModelRouteHandle["providerOptions"]>;
+
 const MODELS = new Map<string, () => ModelRouteHandle>([
   ["haiku", () => route("standard")],
-  ["sonnet", () => route("boss")],
+  ["boss", () => route("boss")],
   ["opus", () => route("deep")],
 ]);
-const SELECTED = (process.env.PROBE_MODELS ?? "haiku,sonnet,opus")
+
+const SELECTED = (process.env.PROBE_MODELS ?? "haiku,boss,opus")
   .split(",")
   .map((s) => s.trim())
   .filter((m) => MODELS.get(m));
+
 const RUNS = Number(process.env.PROBE_RUNS ?? "3");
+
 const MAX_OUT = Number(process.env.PROBE_MAX_OUT ?? "400");
 
 /** The real prod ask — forces a multi-integration tool fan-out when tools exist. */
@@ -73,11 +77,13 @@ const SYSTEM_PROMPT = [
 function buildAllTools() {
   const registry = registerBuiltinTools(); // the registry is populated at server boot; do it here too.
   const out: Record<string, Tool> = {};
+
   for (const slug of INTEGRATION_SLUGS) {
     for (const r of registry.listForIntegration(slug)) {
       out[r.name] = tool({ description: r.description, inputSchema: r.inputSchema });
     }
   }
+
   // SAFETY: ToolSet is the SDK's index-signature tool record; the resolved
   // map satisfies it by construction.
   return { tools: out as ToolSet, count: Object.keys(out).length };
@@ -123,19 +129,22 @@ async function once(
 
   for await (const part of res.stream) {
     const now = performance.now();
-    // SAFETY: stream parts are discriminated on `type`; this only types that
-    // field read for the part-kind test below.
-    const type = String((part as { type: string }).type);
+    const type: string = part.type;
+
     if (ttft === null && isContent(type)) ttft = now - t0;
+
     if (firstText === null && (type === "text-delta" || type === "text")) firstText = now - t0;
+
     if (firstTool === null && (type === "tool-call" || type === "tool-input-start")) {
       firstTool = now - t0;
     }
+
     if (type === "tool-call") toolCalls++;
   }
 
   const totalMs = performance.now() - t0;
   const usage = await res.usage;
+
   return {
     ttftMs: ttft ?? totalMs,
     firstTextMs: firstText,
@@ -148,6 +157,7 @@ async function once(
 
 const median = (xs: number[]): number => {
   const s = [...xs].sort((a, b) => a - b);
+
   return s[Math.floor(s.length / 2)] ?? 0;
 };
 
@@ -159,14 +169,17 @@ async function condition(
 ): Promise<void> {
   await once(model, tools, thinking).catch(() => null); // warm the prompt cache; ignore result
   const samples: Sample[] = [];
+
   for (let i = 0; i < RUNS; i++) samples.push(await once(model, tools, thinking));
 
   const med = (pick: (s: Sample) => number | null) =>
     median(samples.map(pick).filter((n): n is number => n != null));
+
   const decodeRate = (() => {
     const rates = samples
       .filter((s) => s.totalMs > s.ttftMs && s.outTokens > 0)
       .map((s) => (s.outTokens / (s.totalMs - s.ttftMs)) * 1000);
+
     return rates.length ? median(rates) : 0;
   })();
 
@@ -193,8 +206,10 @@ async function main(): Promise<void> {
     `# Chat TTFT probe — runs=${RUNS} (median), maxOut=${MAX_OUT}, fullToolMenu=${count} tools\n` +
       `# prompt: "${USER_PROMPT}"\n`,
   );
+
   for (const m of SELECTED) {
     const make = MODELS.get(m);
+
     if (!make) continue;
     const modelRoute = make();
     await condition(`${m} · no tools`, modelRoute.model(), undefined, modelRoute.providerOptions());
@@ -205,6 +220,7 @@ async function main(): Promise<void> {
       modelRoute.providerOptions(),
     );
   }
+
   console.log(
     "\n# Read: if ttft ≈ total and tools inflate ttft → the 7s is the model ingesting the\n" +
       "# tool schemas before first token (lever = shrink the menu). If decode tok/s is low and\n" +

@@ -43,8 +43,10 @@ function write(root, relative, content) {
  */
 function withFixture(prefix, body) {
   const fixture = mkdtempSync(join(tmpdir(), prefix));
+
   try {
     execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+
     return body(fixture);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
@@ -54,6 +56,7 @@ function withFixture(prefix, body) {
 /** Run the whole gate over a fixture: discovery, then resolution. */
 function scan(fixture) {
   const { literals, failures } = repoPathLiterals(fixture);
+
   return { literals, failures, violations: unresolvedPathLiterals(literals, fixture) };
 }
 
@@ -62,8 +65,10 @@ function expectOneViolation(label, result, needles, failures) {
     failures.push(
       `${label}: expected exactly one violation, received ${JSON.stringify(result.violations)}`,
     );
+
     return;
   }
+
   for (const needle of needles) {
     if (!result.violations[0].includes(needle)) {
       failures.push(
@@ -108,6 +113,7 @@ function withScript(prefix, scriptRelative, thirdLine, body) {
       scriptRelative,
       'import { join } from "node:path";\nconst ROOT = "/tmp";\n' + thirdLine + "\n",
     );
+
     return body(fixture);
   });
 }
@@ -140,6 +146,7 @@ function matcherFailures() {
       const result = scan(fixture);
       expectClean("resolving literal", result, failures);
       expectNoViolation("resolving literal", result, failures);
+
       if (result.literals.length !== 1) {
         failures.push(
           `resolving literal: the literal must still be COLLECTED, or the next case proves nothing; received ${JSON.stringify(result.literals)}`,
@@ -200,6 +207,7 @@ function grammarNarrownessFailures() {
       const result = scan(fixture);
       expectClean("selftest excluded", result, failures);
       expectNoViolation("selftest excluded", result, failures);
+
       if (result.literals.length !== 1) {
         failures.push(
           `selftest excluded: only the non-selftest script may be scanned, received ${JSON.stringify(result.literals)}`,
@@ -217,6 +225,7 @@ function grammarNarrownessFailures() {
       const result = scan(fixture);
       expectClean("template literal", result, failures);
       expectNoViolation("template literal", result, failures);
+
       if (result.literals.length !== 0) {
         failures.push(
           `template literal: a template must collect nothing, received ${JSON.stringify(result.literals)}`,
@@ -236,6 +245,7 @@ function discoveryRefusalFailures() {
     write(fixture, "scripts/README.md", "no scripts here yet\n");
     const result = scan(fixture);
     expectFailure("zero .mjs files", result, "yielded 0 scanned files", failures);
+
     if (result.literals.length !== 0) {
       failures.push(
         `zero .mjs files: expected no literals, received ${JSON.stringify(result.literals)}`,
@@ -261,9 +271,11 @@ function realRootFailures() {
   const failures = [];
 
   const { literals, failures: discovery } = repoPathLiterals(ROOT);
+
   if (discovery.length > 0) {
     failures.push(`real root: discovery refused — ${JSON.stringify(discovery)}`);
   }
+
   if (literals.length === 0) {
     failures.push(
       "real root: the scripts/*.mjs walk collected 0 in-scope path literals, so the rule enforces nothing",
@@ -271,6 +283,7 @@ function realRootFailures() {
   }
 
   const tracked = trackedTopLevelDirectories(ROOT);
+
   if (tracked.size === 0 || !tracked.has("scripts")) {
     failures.push(
       `real root: the grammar's prefix set must be non-empty and contain "scripts", or every literal is silently out of scope; received ${JSON.stringify([...tracked])}`,
@@ -291,9 +304,11 @@ export function scriptPathSelfTestFailures() {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const failures = scriptPathSelfTestFailures();
+
   if (failures.length > 0) {
     for (const failure of failures) console.error(failure);
     process.exit(1);
   }
+
   console.log("script-paths self-test passed.");
 }

@@ -23,6 +23,7 @@ export function ConnectToolsBar() {
     const visible = integrations.filter((p) => isLiveProviderSlug(p.slug));
     const unconnected = visible.filter((p) => p.status !== "connected");
     const connected = visible.filter((p) => p.status === "connected");
+
     return { unconnected, connected, all: [...unconnected, ...connected] };
   }, [integrations]);
 
@@ -87,6 +88,7 @@ export function ConnectToolsBar() {
              * the hovered tile floats above everything (z-20). */}
             {ordered.all.map((p, i) => {
               const connected = p.status === "connected";
+
               return (
                 <Tip key={p.slug} label={connected ? `${p.name} — connected` : p.name}>
                   <span

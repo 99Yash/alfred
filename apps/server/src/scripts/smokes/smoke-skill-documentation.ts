@@ -48,7 +48,9 @@ import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 1_000;
+
 const LEARN_TIMEOUT_MS = 90_000;
+
 const DOC_TIMEOUT_MS = 5 * 60_000;
 
 const SAMPLE_PROMPT =
@@ -65,24 +67,31 @@ async function pickUser() {
     .select({ id: userTable.id, email: userTable.email, name: userTable.name })
     .from(userTable)
     .limit(1);
+
   return rows[0] ?? null;
 }
 
 async function pollRun(runId: string, label: string, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
   let lastStep: string | null = null;
+
   while (Date.now() < deadline) {
     const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
+
     if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
+
     if (row.currentStep !== lastStep) {
       console.log(`[smoke-skill-doc]   ${label} → ${row.currentStep} (status=${row.status})`);
       lastStep = row.currentStep;
     }
+
     if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
       return row;
     }
+
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+
   throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
 
@@ -91,13 +100,17 @@ async function main() {
   registerBuiltinWorkflows();
 
   const u = await pickUser();
+
   if (!u) {
     console.log("[smoke-skill-doc] no user rows — sign in first.");
+
     return;
   }
+
   console.log(`[smoke-skill-doc] target: ${u.email} (id=${u.id})`);
 
   const testSlug = "smoke-skill-doc";
+
   const [existing] = await db()
     .select({ id: skills.id })
     .from(skills)
@@ -105,6 +118,7 @@ async function main() {
     .limit(1);
 
   let skillId: string;
+
   if (existing) {
     skillId = existing.id;
     await db()
@@ -117,6 +131,7 @@ async function main() {
       .insert(skills)
       .values({ userId: u.id, slug: testSlug, name: "Untitled skill", status: "draft" })
       .returning({ id: skills.id });
+
     if (!row) throw new Error("failed to insert smoke skill");
     skillId = row.id;
     console.log(`[smoke-skill-doc] created skill ${skillId}`);
@@ -128,6 +143,7 @@ async function main() {
     [LEARN_SKILL_WORKFLOW_SLUG, learnSkillDedupKey(skillId)],
     [SKILL_DOCUMENTATION_WORKFLOW_SLUG, skillDocumentationDedupKey(skillId)],
   ];
+
   for (const [slug, dedupKey] of dedupKeysBySlug) {
     const stomped = await db()
       .update(agentRuns)
@@ -141,6 +157,7 @@ async function main() {
         ),
       )
       .returning({ id: agentRuns.id });
+
     if (stomped.length) {
       console.log(`[smoke-skill-doc] cancelled ${stomped.length} prior ${slug} run(s)`);
     }
@@ -154,6 +171,7 @@ async function main() {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   console.log(`[smoke-skill-doc] learn enqueued: ${learn.runId}`);
 
   const learnRun = await pollRun(learn.runId, "learn-skill", LEARN_TIMEOUT_MS);
@@ -168,6 +186,7 @@ async function main() {
     documentationRunId: string | null;
     documentationEnqueueStatus: "enqueued" | "deduplicated" | "failed";
   };
+
   console.log(
     `[smoke-skill-doc] learn output: v1Rev=${learnOut.revisionId} ` +
       `docStatus=${learnOut.documentationEnqueueStatus} docRun=${learnOut.documentationRunId ?? "null"}`,
@@ -185,6 +204,7 @@ async function main() {
     docRun.status === "completed",
     `doc status=${docRun.status} error=${JSON.stringify(docRun.error)}`,
   );
+
   // SAFETY: this smoke's own workflow output envelope.
   const docOut = docRun.output as {
     skillId: string;
@@ -194,6 +214,7 @@ async function main() {
     documentHitCount: number;
     memoryHitCount: number;
   };
+
   console.log(
     `[smoke-skill-doc] doc output: v2Rev=${docOut.revisionId} ` +
       `email=${docOut.emailStatus} sendId=${docOut.emailSendId} ` +
@@ -216,6 +237,7 @@ async function main() {
     .select()
     .from(skillRevisions)
     .where(eq(skillRevisions.id, docOut.revisionId));
+
   assert(v2, "v2 skill_revisions row missing");
   assert(v2.kind === "documented", `expected v2 kind=documented, got ${v2.kind}`);
   const v2Meta = toRecord(v2.metadata);
@@ -227,6 +249,7 @@ async function main() {
     .select()
     .from(skillRuns)
     .where(eq(skillRuns.agentRunId, docRunId));
+
   assert(docSkillRun, "skill_runs row for doc workflow missing");
   assert(
     docSkillRun.kind === "document",
@@ -249,6 +272,7 @@ async function main() {
     )
     .orderBy(desc(emailSends.createdAt))
     .limit(1);
+
   assert(emailRow, "email_sends row not found for v2 revision");
   console.log(
     `[smoke-skill-doc] email row: subject="${emailRow.subject}" status=${emailRow.status} providerMessageId=${emailRow.providerMessageId}`,

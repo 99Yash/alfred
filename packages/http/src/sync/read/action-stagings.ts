@@ -6,7 +6,8 @@ import {
   type ActionStaging,
   type AgentRunTrigger,
 } from "@alfred/db/schemas";
-import { SYNC_MODEL } from "@alfred/sync";
+import { isQuestionApproval } from "@alfred/contracts";
+import { SYNC_MODEL, type SyncedActionStaging } from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
@@ -43,7 +44,14 @@ async function loadRecentRejectionsByTool(
 ): Promise<Map<string, RecentRejection>> {
   if (pendingRows.length === 0) return new Map();
 
-  const toolNames = Array.from(new Set(pendingRows.map((r) => r.staging.toolName)));
+  // A dismissed question is not a rejection the next question card should
+  // warn about (ADR-0099); every question shares one tool name, so the note
+  // would follow every card.
+  const toolNames = Array.from(
+    new Set(pendingRows.map((r) => r.staging.toolName).filter((name) => !isQuestionApproval(name))),
+  );
+
+  if (toolNames.length === 0) return new Map();
   const cutoff = new Date(Date.now() - RECENT_REJECTION_WINDOW_MS);
 
   const rows = await tx
@@ -66,6 +74,7 @@ async function loadRecentRejectionsByTool(
     .orderBy(desc(actionStagings.decidedAt));
 
   const byTool = new Map<string, RecentRejection>();
+
   for (const row of rows) {
     if (byTool.has(row.toolName) || !(row.decidedAt instanceof Date)) continue;
     byTool.set(row.toolName, {
@@ -74,27 +83,28 @@ async function loadRecentRejectionsByTool(
       decidedAt: row.decidedAt,
     });
   }
+
   return byTool;
 }
 
 /**
  * Project the run trigger down to the display-only fields the card needs.
- * Never forwards `eventId`/`payload`/document ids (ADR-0034 amendment).
+ * Never forwards `eventId`/`payload`/document ids (ADR-0034 amendment). The
+ * shape is the synced entity's own `trigger`, so the two cannot drift.
  */
-interface NarrowedTrigger {
-  kind: string;
-  source?: string;
-  type?: string;
-}
+type NarrowedTrigger = SyncedActionStaging["trigger"];
 
 function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
   if (!trigger) return { kind: "manual" };
   const source = "source" in trigger ? trigger.source : undefined;
   const type = "type" in trigger ? trigger.type : undefined;
+  const rawKind = "rawKind" in trigger ? trigger.rawKind : undefined;
+
   return {
     kind: trigger.kind,
     ...(source ? { source } : {}),
     ...(type ? { type } : {}),
+    ...(rawKind ? { rawKind } : {}),
   };
 }
 
@@ -124,6 +134,7 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
       .orderBy(asc(actionStagings.id));
 
     const recentRejections = await loadRecentRejectionsByTool(tx, userId, rows);
+
     return rows.map(
       (row): ActionStagingRow => ({
         ...row,
@@ -133,15 +144,19 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
   },
   map: (row: ActionStagingRow) => {
     const s = row.staging;
+
     if (s.status !== "pending") {
       throw new SerializationError(`cannot sync action staging with status '${s.status}'`);
     }
+
     const recentRejection = row.recentRejection;
+
     const brief = row.brief
       ? row.brief.length > BRIEF_PREVIEW_CHARS
         ? `${row.brief.slice(0, BRIEF_PREVIEW_CHARS - 1)}…`
         : row.brief
       : null;
+
     return {
       id: s.id,
       userId: s.userId,

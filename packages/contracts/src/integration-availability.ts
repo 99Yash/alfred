@@ -14,7 +14,7 @@ export interface ProviderAvailability extends CredentialProofRow {
   scopes: Set<string>;
   installationId: string | null;
   accountLabel: string | null;
-  metadata: Record<string, unknown>;
+  metadata: unknown;
 }
 
 /**
@@ -34,6 +34,7 @@ export interface ToolCredentialRequirement {
  * `GET /api/integrations` wire (`./integration-status`) both derive from it.
  */
 export const integrationHealthSchema = z.enum(["active", "needs_reauth"]);
+
 export type IntegrationHealth = z.infer<typeof integrationHealthSchema>;
 
 export interface IntegrationAvailability {
@@ -53,15 +54,27 @@ export function credentialAccountLabel(
   return row.accountLabel?.trim() || null;
 }
 
+/**
+ * Credential rows grouped by `integration_credentials.provider`. The key is the
+ * persisted vocabulary the registry derives, so a lookup with a slug that is not
+ * a provider (`gmail`, `slack`) is a compile error, not an empty list.
+ *
+ * Named apart from the snapshot below because it is the whole of what a delivery
+ * health reader needs. Such a reader asks one question — does this user hold a
+ * row that can still receive? — and the tile join, the dispatch snapshot and the
+ * readiness context each already hold this map. Taking the map rather than the
+ * snapshot is what lets a reader run on the caller's rows instead of issuing its
+ * own credential query.
+ */
+export type CredentialRowsByProvider = ReadonlyMap<
+  CredentialProvider,
+  readonly ProviderAvailability[]
+>;
+
 /** Connection state consumed by tool availability policy. */
 export interface IntegrationAvailabilitySnapshot {
   integrations: ReadonlyMap<LoadableIntegrationSlug, IntegrationAvailability>;
-  /**
-   * Credential rows grouped by `integration_credentials.provider`. The key is
-   * the persisted vocabulary the registry derives, so a lookup with a slug that
-   * is not a provider (`gmail`, `slack`) is a compile error, not an empty list.
-   */
-  providers: ReadonlyMap<CredentialProvider, readonly ProviderAvailability[]>;
+  providers: CredentialRowsByProvider;
   /** Default-off general-passthrough enablement for every supported slug. */
   passthroughEnabled: ReadonlyMap<SupportedPassthroughSlug, boolean>;
 }

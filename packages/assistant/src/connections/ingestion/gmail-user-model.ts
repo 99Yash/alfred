@@ -4,7 +4,9 @@ import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 // Defensive process-local limits; normal Gmail identifiers and ingestion batches are far smaller.
 const identifierSchema = z.string().min(1).max(500);
+
 const identifierListSchema = z.array(identifierSchema).max(10_000);
+
 const countSchema = z.number().int().nonnegative();
 
 export const gmailObservationCaptureRequestSchema = z
@@ -85,6 +87,7 @@ export function registerGmailUserModelHandler(handler: GmailUserModelHandler): (
   if (gmailUserModelHandler) {
     throw new Error("[integrations] a Gmail user-model handler is already registered");
   }
+
   gmailUserModelHandler = handler;
 
   return () => {
@@ -97,7 +100,9 @@ export async function captureGmailObservations(
   request: unknown,
 ): Promise<GmailObservationCaptureResult> {
   const parsedRequest = gmailObservationCaptureRequestSchema.parse(request);
+
   if (!gmailUserModelHandler) throw new NoGmailUserModelHandlerRegisteredError();
+
   return gmailObservationCaptureResultSchema.parse(
     await gmailUserModelHandler.capture(parsedRequest),
   );
@@ -106,7 +111,9 @@ export async function captureGmailObservations(
 /** Run one Gmail kind refold without exposing projection internals. */
 export async function refoldGmailKindProjection(request: unknown): Promise<GmailKindRefoldResult> {
   const parsedRequest = gmailKindRefoldRequestSchema.parse(request);
+
   if (!gmailUserModelHandler) throw new NoGmailUserModelHandlerRegisteredError();
+
   return gmailKindRefoldResultSchema.parse(await gmailUserModelHandler.refold(parsedRequest));
 }
 
@@ -115,6 +122,8 @@ export async function scheduleGmailKindRefoldSweep(
   request: unknown,
 ): Promise<GmailKindRefoldSweepResult> {
   const parsedRequest = gmailKindRefoldSweepRequestSchema.parse(request);
+
   if (!gmailUserModelHandler) throw new NoGmailUserModelHandlerRegisteredError();
+
   return gmailKindRefoldSweepResultSchema.parse(await gmailUserModelHandler.sweep(parsedRequest));
 }

@@ -18,6 +18,7 @@ function blockedWorkflowRecoveryResult(args: {
   readiness: readonly WorkflowReadinessProblem[];
 }) {
   const recovery = workflowRecoveryNavigation(args);
+
   return {
     ok: true as const,
     status: "blocked" as const,
@@ -45,7 +46,9 @@ const workflowSystemToolAdapter: SystemToolWorkflowAdapter = {
       timezone: args.timezone,
       input: args.input,
     });
+
     if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
+
     if (result.readiness.length > 0 || !result.activationProposal) {
       return {
         ...blockedWorkflowRecoveryResult({
@@ -58,6 +61,7 @@ const workflowSystemToolAdapter: SystemToolWorkflowAdapter = {
         created: result.created,
       };
     }
+
     return {
       ok: true,
       status: "ready_to_activate",
@@ -76,7 +80,9 @@ const workflowSystemToolAdapter: SystemToolWorkflowAdapter = {
       workflowId: args.workflowId,
       revisionId: args.revisionId,
     });
+
     if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
+
     if (!result.activationProposal) {
       return blockedWorkflowRecoveryResult({
         workflowId: result.workflow.id,
@@ -84,6 +90,7 @@ const workflowSystemToolAdapter: SystemToolWorkflowAdapter = {
         readiness: result.readiness,
       });
     }
+
     return {
       ok: true,
       status: "ready_to_activate",
@@ -99,7 +106,9 @@ const workflowSystemToolAdapter: SystemToolWorkflowAdapter = {
       input: args.input,
       createdByRunId: args.createdByRunId,
     });
+
     if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
+
     return {
       ok: true,
       status: "activated",

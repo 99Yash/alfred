@@ -1,7 +1,7 @@
 import { registerTriggerConsumer } from "@alfred/assistant/triggers";
 import { acceptEvent } from "@alfred/assistant/automation";
 import { replyDraftingTriggerConsumer } from "@alfred/assistant/reply-drafting";
-import { githubActivityTriggerConsumer } from "./github-activity-consumer";
+import { objectStateFoldConsumers } from "@alfred/assistant/connections";
 import { gmailIngestedTriggerConsumers } from "./gmail-ingested-consumers";
 
 let unregisterConsumers: (() => void)[] | undefined;
@@ -16,7 +16,7 @@ export function registerTriggerConsumers(): void {
       accept: acceptEvent,
     }),
     ...gmailIngestedTriggerConsumers().map((consumer) => registerTriggerConsumer(consumer)),
-    registerTriggerConsumer(githubActivityTriggerConsumer()),
+    ...objectStateFoldConsumers().map((consumer) => registerTriggerConsumer(consumer)),
     // Post-triage reply-drafting gate (ADR-0098): reacts to `email-triage.classified`.
     registerTriggerConsumer(replyDraftingTriggerConsumer()),
   ];

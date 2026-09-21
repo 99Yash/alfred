@@ -2,7 +2,7 @@ import { integrationDisplayName, isIntegrationSlug } from "@alfred/contracts";
 import type { SyncedWorkflow } from "@alfred/sync";
 import { ShieldCheck } from "lucide-react";
 import { AppButton, AppCard } from "~/components/ui/v2";
-import { ApprovalCard } from "~/components/approvals/approval-card";
+import { StagedApprovalCard } from "~/components/approvals/staged-approval-card";
 import { decideApproval } from "~/components/approvals/decide-approval";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
@@ -35,7 +35,7 @@ export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
       {pending.length > 0 ? (
         <div className="grid gap-3">
           {pending.map((staging) => (
-            <ApprovalCard
+            <StagedApprovalCard
               key={staging.id}
               staging={staging}
               onDecide={(decision) => decideApproval(staging.id, decision)}

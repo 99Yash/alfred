@@ -14,6 +14,7 @@ import { liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 
 beforeEach(resetToolFixtures);
+
 afterEach(resetToolFixtures);
 
 test("the default system kernel excludes loadable system capabilities", () => {

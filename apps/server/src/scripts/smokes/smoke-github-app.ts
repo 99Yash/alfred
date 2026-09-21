@@ -27,6 +27,7 @@ const GH = {
   "X-GitHub-Api-Version": "2022-11-28",
   "User-Agent": "alfred-app-smoke",
 } as const;
+
 const GITHUB_FETCH_TIMEOUT_MS = 30_000;
 
 function githubSmokeFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
@@ -49,22 +50,27 @@ async function main() {
 
   // ---- Phase 1: App JWT is valid (GET /app) --------------------------------
   const jwt = await mintAppJwt();
+
   const appRes = await githubSmokeFetch("https://api.github.com/app", {
     headers: { ...GH, Authorization: `Bearer ${jwt}` },
   });
+
   if (!appRes.ok) {
     console.error(
       `[smoke-github-app] GET /app failed: ${appRes.status} ${await responseSnippet(appRes)}`,
     );
     process.exitCode = 1;
+
     return;
   }
+
   // SAFETY: GitHub's app endpoint always returns these fields for a valid
   // JWT (checked above); this smoke only logs them.
   const app = (await appRes.json()) as { id: number; slug: string; name: string };
   console.log(
     `[smoke-github-app] App JWT accepted — app #${app.id} "${app.name}" (slug ${app.slug})`,
   );
+
   if (String(app.id) !== env.GITHUB_APP_ID) {
     console.warn(
       `[smoke-github-app] WARNING: GITHUB_APP_ID (${env.GITHUB_APP_ID}) != live app id (${app.id})`,
@@ -75,19 +81,24 @@ async function main() {
   const instRes = await githubSmokeFetch("https://api.github.com/app/installations", {
     headers: { ...GH, Authorization: `Bearer ${jwt}` },
   });
+
   if (!instRes.ok) {
     console.error(
       `[smoke-github-app] GET /app/installations failed: ${instRes.status} ${await responseSnippet(instRes)}`,
     );
     process.exitCode = 1;
+
     return;
   }
+
   // SAFETY: GitHub's installations list shape; the smoke logs entries tolerantly.
   const installations = (await instRes.json()) as Array<{
     id: number;
     account?: { login?: string };
   }>;
+
   console.log(`[smoke-github-app] installations: ${installations.length}`);
+
   if (installations.length === 0) {
     console.log("\n[smoke-github-app] No installation yet. Install the App:");
     console.log(`   ${buildInstallUrl("smoke-state")}\n`);
@@ -96,16 +107,20 @@ async function main() {
     console.log(`   → installation #${first.id} on @${first.account?.login ?? "?"}`);
     const { token, expiresAt } = await getInstallationToken(String(first.id));
     console.log(`   → minted installation token (expires ${expiresAt.toISOString()})`);
+
     const repoRes = await githubSmokeFetch("https://api.github.com/installation/repositories", {
       headers: { ...GH, Authorization: `Bearer ${token}` },
     });
+
     if (!repoRes.ok) {
       console.error(
         `[smoke-github-app] GET /installation/repositories failed: ${repoRes.status} ${await responseSnippet(repoRes)}`,
       );
       process.exitCode = 1;
+
       return;
     }
+
     // SAFETY: total_count is optional here; the smoke prints "?" on absence.
     const repos = (await repoRes.json()) as { total_count?: number };
     console.log(`   → installation can see ${repos.total_count ?? "?"} repositories`);
@@ -120,6 +135,7 @@ async function main() {
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.provider, "github"));
+
   if (creds.length === 0) {
     console.log("\n[smoke-github-app] No github credential row yet — complete the connect flow.");
   } else {

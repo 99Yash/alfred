@@ -13,8 +13,30 @@ import { INTEGRATION_SLUGS } from "./integrations";
  *   - `deep`     — escalation for hard, multi-step turns.
  */
 export const chatModelTierValues = ["standard", "deep"] as const;
+
 export type ChatModelTier = (typeof chatModelTierValues)[number];
+
 export const chatModelTierSchema = z.enum(chatModelTierValues);
+
+/**
+ * The reasoning-effort vocabulary a product route can select, mirroring the AI
+ * SDK's `reasoning` union minus `provider-default` (which is "let the provider
+ * decide", not a level). Defined here so the server can persist the effort a
+ * turn ran at and the web can render it without importing `@alfred/ai`.
+ */
+export const chatEffortValues = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+
+export type ChatEffort = (typeof chatEffortValues)[number];
+
+export const chatEffortSchema = z.enum(chatEffortValues);
 
 /**
  * Why a chat turn ended in `status:"failed"`. The server classifies the raw
@@ -46,7 +68,10 @@ export const chatModelTierSchema = z.enum(chatModelTierValues);
  *                       pre-turn transcript; this kind surfaces only when that
  *                       is exhausted. Recoverable: retry (thinking time is
  *                       non-deterministic, so a fresh attempt may finish).
- *   - `too_long`      — the turn hit a length/turn cap and can't continue.
+ *   - `too_long`      — the provider rejected the request as over its context
+ *                       ceiling. Not recoverable in this thread. (The chat
+ *                       tool-loop cap no longer maps here: it lands the turn
+ *                       instead of failing it; see `chatTurnCapVerdict`.)
  *   - `generic`       — anything else; an unclassified interruption.
  */
 export const chatErrorKindValues = [
@@ -58,7 +83,9 @@ export const chatErrorKindValues = [
   "too_long",
   "generic",
 ] as const;
+
 export type ChatErrorKind = (typeof chatErrorKindValues)[number];
+
 export const chatErrorKindSchema = z.enum(chatErrorKindValues);
 
 /**
@@ -82,6 +109,7 @@ export const chatConnectNudgeSchema = z.object({
   integration: z.enum(INTEGRATION_SLUGS),
   action: z.enum(["connect", "reconnect"]),
 });
+
 export type ChatConnectNudge = z.infer<typeof chatConnectNudgeSchema>;
 
 /**
@@ -94,6 +122,7 @@ export const chatMessageAgentUsageSchema = z.object({
   calls: z.number().int().nonnegative(),
   costUsd: z.number().nonnegative(),
 });
+
 export type ChatMessageAgentUsage = z.infer<typeof chatMessageAgentUsageSchema>;
 
 /**
@@ -112,6 +141,19 @@ export const chatMessageUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
   cachedInputTokens: z.number().int().nonnegative(),
+  /**
+   * Input tokens this turn wrote INTO the prompt cache — the miss half of the
+   * same number `cachedInputTokens` reports the hit half of. Providers bill a
+   * write above the plain input rate (Anthropic 1.25x/2x by TTL), so a turn
+   * that misses is more expensive than one that never cached at all, and
+   * `costUsd` already reflects that. Carried so the readout can say WHY a turn
+   * cost what it did: without it, `inputTokens - cachedInputTokens` looks like
+   * ordinary fresh input.
+   *
+   * `null` for a rollup written before this field existed, which must read as
+   * "not recorded" rather than "wrote nothing" — those turns wrote plenty.
+   */
+  cacheWriteInputTokens: z.number().int().nonnegative().nullable().default(null),
   /**
    * Sum of successful LLM request-to-stream-end durations for this turn. It
    * excludes tool execution and other workflow time, so outputTokens divided
@@ -145,6 +187,18 @@ export const chatMessageUsageSchema = z.object({
     )
     .default([]),
   /**
+   * The reasoning effort this turn ran at — the route's generic ceiling
+   * (`medium` for a standard turn, `xhigh` for a deep one), resolved
+   * server-side at finalize so the row keeps the effort it ran at even if the
+   * route table later changes. Each provider maps the ceiling to its own
+   * scale (OpenAI `reasoningEffort`, Gemini `thinkingLevel`); a fallback leg
+   * may have served individual calls lower, but the turn asked for this.
+   * Defaulted because rows written before this field existed predate effort
+   * selection on this surface, and the default tier has always been standard
+   * at medium effort.
+   */
+  effort: chatEffortSchema.default("medium"),
+  /**
    * How the turn's cost divides across the agents that ran it, most expensive
    * first, boss included. One entry means the boss did the whole turn alone.
    * Empty on messages finalized before this split existed — a reader must treat
@@ -152,6 +206,7 @@ export const chatMessageUsageSchema = z.object({
    */
   agents: z.array(chatMessageAgentUsageSchema).default([]),
 });
+
 export type ChatMessageUsage = z.infer<typeof chatMessageUsageSchema>;
 
 /**
@@ -183,10 +238,13 @@ export const turnStartResponseSchema = z.discriminatedUnion("outcome", [
     runId: z.string().nullable(),
   }),
 ]);
+
 export type TurnStartResponse = z.infer<typeof turnStartResponseSchema>;
+
 // Back-compat aliases — deprecated, use `turnStartResponseSchema` / `TurnStartResponse`.
 /** @deprecated Use `turnStartResponseSchema`. */
 export const turnKickResponseSchema = turnStartResponseSchema;
+
 /** @deprecated Use `TurnStartResponse`. */
 export type TurnKickResponse = TurnStartResponse;
 
@@ -212,5 +270,6 @@ export function isEmptyChatTurnInput(input: {
   const hasText = input.content.trim().length > 0;
   const hasArtifact = Boolean(input.artifactTargetId);
   const hasRetry = Boolean(input.retryAttachmentIds && input.retryAttachmentIds.length > 0);
+
   return !hasText && !input.hasFiles && !hasArtifact && !hasRetry;
 }

@@ -17,6 +17,7 @@ export function AgentRow({
   comingSoon?: boolean | undefined;
 }) {
   const Icon = agent.icon;
+
   return (
     <div
       className={cn(

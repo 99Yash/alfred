@@ -101,6 +101,7 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
         occurredAtMs: 1,
       },
     ]);
+
     assert.equal(demand.demandingCount, 0);
     assert.equal(demand.topBand, "normal"); // payment/follow_up sit at normal, fyi muted
   });
@@ -115,6 +116,7 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
         occurredAtMs: 1,
       },
     ]);
+
     assert.equal(demand.demandingCount, 1);
     assert.equal(demand.topBand, "demanding");
   });
@@ -128,6 +130,7 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
         occurredAtMs: 1,
       },
     ]);
+
     assert.equal(demand.demandingCount, 1);
     assert.equal(demand.topBand, "demanding");
   });

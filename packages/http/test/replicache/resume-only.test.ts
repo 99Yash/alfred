@@ -10,7 +10,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { _resetRegistryForTests, registerRecipe } from "@alfred/assistant/execution/registry";
 import { createRun } from "@alfred/assistant/execution/service";
 import { resolveWorkflowForRun } from "@alfred/assistant/execution/resolve-workflow";
-import type { AgentDbExecutor, Workflow } from "@alfred/assistant/execution/types";
+import type { AgentDbExecutor, Workflow } from "@alfred/assistant/execution";
 import { handlePull } from "../../src/sync/pull";
 import { seedBuiltinWorkflowsForUser } from "@alfred/assistant/automation/seeder";
 import { closeRedis } from "@alfred/db/redis";
@@ -71,8 +71,10 @@ describe("resume-only workflow run behavior", () => {
     const workflow = resumeOnlyWorkflow();
     workflow.initialState = () => {
       initialized = true;
+
       return {};
     };
+
     _resetRegistryForTests();
     registerRecipe(workflow);
 
@@ -135,6 +137,7 @@ for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
 }
 
 const SKIP_TOMBSTONE = dbBackedSkip("database+redis");
+
 const createdUserIds: string[] = [];
 
 describe(
@@ -154,6 +157,7 @@ describe(
       if (createdUserIds.length > 0) {
         await db().delete(user).where(inArray(user.id, createdUserIds));
       }
+
       await closeRedis();
       await closeConnections();
     });
@@ -181,6 +185,7 @@ describe(
         clientGroupID,
         cookie: null,
       });
+
       assert.ok(!("forbidden" in firstPull));
       const workflowKey = SYNC_MODEL.workflow.storageKeyForId({ slug: RESUME_ONLY_SLUG });
       assert.ok(
@@ -195,15 +200,19 @@ describe(
           rowVersion: sql`${workflows.rowVersion} + 1`,
         })
         .where(and(eq(workflows.userId, userId), eq(workflows.slug, RESUME_ONLY_SLUG)));
+
       const changedPull = await handlePull(userId, {
         pullVersion: 1,
         clientGroupID,
         cookie: firstPull.cookie,
       });
+
       assert.ok(!("forbidden" in changedPull));
+
       const changedOperations = changedPull.patch.filter(
         (op) => "key" in op && op.key === workflowKey,
       );
+
       assert.equal(changedOperations.length, 1);
       const [changedOperation] = changedOperations;
       assert.equal(changedOperation?.op, "put");
@@ -221,6 +230,7 @@ describe(
         clientGroupID,
         cookie: changedPull.cookie,
       });
+
       assert.ok(!("forbidden" in deletedPull));
       assert.deepEqual(
         deletedPull.patch.filter((op) => "key" in op && op.key === workflowKey),

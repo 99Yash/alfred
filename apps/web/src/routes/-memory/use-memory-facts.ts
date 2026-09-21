@@ -21,6 +21,7 @@ function sortFacts(a: SyncedFact, b: SyncedFact): number {
 /** Live, schema-validated facts used only by the memory review surface. */
 export function useMemoryFacts(): MemoryFactsState {
   const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
+
   const [snapshot, setSnapshot] = useState<{
     rep: Replicache<ClientMutators>;
     facts: SyncedFact[];
@@ -29,6 +30,7 @@ export function useMemoryFacts(): MemoryFactsState {
   useEffect(() => {
     if (!rep) {
       setSnapshot(null);
+
       return;
     }
 
@@ -59,6 +61,7 @@ export function useMemoryFacts(): MemoryFactsState {
 
   const facts = snapshot?.rep === rep ? snapshot.facts : null;
   const error = loadError ?? pullError;
+
   return {
     facts: facts ?? [],
     loading: !error && (facts === null || (facts.length === 0 && initialPullPending)),

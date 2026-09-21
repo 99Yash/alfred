@@ -14,7 +14,6 @@
  * components/landing/landing-page.tsx).
  */
 
-import type { SyncedActionStaging } from "@alfred/sync";
 import {
   Archive,
   ArrowRight,
@@ -51,12 +50,15 @@ import {
   AppButton,
   AppCard,
   AppDateTimePicker,
+  AppField,
   AppInput,
+  AppModal,
   AppPill,
   AppSelect,
+  useAppForm,
 } from "~/components/ui/v2";
 import { toast } from "~/lib/toast";
-import { ChatApprovalTray } from "../-chat/approval-tray";
+import { QuestionAnswersCard } from "~/components/approvals/question-answers-card";
 import { QuickAccessRail } from "~/components/quick-access-rail";
 import { DimensionChatThread } from "~/components/dimension-chat-thread";
 import { AuroraGlow } from "~/components/landing/aurora-glow";
@@ -76,12 +78,19 @@ import { cn } from "~/lib/utils";
 /* Static prop icons hoisted to module scope so they keep a stable reference
    across renders instead of allocating a fresh element each time. */
 const sparklesLeading = <Sparkles size={14} />;
+
 const plusLeading = <Plus size={14} />;
+
 const logOutLeading = <LogOut size={14} />;
+
 const searchLeading = <Search size={14} />;
+
 const checkLeading = <Check size={14} />;
+
 const mailLeading = <Mail size={13} />;
+
 const cmdKKbd = <Kbd>⌘K</Kbd>;
+
 const cmdEnterKbd = <Kbd>⌘↵</Kbd>;
 
 type StyleguideMode = "app" | "v2" | "dimension";
@@ -99,10 +108,9 @@ export function StyleguidePage() {
           </h1>
           <p className="max-w-prose text-sm text-gray-800">
             Toggle between the new <strong className="text-white">App revamp</strong> landing
-            grammar and the <strong className="text-white">Dimension</strong> primitives that still
-            power the in-app surfaces. Both halves are kept side-by-side on purpose: Dimension
-            recipes (gray ramp, frost-border, lavender headings) carry forward into the new
-            direction and are not going away.
+            grammar and the <strong className="text-white">Dimension</strong> reference primitives.
+            The in-app tab uses the production app grammar; the Dimension tab remains as the
+            dark-material reference that informed it.
           </p>
           <div className="pt-1">
             <Tabs
@@ -143,7 +151,7 @@ function DimensionHalf() {
         tone="dimension"
         eyebrow="Before"
         title="Dimension primitives"
-        body="Every primitive in apps/web/src/components/ui/ rendered with default / hover / focus / active / disabled states. These power every authenticated surface — chat, settings, command palette, the right rail."
+        body="Reference primitives retained for comparison. They informed the dark materials, but authenticated chat uses the App primitives from components/ui/v2."
       />
       <TokensSection />
       <ButtonSection />
@@ -571,6 +579,7 @@ function SwitchSection() {
 
 function ControlledSwitchDemo() {
   const [on, setOn] = useState(true);
+
   return (
     <div className="flex items-center gap-3">
       <LegacySwitch checked={on} onCheckedChange={setOn} />
@@ -850,6 +859,7 @@ function FrostBorderSection() {
             // SAFETY: CSS custom properties are valid style keys at runtime;
             // React's CSSProperties type just omits them.
             ["--frost-strength" as never]: "0.8",
+            // SAFETY: same custom-property omission as `--frost-strength` above.
             ["--frost-border-strength" as never]: "3",
           }}
         >
@@ -863,6 +873,7 @@ function FrostBorderSection() {
             // SAFETY: CSS custom properties are valid style keys at runtime;
             // React's CSSProperties type just omits them.
             ["--frost-strength" as never]: "1",
+            // SAFETY: same custom-property omission as `--frost-strength` above.
             ["--frost-border-strength" as never]: "0.3",
           }}
         >
@@ -886,6 +897,7 @@ function FrostBorderSection() {
 function CommandPaletteSection() {
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
+
   return (
     <Section
       id="command-palette"
@@ -1409,6 +1421,7 @@ function FloatingPillNavSection() {
 
 function TabPillSection() {
   const [tab, setTab] = useState<"briefing" | "inbox" | "meetings">("briefing");
+
   return (
     <Section
       id="app-tab-pill"
@@ -1563,6 +1576,7 @@ function FeatureCardDemo({
   bullets: ReadonlyArray<string>;
 }) {
   const t = FEATURE_CARD_TONE[tone];
+
   return (
     <article
       className={cn(
@@ -1608,6 +1622,7 @@ function FeatureCardDemo({
 
 function FadeInOnScrollSection() {
   const [key, setKey] = useState(0);
+
   return (
     <Section
       id="app-fade-in"
@@ -1723,13 +1738,14 @@ function V2Half() {
         tone="app"
         eyebrow="In-app"
         title="App grammar (v2)"
-        body="The visitors.now-derived grammar from components/ui/v2 — AppButton, AppCard, AppPill, AppInput — plus the chat approval tray, rendered with mock staging data. Each block renders in forced light and forced dark so both themes stay honest."
+        body="The production grammar from components/ui/v2. Light surfaces follow the visitors-now archive; dark surfaces adapt the Dimension material. Every block renders in both themes."
       />
       <V2ButtonSection />
       <V2SurfaceSection />
+      <V2ModalSection />
       <V2ToastSection />
       <V2FrostOverlaySection />
-      <V2ApprovalTraySection />
+      <V2QuestionAnswersSection />
     </div>
   );
 }
@@ -1832,7 +1848,7 @@ function V2SurfaceSection() {
   return (
     <Section
       id="v2-surfaces"
-      title="AppCard · AppPill · AppInput"
+      title="AppCard · AppPill · AppInput · AppField"
       recipe="Surfaces use the two-shadow elevation stack (drop + hairline). No border property anywhere."
     >
       <ThemePanes
@@ -1852,9 +1868,92 @@ function V2SurfaceSection() {
             <div className="max-w-md">
               <AppInput placeholder="Search threads" />
             </div>
+            <div className="max-w-md space-y-4">
+              <AppField
+                label="Server URL"
+                htmlFor="sg-field-url"
+                helperText="The public MCP endpoint, including /mcp."
+              >
+                <AppInput id="sg-field-url" placeholder="https://mcp.example.com/mcp" />
+              </AppField>
+              <AppField
+                label="Label"
+                htmlFor="sg-field-label"
+                optional
+                error="That label is already taken."
+                errorId="sg-field-label-error"
+              >
+                <AppInput
+                  id="sg-field-label"
+                  defaultValue="Work"
+                  aria-invalid
+                  aria-errormessage="sg-field-label-error"
+                />
+              </AppField>
+            </div>
           </div>
         )}
       />
+    </Section>
+  );
+}
+
+function V2ModalSection() {
+  const [open, setOpen] = useState(false);
+
+  const form = useAppForm({
+    defaultValues: { endpointUrl: "", label: "" },
+    onSubmit: () => setOpen(false),
+  });
+
+  return (
+    <Section
+      id="v2-modal"
+      title="Modal · form fields"
+      recipe="components/ui/v2/modal.tsx — a centered themed dialog at 640px and up, a drag-to-dismiss bottom sheet below. The form uses useAppForm, so each field component owns its input wiring and error slot."
+    >
+      <ThemePanes
+        render={() => (
+          <AppButton variant="white" onClick={() => setOpen(true)}>
+            Add a server
+          </AppButton>
+        )}
+      />
+      <AppModal
+        open={open}
+        onOpenChange={setOpen}
+        title="MCP Server"
+        description="Connect any MCP server to extend Alfred."
+      >
+        <form
+          className="flex flex-col gap-4 px-6 pt-2 pb-6"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void form.handleSubmit();
+          }}
+        >
+          <form.AppField name="endpointUrl">
+            {(field) => (
+              <field.TextField
+                type="url"
+                label="Server URL"
+                placeholder="https://mcp.example.com/mcp"
+              />
+            )}
+          </form.AppField>
+          <form.AppField name="label">
+            {(field) => <field.TextField label="Label" optional placeholder="Label (optional)" />}
+          </form.AppField>
+          <div className="flex justify-end gap-2 pt-1">
+            <AppButton variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </AppButton>
+            <AppButton type="submit" variant="primary">
+              Add server
+            </AppButton>
+          </div>
+        </form>
+      </AppModal>
     </Section>
   );
 }
@@ -2028,6 +2127,7 @@ function V2ToastSection() {
 function V2FrostOverlaySection() {
   const [selectValue, setSelectValue] = useState<string | undefined>("primary");
   const [pickerValue, setPickerValue] = useState<string | undefined>("2026-06-11T14:00:00.000Z");
+
   return (
     <Section
       id="v2-frost-overlay"
@@ -2081,88 +2181,58 @@ function V2FrostOverlaySection() {
   );
 }
 
-/* Mock stagings for the approval tray preview. Shapes mirror
- * packages/sync/src/schemas.ts syncedActionStagingSchema. */
-const V2_STAGING_EMAIL: SyncedActionStaging = {
-  id: "stg_styleguide_email",
-  userId: "user_styleguide",
-  runId: "run_styleguide",
-  workflowSlug: "inbox-triage",
-  workflowName: "Inbox triage",
-  trigger: { kind: "manual" },
-  brief: "Reply to Maya about moving the design review to Thursday.",
-  stepId: "step_1",
-  toolCallId: "call_1",
-  toolName: "gmail.send_draft",
-  integration: "gmail",
-  riskTier: "medium",
-  proposedInput: {
-    to: ["maya@acme.com"],
-    subject: "Re: Design review timing",
-    bodyText: [
-      "Thursday at 2pm works on my end — moving the invite now. Shout if that clashes with anything on your side.",
-      "",
-      "Quick recap of what we'll cover so nobody preps the wrong thing:",
-      "— Where the new onboarding flow landed after last week's usability pass",
-      "— The two open questions on the billing page copy",
-      "— Whether we ship the dark-mode toggle this cycle or hold it for the brand refresh",
-      "",
-      "I'll bring the Figma links and the latest numbers from the beta cohort. If you want anything else on the agenda, reply here and I'll fold it in before I send the invite update.",
-      "",
-      "Best,",
-      "Yash",
-    ].join("\n"),
-  },
-  requiresApproval: true,
-  status: "pending",
-  expiresAt: null,
-  notifyAfterAt: null,
-  notifiedAt: null,
-  recentRejection: null,
-  rowVersion: 1,
-  createdAt: "2026-06-07T08:30:00.000Z",
-  updatedAt: null,
-};
-
-const V2_STAGING_EVENT: SyncedActionStaging = {
-  ...V2_STAGING_EMAIL,
-  id: "stg_styleguide_event",
-  stepId: "step_2",
-  toolCallId: "call_2",
-  toolName: "calendar.create_event",
-  integration: "calendar",
-  riskTier: "low",
-  brief: "Add design-review invite for Thursday 2pm and update Maya's invite.",
-  proposedInput: {
-    summary: "Design review",
-    start: "2026-06-11T14:00:00.000Z",
-    end: "2026-06-11T14:45:00.000Z",
-    attendees: ["maya@acme.com"],
-  },
-  recentRejection: {
-    runId: "run_styleguide_prev",
-    reason: "Wrong week — the review moved.",
-    decidedAt: "2026-06-06T18:10:00.000Z",
-  },
-  createdAt: "2026-06-07T08:31:00.000Z",
-};
-
-function V2ApprovalTraySection() {
+function V2QuestionAnswersSection() {
   return (
     <Section
-      id="v2-approval-tray"
-      title="Chat approval tray"
-      recipe="routes/-chat/approval-tray.tsx rendered with two mock stagings (collapsible inline cards — open while pending, auto-collapse with a check/✕ badge once decided in preview, Permissions popover with the always-allow switch, always-editable fields, Revise/End run, risk chips, recent-rejection strip). preview mode — decisions are local no-ops, no toast/audio/API/policy writes."
+      id="v2-question-answers"
+      title="Chat question, settled"
+      recipe="components/approvals/question-answers-card.tsx — what a `system.ask_user` call leaves in the transcript once it settles. Rendered from the tool result, so a reload shows the same thing. Left: answered. Right: dismissed."
     >
       <ThemePanes
         stacked
-        render={(theme) => (
-          <div className="mx-auto w-full max-w-3xl">
-            <ChatApprovalTray
-              runId={`run_styleguide_${theme}`}
-              approvals={[V2_STAGING_EMAIL, V2_STAGING_EVENT]}
-              awaitingApproval
-              preview
+        render={() => (
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+            <QuestionAnswersCard
+              summary={{
+                status: "answered",
+                answered: [
+                  {
+                    question: {
+                      question: "Who should receive the update?",
+                      header: "Recipients",
+                      multiSelect: true,
+                      options: [],
+                    },
+                    answer: {
+                      selectedOptions: ["Maya only", "The design channel"],
+                      customAnswer: null,
+                    },
+                  },
+                  {
+                    question: {
+                      question: "How direct should the tone be?",
+                      header: "Tone",
+                      multiSelect: false,
+                      options: [],
+                    },
+                    answer: { selectedOptions: [], customAnswer: "Plain, but keep the thanks." },
+                  },
+                ],
+              }}
+            />
+            <QuestionAnswersCard
+              summary={{
+                status: "unanswered",
+                reason: "dismissed",
+                questions: [
+                  {
+                    question: "Who should receive the update?",
+                    header: "Recipients",
+                    multiSelect: true,
+                    options: [],
+                  },
+                ],
+              }}
             />
           </div>
         )}

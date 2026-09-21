@@ -76,12 +76,14 @@ export async function startProjectionRun(
         ),
       )
       .limit(1);
+
     if (!existing) {
       throw new Error(
         `[user-model.startProjectionRun] conflict but no existing run ` +
           `(${args.projectionName} v${args.projectionVersion}, user=${args.userId})`,
       );
     }
+
     if (existing.status === "completed") {
       throw new Error(
         `[user-model.startProjectionRun] ${args.projectionName} v${args.projectionVersion} is ` +
@@ -89,6 +91,7 @@ export async function startProjectionRun(
           `(its checksum is what cutover trusts).`,
       );
     }
+
     return { run: existing, reused: true };
   };
 
@@ -131,7 +134,9 @@ export async function completeProjectionRun(
         "(it is what the activation cutover compares).",
     );
   }
+
   const ex = tx ?? db();
+
   const [row] = await ex
     .update(projectionRuns)
     .set({
@@ -149,12 +154,14 @@ export async function completeProjectionRun(
       ),
     )
     .returning();
+
   if (!row) {
     const [existing] = await ex
       .select({ status: projectionRuns.status })
       .from(projectionRuns)
       .where(and(eq(projectionRuns.id, args.runId), eq(projectionRuns.userId, args.userId)))
       .limit(1);
+
     if (existing?.status === "completed") {
       throw new Error(
         `[user-model.completeProjectionRun] run ${args.runId} is already completed — ` +
@@ -162,10 +169,12 @@ export async function completeProjectionRun(
           `bump the version to re-project.`,
       );
     }
+
     throw new Error(
       `[user-model.completeProjectionRun] no run ${args.runId} for user ${args.userId}`,
     );
   }
+
   return row;
 }
 
@@ -184,6 +193,7 @@ export async function failProjectionRun(
   tx?: DbTransaction,
 ): Promise<ProjectionRun> {
   const ex = tx ?? db();
+
   const [row] = await ex
     .update(projectionRuns)
     .set({ status: "failed", ...(args.completedAt ? { completedAt: args.completedAt } : {}) })
@@ -195,12 +205,14 @@ export async function failProjectionRun(
       ),
     )
     .returning();
+
   if (!row) {
     const [existing] = await ex
       .select({ status: projectionRuns.status })
       .from(projectionRuns)
       .where(and(eq(projectionRuns.id, args.runId), eq(projectionRuns.userId, args.userId)))
       .limit(1);
+
     if (existing?.status === "completed") {
       throw new Error(
         `[user-model.failProjectionRun] refusing to fail run ${args.runId}: it is already ` +
@@ -208,8 +220,10 @@ export async function failProjectionRun(
           `could name a non-completed run.`,
       );
     }
+
     throw new Error(`[user-model.failProjectionRun] no run ${args.runId} for user ${args.userId}`);
   }
+
   return row;
 }
 
@@ -246,11 +260,13 @@ export async function writeProjectionCursor(
         and(eq(projectionRuns.id, args.projectionRunId), eq(projectionRuns.userId, args.userId)),
       )
       .limit(1);
+
     if (!target) {
       throw new Error(
         `[user-model.writeProjectionCursor] no run ${args.projectionRunId} for user ${args.userId}`,
       );
     }
+
     if (target.status !== "running") {
       throw new Error(
         `[user-model.writeProjectionCursor] refusing to write a cursor to run ` +
@@ -258,6 +274,7 @@ export async function writeProjectionCursor(
           `part of the immutable replay record the checksum certifies.`,
       );
     }
+
     await ex
       .insert(projectionCursors)
       .values({
@@ -304,17 +321,20 @@ export async function activateProjectionVersion(
       .from(projectionRuns)
       .where(and(eq(projectionRuns.id, args.runId), eq(projectionRuns.userId, args.userId)))
       .limit(1);
+
     if (!target) {
       throw new Error(
         `[user-model.activateProjectionVersion] no run ${args.runId} for user ${args.userId}`,
       );
     }
+
     if (target.projectionName !== args.projectionName) {
       throw new Error(
         `[user-model.activateProjectionVersion] run ${args.runId} is projection ` +
           `'${target.projectionName}', not '${args.projectionName}'`,
       );
     }
+
     if (target.status !== "completed") {
       throw new Error(
         `[user-model.activateProjectionVersion] refusing to activate run ${args.runId}: ` +
@@ -335,9 +355,11 @@ export async function activateProjectionVersion(
         set: { activeRunId: target.id, activeVersion: target.projectionVersion },
       })
       .returning();
+
     if (!pointer) {
       throw new Error("[user-model.activateProjectionVersion] pointer upsert returned no row");
     }
+
     return pointer;
   };
 

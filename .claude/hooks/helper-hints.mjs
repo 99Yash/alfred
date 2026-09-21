@@ -35,14 +35,18 @@ function readStdin() {
 /** Every chunk of text this tool call would add to the file. */
 function writtenText(toolName, input) {
   if (!input) return "";
+
   if (toolName === "Write") return String(input.content ?? "");
+
   if (toolName === "MultiEdit" && Array.isArray(input.edits)) {
     return input.edits.map((e) => String(e?.new_string ?? "")).join("\n");
   }
+
   return String(input.new_string ?? "");
 }
 
 let payload = {};
+
 try {
   payload = JSON.parse(readStdin() || "{}");
 } catch {
@@ -50,34 +54,42 @@ try {
 }
 
 const input = payload.tool_input;
+
 const filePath = String(input?.file_path ?? "");
+
 if (!filePath) process.exit(0);
 
 const rel = filePath.startsWith(ROOT) ? filePath.slice(ROOT.length + 1) : filePath;
+
 // `isScannedPath` keeps this hook in step with the gate: a rule that names its own
 // `paths` (`db-backed-skip-hand-rolled` reaches every test tree) must be hinted in
 // the same files it gates, or the hint and the build disagree.
 if (!/\.tsx?$/.test(rel) || !isScannedPath(rel)) process.exit(0);
 
 const text = writtenText(String(payload.tool_name ?? ""), input);
+
 if (!text.trim()) process.exit(0);
 
 // One hint per rule, however many lines match it.
 const hit = new Map();
+
 for (const line of text.split("\n")) {
   for (const rule of matchLine(line, rel, "all")) {
     if (!hit.has(rule.id)) hit.set(rule.id, { rule, line: line.trim() });
   }
 }
+
 // Chain rules match across lines. This only sees the text the edit ADDS, so a
 // chain the edit only partly rewrites is invisible here — that half is covered
 // by the gate lane reading the file off disk in `pnpm check`.
 for (const { rule, text: snippet } of matchChains(text, rel, "all")) {
   if (!hit.has(rule.id)) hit.set(rule.id, { rule, line: snippet });
 }
+
 if (hit.size === 0) process.exit(0);
 
 const gates = [...hit.values()].filter((h) => h.rule.severity === "gate");
+
 const hints = [...hit.values()].filter((h) => h.rule.severity === "hint");
 
 const section = (entries, heading, note) =>

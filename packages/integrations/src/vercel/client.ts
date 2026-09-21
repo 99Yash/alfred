@@ -120,6 +120,7 @@ export function createVercelClient(options: VercelClientOptions) {
    */
   const authContext = async (): Promise<ProviderRequestContext> => {
     const { token, teamId } = await options.resolveAuth();
+
     return {
       headers: { Authorization: `Bearer ${token.unwrap()}`, Accept: "application/json" },
       ...(teamId ? { fixedQuery: { teamId } } : {}),
@@ -136,6 +137,7 @@ export function createVercelClient(options: VercelClientOptions) {
     // 403 on a team-scoped read. Stated, not inherited.
     bodyPolicy: "summarize",
   });
+
   const passthrough = restPassthroughCapability({
     slug: "vercel",
     retry: options.retry,
@@ -158,6 +160,7 @@ export function createVercelClient(options: VercelClientOptions) {
           query: { limit: args?.limit ?? 20 },
         }),
       );
+
       return json.projects.map((p) => ({
         id: p.id,
         name: p.name,
@@ -176,6 +179,7 @@ export function createVercelClient(options: VercelClientOptions) {
           query: { limit: args?.limit ?? 20, projectId: args?.projectId },
         }),
       );
+
       return json.deployments.map((d) => ({
         uid: d.uid,
         name: d.name,
@@ -210,10 +214,13 @@ export function createVercelClient(options: VercelClientOptions) {
           },
         }),
       );
+
       // A 2xx carrying neither id nor uid would otherwise mask as a "successful"
       // redeploy with an unusable handle — surface it as a failure instead.
       const uid = json.uid ?? json.id;
+
       if (!uid) throw new Error("[vercel] redeploy returned no deployment id");
+
       return { uid, url: json.url ?? null, state: json.readyState ?? null };
     },
   };
@@ -234,9 +241,12 @@ export type VercelClient = ReturnType<typeof createVercelClient>;
  */
 export function vercelClientForUser(options: ProviderBindOptions): VercelClient {
   const { userId, retry } = options;
+
   const resolveAuth = async () => {
     const cred = await getActiveBearerCredential(userId, "vercel", options.accountRef);
+
     return { token: redacted(cred.accessToken), teamId: readVercelTeamId(cred.metadata) };
   };
+
   return createVercelClient({ resolveAuth, retry });
 }

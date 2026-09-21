@@ -41,6 +41,7 @@ describe("@alfred/http barrel", () => {
     // Derived from what the barrel actually exports rather than listed here:
     // a list would be one more restatement of the route set to maintain.
     assert.ok(bindings.length > 0, "the barrel resolved no bindings");
+
     for (const [name, value] of bindings) {
       assert.notEqual(value, undefined, `binding ${name} resolved to undefined`);
     }

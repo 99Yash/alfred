@@ -23,9 +23,13 @@ import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
  */
 
 const ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS = 60;
+
 const ATTACHMENT_UPLOAD_RATE_LIMIT_COUNT = 30;
+
 const ATTACHMENT_UPLOAD_QUOTA_TTL_SECONDS = 60 * 60;
+
 const MAX_PENDING_ATTACHMENT_UPLOAD_BYTES = MAX_ATTACHMENT_BYTES_PER_MESSAGE * 4;
+
 let attachmentUploadRateRedis: BoundedRedis | undefined;
 
 function getAttachmentUploadRateRedis(): BoundedRedis {
@@ -35,6 +39,7 @@ function getAttachmentUploadRateRedis(): BoundedRedis {
   // after construction even against a healthy Redis — which 503'd the first
   // attachment upload of every process (#127).
   attachmentUploadRateRedis ??= createRedisConnection("command");
+
   return attachmentUploadRateRedis;
 }
 
@@ -45,16 +50,20 @@ async function incrementUploadCounter(
 ): Promise<number> {
   const redis = getAttachmentUploadRateRedis();
   const value = amount === 1 ? await redis.incr(key) : await redis.incrby(key, amount);
+
   if (value === amount) await redis.expire(key, ttlSeconds);
+
   return value;
 }
 
 export async function releasePendingUploadBudget(userId: string, amount: number): Promise<void> {
   if (amount <= 0) return;
+
   try {
     const redis = getAttachmentUploadRateRedis();
     const key = `quota:chat:attachments:pending-bytes:${userId}`;
     const value = await redis.decrby(key, amount);
+
     if (value <= 0) await redis.del(key);
   } catch (err) {
     console.warn("[chat] pending attachment quota release failed:", toMessage(err));
@@ -65,11 +74,13 @@ export async function assertAttachmentUploadRateAllowed(userId: string): Promise
   try {
     const bucket = Math.floor(Date.now() / (ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS * 1000));
     const rateKey = `rate:chat:attachments:upload:${userId}:${bucket}`;
+
     const rateCount = await incrementUploadCounter(
       rateKey,
       1,
       ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS,
     );
+
     if (rateCount > ATTACHMENT_UPLOAD_RATE_LIMIT_COUNT) {
       throw Errors.TooManyRequestsError("Too many attachment uploads. Try again in a minute.");
     }
@@ -88,19 +99,23 @@ export async function assertAttachmentUploadBudgetAllowed(args: {
 }): Promise<void> {
   try {
     const messageKey = `quota:chat:attachments:message:${args.userId}:${args.threadId}:${args.messageId}`;
+
     const messageCount = await incrementUploadCounter(
       `${messageKey}:count`,
       1,
       ATTACHMENT_UPLOAD_QUOTA_TTL_SECONDS,
     );
+
     const messageBytes = await incrementUploadCounter(
       `${messageKey}:bytes`,
       args.size,
       ATTACHMENT_UPLOAD_QUOTA_TTL_SECONDS,
     );
+
     if (messageCount > MAX_ATTACHMENTS_PER_MESSAGE) {
       throw Errors.BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
     }
+
     if (messageBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
       const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
       throw Errors.BadRequestError(`Attachments are too large — the combined limit is ${mb} MB`);
@@ -111,6 +126,7 @@ export async function assertAttachmentUploadBudgetAllowed(args: {
       args.size,
       ATTACHMENT_UPLOAD_QUOTA_TTL_SECONDS,
     );
+
     if (pendingBytes > MAX_PENDING_ATTACHMENT_UPLOAD_BYTES) {
       await releasePendingUploadBudget(args.userId, args.size);
       throw Errors.TooManyRequestsError("Too many pending attachment uploads. Try again later.");

@@ -8,8 +8,10 @@ import { useMemoryFacts } from "./use-memory-facts";
 
 function formatValue(value: unknown): string {
   if (typeof value === "string") return value;
+
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   const serialized = JSON.stringify(value);
+
   return serialized ?? "Unknown value";
 }
 
@@ -20,10 +22,12 @@ export function MemoryPage() {
   const { proposed, confirmed } = useMemo(() => {
     const p: SyncedFact[] = [];
     const c: SyncedFact[] = [];
+
     for (const f of facts) {
       if (f.status === "proposed") p.push(f);
       else c.push(f);
     }
+
     return { proposed: p, confirmed: c };
   }, [facts]);
 

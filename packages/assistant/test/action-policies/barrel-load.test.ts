@@ -48,10 +48,12 @@ function isTimerOrConnection(kind: string): boolean {
 /** Counts each watched resource type so a delta reads as "how many more of each kind". */
 function timerAndConnectionCounts(): Map<string, number> {
   const counts = new Map<string, number>();
+
   for (const kind of process.getActiveResourcesInfo()) {
     if (!isTimerOrConnection(kind)) continue;
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
   }
+
   return counts;
 }
 
@@ -65,22 +67,27 @@ function timerAndConnectionCounts(): Map<string, number> {
 async function withTimerArmsCounted(body: () => Promise<void>): Promise<string[]> {
   const arms: string[] = [];
   const real = { setInterval: globalThis.setInterval, setTimeout: globalThis.setTimeout };
+
   // Generic over the timer it wraps: `setInterval` and `setTimeout` are NOT one type
   // (`@types/node` gives `setTimeout` a `__promisify__` member), so a single alias for
   // both is wrong on the `setTimeout` arm. `Parameters<F>` stays bound to the real global.
   const counted = <F extends (...args: never[]) => unknown>(fn: F, kind: string): F =>
     ((...args: Parameters<F>) => {
       arms.push(kind);
+
       return fn(...args);
     }) as F;
+
   globalThis.setInterval = counted(real.setInterval, "setInterval");
   globalThis.setTimeout = counted(real.setTimeout, "setTimeout");
+
   try {
     await body();
   } finally {
     globalThis.setInterval = real.setInterval;
     globalThis.setTimeout = real.setTimeout;
   }
+
   return arms;
 }
 
@@ -108,6 +115,7 @@ test("action-policies barrel loads with no database and no redis configured", as
   );
 
   const after = timerAndConnectionCounts();
+
   for (const [kind, count] of after) {
     assert.ok(
       count <= (before.get(kind) ?? 0),
@@ -122,6 +130,7 @@ test("action-policies barrel loads with no database and no redis configured", as
     "number",
     "DEFAULT_APPROVAL_NOTIFY_DELAY_MS should be a number",
   );
+
   for (const [name, value] of Object.entries(ns)) {
     if (name === "DEFAULT_APPROVAL_NOTIFY_DELAY_MS") continue;
     assert.equal(typeof value, "function", `${name} should be a function`);
@@ -152,6 +161,7 @@ test("the module's internals are unreachable through the package exports", async
         "ERR_PACKAGE_PATH_NOT_EXPORTED",
         `${doorMessage} Got ${String(code)}: ${error.message}`,
       );
+
       return true;
     },
     doorMessage,

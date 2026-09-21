@@ -61,7 +61,7 @@ import {
   type ActionStaging,
   type NewActionStaging,
 } from "@alfred/db/schemas";
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
 
@@ -124,6 +124,14 @@ export function attemptKeyFor(runId: string, toolCallId: string): string {
   return `${effectKeyFor(runId, toolCallId)}:1`;
 }
 
+/**
+ * The statuses `findPriorRejection` may match. `rejected` is the classic
+ * retry-suppression match. The `question` arm (ADR-0099) adds `expired`,
+ * because a question set the user let lapse must not park the turn again on
+ * the next step. Each staging arm names its own list in `STAGING_ARM`.
+ */
+export type PriorRejectionStatus = Extract<ActionStaging["status"], "rejected" | "expired">;
+
 export type PendingApprovalPromotion = Pick<
   ActionStaging,
   | "riskTier"
@@ -156,14 +164,18 @@ export type StagingCommit =
 
 export interface StagingStore {
   /**
-   * Most recent `rejected` row for this run + tool + input hash, or `null`.
-   * Scoped to the run because ADR-0034 scopes the partial index that way.
+   * Most recent row in one of `statuses` for this run + tool + input hash, or
+   * `null`. Scoped to the run because ADR-0034 scopes the partial index that
+   * way. The matched row's own status comes back so a caller that asked for
+   * several can tell which one it hit; the WHERE admits only `statuses`, so the
+   * caller narrows it by comparison, not by a second parse.
    */
   findPriorRejection(query: {
     runId: string;
     toolName: ToolName;
     proposedInputHash: string;
-  }): Promise<{ reason: string | null } | null>;
+    statuses: readonly PriorRejectionStatus[];
+  }): Promise<{ reason: string | null; status: ActionStaging["status"] } | null>;
 
   /**
    * An unresolved `unknown` staging row for this user + canonical request hash,
@@ -307,6 +319,7 @@ export const postgresStagingStore: StagingStore = {
     const rows = await db()
       .select({
         reason: actionStagings.rejectReason,
+        status: actionStagings.status,
         decidedAt: actionStagings.decidedAt,
       })
       .from(actionStagings)
@@ -315,13 +328,15 @@ export const postgresStagingStore: StagingStore = {
           eq(actionStagings.runId, query.runId),
           eq(actionStagings.toolName, query.toolName),
           eq(actionStagings.proposedInputHash, query.proposedInputHash),
-          eq(actionStagings.status, "rejected"),
+          inArray(actionStagings.status, query.statuses),
         ),
       )
       .orderBy(desc(actionStagings.decidedAt))
       .limit(1);
+
     const row = rows[0];
-    return row ? { reason: row.reason } : null;
+
+    return row ? { reason: row.reason, status: row.status } : null;
   },
 
   async findUnresolvedUnknown(query) {
@@ -336,7 +351,9 @@ export const postgresStagingStore: StagingStore = {
         ),
       )
       .limit(1);
+
     const row = rows[0];
+
     return row ? parseStagingRow(row) : null;
   },
 
@@ -346,7 +363,9 @@ export const postgresStagingStore: StagingStore = {
       .from(agentRuns)
       .where(eq(agentRuns.id, runId))
       .limit(1);
+
     const parsed = runStatusSchema.safeParse(rows[0]?.status);
+
     return parsed.success ? parsed.data : null;
   },
 
@@ -356,6 +375,7 @@ export const postgresStagingStore: StagingStore = {
       .from(agentRuns)
       .where(eq(agentRuns.id, runId))
       .limit(1);
+
     return cancellationFenceSchema.parse({
       generation: rows[0]?.generation ?? 0,
     });
@@ -389,12 +409,15 @@ export const postgresStagingStore: StagingStore = {
       .returning({ ...STAGING_COLUMNS, wasInserted: sql<boolean>`xmax = 0` });
 
     const upsertedRow = upserted[0];
+
     if (!upsertedRow) {
       throw new Error(
         `[dispatch] action_stagings upsert returned no row (run=${values.runId}, toolCallId=${values.toolCallId})`,
       );
     }
+
     const { wasInserted, ...rowColumns } = upsertedRow;
+
     return { row: parseStagingRow(rowColumns), wasInserted };
   },
 
@@ -420,7 +443,9 @@ export const postgresStagingStore: StagingStore = {
         ),
       )
       .returning(STAGING_COLUMNS);
+
     const row = promoted[0];
+
     return row ? parseStagingRow(row) : null;
   },
 
@@ -450,6 +475,7 @@ export const postgresStagingStore: StagingStore = {
         ),
       )
       .returning({ id: actionStagings.id });
+
     return Boolean(updated);
   },
 };
@@ -470,6 +496,7 @@ export function stagingStore(): StagingStore {
 export function _setStagingStoreForTests(store: StagingStore): () => void {
   const previous = activeStagingStore;
   activeStagingStore = store;
+
   return () => {
     activeStagingStore = previous;
   };

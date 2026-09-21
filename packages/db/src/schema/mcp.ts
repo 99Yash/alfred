@@ -11,6 +11,7 @@ import type {
 } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
+  check,
   foreignKey,
   index,
   integer,
@@ -177,6 +178,42 @@ export const mcpOauthCredentials = pgTable(
 );
 
 /**
+ * Alfred → MCP API-key credentials, isolated from the OAuth store above.
+ *
+ * A non-OAuth MCP server authenticates with one owner-supplied key placed in an
+ * explicit header or query parameter. The bound connection is the storage
+ * authority, exactly as it is for the OAuth grant, and the secret uses the same
+ * authenticated credential envelope. `placement` is not secret and stays
+ * `unknown` at the database layer: the store parses it against the contract
+ * schema before the transport reads it.
+ */
+export const mcpApiKeyCredentials = pgTable(
+  "mcp_api_key_credentials",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("mcpk")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** One API-key grant per durable MCP connection. */
+    connectionId: text("connection_id")
+      .notNull()
+      .references((): AnyPgColumn => mcpConnections.id, { onDelete: "cascade" }),
+    /** `{ in: "header" | "query", name }`; validated by the owning store. */
+    placement: jsonb("placement").notNull(),
+    /** The only secret: the sealed envelope, never a plaintext key. */
+    secret: text("secret").$type<SealedCredentialSecret>().notNull(),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("mcp_api_key_credentials_connection_idx").on(t.connectionId),
+    uniqueIndex("mcp_api_key_credentials_id_user_idx").on(t.id, t.userId),
+    uniqueIndex("mcp_api_key_credentials_id_connection_idx").on(t.id, t.connectionId),
+  ],
+);
+
+/**
  * Durable named connection FACTS — owner, immutable instance identity,
  * negotiated account identity, status, and a pointer to the current catalog
  * revision. NOT live SDK objects (the connection manager re-hydrates a
@@ -210,6 +247,14 @@ export const mcpConnections = pgTable(
     authServerIdentity: text("auth_server_identity"),
     /** Alfred→MCP bearer, kept separate from downstream integration grants. */
     credentialId: text("credential_id").references(() => mcpOauthCredentials.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * Owner-supplied API-key grant, kept in its own table so the OAuth vault
+     * never holds a non-OAuth credential. At most one of `credentialId` and
+     * this column is non-null (the check constraint below).
+     */
+    apiKeyCredentialId: text("api_key_credential_id").references(() => mcpApiKeyCredentials.id, {
       onDelete: "set null",
     }),
     /** Granted scopes parsed to an array (mirrors `integration_credentials.scopes`). */
@@ -258,6 +303,23 @@ export const mcpConnections = pgTable(
       foreignColumns: [mcpOauthCredentials.id, mcpOauthCredentials.connectionId],
       name: "mcp_connections_credential_connection_fk",
     }),
+    foreignKey({
+      columns: [t.apiKeyCredentialId, t.userId],
+      foreignColumns: [mcpApiKeyCredentials.id, mcpApiKeyCredentials.userId],
+      name: "mcp_connections_api_key_credential_owner_fk",
+    }),
+    foreignKey({
+      columns: [t.apiKeyCredentialId, t.id],
+      foreignColumns: [mcpApiKeyCredentials.id, mcpApiKeyCredentials.connectionId],
+      name: "mcp_connections_api_key_credential_connection_fk",
+    }),
+    // One authentication mode per connection. OAuth and an owner-supplied API
+    // key cannot both be attached, so the manager's "exactly one credential
+    // source" reading is a database invariant rather than a convention.
+    check(
+      "mcp_connections_single_credential_chk",
+      sql`num_nonnulls(${t.credentialId}, ${t.apiKeyCredentialId}) <= 1`,
+    ),
     foreignKey({
       columns: [t.id, t.currentCatalogRevisionId],
       foreignColumns: [mcpCatalogRevisions.connectionId, mcpCatalogRevisions.id],
@@ -429,8 +491,8 @@ export const mcpInvocation = pgTable(
      * `persistence.ts`), never from a separately-threaded ctx that could drift.
      *
      * Nullable only to tolerate rows minted before these columns existed; every row
-     * minted since carries them (its `staging_id` is `notNull`). A read persists no
-     * row at all, so it has no correlation to be absent.
+     * minted since carries them (its `staging_id` is `notNull`). A completed
+     * reviewed read now persists a resolved audit row with this correlation.
      */
     /** Copy of the staging row's `run_id` — the agent-run / Langfuse trace this call groups under. */
     traceId: text("trace_id"),
@@ -488,16 +550,33 @@ export const mcpInvocation = pgTable(
 );
 
 export type McpConnection = typeof mcpConnections.$inferSelect;
+
 export type NewMcpConnection = typeof mcpConnections.$inferInsert;
+
 export type McpServer = typeof mcpServers.$inferSelect;
+
 export type NewMcpServer = typeof mcpServers.$inferInsert;
+
 export type McpOauthCredential = typeof mcpOauthCredentials.$inferSelect;
+
 export type NewMcpOauthCredential = typeof mcpOauthCredentials.$inferInsert;
+
+export type McpApiKeyCredential = typeof mcpApiKeyCredentials.$inferSelect;
+
+export type NewMcpApiKeyCredential = typeof mcpApiKeyCredentials.$inferInsert;
+
 export type McpOauthAuthorizationAttempt = typeof mcpOauthAuthorizationAttempts.$inferSelect;
+
 export type NewMcpOauthAuthorizationAttempt = typeof mcpOauthAuthorizationAttempts.$inferInsert;
+
 export type McpCatalogRevision = typeof mcpCatalogRevisions.$inferSelect;
+
 export type NewMcpCatalogRevision = typeof mcpCatalogRevisions.$inferInsert;
+
 export type McpToolPolicyRow = typeof mcpToolPolicy.$inferSelect;
+
 export type NewMcpToolPolicyRow = typeof mcpToolPolicy.$inferInsert;
+
 export type McpInvocation = typeof mcpInvocation.$inferSelect;
+
 export type NewMcpInvocation = typeof mcpInvocation.$inferInsert;

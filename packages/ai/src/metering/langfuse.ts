@@ -1,42 +1,177 @@
 import { serverEnv } from "@alfred/env/server";
-import { randomUUID } from "node:crypto";
-import { Langfuse } from "langfuse";
-import type { CallKind, CallUsage, MeteredMeta } from "./types";
+import { createHash, randomUUID } from "node:crypto";
+import { LangfuseSpanProcessor } from "@langfuse/otel";
+import {
+  propagateAttributes,
+  setLangfuseTracerProvider,
+  startObservation,
+  type LangfuseGeneration,
+  type LangfuseSpan,
+  type PropagateAttributesParams,
+} from "@langfuse/tracing";
+import { ROOT_CONTEXT, TraceFlags, context, type SpanContext } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
+import type { CallKind, CallUsage, MeteredMeta } from "./metered";
 import { sanitizeErrorMessage, summarizeBody, toMessage, toStringArray } from "@alfred/contracts";
+import type { JsonObject } from "@alfred/contracts";
 
 /**
- * Lazy-init Langfuse client. We construct it once per process when the
- * keys are present; missing keys mean the rest of `metered()` becomes a
- * no-op for tracing — the `api_call_log` row still lands.
+ * Lazy-init Langfuse tracing. We build the SDK once per process when the keys
+ * are present; missing keys make the rest of `metered()` a tracing no-op — the
+ * `api_call_log` row still lands. Per ADR-0023 (and confirmed in m6): tracing
+ * wires alongside metering, keys gate emission.
  *
- * Per ADR-0023 (and confirmed in m6): tracing wires alongside metering,
- * keys gate emission. When the keys are absent (local dev without LF
- * setup, CI), this module reports a `noop` instance so call sites stay
- * branch-free.
+ * This is JS/TS SDK v5 (#1130), which is OpenTelemetry-based: `startObservation`
+ * builds the observation tree, and a `LangfuseSpanProcessor` exports spans.
+ * The provider is set on Langfuse's own isolated tracer provider
+ * (`setLangfuseTracerProvider`) instead of the process-global one, so it never
+ * replaces the OTel provider that `Sentry.init` installs in
+ * `apps/server/src/instrument.ts`.
+ *
+ * `environment` and `release` are SDK config in v5, not per-trace attributes
+ * (the v3 `client.trace({ environment })` and the removed
+ * `updateActiveTrace({ release, environment })`); they ride the processor,
+ * which reads `LANGFUSE_TRACING_ENVIRONMENT` / `LANGFUSE_RELEASE`.
  */
-let _client: Langfuse | "noop" | undefined;
+type LangfuseRuntime = { readonly provider: BasicTracerProvider };
 
-function getClient(): Langfuse | null {
-  if (_client === "noop") return null;
-  if (_client) return _client;
+let _runtime: LangfuseRuntime | "noop" | undefined;
+
+function getRuntime(): LangfuseRuntime | null {
+  if (_runtime === "noop") return null;
+
+  if (_runtime) return _runtime;
+
   const env = serverEnv();
+
   if (!env.LANGFUSE_PUBLIC_KEY || !env.LANGFUSE_SECRET_KEY) {
-    _client = "noop";
+    _runtime = "noop";
+
     return null;
   }
-  _client = new Langfuse({
-    publicKey: env.LANGFUSE_PUBLIC_KEY,
-    secretKey: env.LANGFUSE_SECRET_KEY,
-    ...(env.LANGFUSE_HOST ? { baseUrl: env.LANGFUSE_HOST } : {}),
-    // Stamp every trace with the deploy environment (#226) so traces never
-    // blur once multiple targets report. `NODE_ENV` only separates
-    // development|production|test, but staging/preview/prod all run with
-    // `NODE_ENV=production`, so prefer the dedicated
-    // `LANGFUSE_TRACING_ENVIRONMENT` slug per deploy target and fall back to
-    // `NODE_ENV` only when it's unset (#226 review).
-    environment: env.LANGFUSE_TRACING_ENVIRONMENT ?? env.NODE_ENV,
-  });
-  return _client;
+
+  try {
+    const processor = new LangfuseSpanProcessor({
+      publicKey: env.LANGFUSE_PUBLIC_KEY,
+      secretKey: env.LANGFUSE_SECRET_KEY,
+      ...(env.LANGFUSE_HOST ? { baseUrl: env.LANGFUSE_HOST } : {}),
+      // Stamp every trace with the deploy environment (#226) so traces never
+      // blur once multiple targets report. `NODE_ENV` only separates
+      // development|production|test, but staging/preview/prod all run with
+      // `NODE_ENV=production`, so prefer the dedicated
+      // `LANGFUSE_TRACING_ENVIRONMENT` slug per deploy target and fall back to
+      // `NODE_ENV` only when it's unset (#226 review).
+      environment: env.LANGFUSE_TRACING_ENVIRONMENT ?? env.NODE_ENV,
+      ...(env.LANGFUSE_RELEASE ? { release: env.LANGFUSE_RELEASE } : {}),
+    });
+
+    const provider = new BasicTracerProvider({ spanProcessors: [processor] });
+
+    // `propagateAttributes` reads the OTel active context. NodeSDK (and Sentry,
+    // in `apps/server/src/instrument.ts`) install an AsyncLocalStorage context
+    // manager, but scripts and tests may run without either, so register the
+    // standard one. This is a no-op when a manager is already registered.
+    context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+
+    setLangfuseTracerProvider(provider);
+    _runtime = { provider };
+
+    return _runtime;
+  } catch (err) {
+    console.warn("[langfuse] init failed:", toMessage(err));
+    _runtime = "noop";
+
+    return null;
+  }
+}
+
+/**
+ * Test-only: point the helpers at a caller-owned provider (an in-memory span
+ * recorder) instead of the env-gated real one. Returns a restore closure.
+ * Mirrors `_resetPriceCacheForTests`.
+ */
+export function _setLangfuseRuntimeForTests(provider: BasicTracerProvider): () => void {
+  const previous = _runtime;
+  _runtime = { provider };
+  setLangfuseTracerProvider(provider);
+
+  return () => {
+    _runtime = previous;
+    setLangfuseTracerProvider(previous && previous !== "noop" ? previous.provider : null);
+  };
+}
+
+/**
+ * Derive a valid 32-hex OTel trace id from a logical trace id (`runId` or
+ * `adhoc:<key>`). v5 has no `client.trace()` upsert: an OTel trace *is* the set
+ * of observations that share `traceId`, and a span inherits that id from its
+ * `parentSpanContext`. The parent span id is never a real observation — the
+ * Langfuse docs bless exactly this shape for trace-id inheritance, so every
+ * observation of a run lands at the root of one deterministic trace.
+ *
+ * Hashing matches `w3cTraceId` in `packages/assistant/src/connections/mcp/trace.ts`,
+ * so the id an MCP peer sees in its `traceparent` is now the same id this trace
+ * uses (before v5 the two diverged).
+ */
+export function langfuseTraceId(logicalTraceId: string): string {
+  const derived = createHash("sha256").update(logicalTraceId).digest("hex").slice(0, 32);
+
+  return /^0+$/.test(derived) ? "00000000000000000000000000000001" : derived;
+}
+
+function traceSpanContext(logicalTraceId: string): SpanContext {
+  const digest = createHash("sha256").update(logicalTraceId).digest("hex");
+
+  return {
+    traceId: langfuseTraceId(logicalTraceId),
+    // Any valid 16-hex string works; the parent span does not exist and is only
+    // used for trace-id inheritance.
+    spanId: digest.slice(32, 48),
+    traceFlags: TraceFlags.SAMPLED,
+    isRemote: true,
+  };
+}
+
+/**
+ * Trace-level attributes for `propagateAttributes` — the v5 replacement for the
+ * v3 `client.trace()` upsert. v5 propagates `userId` / `sessionId` / `tags` /
+ * `traceName` to every observation in scope, so they are set on each
+ * observation this module creates rather than once on the trace.
+ *
+ * `public` has no call site today; v5 exposes it separately as
+ * `setTraceAsPublic()` / `setActiveTraceAsPublic()` and it must not be passed as
+ * a trace attribute (removed in v5). Trace input/output is likewise not set
+ * here: in v5 the root observation's input/output *is* the trace's.
+ */
+function traceAttributeParams(payload: {
+  name: string;
+  userId?: string | undefined;
+  sessionId?: string | undefined;
+  tags?: string[] | undefined;
+}): PropagateAttributesParams {
+  return {
+    traceName: payload.name,
+    ...(payload.userId !== undefined ? { userId: payload.userId } : {}),
+    ...(payload.sessionId !== undefined ? { sessionId: payload.sessionId } : {}),
+    ...(payload.tags !== undefined ? { tags: payload.tags } : {}),
+  };
+}
+
+/**
+ * Apply trace attributes to the observation `fn` creates, without writing them
+ * to whatever OTel span is active process-wide.
+ *
+ * `propagateAttributes` does two things: it seeds the OTel context the
+ * `LangfuseSpanProcessor` reads in `onStart`, and it calls `setAttribute` on the
+ * active span. Sentry owns the process-global provider, so the active span is
+ * normally Sentry's — running from `ROOT_CONTEXT` hides it, leaving the SDK
+ * nothing to stamp while the context values still ride into the Langfuse
+ * observation. Without this, `user.id` / `session.id` / `langfuse.trace.*` leak
+ * onto Sentry spans.
+ */
+function withTraceAttributes<T>(params: PropagateAttributesParams, fn: () => T): T {
+  return context.with(ROOT_CONTEXT, () => propagateAttributes(params, fn));
 }
 
 export interface LangfuseSpanInput {
@@ -60,7 +195,7 @@ export interface LangfuseSpanCloser {
     /** Full completion — only attached to the span when I/O capture is on. */
     output?: unknown;
     /** Small response metadata (finish_reason, tool-call count) — always attached. */
-    responseMeta?: Record<string, unknown> | undefined;
+    responseMeta?: JsonObject | undefined;
     /**
      * Model the request actually resolved to (#216). When a `withFallback`
      * cascade switches providers mid-call, `metered()` reconciles the served
@@ -84,8 +219,9 @@ function shouldCaptureIo(): boolean {
 }
 
 export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser {
-  const client = getClient();
-  if (!client) {
+  const runtime = getRuntime();
+
+  if (!runtime) {
     return {
       success() {
         /* no-op when keys missing */
@@ -97,25 +233,38 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   }
 
   const { meta, startedAt } = input;
-  // generation() in Langfuse v3 returns an object with .end()/.update().
-  // We catch construction errors so a misconfigured SDK can't crash the
-  // call site.
+  // `getRuntime()` above proves the provider is live; the calls below are still
+  // wrapped so a misconfigured SDK can't crash the call site.
   const captureIo = shouldCaptureIo();
-  const traceId = resolveTraceId(meta);
-  const adhoc = isAdhocTrace(meta);
-  let generation: ReturnType<Langfuse["generation"]> | null = null;
+  const tracePayload = buildTracePayload(meta);
+  const generationPayload = buildGenerationPayload({ meta, startedAt, captureIo });
+  let generation: LangfuseGeneration | null = null;
+
   try {
-    // Upsert the parent trace first. `generation()` with a custom traceId
-    // does NOT create the trace — Langfuse Cloud no longer auto-promotes
-    // orphan observations, so without this the Traces view is empty and
-    // runId grouping never materializes. Idempotent on `id`: every call in
-    // one run collapses into a single trace tree. Only run-stable fields go
-    // here; per-call identity (model) lives on the generation, so the repeated
-    // upserts don't rewrite the trace with the last call's values. Tags are
-    // unioned by Langfuse across upserts, so a multi-role run accumulates every
-    // surface tag rather than the last writer winning.
-    client.trace(buildTracePayload({ meta, captureIo }));
-    generation = client.generation(buildGenerationPayload({ meta, startedAt, captureIo }));
+    // No v3-style trace upsert exists in v5. Trace identity comes from the
+    // synthetic `parentSpanContext`, and the trace-level name/user/session/tags
+    // ride the propagated context for this observation. Repeated calls in one run
+    // all hash to the same trace id, and Langfuse unions tags across
+    // observations, so a multi-role run accumulates every surface tag (#226).
+    // `withTraceAttributes` keeps those attributes off the process-global span.
+    generation = withTraceAttributes(traceAttributeParams(tracePayload), () =>
+      startObservation(
+        generationPayload.name,
+        {
+          model: generationPayload.model,
+          ...(generationPayload.modelParameters !== undefined
+            ? { modelParameters: generationPayload.modelParameters }
+            : {}),
+          ...(generationPayload.input !== undefined ? { input: generationPayload.input } : {}),
+          metadata: generationPayload.metadata,
+        },
+        {
+          asType: "generation",
+          startTime: generationPayload.startTime,
+          parentSpanContext: traceSpanContext(tracePayload.id),
+        },
+      ),
+    );
   } catch (err) {
     console.warn("[langfuse] span start failed:", toMessage(err));
   }
@@ -123,29 +272,36 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   return {
     success({ usage, costUsd, output, responseMeta, servedModel }) {
       try {
-        generation?.end(
-          buildGenerationEndPayload({
-            meta,
-            usage,
-            costUsd,
-            output,
-            responseMeta,
-            servedModel,
-            captureIo,
-          }),
-        );
-        // Mirror the completion up to an ad-hoc trace's root (#226) so the
-        // Traces view shows the call's I/O instead of the empty-root banner.
-        if (captureIo && adhoc) {
-          client.trace({ id: traceId, output });
-        }
+        const end = buildGenerationEndPayload({
+          meta,
+          usage,
+          costUsd,
+          output,
+          responseMeta,
+          servedModel,
+          captureIo,
+        });
+
+        // v5 splits the v3 `generation.end(payload)` into `update(attributes)`
+        // then `end()`. `usage` is a v3-only field — v5 reads `usageDetails`.
+        // For an ad-hoc trace this generation is the app root, so its
+        // input/output are the trace's (#226); no separate trace IO write.
+        generation?.update({
+          ...(end.model !== undefined ? { model: end.model } : {}),
+          ...(end.usageDetails !== undefined ? { usageDetails: end.usageDetails } : {}),
+          costDetails: end.costDetails,
+          ...(end.output !== undefined ? { output: end.output } : {}),
+          ...(end.metadata !== undefined ? { metadata: end.metadata } : {}),
+        });
+        generation?.end();
       } catch (err) {
         console.warn("[langfuse] span end failed:", toMessage(err));
       }
     },
     error(message) {
       try {
-        generation?.end({ level: "ERROR", statusMessage: message });
+        generation?.update({ level: "ERROR", statusMessage: message });
+        generation?.end();
       } catch (err) {
         console.warn("[langfuse] span error end failed:", toMessage(err));
       }
@@ -182,7 +338,7 @@ export interface ToolSpanCloser {
    * independent of the I/O gate — so it must carry only non-PII, structural
    * signal (e.g. the ADR-0074 passthrough truncation "thermometer").
    */
-  success(output?: unknown, metadata?: Record<string, unknown>): void;
+  success(output?: unknown, metadata?: JsonObject): void;
   error(message: string): void;
 }
 
@@ -197,8 +353,9 @@ export interface ToolSpanCloser {
  * still records name/timing/metadata.
  */
 export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
-  const client = getClient();
-  if (!client) {
+  const runtime = getRuntime();
+
+  if (!runtime) {
     return {
       success() {
         /* no-op when keys missing */
@@ -210,30 +367,34 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
   }
 
   const captureIo = shouldCaptureIo();
-  let span: ReturnType<Langfuse["span"]> | null = null;
+  let span: LangfuseSpan | null = null;
+
   try {
-    // The boss LLM turn that proposed this call already upserted the
-    // `run:<runId>` trace (chat's generation step precedes tool dispatch), so
-    // the span nests under an existing trace. Upsert defensively by id anyway —
-    // it's a merge keyed on id, so it never clobbers the trace's name/tags —
-    // so a tool that somehow runs before any generation in the run still gets a
-    // trace rather than an orphaned (and thus dropped) observation.
-    client.trace({ id: args.runId });
-    span = client.span({
-      traceId: args.runId,
-      name: `tool:${args.toolName}`,
-      startTime: args.startedAt,
-      input: captureIo ? args.input : undefined,
-      metadata: {
-        kind: "tool",
-        toolName: args.toolName,
-        toolCallId: args.toolCallId,
-        caller: args.caller,
-        userId: args.userId,
-        runId: args.runId,
-        stepId: args.stepId,
+    // The boss LLM turn that proposed this call already created the run trace
+    // (chat's generation step precedes tool dispatch). The synthetic parent
+    // context still carries that trace's id, so a tool that somehow runs before
+    // any generation joins the same trace instead of orphaning. The parent span
+    // does not exist — by design, only for trace-id inheritance.
+    span = startObservation(
+      `tool:${args.toolName}`,
+      {
+        ...(captureIo && args.input !== undefined ? { input: args.input } : {}),
+        metadata: {
+          kind: "tool",
+          toolName: args.toolName,
+          toolCallId: args.toolCallId,
+          caller: args.caller,
+          userId: args.userId,
+          runId: args.runId,
+          stepId: args.stepId,
+        },
       },
-    });
+      {
+        asType: "span",
+        startTime: args.startedAt,
+        parentSpanContext: traceSpanContext(args.runId),
+      },
+    );
   } catch (err) {
     console.warn("[langfuse] tool span start failed:", toMessage(err));
   }
@@ -242,12 +403,13 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
     success(output, metadata) {
       try {
         // Structural metadata (e.g. the truncation thermometer) is recorded
-        // regardless of the I/O gate; Langfuse merges it onto the metadata set
-        // at span open, so the `kind: "tool"` block is preserved.
-        span?.end({
-          output: captureIo ? output : undefined,
-          metadata: metadata && Object.keys(metadata).length > 0 ? metadata : undefined,
+        // regardless of the I/O gate; v5 merges `update` metadata onto the set
+        // from span open, so the `kind: "tool"` block is preserved.
+        span?.update({
+          ...(captureIo && output !== undefined ? { output } : {}),
+          ...(metadata && Object.keys(metadata).length > 0 ? { metadata } : {}),
         });
+        span?.end();
       } catch (err) {
         console.warn("[langfuse] tool span end failed:", toMessage(err));
       }
@@ -259,7 +421,11 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
         // off, so redact + bound here (the funnel) so no raw error reaches
         // Langfuse regardless of the caller. `summarizeBody` strips secrets and
         // caps length; `sanitizeErrorMessage` strips NUL-byte poison.
-        span?.end({ level: "ERROR", statusMessage: summarizeBody(sanitizeErrorMessage(message)) });
+        span?.update({
+          level: "ERROR",
+          statusMessage: summarizeBody(sanitizeErrorMessage(message)),
+        });
+        span?.end();
       } catch (err) {
         console.warn("[langfuse] tool span error end failed:", toMessage(err));
       }
@@ -345,7 +511,6 @@ export function buildDispatchRejectionSpanPayload(
 ) {
   return {
     span: {
-      traceId: args.runId,
       name: `tool:${args.toolName}`,
       startTime: args.startedAt,
       input: captureIo ? args.input : undefined,
@@ -384,15 +549,30 @@ export function buildDispatchRejectionSpanPayload(
  * structured `detail` and `input` use the same gate.
  */
 export function recordDispatchRejection(args: DispatchRejectionInput): void {
-  const client = getClient();
-  if (!client) return;
+  const runtime = getRuntime();
+
+  if (!runtime) return;
   const captureIo = shouldCaptureIo();
+
   try {
-    // Defensive trace upsert (see startToolSpan) — keyed on id, never clobbers.
-    client.trace({ id: args.runId });
     const payload = buildDispatchRejectionSpanPayload(args, captureIo);
-    const span = client.span(payload.span);
-    span.end(payload.end);
+
+    const span = startObservation(
+      payload.span.name,
+      {
+        ...(payload.span.input !== undefined ? { input: payload.span.input } : {}),
+        metadata: payload.span.metadata,
+      },
+      {
+        asType: "span",
+        startTime: payload.span.startTime,
+        parentSpanContext: traceSpanContext(args.runId),
+      },
+    );
+
+    // v5 splits the v3 `span.end(attributes)` into `update` + `end`.
+    span.update({ level: payload.end.level, statusMessage: payload.end.statusMessage });
+    span.end();
   } catch (err) {
     console.warn("[langfuse] dispatch rejection span failed:", toMessage(err));
   }
@@ -454,10 +634,9 @@ export interface RuntimeSpanCloser {
   end(args: RuntimeSpanEndArgs): void;
 }
 
-/** Pure builder for the opening `client.span()` payload. Exported for tests. */
+/** Pure builder for a runtime span's opening attributes. Exported for tests. */
 export function buildRuntimeSpanPayload(input: RuntimeSpanInput, captureIo: boolean) {
   return {
-    traceId: input.runId,
     name: input.name,
     startTime: input.startedAt,
     input: captureIo ? input.input : undefined,
@@ -470,11 +649,11 @@ export function buildRuntimeSpanPayload(input: RuntimeSpanInput, captureIo: bool
 }
 
 /** Pure builder for the terminal `span.end()` payload. Exported for tests. */
+const DEFAULT_RUNTIME_SPAN_LEVEL: RuntimeSpanLevel = "DEFAULT";
+
 export function buildRuntimeSpanEndPayload(args: RuntimeSpanEndArgs, captureIo: boolean) {
   return {
-    // SAFETY: RuntimeSpanLevel includes "DEFAULT"; this is the documented
-    // fallback when the caller supplied no level.
-    level: args.level ?? ("DEFAULT" as RuntimeSpanLevel),
+    level: args.level ?? DEFAULT_RUNTIME_SPAN_LEVEL,
     output: captureIo ? args.output : undefined,
     metadata: { status: args.status, ...args.metadata },
   };
@@ -482,31 +661,56 @@ export function buildRuntimeSpanEndPayload(args: RuntimeSpanEndArgs, captureIo: 
 
 /**
  * Open a runtime span under the run trace (#406). No-op closer when Langfuse
- * keys are absent (mirrors `startToolSpan`). The defensive trace upsert is keyed
- * on id so it merges rather than clobbers the run trace the boss generation
- * already created. Every SDK call is swallowed.
+ * keys are absent (mirrors `startToolSpan`). The synthetic parent context
+ * carries the run trace id, so the span joins the trace the boss generation
+ * already created (or creates it first for a run with no generation yet). Every
+ * SDK call is swallowed.
  */
 export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
-  const client = getClient();
-  if (!client) {
+  const runtime = getRuntime();
+
+  if (!runtime) {
     return {
       end() {
         /* no-op when keys missing */
       },
     };
   }
+
   const captureIo = shouldCaptureIo();
-  let span: ReturnType<Langfuse["span"]> | null = null;
+  let span: LangfuseSpan | null = null;
+
   try {
-    client.trace({ id: input.runId });
-    span = client.span(buildRuntimeSpanPayload(input, captureIo));
+    const payload = buildRuntimeSpanPayload(input, captureIo);
+
+    span = startObservation(
+      payload.name,
+      {
+        ...(payload.input !== undefined ? { input: payload.input } : {}),
+        metadata: payload.metadata,
+      },
+      {
+        asType: "span",
+        startTime: payload.startTime,
+        parentSpanContext: traceSpanContext(input.runId),
+      },
+    );
   } catch (err) {
     console.warn("[langfuse] runtime span start failed:", toMessage(err));
   }
+
   return {
     end(args) {
       try {
-        span?.end(buildRuntimeSpanEndPayload(args, captureIo));
+        const end = buildRuntimeSpanEndPayload(args, captureIo);
+
+        // v5 splits the v3 `span.end(payload)` into `update` + `end`.
+        span?.update({
+          level: end.level,
+          ...(end.output !== undefined ? { output: end.output } : {}),
+          metadata: end.metadata,
+        });
+        span?.end();
       } catch (err) {
         console.warn("[langfuse] runtime span end failed:", toMessage(err));
       }
@@ -520,20 +724,24 @@ export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
  * call this on graceful shutdown.
  */
 export async function flushLangfuse(): Promise<void> {
-  const client = getClient();
-  if (!client) return;
+  const runtime = getRuntime();
+
+  if (!runtime) return;
+
   try {
-    await client.flushAsync();
+    await runtime.provider.forceFlush();
   } catch (err) {
     console.warn("[langfuse] flush failed:", toMessage(err));
   }
 }
 
 export async function shutdownLangfuse(): Promise<void> {
-  const client = getClient();
-  if (!client) return;
+  const runtime = getRuntime();
+
+  if (!runtime) return;
+
   try {
-    await client.shutdownAsync();
+    await runtime.provider.shutdown();
   } catch {
     /* swallow */
   }
@@ -573,12 +781,16 @@ const CALL_SHAPE = {
  */
 export function traceTags(meta: MeteredMeta): string[] | undefined {
   const tags: string[] = [];
+
   if (meta.role) tags.push(`role:${meta.role}`);
+
   if (meta.kind) {
     const shape = CALL_SHAPE[meta.kind];
     tags.push(`call_kind:${shape}`);
+
     if (meta.kind !== shape) tags.push(`cost_kind:${meta.kind}`);
   }
+
   return tags.length > 0 ? tags : undefined;
 }
 
@@ -603,22 +815,16 @@ export function resolveTraceName(meta: MeteredMeta): string {
 }
 
 /**
- * An ad-hoc trace (no run) holds exactly one generation, so its root *is* the
- * call — we mirror the generation I/O up to it. Run traces hold many
- * generations; mirroring any single call's I/O to the root would misrepresent
- * the run.
+ * Trace-level identity and attributes for a call. Pure, for testability. In v5
+ * `id` is hashed into the OTel trace id via `langfuseTraceId`, and the rest map
+ * onto `propagateAttributes`.
+ *
+ * Trace input/output is not built here: in v5 it is the root observation's I/O,
+ * not a separate trace attribute.
  */
-function isAdhocTrace(meta: MeteredMeta): boolean {
-  return !meta.runId;
-}
-
-/** Payload for the parent `client.trace()` upsert. Pure, for testability. */
-export function buildTracePayload(args: { meta: MeteredMeta; captureIo: boolean }) {
-  const { meta, captureIo } = args;
+export function buildTracePayload(meta: MeteredMeta) {
   const tags = traceTags(meta);
-  // Every optional field is *omitted* rather than sent as `undefined`/`null`:
-  // `trace()` is an idempotent upsert keyed on `id`, and a null would clobber a
-  // value an earlier call in the same run already set.
+
   return {
     id: resolveTraceId(meta),
     name: resolveTraceName(meta),
@@ -632,11 +838,10 @@ export function buildTracePayload(args: { meta: MeteredMeta; captureIo: boolean 
     // Promote role/kind to filterable trace tags (#226) — they otherwise only
     // live in generation metadata, which the Traces filter can't slice by.
     ...(tags !== undefined ? { tags } : {}),
-    ...(captureIo && isAdhocTrace(meta) ? { input: meta.input } : {}),
   };
 }
 
-/** Payload for `client.generation()`. Pure, for testability. */
+/** Attributes for the generation's opening `startObservation`. Pure, for testability. */
 export function buildGenerationPayload(args: {
   meta: MeteredMeta;
   startedAt: Date;
@@ -644,8 +849,8 @@ export function buildGenerationPayload(args: {
 }) {
   const { meta, startedAt, captureIo } = args;
   const modelParameters = stripParams(meta.requestMeta);
+
   return {
-    traceId: resolveTraceId(meta),
     name: meta.name ?? `${meta.provider}/${meta.model}`,
     model: meta.model,
     ...(modelParameters !== undefined ? { modelParameters } : {}),
@@ -669,7 +874,7 @@ export function buildGenerationEndPayload(args: {
   usage?: CallUsage | undefined;
   costUsd: number;
   output?: unknown;
-  responseMeta?: Record<string, unknown> | undefined;
+  responseMeta?: JsonObject | undefined;
   servedModel?: string | undefined;
   captureIo: boolean;
 }) {
@@ -680,20 +885,20 @@ export function buildGenerationEndPayload(args: {
   // metadata for fallback debugging (#216).
   const servedDiverged = servedModel != null && servedModel !== meta.model;
   const metadata = servedDiverged ? { ...responseMeta, requestedModel: meta.model } : responseMeta;
+
   return {
     ...(servedDiverged ? { model: servedModel } : {}),
     ...(usage
       ? {
-          usage: {
-            ...(usage.inputTokens !== undefined ? { input: usage.inputTokens } : {}),
-            ...(usage.outputTokens !== undefined ? { output: usage.outputTokens } : {}),
-            total: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
-            unit: "TOKENS" as const,
-          },
+          // `cacheWrite` is the miss half of `cached`. Without it a trace shows
+          // a cold call as plain input, hiding both the premium rate the
+          // provider charged and the fact that the cache missed at all. The v3
+          // `usage` field is not sent — v5 reads `usageDetails` only.
           usageDetails: {
             input: usage.inputTokens ?? 0,
             output: usage.outputTokens ?? 0,
             cached: usage.cachedInputTokens ?? 0,
+            cacheWrite: usage.cacheWriteInputTokens ?? 0,
           },
         }
       : {}),
@@ -706,25 +911,35 @@ export function buildGenerationEndPayload(args: {
   };
 }
 
-type LangfuseModelParam = string | number | boolean | string[] | null;
+/**
+ * v5 narrows `modelParameters` to `string | number` (v3 accepted booleans and
+ * string arrays). Coerce instead of dropping so values like `stream: true` and
+ * `stop: ["a","b"]` still reach the trace.
+ */
+type LangfuseModelParam = string | number;
 
 function stripParams(
-  meta: Record<string, unknown> | undefined,
+  meta: JsonObject | undefined,
 ): { [key: string]: LangfuseModelParam } | undefined {
   if (!meta) return undefined;
   // Drop fields that are too large or not relevant to the trace, and coerce
   // remaining values to the primitive shapes Langfuse accepts.
   const skip = new Set(["prompt", "messages", "system"]);
   const out: { [key: string]: LangfuseModelParam } = {};
+
   for (const [k, v] of Object.entries(meta)) {
     if (skip.has(k)) continue;
-    if (v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+
+    if (typeof v === "string" || typeof v === "number") {
       out[k] = v;
+    } else if (typeof v === "boolean") {
+      out[k] = String(v);
     } else if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
-      out[k] = toStringArray(v);
+      out[k] = toStringArray(v).join(", ");
     }
     // Anything else (objects, mixed arrays) is silently dropped — Langfuse
     // can't render them and including them broke the type contract.
   }
+
   return out;
 }

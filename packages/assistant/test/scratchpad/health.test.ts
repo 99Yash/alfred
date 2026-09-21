@@ -43,6 +43,7 @@ describe("buildScratchReadSpanInput", () => {
       logicalKey: "scratch.subA.secret-topic",
       startedAt,
     });
+
     assert.equal(input.name, RUNTIME_SCRATCH_READ);
     assert.equal(input.name, "runtime.scratch.read");
     assert.equal(input.runId, "run_1");
@@ -69,6 +70,7 @@ describe("buildScratchWriteSpanInput", () => {
       writtenBy: "boss",
       startedAt,
     });
+
     assert.equal(input.name, RUNTIME_SCRATCH_WRITE);
     assert.deepEqual(input.metadata, {
       operation: "write",
@@ -89,6 +91,7 @@ describe("buildScratchPromoteSpanInput", () => {
       writtenBy: "boss",
       startedAt,
     });
+
     assert.equal(input.name, RUNTIME_SCRATCH_PROMOTE);
     assert.deepEqual(input.metadata, {
       operation: "promote",
@@ -117,14 +120,17 @@ describe("startScratchSpan injectable seam", () => {
   test("routes the built input through the injected starter and forwards end args", () => {
     const opened: RuntimeSpanInput[] = [];
     const ended: RuntimeSpanEndArgs[] = [];
+
     const restore = _setScratchRuntimeSpanStarterForTests((input) => {
       opened.push(input);
+
       return {
         end(args) {
           ended.push(args);
         },
       };
     });
+
     try {
       const span = startScratchSpan(
         buildScratchReadSpanInput({
@@ -134,10 +140,12 @@ describe("startScratchSpan injectable seam", () => {
           startedAt,
         }),
       );
+
       span.end({ status: "ok", metadata: { hit: true, corrupt: false, byteSize: 42 } });
     } finally {
       restore();
     }
+
     assert.equal(opened.length, 1);
     assert.equal(opened[0]?.name, "runtime.scratch.read");
     assert.deepEqual(ended, [
