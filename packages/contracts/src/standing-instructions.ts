@@ -120,7 +120,7 @@ export const standingInstructionTargetKindSchema = z.enum(STANDING_INSTRUCTION_T
  * acceptance set as the old trim → lowercase → `z.email()` chain, plus `<>`
  * and `mailto:` tolerance. The stored match key is canonical by construction.
  */
-const senderEmailAddressSchema: z.ZodType<string> = z
+const senderEmailAddressSchema: z.ZodType<string, string> = z
   .string()
   .transform((value) => normalizeEmailAddress(value))
   .refine((value): value is string => value !== null, {
@@ -214,8 +214,9 @@ export function standingInstructionTargetKey(target: StandingInstructionTarget):
       return `${target.kind}:${target.domain}`;
     default: {
       const exhaustive: never = target;
+      void exhaustive;
 
-      return String(exhaustive);
+      throw new Error("unreachable standing-instruction target kind");
     }
   }
 }
