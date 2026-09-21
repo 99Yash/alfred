@@ -591,6 +591,26 @@ export const RULES = [
     severity: "gate",
     fix: "Do not wrap a constant in a function that only returns it. Export the constant or import it directly. A forwarding function is a second door.",
   },
+  {
+    id: "object-state-row-lock-mode",
+    // `.for("update")` inside the object-state module. The mode is load-bearing
+    // there, not merely strong: `integration_object_keys.object_id` references
+    // `integration_objects`, so every phase-2 key upsert runs a referential
+    // check that takes `FOR KEY SHARE` on its parent object row. `FOR KEY SHARE`
+    // waits behind `FOR UPDATE` and does not conflict with `FOR NO KEY UPDATE`,
+    // so `FOR UPDATE` here re-opens the exact cross-table ABBA cycle the
+    // two-phase lock order closes (#1203). `integration_object_relations` is a
+    // second FK child with the same edge and no writer yet, so the next writer
+    // in this directory lands on the same rule.
+    //
+    // `paths`-scoped: the surrounding package holds ~30 legitimate
+    // `.for("update")` sites, and only this directory's object rows carry the
+    // constraint. The directory holds exactly one `.for(` call site today.
+    re: /\.for\(\s*["'](?!no key update)/,
+    paths: /(^|\/)packages\/assistant\/src\/connections\/object-state\//,
+    severity: "gate",
+    fix: 'Lock an `integration_objects` row with `.for("no key update")`, through lockIdentityRow in ./store.ts. A key upsert takes `FOR KEY SHARE` on its parent object row, which waits behind `FOR UPDATE` and re-opens the cross-table deadlock the two-phase lock order closes. If this lock is over another table, append `// drift-ok: <table, and why its mode is free>`.',
+  },
 ];
 
 /**
