@@ -12,6 +12,7 @@ import {
 import { db, type DbTransaction } from "@alfred/db";
 import {
   type IntegrationObject,
+  type IntegrationObjectKey,
   integrationObjectKeys,
   integrationObjects,
 } from "@alfred/db/schemas";
@@ -236,7 +237,8 @@ function objectIdentityWhere(userId: string, identity: ObjectIdentity) {
 }
 
 /**
- * Read the identity row and hold it `FOR UPDATE` until the transaction ends.
+ * Read the identity row and hold it `FOR NO KEY UPDATE` until the transaction
+ * ends.
  *
  * `applyEvent` decides recency and absorption in JavaScript, then writes. The
  * lock is what makes the decision and the write one step: a second fold of the
@@ -255,6 +257,18 @@ function objectIdentityWhere(userId: string, identity: ObjectIdentity) {
  * `isAbsorbingState` is the KIND's declaration, read from the registry, and
  * spelling it in SQL would move that policy out of the registry and into this
  * file — the thing the guard's own comment forbids.
+ *
+ * The lock MODE is load-bearing for the two-phase order in {@link inLockOrder}.
+ * `integration_object_keys.object_id` references this table, so every phase-2
+ * upsert runs a referential-integrity check that takes `FOR KEY SHARE` on the
+ * parent object row. `FOR KEY SHARE` waits behind `FOR UPDATE`; it does not
+ * conflict with `FOR NO KEY UPDATE`. The weaker mode therefore removes phase
+ * 2's wait edge back to the object table at the substrate, rather than leaving
+ * it merely unreachable by a premise about where `objectId` came from.
+ * `applyEvent` never writes `integration_objects.id`, so the weaker mode gives
+ * up nothing it uses, and it still conflicts with `FOR UPDATE`,
+ * `FOR NO KEY UPDATE`, `UPDATE` and `DELETE` — two concurrent folds of one
+ * target still exclude each other, which is what this lock exists for.
  */
 function lockIdentityRow(
   tx: DbTransaction,
@@ -266,7 +280,7 @@ function lockIdentityRow(
     .from(integrationObjects)
     .where(objectIdentityWhere(userId, identity))
     .limit(1)
-    .for("update")
+    .for("no key update")
     .then((rows) => rows[0]);
 }
 
@@ -300,22 +314,36 @@ function compareIdentity(a: ObjectStateDelta, b: ObjectStateDelta): number {
  * This is phase 1 of two, and the pair is deadlock-free over BOTH tables
  * (#1203). `applyEvent` takes every `integration_objects` row lock of a
  * delivery here, then every `integration_object_keys` row lock after the loop,
- * in `inKeyLockOrder`. A transaction that waits on a key row has finished phase
- * 1, so it holds objects only and waits on no object; a transaction that waits
- * on an object row is still in phase 1, so it holds no key. A wait-for cycle
- * therefore lies inside one phase, and each phase is ordered, so no cycle
- * exists.
+ * in `inKeyLockOrder`.
+ *
+ * A transaction that waits on a key row has finished phase 1, so it holds
+ * objects only and waits on no object. That second half is a fact about the
+ * lock MODE, not about this loop: the foreign key on
+ * `integration_object_keys.object_id` makes every phase-2 upsert take
+ * `FOR KEY SHARE` on its parent object row, and `FOR KEY SHARE` does not
+ * conflict with the `FOR NO KEY UPDATE` {@link lockIdentityRow} holds, so that
+ * check never waits. A transaction that waits on an object row is still in
+ * phase 1, so it holds no key. A wait-for cycle therefore lies inside one
+ * phase, and each phase is ordered, so no cycle exists.
+ *
+ * The guarantee is over the application write path, and `applyEvent` is that
+ * path's only writer of either table. Two writers sit outside it: migration
+ * `0131_violet_elektra.sql`, which bulk-inserted key rows once in scan order,
+ * and the `user` `ON DELETE CASCADE`, whose row deletes do conflict with
+ * `FOR KEY SHARE`. Neither runs beside a delivery — 0131 has run, and the
+ * cascade fires only when the account itself goes away.
  */
 function inLockOrder(deltas: readonly ObjectStateDelta[]): ObjectStateDelta[] {
   return [...deltas].sort(compareIdentity);
 }
 
-/** One deferred key upsert, bound to the object its delta resolved. */
-interface PendingKeyUpsert {
-  readonly keyKind: string;
-  readonly keyValue: string;
-  readonly objectId: string;
-}
+/**
+ * One deferred key upsert, bound to the object its delta resolved.
+ *
+ * Derived from the table's row type rather than redeclared, so a later
+ * `.$type<>()` on `key_kind` narrows this with it.
+ */
+type PendingKeyUpsert = Readonly<Pick<IntegrationObjectKey, "keyKind" | "keyValue" | "objectId">>;
 
 /**
  * Code-unit order over `(keyKind, keyValue)`, for the same reason
@@ -325,7 +353,9 @@ interface PendingKeyUpsert {
  *
  * `objectId` is deliberately NOT a tie-break. Two deltas that carry one key
  * value for two different objects must fall through to the stable `sort` and
- * keep their delta order, so the later delta still wins the row.
+ * keep the order the fold loop pushed them in — which is `inLockOrder`'s lock
+ * order, not the reducer's emitted order — so the delta folded last still wins
+ * the row, exactly as it did before the deferral.
  */
 function compareKeyUpsert(a: PendingKeyUpsert, b: PendingKeyUpsert): number {
   if (a.keyKind !== b.keyKind) return a.keyKind < b.keyKind ? -1 : 1;
@@ -447,7 +477,7 @@ export const objectStateStore: ObjectStateStore = {
           // receipt is successfully folded exactly once, with the 1 ms,
           // no-byte-identical-repeat, and every-receipt-folds preconditions
           // item 03 hardened. The serial-fold precondition is no longer
-          // assumed: the `FOR UPDATE` above enforces it, so `existing` is the
+          // assumed: the `FOR NO KEY UPDATE` above enforces it, so `existing` is the
           // state a concurrent fold committed, not the state this transaction
           // read before it. The 1 ms precondition still stands — `delivered_at`
           // is microsecond in Postgres and millisecond after `node-postgres`,
@@ -501,7 +531,9 @@ export const objectStateStore: ObjectStateStore = {
 
       // Phase 2: every key row of the delivery, after every object row, in its
       // own order. `sort` is stable, so two deltas that carry one key value for
-      // two objects keep their delta order and the later one still wins.
+      // two objects keep the order the loop pushed them in — `inLockOrder`'s
+      // lock order, not the reducer's emitted order — and the delta folded last
+      // still wins.
       //
       // Nothing between the fold loop and here reads `integration_object_keys`,
       // so this transaction observes no value it has not yet written. An edit
