@@ -102,10 +102,14 @@ export type RememberSenderSuppressionResult =
        * elects one of them at apply time. Reporting it is what stops a second
        * row from looking like a bug.
        *
-       * SNAPSHOT-SCOPED. The advisory lock this write takes is keyed on its own
-       * target, and an overlapping instruction has a different target key by
-       * definition, so a concurrent write at a nesting target takes a different
-       * key and neither call reports the other.
+       * SNAPSHOT-SCOPED ON ONE AXIS ONLY. The advisory lock this write takes
+       * is keyed on `standingInstructionTargetKey`, which reads the sender and
+       * NOT `accountId`. So two concurrent writes that nest on the ACCOUNT
+       * axis — one sender, `accountId: null` against one mailbox — take the
+       * SAME key, serialize, and the second reports the first. Two that nest
+       * on the SENDER-KIND axis — a domain against an address under it — take
+       * different keys, so neither blocks and each reports only what its own
+       * snapshot held.
        *
        * Capped at {@link STANDING_INSTRUCTION_OVERLAP_LIMIT}; `overlapCount`
        * carries the true total.
@@ -225,11 +229,14 @@ export async function rememberSenderSuppression(
       );
 
     // The locked read is the snapshot both remaining paths report from, so it
-    // travels out of the transaction beside the row they decided. It orders
-    // the DUPLICATE check only: the advisory lock is keyed on THIS target, and
-    // an overlapping instruction has a different target key by definition, so
-    // two concurrent writes at nesting targets take different keys, neither
-    // blocks, and each reports only what its own snapshot held.
+    // travels out of the transaction beside the row they decided. The lock key
+    // above is `standingInstructionTargetKey`, which reads the sender and NOT
+    // `accountId`, so it orders more than the duplicate check: two concurrent
+    // writes that nest on the ACCOUNT axis — one sender, `accountId: null`
+    // against one mailbox — take the SAME key, serialize, and the second finds
+    // the first in `locked` and reports it. Only the SENDER-KIND axis stays
+    // unordered: a domain and an address under it take different keys, so
+    // neither blocks and each reports only what its own snapshot held.
     const overlaps = findTargetOverlaps(locked, instruction.target);
     const rival = findInstructionByTarget(locked, instruction.target);
 
@@ -311,8 +318,23 @@ function findInstructionByTarget(
 /**
  * Do two targets name the same thing? `standingInstructionTargetKey` carries
  * the per-kind sender identity, and `accountId` is the second axis of the
- * same identity. One home for the rule, so the duplicate check above and the
- * overlap exclusion below cannot drift apart.
+ * same identity.
+ *
+ * This is NOT the only home for that question. Three mechanisms decide "this
+ * is the identity row", and nothing forces them to agree:
+ *   1. this predicate, through `findInstructionByTarget`, for the duplicate
+ *      check;
+ *   2. the both-axes-`"same"` arm of `scopeOverlapRelation`, which returns
+ *      null because `"same"` is not an overlap relation, for the overlap
+ *      exclusion — that path never calls this predicate;
+ *   3. the insert path, where the new row is absent from the locked snapshot
+ *      and so reaches neither.
+ *
+ * They agree today because 1 and 2 read the same two axes:
+ * `standingInstructionTargetRelation` answers `"same"` exactly when
+ * `standingInstructionTargetKey` is equal, and `accountScopeRelation` answers
+ * `"same"` exactly when `accountId` is equal. That is an agreement the
+ * compiler cannot check, so a new target kind has to satisfy both.
  */
 function isSameStandingInstructionTarget(
   a: StandingInstructionTarget,
