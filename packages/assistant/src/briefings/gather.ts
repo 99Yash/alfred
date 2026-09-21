@@ -602,6 +602,15 @@ async function gatherIntegrationActivity(args: {
     .orderBy(desc(typedEventReceipts.deliveredAt))
     .limit(MAX_ACTIVITY_ITEMS);
 
+  // One deployment relays several receipts — `pending`, then `ready`, then
+  // `promoted`. Measured on dev, 2026-09-20: 8 `repository_dispatch` receipts
+  // for 5 distinct deployments on the busiest such day. This list is what
+  // `gatherDayShape` counts, and `DAY_SHAPE_BUSY_AT` is 8, so without a
+  // collapse one machine relay reads as several units of the USER's day. Rows
+  // arrive newest first, so the surviving line is the deployment's latest
+  // state — which is the only state a succession object has (#1167).
+  const seenDeployments = new Set<string>();
+
   return rows.flatMap((row) => {
     // The receipt stores `github.<type>`; a name the github entry does not
     // declare is a row the deliver job already marked `failed`, so it has no
@@ -609,6 +618,17 @@ async function gatherIntegrationActivity(args: {
     const eventType = parseEventTypeName("github", row.eventType);
 
     if (!eventType) return [];
+
+    if (eventType === "repository_dispatch") {
+      const deploymentId = getStringPath(row.payload, "client_payload", "id");
+
+      if (deploymentId) {
+        if (seenDeployments.has(deploymentId)) return [];
+
+        seenDeployments.add(deploymentId);
+      }
+    }
+
     const action = getStringPath(row.payload, "action");
     const repo = getStringPath(row.payload, "repository", "full_name");
     const { title, status, url } = INBOUND_SOURCES.github.describe(eventType, row.payload);

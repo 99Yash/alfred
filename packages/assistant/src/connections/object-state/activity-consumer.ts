@@ -55,6 +55,16 @@ const FOLD_SOURCES = {
   // `railway-activity-fold` consumer is registered and the verified-pull seam
   // (beside gather) calls the store directly with a minted receipt.
   railway: null,
+  // Vercel rides GitHub's webhook: every Vercel deployment state change
+  // arrives as a `repository_dispatch` delivery on the github source, so this
+  // is the row where the two slug spaces genuinely DIVERGE rather than
+  // happening to spell the same. The consequence is deliberate: two consumers
+  // (`github-activity-fold` and `vercel-activity-fold`) now read the same
+  // receipt row per GitHub delivery, and each reducer answers `[]` for the
+  // event types it does not own. That is one extra primary-key select on a
+  // consumer already doing database work — cheaper than a per-provider
+  // event-type filter that every provider would have to declare.
+  vercel: "github",
 } as const satisfies Record<ObjectStateProvider, InboundEventSource | null>;
 
 /** One fold consumer per provider that has an inbound source. */

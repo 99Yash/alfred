@@ -120,7 +120,7 @@ export interface IntegrationObjectDef {
   normalize(kind: string, nativeState: string): StateCategory | null;
 }
 
-export const OBJECT_STATE_PROVIDERS = ["github", "sentry", "railway"] as const;
+export const OBJECT_STATE_PROVIDERS = ["github", "sentry", "railway", "vercel"] as const;
 
 export type ObjectStateProvider = (typeof OBJECT_STATE_PROVIDERS)[number];
 
@@ -221,6 +221,130 @@ export function canonicalizeRailwayTargetId(input: {
   }
 
   return `${projectId}/${serviceId}/${environmentId}`;
+}
+
+const BRANCH_REF_PREFIX = "refs/heads/";
+
+/**
+ * The branch a git ref names, or `null` when the ref names something that is
+ * not a branch.
+ *
+ * A dispatcher writes `client_payload.git.ref` itself, so the value arrives in
+ * whichever of git's two spellings that dispatcher chose: the short name
+ * (`main`) or the full ref (`refs/heads/main`). Both spell ONE branch, so both
+ * must reduce to one identity — otherwise a single deployment target splits in
+ * two and neither half ever closes the other's ask.
+ *
+ * Anything still under `refs/` after the branch prefix comes off is a tag, a
+ * pull ref or a note. None of those is a branch, so none of them names a
+ * deployment target: the caller folds the attempt alone rather than minting a
+ * target identity out of a ref it cannot read (absence never closes).
+ *
+ * Idempotent, so a caller that normalizes first and a caller that does not
+ * reach the same value.
+ */
+export function parseGitBranchRef(ref: string): string | null {
+  const trimmed = ref.trim();
+
+  const branch = trimmed.startsWith(BRANCH_REF_PREFIX)
+    ? trimmed.slice(BRANCH_REF_PREFIX.length)
+    : trimmed;
+
+  if (!branch || branch.startsWith("refs/")) return null;
+
+  return branch;
+}
+
+/**
+ * Canonical external id for a Vercel deployment target — the thing a relayed
+ * deployment dispatch closes by succession (#1167): `owner/repo#branch#env`.
+ *
+ * The first two segments delegate to {@link canonicalizeGithubTargetId}, so
+ * the repo grammar and the case fold are declared ONCE. The third segment is
+ * Vercel's own `environment` (`production` / `preview`), which is what keeps a
+ * preview deploy from folding into the production target of the same branch.
+ *
+ * A separate function rather than an optional third argument on the github
+ * canonicalizer: one helper serving two identity spaces lets a caller that
+ * omits the argument silently mint a `ci_target` id under a vercel kind.
+ *
+ * `branch` is the DEPLOYMENT's branch (`client_payload.git.ref`), never
+ * `repository_dispatch`'s top-level `branch` — GitHub always dispatches
+ * against the default branch, so that field reads `main` for a preview deploy
+ * of any feature branch. Measured on all 15 dev receipts.
+ *
+ * It arrives as a raw ref, so {@link parseGitBranchRef} runs here rather than
+ * only at the call site: the id grammar owns the fold from `refs/heads/main`
+ * to `main`, and a second caller cannot bypass it. A ref that names no branch
+ * returns `null`.
+ *
+ * Any segment empty or unparseable returns `null`; callers then fold the
+ * attempt alone.
+ */
+export function canonicalizeVercelTargetId(input: {
+  repoFullName: string;
+  branch: string;
+  environment: string;
+}): string | null {
+  const branch = parseGitBranchRef(input.branch);
+
+  if (!branch) return null;
+
+  // The id joins three segments with `#`, and it is read back by splitting on
+  // the last one. A `#` inside either of the two tail segments makes that
+  // split ambiguous, so neither may carry one.
+  if (branch.includes("#")) return null;
+
+  const base = canonicalizeGithubTargetId({
+    repoFullName: input.repoFullName,
+    branch,
+  });
+
+  if (!base) return null;
+
+  const environment = input.environment.trim();
+
+  if (!environment || environment.length > 64 || environment.includes("#")) return null;
+
+  return `${base}#${environment}`;
+}
+
+/**
+ * The outcome vocabulary a Vercel deployment dispatch collapses to — the
+ * `nativeState` the `vercel` registry entry below normalizes, and the one the
+ * activity line reads. Declared ONCE, here, so the reducer and the
+ * description cannot encode the same action table twice and drift apart.
+ */
+export const VERCEL_DEPLOYMENT_OUTCOMES = ["success", "failure", "pending"] as const;
+
+export type VercelDeploymentOutcome = (typeof VERCEL_DEPLOYMENT_OUTCOMES)[number];
+
+/**
+ * The `repository_dispatch` actions Vercel sends, collapsed to that
+ * vocabulary. A const table rather than a switch so an action outside it —
+ * including a `repository_dispatch` from some other dispatcher entirely —
+ * reads as `null` and means nothing, neither a fold nor a green line.
+ *
+ * `client_payload.state.type` duplicates the action suffix on every receipt
+ * measured, so the action alone is read: one field, one authority.
+ */
+const VERCEL_DISPATCH_ACTION_OUTCOMES: ReadonlyMap<string, VercelDeploymentOutcome> = new Map([
+  ["vercel.deployment.error", "failure"],
+  ["vercel.deployment.success", "success"],
+  ["vercel.deployment.ready", "success"],
+  ["vercel.deployment.promoted", "success"],
+  ["vercel.deployment.pending", "pending"],
+]);
+
+/**
+ * What a `repository_dispatch` action means, or `null` when this build does
+ * not recognize it. Every reader of a dispatch outcome goes through here:
+ * absence must read as absence, never as a succeeded deployment.
+ */
+export function vercelDeploymentOutcome(action: string | null): VercelDeploymentOutcome | null {
+  if (action === null) return null;
+
+  return VERCEL_DISPATCH_ACTION_OUTCOMES.get(action) ?? null;
 }
 
 /**
@@ -380,6 +504,74 @@ export const INTEGRATION_OBJECT_DEFS = {
       // Both deployment kinds share the pull-collapsed outcome vocabulary.
       // The kind arm is explicit so a future kind cannot silently inherit it:
       // an unlisted kind reads as unknown, and absence never closes.
+      if (kind === "deployment_attempt" || kind === "deployment_target") {
+        switch (nativeState) {
+          case "success":
+            return "resolved";
+          case "failure":
+            return "failed";
+          case "pending":
+            return "active";
+          default:
+            return null;
+        }
+      }
+
+      return null;
+    },
+  },
+  /**
+   * Vercel deployments, relayed as GitHub `repository_dispatch` (#1167).
+   * GitHub is only the transport: the `client_payload` is Vercel's own
+   * deployment state, so the object is a VERCEL object and `vercel` is
+   * already a live `INTEGRATIONS` slug.
+   *
+   * ADR-0103's "one receipt may produce deltas for its own provider" sits in
+   * the `projectReceipt` paragraph, which that ADR itself lists as still
+   * open; the built path is `objectStateStore.applyEvent`, which takes the
+   * provider as an argument. The clause's stated purpose — one provider's
+   * transition must not rewrite another's native state — is untouched here:
+   * nothing propagates, the payload IS Vercel's state, written once.
+   *
+   * The kind names are Railway's, deliberately. Kinds are namespaced by
+   * `(provider, kind, external_id)`, so reusing them adds no vocabulary.
+   */
+  vercel: {
+    kinds: {
+      // One deployment attempt (`deployment:<client_payload.id>`). Closes by
+      // SUCCESSION, never by transition: the attempt itself goes nowhere, so
+      // it never closes an ask (only its target does) and never absorbs.
+      // It exists as the degradation path — a dispatch with no branch or no
+      // environment folds its attempt alone rather than vanishing.
+      deployment_attempt: {
+        closesAskOn: [],
+        absorbing: [],
+      },
+      // The succession target (`owner/repo#branch#environment`): its state is
+      // the outcome of the latest deployment. Nothing absorbs, so a later
+      // failure after a success reopens as ordinary traffic and a lone
+      // failure stays open.
+      //
+      // `closesAskOn` is empty for the same reason Railway's is, and the same
+      // measurement backs it: the adapter proposes no keys, so no vercel row
+      // can reach the closure reader and a declaration here would be
+      // unreachable. No Vercel deployment notification has ever reached this
+      // mailbox (#1167, measured 2026-09-20) — there is no written form to
+      // ground a grammar on. Restore `["resolved"]` together with the mail
+      // grammar that makes it reachable.
+      deployment_target: {
+        closesAskOn: [],
+        absorbing: [],
+      },
+    },
+    // Vercel deployment ids are exact opaque identities and the target id is
+    // a joined name: no abbreviated form of either is written anywhere.
+    prefixableKeys: {},
+    normalize(kind, nativeState) {
+      // Both deployment kinds share the dispatch-collapsed outcome
+      // vocabulary. The kind arm is explicit so a future kind cannot silently
+      // inherit it: an unlisted kind reads as unknown, and absence never
+      // closes.
       if (kind === "deployment_attempt" || kind === "deployment_target") {
         switch (nativeState) {
           case "success":

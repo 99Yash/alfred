@@ -59,7 +59,13 @@ export const integrationObjects = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     /** Integration slug — `github`, later `clickup`, `claude-code`. */
     provider: text("provider").notNull(),
-    /** Object kind within the provider — `pull_request`, `ci_attempt`, `ci_target` for github. */
+    /**
+     * Object kind within the provider — `pull_request`, `ci_attempt`,
+     * `ci_target` for github; `deployment_attempt`, `deployment_target` for
+     * railway and for vercel. Kinds are namespaced by `(provider, kind,
+     * external_id)`, so the two deployment providers reuse the same two names
+     * without colliding.
+     */
     kind: text("kind").notNull(),
     /** Provider-native stable id — github PR `id` as a string for v1. */
     externalId: text("external_id").notNull(),

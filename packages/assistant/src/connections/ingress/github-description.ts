@@ -1,4 +1,9 @@
-import { isEventTypeForSource, type EventTypeForSource } from "@alfred/contracts";
+import {
+  isEventTypeForSource,
+  parseGitBranchRef,
+  vercelDeploymentOutcome,
+  type EventTypeForSource,
+} from "@alfred/contracts";
 import { z } from "zod";
 import type { InboundDescription } from "./descriptor";
 import { describeInboundJson } from "./description";
@@ -38,6 +43,20 @@ const githubWebhookPayloadSchema = z.object({
       conclusion: z.string().optional(),
       head_branch: z.string().optional(),
       status: z.string().optional(),
+    })
+    .optional(),
+  /**
+   * `repository_dispatch` carries a dispatcher-authored body. Vercel is the
+   * only dispatcher this build reads (#1167); every field stays optional, so
+   * another dispatcher's body still yields a generic line rather than an
+   * error.
+   */
+  client_payload: z
+    .object({
+      url: z.string().optional(),
+      environment: z.string().optional(),
+      git: z.object({ ref: z.string().optional() }).optional(),
+      project: z.object({ name: z.string().optional() }).optional(),
     })
     .optional(),
 });
@@ -90,6 +109,43 @@ function describeGithubActivity(
       const title = `Check suite ${outcome}${branch}${where}`;
 
       return { title, status: action === "completed" ? "resolved" : "open", url: undefined };
+    }
+
+    case "repository_dispatch": {
+      // What the action MEANS comes from the one table the vercel reducer
+      // folds with, never from a second copy written here. An action that
+      // table does not carry belongs to some other dispatcher: the line stays
+      // generic and the status stays `open`, the same default every arm above
+      // uses. An unrecognized dispatch must never read as a green deploy.
+      const outcome = vercelDeploymentOutcome(action ?? null);
+
+      if (!outcome) return { title: `Repository dispatch${where}`, status: "open", url: undefined };
+
+      const deployment = payload.client_payload ?? {};
+      // Display only, and it carries no authority: the action suffix says
+      // `ready` or `promoted` where the folded outcome says only `success`,
+      // and the reader deserves the finer word.
+      const said = action?.replace(/^vercel\.deployment\./, "") ?? outcome;
+      // The DEPLOYMENT's branch. The top-level `ref`/`branch` of a
+      // `repository_dispatch` is always the default branch, so it would read
+      // `main` for a preview deploy of any feature branch.
+      //
+      // How a branch ref is spelled is decided ONCE, in contracts, so this
+      // line reads the same branch the reducer folds on rather than a second
+      // reading of the same field. A ref that names no branch (a tag, a pull
+      // ref) has no branch to show, so the raw ref stands.
+      const gitRef = deployment.git?.ref;
+      const branch = gitRef ? ` on ${parseGitBranchRef(gitRef) ?? gitRef}` : "";
+      const environment = deployment.environment ? ` (${deployment.environment})` : "";
+
+      return {
+        title: `Deployment ${said}${branch}${environment}${where}`,
+        // The activity-status vocabulary carries a `succeeded` member and a
+        // `failed` member, so a deployment says which one it is rather than
+        // borrowing the PR lane's `resolved`.
+        status: outcome === "failure" ? "failed" : outcome === "success" ? "succeeded" : "open",
+        url: deployment.url,
+      };
     }
 
     default: {
