@@ -17,7 +17,8 @@
 // (whose `senderAddress` accepts a string with no `@`, so moving it onto
 // `splitEmail` would change `isLikelyBulkSender`'s answer), the authority read
 // of a URL, and the parse of an RFC 5322 Message-ID (which is not an
-// address). None asks the question this grammar answers.
+// address). Each asks a different question from the one this grammar answers,
+// or asks it over inputs this grammar rejects.
 //
 // The claim is "one implementation", not "every call site already uses it".
 // Known domain reads that still hand-roll the split include:
