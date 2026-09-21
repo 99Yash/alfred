@@ -225,7 +225,6 @@ export {
   listActiveSuppressionInstructions,
   findSenderSuppression,
   findActiveSenderSuppression,
-  normalizeSenderEmail,
   // NOTE: the pure `rememberSenderSuppression` write is a public door — prefer
   // the `tools` suppression coordinator, which also dismisses the matching todos.
   rememberSenderSuppression,

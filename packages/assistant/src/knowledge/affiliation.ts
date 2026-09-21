@@ -32,7 +32,7 @@
 
 import {
   canonicalizeIdentityValue,
-  classifyEmailDomain,
+  classifyConnectedAccount,
   identityValueMatchesKind,
   isNonEmptyString,
   isRecord,
@@ -173,7 +173,7 @@ export function buildOrgAffiliationObservationInput(
   // present; the accountEmail still preserves the actual mailbox.
   const orgDomain = verifiedHostedDomain ?? accountEmailDomain;
 
-  const domainClass = classifyEmailDomain({ email: accountEmail, verifiedHostedDomain });
+  const domainClass = classifyConnectedAccount({ email: accountEmail, verifiedHostedDomain });
 
   if (!domainClass) return { ok: false, reason: "unclassifiable_domain" };
 

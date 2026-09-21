@@ -22,7 +22,7 @@
 
 import {
   canonicalizeFactKey,
-  classifyEmailDomain,
+  classifyConnectedAccount,
   getPath,
   isFactKey,
   isNonEmptyString,
@@ -75,7 +75,7 @@ export function classifyDocumentFactKey(canonicalKey: string): DocumentFactTier 
  * so we do not fork yet another service-address list.
  */
 export function isServiceSender(email: string): boolean {
-  return classifyEmailDomain({ email }) === "service_or_role_account";
+  return classifyConnectedAccount({ email }) === "service_or_role_account";
 }
 
 /** The `<email>` half of a canonical `relationship:<email>` key, or null. */

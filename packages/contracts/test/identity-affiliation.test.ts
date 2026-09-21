@@ -3,7 +3,8 @@ import { describe, test } from "node:test";
 import {
   affiliationGroundingTier,
   canGroundIdentityKey,
-  classifyEmailDomain,
+  classifyBareDomain,
+  classifyConnectedAccount,
   DOMAIN_CLASSES,
   domainClassSchema,
   FREE_MAIL_DOMAINS,
@@ -31,40 +32,48 @@ import {
  * reducer will compose.
  */
 
-describe("classifyEmailDomain — the four employer-signal outcomes (§4b)", () => {
+describe("classifyConnectedAccount / classifyBareDomain — the four employer-signal outcomes (§4b)", () => {
   test("free-mail providers are consumer_email (no employer signal)", () => {
     for (const domain of ["gmail.com", "icloud.com", "proton.me", "outlook.com"]) {
-      assert.equal(classifyEmailDomain({ email: `someone@${domain}` }), "consumer_email", domain);
-      assert.equal(classifyEmailDomain({ domain }), "consumer_email", domain);
+      assert.equal(
+        classifyConnectedAccount({ email: `someone@${domain}` }),
+        "consumer_email",
+        domain,
+      );
+      assert.equal(classifyBareDomain({ domain }), "consumer_email", domain);
     }
   });
 
   test("every canonical free-mail domain classifies as consumer_email", () => {
     for (const domain of FREE_MAIL_DOMAINS) {
-      assert.equal(classifyEmailDomain({ domain }), "consumer_email", domain);
-      assert.equal(classifyEmailDomain({ email: `person@${domain}` }), "consumer_email", domain);
+      assert.equal(classifyBareDomain({ domain }), "consumer_email", domain);
+      assert.equal(
+        classifyConnectedAccount({ email: `person@${domain}` }),
+        "consumer_email",
+        domain,
+      );
     }
   });
 
   test("a real org domain is corporate_domain", () => {
     assert.equal(
-      classifyEmailDomain({ email: "yash@oliv.ai", verifiedHostedDomain: "oliv.ai" }),
+      classifyConnectedAccount({ email: "yash@oliv.ai", verifiedHostedDomain: "oliv.ai" }),
       "corporate_domain",
     );
     assert.equal(
-      classifyEmailDomain({ email: "person@acme.com", verifiedHostedDomain: "acme.com" }),
+      classifyConnectedAccount({ email: "person@acme.com", verifiedHostedDomain: "acme.com" }),
       "corporate_domain",
     );
-    assert.equal(classifyEmailDomain({ domain: "yourelasticdash.co" }), "corporate_domain");
+    assert.equal(classifyBareDomain({ domain: "yourelasticdash.co" }), "corporate_domain");
   });
 
   test("a custom-domain email without provider hosted-domain verification is ambiguous", () => {
-    assert.equal(classifyEmailDomain({ email: "yash@personal.dev" }), "ambiguous_domain");
+    assert.equal(classifyConnectedAccount({ email: "yash@personal.dev" }), "ambiguous_domain");
   });
 
   test("a verified hosted domain grounds the Workspace org even for alias domains", () => {
     assert.equal(
-      classifyEmailDomain({ email: "yash@alias.example", verifiedHostedDomain: "oliv.ai" }),
+      classifyConnectedAccount({ email: "yash@alias.example", verifiedHostedDomain: "oliv.ai" }),
       "corporate_domain",
     );
   });
@@ -80,13 +89,16 @@ describe("classifyEmailDomain — the four employer-signal outcomes (§4b)", () 
       "notifications@github.com",
       "support+ticket-123@acme.com",
     ]) {
-      assert.equal(classifyEmailDomain({ email }), "service_or_role_account", email);
+      assert.equal(classifyConnectedAccount({ email }), "service_or_role_account", email);
     }
   });
 
   test("a service/bounce host domain is service_or_role_account", () => {
-    assert.equal(classifyEmailDomain({ email: "x@bounce.acme.com" }), "service_or_role_account");
-    assert.equal(classifyEmailDomain({ domain: "mailer.sendgrid.net" }), "service_or_role_account");
+    assert.equal(
+      classifyConnectedAccount({ email: "x@bounce.acme.com" }),
+      "service_or_role_account",
+    );
+    assert.equal(classifyBareDomain({ domain: "mailer.sendgrid.net" }), "service_or_role_account");
   });
 
   test("academic / alumni / shared-hosting / disposable are ambiguous_domain", () => {
@@ -99,7 +111,7 @@ describe("classifyEmailDomain — the four employer-signal outcomes (§4b)", () 
       "myportfolio.wixsite.com",
       "mailinator.com",
     ]) {
-      assert.equal(classifyEmailDomain({ domain }), "ambiguous_domain", domain);
+      assert.equal(classifyBareDomain({ domain }), "ambiguous_domain", domain);
     }
   });
 
@@ -107,50 +119,58 @@ describe("classifyEmailDomain — the four employer-signal outcomes (§4b)", () 
     // "alum" is an ambiguous token, but it must match as a domain hint, not a
     // bare substring of an unrelated org (`alumacorp.com`).
     assert.equal(
-      classifyEmailDomain({ email: "ceo@alumacorp.com", verifiedHostedDomain: "alumacorp.com" }),
+      classifyConnectedAccount({
+        email: "ceo@alumacorp.com",
+        verifiedHostedDomain: "alumacorp.com",
+      }),
       "corporate_domain",
     );
   });
 
   test("shared-hosting suffixes do not make the corporate apex ambiguous", () => {
     assert.equal(
-      classifyEmailDomain({ email: "employee@github.com", verifiedHostedDomain: "github.com" }),
+      classifyConnectedAccount({
+        email: "employee@github.com",
+        verifiedHostedDomain: "github.com",
+      }),
       "corporate_domain",
     );
     assert.equal(
-      classifyEmailDomain({ email: "employee@substack.com", verifiedHostedDomain: "substack.com" }),
+      classifyConnectedAccount({
+        email: "employee@substack.com",
+        verifiedHostedDomain: "substack.com",
+      }),
       "corporate_domain",
     );
-    assert.equal(classifyEmailDomain({ domain: "alice.github.io" }), "ambiguous_domain");
+    assert.equal(classifyBareDomain({ domain: "alice.github.io" }), "ambiguous_domain");
   });
 
   test("malformed / empty input returns null (no class, so no grounding)", () => {
-    assert.equal(classifyEmailDomain({ email: "not-an-email" }), null);
-    assert.equal(classifyEmailDomain({ email: "@no-local.com" }), null);
+    assert.equal(classifyConnectedAccount({ email: "not-an-email" }), null);
+    assert.equal(classifyConnectedAccount({ email: "@no-local.com" }), null);
     assert.equal(
-      classifyEmailDomain({ email: "a@b@oliv.ai", verifiedHostedDomain: "oliv.ai" }),
+      classifyConnectedAccount({ email: "a@b@oliv.ai", verifiedHostedDomain: "oliv.ai" }),
       null,
     );
-    assert.equal(classifyEmailDomain({ domain: "bad..com" }), null);
-    assert.equal(classifyEmailDomain({ domain: "localhost" }), null);
-    assert.equal(classifyEmailDomain({ domain: "" }), null);
-    assert.equal(classifyEmailDomain({}), null);
+    assert.equal(classifyBareDomain({ domain: "bad..com" }), null);
+    assert.equal(classifyBareDomain({ domain: "localhost" }), null);
+    assert.equal(classifyBareDomain({ domain: "" }), null);
   });
 
   test("classification is case-insensitive and trims", () => {
     assert.equal(
-      classifyEmailDomain({ email: "  Yash@OLIV.ai ", verifiedHostedDomain: " OLIV.ai " }),
+      classifyConnectedAccount({ email: "  Yash@OLIV.ai ", verifiedHostedDomain: " OLIV.ai " }),
       "corporate_domain",
     );
-    assert.equal(classifyEmailDomain({ domain: "GMAIL.COM" }), "consumer_email");
+    assert.equal(classifyBareDomain({ domain: "GMAIL.COM" }), "consumer_email");
   });
 
   test("every outcome is a valid DomainClass enum member", () => {
     const seen = new Set<DomainClass | null>([
-      classifyEmailDomain({ email: "a@gmail.com" }),
-      classifyEmailDomain({ email: "a@oliv.ai", verifiedHostedDomain: "oliv.ai" }),
-      classifyEmailDomain({ domain: "mit.edu" }),
-      classifyEmailDomain({ email: "noreply@x.com" }),
+      classifyConnectedAccount({ email: "a@gmail.com" }),
+      classifyConnectedAccount({ email: "a@oliv.ai", verifiedHostedDomain: "oliv.ai" }),
+      classifyBareDomain({ domain: "mit.edu" }),
+      classifyConnectedAccount({ email: "noreply@x.com" }),
     ]);
 
     for (const c of seen) {
@@ -273,14 +293,18 @@ describe("affiliationGroundingTier — the 'no grounding, no row' contract (§4a
 
   test("end-to-end: a corporate account grounds employer, a personal one does not", () => {
     // Work account → corporate_domain → corporate_affiliation → grounds employer.
-    const work = classifyEmailDomain({ email: "yash@oliv.ai", verifiedHostedDomain: "oliv.ai" });
+    const work = classifyConnectedAccount({
+      email: "yash@oliv.ai",
+      verifiedHostedDomain: "oliv.ai",
+    });
+
     assert.equal(work, "corporate_domain");
     assert.ok(work);
     const workTier = affiliationGroundingTier(work);
     assert.ok(workTier && canGroundIdentityKey(workTier, "employer"));
 
     // Personal Gmail → consumer_email → no tier → no employer row materializes.
-    const personal = classifyEmailDomain({ email: "yashgouravkar@gmail.com" });
+    const personal = classifyConnectedAccount({ email: "yashgouravkar@gmail.com" });
     assert.equal(personal, "consumer_email");
     assert.ok(personal);
     assert.equal(affiliationGroundingTier(personal), null);
