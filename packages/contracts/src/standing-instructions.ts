@@ -214,8 +214,9 @@ export function standingInstructionTargetKey(target: StandingInstructionTarget):
       return `${target.kind}:${target.domain}`;
     default: {
       const exhaustive: never = target;
+      void exhaustive;
 
-      return exhaustive;
+      throw new Error("unreachable standing-instruction target kind");
     }
   }
 }
@@ -268,8 +269,9 @@ export function targetMatchesSender(
 
     default: {
       const exhaustive: never = target;
+      void exhaustive;
 
-      return exhaustive;
+      return false;
     }
   }
 

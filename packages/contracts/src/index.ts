@@ -42,8 +42,8 @@ export * from "./user-model";
 
 export * from "./chat-memory";
 
-// Only the public members of the grammar leaf. The rest (`splitEmail`,
-// `normalizeDomain`, `isValidDomain`) stays internal.
+// Only the public members of the grammar leaf. The rest (`normalizeDomain`,
+// `isValidDomain`) stays internal.
 export {
   domainSchema,
   emailDomain,
