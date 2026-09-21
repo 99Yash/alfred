@@ -24,3 +24,7 @@ export {
 } from "./webhook";
 
 export type { SeerPullRequestsCreated, SentryWebhookVerdict } from "./webhook";
+
+export { readLiveSentryIssue } from "./issue-read";
+
+export type { LiveSentryIssue } from "./issue-read";

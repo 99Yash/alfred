@@ -429,14 +429,18 @@ export const INTEGRATION_OBJECT_DEFS = {
       // same delivery key and the ingress path answers it `duplicate`. That is
       // an ingress property shared with GitHub, not a policy this table states.
       //
-      // `closesAskOn` is empty on purpose (ADR-0103). The store orders by
-      // OBSERVATION time, Sentry ships no transition version, and a delayed
-      // resolve arriving after an unresolve would falsely restore `resolved`.
-      // Until a transition-order proof or a fresh provider read exists, a
-      // Sentry state may be projected and displayed but may never suppress an
-      // ask. Flip this array when that proof lands; nothing else changes.
+      // `closesAskOn: ["resolved"]` holds only behind a fresh provider-state
+      // confirmation (ADR-0103). The store orders by OBSERVATION time and
+      // Sentry ships no transition version, so stored `resolved` alone may
+      // never suppress an ask — a delayed resolve arriving after an unresolve
+      // would falsely restore it. `dropClosedLoops` (briefings/gather.ts)
+      // confirms each sentry/issue hit with a live issue read under the stored
+      // org credential before it becomes a `BriefingClosedLoop`; any other live
+      // status, or a read failure, keeps the ask. `abandoned` stays out: an
+      // archived issue is a triage decision, not a fix, and the archive policy
+      // is unreviewed.
       issue: {
-        closesAskOn: [],
+        closesAskOn: ["resolved"],
         absorbing: [],
       },
     },

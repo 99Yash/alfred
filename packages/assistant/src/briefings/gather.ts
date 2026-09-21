@@ -10,11 +10,14 @@ import type {
   WeatherFallbackLocation,
 } from "@alfred/contracts";
 import {
+  closesOpenAsk,
   GOOGLE_SCOPE,
   getStringPath,
+  INTEGRATION_OBJECT_DEFS,
   isRecord,
   parseEventTypeName,
   parseGmailDocumentMetadata,
+  redactSecrets,
   toMessage,
   toStringArray,
   weatherFallbackFor,
@@ -33,6 +36,7 @@ import {
   listEvents,
   type TriageCategory,
 } from "@alfred/integrations/google";
+import { readLiveSentryIssue, type LiveSentryIssue } from "@alfred/integrations/sentry";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -364,6 +368,13 @@ export async function gatherBriefingDigest(
  * reports. A key that resolves to nothing, to more than one object, or to a
  * state its kind does not treat as closing leaves its loop live (the
  * determinism contract: absence never closes).
+ *
+ * Sentry hits carry one more gate (ADR-0103): stored `resolved` alone never
+ * drops the loop, because the store orders by observation time and Sentry
+ * ships no transition version. Each sentry/issue hit is confirmed with a live
+ * issue read under the stored org credential before it becomes a
+ * `BriefingClosedLoop`; any other live status, or a read failure, keeps the
+ * ask (and the failed read is reported, never swallowed).
  */
 async function dropClosedLoops(
   userId: string,
@@ -376,25 +387,79 @@ async function dropClosedLoops(
 
   const closedLoops: BriefingClosedLoop[] = [];
 
+  // One live read per distinct issue id within this gather call — one issue
+  // named by N items costs one read. A failure resolves to null here so the
+  // loop below keeps the ask; the warn inside the catch is the report.
+  const liveByIssueId = new Map<string, Promise<LiveSentryIssue | null>>();
+
+  const confirmSentryIssue = (issueId: string): Promise<LiveSentryIssue | null> => {
+    const pending = liveByIssueId.get(issueId);
+
+    if (pending) return pending;
+
+    const read = readLiveSentryIssue({ userId, issueId }).catch((err: unknown) => {
+      console.warn(
+        `[briefing.gather] sentry confirmation read failed issue=${issueId} :: ${redactSecrets(toMessage(err))}`,
+      );
+
+      return null;
+    });
+
+    liveByIssueId.set(issueId, read);
+
+    return read;
+  };
+
   for (const category of PRIORITY_CATEGORIES) {
     const kept: BriefingItem[] = [];
 
     for (const item of buckets[category]) {
       const closed = firstClosingObject(reconciled.get(item.documentId));
 
-      if (closed) {
+      if (!closed) {
+        kept.push(item);
+        continue;
+      }
+
+      // The live confirmation reads through the registry's own arms — the
+      // kind's `normalize` then `closesOpenAsk` — never a literal status
+      // comparison, so an unknown provider token reads as unknown and a live
+      // `ignored` (archived) reads as non-closing, and both keep the ask.
+      if (closed.state.provider === "sentry" && closed.state.kind === "issue") {
+        const live = await confirmSentryIssue(closed.state.externalId);
+
+        const liveCategory = live
+          ? INTEGRATION_OBJECT_DEFS.sentry.normalize("issue", live.status)
+          : null;
+
+        const confirmed = liveCategory ? closesOpenAsk("sentry", "issue", liveCategory) : null;
+
+        if (!confirmed) {
+          kept.push(item);
+          continue;
+        }
+
         closedLoops.push({
           documentId: item.documentId,
           category,
           subject: item.subject,
           objectTitle: closed.state.title,
           objectUrl: closed.state.url,
-          stateCategory: closed.closesAskAs,
+          stateCategory: confirmed,
           nativeState: closed.state.nativeState,
         });
-      } else {
-        kept.push(item);
+        continue;
       }
+
+      closedLoops.push({
+        documentId: item.documentId,
+        category,
+        subject: item.subject,
+        objectTitle: closed.state.title,
+        objectUrl: closed.state.url,
+        stateCategory: closed.closesAskAs,
+        nativeState: closed.state.nativeState,
+      });
     }
 
     buckets[category] = kept;
