@@ -391,9 +391,9 @@ switch (stateCategory) {
     code: `export const LOOP_CLOSING_STATE_CATEGORIES = ["resolved", "abandoned"] as const;`,
   },
   {
-    name: "isTerminalCategory reads a DIFFERENT tuple, and terminal is not closed",
+    name: "a membership test over another tuple is not this row's business",
     caught: false,
-    code: `  return (TERMINAL_STATE_CATEGORIES as readonly string[]).includes(category);`,
+    code: `  return (OTHER_STATE_CATEGORIES as readonly string[]).includes(category);`,
   },
   {
     name: "the sanctioned reader's own absent-category guard is not a closure reading",
@@ -539,7 +539,7 @@ switch (stateCategory) {
 }`,
   },
   {
-    name: "isTerminalCategory's own declaration is the definition, not a call",
+    name: "reintroducing isTerminalCategory: its declaration stays exempt via the function lookbehind",
     caught: false,
     code: `export function isTerminalCategory(category: StateCategory): category is TerminalStateCategory {`,
   },
@@ -762,7 +762,7 @@ export function selfTestFailures() {
     }
   }
 
-  for (const { name, caught, code, file } of LINE_CASES) {
+  for (const { name, caught, code, file, rule } of LINE_CASES) {
     const hits = code.split("\n").flatMap((line) => matchLine(line, file ?? LINE_FILE, "gate"));
 
     if (hits.length > 0 !== caught) {
@@ -771,6 +771,14 @@ export function selfTestFailures() {
           ? `missed a case it must catch: ${name}`
           : `flagged a case it must ignore: ${name} (${hits[0].id})`,
       );
+    } else if (rule !== undefined && caught) {
+      const ids = hits.map((h) => h.id);
+
+      if (!ids.includes(rule)) {
+        failures.push(
+          `fixture "${name}" names ${rule} but matched ${ids.join(", ") || "nothing"} instead`,
+        );
+      }
     }
   }
 
