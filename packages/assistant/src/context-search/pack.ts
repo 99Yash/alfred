@@ -396,6 +396,25 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
  *   construction, and `bound()` would set `truncated` for a cut that cannot
  *   happen.
  *
+ * The object's own instant renders here too. `stateDeliveredAt` — the last
+ * delivery that advanced this object's state — is interpolated under the label
+ * `state delivered`, immediately after the `(${category})` lifecycle it dates
+ * and before the title (#1087, item 08). It does not join the `Time:` line:
+ * that line describes the CARD, whose `observedAt` means "when the source
+ * observed the chunk", so dating an annotation with a chunk label is how the
+ * card lies. Two instants on one card therefore keep distinct labels — `state
+ * delivered` here, `occurred` / `observed` / `indexed` there — and this line
+ * never repeats the `Time:` instant. An `is` card renders no such segment,
+ * because its ref omits the field: the same instant already rides its
+ * `time.observedAt`.
+ *
+ * The segment is a fixed ~40 characters (` — state delivered ` plus a
+ * 24-character `Date.toISOString()`), so like the closed-underlying clause it
+ * never goes through `bound()`: the packer measures the whole card before
+ * admitting it and drops a card whole. It does cost pack budget — an annotated
+ * card that carries it admits fewer cards at the margin — but the honest claim
+ * is a per-CARD addition, never pack byte-identity.
+ *
  * It is also not appended to `card.note`: the packer bounds a note at
  * {@link EVIDENCE_PACK_NOTE_MAX_CHARS} while the contract allows twice that, so
  * a long producer note would delete the clause with no signal. A derived clause
@@ -425,6 +444,7 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
 function renderObject(object: EvidenceObjectRef): string {
   const state = object.nativeState ?? "state unknown";
   const category = object.stateCategory ?? "uncategorized";
+  const delivered = object.stateDeliveredAt ? ` — state delivered ${object.stateDeliveredAt}` : "";
   const title = object.title ? ` "${object.title}"` : "";
   const repo = object.repo ? ` [${object.repo}]` : "";
   const url = object.url ? ` <${object.url}>` : "";
@@ -432,7 +452,7 @@ function renderObject(object: EvidenceObjectRef): string {
   const closed = closing ? ` — closed work: this object is ${closing}; it is not an open ask` : "";
 
   return oneLine(
-    `${object.provider}/${object.kind} ${state} (${category})${title}${repo}${url}${closed}`,
+    `${object.provider}/${object.kind} ${state} (${category})${delivered}${title}${repo}${url}${closed}`,
   );
 }
 

@@ -22,6 +22,16 @@ import type { ObjectState, ReconciledObject } from "@alfred/assistant/connection
  * projection and is never read out of text (ADR-0062's propose/dispose
  * contract).
  *
+ * It maps the object's own instant too. The fields are `provider`, `kind`,
+ * `externalId`, `relation`, `stateCategory`, `nativeState`, `title`, `url`,
+ * `repo`, and — for an annotation only — `stateDeliveredAt`, the last delivery
+ * that advanced the object's state. {@link cardNamesObjectRef} carries it so a
+ * document card can say when the state it names was delivered, and the model
+ * can tell a state delivered a minute ago from one delivered three months ago.
+ * {@link cardIsObjectRef} deliberately omits it: the `is` card already spends
+ * `time.observedAt` on the same instant (see `object-state-source.ts`), so
+ * carrying it on the ref as well would render one fact twice under two labels.
+ *
  * **The relation is bound to the entry point, never passed in.** There are two
  * exported builders and no parameter that selects between them, because the
  * relation is the one field a caller cannot be trusted to state: `is` turns on
@@ -134,12 +144,22 @@ function objectRef(
       ? boundCardText(state.url, EVIDENCE_CITATION_URL_MAX_CHARS)
       : undefined;
 
+  // The object's own instant rides only the annotation (`names`). An `is` card
+  // already renders `stateDeliveredAt` as its `time.observedAt`, so carrying it
+  // here too would state one instant twice; see the module docstring. A `null`
+  // projection instant is omitted rather than rendered as an absent date.
+  const stateDeliveredAt =
+    relation === "names" && state.stateDeliveredAt !== null
+      ? state.stateDeliveredAt.toISOString()
+      : undefined;
+
   return {
     provider: state.provider,
     kind,
     externalId,
     relation,
     stateCategory: state.stateCategory,
+    ...(stateDeliveredAt ? { stateDeliveredAt } : {}),
     ...(nativeState ? { nativeState } : {}),
     ...(title ? { title } : {}),
     ...(url ? { url } : {}),
