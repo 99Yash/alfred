@@ -313,8 +313,9 @@ for ((i = 1; i <= MAX_ITER; i++)); do
           ( .part.text // "" )
         elif .type == "tool_use" then
           ( .part
-            | "\n  · \(.tool // "tool") \((.state.input.filePath // .state.input.file_path
-                                          // .state.input.command // .state.input.pattern
+            | "\n  · \(.tool // "tool") \((.state.input.path // .state.input.filePath
+                                          // .state.input.file_path // .state.input.command
+                                          // .state.input.pattern // .state.input.query
                                           // .state.input.description // "")
                                          | tostring | .[0:100])\n" )
         else empty end
