@@ -184,6 +184,14 @@ export type EvidenceObjectRef = z.infer<typeof evidenceObjectRefSchema>;
  * object but is the OPENER of a CI loop — a closure note on it would invert
  * its meaning.
  *
+ * A card carries STORED state and nothing else, and this function is
+ * synchronous in a pure module with no credentials and no IO. So the only
+ * proof it can hold is `stored_projection`, and a kind that declares
+ * `closesAskFrom: "live_confirmation"` — a Sentry issue, whose stored
+ * `resolved` can be a delayed delivery that reordered (ADR-0103) — returns
+ * `null` here however the registry's `closesAskOn` reads. The consumer that
+ * can take a live read closes it; a card never does.
+ *
  * So the four card populations the packer must leave byte-identical — active,
  * failed, state-unknown, and unprojected-provider — are one return value here,
  * not four guards at every call site.
@@ -198,7 +206,7 @@ export function evidenceObjectClosesAsk(
   // the union and refuse a caller that skipped the guard.
   if (!isObjectStateProvider(object.provider)) return null;
 
-  return closesOpenAsk(object.provider, object.kind, object.stateCategory);
+  return closesOpenAsk(object.provider, object.kind, object.stateCategory, "stored_projection");
 }
 
 /**

@@ -6,14 +6,17 @@ import type {
   DayShape,
   IanaTimezone,
   IntegrationActivityItem,
+  LoopClosingStateCategory,
+  StateCategory,
   WeatherContribution,
   WeatherFallbackLocation,
 } from "@alfred/contracts";
 import {
   closesOpenAsk,
+  closureCandidate,
   GOOGLE_SCOPE,
+  getObjectDef,
   getStringPath,
-  INTEGRATION_OBJECT_DEFS,
   isRecord,
   parseEventTypeName,
   parseGmailDocumentMetadata,
@@ -36,7 +39,7 @@ import {
   listEvents,
   type TriageCategory,
 } from "@alfred/integrations/google";
-import { readLiveSentryIssue, type LiveSentryIssue } from "@alfred/integrations/sentry";
+import { readLiveSentryIssue } from "@alfred/integrations/sentry";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -358,6 +361,31 @@ export async function gatherBriefingDigest(
 }
 
 /**
+ * A read of one object's CURRENT provider-native state token, taken at the
+ * moment closure would be asserted. It returns the native token and nothing
+ * else: the registry's `normalize` and `closesOpenAsk` decide what it means,
+ * so no consumer here compares a provider status to a literal.
+ */
+type LiveNativeStateReader = (userId: string, externalId: string) => Promise<string>;
+
+/**
+ * The live read this gather can take for one object kind, or `null` when it
+ * has none.
+ *
+ * Only a kind the registry declares `closesAskFrom: "live_confirmation"` ever
+ * reaches here, and a kind absent from this function keeps its ask — the
+ * registry decides WHETHER a live proof is required, and this function only
+ * supplies the IO that gets it, so a new pull-confirmed kind is a registry
+ * edit plus one arm, never a policy branch.
+ */
+function liveNativeStateReader(state: ObjectState): LiveNativeStateReader | null {
+  if (state.provider === "sentry" && state.kind === "issue")
+    return async (userId, issueId) => (await readLiveSentryIssue({ userId, issueId })).status;
+
+  return null;
+}
+
+/**
  * Resolve each candidate loop to its work object's projected state and drop the
  * closed ones from the priority buckets (mutates `buckets`), returning the
  * dropped set for the evening "closed today" recap.
@@ -369,12 +397,12 @@ export async function gatherBriefingDigest(
  * state its kind does not treat as closing leaves its loop live (the
  * determinism contract: absence never closes).
  *
- * Sentry hits carry one more gate (ADR-0103): stored `resolved` alone never
- * drops the loop, because the store orders by observation time and Sentry
- * ships no transition version. Each sentry/issue hit is confirmed with a live
- * issue read under the stored org credential before it becomes a
- * `BriefingClosedLoop`; any other live status, or a read failure, keeps the
- * ask (and the failed read is reported, never swallowed).
+ * `firstClosingObject` nominates; this function ASSERTS. A kind the registry
+ * declares `closesAskFrom: "live_confirmation"` — a Sentry issue, whose stored
+ * `resolved` may be a delayed delivery that reordered (ADR-0103) — is confirmed
+ * with a live provider read here before it becomes a `BriefingClosedLoop`. Any
+ * other live state, a read failure, or a kind this gather holds no reader for
+ * keeps the ask, and a failed read is reported rather than swallowed.
  */
 async function dropClosedLoops(
   userId: string,
@@ -387,27 +415,55 @@ async function dropClosedLoops(
 
   const closedLoops: BriefingClosedLoop[] = [];
 
-  // One live read per distinct issue id within this gather call — one issue
+  // One live read per distinct object within this gather call — one object
   // named by N items costs one read. A failure resolves to null here so the
-  // loop below keeps the ask; the warn inside the catch is the report.
-  const liveByIssueId = new Map<string, Promise<LiveSentryIssue | null>>();
+  // caller keeps the ask; the warn inside the catch is the report.
+  const liveByObject = new Map<string, Promise<StateCategory | null>>();
 
-  const confirmSentryIssue = (issueId: string): Promise<LiveSentryIssue | null> => {
-    const pending = liveByIssueId.get(issueId);
+  const confirmLive = (
+    state: ObjectState,
+    read: LiveNativeStateReader,
+  ): Promise<StateCategory | null> => {
+    const objectRef = `${state.provider}:${state.kind}:${state.externalId}`;
+    const pending = liveByObject.get(objectRef);
 
     if (pending) return pending;
 
-    const read = readLiveSentryIssue({ userId, issueId }).catch((err: unknown) => {
-      console.warn(
-        `[briefing.gather] sentry confirmation read failed issue=${issueId} :: ${redactSecrets(toMessage(err))}`,
-      );
+    // `normalize` then `closesOpenAsk` (below) are the only readings of the
+    // live token: an unknown token and an archived issue both fall out as
+    // non-closing with no literal status comparison on this path.
+    const confirmation = read(userId, state.externalId)
+      .then((nativeState) => getObjectDef(state.provider).normalize(state.kind, nativeState))
+      .catch((err: unknown) => {
+        console.warn(
+          `[briefing.gather] live closure confirmation failed object=${objectRef} :: ${redactSecrets(toMessage(err))}`,
+        );
 
-      return null;
-    });
+        return null;
+      });
 
-    liveByIssueId.set(issueId, read);
+    liveByObject.set(objectRef, confirmation);
 
-    return read;
+    return confirmation;
+  };
+
+  const assertClosure = async (state: ObjectState): Promise<LoopClosingStateCategory | null> => {
+    const candidate = closureCandidate(state.provider, state.kind, state.stateCategory);
+
+    if (!candidate) return null;
+
+    if (candidate.proof === "stored_projection")
+      return closesOpenAsk(state.provider, state.kind, state.stateCategory, candidate.proof);
+
+    const read = liveNativeStateReader(state);
+
+    // The registry says stored state does not prove this kind's closure and
+    // this gather holds no read for it, so it may not assert one: keep the ask.
+    if (!read) return null;
+
+    const live = await confirmLive(state, read);
+
+    return live === null ? null : closesOpenAsk(state.provider, state.kind, live, candidate.proof);
   };
 
   for (const category of PRIORITY_CATEGORIES) {
@@ -415,39 +471,10 @@ async function dropClosedLoops(
 
     for (const item of buckets[category]) {
       const closed = firstClosingObject(reconciled.get(item.documentId));
+      const asserted = closed ? await assertClosure(closed.state) : null;
 
-      if (!closed) {
+      if (!closed || !asserted) {
         kept.push(item);
-        continue;
-      }
-
-      // The live confirmation reads through the registry's own arms — the
-      // kind's `normalize` then `closesOpenAsk` — never a literal status
-      // comparison, so an unknown provider token reads as unknown and a live
-      // `ignored` (archived) reads as non-closing, and both keep the ask.
-      if (closed.state.provider === "sentry" && closed.state.kind === "issue") {
-        const live = await confirmSentryIssue(closed.state.externalId);
-
-        const liveCategory = live
-          ? INTEGRATION_OBJECT_DEFS.sentry.normalize("issue", live.status)
-          : null;
-
-        const confirmed = liveCategory ? closesOpenAsk("sentry", "issue", liveCategory) : null;
-
-        if (!confirmed) {
-          kept.push(item);
-          continue;
-        }
-
-        closedLoops.push({
-          documentId: item.documentId,
-          category,
-          subject: item.subject,
-          objectTitle: closed.state.title,
-          objectUrl: closed.state.url,
-          stateCategory: confirmed,
-          nativeState: closed.state.nativeState,
-        });
         continue;
       }
 
@@ -457,7 +484,7 @@ async function dropClosedLoops(
         subject: item.subject,
         objectTitle: closed.state.title,
         objectUrl: closed.state.url,
-        stateCategory: closed.closesAskAs,
+        stateCategory: asserted,
         nativeState: closed.state.nativeState,
       });
     }

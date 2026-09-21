@@ -6,7 +6,7 @@ import { SENTRY_API } from "./client";
 
 /**
  * Fresh provider-state confirmation for a Sentry issue (ADR-0103) — the proof
- * behind `INTEGRATION_OBJECT_DEFS.sentry.issue.closesAskOn`.
+ * behind `INTEGRATION_OBJECT_DEFS.sentry.issue.closesAskFrom`.
  *
  * The store orders by OBSERVATION time and the lifecycle payload carries no
  * transition version, so stored `resolved` alone may never suppress an ask: a
@@ -14,8 +14,10 @@ import { SENTRY_API } from "./client";
  * restore it. This read kills that hazard structurally — closure stops
  * depending on delivery order and depends on live truth instead. The one
  * consumer is the briefing drop (`dropClosedLoops` in
- * `@alfred/assistant/briefings`); the sync packer annotates from stored state
- * and cannot call it.
+ * `@alfred/assistant/briefings`). A synchronous reader cannot call this, which
+ * is exactly why the kind declares `closesAskFrom: "live_confirmation"`: the
+ * registry then reads as closing nothing for such a reader, instead of leaving
+ * it to assert a closure it has no proof of.
  *
  * The read goes UNDER the stored org slug, never `GET /organizations/` (no
  * slug): an internal-integration token cannot list organizations (see the

@@ -111,14 +111,20 @@ describe("github registry normalize", () => {
   });
 
   test("a pull request closes an ask on merged/closed, never on failed", () => {
-    assert.equal(closesOpenAsk("github", "pull_request", "resolved"), "resolved");
-    assert.equal(closesOpenAsk("github", "pull_request", "abandoned"), "abandoned");
-    assert.equal(closesOpenAsk("github", "pull_request", "failed"), null);
-    assert.equal(closesOpenAsk("github", "pull_request", "active"), null);
+    assert.equal(
+      closesOpenAsk("github", "pull_request", "resolved", "stored_projection"),
+      "resolved",
+    );
+    assert.equal(
+      closesOpenAsk("github", "pull_request", "abandoned", "stored_projection"),
+      "abandoned",
+    );
+    assert.equal(closesOpenAsk("github", "pull_request", "failed", "stored_projection"), null);
+    assert.equal(closesOpenAsk("github", "pull_request", "active", "stored_projection"), null);
   });
 
   test("an undeclared kind closes nothing: absence never closes", () => {
-    assert.equal(closesOpenAsk("github", "deployment", "resolved"), null);
+    assert.equal(closesOpenAsk("github", "deployment", "resolved", "stored_projection"), null);
   });
 });
 
@@ -223,7 +229,10 @@ describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
     const state = await objectStateStore.getState(userId, ref!);
     assert.equal(state?.stateCategory, "resolved");
     assert.equal(state?.nativeState, "merged");
-    assert.equal(closesOpenAsk("github", "pull_request", state!.stateCategory), "resolved");
+    assert.equal(
+      closesOpenAsk("github", "pull_request", state!.stateCategory, "stored_projection"),
+      "resolved",
+    );
   });
 
   test("absence never closes: an unseen head_sha resolves to nothing", async () => {

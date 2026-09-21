@@ -16,9 +16,10 @@ import type {
  * It owns key PROPOSAL and nothing else. `reconcile.ts` resolves and ranks the
  * candidates, the store asserts state, and the registry's per-kind definition
  * declares what closes an ask. Sentry's kind declares
- * `closesAskOn: ["resolved"]` behind a live confirmation (ADR-0103): a
- * resolution here projects and displays state, and only the briefing drop —
- * which confirms the hit with a live issue read — may suppress on it.
+ * `closesAskOn: ["resolved"]` with `closesAskFrom: "live_confirmation"`
+ * (ADR-0103): a resolution here projects and displays state, and only a
+ * consumer that takes a live issue read — the briefing drop — may assert the
+ * closure.
  *
  * One key kind is proposed from text: `issue_id`, read out of a Sentry issue
  * URL by the shared reader. `short_id` is WRITTEN by the reducer (folded to

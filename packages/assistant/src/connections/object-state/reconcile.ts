@@ -1,5 +1,5 @@
 import {
-  closesOpenAsk,
+  closureCandidate,
   type LoopClosingStateCategory,
   type ObjectStateProvider,
 } from "@alfred/contracts";
@@ -293,6 +293,13 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
  * laundered: a reading the authority map declares `false` writes `null` at
  * runtime as well as in the type, so an `as` cast that smuggles such a result
  * into a closure reader still carries no closing category.
+ *
+ * The category it writes is a CANDIDATE, from `closureCandidate` rather than
+ * from `closesOpenAsk`: this seam holds stored state only, and a kind
+ * declaring `closesAskFrom: "live_confirmation"` needs a read taken at the
+ * moment closure is asserted (ADR-0103). Nominating is this seam's job;
+ * asserting belongs to the consumer that can take that read, which is why
+ * `reconcile.ts` needs no provider branch for it.
  */
 function closesAskAsFor<Reading extends KeyProposalReading>(
   key: CandidateKey<Reading>,
@@ -302,7 +309,8 @@ function closesAskAsFor<Reading extends KeyProposalReading>(
   // type and this branch cannot disagree about which reading may close.
   if (!readingClosesAsk(key.reading)) return null;
 
-  const closes = closesOpenAsk(state.provider, state.kind, state.stateCategory);
+  const closes =
+    closureCandidate(state.provider, state.kind, state.stateCategory)?.closesAskAs ?? null;
 
   // SAFETY: `readingClosesAsk` returned true, so `Reading` is one of
   // `ClosureReading` and the field type admits `LoopClosingStateCategory | null`.
@@ -311,7 +319,13 @@ function closesAskAsFor<Reading extends KeyProposalReading>(
   return closes as ReconciledObject<Reading>["closesAskAs"];
 }
 
-/** The first resolved object whose state closes an open ask, if any. */
+/**
+ * The first resolved object whose state is a closure CANDIDATE, if any.
+ *
+ * A candidate is not a closure: a consumer that suppresses on it must first
+ * assert it through `closesOpenAsk` with the proof that consumer holds (see
+ * `closesAskAsFor`).
+ */
 export function firstClosingObject(
   resolved: readonly ReconciledObject<ClosureReading>[] | undefined,
 ): (ReconciledObject<ClosureReading> & { closesAskAs: LoopClosingStateCategory }) | undefined {
