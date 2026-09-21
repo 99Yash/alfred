@@ -584,10 +584,10 @@ switch (resultCategory) {
     code: `const label = category === "triage" ? "Email" : identity.status === "resolved" ? "Done" : "";`,
   },
   {
-    // `hand-rolled-whitespace-collapse` replaced ten copies of this line. The
-    // catch cases are the spellings an author reaches for; the ignore cases are
-    // the near-misses that share the `\s+` shape and do a different job.
-    name: "hand-rolled-whitespace-collapse — the display fold nine sites hand-rolled",
+    // `hand-rolled-whitespace-collapse` replaced eleven copies of this line.
+    // The catch cases are the spellings an author reaches for; the ignore cases
+    // are the near-misses that share the `\s+` shape and do a different job.
+    name: "hand-rolled-whitespace-collapse — the display fold eleven sites hand-rolled",
     caught: true,
     code: String.raw`  const collapsed = text.replace(/\s+/g, " ").trim();`,
   },
@@ -620,6 +620,20 @@ switch (resultCategory) {
     name: "hand-rolled-whitespace-collapse — the doubled-atom spelling of the same run",
     caught: true,
     code: String.raw`  const collapsed = text.replace(/\s\s+/g, " ").trim();`,
+  },
+  {
+    // The doubled-atom form takes the character class on either atom
+    // independently, so the rule reads it on each atom independently too. An
+    // earlier regex spelled the two atoms literally and both of these evaded it
+    // while the comment above the rule claimed they did not.
+    name: "hand-rolled-whitespace-collapse — the doubled atom with the class on the first atom",
+    caught: true,
+    code: String.raw`  const collapsed = text.replace(/[\s]\s+/g, " ").trim();`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — the doubled atom with the class on both atoms",
+    caught: true,
+    code: String.raw`  const collapsed = text.replace(/[\s][\s]+/g, " ").trim();`,
   },
   {
     name: "hand-rolled-whitespace-collapse — single quotes around the replacement space",
