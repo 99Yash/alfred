@@ -536,7 +536,11 @@ export const objectStateStore: ObjectStateStore = {
           //
           // `>=`, not `>`: a retried fold of one receipt carries the identical
           // instant and must still re-apply, which is what keeps `applyEvent`
-          // idempotent.
+          // idempotent. That is why one precondition replaces the 1 ms one:
+          // two DISTINCT deliveries that share a single `delivered_at`
+          // microsecond are still last-writer-wins. `providerEventTime`, the
+          // dominant term, is also still a millisecond `Date` (#1200 made only
+          // the tie-break term exact).
           const existingDelivered =
             existing.stateDeliveredAtExact === null
               ? null
