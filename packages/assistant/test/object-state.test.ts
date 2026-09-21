@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { closesOpenAsk, getObjectDef, isTerminalCategory } from "@alfred/contracts";
+import { closesOpenAsk, getObjectDef } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -19,7 +19,7 @@ import { dbBackedSkip } from "./support/db-backed";
  * The pure suite (reducer + registry + key extraction) always runs. The store
  * suite is DB-backed and opt-in — it runs only when `DATABASE_URL` points at a
  * reachable migrated Postgres, mirroring the other DB-backed tests; it asserts
- * the load-bearing ADR-0048-D contract: a terminal state closes a loop, an
+ * the load-bearing ADR-0048-D contract: a closing state closes a loop, an
  * unknown one never does, and replay/redelivery can't regress a merged PR.
  */
 
@@ -108,13 +108,6 @@ describe("github registry normalize", () => {
     assert.equal(def.normalize("pull_request", "closed"), "abandoned");
     assert.equal(def.normalize("pull_request", "open"), "active");
     assert.equal(def.normalize("pull_request", "garbage"), null);
-  });
-
-  test("only the closing buckets are terminal", () => {
-    assert.equal(isTerminalCategory("resolved"), true);
-    assert.equal(isTerminalCategory("abandoned"), true);
-    assert.equal(isTerminalCategory("failed"), true);
-    assert.equal(isTerminalCategory("active"), false);
   });
 
   test("a pull request closes an ask on merged/closed, never on failed", () => {
@@ -218,7 +211,7 @@ describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
     });
   }
 
-  test("a merged PR resolves by head_sha → terminal state (loop closeable)", async () => {
+  test("a merged PR resolves by head_sha → closing state (loop closeable)", async () => {
     await apply("opened", prPayload(101, SHA_A), T1);
     await apply("synchronize", prPayload(101, SHA_A), T2);
     await apply("closed", prPayload(101, SHA_A, { merged: true }), T3);
@@ -230,7 +223,7 @@ describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
     const state = await objectStateStore.getState(userId, ref!);
     assert.equal(state?.stateCategory, "resolved");
     assert.equal(state?.nativeState, "merged");
-    assert.equal(isTerminalCategory(state!.stateCategory), true);
+    assert.equal(closesOpenAsk("github", "pull_request", state!.stateCategory), "resolved");
   });
 
   test("absence never closes: an unseen head_sha resolves to nothing", async () => {

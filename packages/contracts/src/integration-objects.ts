@@ -21,22 +21,6 @@ export const OBJECT_STATE_CATEGORIES = ["active", "resolved", "failed", "abandon
 export type StateCategory = (typeof OBJECT_STATE_CATEGORIES)[number];
 
 /**
- * Terminal categories — a briefing loop closes ONLY on one of these (the
- * positive side of ADR-0048-D's contract; the *absence* of a terminal state
- * never closes). `active` is the sole non-terminal bucket.
- */
-export const TERMINAL_STATE_CATEGORIES = ["resolved", "failed", "abandoned"] as const;
-
-export type TerminalStateCategory = (typeof TERMINAL_STATE_CATEGORIES)[number];
-
-export function isTerminalCategory(category: StateCategory): category is TerminalStateCategory {
-  // SAFETY: the tuple is a const list of StateCategory literals; widening to
-  // readonly string[] only types the .includes receiver for this narrowing
-  // predicate.
-  return (TERMINAL_STATE_CATEGORIES as readonly string[]).includes(category);
-}
-
-/**
  * The vocabulary of closure: the categories that MAY close an already-open ask
  * about a work object. A `failed` object state is terminal for the work object,
  * but it is usually the alert/opener for a CI loop, not evidence that the loop
