@@ -9,6 +9,7 @@ import {
   TODO_DECISION_OUTCOMES,
   clamp01,
   collabActivitySchema,
+  collapseWhitespace,
   confidenceSchema,
   extractGmailDocumentBody,
   isOwnershipCollabActivity,
@@ -906,7 +907,7 @@ function resolveRelativeDates(text: string, anchor: AssistDateAnchor | null): st
   }
 
   // Tidy separators/words left dangling by stripped dates ("₹88.5 · due " → "₹88.5").
-  let cleaned = out.replace(/\s{2,}/g, " ").trim();
+  let cleaned = collapseWhitespace(out);
   let previous: string;
 
   do {
