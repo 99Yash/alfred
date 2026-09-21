@@ -244,6 +244,12 @@ function objectIdentityWhere(userId: string, identity: ObjectIdentity) {
  * version the first fold committed, so it guards against the NEW state rather
  * than the stale one it would otherwise have read.
  *
+ * `READ COMMITTED` is a real precondition, and it holds because no caller sets
+ * an isolation level — the repo passes `isolationLevel` nowhere, so every
+ * transaction takes the Postgres default. Raise this path to `REPEATABLE READ`
+ * and the conflict branch below breaks: the re-read cannot see a row committed
+ * after the transaction's snapshot, so it throws instead of folding.
+ *
  * The predicate could instead move into the `UPDATE`'s `WHERE`, which would
  * close the recency half alone. It cannot close the absorption half:
  * `isAbsorbingState` is the KIND's declaration, read from the registry, and
@@ -265,18 +271,44 @@ function lockIdentityRow(
 }
 
 /**
- * Stable global lock order for the deltas of one delivery.
+ * Code-unit order over the two identity fields that vary within one delivery.
+ *
+ * NOT `localeCompare`: collation ranks some DISTINCT strings equal (`"é"`
+ * against `"é"` returns 0), and a comparator that returns 0 for two different
+ * targets lets two transactions keep them in opposite emitted orders — the very
+ * thing `inLockOrder` exists to stop. `<`/`>` is a strict total order over
+ * strings, and it is what `lockChatStorageKeys` already sorts by.
+ */
+function compareIdentity(a: ObjectStateDelta, b: ObjectStateDelta): number {
+  if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;
+
+  if (a.externalId === b.externalId) return 0;
+
+  return a.externalId < b.externalId ? -1 : 1;
+}
+
+/**
+ * Stable lock order for the `integration_objects` rows of one delivery.
  *
  * `applyEvent` now takes a row lock per delta, so two transactions that touch
- * the same two targets in opposite orders would deadlock. Ordering every
- * transaction's locks by the identity tuple removes that: the two agree on who
- * waits. `sort` is stable, so two deltas for ONE identity keep their emitted
- * order and the later one still wins.
+ * the same two targets in opposite orders would deadlock. Ordering by the
+ * identity tuple removes that for these rows: the two agree on who waits.
+ * `provider` and `userId` are constant across one call, so `kind` and
+ * `externalId` decide the whole order. `sort` is stable, so two deltas for ONE
+ * identity keep their emitted order and the later one still wins.
+ *
+ * SCOPE, because the guarantee is partial. This orders the object rows only.
+ * The `integrationObjectKeys` upsert at the end of each delta also takes a row
+ * lock, interleaved between two object locks and outside this order, so an ABBA
+ * cycle across the two tables stays reachable: one transaction holds an object
+ * and waits on a key, the other holds that key and waits on that object. It
+ * needs one key value to move between objects in two concurrent deliveries,
+ * which is what `set: { objectId }` exists for. Postgres detects it as `40P01`
+ * and `ingress.deliver` retries (`attempts: 5`). #1203 closes it by taking every
+ * key lock after every object lock, in its own order.
  */
 function inLockOrder(deltas: readonly ObjectStateDelta[]): ObjectStateDelta[] {
-  return [...deltas].sort((a, b) =>
-    a.kind === b.kind ? a.externalId.localeCompare(b.externalId) : a.kind.localeCompare(b.kind),
-  );
+  return [...deltas].sort(compareIdentity);
 }
 
 export const objectStateStore: ObjectStateStore = {
