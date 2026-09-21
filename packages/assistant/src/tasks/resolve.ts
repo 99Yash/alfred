@@ -1,4 +1,5 @@
 import {
+  normalizeEmailAddress,
   parseGmailDocumentMetadata,
   TODO_RESOLVED_BY,
   todoSourcesSchema,
@@ -9,7 +10,6 @@ import { documents, todos } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { normalizeSenderEmail } from "../knowledge";
 
 /** The live (`not-yet-terminal`) statuses a dismissal may target. */
 const liveTodoStatusSchema = z.enum(["open", "suggested"]);
@@ -98,7 +98,7 @@ export async function resolveTodosForGmailSource(
   args: ResolveTodosForGmailSourceArgs,
 ): Promise<ResolveTodosForGmailSourceResult> {
   const parsed = resolveTodosForGmailSourceArgsSchema.parse(args);
-  const senderEmail = normalizeSenderEmail(parsed.senderEmail);
+  const senderEmail = normalizeEmailAddress(parsed.senderEmail);
   const sourceThreadId = normalizeOptional(parsed.sourceThreadId);
   const accountId = normalizeOptional(parsed.accountId);
   const auditReason = normalizeOptional(parsed.reason);
@@ -264,7 +264,7 @@ async function loadThreadMetadata(
 }
 
 function metadataSenderEmail(metadata: unknown): string | null {
-  return normalizeSenderEmail(parseGmailDocumentMetadata(metadata).from);
+  return normalizeEmailAddress(parseGmailDocumentMetadata(metadata).from);
 }
 
 function normalizeOptional(value: string | null | undefined): string | null {

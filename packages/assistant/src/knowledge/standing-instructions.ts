@@ -1,7 +1,8 @@
 import {
   buildStandingInstructionTarget,
-  classifyEmailDomain,
+  classifyBareDomain,
   emailDomain,
+  normalizeEmailAddress,
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   standingInstructionTargetKey,
@@ -24,10 +25,7 @@ import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { insertObservation } from "./observations";
-import { normalizeSenderEmail } from "./sender-email";
 import { valueSignature } from "./signature";
-
-export { normalizeSenderEmail } from "./sender-email";
 
 export const STANDING_INSTRUCTION_LIST_LIMIT = 100;
 
@@ -100,7 +98,7 @@ export async function rememberSenderSuppression(
   args: RememberSenderSuppressionArgs,
 ): Promise<RememberSenderSuppressionResult> {
   const parsed = rememberSenderSuppressionArgsSchema.parse(args);
-  const email = normalizeSenderEmail(parsed.senderEmail);
+  const email = normalizeEmailAddress(parsed.senderEmail);
 
   if (!email) return senderClarification();
 
@@ -112,18 +110,18 @@ export async function rememberSenderSuppression(
   //   1. The caller never supplies a domain. The server derives it from an
   //      address the caller already resolved, so `co.in` cannot become a
   //      target — no sender has that address.
-  //   2. Only a `corporate_domain` widens. `classifyEmailDomain` is the one
+  //   2. Only a `corporate_domain` widens. `classifyBareDomain` is the one
   //      place that answers "is this domain one organization's", and it also
   //      rejects consumer mailboxes, school and alumni domains, shared-hosting
   //      and disposable hosts, and mail-infrastructure hosts — every class
   //      where one domain carries unrelated senders. It reads the BARE domain,
-  //      never `{ email }`: the address form demands a verified hosted domain
-  //      the sender side never has, so it would answer `ambiguous_domain` for
-  //      every real sender and no instruction would ever widen.
+  //      never a connected account: the account form demands a verified hosted
+  //      domain the sender side never has, so it would answer `ambiguous_domain`
+  //      for every real sender and no instruction would ever widen.
   const candidateDomain = parsed.scope === "domain" ? emailDomain(email) : null;
 
   const domain =
-    candidateDomain && classifyEmailDomain({ domain: candidateDomain }) === "corporate_domain"
+    candidateDomain && classifyBareDomain({ domain: candidateDomain }) === "corporate_domain"
       ? candidateDomain
       : null;
 
@@ -660,7 +658,7 @@ export function findSenderSuppression(
   instructions: readonly ActiveSuppressionInstruction[],
   lookup: SenderSuppressionLookup,
 ): SenderSuppressionMatch | null {
-  const email = normalizeSenderEmail(lookup.senderEmail);
+  const email = normalizeEmailAddress(lookup.senderEmail);
 
   if (!email) return null;
 

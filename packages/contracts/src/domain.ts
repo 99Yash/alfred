@@ -11,8 +11,9 @@
 // measured as a real one — `domainSchema` read from a half-initialized module
 // threw `Cannot access 'domainSchema' before initialization` at import time.
 //
-// `index.ts` re-exports `emailDomain` and `domainSchema` only. The rest stays
-// internal grammar, not a public contract surface.
+// `index.ts` re-exports `emailDomain`, `domainSchema`, `extractEmailAddress`
+// and `normalizeEmailAddress`. The rest stays internal grammar, not a public
+// contract surface.
 
 import { z } from "zod";
 import { HOSTNAME } from "./hostname";
@@ -76,3 +77,41 @@ export const domainSchema: z.ZodType<string> = z
   .string()
   .transform(normalizeDomain)
   .refine(isValidDomain, { message: "must be a valid domain" });
+
+const emailAddressSchema = z.string().trim().toLowerCase().pipe(z.email());
+
+/**
+ * LOOSE: pull the bare lowercase `local@domain` out of a `From:`-style header,
+ * unwrapping a `"Display Name <addr>"` form when present and dropping anything
+ * with no `@`. Returns `null` for empty/garbage input.
+ *
+ * Byte-identical semantics to the old `parseEmailAddress` (which now delegates
+ * here), so every self-mail / recipient / display caller keeps its behavior
+ * with zero churn. This is the runtime-parse tier: it answers "what address
+ * was written here", never "is this a mailable address".
+ */
+export function extractEmailAddress(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const raw = (value.match(/<([^>]+)>/)?.[1] ?? value).trim().toLowerCase();
+
+  return raw.includes("@") ? raw : null;
+}
+
+/**
+ * STRICT: `extractEmailAddress`, then strip a `mailto:` prefix, then the
+ * `z.email()` shape check. The one rule the `sender_email` target arm, the
+ * suppression write path, and the read path share: every spelling of a live
+ * sender (display-name wrapper, case, surrounding whitespace, `mailto:`)
+ * flows through this, so a stored target matches iff the live mailbox is the
+ * bound one. Stored rows are already canonical, so readers compare with `===`.
+ */
+export function normalizeEmailAddress(value: string | null | undefined): string | null {
+  const extracted = extractEmailAddress(value);
+
+  if (!extracted) return null;
+
+  const candidate = extracted.replace(/^mailto:/i, "").trim();
+  const parsed = emailAddressSchema.safeParse(candidate);
+
+  return parsed.success ? parsed.data : null;
+}
