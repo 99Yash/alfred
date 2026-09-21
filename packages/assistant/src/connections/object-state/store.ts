@@ -9,7 +9,7 @@ import {
   type JsonObject,
   toRecord,
 } from "@alfred/contracts";
-import { db } from "@alfred/db";
+import { db, type DbTransaction } from "@alfred/db";
 import {
   type IntegrationObject,
   integrationObjectKeys,
@@ -235,6 +235,82 @@ function objectIdentityWhere(userId: string, identity: ObjectIdentity) {
   );
 }
 
+/**
+ * Read the identity row and hold it `FOR UPDATE` until the transaction ends.
+ *
+ * `applyEvent` decides recency and absorption in JavaScript, then writes. The
+ * lock is what makes the decision and the write one step: a second fold of the
+ * same target blocks here, and under `READ COMMITTED` Postgres hands it the row
+ * version the first fold committed, so it guards against the NEW state rather
+ * than the stale one it would otherwise have read.
+ *
+ * `READ COMMITTED` is a real precondition, and it holds because no caller sets
+ * an isolation level — the repo passes `isolationLevel` nowhere, so every
+ * transaction takes the Postgres default. Raise this path to `REPEATABLE READ`
+ * and the conflict branch below breaks: the re-read cannot see a row committed
+ * after the transaction's snapshot, so it throws instead of folding.
+ *
+ * The predicate could instead move into the `UPDATE`'s `WHERE`, which would
+ * close the recency half alone. It cannot close the absorption half:
+ * `isAbsorbingState` is the KIND's declaration, read from the registry, and
+ * spelling it in SQL would move that policy out of the registry and into this
+ * file — the thing the guard's own comment forbids.
+ */
+function lockIdentityRow(
+  tx: DbTransaction,
+  userId: string,
+  identity: ObjectIdentity,
+): Promise<IntegrationObject | undefined> {
+  return tx
+    .select()
+    .from(integrationObjects)
+    .where(objectIdentityWhere(userId, identity))
+    .limit(1)
+    .for("update")
+    .then((rows) => rows[0]);
+}
+
+/**
+ * Code-unit order over the two identity fields that vary within one delivery.
+ *
+ * NOT `localeCompare`: collation ranks some DISTINCT strings equal (`"é"`
+ * against `"é"` returns 0), and a comparator that returns 0 for two different
+ * targets lets two transactions keep them in opposite emitted orders — the very
+ * thing `inLockOrder` exists to stop. `<`/`>` is a strict total order over
+ * strings, and it is what `lockChatStorageKeys` already sorts by.
+ */
+function compareIdentity(a: ObjectStateDelta, b: ObjectStateDelta): number {
+  if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;
+
+  if (a.externalId === b.externalId) return 0;
+
+  return a.externalId < b.externalId ? -1 : 1;
+}
+
+/**
+ * Stable lock order for the `integration_objects` rows of one delivery.
+ *
+ * `applyEvent` now takes a row lock per delta, so two transactions that touch
+ * the same two targets in opposite orders would deadlock. Ordering by the
+ * identity tuple removes that for these rows: the two agree on who waits.
+ * `provider` and `userId` are constant across one call, so `kind` and
+ * `externalId` decide the whole order. `sort` is stable, so two deltas for ONE
+ * identity keep their emitted order and the later one still wins.
+ *
+ * SCOPE, because the guarantee is partial. This orders the object rows only.
+ * The `integrationObjectKeys` upsert at the end of each delta also takes a row
+ * lock, interleaved between two object locks and outside this order, so an ABBA
+ * cycle across the two tables stays reachable: one transaction holds an object
+ * and waits on a key, the other holds that key and waits on that object. It
+ * needs one key value to move between objects in two concurrent deliveries,
+ * which is what `set: { objectId }` exists for. Postgres detects it as `40P01`
+ * and `ingress.deliver` retries (`attempts: 5`). #1203 closes it by taking every
+ * key lock after every object lock, in its own order.
+ */
+function inLockOrder(deltas: readonly ObjectStateDelta[]): ObjectStateDelta[] {
+  return [...deltas].sort(compareIdentity);
+}
+
 export const objectStateStore: ObjectStateStore = {
   async applyEvent(args) {
     const reduce = REDUCERS[args.provider];
@@ -243,7 +319,7 @@ export const objectStateStore: ObjectStateStore = {
     if (deltas.length === 0) return;
 
     await db().transaction(async (tx) => {
-      for (const delta of deltas) {
+      for (const delta of inLockOrder(deltas)) {
         // Unknown kinds never write: without a kind def there is no absorbing
         // policy, so the monotonicity guard below would fail open and let a later
         // delivery regress a resolved row back to active.
@@ -264,21 +340,25 @@ export const objectStateStore: ObjectStateStore = {
             ? delta.providerEventTime
             : null;
 
-        const [existing] = await tx
-          .select()
-          .from(integrationObjects)
-          .where(
-            objectIdentityWhere(args.userId, {
-              provider: args.provider,
-              kind: delta.kind,
-              externalId: delta.externalId,
-            }),
-          )
-          .limit(1);
+        const identity: ObjectIdentity = {
+          provider: args.provider,
+          kind: delta.kind,
+          externalId: delta.externalId,
+        };
 
+        // The row this delta must not regress. Null means THIS transaction
+        // created it, so there is no prior state to guard.
+        let existing = await lockIdentityRow(tx, args.userId, identity);
         let objectId: string;
 
         if (!existing) {
+          // `onConflictDoNothing`, not a bare insert. A row that does not exist
+          // yet cannot be locked, so two first deliveries for one target both
+          // read nothing and both insert; `integration_objects_identity_idx` is
+          // UNIQUE, so the loser used to raise `23505` and abort. The fold
+          // consumer runs `mode: "propagate"`, so that abort failed the whole
+          // `ingress.deliver` job. Absorbing the conflict turns the loser into
+          // the ordinary update path below.
           const [row] = await tx
             .insert(integrationObjects)
             .values({
@@ -295,22 +375,52 @@ export const objectStateStore: ObjectStateStore = {
               stateDeliveredAt: args.deliveredAt,
               providerEventAt: eventTime,
             })
+            .onConflictDoNothing({
+              target: [
+                integrationObjects.userId,
+                integrationObjects.provider,
+                integrationObjects.kind,
+                integrationObjects.externalId,
+              ],
+            })
             .returning({ id: integrationObjects.id });
 
-          if (!row) throw new Error("[object-state] applyEvent insert returned no row");
-          objectId = row.id;
+          if (row) {
+            objectId = row.id;
+          } else {
+            // The conflict fired: another transaction inserted this identity
+            // after the lock read found nothing, and has since committed —
+            // `onConflictDoNothing` waited for it. Take the lock now and fold
+            // through the guard, so this delivery cannot overwrite the state
+            // the winner just wrote.
+            existing = await lockIdentityRow(tx, args.userId, identity);
+
+            if (!existing) {
+              throw new Error("[object-state] applyEvent conflicted with a row it cannot read");
+            }
+
+            objectId = existing.id;
+          }
         } else {
           objectId = existing.id;
+        }
 
+        if (existing) {
           // Recency is the provider clock first, the receipt clock second: the
           // row holds the outcome of the attempt with the greatest
           // (providerEventTime, deliveredAt) pair (#1093) — given each
-          // receipt is successfully folded exactly once, with the serial-fold,
-          // 1 ms, no-byte-identical-repeat, and every-receipt-folds
-          // preconditions item 03 hardened. A row that predates
-          // provider-time tracking (null) always yields to a timestamped
-          // delta; a delta without a timestamp falls back to the deliveredAt
-          // guard the PR rows always used.
+          // receipt is successfully folded exactly once, with the 1 ms,
+          // no-byte-identical-repeat, and every-receipt-folds preconditions
+          // item 03 hardened. The serial-fold precondition is no longer
+          // assumed: the `FOR UPDATE` above enforces it, so `existing` is the
+          // state a concurrent fold committed, not the state this transaction
+          // read before it. The 1 ms precondition still stands — `delivered_at`
+          // is microsecond in Postgres and millisecond after `node-postgres`,
+          // so two receipts under 1 ms apart still compare equal here and the
+          // later committer wins. A row that predates provider-time tracking
+          // (null) always yields to a timestamped delta; a delta without a
+          // timestamp falls back to the deliveredAt guard the PR rows always
+          // used.
           const isNewer =
             eventTime === null
               ? existing.stateDeliveredAt === null || args.deliveredAt >= existing.stateDeliveredAt
