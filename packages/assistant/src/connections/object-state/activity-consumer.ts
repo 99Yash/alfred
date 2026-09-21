@@ -9,6 +9,7 @@ import {
 import { db } from "@alfred/db";
 import { typedEventReceipts } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
+import { receiptDeliveryInstant } from "./delivery-instant";
 import { objectStateStore } from "./store";
 import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assistant/triggers";
 
@@ -24,7 +25,8 @@ import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assi
  * `propagate`: a fold failure fails the `ingress.deliver` job, the receipt
  * reads `failed`, and the queue retries. Every reducer is idempotent —
  * monotonic on `stateDeliveredAt` with the per-kind absorbing guard, keyed on
- * the receipt's own `delivered_at`, while a CI target row orders by the
+ * the receipt's own `delivered_at` at the microsecond resolution Postgres
+ * records it, while a CI target row orders by the
  * `(providerEventTime, deliveredAt)` pair — so a retry re-applies the same
  * event with the same timestamps and cannot regress object state. Redelivery dedup lives
  * one layer up: the receive path inserts the receipt `onConflictDoNothing` on
@@ -98,7 +100,10 @@ function objectStateFoldConsumer(
       const [receipt] = await db()
         .select({
           payload: typedEventReceipts.payload,
-          deliveredAt: typedEventReceipts.deliveredAt,
+          // Not the raw column: `node-postgres` would hand back a JS `Date`,
+          // which holds milliseconds, and the store orders two folds of one
+          // object on this value at microsecond resolution (#1200).
+          deliveredAt: receiptDeliveryInstant(),
         })
         .from(typedEventReceipts)
         .where(

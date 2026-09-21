@@ -8,6 +8,7 @@ import { user } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 
 import { objectStateStore } from "../src/connections/object-state";
+import { deliveryInstantFromDate } from "../src/connections/object-state/test-support";
 import { githubObjectStateAdapter } from "../src/connections/object-state/github-adapter";
 import { reduceGithubEvent } from "../src/connections/object-state/github-reducer";
 import { dbBackedSkip } from "./support/db-backed";
@@ -213,7 +214,7 @@ describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
       eventType: "pull_request",
       action,
       payload,
-      deliveredAt,
+      deliveredAt: deliveryInstantFromDate(deliveredAt),
     });
   }
 

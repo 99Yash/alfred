@@ -17,7 +17,13 @@ import {
   integrationObjects,
 } from "@alfred/db/schemas";
 import { escapeLike } from "@alfred/db/helpers";
-import { and, desc, eq, gte, inArray, like, lt, lte } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, gte, inArray, like, lt, lte } from "drizzle-orm";
+import {
+  type DeliveryInstant,
+  deliveryInstantOf,
+  deliveryInstantSchema,
+  deliveryInstantValue,
+} from "./delivery-instant";
 import { reduceGithubEvent } from "./github-reducer";
 import { reduceRailwayEvent } from "./railway-reducer";
 import { reduceVercelEvent } from "./vercel-reducer";
@@ -96,8 +102,19 @@ export interface ApplyEventArgs {
   eventType: string;
   action: string | null;
   payload: unknown;
-  /** When this delivery was received — guards monotonic state transitions. */
-  deliveredAt: Date;
+  /**
+   * When this delivery was received — guards monotonic state transitions.
+   *
+   * A {@link DeliveryInstant}, not a `Date`: the guard compares this against
+   * the stored instant, and a `Date` holds only milliseconds while Postgres
+   * records `delivered_at` to the microsecond. Read it with
+   * `receiptDeliveryInstant()` off the `typed_event_receipts` view, or
+   * `deliveryInstantOf(column)` off any other `timestamptz`, when a receipt row
+   * exists. Only a caller with no row at all — a pull — mints it, with
+   * `deliveryInstantNow()`. None of the three accepts a `Date`, because a
+   * `Date` has already lost the microseconds this guard compares.
+   */
+  deliveredAt: DeliveryInstant;
 }
 
 export interface ObjectListFilter {
@@ -277,15 +294,31 @@ function lockIdentityRow(
   tx: DbTransaction,
   userId: string,
   identity: ObjectIdentity,
-): Promise<IntegrationObject | undefined> {
+): Promise<LockedIdentityRow | undefined> {
   return tx
-    .select()
+    .select({
+      ...getTableColumns(integrationObjects),
+      stateDeliveredAtExact: deliveryInstantOf(integrationObjects.stateDeliveredAt),
+    })
     .from(integrationObjects)
     .where(objectIdentityWhere(userId, identity))
     .limit(1)
     .for("no key update")
     .then((rows) => rows[0]);
 }
+
+/**
+ * The locked row, plus `state_delivered_at` at full precision.
+ *
+ * The extra field is a computed column on the SAME select, not a second read:
+ * `applyEvent` is two-phase (#1203) and nothing may read between the phases, so
+ * the incumbent instant has to ride along with the lock that already exists.
+ * The `Date` column stays for the read path, which reports freshness and needs
+ * no microseconds.
+ */
+type LockedIdentityRow = IntegrationObject & {
+  stateDeliveredAtExact: DeliveryInstant | null;
+};
 
 /**
  * Code-unit order over the two identity fields that vary within one delivery.
@@ -388,6 +421,12 @@ export const objectStateStore: ObjectStateStore = {
 
     if (deltas.length === 0) return;
 
+    // The brand says the caller used a constructor; this says the value still
+    // holds the fixed-width shape the lexical comparison below depends on. The
+    // instant reaches most callers out of the database, so the owning boundary
+    // parses it rather than trusting the select's result type.
+    const deliveredAt = deliveryInstantSchema.parse(args.deliveredAt);
+
     await db().transaction(async (tx) => {
       // Phase 2's work, collected during phase 1. A key upsert takes a row lock
       // on a SECOND table, so issuing it inside the loop would interleave key
@@ -448,7 +487,7 @@ export const objectStateStore: ObjectStateStore = {
               url: delta.url ?? null,
               repo: delta.repo ?? null,
               attributes: delta.attributes ?? {},
-              stateDeliveredAt: args.deliveredAt,
+              stateDeliveredAt: deliveryInstantValue(deliveredAt),
               providerEventAt: eventTime,
             })
             .onConflictDoNothing({
@@ -485,26 +524,38 @@ export const objectStateStore: ObjectStateStore = {
           // Recency is the provider clock first, the receipt clock second: the
           // row holds the outcome of the attempt with the greatest
           // (providerEventTime, deliveredAt) pair (#1093) — given each
-          // receipt is successfully folded exactly once, with the 1 ms,
-          // no-byte-identical-repeat, and every-receipt-folds preconditions
+          // receipt is successfully folded exactly once, with the
+          // no-byte-identical-repeat and every-receipt-folds preconditions
           // item 03 hardened. The serial-fold precondition is no longer
           // assumed: the `FOR NO KEY UPDATE` above enforces it, so `existing` is the
           // state a concurrent fold committed, not the state this transaction
-          // read before it. The 1 ms precondition still stands — `delivered_at`
-          // is microsecond in Postgres and millisecond after `node-postgres`,
-          // so two receipts under 1 ms apart still compare equal here and the
-          // later committer wins. A row that predates provider-time tracking
-          // (null) always yields to a timestamped delta; a delta without a
-          // timestamp falls back to the deliveredAt guard the PR rows always
-          // used.
+          // read before it. Neither is a 1 ms separation: both sides of the
+          // receipt-clock comparison are `DeliveryInstant`s read at the
+          // microsecond resolution Postgres stores (#1200), so two deliveries
+          // 444 µs apart resolve in true delivery order rather than commit
+          // order. A row that predates provider-time tracking (null) always
+          // yields to a timestamped delta; a delta without a timestamp falls
+          // back to the deliveredAt guard the PR rows always used.
+          //
+          // `>=`, not `>`: a retried fold of one receipt carries the identical
+          // instant and must still re-apply, which is what keeps `applyEvent`
+          // idempotent. That is why one precondition replaces the 1 ms one:
+          // two DISTINCT deliveries that share a single `delivered_at`
+          // microsecond are still last-writer-wins. `providerEventTime`, the
+          // dominant term, is also still a millisecond `Date` (#1200 made only
+          // the tie-break term exact).
+          const existingDelivered =
+            existing.stateDeliveredAtExact === null
+              ? null
+              : deliveryInstantSchema.parse(existing.stateDeliveredAtExact);
+
           const isNewer =
             eventTime === null
-              ? existing.stateDeliveredAt === null || args.deliveredAt >= existing.stateDeliveredAt
+              ? existingDelivered === null || deliveredAt >= existingDelivered
               : existing.providerEventAt === null ||
                 eventTime.getTime() > existing.providerEventAt.getTime() ||
                 (eventTime.getTime() === existing.providerEventAt.getTime() &&
-                  (existing.stateDeliveredAt === null ||
-                    args.deliveredAt >= existing.stateDeliveredAt));
+                  (existingDelivered === null || deliveredAt >= existingDelivered));
 
           // Which states are final is the KIND's declaration, not this file's
           // rule. Work that closes by succession rather than by transition — a CI
@@ -524,7 +575,7 @@ export const objectStateStore: ObjectStateStore = {
                 url: delta.url ?? existing.url,
                 repo: delta.repo ?? existing.repo,
                 attributes: { ...toRecord(existing.attributes), ...delta.attributes },
-                stateDeliveredAt: args.deliveredAt,
+                stateDeliveredAt: deliveryInstantValue(deliveredAt),
                 ...(eventTime === null ? {} : { providerEventAt: eventTime }),
               })
               .where(eq(integrationObjects.id, objectId));
