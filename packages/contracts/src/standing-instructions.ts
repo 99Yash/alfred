@@ -204,6 +204,38 @@ export function buildStandingInstructionTarget(
 }
 
 /**
+ * Does a target name ONE mailbox, or a CLASS of senders?
+ *
+ * Every per-kind rule outside this module turns on that question rather than
+ * on the kind itself: a class target owns its sentence (see
+ * {@link renderStandingInstructionDirective}) and carries no personal label,
+ * while a mailbox target keeps the model's prose and a label. Written as a
+ * `switch` with a `never` default, so a third kind — ADR-0060 micro-decision 8
+ * schedules `category` and `topic`, and both name classes — has to declare its
+ * answer HERE. A hand-written `kind === "sender_domain"` at each reader
+ * compiles unchanged and files the new kind with the mailboxes instead.
+ *
+ * It narrows, so a caller that gets `true` reads `label` without a second
+ * check. Lives beside {@link standingInstructionTargetKey} and
+ * {@link standingInstructionTargetSpecificity} for the same reason they do.
+ */
+export function targetNamesOneMailbox(
+  target: StandingInstructionTarget,
+): target is Extract<StandingInstructionTarget, { kind: "sender_email" }> {
+  switch (target.kind) {
+    case "sender_email":
+      return true;
+    case "sender_domain":
+      return false;
+    default: {
+      const exhaustive: never = target;
+
+      return Boolean(exhaustive);
+    }
+  }
+}
+
+/**
  * Prompt-ready sentence derived from the target alone. The single home of
  * the "any sender at <domain>" vs "from <label ?? email>" wording that item
  * 01r1 built inline at the Alfred-written branch: a domain rule covers
