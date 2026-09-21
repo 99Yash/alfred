@@ -716,7 +716,7 @@ export const RULES = [
       "packages/assistant/src/knowledge/user-context-line.ts",
       "packages/assistant/src/knowledge/cold-start/no-profile.ts",
     ],
-    fix: "Call collapseWhitespace(text) from @alfred/contracts — one fold for every display snippet, preview, title and summary. Keep a private fold, plus `// drift-ok: <what the value identifies>`, only when other code compares the value byte for byte: a key, a hash, a dedup token, a cache lookup, or a query a provider must receive unchanged. Being stored is not that test and neither is being read by a classifier — prose a person or a model reads is a display fold either way.",
+    fix: 'Call collapseWhitespace(text) from @alfred/contracts — one fold for every display snippet, preview, title and summary. Keep a private fold, plus `// drift-ok: <what the value identifies>`, only when other code compares the value byte for byte: a key, a hash, a dedup token, a cache lookup, or a query a provider must receive unchanged. The row also fires on a fold that must NOT trim — `out += chunk.replace(/\\s+/g, " ")` builds one string from many pieces, and `collapseWhitespace` would eat the edge space that separates them — so mark that case the same way. Being stored is not that test and neither is being read by a classifier — prose a person or a model reads is a display fold either way.',
   },
 ];
 

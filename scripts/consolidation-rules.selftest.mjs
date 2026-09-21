@@ -588,16 +588,19 @@ switch (resultCategory) {
     // The catch cases are the spellings an author reaches for; the ignore cases
     // are the near-misses that share the `\s+` shape and do a different job.
     name: "hand-rolled-whitespace-collapse — the display fold eleven sites hand-rolled",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text.replace(/\s+/g, " ").trim();`,
   },
   {
     name: "hand-rolled-whitespace-collapse — replaceAll with the unicode flag is the same fold",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text.replaceAll(/\s+/gu, " ").trim();`,
   },
   {
     name: "hand-rolled-whitespace-collapse — the character-class spelling of the same run",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text.replace(/[\s]+/g, " ").trim();`,
   },
@@ -608,16 +611,19 @@ switch (resultCategory) {
     // the rule enumerated them, `triage/classify.ts` folded an assist line in
     // the `{2,}` spelling and the gate stayed green.
     name: "hand-rolled-whitespace-collapse — the {2,} spelling of the same run",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text.replace(/\s{2,}/g, " ").trim();`,
   },
   {
     name: "hand-rolled-whitespace-collapse — the character class with the {2,} quantifier",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text.replace(/[\s]{2,}/g, " ").trim();`,
   },
   {
     name: "hand-rolled-whitespace-collapse — the doubled-atom spelling of the same run",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text.replace(/\s\s+/g, " ").trim();`,
   },
@@ -627,16 +633,19 @@ switch (resultCategory) {
     // earlier regex spelled the two atoms literally and both of these evaded it
     // while the comment above the rule claimed they did not.
     name: "hand-rolled-whitespace-collapse — the doubled atom with the class on the first atom",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text.replace(/[\s]\s+/g, " ").trim();`,
   },
   {
     name: "hand-rolled-whitespace-collapse — the doubled atom with the class on both atoms",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text.replace(/[\s][\s]+/g, " ").trim();`,
   },
   {
     name: "hand-rolled-whitespace-collapse — single quotes around the replacement space",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text.replace(/\s+/g, ' ').trim();`,
   },
@@ -644,6 +653,7 @@ switch (resultCategory) {
     // Why the rule is `scope: "chain"`: `oxfmt` splits a long call, and a line
     // rule then matches nothing while `pnpm check` still exits 0.
     name: "hand-rolled-whitespace-collapse — the call the formatter split across lines",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text
     .replace(
@@ -654,6 +664,7 @@ switch (resultCategory) {
   },
   {
     name: "hand-rolled-whitespace-collapse — the adjacent split/join spelling of the same fold",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text.split(/\s+/).join(" ").trim();`,
   },
@@ -662,6 +673,7 @@ switch (resultCategory) {
     // comment inside the chain must not break the adjacency the rule uses to
     // tell a fold from a tokenizer.
     name: "hand-rolled-whitespace-collapse — a comment inside the chain does not hide it",
+    rule: "hand-rolled-whitespace-collapse",
     caught: true,
     code: String.raw`  const collapsed = text
     .split(/\s+/)
