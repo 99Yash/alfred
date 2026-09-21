@@ -13,6 +13,7 @@
     "./connections/ingestion/internal": "./src/connections/ingestion/internal.ts",
     "./connections/ingress": "./src/connections/ingress/index.ts",
     "./connections/object-state/railway-reducer": "./src/connections/object-state/railway-reducer.ts",
+    "./connections/object-state/test-support": "./src/connections/object-state/test-support.ts",
     "./artifacts": "./src/artifacts/index.ts",
     "./artifacts/content-hash": "./src/artifacts/content-hash.ts",
     "./artifacts/read": "./src/artifacts/read.ts",

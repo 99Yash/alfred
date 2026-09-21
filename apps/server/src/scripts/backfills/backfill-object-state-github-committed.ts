@@ -25,7 +25,7 @@
  *   # commit:
  *   node dist/scripts/backfills/backfill-object-state-github-committed.js --commit
  */
-import { objectStateStore } from "@alfred/assistant/connections";
+import { objectStateStore, receiptDeliveryInstant } from "@alfred/assistant/connections";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { db } from "@alfred/db";
@@ -46,7 +46,9 @@ async function main() {
     .select({
       userId: typedEventReceipts.userId,
       payload: typedEventReceipts.payload,
-      deliveredAt: typedEventReceipts.deliveredAt,
+      // The replay must order exactly as the live fold does, so it reads the
+      // same microsecond instant rather than a truncated JS `Date` (#1200).
+      deliveredAt: receiptDeliveryInstant(),
     })
     .from(typedEventReceipts)
     .where(

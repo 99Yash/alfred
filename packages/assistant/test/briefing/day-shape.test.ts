@@ -11,6 +11,7 @@ import { inArray, like } from "drizzle-orm";
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { gatherDayShape } from "@alfred/assistant/briefings/gather";
 import { objectStateStore } from "@alfred/assistant/connections";
+import { deliveryInstantFromDate } from "@alfred/assistant/connections/object-state/test-support";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
@@ -74,7 +75,7 @@ async function mergePr(userId: string, number: number, deliveredAt: Date): Promi
     eventType: "pull_request",
     action: "closed",
     payload: prPayload(number, { merged: true }),
-    deliveredAt,
+    deliveredAt: deliveryInstantFromDate(deliveredAt),
   });
 }
 
@@ -223,7 +224,7 @@ describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
       eventType: "pull_request",
       action: "opened",
       payload: prPayload(31),
-      deliveredAt: IN_WINDOW,
+      deliveredAt: deliveryInstantFromDate(IN_WINDOW),
     });
 
     assert.deepEqual((await shapeFor(userId, 0)).shipped, []);
@@ -237,7 +238,7 @@ describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
       eventType: "pull_request",
       action: "closed",
       payload: prPayload(41, { merged: false }),
-      deliveredAt: IN_WINDOW,
+      deliveredAt: deliveryInstantFromDate(IN_WINDOW),
     });
 
     assert.deepEqual((await shapeFor(userId, 0)).shipped, []);

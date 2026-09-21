@@ -64,12 +64,16 @@ export {
 } from "./hosted-endpoint";
 
 export {
+  deliveryInstantNow,
+  deliveryInstantOf,
   firstClosingObject,
   objectStateFoldConsumers,
   objectStateStore,
   proposeObjectKeys,
   reconcileEvidence,
+  receiptDeliveryInstant,
   type ClosureReading,
+  type DeliveryInstant,
   type ObjectState,
   type ObjectStateStore,
   type ReconcileCandidates,

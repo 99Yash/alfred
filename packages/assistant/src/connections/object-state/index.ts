@@ -1,4 +1,11 @@
 export {
+  deliveryInstantNow,
+  deliveryInstantOf,
+  receiptDeliveryInstant,
+  type DeliveryInstant,
+} from "./delivery-instant";
+
+export {
   objectStateStore,
   type ApplyEventArgs,
   type ObjectListFilter,
