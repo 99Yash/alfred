@@ -679,7 +679,8 @@ export type RememberSenderSuppressionAndDismissResult =
       /**
        * Active instructions that strictly contain, or are strictly contained
        * by, the stored target — drawn from the same row snapshot that decided
-       * `status`. Capped; `overlapCount` carries the true total.
+       * `status`, and reporting nothing a concurrent write at another target
+       * stored. Capped; `overlapCount` carries the true total.
        */
       readonly overlaps: readonly StandingInstructionOverlap[];
       readonly overlapCount: number;
