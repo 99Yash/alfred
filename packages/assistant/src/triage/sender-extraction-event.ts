@@ -85,17 +85,19 @@ export const FLOOR_TRACE_PROJECTIONS = {
      * The key an audit of this floor must read is `spamFloorOutcome`.
      *
      * `held_demand_lane` does not name WHO chose the lane — the floor cannot
-     * observe that. Join it on this same flat row:
+     * observe that. ONE join answers it on this same flat row:
+     * `floorForced = true`, the override floor's forced `urgent`. Exact.
      *
-     *  - `floorForced = true` — the override floor's forced `urgent`. Exact.
-     *  - `secondPassFailure IS NOT NULL AND conflict = 'under_classification'
-     *    AND firstPassCategory IN ('fyi','done','newsletter','marketing')` —
-     *    `conservativeUnderClassificationFallback` wrote `action_needed` after a
-     *    second pass threw. All three clauses are required: `secondPassFailure`
-     *    is set on ANY second-pass throw, before the conflict kind is read, so
-     *    alone it reads a model's own first-pass `urgent` as deterministic.
-     *
-     * A row that matches neither join is the model's own judgment.
+     * `floorForced` is the whole answer FROM #1188 FORWARD. A second-pass throw
+     * once escalated a passive first pass to `action_needed`; #1188 deleted that
+     * producer, and the failure now resolves to the model's own first pass in
+     * both conflict directions. Rows written BEFORE that deploy keep the old
+     * producer and never age out, so a historical audit also joins
+     * `secondPassFailure IS NOT NULL AND conflict = 'under_classification' AND
+     * firstPassCategory IN ('fyi','done','newsletter','marketing')` on the same
+     * flat row — see `floors/spam.ts` for the dated form. At or after the
+     * cutover, a row that does not match `floorForced` is the model's own
+     * judgment, whatever `secondPassFailure` holds.
      */
     spamFloorOutcome: audit?.outcome ?? null,
   }),
