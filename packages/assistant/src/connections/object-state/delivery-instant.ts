@@ -1,6 +1,6 @@
 import { typedEventReceipts } from "@alfred/db/schemas";
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
-import { z } from "zod/v4";
+import { z } from "zod";
 
 /**
  * The one reader and writer of a delivery instant at the precision Postgres
@@ -109,6 +109,11 @@ export function deliveryInstantOf(column: SQLWrapper): SQL<DeliveryInstant | nul
  * row, so its delivery instant is honestly millisecond-true with `000` in the
  * microsecond digits. Anything that has a receipt row must read
  * {@link receiptDeliveryInstant} instead.
+ *
+ * The brand cannot enforce that, because this constructor's job is to accept a
+ * `Date`: `deliveryInstantFromDate(receipt.deliveredAt)` compiles and silently
+ * restores the truncation #1200 removed. The `delivery-instant-from-receipt-date`
+ * row in `scripts/consolidation-rules.mjs` refuses that line instead.
  *
  * Throws on an invalid `Date`, which cannot render an instant at all.
  */

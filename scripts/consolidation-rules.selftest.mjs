@@ -641,6 +641,29 @@ const LINE_CASES = [
     caught: false,
     code: `      .for("update")`,
   },
+  {
+    // `delivery-instant-from-receipt-date` anchors on the ARGUMENT, because the
+    // field it feeds is spelled `deliveredAt` in both the right call and the
+    // wrong one. These four fix the anchor in both directions.
+    name: "delivery-instant-from-receipt-date — a receipt Date rebuilt through the JavaScript constructor",
+    caught: true,
+    code: `      deliveredAt: deliveryInstantFromDate(receipt.deliveredAt),`,
+  },
+  {
+    name: "delivery-instant-from-receipt-date — the same laundering spelled with the column name",
+    caught: true,
+    code: `      const instant = deliveryInstantFromDate(row.delivered_at);`,
+  },
+  {
+    name: "delivery-instant-from-receipt-date — a JavaScript clock is what the constructor is for",
+    caught: false,
+    code: `      deliveredAt: deliveryInstantFromDate(new Date()),`,
+  },
+  {
+    name: "delivery-instant-from-receipt-date — the sanctioned reader keeps the microseconds",
+    caught: false,
+    code: `      deliveredAt: receiptDeliveryInstant(),`,
+  },
 ];
 
 /** @returns {string[]} One message per failed fixture; empty when all pass. */
