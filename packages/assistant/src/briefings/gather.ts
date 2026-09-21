@@ -365,6 +365,12 @@ export async function gatherBriefingDigest(
  * moment closure would be asserted. It returns the native token and nothing
  * else: the registry's `normalize` and `closesOpenAsk` decide what it means,
  * so no consumer here compares a provider status to a literal.
+ *
+ * "Native" means the STORED vocabulary the reducer writes, not whatever an API
+ * response spells it. A provider whose REST vocabulary differs from its webhook
+ * one — Sentry, which says `ignored` where the webhook says `archived` —
+ * translates inside its own read, at the boundary that owns the payload, so the
+ * two vocabularies never meet in this file.
  */
 type LiveNativeStateReader = (userId: string, externalId: string) => Promise<string>;
 
@@ -380,7 +386,7 @@ type LiveNativeStateReader = (userId: string, externalId: string) => Promise<str
  */
 function liveNativeStateReader(state: ObjectState): LiveNativeStateReader | null {
   if (state.provider === "sentry" && state.kind === "issue")
-    return async (userId, issueId) => (await readLiveSentryIssue({ userId, issueId })).status;
+    return async (userId, issueId) => (await readLiveSentryIssue({ userId, issueId })).nativeState;
 
   return null;
 }
@@ -452,8 +458,12 @@ async function dropClosedLoops(
 
     if (!candidate) return null;
 
+    // Each branch passes the proof THIS branch actually holds, as a literal —
+    // never `candidate.proof`, which is the registry's DEMAND. Passing the
+    // demand back would compare the demand against itself, so the gate would
+    // admit every kind and the registry would answer its own question.
     if (candidate.proof === "stored_projection")
-      return closesOpenAsk(state.provider, state.kind, state.stateCategory, candidate.proof);
+      return closesOpenAsk(state.provider, state.kind, state.stateCategory, "stored_projection");
 
     const read = liveNativeStateReader(state);
 
@@ -463,7 +473,11 @@ async function dropClosedLoops(
 
     const live = await confirmLive(state, read);
 
-    return live === null ? null : closesOpenAsk(state.provider, state.kind, live, candidate.proof);
+    // `live` came from the read above, so this branch — and only this branch —
+    // holds a live confirmation.
+    return live === null
+      ? null
+      : closesOpenAsk(state.provider, state.kind, live, "live_confirmation");
   };
 
   for (const category of PRIORITY_CATEGORIES) {

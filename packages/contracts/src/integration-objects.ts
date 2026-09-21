@@ -383,6 +383,22 @@ export function vercelDeploymentOutcome(action: string | null): VercelDeployment
 export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
 
 /**
+ * A Sentry issue's stored native token — the vocabulary the webhook reducer
+ * writes and `INTEGRATION_OBJECT_DEFS.sentry.normalize` reads.
+ *
+ * It is declared here, not in the reducer, because a SECOND producer writes it:
+ * the live issue read behind `closesAskFrom: "live_confirmation"` (ADR-0103).
+ * That producer reads Sentry's REST API, whose `status` field is a DIFFERENT
+ * vocabulary — `resolved` | `unresolved` | `ignored`, where this one says
+ * `archived` — so the live boundary must translate rather than pass through.
+ * One declaration keeps the two producers and the one reader from drifting
+ * apart on a token that decides whether an ask closes.
+ */
+export const SENTRY_ISSUE_NATIVE_STATES = ["unresolved", "resolved", "archived"] as const;
+
+export type SentryIssueNativeState = (typeof SENTRY_ISSUE_NATIVE_STATES)[number];
+
+/**
  * The registry. GitHub PRs plus the CI succession shape (#1093). A github
  * PR's native state token is one of `open` | `merged` | `closed`
  * (closed-not-merged), collapsed by the reducer from the `pull_request`

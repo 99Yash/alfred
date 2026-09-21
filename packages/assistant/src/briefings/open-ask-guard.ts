@@ -1,5 +1,6 @@
 import {
   canonicalizeGithubPullRequestUrl,
+  closesOpenAsk,
   collectGithubPullRequestUrls,
   type BriefingClosedLoop,
   type LoopClosingStateCategory,
@@ -134,10 +135,26 @@ export async function auditComposedBriefing(args: {
 
     // A gather-proved closure already in the map wins: it is the same row read
     // minutes earlier, and only it knows which email opened the loop.
+    // `closesAskAs === null` is the READING's authority (`annotates` may not
+    // close at all), which is a different question from the proof below.
     if (object.closesAskAs === null || closedByUrl.has(url)) continue;
+
+    // `closesAskAs` only NOMINATES. This guard DROPS a user-facing sentence,
+    // which is suppression, so it must assert with the proof it actually holds
+    // — stored projection, because it takes no live read. A kind declaring
+    // `closesAskFrom: "live_confirmation"` therefore suppresses nothing here
+    // (ADR-0103), whatever key kinds the filter above admits later.
+    const closes = closesOpenAsk(
+      object.state.provider,
+      object.state.kind,
+      object.state.stateCategory,
+      "stored_projection",
+    );
+
+    if (closes === null) continue;
     closedByUrl.set(url, {
       url,
-      stateCategory: object.closesAskAs,
+      stateCategory: closes,
       title: object.state.title,
       documentId: null,
     });

@@ -58,12 +58,20 @@ export interface ReconciledObject<Reading extends KeyProposalReading> {
   /** Reducer-owned state. The only assertion in this result. */
   state: ObjectState;
   /**
-   * The category when it closes an already-open ask about an object of this
-   * kind, else `null`. It carries the narrowed category rather than a boolean
-   * so a caller can record WHICH closure it saw without re-deriving it. For a
-   * reading whose authority is `false` — `annotates` today — the type is
-   * exactly `null`, so a direct reader of this field cannot receive a closing
-   * category even after an `as` cast; that reading holds no closure authority.
+   * The CANDIDATE category — what this object's stored state would close an
+   * already-open ask as — else `null`. It carries the narrowed category rather
+   * than a boolean so a caller can record WHICH closure it saw without
+   * re-deriving it. For a reading whose authority is `false` — `annotates`
+   * today — the type is exactly `null`, so a direct reader of this field
+   * cannot receive a closing category even after an `as` cast; that reading
+   * holds no closure authority.
+   *
+   * A candidate is not a closure. This seam holds stored state only, so a
+   * consumer that SUPPRESSES on this field — drops an ask, drops a sentence,
+   * writes "closed" into user- or model-facing text — must first assert it
+   * through `closesOpenAsk` with the proof that consumer actually holds. A
+   * kind declaring `closesAskFrom: "live_confirmation"` then closes nothing
+   * for a consumer that took no live read (ADR-0103).
    */
   closesAskAs: Reading extends ClosureReading ? LoopClosingStateCategory | null : null;
 }
