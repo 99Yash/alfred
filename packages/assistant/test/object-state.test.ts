@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { closesOpenAsk, getObjectDef, isTerminalCategory } from "@alfred/contracts";
+import { closesOpenAsk, getObjectDef } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -108,13 +108,6 @@ describe("github registry normalize", () => {
     assert.equal(def.normalize("pull_request", "closed"), "abandoned");
     assert.equal(def.normalize("pull_request", "open"), "active");
     assert.equal(def.normalize("pull_request", "garbage"), null);
-  });
-
-  test("only the closing buckets are terminal", () => {
-    assert.equal(isTerminalCategory("resolved"), true);
-    assert.equal(isTerminalCategory("abandoned"), true);
-    assert.equal(isTerminalCategory("failed"), true);
-    assert.equal(isTerminalCategory("active"), false);
   });
 
   test("a pull request closes an ask on merged/closed, never on failed", () => {
@@ -230,7 +223,7 @@ describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
     const state = await objectStateStore.getState(userId, ref!);
     assert.equal(state?.stateCategory, "resolved");
     assert.equal(state?.nativeState, "merged");
-    assert.equal(isTerminalCategory(state!.stateCategory), true);
+    assert.equal(closesOpenAsk("github", "pull_request", state!.stateCategory), "resolved");
   });
 
   test("absence never closes: an unseen head_sha resolves to nothing", async () => {

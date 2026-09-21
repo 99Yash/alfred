@@ -72,9 +72,12 @@ const FILE = "packages/api/src/modules/agent/executor.ts";
 const TEST_TREE_FILE = "packages/assistant/test/flags.behavior.test.ts";
 
 /**
- * @type {{name: string, caught: boolean, code: string, file?: string}[]} `file`
+ * @type {{name: string, caught: boolean, code: string, file?: string, rule?: string}[]} `file`
  *   defaults to {@link FILE}; name it only when the rule under test scopes on the
- *   path.
+ *   path. `rule` names the rule id that must fire: `selfTestFailures` asserts the
+ *   match attributes to it, so a dead row cannot hide behind another rule's
+ *   match (a-green-lint-run-cannot-tell-an-armed-fence-from-a-dead-one).
+ *   Optional so older fixtures keep today's behavior; item 47 generalizes this.
  */
 const CASES = [
   {
@@ -444,6 +447,98 @@ switch (category) {
     code: `const hit = LOOP_CLOSING_STATE_CATEGORIES.find((c) => c === row.category);`,
   },
   {
+    name: "hand-rolled-object-closure — a rename that no longer ends in category",
+    rule: "hand-rolled-object-closure",
+    caught: true,
+    code: `const closed = card.object.stateCategory;\nif (closed === "resolved") return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the rename in destructuring form",
+    rule: "hand-rolled-object-closure",
+    caught: true,
+    code: `const { stateCategory: closed } = card.object;\nif (closed === "resolved") return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — a default under a renamed identifier",
+    rule: "hand-rolled-object-closure",
+    caught: true,
+    code: `const state = object.stateCategory ?? "active";\nif (state === "resolved" || state === "abandoned") return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the inversion under a renamed identifier",
+    rule: "hand-rolled-object-closure",
+    caught: true,
+    code: `const kindState = object.stateCategory;\nif (kindState !== "active") return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the renamed comparison written literal-first",
+    rule: "hand-rolled-object-closure",
+    caught: true,
+    code: `const closed = card.object.stateCategory;\nif ("resolved" === closed) return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the comparison prettier wraps across two lines",
+    rule: "hand-rolled-object-closure",
+    caught: true,
+    code: `if (category ===\n  "resolved") return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — the lookup table composed with a subscript read",
+    rule: "hand-rolled-object-closure",
+    caught: true,
+    code: `const CLOSES = { resolved: true, abandoned: true, active: false, failed: false };\nif (CLOSES[category]) return "closed";`,
+  },
+  {
+    name: "hand-rolled-object-closure — a case past the old 600-character bound",
+    rule: "hand-rolled-object-closure",
+    caught: true,
+    code: `
+switch (stateCategory) {
+  case "active":
+    track("open");
+    return renderOpenAsk(object);
+  case "failed":
+    track("failed");
+    return renderOpenAsk(object);
+  case "active":
+    track("open");
+    return renderOpenAsk(object);
+  case "failed":
+    track("failed");
+    return renderOpenAsk(object);
+  case "active":
+    track("open");
+    return renderOpenAsk(object);
+  case "failed":
+    track("failed");
+    return renderOpenAsk(object);
+  case "active":
+    track("open");
+    return renderOpenAsk(object);
+  case "failed":
+    track("failed");
+    return renderOpenAsk(object);
+  case "active":
+    track("open");
+    return renderOpenAsk(object);
+  case "resolved":
+    return "closed";
+}`,
+  },
+  {
+    name: "hand-rolled-object-closure — the row's own keyword inside a string no longer breaks the span",
+    rule: "hand-rolled-object-closure",
+    caught: true,
+    code: `
+switch (stateCategory) {
+  case "active":
+    log("switch the lights");
+    break;
+  case "resolved":
+    return "closed";
+}`,
+  },
+  {
     name: "isTerminalCategory's own declaration is the definition, not a call",
     caught: false,
     code: `export function isTerminalCategory(category: StateCategory): category is TerminalStateCategory {`,
@@ -498,7 +593,7 @@ const LINE_FILE = "packages/assistant/src/connections/ingestion/chat-media.ts";
 const OBJECT_STATE_FILE = "packages/assistant/src/connections/object-state/store.ts";
 
 /**
- * @type {{name: string, caught: boolean, code: string, file?: string}[]} `file`
+ * @type {{name: string, caught: boolean, code: string, file?: string, rule?: string}[]} `file`
  *   defaults to {@link LINE_FILE}, as in {@link CASES}.
  */
 const LINE_CASES = [
@@ -647,7 +742,7 @@ const LINE_CASES = [
 export function selfTestFailures() {
   const failures = registryUnionFailures();
 
-  for (const { name, caught, code, file } of CASES) {
+  for (const { name, caught, code, file, rule } of CASES) {
     const hits = matchChains(code, file ?? FILE, "gate");
 
     if (hits.length > 0 !== caught) {
@@ -656,6 +751,14 @@ export function selfTestFailures() {
           ? `missed a case it must catch: ${name}`
           : `flagged a case it must ignore: ${name} (matched line ${hits[0].line})`,
       );
+    } else if (rule !== undefined && caught) {
+      const ids = hits.map((h) => h.rule.id);
+
+      if (!ids.includes(rule)) {
+        failures.push(
+          `fixture "${name}" names ${rule} but matched ${ids.join(", ") || "nothing"} instead`,
+        );
+      }
     }
   }
 

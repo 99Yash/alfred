@@ -180,23 +180,48 @@ export const RULES = [
     //
     // What the `switch` arm guarantees, exactly: the span between the header
     // and the `case` may not cross a second `switch` keyword, which is what
-    // keeps an ADJACENT and a NESTED switch out of the match. The 600-character
+    // keeps an ADJACENT and a NESTED switch out of the match. The 1500-character
     // bound does something weaker and unrelated — it limits how far apart the
     // header and the case may sit. A bound alone cannot say which `switch` a
-    // `case` belongs to.
+    // `case` belongs to. The temper reads `switch` WITH its paren
+    // (`switch\s*\(`), because a bare-word temper is evaded by its own keyword
+    // inside a string literal in an earlier case body — and a paren-less temper
+    // would re-admit the adjacent/nested false positives. A log line holding
+    // `switch (` with a paren still breaks the span; that copy is contrived
+    // enough to stay a measured residual.
     //
     // The six spellings are the ones an author is most likely to write. They
     // are NOT exhaustive, and this row must not be read as a fence: it is a
     // tier-2 gate, and a novel spelling still compiles. Review round 2
-    // measured nine escapes. Five by name: a rename to an identifier that does
-    // not end in `category` (the destructuring form included), a comparison
-    // that prettier wraps across two lines, a `"` standing between the
-    // identifier and the literal, a lookup table
-    // (`const CLOSES = { resolved: true }`), and a `case "resolved":` that
-    // lands past the 600-character bound behind ordinary multi-line case
-    // bodies.
+    // measured nine escapes. Closed since, each swept tree-wide at zero false
+    // positives before landing:
+    //   - a rename to an identifier that does not end in `category` (the
+    //     destructuring form included): the `stateCategory` arm below. A rename
+    //     almost always happens at an assignment that still reads the field,
+    //     which is what the arm exploits — the repo-specific field name, not
+    //     `\w+`, because `"resolved"` comparisons are overloaded elsewhere.
+    //     The arm as first measured missed the `!== "active"` inversion (its
+    //     literal is `active`, not a closing literal), so the inversion rides
+    //     its own tail, in both operand orders, as does the reversed
+    //     `"resolved" === closed` form.
+    //   - a `?? "active"` default under a renamed identifier: the same arm,
+    //     because the middle span crosses `;` and quotes to reach the later
+    //     `=== "resolved"`.
+    //   - a comparison that prettier wraps across two lines: the `"` ban stays
+    //     (the two-comparison ternary guard) but `\n` is allowed in the
+    //     comparison tails.
+    //   - a lookup table (`const CLOSES = { resolved: true, … }`) composed
+    //     with a subscript read: the table-then-read arm. A table defined
+    //     AFTER the subscript is not covered — use-before-def of a const
+    //     table throws, and reassignment-after-read is unobserved.
+    //   - a `case "resolved":` past the old 600-character bound: the bound is
+    //     1500, and the selftest switch fixture sits past 600 so the cliff is
+    //     tested either way.
+    // Still residue, measured: a formatter-split tuple or inline-array
+    // membership (`LOOP_CLOSING…\n.includes(`) misses — queued as its own
+    // item, since the fix touches arms this item does not own.
     scope: "chain",
-    re: /\b\w*[Cc]ategory\b[^;\n"]*(?:===|!==)[^;\n"]*"(?:resolved|abandoned)"|"(?:resolved|abandoned)"[^;\n"]*(?:===|!==)[^;\n"]*\b\w*[Cc]ategory\b|\b\w*[Cc]ategory\b\s*!==\s*"active"|"active"\s*!==\s*\w*[Cc]ategory\b|\bLOOP_CLOSING_STATE_CATEGORIES\b[^;\n]*\.\s*(?:includes|indexOf|some|has|find)\(|\[[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*\][^;\n]*\.\s*(?:includes|indexOf|some|has|find)\(|(?<!function )\bisTerminalCategory\s*\(|switch\s*\([^)\n]*\b\w*[Cc]ategory\b[^)\n]*\)\s*\{(?:(?!\bswitch\b)[\s\S]){0,600}?\bcase\s+"(?:resolved|abandoned)"\s*:/,
+    re: /\b\w*[Cc]ategory\b[^;"]*(?:===|!==)[^;"]*"(?:resolved|abandoned)"|"(?:resolved|abandoned)"[^;"]*(?:===|!==)[^;"]*\b\w*[Cc]ategory\b|\b\w*[Cc]ategory\b\s*!==\s*"active"|"active"\s*!==\s*\w*[Cc]ategory\b|\bLOOP_CLOSING_STATE_CATEGORIES\b[^;\n]*\.\s*(?:includes|indexOf|some|has|find)\(|\[[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*\][^;\n]*\.\s*(?:includes|indexOf|some|has|find)\(|(?<!function )\bisTerminalCategory\s*\(|\bstateCategory\b[\s\S]{0,300}?(?:===|!==|\.\s*(?:includes|some|indexOf)\(|\bcase\s+)[^;"\n]{0,60}?"(?:resolved|abandoned)"|\bstateCategory\b[\s\S]{0,300}?(?:!==[^;"\n]{0,60}?"active"|"active"[^;"\n]{0,60}?!==)|\bstateCategory\b[\s\S]{0,300}?"(?:resolved|abandoned)"[^;"\n]{0,60}?(?:===|!==)|\{\s*[^};]*\bresolved\b[^};]*\babandoned\b[^};]*\}\s*;?[\s\S]{0,300}?\[\s*\w*[Cc]ategory\s*\]|switch\s*\([^)\n]*\b\w*[Cc]ategory\b[^)\n]*\)\s*\{(?:(?!\bswitch\s*\()[\s\S]){0,1500}?\bcase\s+"(?:resolved|abandoned)"\s*:/,
     severity: "gate",
     fix: "Call closesOpenAsk(provider, kind, category) from @alfred/contracts for a projection row, or evidenceObjectClosesAsk(card.object) for an evidence card. Both read the registry's per-kind closesAskOn, so a kind that closes on neither category stays correct, and both return the closing category rather than a boolean. `failed` closes nothing: it is terminal for the object but it opens a CI loop, which is why isTerminalCategory is not the reader either — if you truly mean terminal for the object and not closed, say so in a `// drift-ok:` marker.",
   },
