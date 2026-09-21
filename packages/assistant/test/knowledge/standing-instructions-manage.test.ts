@@ -211,7 +211,8 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(active.length, 1);
     assert.equal(active[0]?.factId, result.factId);
     assert.equal(active[0]?.directive, "Quietly ignore the reframed sender.");
-    assert.equal(active[0]?.target.label, "New Label");
+    const target = active[0]?.target;
+    assert.equal(target?.kind === "sender_email" ? target.label : undefined, "New Label");
     // Target sender is unchanged by a reframe.
     assert.equal(
       active[0] && standingInstructionTargetKey(active[0].target),
