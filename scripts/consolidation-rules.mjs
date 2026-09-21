@@ -662,7 +662,7 @@ export const RULES = [
   {
     id: "hand-rolled-whitespace-collapse",
     // `.replace(/\s+/g, " ")` — folding a whitespace run to one space, for a
-    // value a person or a model reads. It was hand-written in nine display
+    // value a person or a model reads. It was hand-written in ten display
     // places before `collapseWhitespace` existed, and each copy was free to
     // drift into a slightly different preview.
     //
@@ -671,6 +671,13 @@ export const RULES = [
     // `context-search/pack.ts`'s `oneLine` is a deliberately NARROW fold over
     // the four line terminators and must not match either — its regex does not
     // open with `\s`.
+    //
+    // Three spellings of the run, because an author reaches for all three:
+    // `/\s+/`, `/\s{2,}/` and `/\s\s+/`, each with or without the character
+    // class. The `{2,}` form is NOT a near-miss — `/\s{2,}/g` differs from
+    // `/\s+/g` only on a single whitespace character, which a display fold
+    // wants normalized anyway. What it does catch besides display is a value a
+    // provider must receive unchanged, and that site carries a marker.
     //
     // `scope: "chain"`: the formatter can split a `.replace(…)` call across
     // lines, and a chain rule's `drift-ok` marker must carry a reason, which
@@ -681,21 +688,28 @@ export const RULES = [
     // No `paths` clause, so the rule inherits `isSkippedPath`: a copy landing in
     // `scripts/` or a test tree is unrefused. A `paths` clause would opt the
     // rule out of that filter entirely and then flag deliberate fixtures.
-    re: /\.replace(?:All)?\(\s*\/\[?\\s\]?\+\/[a-z]*\s*,\s*(["'`]) \1\s*,?\s*\)|\.split\(\s*\/\[?\\s\]?\+\/[a-z]*\)\s*\.join\(\s*(["'`]) \2\s*,?\s*\)/,
+    re: /\.replace(?:All)?\(\s*\/(?:\[?\\s\]?(?:\+|\{2,\})|\\s\\s\+)\/[a-z]*\s*,\s*(["'`]) \1\s*,?\s*\)|\.split\(\s*\/\[?\\s\]?\+\/[a-z]*\)\s*\.join\(\s*(["'`]) \2\s*,?\s*\)/,
     scope: "chain",
     severity: "gate",
     owners: [
       // `packages/assistant/src/knowledge/` belongs to a parallel campaign, so
-      // these three keep a whole-file exemption instead of the per-line marker
-      // the other two excluded sites carry. Each folds for a NON-display reason:
-      // `entity-kind-classifier` feeds a persisted `EntityKind` decision, and
-      // the other two fold a chunk before a `holdsResearchPrior` guard reads it.
-      // Convert them to `// drift-ok:` lines once that campaign closes.
+      // this campaign may not edit the directory at all. THAT is why all three
+      // are exempt — not because all three fold for a non-display reason. Two
+      // do: `entity-kind-classifier` normalizes a display name that feeds a
+      // persisted `EntityKind` decision, and `no-profile` folds a chunk only so
+      // the `holdsResearchPrior` guard can read it.
+      //
+      // `user-context-line` does NOT. Its folded value is returned as
+      // `UserContextLine.text` and rendered into the triage prompt, so it is a
+      // display fold that this rule would refuse on its merits. It is the one
+      // entry here that must be MIGRATED to `collapseWhitespace` once the
+      // parallel campaign releases the directory; the other two convert to
+      // per-line `// drift-ok:` markers then.
       "packages/assistant/src/knowledge/entity-kind-classifier.ts",
       "packages/assistant/src/knowledge/user-context-line.ts",
       "packages/assistant/src/knowledge/cold-start/no-profile.ts",
     ],
-    fix: "Call collapseWhitespace(text) from @alfred/contracts — one fold for every display snippet, preview, title and summary. If the value builds a key, a hash, a dedup token or a classifier input, keep the private fold and append `// drift-ok: <what the value identifies>`: the shared helper is free to change whenever a display improves, and a stored identity is not.",
+    fix: "Call collapseWhitespace(text) from @alfred/contracts — one fold for every display snippet, preview, title and summary. Keep a private fold, plus `// drift-ok: <what the value identifies>`, only when other code compares the value byte for byte: a key, a hash, a dedup token, a cache lookup, or a query a provider must receive unchanged. Being stored is not that test and neither is being read by a classifier — prose a person or a model reads is a display fold either way.",
   },
 ];
 

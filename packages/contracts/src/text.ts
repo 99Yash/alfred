@@ -10,10 +10,15 @@
  * Collapse every run of whitespace to one space and trim the ends.
  *
  * **Display text only.** The output is rendered to a person or handed to a
- * model as prose. It must never build a key, a hash, a dedup token or a
- * classifier input, because this fold is free to change whenever the display
- * improves and a stored identity is not. `loop-key.ts`'s `normalizeSubject`
- * keeps its own private copy for exactly that reason.
+ * model as prose. The test is whether other code compares the value byte for
+ * byte: a key, a hash, a dedup token, a cache lookup or a query a provider must
+ * receive unchanged keeps its own private fold, because this one is free to
+ * change whenever the display improves and an identity is not. `loop-key.ts`'s
+ * `normalizeSubject` keeps a private copy for exactly that reason.
+ *
+ * Being stored is not the test, and neither is being read by a classifier.
+ * `documents.metadata.summary` is stored and `buildThreadSnippet` feeds the
+ * triage classifier; both are prose a reader sees, so both call this.
  *
  * Not the same job as `context-search/pack.ts`'s `oneLine`, which folds only
  * the four ECMAScript line terminators plus the space/tab run each removal

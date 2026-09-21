@@ -35,6 +35,7 @@ import { Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import {
   FETCH_URL_MAX_TEXT_CHARS,
+  collapseWhitespace,
   getPath,
   isNonEmptyString,
   isPdfContentType,
@@ -259,11 +260,11 @@ function extractTitle(html: string): string | undefined {
   const m = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
 
   if (!m?.[1]) return undefined;
-  // drift-ok: a different composition, not the display fold. This folds BEFORE
-  // `decodeEntities` and trims after, because `decodeEntities` can itself emit
-  // whitespace (`&#10;`). `collapseWhitespace` folds and trims in one step, so
-  // substituting it would change what this returns for an entity-encoded title.
-  const title = decodeEntities(m[1].replace(/\s+/g, " ")).trim();
+  // The outer `.trim()` stays: `decodeEntities` can itself emit whitespace
+  // (`&#10;`), so an entity-encoded newline reaches the title after the fold.
+  // Folding before the decode, as this always has, leaves that newline in the
+  // middle of the title; only the ends are cleaned. Preserved, not fixed here.
+  const title = decodeEntities(collapseWhitespace(m[1])).trim();
 
   return title.length > 0 ? title.slice(0, 500) : undefined;
 }
