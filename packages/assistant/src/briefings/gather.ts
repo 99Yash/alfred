@@ -6,15 +6,21 @@ import type {
   DayShape,
   IanaTimezone,
   IntegrationActivityItem,
+  LoopClosingStateCategory,
+  StateCategory,
   WeatherContribution,
   WeatherFallbackLocation,
 } from "@alfred/contracts";
 import {
+  closesOpenAsk,
+  closureCandidate,
   GOOGLE_SCOPE,
+  getObjectDef,
   getStringPath,
   isRecord,
   parseEventTypeName,
   parseGmailDocumentMetadata,
+  redactSecrets,
   toMessage,
   toStringArray,
   weatherFallbackFor,
@@ -33,6 +39,7 @@ import {
   listEvents,
   type TriageCategory,
 } from "@alfred/integrations/google";
+import { readLiveSentryIssue } from "@alfred/integrations/sentry";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -354,6 +361,37 @@ export async function gatherBriefingDigest(
 }
 
 /**
+ * A read of one object's CURRENT provider-native state token, taken at the
+ * moment closure would be asserted. It returns the native token and nothing
+ * else: the registry's `normalize` and `closesOpenAsk` decide what it means,
+ * so no consumer here compares a provider status to a literal.
+ *
+ * "Native" means the STORED vocabulary the reducer writes, not whatever an API
+ * response spells it. A provider whose REST vocabulary differs from its webhook
+ * one — Sentry, which says `ignored` where the webhook says `archived` —
+ * translates inside its own read, at the boundary that owns the payload, so the
+ * two vocabularies never meet in this file.
+ */
+type LiveNativeStateReader = (userId: string, externalId: string) => Promise<string>;
+
+/**
+ * The live read this gather can take for one object kind, or `null` when it
+ * has none.
+ *
+ * Only a kind the registry declares `closesAskFrom: "live_confirmation"` ever
+ * reaches here, and a kind absent from this function keeps its ask — the
+ * registry decides WHETHER a live proof is required, and this function only
+ * supplies the IO that gets it, so a new pull-confirmed kind is a registry
+ * edit plus one arm, never a policy branch.
+ */
+function liveNativeStateReader(state: ObjectState): LiveNativeStateReader | null {
+  if (state.provider === "sentry" && state.kind === "issue")
+    return async (userId, issueId) => (await readLiveSentryIssue({ userId, issueId })).nativeState;
+
+  return null;
+}
+
+/**
  * Resolve each candidate loop to its work object's projected state and drop the
  * closed ones from the priority buckets (mutates `buckets`), returning the
  * dropped set for the evening "closed today" recap.
@@ -364,6 +402,13 @@ export async function gatherBriefingDigest(
  * reports. A key that resolves to nothing, to more than one object, or to a
  * state its kind does not treat as closing leaves its loop live (the
  * determinism contract: absence never closes).
+ *
+ * `firstClosingObject` nominates; this function ASSERTS. A kind the registry
+ * declares `closesAskFrom: "live_confirmation"` — a Sentry issue, whose stored
+ * `resolved` may be a delayed delivery that reordered (ADR-0103) — is confirmed
+ * with a live provider read here before it becomes a `BriefingClosedLoop`. Any
+ * other live state, a read failure, or a kind this gather holds no reader for
+ * keeps the ask, and a failed read is reported rather than swallowed.
  */
 async function dropClosedLoops(
   userId: string,
@@ -376,25 +421,86 @@ async function dropClosedLoops(
 
   const closedLoops: BriefingClosedLoop[] = [];
 
+  // One live read per distinct object within this gather call — one object
+  // named by N items costs one read. A failure resolves to null here so the
+  // caller keeps the ask; the warn inside the catch is the report.
+  const liveByObject = new Map<string, Promise<StateCategory | null>>();
+
+  const confirmLive = (
+    state: ObjectState,
+    read: LiveNativeStateReader,
+  ): Promise<StateCategory | null> => {
+    const objectRef = `${state.provider}:${state.kind}:${state.externalId}`;
+    const pending = liveByObject.get(objectRef);
+
+    if (pending) return pending;
+
+    // `normalize` then `closesOpenAsk` (below) are the only readings of the
+    // live token: an unknown token and an archived issue both fall out as
+    // non-closing with no literal status comparison on this path.
+    const confirmation = read(userId, state.externalId)
+      .then((nativeState) => getObjectDef(state.provider).normalize(state.kind, nativeState))
+      .catch((err: unknown) => {
+        console.warn(
+          `[briefing.gather] live closure confirmation failed object=${objectRef} :: ${redactSecrets(toMessage(err))}`,
+        );
+
+        return null;
+      });
+
+    liveByObject.set(objectRef, confirmation);
+
+    return confirmation;
+  };
+
+  const assertClosure = async (state: ObjectState): Promise<LoopClosingStateCategory | null> => {
+    const candidate = closureCandidate(state.provider, state.kind, state.stateCategory);
+
+    if (!candidate) return null;
+
+    // Each branch passes the proof THIS branch actually holds, as a literal —
+    // never `candidate.proof`, which is the registry's DEMAND. Passing the
+    // demand back would compare the demand against itself, so the gate would
+    // admit every kind and the registry would answer its own question.
+    if (candidate.proof === "stored_projection")
+      return closesOpenAsk(state.provider, state.kind, state.stateCategory, "stored_projection");
+
+    const read = liveNativeStateReader(state);
+
+    // The registry says stored state does not prove this kind's closure and
+    // this gather holds no read for it, so it may not assert one: keep the ask.
+    if (!read) return null;
+
+    const live = await confirmLive(state, read);
+
+    // `live` came from the read above, so this branch — and only this branch —
+    // holds a live confirmation.
+    return live === null
+      ? null
+      : closesOpenAsk(state.provider, state.kind, live, "live_confirmation");
+  };
+
   for (const category of PRIORITY_CATEGORIES) {
     const kept: BriefingItem[] = [];
 
     for (const item of buckets[category]) {
       const closed = firstClosingObject(reconciled.get(item.documentId));
+      const asserted = closed ? await assertClosure(closed.state) : null;
 
-      if (closed) {
-        closedLoops.push({
-          documentId: item.documentId,
-          category,
-          subject: item.subject,
-          objectTitle: closed.state.title,
-          objectUrl: closed.state.url,
-          stateCategory: closed.closesAskAs,
-          nativeState: closed.state.nativeState,
-        });
-      } else {
+      if (!closed || !asserted) {
         kept.push(item);
+        continue;
       }
+
+      closedLoops.push({
+        documentId: item.documentId,
+        category,
+        subject: item.subject,
+        objectTitle: closed.state.title,
+        objectUrl: closed.state.url,
+        stateCategory: asserted,
+        nativeState: closed.state.nativeState,
+      });
     }
 
     buckets[category] = kept;
