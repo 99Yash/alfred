@@ -679,9 +679,12 @@ export type RememberSenderSuppressionAndDismissResult =
       /**
        * Active instructions that strictly contain, or are strictly contained
        * by, the stored target — drawn from the same row snapshot that decided
-       * `status`. The write locks on the sender alone, so a concurrent write
-       * for the same sender in another mailbox IS reported; one at another
-       * sender kind is not. Capped; `overlapCount` carries the true total.
+       * `status`. A concurrent nesting write can be absent on either axis: the
+       * write lock reads the sender alone, the snapshot filter reads the
+       * transaction timestamp rather than the lock order, and the
+       * `already_exists` path returns before the lock. The field on
+       * `RememberSenderSuppressionResult` states the three limits. Capped;
+       * `overlapCount` carries the true total.
        */
       readonly overlaps: readonly StandingInstructionOverlap[];
       readonly overlapCount: number;

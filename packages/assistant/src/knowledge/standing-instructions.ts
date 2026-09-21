@@ -102,14 +102,23 @@ export type RememberSenderSuppressionResult =
        * elects one of them at apply time. Reporting it is what stops a second
        * row from looking like a bug.
        *
-       * SNAPSHOT-SCOPED ON ONE AXIS ONLY. The advisory lock this write takes
-       * is keyed on `standingInstructionTargetKey`, which reads the sender and
-       * NOT `accountId`. So two concurrent writes that nest on the ACCOUNT
-       * axis — one sender, `accountId: null` against one mailbox — take the
-       * SAME key, serialize, and the second reports the first. Two that nest
-       * on the SENDER-KIND axis — a domain against an address under it — take
-       * different keys, so neither blocks and each reports only what its own
-       * snapshot held.
+       * SNAPSHOT-SCOPED ON BOTH AXES. A concurrent nesting write can be
+       * absent from this list whichever axis it nests on, for three separate
+       * reasons. The advisory lock this write takes is keyed on
+       * `standingInstructionTargetKey`, which reads the sender and NOT
+       * `accountId`, so two writes at different sender kinds — a domain and an
+       * address under it — take different keys and never block each other. Two
+       * writes at the SAME key do serialize, but the lock orders them by the
+       * instant each takes it, while `activeStandingInstructionsWhere` filters
+       * on `now()` — `transaction_timestamp()`, which Postgres freezes at
+       * `BEGIN` and which also defaults the inserted row's `valid_from`. So a
+       * transaction that began later can take the lock first, and the other
+       * one's freshness filter then hides the winner's row. And the
+       * `already_exists` fast path returns before the lock runs at all.
+       * Campaign item 46 owns the timestamp half.
+       *
+       * The promise runs the other way: every instruction named here was in
+       * the snapshot that decided `status`.
        *
        * Capped at {@link STANDING_INSTRUCTION_OVERLAP_LIMIT}; `overlapCount`
        * carries the true total.
@@ -241,14 +250,16 @@ export async function rememberSenderSuppression(
       );
 
     // The locked read is the snapshot both remaining paths report from, so it
-    // travels out of the transaction beside the row they decided. The lock key
-    // above is `standingInstructionTargetKey`, which reads the sender and NOT
-    // `accountId`, so it orders more than the duplicate check: two concurrent
-    // writes that nest on the ACCOUNT axis — one sender, `accountId: null`
-    // against one mailbox — take the SAME key, serialize, and the second finds
-    // the first in `locked` and reports it. Only the SENDER-KIND axis stays
-    // unordered: a domain and an address under it take different keys, so
-    // neither blocks and each reports only what its own snapshot held.
+    // travels out of the transaction beside the row they decided. The lock
+    // orders the duplicate check on one sender key. It does NOT make this
+    // overlap report complete, on either axis. A write at another sender kind
+    // takes a different key and never blocks. A write at the SAME key does
+    // serialize, but the lock orders the two by the instant each takes it,
+    // while the filter below reads `now()` — `transaction_timestamp()`, frozen
+    // at BEGIN, and the same default the inserted row's `valid_from` takes. So
+    // a transaction that began later can take the lock first, and this read
+    // then drops the winner's row as not yet valid. That timestamp is why the
+    // duplicate check below can miss as well; campaign item 46 owns it.
     const overlaps = findTargetOverlaps(locked, instruction.target);
     const rival = findInstructionByTarget(locked, instruction.target);
 
