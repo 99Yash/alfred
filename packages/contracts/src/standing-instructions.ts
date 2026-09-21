@@ -20,7 +20,7 @@
  */
 
 import { z } from "zod";
-import { domainSchema, emailDomain } from "./domain";
+import { domainSchema, emailDomain, normalizeEmailAddress } from "./domain";
 
 /** Canonical `user_facts.key` for every standing instruction. */
 export const STANDING_INSTRUCTION_KEY = "standing_instruction";
@@ -116,14 +116,25 @@ export type StandingInstructionTargetKind = (typeof STANDING_INSTRUCTION_TARGET_
 export const standingInstructionTargetKindSchema = z.enum(STANDING_INSTRUCTION_TARGET_KINDS);
 
 /**
+ * A sender address validated through {@link normalizeEmailAddress} — the same
+ * acceptance set as the old trim → lowercase → `z.email()` chain, plus `<>`
+ * and `mailto:` tolerance. The stored match key is canonical by construction.
+ */
+const senderEmailAddressSchema: z.ZodType<string> = z
+  .string()
+  .transform((value) => normalizeEmailAddress(value))
+  .refine((value): value is string => value !== null, {
+    message: "must be a valid email address",
+  });
+
+/**
  * Resolve-at-write: the match key is canonical by the time it is stored, so a
  * reader matches on it directly and never re-normalizes. The `sender_email` arm
- * **normalizes** (trim → lowercase) and **validates** email shape; the
- * `sender_domain` arm does the same for a bare DNS domain through
- * {@link domainSchema}. Both arms were one flat object before `sender_domain`
- * existed; the union makes an address-less `sender_email` target and a
- * domain-less `sender_domain` target unrepresentable, and it forces every
- * reader to narrow on `kind` before it reads a match key.
+ * validates through {@link normalizeEmailAddress} and the `sender_domain` arm
+ * through {@link domainSchema}. Both arms were one flat object before
+ * `sender_domain` existed; the union makes an address-less `sender_email`
+ * target and a domain-less `sender_domain` target unrepresentable, and it
+ * forces every reader to narrow on `kind` before it reads a match key.
  *
  * `accountId` is `null` = cross-account (suppress the sender, not one mailbox);
  * a future per-account scope sets it without a reshape.
@@ -134,7 +145,7 @@ export const standingInstructionTargetKindSchema = z.enum(STANDING_INSTRUCTION_T
 export const standingInstructionTargetSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("sender_email"),
-    email: z.string().trim().toLowerCase().pipe(z.email()),
+    email: senderEmailAddressSchema,
     label: z.string().nullish(),
     accountId: z.string().nullable(),
   }),
@@ -218,8 +229,9 @@ export function standingInstructionTargetKey(target: StandingInstructionTarget):
  * the domain from it through {@link emailDomain}. A caller cannot hand in a
  * domain that does not belong to the address, because a caller never hands in a
  * domain at all — the one unrepresentable-state rule this function needs.
- * `senderEmail` is expected normalized (trimmed, lowercased); `emailDomain`
- * normalizes again, so a stray capital only affects the `sender_email` arm.
+ * `senderEmail` is expected in {@link normalizeEmailAddress} spelling;
+ * `emailDomain` normalizes again, so a stray capital only affects the
+ * `sender_email` arm.
  *
  * A string comparison alone computes the answer. No model call, no network
  * call, no database read: the triage hot path calls this per message.
