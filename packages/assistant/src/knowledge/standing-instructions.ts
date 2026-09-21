@@ -15,6 +15,7 @@ import {
   standingInstructionValueSchema,
   SUPPRESSION_EFFECTS,
   targetMatchesSender,
+  targetNamesOneMailbox,
   type MemorySource,
   type ObservationSource,
   type StandingInstructionDroppedInput,
@@ -688,15 +689,15 @@ function summarizeStandingInstruction(
 }
 
 /**
- * The sentence the model reads for a stored row. A domain row renders from
- * its target, so a pre-fix row whose stored prose names one address still
- * reads back as a class rule; an address row keeps its stored (possibly
- * reframed) prose, which names exactly the one address it binds.
+ * The sentence the model reads for a stored row. A class row renders from its
+ * target, so a pre-fix row whose stored prose names one address still reads
+ * back as a class rule; a mailbox row keeps its stored (possibly reframed)
+ * prose, which names exactly the one address it binds.
  */
 function readStandingInstructionDirective(value: StandingInstructionValue): string {
-  return value.target.kind === "sender_domain"
-    ? renderStandingInstructionDirective(value.target)
-    : value.directive;
+  return targetNamesOneMailbox(value.target)
+    ? value.directive
+    : renderStandingInstructionDirective(value.target);
 }
 
 /**
@@ -818,52 +819,55 @@ export async function editStandingInstruction(
 
   if (!existing) return { ok: false, status: "not_found" };
 
-  const isDomainRow = existing.value.target.kind === "sender_domain";
+  const target = existing.value.target;
 
-  // A domain row's sentence is derived from its target, so a model-supplied
-  // `directive` re-derives to the same sentence and the edit reads `unchanged`
-  // unless the target itself changed. A `senderLabel` on a domain row is a
-  // no-op: the arm carries no personal label. The `sender_email` arm keeps
-  // both edits — reframe prose and relabel — exactly as before.
-  const nextDirective = isDomainRow
-    ? renderStandingInstructionDirective(existing.value.target)
-    : normalizeOptionalLabel(parsed.directive);
+  // Both edits this tool offers turn on ONE question — does the target name a
+  // mailbox or a class — so every site below asks `targetNamesOneMailbox` and
+  // none of them re-spells a kind. A class row's sentence is derived from its
+  // target, so a model-supplied `directive` re-derives to the same sentence
+  // and the edit reads `unchanged` unless the target itself changed. A
+  // `senderLabel` on a class row is a no-op: the arm carries no personal
+  // label. The mailbox arm keeps both edits — reframe prose and relabel —
+  // exactly as before.
+  const requestedDirective = normalizeOptionalLabel(parsed.directive);
 
-  // What the caller asked for and the row refused. A domain row's sentence is
-  // its target's, so a supplied `directive` reaches nothing; the domain arm
+  const nextDirective = targetNamesOneMailbox(target)
+    ? requestedDirective
+    : renderStandingInstructionDirective(target);
+
+  // What the caller asked for and the row refused. A class row's sentence is
+  // its target's, so a supplied `directive` reaches nothing; the class arm
   // has no label field, so a supplied `senderLabel` reaches nothing either.
   // Both still reach the RESULT, because an edit that answers `edited` or
   // `unchanged` with no reason reads as if the request went through.
   const droppedInputs: StandingInstructionDroppedInput[] = [];
 
-  if (isDomainRow) {
-    if (normalizeOptionalLabel(parsed.directive) !== null) droppedInputs.push("directive");
+  if (!targetNamesOneMailbox(target)) {
+    if (requestedDirective !== null) droppedInputs.push("directive");
 
     if (parsed.senderLabel !== undefined) droppedInputs.push("senderLabel");
   }
 
   // `phrasing` is verbatim user provenance — a reframe of the directive never
-  // rewrites it. The label is editable, including clearing it (null).
-  const nextLabel =
-    existing.value.target.kind === "sender_domain"
-      ? null
-      : parsed.senderLabel === undefined
-        ? existing.value.target.label
-        : normalizeOptionalLabel(parsed.senderLabel);
-
+  // rewrites it. The label is editable, including clearing it (null), and only
+  // the mailbox arm has one to edit.
   const nextValue = standingInstructionValueSchema.parse({
     ...existing.value,
     directive: nextDirective ?? existing.value.directive,
-    target:
-      existing.value.target.kind === "sender_domain"
-        ? existing.value.target
-        : { ...existing.value.target, label: nextLabel },
+    target: targetNamesOneMailbox(target)
+      ? {
+          ...target,
+          label:
+            parsed.senderLabel === undefined
+              ? target.label
+              : normalizeOptionalLabel(parsed.senderLabel),
+        }
+      : target,
   });
 
-  const nextLabelValue = nextValue.target.kind === "sender_email" ? nextValue.target.label : null;
+  const nextLabelValue = targetNamesOneMailbox(nextValue.target) ? nextValue.target.label : null;
 
-  const existingLabelValue =
-    existing.value.target.kind === "sender_email" ? existing.value.target.label : null;
+  const existingLabelValue = targetNamesOneMailbox(target) ? target.label : null;
 
   if (nextValue.directive === existing.value.directive && nextLabelValue === existingLabelValue) {
     return {
@@ -1056,10 +1060,9 @@ export function findSenderSuppression(
   // An address row keeps its stored prose, which names exactly the one
   // address it binds. `phrasing` is untouched on both kinds: it is the user's
   // verbatim words, and a domain capture can still name one person in it.
-  const value =
-    best.value.target.kind === "sender_domain"
-      ? { ...best.value, directive: renderStandingInstructionDirective(best.value.target) }
-      : best.value;
+  const value = targetNamesOneMailbox(best.value.target)
+    ? best.value
+    : { ...best.value, directive: renderStandingInstructionDirective(best.value.target) };
 
   return {
     ...best,
