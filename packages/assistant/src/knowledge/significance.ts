@@ -142,8 +142,9 @@ export async function loadUserDomains(userId: string): Promise<Set<string>> {
 
   const domains = new Set<string>();
   // `user.email` is read straight off the table with no schema gate in front
-  // of it, so a malformed stored address answers `null` here and the
-  // same-org component falls to 0 rather than matching on a half-parsed host.
+  // of it, so an address with no usable shape answers `null` here and the
+  // same-org component falls to 0. `splitEmail` checks one `@`, a legal local
+  // part, and a normalized domain; the host itself is not validated here.
   const d = emailDomain(rows[0]?.email ?? null);
 
   if (d) domains.add(d);
