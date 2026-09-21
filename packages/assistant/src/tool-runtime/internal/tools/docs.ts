@@ -22,6 +22,7 @@ export const docsTools: readonly RegisteredTool[] = [
     inputSchema: docsGetDocumentInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.docs.credential()).id;
+
       return ctx.integrations.google.docs.getDocument({
         credentialId,
         documentId: input.documentId,
@@ -45,6 +46,7 @@ export const docsTools: readonly RegisteredTool[] = [
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
       const credentialId = (await ctx.integrations.google.docs.credential()).id;
+
       return runRestPassthrough(ctx.integrations.google.docs.passthrough(credentialId), input);
     },
   }),

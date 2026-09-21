@@ -53,6 +53,7 @@ export function AppSegmented<T extends string = string>({
   // SAFETY: Radix emits the string value of a rendered item, which is exactly
   // the generic T this component was instantiated with.
   const emit = (next: string) => onValueChange(next as T);
+
   return (
     <TabsPrimitive.Root value={value} onValueChange={emit}>
       <TabsPrimitive.List
@@ -77,11 +78,11 @@ export function AppSegmented<T extends string = string>({
             className={cn(
               "inline-flex h-7 items-center gap-1.5 rounded-lg px-3",
               "text-xs font-medium whitespace-nowrap",
-              "transition-all duration-150",
+              "transition-[background-color,box-shadow,color,transform] duration-150",
               "app-press",
               glass
                 ? cn(
-                    "outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                    "app-focus [--app-accent-ring:rgba(255,255,255,0.5)]",
                     /* off state — white-based so it reads over the sky video */
                     "text-white/70 hover:text-white",
                     /* on state — solid dark glass chip over the sky video.
@@ -93,7 +94,7 @@ export function AppSegmented<T extends string = string>({
                     "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-white/70",
                   )
                 : cn(
-                    "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-2",
+                    "app-focus",
                     /* off state */
                     "text-app-fg-3 hover:text-app-fg-4",
                     /* on state */

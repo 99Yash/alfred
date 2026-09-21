@@ -1,3 +1,4 @@
+import { briefingClosedLoopSchema } from "@alfred/contracts";
 import { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
 import { DAILY_BRIEFING_WORKFLOW_SLUG, dailyBriefingWorkflowInputSchema } from "./workflow-input";
@@ -18,6 +19,7 @@ const stateSchema = z.object({
   untilIngestedAt: z.string().optional(),
   briefingId: z.string().optional(),
   quietDay: z.boolean().optional(),
+  closedLoops: z.array(briefingClosedLoopSchema).default([]),
   composed: z
     .object({
       subject: z.string(),
@@ -28,6 +30,7 @@ const stateSchema = z.object({
     })
     .optional(),
 });
+
 type State = z.infer<typeof stateSchema>;
 
 export const dailyBriefingWorkflow: Workflow<State> = {
@@ -41,11 +44,13 @@ export const dailyBriefingWorkflow: Workflow<State> = {
   closure: { kind: "none" },
   initialState(input) {
     const parsed = dailyBriefingWorkflowInputSchema.parse(input.input ?? {});
+
     return {
       slot: parsed.slot,
       reason: parsed.reason,
       dryRun: parsed.dryRun,
       briefingDate: parsed.briefingDate,
+      closedLoops: [],
     };
   },
   steps: {

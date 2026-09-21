@@ -3,7 +3,7 @@ import { emailSends, user, type NotificationKind } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq, ne } from "drizzle-orm";
 import { getResendClient } from "./resend-client";
-import { toMessage } from "@alfred/contracts";
+import { toMessage, type JsonObject } from "@alfred/contracts";
 
 /**
  * Logical kinds of notification live in the `@alfred/db` schema (the source of
@@ -30,10 +30,19 @@ export interface NotifyArgs {
    * Render input retained on the row so a failed send can be replayed
    * or debugged later. Not used for delivery itself.
    */
-  payload?: Record<string, unknown>;
+  payload?: JsonObject;
   /** Optional override; defaults to the user's account email. */
   toAddress?: string;
 }
+
+/**
+ * The subject plus both MIME bodies a compose verb hands to `notify`. Derived
+ * from `NotifyArgs` rather than restated, so the transport's three required
+ * body fields are the one source of truth and a compose helper cannot drift.
+ * Minters: `composeInboxBriefing` (`briefings/compose.ts`) and
+ * `composeSkillDocumentationEmail` (`skills/email.ts`).
+ */
+export type ComposedEmail = Pick<NotifyArgs, "subject" | "html" | "text">;
 
 export type NotifyResult =
   | { status: "sent"; emailSendId: string; providerMessageId: string | null }
@@ -87,6 +96,7 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
     .returning({ id: emailSends.id });
 
   let emailSendId: string;
+
   if (upserted[0]) {
     emailSendId = upserted[0].id;
   } else {
@@ -98,12 +108,15 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
       .where(
         and(eq(emailSends.userId, args.userId), eq(emailSends.idempotencyKey, args.idempotencyKey)),
       );
+
     const row = existing[0];
+
     if (!row) {
       // Race: someone deleted the conflicting row between our upsert and select.
       // Caller should treat this as a transient and retry.
       throw new Error("[notify] idempotency-key conflict but no row found on lookup");
     }
+
     return { status: "duplicate", emailSendId: row.id };
   }
 
@@ -124,9 +137,11 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
       },
       { idempotencyKey: args.idempotencyKey },
     );
+
     if (result.error) {
       throw new Error(`${result.error.name}: ${result.error.message}`);
     }
+
     const providerMessageId = result.data?.id ?? null;
     await db()
       .update(emailSends)
@@ -136,6 +151,7 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
         sentAt: new Date(),
       })
       .where(eq(emailSends.id, emailSendId));
+
     return { status: "sent", emailSendId, providerMessageId };
   } catch (err) {
     const message = toMessage(err);
@@ -146,6 +162,7 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
         error: message.slice(0, 1000),
       })
       .where(eq(emailSends.id, emailSendId));
+
     return { status: "failed", emailSendId, error: message };
   }
 }
@@ -153,6 +170,8 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
 async function resolveUserEmail(userId: string): Promise<string> {
   const rows = await db().select({ email: user.email }).from(user).where(eq(user.id, userId));
   const row = rows[0];
+
   if (!row) throw new Error(`[notify] user not found: ${userId}`);
+
   return row.email;
 }

@@ -28,6 +28,7 @@ const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 /** The one search root the fixtures use. Not a tracked directory name, on purpose. */
 const FIXTURE_ROOTS = ["pkg"];
+
 const FIXTURE_PACKAGE = join("pkg", "demo");
 
 const BASE_CONFIG = {
@@ -44,6 +45,7 @@ const BASE_CONFIG = {
 };
 
 const CLEAN_SOURCE = "export const good: number = 1;\n";
+
 const DIRTY_SOURCE = 'export const bad: number = "not a number";\n';
 
 /**
@@ -90,6 +92,7 @@ function drive(shape) {
     );
 
     const files = shape.files ?? {};
+
     for (const [relative, contents] of Object.entries(files)) {
       const target = join(packageDir, ...relative.split("/"));
       mkdirSync(dirname(target), { recursive: true });
@@ -97,6 +100,7 @@ function drive(shape) {
     }
 
     let drivenRoot = root;
+
     if (shape.aliasRoot === true) {
       drivenRoot = join(home, "link");
       symlinkSync(root, drivenRoot);
@@ -107,6 +111,7 @@ function drive(shape) {
       tscBinary: shape.tsc ?? defaultTscBinary(REPO_ROOT),
       searchRoots: FIXTURE_ROOTS,
     });
+
     return { result, root, cleanup };
   } catch (error) {
     cleanup();
@@ -158,15 +163,19 @@ export function testTypecheckBaselineSelfTestFailures() {
    */
   const check = (name, shape, assert) => {
     let driven;
+
     try {
       driven = drive(shape);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       failures.push(`${name} · fixture could not be built: ${message}`);
+
       return;
     }
+
     try {
       const complaint = assert(driven.result);
+
       if (complaint !== null)
         failures.push(`${name} · ${complaint} (got ${summarize(driven.result)})`);
     } finally {
@@ -279,25 +288,31 @@ export function testTypecheckBaselineSelfTestFailures() {
   const agree = (name, shape) => {
     let real;
     let alias;
+
     try {
       real = drive(shape);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       failures.push(`${name} · real-root fixture could not be built: ${message}`);
+
       return;
     }
+
     try {
       alias = drive({ ...shape, aliasRoot: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       failures.push(`${name} · aliased-root fixture could not be built: ${message}`);
+
       return;
     } finally {
       real.cleanup();
     }
+
     try {
       const realSummary = summarize(real.result);
       const aliasSummary = summarize(alias.result);
+
       if (realSummary !== aliasSummary) {
         failures.push(
           `${name} · a symlinked root changed the verdict (real ${realSummary}, alias ${aliasSummary})`,
@@ -332,6 +347,7 @@ export function testTypecheckBaselineSelfTestFailures() {
     tscBinary: defaultTscBinary(REPO_ROOT),
     searchRoots: ["no-such-directory"],
   });
+
   if (empty.ok || !empty.problems.some((problem) => problem.includes("no tsconfig.test.json"))) {
     failures.push(
       `a tree with no test project is a refusal · expected a refusal for an empty search root (got ${summarize(empty)})`,

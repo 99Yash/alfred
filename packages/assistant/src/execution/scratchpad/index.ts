@@ -60,13 +60,17 @@ const scratchEntrySchema = z.object({
 });
 
 let _client: BoundedRedis | undefined;
+
 function client(): BoundedRedis {
   if (!_client) _client = createRedisConnection("command");
+
   return _client;
 }
 
 type SharedTarget = { runId: string; zone: "shared"; path: string };
+
 type ScratchTarget = { runId: string; zone: "scratch"; subId: string; path: string };
+
 type ScratchTargetArgs = SharedTarget | ScratchTarget;
 
 function resolveKey(target: ScratchTargetArgs): string {
@@ -84,6 +88,7 @@ function resolveKey(target: ScratchTargetArgs): string {
 async function putEntry(fullKey: string, entry: ScratchEntry<unknown>): Promise<number> {
   const payload = JSON.stringify(entry);
   await client().set(fullKey, payload, "EX", SCRATCH_TTL_SECONDS);
+
   return Buffer.byteLength(payload, "utf8");
 }
 
@@ -97,7 +102,9 @@ async function fetchEntry(
   fullKey: string,
 ): Promise<{ raw: string | null; entry: ScratchEntry<unknown> | null }> {
   const raw = await client().get(fullKey);
+
   if (raw === null) return { raw: null, entry: null };
+
   return { raw, entry: parseJsonWith(raw, scratchEntrySchema) };
 }
 
@@ -115,6 +122,7 @@ export interface WriteScratchArgs<T = unknown> {
 export async function writeScratch<T>(args: WriteScratchArgs<T>): Promise<void> {
   const target = toTarget(args);
   const fullKey = resolveKey(target);
+
   const span = startScratchSpan(
     buildScratchWriteSpanInput({
       runId: args.runId,
@@ -124,6 +132,7 @@ export async function writeScratch<T>(args: WriteScratchArgs<T>): Promise<void> 
       startedAt: new Date(),
     }),
   );
+
   try {
     const entry: ScratchEntry<T> = {
       value: args.value,
@@ -131,6 +140,7 @@ export async function writeScratch<T>(args: WriteScratchArgs<T>): Promise<void> 
       writtenBy: args.writtenBy,
       writtenAt: Date.now(),
     };
+
     const byteSize = await putEntry(fullKey, entry);
     span.end({ status: "ok", metadata: { byteSize } });
   } catch (err) {
@@ -149,6 +159,7 @@ export interface ReadScratchArgs {
 export async function readScratch<T>(args: ReadScratchArgs): Promise<ScratchEntry<T> | null> {
   const target = toTarget(args);
   const fullKey = resolveKey(target);
+
   const span = startScratchSpan(
     buildScratchReadSpanInput({
       runId: args.runId,
@@ -157,6 +168,7 @@ export async function readScratch<T>(args: ReadScratchArgs): Promise<ScratchEntr
       startedAt: new Date(),
     }),
   );
+
   try {
     const { raw, entry } = await fetchEntry(fullKey);
     const hit = raw !== null;
@@ -171,6 +183,7 @@ export async function readScratch<T>(args: ReadScratchArgs): Promise<ScratchEntr
         byteSize: raw === null ? 0 : Buffer.byteLength(raw, "utf8"),
       },
     });
+
     // SAFETY: entries are written through put() with the same envelope for T,
     // and a corrupt envelope already degraded to entry === null above.
     return entry === null ? null : (entry as ScratchEntry<T>);
@@ -207,10 +220,12 @@ export async function promoteScratch(
     subId: args.fromSubId,
     path: args.fromPath,
   };
+
   const to: SharedTarget = { runId: args.runId, zone: "shared", path: args.toSharedPath };
   const fromKey = resolveKey(from);
   const toKey = resolveKey(to);
   const writtenBy = args.writtenBy ?? "boss";
+
   // Read the source and write the destination through the un-instrumented cores
   // so the promote is a single `runtime.scratch.promote` span, not a promote
   // wrapping a spurious read+write span pair.
@@ -223,20 +238,26 @@ export async function promoteScratch(
       startedAt: new Date(),
     }),
   );
+
   try {
     const { entry: source } = await fetchEntry(fromKey);
+
     if (source === null) {
       span.end({ status: "ok", metadata: { hit: false } });
+
       return null;
     }
+
     const promoted: ScratchEntry<unknown> = {
       value: source.value,
       zone: "shared",
       writtenBy,
       writtenAt: Date.now(),
     };
+
     const byteSize = await putEntry(toKey, promoted);
     span.end({ status: "ok", metadata: { hit: true, byteSize } });
+
     return promoted;
   } catch (err) {
     span.end({ status: "error", level: "ERROR" });
@@ -254,6 +275,7 @@ export async function promoteScratch(
  */
 export async function snapshotScratchToPostgres(runId: string): Promise<number> {
   const span = startScratchSpan(buildScratchSnapshotSpanInput({ runId, startedAt: new Date() }));
+
   try {
     const persisted = await snapshotScratchToPostgresCore(runId, (counts) => {
       // Fold the terminal counts onto the span. Entry count is the PRD's headline
@@ -270,6 +292,7 @@ export async function snapshotScratchToPostgres(runId: string): Promise<number> 
         },
       });
     });
+
     return persisted;
   } catch (err) {
     span.end({ status: "error", level: "ERROR" });
@@ -305,26 +328,33 @@ async function snapshotScratchToPostgresCore(
   let corrupt = 0;
 
   let cursor = "0";
+
   do {
     // SCAN COUNT is a hint, not a cap; 100 keeps each round small while
     // limiting the number of round-trips for typical run sizes.
     const [next, batch] = await conn.scan(cursor, "MATCH", match, "COUNT", 100);
     cursor = next;
+
     if (batch.length === 0) continue;
     const values = await conn.mget(...batch);
+
     for (let i = 0; i < batch.length; i++) {
       const raw = values[i];
       const fullKey = batch[i];
+
       if (raw === null || raw === undefined || fullKey === undefined) continue;
       const dotted = fullKey.slice(prefix.length);
+
       if (dotted.length === 0) continue;
       scanned += 1;
       const entry = parseJsonWith(raw, scratchEntrySchema);
+
       if (entry === null) {
         corrupt += 1;
         console.warn(`[scratchpad] skipping corrupt scratch key during snapshot: ${fullKey}`);
         continue;
       }
+
       rows.push({
         runId,
         key: dotted,
@@ -337,6 +367,7 @@ async function snapshotScratchToPostgresCore(
   } while (cursor !== "0");
 
   const sharedCount = rows.filter((r) => r.zone === "shared").length;
+
   const counts: SnapshotCounts = {
     scanned,
     persisted: rows.length,
@@ -347,6 +378,7 @@ async function snapshotScratchToPostgresCore(
 
   if (rows.length === 0) {
     onCounts(counts);
+
     return 0;
   }
 
@@ -356,6 +388,7 @@ async function snapshotScratchToPostgresCore(
   // that ceiling and keeps each statement's planning time bounded for
   // any future high-fanout sub-agent topology.
   const CHUNK_SIZE = 1000;
+
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     const chunk = rows.slice(i, i + CHUNK_SIZE);
     await db()
@@ -373,6 +406,7 @@ async function snapshotScratchToPostgresCore(
   }
 
   onCounts(counts);
+
   return rows.length;
 }
 
@@ -385,8 +419,10 @@ function toTarget(args: {
   if (args.zone === "shared") {
     return { runId: args.runId, zone: "shared", path: args.path };
   }
+
   if (!args.subId) {
     throw new Error("[scratchpad] subId is required when zone='scratch'");
   }
+
   return { runId: args.runId, zone: "scratch", subId: args.subId, path: args.path };
 }

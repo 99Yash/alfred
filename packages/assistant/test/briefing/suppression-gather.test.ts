@@ -24,11 +24,15 @@ import { dbBackedSkip } from "../support/db-backed";
  */
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-briefing-suppress-gather-";
+
 const createdUserIds: string[] = [];
 
 const WINDOW_START = new Date("2026-06-27T00:00:00.000Z");
+
 const WINDOW_END = new Date("2026-06-28T00:00:00.000Z");
+
 const TIMEZONE = ianaTimezoneSchema.parse("Asia/Kolkata");
 
 async function seedUser(): Promise<string> {
@@ -37,6 +41,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Suppression Gather Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -74,6 +79,7 @@ async function seedEmail(args: {
     model: "test",
     documentId: docId,
   });
+
   return docId;
 }
 
@@ -90,17 +96,21 @@ async function gateFor(userId: string): Promise<{
     windowStart: WINDOW_START,
     windowEnd: WINDOW_END,
   });
+
   const demandingCount = gather.day_shape?.demandingEmailCount;
+
   const emailCount = Object.values(gather.email.categories).reduce(
     (sum, items) => sum + (items?.length ?? 0),
     0,
   );
+
   const quiet = isQuietMorning({
     demandingEmailCount: demandingCount,
     emailCount,
     activityCount: 0,
     meetingCount: 0,
   });
+
   return { demandingCount, emailCount, quiet };
 }
 
@@ -115,6 +125,7 @@ describe("morning suppression gate over gathered rows (DB-backed)", { skip: SKIP
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeReplicachePokeBridge();
     await closeRedis();
     await closeConnections();

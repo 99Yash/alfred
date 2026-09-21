@@ -63,6 +63,7 @@ test("the model-facing JSON schema still advertises the canonical surface", () =
     properties?: Record<string, unknown>;
     required?: string[];
   };
+
   assert.deepEqual(Object.keys(json.properties ?? {}).sort(), [
     "attendees",
     "calendarId",

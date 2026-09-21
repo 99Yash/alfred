@@ -33,7 +33,9 @@ import DOMPurify from "isomorphic-dompurify";
 export function sanitizeEmailHtml(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const trimmed = raw.trim();
+
   if (!trimmed) return null;
+
   const cleaned = DOMPurify.sanitize(trimmed, {
     WHOLE_DOCUMENT: true,
     FORBID_TAGS: [
@@ -74,6 +76,7 @@ export function sanitizeEmailHtml(raw: string | null | undefined): string | null
     // URL profile because they're a common pattern for transactional mail.
     ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|cid:|data:image\/)/i,
   });
+
   if (!cleaned || !cleaned.trim()) return null;
   // Re-inject the CSP `<meta>` + `<base>` after sanitization — DOMPurify strips
   // `<meta>` and `<link>` along with anything else that could redirect, so the
@@ -82,12 +85,15 @@ export function sanitizeEmailHtml(raw: string | null | undefined): string | null
   // `<base>` doesn't accept `rel`; modern browsers default to `noopener` for
   // `target="_blank"` so we get the safety guarantee without invalid markup.
   const headTags = `${EMAIL_CSP_META}<base target="_blank">`;
+
   if (/<head\b[^>]*>/i.test(cleaned)) {
     return cleaned.replace(/<head\b[^>]*>/i, (m) => `${m}${headTags}`);
   }
+
   if (/<html\b[^>]*>/i.test(cleaned)) {
     return cleaned.replace(/<html\b[^>]*>/i, (m) => `${m}<head>${headTags}</head>`);
   }
+
   return `<!doctype html><html><head>${headTags}</head><body>${cleaned}</body></html>`;
 }
 

@@ -138,6 +138,7 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
           reason: "collab_passive_activity",
         },
         meeting: { verdict: { kind: "keep" }, reason: null },
+        spam: { verdict: { kind: "keep" }, outcome: null },
       },
     },
     classification: classification({ collabActivity: "other_activity" }),
@@ -173,6 +174,7 @@ test("senderExtractionEvent carries each floor's real outcome", () => {
       signalText: "an api key was leaked in the public repo",
     }),
   );
+
   assert.equal(escalated.floorMatched, true);
   assert.equal(escalated.floorForced, true);
   assert.equal(escalated.finalCategory, "urgent");
@@ -185,6 +187,7 @@ test("senderExtractionEvent carries each floor's real outcome", () => {
   const gated = eventFor(
     applyFloors(classification({ category: "meeting" }), { ...floorContext(), ...recap }),
   );
+
   assert.equal(gated.meetingDemotedCategory, true);
   assert.equal(gated.meetingDemotionReason, "meeting_recap");
   assert.equal(gated.floorMatched, false);
@@ -237,6 +240,7 @@ function floorContext(): FloorContext {
     cc: null,
     accountEmail: null,
     contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: false },
+    isSpam: false,
   };
 }
 
@@ -292,7 +296,14 @@ function observations(): Observations {
       entityId: "ent_group",
       displayName: "Engineering",
     },
-    gmail: { categories: [], important: false, starred: false, inInbox: true },
+    gmail: {
+      categories: [],
+      important: false,
+      starred: false,
+      inInbox: true,
+      spam: false,
+      trash: false,
+    },
     content: {
       hasUnsubscribe: false,
       hasCurrencyAmount: false,

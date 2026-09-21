@@ -37,9 +37,13 @@ import { dbBackedSkip } from "../support/db-backed";
  */
 
 const ID_PREFIX = "test-gmail-kind-gates-";
+
 const OCCURRED_AT = new Date("2026-06-30T08:00:00.000Z");
+
 const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
+
 const SELF_EMAIL = "yash@example.com";
+
 const createdUserIds: string[] = [];
 
 const SERVER_ENV_FIXTURES = {
@@ -73,6 +77,7 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -135,20 +140,26 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
 
     // --- Gate 10: the active reader returns the activated classification.
     const reader = userModelReader(userId);
+
     const group = await reader.getProfileByIdentity({
       kind: "email",
       value: "engineering@oliv.ai",
     });
+
     assert.equal(group?.kind, "group");
+
     const service = await reader.getProfileByIdentity({
       kind: "email",
       value: "noreply@github.com",
     });
+
     assert.equal(service?.kind, "service");
+
     const weakGroup = await reader.getProfileByIdentity({
       kind: "email",
       value: "team@startup.example",
     });
+
     assert.equal(weakGroup?.kind, "unknown");
     const person = await reader.getProfileByIdentity({ kind: "email", value: "alice@example.com" });
     assert.equal(person?.kind, "person");
@@ -179,6 +190,7 @@ async function foldOnce(
     projectionName: USER_MODEL_PROJECTION_NAME,
     projectionVersion,
   });
+
   const projected = await projectGmailKindProfiles({
     userId,
     projectionRunId: run.id,
@@ -186,6 +198,7 @@ async function foldOnce(
     computedAt: OCCURRED_AT,
     excludeEmailValues: [SELF_EMAIL],
   });
+
   await completeProjectionRun({
     runId: run.id,
     userId,
@@ -193,6 +206,7 @@ async function foldOnce(
     rowCounts: { entity_profiles: projected.profileCount },
     completedAt: OCCURRED_AT,
   });
+
   return { runId: run.id, checksum: projected.checksum, profileCount: projected.profileCount };
 }
 
@@ -208,6 +222,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 

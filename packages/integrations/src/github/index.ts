@@ -8,26 +8,29 @@ export {
   canUserAccessInstallation,
   verifyWebhookSignature,
 } from "./app";
+
 export type { GithubAppConfig, InstallationToken, ExchangeUserCodeResult } from "./app";
+
 export {
   upsertGithubCredential,
   getGithubAccessToken,
   getInstallationTokenForUser,
   listGithubCredentials,
-  findCredentialByInstallationId,
   githubInstallationId,
 } from "./credentials";
+
 export type {
   UpsertGithubCredentialArgs,
   GithubCredentialSummary,
-  GithubInstallationCredential,
   UserInstallationToken,
 } from "./credentials";
+
 // The ONE door to GitHub's REST API on a user's behalf — the curated reads plus
 // the passthrough transport profile. Application code reaches it through
 // `ctx.integrations.github`, which binds the user for it; nothing outside
 // `client.ts` needs a token to talk to GitHub.
 export { createGithubClient, githubClientForUser } from "./client";
+
 export type {
   GithubClient,
   GithubClientOptions,

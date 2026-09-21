@@ -1,4 +1,9 @@
-import type { McpRecoveryOperation, McpRecoveryOperationsPage } from "@alfred/contracts";
+import type {
+  BuiltInMCPProvider,
+  McpRecoveryOperation,
+  McpRecoveryOperationsPage,
+} from "@alfred/contracts";
+import { API_URL, type client, type EdenData } from "~/lib/eden";
 import {
   CATEGORY_ORDER,
   matchesIntegration,
@@ -17,11 +22,99 @@ export const MCP_SECTION = {
   description: "Connect any MCP server to extend Alfred.",
 } as const;
 
-export const MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SECTION.description}`;
+export const BUILT_IN_MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SECTION.description}`;
+
+/**
+ * The one cache key for the MCP connection list.
+ *
+ * Every component that reads or mutates a connection imports this key and
+ * invalidates the list itself. The list owner does not hand a refresh callback
+ * down, because a caller that forgets to pass it leaves a card that mutates and
+ * never redraws.
+ */
+export const MCP_CONNECTIONS_QUERY_KEY = ["integrations", "mcp", "connections"] as const;
+
+type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
+
+/**
+ * One row of the MCP connection list, as the wire hands it over.
+ *
+ * It lives here rather than on a card, because three components read it and a
+ * component that owns a shared type makes a sibling import from a sibling
+ * VIEW. The shape is derived from the route, never restated, so a field added
+ * server-side reaches every reader at once.
+ */
+export type McpConnection = McpConnectionsResponse["connections"][number];
+
+/**
+ * The one cache key for one connection's catalog read.
+ *
+ * The per-connection route nests under the connection path, so the key carries
+ * the connection id. The panel owns its own reads; the connection list does not
+ * pass a catalog in, because a second reader would have to invalidate this key
+ * separately and a caller that forgets leaves a stale list.
+ */
+export const MCP_CONNECTION_TOOLS_QUERY_KEY = [
+  "integrations",
+  "mcp",
+  "connection",
+  "tools",
+] as const;
+
+type McpConnectionRoute = ReturnType<typeof client.api.integrations.mcp.connections>;
+
+/**
+ * One page of a connection's persisted catalog, and the exact descriptor read
+ * behind a hit. Both are derived from the routes rather than restated, so the
+ * panel cannot drift from the wire contract; the route re-parses each arm at
+ * its own boundary.
+ */
+export type McpConnectionToolPage = EdenData<McpConnectionRoute["tools"]["get"]>;
+
+export type McpConnectionTool = McpConnectionToolPage["tools"][number];
+
+export type McpConnectionToolInspection = EdenData<McpConnectionRoute["tools"]["inspect"]["get"]>;
+
+/**
+ * The one cache key for one tool's exact-descriptor review state.
+ *
+ * It is a child of the connection tools key, so invalidating the catalog also
+ * invalidates the review surface, and it carries the full tool identity because
+ * a review is bound to a descriptor, not to a connection.
+ */
+export const MCP_TOOL_POLICY_QUERY_KEY = [...MCP_CONNECTION_TOOLS_QUERY_KEY, "policy"] as const;
+
+/**
+ * One tool's review state, and the persisted review itself. Derived from the
+ * route rather than restated, so the panel cannot drift from the wire contract;
+ * the route parses each arm at its own boundary.
+ */
+export type McpToolPolicyState = EdenData<McpConnectionRoute["tools"]["policy"]["get"]>;
+
+export type McpToolPolicy = Extract<McpToolPolicyState, { status: "reviewed" }>["policy"];
+
+/**
+ * The consent door for a STORED connection, and the creation door for a
+ * built-in that may have no row yet.
+ *
+ * Both are browser NAVIGATIONS, not fetches: they end at a third-party
+ * authorization server. They are built here because three call sites used to
+ * spell the same `${API_URL}/api/integrations/mcp/...` prefix by hand, and a
+ * route rename would have missed one.
+ */
+export function mcpAuthorizeUrl(connectionId: string): string {
+  return `${API_URL}/api/integrations/mcp/connections/${connectionId}/authorize`;
+}
+
+export function mcpBuiltInConnectUrl(provider: BuiltInMCPProvider): string {
+  return `${API_URL}/api/integrations/mcp/built-ins/${provider}/connect`;
+}
 
 export function matches(haystack: string, query: string): boolean {
   const q = query.trim().toLowerCase();
+
   if (!q) return true;
+
   return haystack.toLowerCase().includes(q);
 }
 
@@ -33,6 +126,7 @@ export function filterSections(
     const matched = providers.filter(
       (provider) => provider.category === category && matchesIntegration(provider, query),
     );
+
     return matched.length > 0 ? [{ title: category, providers: matched }] : [];
   });
 }
@@ -50,7 +144,9 @@ export function buildConnectedSection(
   const connected = resolved.filter(
     (p) => p.status === "connected" && matchesIntegration(p, query),
   );
+
   if (connected.length === 0) return null;
+
   return { title: "Connected", providers: connected };
 }
 

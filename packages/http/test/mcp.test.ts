@@ -42,6 +42,7 @@ describe("mcpIntegrationRoutes", () => {
 
   test("keeps recovery operations behind authentication", async () => {
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
+
     const requests = [
       new Request("http://localhost/api/integrations/mcp/recovery"),
       new Request("http://localhost/api/integrations/mcp/recovery/inv_1/resolve", {
@@ -60,20 +61,130 @@ describe("mcpIntegrationRoutes", () => {
     }
   });
 
+  test("keeps the connection rename and removal behind authentication", async () => {
+    const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
+
+    const rename = await app.handle(
+      new Request("http://localhost/api/integrations/mcp/connections/conn_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "Renamed" }),
+      }),
+    );
+
+    assert.equal(rename.status, 401);
+
+    const remove = await app.handle(
+      new Request("http://localhost/api/integrations/mcp/connections/conn_1", {
+        method: "DELETE",
+      }),
+    );
+
+    assert.equal(remove.status, 401);
+  });
+
+  test("keeps the connection catalog reads behind authentication", async () => {
+    const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
+
+    const requests = [
+      new Request("http://localhost/api/integrations/mcp/connections/conn_1/tools"),
+      new Request(
+        "http://localhost/api/integrations/mcp/connections/conn_1/tools/inspect?remoteName=create_issue&catalogRevision=rev_1",
+      ),
+    ];
+
+    for (const request of requests) {
+      const response = await app.handle(request);
+      assert.equal(response.status, 401);
+    }
+  });
+
+  test("binds the catalog read to the path connection id", async () => {
+    const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
+
+    const toolsRoute = app.routes.find(
+      (candidate) =>
+        candidate.method === "GET" &&
+        candidate.path === "/api/integrations/mcp/connections/:id/tools",
+    );
+
+    const inspectRoute = app.routes.find(
+      (candidate) =>
+        candidate.method === "GET" &&
+        candidate.path === "/api/integrations/mcp/connections/:id/tools/inspect",
+    );
+
+    assert.ok(toolsRoute);
+    assert.ok(inspectRoute);
+
+    const toolsProbe = new Elysia().get("/tools", ({ query }) => query, {
+      query: toolsRoute.hooks.query,
+    });
+
+    const toolsAccepted = await toolsProbe.handle(
+      new Request("http://localhost/tools?query=issue&detail=summary&cursor=cursor-2&limit=5"),
+    );
+
+    assert.equal(toolsAccepted.status, 200);
+    assert.deepEqual(await toolsAccepted.json(), {
+      query: "issue",
+      detail: "summary",
+      cursor: "cursor-2",
+      limit: 5,
+    });
+
+    // The connection identity is the path segment alone. A client that names a
+    // different `connectionId` — or the owner-wide `namespace` — is refused
+    // before the handler runs, so the read can only ever target `params.id`.
+    for (const query of ["connectionId=conn_2", "namespace=server_2", "ref=anything"]) {
+      const rejected = await toolsProbe.handle(new Request(`http://localhost/tools?${query}`));
+
+      assert.equal(rejected.status, 422, query);
+    }
+
+    const inspectProbe = new Elysia().get("/inspect", ({ query }) => query, {
+      query: inspectRoute.hooks.query,
+    });
+
+    const inspectAccepted = await inspectProbe.handle(
+      new Request("http://localhost/inspect?remoteName=create_issue&catalogRevision=rev_1"),
+    );
+
+    assert.equal(inspectAccepted.status, 200);
+    assert.deepEqual(await inspectAccepted.json(), {
+      remoteName: "create_issue",
+      catalogRevision: "rev_1",
+    });
+
+    for (const query of [
+      "connectionId=conn_2&remoteName=create_issue&catalogRevision=rev_1",
+      "kind=mcp&remoteName=create_issue&catalogRevision=rev_1",
+      "remoteName=create_issue",
+    ]) {
+      const rejected = await inspectProbe.handle(new Request(`http://localhost/inspect?${query}`));
+
+      assert.equal(rejected.status, 422, query);
+    }
+  });
+
   test("publishes only the optional recovery cursor", async () => {
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
+
     const route = app.routes.find(
       (candidate) =>
         candidate.method === "GET" && candidate.path === "/api/integrations/mcp/recovery",
     );
+
     assert.ok(route);
 
     const validationProbe = new Elysia().get("/recovery", ({ query }) => query, {
       query: route.hooks.query,
     });
+
     const accepted = await validationProbe.handle(
       new Request("http://localhost/recovery?cursor=cursor-2"),
     );
+
     assert.equal(accepted.status, 200);
     assert.deepEqual(await accepted.json(), { cursor: "cursor-2" });
 
@@ -81,33 +192,40 @@ describe("mcpIntegrationRoutes", () => {
       const rejected = await validationProbe.handle(
         new Request(`http://localhost/recovery?${query}`),
       );
+
       assert.equal(rejected.status, 422);
     }
   });
 
   test("accepts exactly the two closed recovery decisions at the HTTP boundary", async () => {
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(mcpIntegrationRoutes);
+
     const route = app.routes.find(
       (candidate) =>
         candidate.method === "POST" &&
         candidate.path === "/api/integrations/mcp/recovery/:invocationId/resolve",
     );
+
     assert.ok(route);
 
     const decisions: unknown[] = [];
+
     const validationProbe = new Elysia({ normalize: "typebox" }).post(
       "/resolve",
       ({ body }) => {
         // `route.hooks.body` is untyped here; the contract schema is the reader.
         decisions.push(mcpRecoveryDecisionBodySchema.parse(body).decision);
+
         return null;
       },
       { body: route.hooks.body },
     );
+
     const acceptedDecisions: McpRecoveryDecision[] = [
       "confirmed_succeeded",
       "confirmed_not_applied",
     ];
+
     for (const decision of acceptedDecisions) {
       const response = await validationProbe.handle(
         new Request("http://localhost/resolve", {
@@ -116,8 +234,10 @@ describe("mcpIntegrationRoutes", () => {
           body: JSON.stringify({ decision }),
         }),
       );
+
       assert.equal(response.status, 200);
     }
+
     assert.deepEqual(decisions, acceptedDecisions);
 
     const extraKey = await validationProbe.handle(
@@ -127,6 +247,7 @@ describe("mcpIntegrationRoutes", () => {
         body: JSON.stringify({ decision: "confirmed_succeeded", extra: true }),
       }),
     );
+
     assert.equal(extraKey.status, 422, "the body is a closed object");
   });
 
@@ -134,22 +255,27 @@ describe("mcpIntegrationRoutes", () => {
     const routeApp = new Elysia({ normalize: "typebox" })
       .use(errorHandler)
       .use(mcpIntegrationRoutes);
+
     const route = routeApp.routes.find(
       (candidate) =>
         candidate.method === "POST" &&
         candidate.path === "/api/integrations/mcp/recovery/:invocationId/resolve",
     );
+
     assert.ok(route);
 
     let mutationCalls = 0;
+
     const validationProbe = new Elysia({ normalize: "typebox" }).post(
       "/resolve",
       () => {
         mutationCalls += 1;
+
         return null;
       },
       { body: route.hooks.body },
     );
+
     const rejectedBodies: unknown[] = [{}, { decision: "retry_automatically" }];
 
     for (const body of rejectedBodies) {
@@ -160,13 +286,16 @@ describe("mcpIntegrationRoutes", () => {
           body: JSON.stringify(body),
         }),
       );
+
       assert.equal(response.status, 422);
     }
+
     assert.equal(mutationCalls, 0);
 
     type InvalidDecisionStaysOutsideContract = "retry_automatically" extends McpRecoveryDecision
       ? false
       : true;
+
     const invalidDecisionStaysOutsideContract: InvalidDecisionStaysOutsideContract = true;
     assert.equal(invalidDecisionStaysOutsideContract, true);
   });
@@ -175,7 +304,9 @@ describe("mcpIntegrationRoutes", () => {
     const events: string[] = [];
     const fallback = permissiveMcpEndpointAuthorizerForTests();
     let providerAuthorization: McpAuthorizedOAuth | null = null;
+
     const readyClient = new McpRawClient({
+      auth: { mode: "none" },
       connectionId: "conn_test",
       endpoint: {
         endpointUrl: "https://mcp.example.test/mcp",
@@ -186,20 +317,25 @@ describe("mcpIntegrationRoutes", () => {
         throw new Error("the callback must not open a second protocol client");
       },
     });
+
     const connectionManager = {
       events,
       async getReadyClient() {
         this.events.push("ready");
+
         return readyClient;
       },
     };
+
     const provider = {
       matchesState: async (state: string) => {
         events.push(`state:${state}`);
+
         return true;
       },
       discoveryState: async () => {
         events.push("discovery");
+
         return { authorizationServerUrl: "https://auth.example.test/" };
       },
       finishAuthorization: async (params: URLSearchParams) => {
@@ -225,6 +361,7 @@ describe("mcpIntegrationRoutes", () => {
           authorize: async (connection, network) => {
             events.push("authorize");
             const authorized = await fallback.authorize(connection, network);
+
             return {
               ...authorized,
               close: async () => {
@@ -237,6 +374,7 @@ describe("mcpIntegrationRoutes", () => {
         providerForConnection: (input) => {
           events.push("provider");
           providerAuthorization = input.authorization;
+
           return provider;
         },
         connectionManager,

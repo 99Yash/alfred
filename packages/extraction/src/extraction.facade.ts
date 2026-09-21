@@ -86,10 +86,12 @@ export function extraction(options: ExtractionOptions): Extraction {
 
   function getExtractor(format: ContentFormat): MediaExtractor {
     const cached = cache.get(format);
+
     if (cached) return cached;
     const entry = FORMAT_REGISTRY[format];
     const extractor = entry.factory(DOOR_LIMITS[format][options.door]);
     cache.set(format, extractor);
+
     return extractor;
   }
 
@@ -99,7 +101,9 @@ export function extraction(options: ExtractionOptions): Extraction {
 
   function resolveMime(mime: string): MediaExtractor | null {
     const format = resolveFormat(mime);
+
     if (!format) return null;
+
     return getExtractor(format);
   }
 
@@ -113,9 +117,12 @@ export function extraction(options: ExtractionOptions): Extraction {
     },
     wouldExceed(mime: string, byteLength: number): boolean {
       const format = resolveFormat(mime);
+
       if (!format) return false;
+
       if (!Number.isSafeInteger(byteLength) || byteLength <= 0) return false;
       const maxBytes = DOOR_LIMITS[format][options.door].maxBytes;
+
       return byteLength > maxBytes;
     },
     async extract(args: {
@@ -123,7 +130,9 @@ export function extraction(options: ExtractionOptions): Extraction {
       bytes: Uint8Array;
     }): Promise<MediaExtractionResult | null> {
       const extractor = resolveMime(args.mime);
+
       if (!extractor) return null;
+
       return extractor(args.bytes);
     },
   };

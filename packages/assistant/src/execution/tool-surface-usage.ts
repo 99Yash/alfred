@@ -21,13 +21,14 @@ import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import {
+  getStringPath,
   isRecord,
   isToolName,
   type AgentTranscriptMessage,
   type ToolName,
 } from "@alfred/contracts";
 
-import { systemToolKernel } from "./tool-surface";
+import { migrateRecordedToolNames, systemToolKernel } from "./tool-surface";
 
 export interface ToolSurfaceUsage {
   /** Lazily loaded (non-kernel) tools on the run's final active surface. */
@@ -59,9 +60,11 @@ export function summarizeToolSurfaceUsage(args: {
   const loaded = [...new Set(args.activeTools)]
     .filter((name) => !args.kernelTools.has(name))
     .sort();
+
   const preloaded = [...new Set(args.preloadedTools)]
     .filter((name) => !args.kernelTools.has(name))
     .sort();
+
   return {
     loaded,
     usedLoaded: loaded.filter((name) => args.invokedTools.has(name)),
@@ -82,22 +85,38 @@ export function invokedToolNamesFromTranscript(
   transcript: readonly AgentTranscriptMessage[],
 ): Set<ToolName> {
   const names = new Set<ToolName>();
+
   for (const message of transcript) {
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+
     for (const part of message.content) {
       if (!isRecord(part) || part.type !== "tool-call") continue;
-      const toolName = part.toolName;
-      if (typeof toolName === "string" && isToolName(toolName)) names.add(toolName);
+      const toolName = getStringPath(part, "toolName");
+
+      if (toolName !== undefined && isToolName(toolName)) names.add(toolName);
     }
   }
+
   return names;
 }
 
-/** Untyped `state.activeTools` narrowed to registered-name-shaped strings. */
-function toolNamesFromState(state: unknown, key: "activeTools" | "preloadedTools"): ToolName[] {
+/**
+ * The tool names one persisted run-state field holds, read off the raw `state`
+ * jsonb. The one reader for these fields: a checkpoint written under an older
+ * deploy may fail the full run-state schema for unrelated reasons and still
+ * carry good names, and it may name tools since renamed or retired, so the
+ * names go through {@link migrateRecordedToolNames} rather than a bare
+ * registry check. Both the #414 usage report and the chat thread carry-over
+ * read through here.
+ */
+export function toolNamesFromState(
+  state: unknown,
+  key: "activeTools" | "preloadedTools",
+): ToolName[] {
   if (!isRecord(state) || !Array.isArray(state[key])) return [];
-  return state[key].filter(
-    (name): name is ToolName => typeof name === "string" && isToolName(name),
+
+  return migrateRecordedToolNames(
+    state[key].filter((name): name is string => typeof name === "string"),
   );
 }
 
@@ -114,6 +133,7 @@ export async function getRunToolSurfaceUsage(runId: string): Promise<ToolSurface
     .limit(1);
 
   const run = rows[0];
+
   if (!run) return null;
 
   return summarizeToolSurfaceUsage({

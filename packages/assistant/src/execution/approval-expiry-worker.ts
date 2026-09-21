@@ -62,13 +62,17 @@ export async function stopApprovalExpiryWorker(): Promise<void> {
   _worker = undefined;
 }
 
-async function processApprovalExpiryJob(job: Job<ApprovalExpiryJobData>): Promise<unknown> {
+async function processApprovalExpiryJob(
+  job: Job<ApprovalExpiryJobData>,
+): Promise<ExpireStagingResult> {
   const { stagingId, userId } = approvalExpiryJobDataSchema.parse(job.data);
   const result = await expireStaging({ stagingId, userId });
+
   if (result.status === "deferred") {
     await job.moveToDelayed(result.expiresAt.getTime(), job.token);
     throw new DelayedError();
   }
+
   return result;
 }
 
@@ -129,17 +133,26 @@ export async function expireStaging(args: {
       .for("update");
 
     const row = rows[0];
+
     if (!row) return { kind: "skipped", reason: "missing" };
+
     if (row.status !== "pending") return { kind: "skipped", reason: row.status };
+
     if (!row.requiresApproval) return { kind: "skipped", reason: "not_gated" };
+
     if (row.expiresAt && row.expiresAt.getTime() > Date.now()) {
       return { kind: "deferred", expiresAt: row.expiresAt };
     }
 
+    // Match on the staging id alone. The wake already carries the approval
+    // kind the dispatcher wrote, and a kind re-derived here could only disagree
+    // with it (ADR-0099), so this worker needs neither the tool registry nor a
+    // boot order.
     const signalOutcome = await signalRunInTx(tx, {
       runId: row.runId,
-      match: { kind: "hil", approvalId: stagingId, approvalKind: "action_staging" },
+      match: { kind: "hil", approvalId: stagingId },
     });
+
     // Only expire when the run is genuinely parked on this approval. A
     // terminal/mismatched run shouldn't leave a pending gated row, but if
     // it does we leave it untouched rather than racing an unrelated wake.
@@ -152,6 +165,10 @@ export async function expireStaging(args: {
       .update(actionStagings)
       .set({
         status: "expired",
+        // The effect dimension, orthogonal to `status` (#559a). An expired gate
+        // never called the provider, so the effect is `refused` — the same
+        // value `withdrawToolCallApproval` writes for the same reason.
+        outcome: "refused",
         rejectReason: "auto-expired",
         decidedAt: now,
         rowVersion: sql`${actionStagings.rowVersion} + 1`,
@@ -170,6 +187,7 @@ export async function expireStaging(args: {
   });
 
   if (outcome.kind === "skipped") return { status: "skipped", reason: outcome.reason, stagingId };
+
   if (outcome.kind === "deferred") {
     return { status: "deferred", stagingId, expiresAt: outcome.expiresAt };
   }
@@ -190,6 +208,7 @@ export async function expireStaging(args: {
   await removeApprovalNotificationJob(stagingId);
 
   let enqueued = false;
+
   if (outcome.shouldEnqueue) {
     try {
       await redeliverRun(outcome.runId);

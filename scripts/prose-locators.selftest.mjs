@@ -12,12 +12,14 @@ import { proseLocatorFailures } from "./prose-locators.mjs";
 /** One workspace-package entry in the shape `workspaceExportIndex` builds. */
 function packageEntry(name, dir, exportsMap) {
   const keys = new Map();
+
   for (const [subpath, target] of Object.entries(exportsMap)) {
     keys.set(
       subpath,
       target === null ? { blocked: true, targets: [] } : { blocked: false, targets: [target] },
     );
   }
+
   return [name, { dir, keys, problem: null }];
 }
 
@@ -25,6 +27,7 @@ const SYNC = packageEntry("@alfred/sync", "packages/sync", {
   ".": "./src/index.ts",
   "./*": "./src/*",
 });
+
 const LISTED_SYNC = ["packages/sync/src/index.ts", "packages/sync/src/foo.ts"];
 
 function run(docs, sources, listed, packages, allowed) {
@@ -49,9 +52,12 @@ function expectClean(label, failures, report) {
 function expectFailure(label, failures, report, needles) {
   if (report.length === 0) {
     failures.push(`${label}: expected a reported failure, received none`);
+
     return;
   }
+
   const joined = report.join("\n");
+
   for (const needle of needles) {
     if (!joined.includes(needle)) {
       failures.push(

@@ -53,12 +53,19 @@ import {
 import { triageTagOverrideArgsSchema, triageTagOverrideClient } from "./triage-tags";
 
 export * from "./notes";
+
 export * from "./facts";
+
 export * from "./prefs";
+
 export * from "./policy";
+
 export * from "./workflows";
+
 export * from "./todos";
+
 export * from "./chat";
+
 export * from "./triage-tags";
 
 /**
@@ -95,6 +102,7 @@ export const clientMutators = {
 };
 
 export type ClientMutators = typeof clientMutators;
+
 export type MutatorName = keyof ClientMutators;
 
 /**

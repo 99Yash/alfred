@@ -30,131 +30,114 @@ import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Where an observation came from. Integrations feed the graph passively;
- * `user` / `alfred_chat` are first-class high-precedence sources (D14) — a
- * chat-captured standing instruction or a `/settings` correction is an
- * observation, not a side-channel write.
+ * The kinds a user-authored source may emit (D14). `user` (a `/settings` edit)
+ * and `alfred_chat` (the same correction typed into a thread) share the whole
+ * set, so the two reducers point at one tuple rather than restating it.
  */
-export const OBSERVATION_SOURCES = [
-  "gmail",
-  "google_account",
-  "google_calendar",
-  "google_directory",
-  "github",
-  "clickup",
-  "notion",
-  "railway",
-  "vercel",
-  "enrichment",
-  "alfred_chat",
-  "user",
-] as const;
-export const observationSourceSchema = z.enum(OBSERVATION_SOURCES);
-export type ObservationSource = (typeof OBSERVATION_SOURCES)[number];
-
-/**
- * Conflict precedence for the fold (D14): rank first, then recency within a
- * rank. `user` beats `alfred_chat` beats first-party integrations beats
- * enrichment — regardless of time. Lower number wins. A projection may
- * *propose* facts from integrations, but must never overwrite a
- * user-authoritative correction.
- */
-export const OBSERVATION_SOURCE_RANK = {
-  user: 0,
-  alfred_chat: 1,
-  // First-party integrations share rank 2 — recency breaks ties between them.
-  // `google_directory` is first-party (and its verified identities anchor at the
-  // strongest non-user IDENTITY tier, D2/D3), but identity-anchor strength and
-  // fold-conflict precedence are different axes: a Directory-sourced FACT must
-  // not silently beat a `user` correction, so it sits at the first-party rank.
-  gmail: 2,
-  google_account: 2,
-  google_calendar: 2,
-  google_directory: 2,
-  github: 2,
-  clickup: 2,
-  notion: 2,
-  railway: 2,
-  vercel: 2,
-  enrichment: 3,
-} satisfies Readonly<Record<ObservationSource, number>>;
-
-/**
- * Relationship-evidence kinds (D4/D15). A provider event can produce several
- * observations, but only relationship-bearing occurrences affect
- * significance/co-occurrence — a calendar reminder edit is not another meeting.
- * Extensible: a new reducer registers its evidence kinds here first.
- */
-export const OBSERVATION_KINDS = [
-  // gmail
-  "email_message",
-  // google_calendar
-  "calendar_meeting",
-  // github
-  "github_pull_request",
-  "github_review",
-  "github_push",
-  // user / alfred_chat (D14)
+const USER_AUTHORED_KINDS = [
   "user_standing_instruction",
   "user_correction",
   "user_confirmation",
   "user_rejection",
   "user_profile_edit",
-  // identity affiliation — a connected account asserting the user's org domain
-  // (ADR-0080 §4a). Subject is always `{ kind: "user" }`; the SOURCE is the
-  // integration that owns the account (NOT `user`), so an explicit user
-  // correction outranks it. Emitted by integration connect/sweep, not a reducer
-  // over inbound content.
-  "user_org_affiliation",
-  "enrichment_fact",
 ] as const;
-export const observationKindSchema = z.enum(OBSERVATION_KINDS);
-export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
+
+/** One reducer's precedence and the evidence kinds it may emit. */
+interface ObservationReducerEntry {
+  /**
+   * Conflict precedence for the fold (D14): rank first, then recency within a
+   * rank. Lower number wins, regardless of time. `user` (0) beats
+   * `alfred_chat` (1) beats first-party integrations (2) beats enrichment (3).
+   * A projection may *propose* facts from an integration, but must never
+   * overwrite a user-authoritative correction.
+   */
+  readonly rank: number;
+  /**
+   * Relationship-evidence kinds (D4/D15). A provider event can produce several
+   * observations, but only relationship-bearing occurrences affect
+   * significance and co-occurrence — a calendar reminder edit is not another
+   * meeting.
+   */
+  readonly kinds: readonly [string, ...string[]];
+}
 
 /**
- * Closed `source → kind` map (D1/D15). `source` and `kind` are NOT independent
- * vocabularies: a kind is legal only for the source whose reducer emits it, so
- * `{ source: "gmail", kind: "github_push" }` is rejected. Sources whose reducers
- * don't exist yet (`google_directory`/`clickup`/`notion`/`railway`/`vercel`) map
- * to `[]` — no observation kind is legal for them until their reducer registers
- * one here. (`google_directory` is registered as a source in P0 — its identity
- * kind `google_directory_id` and verified-directory anchor tier already exist —
- * so a Directory-originated identity/observation has a real `source` to attribute
- * to instead of masquerading as `google_calendar`; its profile/org-membership
- * kinds land with the P3 People-API reducer.)
- * `user` and `alfred_chat` share the full user-authored set (D14): the same
- * correction/confirmation can arrive from a `/settings` edit or from chat.
+ * Every observation reducer in the tree, keyed by the source it writes under
+ * (#987). The record keys ARE the source space, so a reducer states its source,
+ * its rank, and its kinds ONCE and the four tables below derive from it.
+ * `OBSERVATION_SOURCES`, `OBSERVATION_SOURCE_RANK`, `OBSERVATION_KINDS`, and
+ * `OBSERVATION_KINDS_BY_SOURCE` are projections of this record and hold no
+ * vocabulary of their own.
+ *
+ * Integrations feed the graph passively; `user` and `alfred_chat` are
+ * first-class high-precedence sources (D14) — a chat-captured standing
+ * instruction or a `/settings` correction is an observation, not a
+ * side-channel write.
+ *
+ * A source with NO reducer is not pre-registered, because a reader would
+ * recover a shape the traffic does not have. A new reducer joins here in the
+ * same change that lands its first write (ADR-0067 P2 GitHub, P3 Calendar and
+ * Directory, post-v1 enrichment). Adding the key is the whole registration:
+ * there is no second table to forget.
  */
-export const OBSERVATION_KINDS_BY_SOURCE = {
-  gmail: ["email_message"],
-  // `user_org_affiliation`: the connected Google account asserts the user's org
-  // domain (ADR-0080 §4a). This is account-level provenance, not a Gmail message
-  // reducer event; keeping it on `google_account` prevents the future connect-time
-  // emitter from pretending a generic Google credential came from Gmail.
-  google_account: ["user_org_affiliation"],
-  google_calendar: ["calendar_meeting"],
-  google_directory: [],
-  github: ["github_pull_request", "github_review", "github_push"],
-  clickup: [],
-  notion: [],
-  railway: [],
-  vercel: [],
-  enrichment: ["enrichment_fact"],
-  alfred_chat: [
-    "user_standing_instruction",
-    "user_correction",
-    "user_confirmation",
-    "user_rejection",
-    "user_profile_edit",
-  ],
-  user: [
-    "user_standing_instruction",
-    "user_correction",
-    "user_confirmation",
-    "user_rejection",
-    "user_profile_edit",
-  ],
-} as const satisfies Record<ObservationSource, readonly ObservationKind[]>;
+export const OBSERVATION_REDUCERS = {
+  /** A `/settings` edit or another explicit user statement. */
+  user: { rank: 0, kinds: USER_AUTHORED_KINDS },
+  /** The standing-instruction writer, capturing the same set from a thread. */
+  alfred_chat: { rank: 1, kinds: USER_AUTHORED_KINDS },
+  /** The Gmail message reducer. First-party integrations share rank 2. */
+  gmail: { rank: 2, kinds: ["email_message"] },
+  /**
+   * The connect-time org-affiliation emitter (ADR-0080 §4a): the connected
+   * Google account asserts the user's org domain. This is account-level
+   * provenance, not a Gmail message reducer event; keeping it on its own source
+   * stops the emitter pretending a generic Google credential came from Gmail.
+   */
+  google_account: { rank: 2, kinds: ["user_org_affiliation"] },
+} as const satisfies Record<string, ObservationReducerEntry>;
+
+/** Where an observation came from — the reducer keys, in record order. */
+export type ObservationSource = keyof typeof OBSERVATION_REDUCERS;
+
+export const OBSERVATION_SOURCES: readonly ObservationSource[] =
+  // SAFETY: `Object.keys` types its result as `string[]`; the keys of a
+  // non-indexed literal are exactly `keyof typeof OBSERVATION_REDUCERS`.
+  Object.keys(OBSERVATION_REDUCERS) as ObservationSource[];
+
+export const observationSourceSchema = z.enum(OBSERVATION_SOURCES);
+
+/** Fold precedence, projected off the registry. See `ObservationReducerEntry.rank`. */
+export const OBSERVATION_SOURCE_RANK: {
+  readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["rank"];
+} =
+  // SAFETY: `Object.fromEntries` types its result as `{ [k: string]: T }`; the
+  // pairs are built from `OBSERVATION_SOURCES`, so the keys are exactly
+  // `ObservationSource` and each value is that reducer's own rank.
+  Object.fromEntries(
+    OBSERVATION_SOURCES.map((source) => [source, OBSERVATION_REDUCERS[source].rank]),
+  ) as { readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["rank"] };
+
+/**
+ * Closed `source -> kind` map (D1/D15). `source` and `kind` are NOT independent
+ * vocabularies: a kind is legal only for the source whose reducer emits it, so
+ * `{ source: "gmail", kind: "user_org_affiliation" }` is rejected.
+ */
+export const OBSERVATION_KINDS_BY_SOURCE: {
+  readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["kinds"];
+} =
+  // SAFETY: same shape argument as `OBSERVATION_SOURCE_RANK` above.
+  Object.fromEntries(
+    OBSERVATION_SOURCES.map((source) => [source, OBSERVATION_REDUCERS[source].kinds]),
+  ) as { readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["kinds"] };
+
+/** Every evidence kind some reducer emits, deduplicated across shared tuples. */
+export type ObservationKind = (typeof OBSERVATION_REDUCERS)[ObservationSource]["kinds"][number];
+
+export const OBSERVATION_KINDS: readonly ObservationKind[] = [
+  ...new Set(OBSERVATION_SOURCES.flatMap((source) => OBSERVATION_REDUCERS[source].kinds)),
+];
+
+export const observationKindSchema = z.enum(OBSERVATION_KINDS);
 
 /** True iff `kind` is one of the kinds the reducer for `source` may emit. */
 export function isObservationKindForSource(
@@ -162,13 +145,14 @@ export function isObservationKindForSource(
   kind: ObservationKind,
 ): boolean {
   const kinds: readonly ObservationKind[] = OBSERVATION_KINDS_BY_SOURCE[source];
+
   return kinds.includes(kind);
 }
 
 /**
  * The `(source, kind)` pair every reducer must satisfy before an observation is
  * written — closes the half-open vocabulary that independent `source`/`kind`
- * validation leaves (a `gmail` row carrying a `github_*` kind). P1's full
+ * validation leaves (a `gmail` row carrying a user-authored kind). P1's full
  * observation-insert schema composes this.
  *
  * HARD P1 GATE: this pair-check is necessary but not sufficient. No raw
@@ -190,6 +174,7 @@ export const observationSourceKindSchema = z
     error: "observation kind is not valid for its source",
     path: ["kind"],
   });
+
 export type ObservationSourceKind = z.infer<typeof observationSourceKindSchema>;
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -228,7 +213,9 @@ export const IDENTITY_KINDS = [
   "github_repository_full_name",
   "integration_object_key",
 ] as const;
+
 export const identityKindSchema = z.enum(IDENTITY_KINDS);
+
 export type IdentityKind = (typeof IDENTITY_KINDS)[number];
 
 export const MAX_IDENTITY_VALUE_BYTES = 1024;
@@ -288,6 +275,7 @@ const CASE_FOLDED_IDENTITY_KINDS: ReadonlySet<IdentityKind> = new Set([
  */
 export function canonicalizeIdentityValue(kind: IdentityKind, value: string): string {
   const trimmed = value.trim();
+
   return CASE_FOLDED_IDENTITY_KINDS.has(kind) ? trimmed.toLowerCase() : trimmed;
 }
 
@@ -354,6 +342,7 @@ const IDENTITY_VALUE_FORMATS = {
  */
 export function identityValueMatchesKind(kind: IdentityKind, value: string): boolean {
   const format = Object.entries(IDENTITY_VALUE_FORMATS).find(([k]) => k === kind)?.[1];
+
   return format ? format.test(value) : true;
 }
 
@@ -384,6 +373,7 @@ export const identityRefSchema = z
     error: "identity value is not a valid format for its kind",
     path: ["value"],
   });
+
 export type IdentityRef = z.infer<typeof identityRefSchema>;
 
 /**
@@ -404,9 +394,11 @@ export const observationSubjectSchema = z.union([
   identityRefSchema,
   z.object({ kind: z.literal("user") }).strict(),
 ]);
+
 export type ObservationSubject = z.infer<typeof observationSubjectSchema>;
 
 export type JsonPrimitive = string | number | boolean | null;
+
 /**
  * Exactly what `jsonValueSchema` below accepts — no `undefined` on the value
  * side. The two must stay in lockstep: this type guards the same values the
@@ -436,6 +428,7 @@ export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 );
 
 export const jsonObjectSchema = z.record(z.string(), jsonValueSchema);
+
 export type JsonObject = z.infer<typeof jsonObjectSchema>;
 
 export const OBSERVATION_PARTICIPANT_ROLES = [
@@ -450,7 +443,9 @@ export const OBSERVATION_PARTICIPANT_ROLES = [
   "assignee",
   "committer",
 ] as const;
+
 export const observationParticipantRoleSchema = z.enum(OBSERVATION_PARTICIPANT_ROLES);
+
 export type ObservationParticipantRole = (typeof OBSERVATION_PARTICIPANT_ROLES)[number];
 
 export const observationParticipantSchema = z
@@ -461,6 +456,7 @@ export const observationParticipantSchema = z
     raw: z.string().optional(),
   })
   .strict();
+
 export type ObservationParticipant = z.infer<typeof observationParticipantSchema>;
 
 /**
@@ -518,6 +514,7 @@ const CONTRIBUTOR_ROLES: ReadonlySet<ObservationParticipantRole> = new Set(["com
  */
 function distinctRecipientCount(items: readonly ObservationParticipant[]): number {
   const seen = new Set<string>();
+
   for (const p of items) {
     // Join with an escaped NUL (\u0000 — never a LITERAL NUL byte in source,
     // which turns this file binary to rg/grep and silently breaks plain-text
@@ -526,8 +523,10 @@ function distinctRecipientCount(items: readonly ObservationParticipant[]): numbe
     // (kind:"email", value:"a") distinct from (kind:"email_a", value:"").
     if (RECIPIENT_ROLES.has(p.role)) seen.add(`${p.identity.kind}\u0000${p.identity.value}`);
   }
+
   return seen.size;
 }
+
 const RECIPIENT_ROLES: ReadonlySet<ObservationParticipantRole> = new Set(
   OBSERVATION_PARTICIPANT_ROLES.filter(
     (role) => !ACTOR_ROLES.has(role) && !CONTRIBUTOR_ROLES.has(role),
@@ -554,6 +553,7 @@ export const observationParticipantsSchema = z
       "recipientCount must be >= the number of DISTINCT enumerated recipient identities (a blast can't masquerade as a 1:1 and bypass FAN_OUT_CUTOFF)",
     path: ["recipientCount"],
   });
+
 export type ObservationParticipants = z.infer<typeof observationParticipantsSchema>;
 
 export type ObservationPayload = z.infer<typeof jsonObjectSchema>;
@@ -583,6 +583,7 @@ export const gmailEmailMessagePayloadSchema = z
       .strict(),
   })
   .strict();
+
 export type GmailEmailMessagePayload = z.infer<typeof gmailEmailMessagePayloadSchema>;
 
 const canonicalDomainSchema = identityValueSchema
@@ -616,6 +617,7 @@ export const userOrgAffiliationPayloadSchema = z
     evidence: z.string().min(1).optional(),
   })
   .strict();
+
 export type UserOrgAffiliationPayload = z.infer<typeof userOrgAffiliationPayloadSchema>;
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -629,6 +631,7 @@ export type UserOrgAffiliationPayload = z.infer<typeof userOrgAffiliationPayload
  * app boundary with a field-level message instead of surfacing as a raw 23514.
  */
 export const MAX_FAMILY_KEY_BYTES = 512;
+
 export const MAX_EVIDENCE_HASH_BYTES = 256;
 
 /**
@@ -659,7 +662,7 @@ function boundedKeySchema(maxBytes: number, label: string) {
  * pieces the schema comments name as its obligations:
  *
  *   - `source` × `kind` validated as a PAIR (`isObservationKindForSource`), closing
- *     the half-open vocabulary a `gmail` row carrying a `github_*` kind would slip;
+ *     the half-open vocabulary a `gmail` row carrying a user-authored kind would slip;
  *   - `subjectIdentity` as an `ObservationSubject` (a canonical `IdentityRef` OR the
  *     `{ kind: "user" }` self-subject), `objectIdentity` as a canonical `IdentityRef`
  *     or null — both inherit the kind-specific FORMAT + canonicalization refines;
@@ -699,6 +702,7 @@ export const observationInsertSchema = z
   .superRefine(({ kind, payload, subjectIdentity }, ctx) => {
     if (kind === "email_message") {
       const parsed = gmailEmailMessagePayloadSchema.safeParse(payload);
+
       if (!parsed.success) {
         for (const issue of parsed.error.issues) {
           ctx.addIssue({
@@ -708,10 +712,13 @@ export const observationInsertSchema = z
           });
         }
       }
+
       return;
     }
+
     if (kind !== "user_org_affiliation") return;
     const parsed = userOrgAffiliationPayloadSchema.safeParse(payload);
+
     if (!parsed.success) {
       for (const issue of parsed.error.issues) {
         ctx.addIssue({
@@ -720,8 +727,10 @@ export const observationInsertSchema = z
           message: issue.message,
         });
       }
+
       return;
     }
+
     if (subjectIdentity.kind !== "user") {
       ctx.addIssue({
         code: "custom",
@@ -729,10 +738,12 @@ export const observationInsertSchema = z
         message: "user_org_affiliation observations must be about the user",
       });
     }
+
     const expectedDomainClass = classifyEmailDomain({
       email: parsed.data.accountEmail,
       verifiedHostedDomain: parsed.data.verifiedHostedDomain,
     });
+
     if (expectedDomainClass !== parsed.data.domainClass) {
       ctx.addIssue({
         code: "custom",
@@ -740,6 +751,7 @@ export const observationInsertSchema = z
         message: "domainClass must match accountEmail/verifiedHostedDomain classification",
       });
     }
+
     if (
       parsed.data.verifiedHostedDomain != null &&
       parsed.data.verifiedHostedDomain !== parsed.data.orgDomain
@@ -751,8 +763,10 @@ export const observationInsertSchema = z
       });
     }
   });
+
 /** Caller-facing input (pre-parse): defaulted fields are optional. */
 export type ObservationInsertInput = z.input<typeof observationInsertSchema>;
+
 /** Validated, defaults-applied observation ready to persist. */
 export type ObservationInsert = z.infer<typeof observationInsertSchema>;
 
@@ -798,6 +812,7 @@ export function isImmutableAccountBridge({ kind, verified }: AccountBridgeInput)
   // widening its element type to the full union only lets .includes take the
   // wider `kind` argument — every member already is an IdentityKind.
   if ((IMMUTABLE_ACCOUNT_ID_KINDS as readonly IdentityKind[]).includes(kind)) return true;
+
   return kind === "google_directory_id" && verified === true;
 }
 
@@ -836,6 +851,7 @@ export const IDENTITY_ANCHOR_TIER = {
   /** Provisional / source-local / unknown. */
   provisional: 6,
 } as const;
+
 export type IdentityAnchorTier = (typeof IDENTITY_ANCHOR_TIER)[keyof typeof IDENTITY_ANCHOR_TIER];
 
 export interface IdentityAnchorInput {
@@ -853,6 +869,7 @@ export function identityAnchorRank({
   verified,
 }: IdentityAnchorInput): IdentityAnchorTier {
   if (userPinned) return IDENTITY_ANCHOR_TIER.userPinned;
+
   switch (kind) {
     case "google_directory_id":
       // Tier 2 means a *verified* Workspace Directory identity (D2/D3). An
@@ -883,6 +900,7 @@ export function identityAnchorRank({
       return IDENTITY_ANCHOR_TIER.provisional;
     default: {
       const _exhaustive: never = kind;
+
       return _exhaustive;
     }
   }
@@ -900,6 +918,7 @@ export function identityAnchorRank({
  * id, or a projection version — only stable identity material + `userId`.
  */
 export const STABLE_ENTITY_ID_VERSION = 1 as const;
+
 export interface StableEntityIdInput {
   readonly v: typeof STABLE_ENTITY_ID_VERSION;
   readonly userId: string;
@@ -941,7 +960,9 @@ export const ENTITY_NODE_KINDS = [
   "referent",
   "unknown",
 ] as const;
+
 export const entityNodeKindSchema = z.enum(ENTITY_NODE_KINDS);
+
 export type EntityNodeKind = (typeof ENTITY_NODE_KINDS)[number];
 
 /** Kinds that are never scored as a person (the dist-list / service gate, D7). */
@@ -1038,7 +1059,9 @@ export function integrationObjectKey(
 export function integrationObjectKeySegment(value: string): IntegrationObjectKindSegment | null {
   const segments = value.split(":");
   const candidate = segments.length >= 3 ? segments[1] : undefined;
+
   if (!candidate) return null;
+
   return isIntegrationObjectKindSegment(candidate) ? candidate : null;
 }
 
@@ -1053,7 +1076,9 @@ export const ENTITY_KIND_RESEARCH_STATUS = [
   "completed",
   "failed",
 ] as const;
+
 export const entityKindResearchStatusSchema = z.enum(ENTITY_KIND_RESEARCH_STATUS);
+
 export type EntityKindResearchStatus = (typeof ENTITY_KIND_RESEARCH_STATUS)[number];
 
 /**
@@ -1071,7 +1096,52 @@ export const entityKindClassificationSchema = z
     researchStatus: entityKindResearchStatusSchema.default("not_needed"),
   })
   .strict();
+
 export type EntityKindClassification = z.infer<typeof entityKindClassificationSchema>;
+
+/**
+ * Every evidence code a `service` classification carries, named once.
+ *
+ * `evidenceCodes` is `string[]` on purpose — the other branches of the kind
+ * classifier mint open-ended codes (`identity:…`, `gmail:list_id`) and no
+ * reader switches on them. The `service` codes are different: TWO consumers in
+ * different packages read them to decide whether a non-person claim is hard
+ * enough to act on, and they disagree deliberately.
+ *   - `@alfred/assistant` knowledge asks "may this take `person` away from a
+ *     mail contact", which gates a live `gmail.send_draft`.
+ *   - `@alfred/assistant` triage asks "may this demote a demanding thread to
+ *     `fyi`", which is the #210 sender-kind floor.
+ *
+ * Each consumer therefore declares a TOTAL `satisfies Record<ServiceEvidenceCode, …>`
+ * table rather than a set of bare literals. A new member here fails to compile
+ * in both tables until each one answers for it. That is the enforcement the
+ * bare literals did not buy: the `email:domain:service_strong` member was added
+ * in one consumer and silently switched the other consumer's floor off.
+ */
+export const SERVICE_EVIDENCE_CODES = {
+  /** A strong service LOCAL part: `noreply@`, `notifications@`, `…-noreply@`. */
+  localStrong: "email:local:service_strong",
+  /** A strong service leftmost host LABEL: `…@noreply.github.com`. */
+  domainStrong: "email:domain:service_strong",
+  /** A soft ROLE mailbox: `billing@`, `support@`, `admin@`. A human may sit behind it. */
+  localRole: "email:local:service",
+  /** An `Auto-Submitted` header. A human's out-of-office carries this too. */
+  autoSubmitted: "gmail:auto_submitted",
+} as const;
+
+export type ServiceEvidenceCode =
+  (typeof SERVICE_EVIDENCE_CODES)[keyof typeof SERVICE_EVIDENCE_CODES];
+
+const SERVICE_EVIDENCE_CODE_VALUES = new Set<string>(Object.values(SERVICE_EVIDENCE_CODES));
+
+/**
+ * True when a persisted evidence code is one of the `service` vocabulary
+ * members. The boundary between the open `string[]` column and a consumer's
+ * total decision table: a code this returns false for cannot index one. PURE.
+ */
+export function isServiceEvidenceCode(value: string): value is ServiceEvidenceCode {
+  return SERVICE_EVIDENCE_CODE_VALUES.has(value);
+}
 
 // `looseObject` rather than `.catchall(jsonValueSchema)`: a catchall checks the
 // *declared* optional keys against the index signature too, which would force
@@ -1084,6 +1154,7 @@ export const projectionProvenanceSchema = z.looseObject({
   familyKeys: z.array(z.string()).optional(),
   classification: entityKindClassificationSchema.optional(),
 });
+
 export type ProjectionProvenance = z.infer<typeof projectionProvenanceSchema>;
 
 /**
@@ -1099,7 +1170,9 @@ export const ENTITY_EDGE_TYPES = [
   "frequent_collaborator",
   "in_org",
 ] as const;
+
 export const entityEdgeTypeSchema = z.enum(ENTITY_EDGE_TYPES);
+
 export type EntityEdgeType = (typeof ENTITY_EDGE_TYPES)[number];
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1136,6 +1209,7 @@ export const PROMOTION_THRESHOLD = 2.0;
  * promoting a collaborator edge.
  */
 export const PROMOTION_MIN_OBSERVATIONS = 3;
+
 export const PROMOTION_MIN_FAMILIES = 2;
 
 /**
@@ -1146,31 +1220,29 @@ export const PROMOTION_MIN_FAMILIES = 2;
  * reply needs ~5 touches to promote, a direct thread ~7, and cc/list exposure
  * basically never promotes unless repeatedly real.
  *
- * Provenance note: P1 can only calibrate the Gmail weights against prod —
- * `github_*` and `calendar_meeting` stay provisional until P2/P3 shadow
- * validation. `github_push` is a strong object/repo signal but a weak
- * person↔person one, so it is intentionally low. `gmail_blast` is 0 (the
- * fan-out cutoff already zeroes its co-occurrence; kept explicit for non-person
- * significance accounting).
+ * Only the classes a LIVE reducer can produce are listed (#987), on the same
+ * rule as `OBSERVATION_REDUCERS`: a weight for a provider that cannot write is
+ * a shape the traffic does not have. Gmail is the one such reducer, and its
+ * single kind `email_message` fans out into the four classes here. The
+ * `github_*` and `calendar_meeting` weights were provisional, uncalibrated, and
+ * unreachable, so P2 and P3 register their classes with the folds that consume
+ * them rather than inheriting a guess. `gmail_blast` is 0 (the fan-out cutoff
+ * already zeroes its co-occurrence; kept explicit for non-person significance
+ * accounting).
  *
- * NOTE — these keys are fold-derived INTERACTION CLASSES, not the raw
- * `OBSERVATION_KINDS` vocabulary (`gmail`'s one kind `email_message` fans out
- * into `gmail_reply`/`gmail_direct`/`gmail_cc`/`gmail_blast` here). So the
- * `github_pull_request` observation kind has no 1:1 key on purpose: P2 owns the
- * decision of which class a PR-open contributes to (author↔reviewer/assignee
+ * A P2 GitHub PR-open has no key here on purpose, and adding one before the
+ * fold lands would re-create exactly the false shape this list just dropped:
+ * P2 owns the decision of which class it contributes to (author-reviewer
  * co-occurrence) versus what it only emits as an object edge (`authored_by`,
- * D9). It is registered as a person-co-occurrence class at P2, not dropped — do
- * not add a `github_pull_request` weight here before that fold lands.
+ * D9).
  */
 export const SOURCE_WEIGHTS = {
-  github_review: 1.0,
-  calendar_meeting: 0.9,
   gmail_reply: 0.8,
   gmail_direct: 0.65,
   gmail_cc: 0.25,
-  github_push: 0.25,
   gmail_blast: 0.0,
 } as const;
+
 export type SourceWeightKey = keyof typeof SOURCE_WEIGHTS;
 
 export function sourceWeight(key: SourceWeightKey): number {
@@ -1195,6 +1267,7 @@ export const significanceComponentsSchema = z
     topObservationIds: z.array(z.string()).optional(),
   })
   .strict();
+
 export type SignificanceComponents = z.infer<typeof significanceComponentsSchema>;
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1216,11 +1289,15 @@ export const GMAIL_KIND_REFOLD_SKIPPED_REASONS = [
   "no-gmail-observations",
   "up-to-date",
 ] as const;
+
 export const gmailKindRefoldSkippedReasonSchema = z.enum(GMAIL_KIND_REFOLD_SKIPPED_REASONS);
+
 export type GmailKindRefoldSkippedReason = z.infer<typeof gmailKindRefoldSkippedReasonSchema>;
 
 export const PROJECTION_RUN_STATUS = ["running", "completed", "failed"] as const;
+
 export const projectionRunStatusSchema = z.enum(PROJECTION_RUN_STATUS);
+
 export type ProjectionRunStatus = (typeof PROJECTION_RUN_STATUS)[number];
 
 export const projectionCursorValueSchema = z
@@ -1230,6 +1307,7 @@ export const projectionCursorValueSchema = z
     sourceCursor: jsonValueSchema.optional(),
   })
   .strict();
+
 export type ProjectionCursorValue = z.infer<typeof projectionCursorValueSchema>;
 
 /**
@@ -1242,9 +1320,11 @@ export const projectionSourceHighWatermarkSchema = z.partialRecord(
   observationSourceSchema,
   projectionCursorValueSchema,
 );
+
 export type ProjectionSourceHighWatermark = z.infer<typeof projectionSourceHighWatermarkSchema>;
 
 export const projectionRowCountsSchema = z.record(z.string(), z.number().int().nonnegative());
+
 export type ProjectionRowCounts = z.infer<typeof projectionRowCountsSchema>;
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1257,7 +1337,9 @@ export type ProjectionRowCounts = z.infer<typeof projectionRowCountsSchema>;
  * bind to `{kind:'user'}`. `any` = either.
  */
 export const FACT_SUBJECT_KINDS = ["user", "entity"] as const;
+
 export const factSubjectKindSchema = z.enum(FACT_SUBJECT_KINDS);
+
 export type FactSubjectKind = (typeof FACT_SUBJECT_KINDS)[number];
 
 export interface FactTypeDef {
@@ -1316,6 +1398,7 @@ export const FACT_ONTOLOGY = {
   twitter_handle: { subject: "any", description: "Twitter / X handle." },
   linkedin_url: { subject: "any", description: "LinkedIn profile URL." },
 } as const satisfies Record<string, FactTypeDef>;
+
 export type FactKey = keyof typeof FACT_ONTOLOGY;
 
 export function isFactKey(key: string): key is FactKey {
@@ -1339,7 +1422,9 @@ export const CANONICAL_FACT_KEYS =
  * The suffix is validated/normalized per-prefix by `canonicalizeFactKey`.
  */
 export const RELATIONSHIP_FACT_PREFIX = "relationship:";
+
 export const PREF_FACT_PREFIX = "pref:";
+
 export const CANONICAL_FACT_PREFIXES = [RELATIONSHIP_FACT_PREFIX, PREF_FACT_PREFIX] as const;
 
 /**
@@ -1364,6 +1449,7 @@ export const FACT_KEY_ALIASES = {
   name: "full_name",
   personal_website: "personal_site",
 } as const satisfies Record<string, FactKey>;
+
 export type FactKeyAlias = keyof typeof FACT_KEY_ALIASES;
 
 export function isFactKeyAlias(key: string): key is FactKeyAlias {
@@ -1398,32 +1484,42 @@ export type CanonicalizeFactKeyResult =
  */
 export function canonicalizeFactKey(rawKey: string): CanonicalizeFactKeyResult {
   const key = rawKey.trim();
+
   if (isFactKey(key)) {
     return key === rawKey
       ? { ok: true, key, wasAlias: false }
       : { ok: true, key, wasAlias: true, originalKey: rawKey };
   }
+
   if (isFactKeyAlias(key)) {
     return { ok: true, key: FACT_KEY_ALIASES[key], wasAlias: true, originalKey: rawKey };
   }
+
   if (key.startsWith(RELATIONSHIP_FACT_PREFIX)) {
     const email = key.slice(RELATIONSHIP_FACT_PREFIX.length).trim().toLowerCase();
+
     if (!email || !identityValueMatchesKind("email", email)) {
       return { ok: false, reason: "unknown_key" };
     }
+
     const canonical = `${RELATIONSHIP_FACT_PREFIX}${email}`;
+
     return canonical === rawKey
       ? { ok: true, key: canonical, wasAlias: false }
       : { ok: true, key: canonical, wasAlias: true, originalKey: rawKey };
   }
+
   if (key.startsWith(PREF_FACT_PREFIX)) {
     const name = key.slice(PREF_FACT_PREFIX.length).trim();
+
     if (!name) return { ok: false, reason: "unknown_key" };
     const canonical = `${PREF_FACT_PREFIX}${name}`;
+
     return canonical === rawKey
       ? { ok: true, key: canonical, wasAlias: false }
       : { ok: true, key: canonical, wasAlias: true, originalKey: rawKey };
   }
+
   return { ok: false, reason: "unknown_key" };
 }
 

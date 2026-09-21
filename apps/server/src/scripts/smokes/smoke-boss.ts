@@ -55,6 +55,7 @@ import { closeScriptResources } from "../script-runtime";
 const WORKFLOW_SLUG = "smoke-boss";
 
 const POLL_INTERVAL_MS = 2_000;
+
 // Boss + a full sub-agent child run is many LLM turns; the dev boss model
 // (Gemini 3.5 Flash) can still run several minutes across a full tool loop, and the 30-turn cap is the
 // ceiling, so a quiet-window run needs hours. The policy override stays
@@ -82,6 +83,7 @@ async function pickGoogleConnectedUser(): Promise<{
       ),
     )
     .limit(1);
+
   return rows[0] ?? null;
 }
 
@@ -97,6 +99,7 @@ async function installSmokePolicy(userId: string): Promise<PolicyRow | null> {
     .select()
     .from(userActionPolicies)
     .where(eq(userActionPolicies.userId, userId));
+
   const snapshot = existing[0] ?? null;
 
   const smokeRules = {
@@ -117,14 +120,17 @@ async function installSmokePolicy(userId: string): Promise<PolicyRow | null> {
         rowVersion: sql`${userActionPolicies.rowVersion} + 1`,
       },
     });
+
   return snapshot;
 }
 
 async function restorePolicy(userId: string, snapshot: PolicyRow | null): Promise<void> {
   if (!snapshot) {
     await db().delete(userActionPolicies).where(eq(userActionPolicies.userId, userId));
+
     return;
   }
+
   await db()
     .update(userActionPolicies)
     .set({
@@ -157,6 +163,7 @@ async function createSmokeWorkflow(userId: string, selfEmail: string): Promise<v
     .where(and(eq(documents.userId, userId), eq(documents.source, "gmail")))
     .orderBy(desc(documents.authoredAt))
     .limit(1);
+
   if (!doc) {
     throw new Error(
       "[smoke-boss] no ingested gmail documents for this user — run gmail ingestion first",
@@ -206,11 +213,13 @@ async function runTreeIds(runId: string): Promise<string[]> {
     .select({ id: agentRuns.id })
     .from(agentRuns)
     .where(sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${runId}`);
+
   return [runId, ...childRows.map((r) => r.id)];
 }
 
 async function findPendingApprovals(runId: string): Promise<PendingStaging[]> {
   const runIds = await runTreeIds(runId);
+
   const rows = await db()
     .select({
       id: actionStagings.id,
@@ -225,6 +234,7 @@ async function findPendingApprovals(runId: string): Promise<PendingStaging[]> {
         eq(actionStagings.requiresApproval, true),
       ),
     );
+
   return rows;
 }
 
@@ -252,22 +262,29 @@ async function autoApprove(staging: PendingStaging): Promise<void> {
 async function pollAndAutoApprove(runId: string): Promise<{ status: string; output: unknown }> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStep: string | null = null;
+
   while (Date.now() < deadline) {
     const rows = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
     const row = rows[0];
+
     if (!row) throw new Error(`run ${runId} not found`);
+
     if (row.currentStep !== lastStep) {
       console.log(`[smoke-boss]   step → ${row.currentStep} (status=${row.status})`);
       lastStep = row.currentStep;
     }
+
     if (row.status === "waiting") {
       for (const p of await findPendingApprovals(runId)) await autoApprove(p);
     }
+
     if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
       return { status: row.status, output: row.output };
     }
+
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+
   throw new Error(`timed out waiting for run ${runId}`);
 }
 
@@ -280,6 +297,7 @@ interface StagingSummary {
 
 async function loadStagingsForRun(runId: string): Promise<StagingSummary[]> {
   const runIds = await runTreeIds(runId);
+
   return db()
     .select({
       runId: actionStagings.runId,
@@ -296,15 +314,19 @@ async function main(): Promise<void> {
   registerBuiltinWorkflows();
 
   const target = await pickGoogleConnectedUser();
+
   if (!target) {
     console.log(
       "[smoke-boss] no user with an active google credential carrying gmail.send — reconnect Gmail with reply_draft first.",
     );
+
     return;
   }
+
   console.log(`[smoke-boss] target: ${target.email} (id=${target.id})`);
 
   const snapshot = await installSmokePolicy(target.id);
+
   try {
     await resetSmokeRows(target.id);
     await createSmokeWorkflow(target.id, target.email);
@@ -315,6 +337,7 @@ async function main(): Promise<void> {
       trigger: { kind: "manual" },
       occurrence: { kind: "manual", requestId: randomUUID() },
     });
+
     console.log(`[smoke-boss] run enqueued: ${runId}`);
 
     const final = await pollAndAutoApprove(runId);
@@ -325,6 +348,7 @@ async function main(): Promise<void> {
 
     const stagings = await loadStagingsForRun(runId);
     console.log(`[smoke-boss] action_stagings rows: ${stagings.length}`);
+
     for (const s of stagings) {
       console.log(`   - ${s.toolName} status=${s.status} requiresApproval=${s.requiresApproval}`);
     }
@@ -343,6 +367,7 @@ async function main(): Promise<void> {
       spawn !== undefined && spawn.status === "executed",
       `expected an executed system.spawn_sub_agent staging, got ${JSON.stringify(spawn)}`,
     );
+
     const childRows = await db()
       .select({ count: sql<number>`count(*)::int` })
       .from(agentRuns)
@@ -352,6 +377,7 @@ async function main(): Promise<void> {
           sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${runId}`,
         ),
       );
+
     assert((childRows[0]?.count ?? 0) >= 1, "expected ≥1 sub-agent child run for the boss run");
 
     // 3. Terminal scratchpad snapshot mirrors both zones into agent_run_context.
@@ -359,6 +385,7 @@ async function main(): Promise<void> {
       .select({ key: agentRunContext.key, zone: agentRunContext.zone })
       .from(agentRunContext)
       .where(eq(agentRunContext.runId, runId));
+
     console.log(`[smoke-boss] agent_run_context keys: ${ctxRows.map((r) => r.key).join(", ")}`);
     assert(
       ctxRows.some((r) => r.zone === "scratch"),
@@ -391,6 +418,7 @@ async function main(): Promise<void> {
           like(sql`${agentRuns.error}::text`, "%compactor_failed%"),
         ),
       );
+
     assert(
       (compactorFailed[0]?.count ?? 0) === 0,
       "expected no compactor_failed runs for this user",

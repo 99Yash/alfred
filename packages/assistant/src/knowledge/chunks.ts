@@ -7,17 +7,47 @@ import {
   type MemoryChunk,
   type NewMemoryChunk,
 } from "@alfred/db/schemas";
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
-import { createHash } from "node:crypto";
-import { z } from "zod";
 import {
   jsonRecordSchema,
-  type MemoryChunkKind,
-  type MemorySource,
-  memoryChunkKindSchema,
   memorySourceSchema,
   parseMemorySourceOrDefault,
-} from "./types";
+  type MemorySource,
+} from "@alfred/contracts";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { z } from "zod";
+
+/**
+ * `memory_chunks.kind` values. The text column is validated at this app
+ * boundary; the union derives from the tuple so a new kind cannot drift.
+ */
+export const MEMORY_CHUNK_KINDS = [
+  "thread_summary",
+  "extraction_run",
+  "cold_start_research",
+  "manual",
+] as const;
+
+export const memoryChunkKindSchema = z.enum(MEMORY_CHUNK_KINDS);
+
+export type MemoryChunkKind = (typeof MEMORY_CHUNK_KINDS)[number];
+
+/**
+ * Kinds that record Alfred's own operational bookkeeping, never something
+ * Alfred knows about the user. An `extraction_run` chunk is run telemetry
+ * ("processed 20 documents; proposed 0 facts"), so it must never render as
+ * user memory. Kept as a set so the classification reads as membership.
+ */
+const OPERATIONAL_MEMORY_CHUNK_KINDS: ReadonlySet<MemoryChunkKind> = new Set(["extraction_run"]);
+
+/**
+ * The memory chunk kinds a user-facing read may surface. Derived by subtraction
+ * so a newly added kind is included by default rather than silently hidden; a
+ * new operational kind is one line in the set above.
+ */
+export const USER_FACING_MEMORY_CHUNK_KINDS: readonly MemoryChunkKind[] = MEMORY_CHUNK_KINDS.filter(
+  (kind) => !OPERATIONAL_MEMORY_CHUNK_KINDS.has(kind),
+);
 
 export const writeMemoryChunkArgsSchema = memoryChunkInsertSchema
   .pick({ userId: true, kind: true, content: true, source: true, metadata: true })
@@ -30,6 +60,7 @@ export const writeMemoryChunkArgsSchema = memoryChunkInsertSchema
   }) satisfies z.ZodType<
   Pick<NewMemoryChunk, "userId" | "kind" | "content" | "source" | "metadata">
 >;
+
 export type WriteMemoryChunkArgs = z.infer<typeof writeMemoryChunkArgsSchema>;
 
 /**
@@ -51,6 +82,7 @@ export type MemoryChunkRow = Omit<
 
 function rowToChunk(r: MemoryChunk): MemoryChunkRow {
   const { embedding, kind, source, metadata, ...rest } = r;
+
   return {
     ...rest,
     kind: memoryChunkKindSchema.parse(kind),
@@ -93,7 +125,9 @@ export async function writeMemoryChunk(args: WriteMemoryChunkArgs): Promise<Memo
       set: { metadata: sql`${memoryChunks.metadata}` },
     })
     .returning();
+
   if (!row) throw new Error("[memory.chunks] writeMemoryChunk returned no row");
+
   return rowToChunk(row);
 }
 
@@ -106,6 +140,7 @@ export async function embedMemoryChunk(
   if (embedding.length !== 1024) {
     throw new Error(`[memory] expected 1024-dim embedding, got ${embedding.length}`);
   }
+
   await db()
     .update(memoryChunks)
     // Clear any prior poison-pill streak on success so the wall-clock grace is
@@ -161,6 +196,7 @@ export async function pendingEmbedChunkIds(userId: string, limit = 50): Promise<
     .from(memoryChunks)
     .where(and(eq(memoryChunks.userId, userId), memoryChunkEmbedCandidateFilter()))
     .limit(limit);
+
   return rows.map((r) => r.id);
 }
 
@@ -181,6 +217,7 @@ export async function findPendingEmbedChunks(
     .from(memoryChunks)
     .where(memoryChunkEmbedCandidateFilter())
     .limit(limit);
+
   return rows;
 }
 
@@ -192,8 +229,13 @@ export interface RecallMemoryArgs {
    * retrieval over the same query to avoid duplicate embedding calls.
    */
   queryEmbedding?: number[];
-  /** Restrict to a kind (`thread_summary`, …). Default any. */
-  kind?: MemoryChunkKind;
+  /**
+   * Restrict to these kinds. Defaults to `USER_FACING_MEMORY_CHUNK_KINDS`: an
+   * operational chunk (`extraction_run`) is Alfred's own run telemetry and must
+   * not surface as user memory unless a caller explicitly asks for it. An empty
+   * set means "no kinds", not "any".
+   */
+  kinds?: readonly MemoryChunkKind[];
   /** Top-K. Default 10. */
   limit?: number;
 }
@@ -217,6 +259,7 @@ export interface RecallMemoryHit {
  */
 export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemoryHit[]> {
   const limit = args.limit ?? 10;
+
   const queryVec =
     args.queryEmbedding ??
     (await embed(args.query, {
@@ -224,6 +267,7 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
       userId: args.userId,
       idempotencyKey: `memory-recall:${args.userId}:${hashContent(args.query)}`,
     }));
+
   assertQueryEmbedding(queryVec);
   const vectorLiteral = formatVectorFloat32(queryVec);
   // Pull a wider pool from the approximate halfvec index, then rerank with
@@ -231,7 +275,14 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
   const candidateLimit = Math.max(limit * 5, 50);
 
   const filters = [eq(memoryChunks.userId, args.userId), isNotNull(memoryChunks.embedding)];
-  if (args.kind) filters.push(eq(memoryChunks.kind, args.kind));
+
+  // The kind restriction belongs in the candidate query, before the HNSW pool
+  // and top-K, so excluding a kind does not let it displace a real hit. The
+  // default is the user-facing set, not "any": a reader that forgets to narrow
+  // cannot surface operational telemetry. An empty set is an explicit "no
+  // kinds", not an accidental "every kind".
+  const kinds = args.kinds ?? USER_FACING_MEMORY_CHUNK_KINDS;
+  filters.push(kinds.length > 0 ? inArray(memoryChunks.kind, [...kinds]) : sql`false`);
 
   // HNSW returns at most `hnsw.ef_search` rows per scan (default 40), so the
   // candidate pool is silently truncated unless we raise it to cover

@@ -5,7 +5,7 @@ import { z } from "zod";
 
 /**
  * LLM-as-a-judge scorer factory (ADR-0055). Deterministic scorers cover the
- * hard signals — exact category match, "did a todo mint" — but the things we
+ * hard signals — category membership, "did a todo mint" — but the things we
  * keep hand-tuning the triage rubric for (is the *reasoning* sound? is the todo
  * title written the way a human would jot it?) are subjective, and that is what
  * a judge is for.
@@ -20,9 +20,31 @@ import { z } from "zod";
  *    debuggable. The judge must explain itself; that explanation shows up in the
  *    evalite UI's per-case panel so a regression is legible at a glance.
  *
- * The judge runs on the standard chat model (Sonnet), deliberately a DIFFERENT
- * and stronger model than the cheap classifier under test (Gemini Flash-Lite) —
- * a judge grading its own family's output is the classic self-preference trap.
+ * The DEFAULT judge runs on `route("cheap")` (Gemini Flash-Lite). That is a
+ * deliberate cost trade, not an oversight: a stronger judge is the textbook
+ * defence against the self-preference trap, and the trade only holds for a suite
+ * whose proof is carried by its DETERMINISTIC scorers, with the judge as a
+ * secondary readability signal. `triage-classify` is that shape — `Category
+ * match` (set membership plus a named floor/second-pass guard tag), `Todo mint
+ * decision` and `CollabActivity match` all grade without a judge.
+ *
+ * It is NOT every suite's shape, so the default is a default and not a policy.
+ * ONE suite overrides the default today and must keep doing so:
+ *
+ *  - `passthrough-honesty` pins `route("standard")` (`gpt-5.6-luna`). Its only
+ *    other scorer checks that a tool was called, so the judge alone carries the
+ *    ADR-0071 honesty claim — grading "did the assistant report a failed read
+ *    honestly" is the judgment a cheap grader is worst at, and there is no
+ *    deterministic scorer behind it to catch a lenient grade.
+ *
+ * `voice-ai-tells` also passes `model`, but it passes `route("cheap")` — since
+ * this default moved there, that call RESTATES the default and changes nothing.
+ * Keep it anyway: that suite generates on `route("standard")`, an OpenAI leg, and
+ * its claim needs a grader from another family, so the pin is what stops the
+ * judge from following this default if the default ever moves to OpenAI.
+ *
+ * Before moving a suite onto this default, check what would still be red if the
+ * judge graded everything A.
  */
 
 const JUDGE_PREAMBLE =
@@ -56,7 +78,7 @@ export interface LlmJudgeOptions<TInput, TOutput, TExpected> {
   rubric: string;
   /** Builds the user-facing judge prompt (the thing to grade) from the eval triple. */
   prompt: (args: { input: TInput; output: TOutput; expected: TExpected | undefined }) => string;
-  /** Override the judge model. Defaults to the standard chat model (Sonnet). */
+  /** Override the judge model. Defaults to `route("cheap")` (Gemini Flash-Lite). */
   model?: LanguageModel;
   /**
    * Short-circuit predicate. When it returns a string, the judge is NOT called:
@@ -82,16 +104,19 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
     name: opts.name,
     scorer: async ({ input, output, expected }) => {
       const skipReason = opts.skipWhen?.({ input, output, expected });
+
       if (skipReason) return { score: 0, metadata: skipReason };
+
       try {
         const result = await generateObject({
-          model: opts.model ?? route("standard").model(),
+          model: opts.model ?? route("cheap").model(),
           schema: judgeOutputSchema,
           instructions: `${JUDGE_PREAMBLE}\n\nRubric:\n${opts.rubric}`,
           prompt: opts.prompt({ input, output, expected }),
           temperature: 0,
           abortSignal: AbortSignal.timeout(60_000),
         });
+
         return {
           score: GRADE_TO_SCORE[result.object.grade],
           metadata: `${result.object.grade} — ${result.object.feedback}`,
@@ -103,6 +128,7 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
         // so score 0 and surface why.
         const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
         console.warn(`[llm-judge] "${opts.name}" judge error: ${reason}`);
+
         return { score: 0, metadata: `judge error: ${reason}` };
       }
     },

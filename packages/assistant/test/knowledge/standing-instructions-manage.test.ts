@@ -5,6 +5,7 @@ import { after, before, describe, test } from "node:test";
 import {
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
+  standingInstructionTargetKey,
   SUPPRESSION_EFFECTS,
   standingInstructionValueSchema,
   type MemorySource,
@@ -27,8 +28,11 @@ import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-standing-manage-";
+
 const USER_MEMORY_SOURCE = { kind: "user" } satisfies MemorySource;
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -37,6 +41,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Manage Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -46,8 +51,11 @@ async function remember(userId: string, email: string, label: string): Promise<s
     senderEmail: email,
     senderLabel: label,
   });
+
   assert.equal(result.ok, true);
+
   if (!result.ok) throw new Error("unreachable");
+
   return result.factId;
 }
 
@@ -79,6 +87,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeReplicachePokeBridge();
     await closeRedis();
     await closeConnections();
@@ -94,7 +103,10 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(listed.truncated, false);
     assert.equal(instructions.length, 1);
     assert.equal(instructions[0]?.factId, factId);
-    assert.equal(instructions[0]?.target.email, "noisy@example.com");
+    assert.equal(
+      instructions[0] && standingInstructionTargetKey(instructions[0].target),
+      "sender_email:noisy@example.com",
+    );
     assert.deepEqual([...instructions[0].effects].sort(), [...SUPPRESSION_EFFECTS].sort());
   });
 
@@ -120,8 +132,16 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(listed.totalActive, STANDING_INSTRUCTION_LIST_LIMIT + 101);
     assert.equal(listed.truncated, true);
     assert.equal(listed.limit, STANDING_INSTRUCTION_LIST_LIMIT);
-    assert.ok(listed.instructions.some((i) => i.target.email === "sender-200@example.com"));
-    assert.ok(!listed.instructions.some((i) => i.target.email === "sender-0@example.com"));
+    assert.ok(
+      listed.instructions.some(
+        (i) => standingInstructionTargetKey(i.target) === "sender_email:sender-200@example.com",
+      ),
+    );
+    assert.ok(
+      !listed.instructions.some(
+        (i) => standingInstructionTargetKey(i.target) === "sender_email:sender-0@example.com",
+      ),
+    );
   });
 
   test("forget soft-removes the instruction so it drops out of the active list", async () => {
@@ -130,6 +150,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
 
     const result = await forgetStandingInstruction({ userId, factId, reason: "user asked" });
     assert.equal(result.ok, true);
+
     if (result.ok) assert.equal(result.status, "forgotten");
 
     const after = await listStandingInstructions(userId);
@@ -178,7 +199,9 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       directive: "Quietly ignore the reframed sender.",
       senderLabel: "New Label",
     });
+
     assert.equal(result.ok, true);
+
     if (!result.ok) throw new Error("unreachable");
     assert.equal(result.status, "edited");
     assert.notEqual(result.factId, factId);
@@ -190,7 +213,10 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(active[0]?.directive, "Quietly ignore the reframed sender.");
     assert.equal(active[0]?.target.label, "New Label");
     // Target sender is unchanged by a reframe.
-    assert.equal(active[0]?.target.email, "reframe@example.com");
+    assert.equal(
+      active[0] && standingInstructionTargetKey(active[0].target),
+      "sender_email:reframe@example.com",
+    );
   });
 
   test("management mutations append replayable standing-instruction observations", async () => {
@@ -202,7 +228,9 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       factId,
       directive: "Use observed wording.",
     });
+
     assert.equal(edited.ok, true);
+
     if (!edited.ok || edited.status !== "edited") throw new Error("unreachable");
 
     const forgotten = await forgetStandingInstruction({
@@ -210,6 +238,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       factId: edited.factId,
       reason: "user asked",
     });
+
     assert.equal(forgotten.ok, true);
 
     const rows = await db()
@@ -220,6 +249,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       })
       .from(observations)
       .where(eq(observations.userId, userId));
+
     assert.equal(rows.length, 3);
     assert.ok(rows.every((row) => row.kind === "user_standing_instruction"));
     assert.ok(rows.every((row) => row.source === "user"));
@@ -237,7 +267,9 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       factId,
       directive: "Use this new wording.",
     });
+
     assert.equal(first.ok, true);
+
     if (!first.ok || first.status !== "edited") throw new Error("unreachable");
 
     assert.deepEqual(
@@ -265,16 +297,22 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       directive: "   ",
       senderLabel: "Same Label",
     });
+
     assert.equal(result.ok, true);
+
     if (!result.ok) throw new Error("unreachable");
     assert.equal(result.status, "unchanged");
     assert.equal(result.factId, factId);
-    assert.equal(result.instruction.target.email, "same@example.com");
+    assert.equal(
+      standingInstructionTargetKey(result.instruction.target),
+      "sender_email:same@example.com",
+    );
 
     const rows = await db()
       .select({ id: userFacts.id })
       .from(userFacts)
       .where(eq(userFacts.userId, userId));
+
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.id, factId);
   });

@@ -90,6 +90,20 @@ durable attachment creation take the same transaction-scoped advisory lock for
 each storage key, so cleanup cannot delete an object after its attachment row
 commits.
 
+GitHub and Sentry deliveries enter through `POST /webhooks/inbound/:source`.
+The receive path stores one `event_receipts` row and publishes
+`<source>.<event>` on the trigger bus (ADR-0097). The `github-activity-fold`
+and `sentry-activity-fold` trigger consumers read the receipt back and run the
+ADR-0062 object-state reducer over it. `objectStateFoldConsumers()` builds one
+consumer per provider from a table the `ObjectStateProvider` union keys, so a
+provider without a fold is a compile error. The consumers live beside the
+reducers and store they drive, in
+`packages/assistant/src/connections/object-state/activity-consumer.ts`, and the
+connections barrel exports the builder. Runtime composition only registers them
+in `packages/assistant/src/runtime/adapters/trigger-consumers.ts`. The
+object-state owner therefore holds the code that feeds the projection, and
+runtime adapters hold no provider lifecycle code.
+
 Google credential connect and disconnect mutations enter through the
 connections-owned credential lifecycle interface
 (`packages/assistant/src/connections/google-credential-lifecycle.ts`). Runtime composition owns the
@@ -285,8 +299,9 @@ Live backends today:
 - Google Workspace: Gmail, Calendar, Drive, Docs, Sheets, Slides.
 - GitHub App: install + user-to-server OAuth, installation tokens for REST, prod-only webhooks.
 - Notion OAuth.
-- Railway token connect.
+- Railway MCP OAuth: dynamic client registration, live deployment reads, and MCP tools.
 - Vercel OAuth.
+- Sentry internal-integration token connect, prod-only webhooks.
 
 Catalog/design-only today: Slack and Linear. The web catalog can render those providers, but there are no backend routes or tools for them yet.
 

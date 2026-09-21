@@ -45,6 +45,7 @@ import type { ToolEventOutcome } from "./tool-event-outcome";
  * payload — the builders below assemble a fresh literal and never spread a target.
  */
 const PROVEN_LIVE = Symbol("liveParentRun");
+
 type ProvenLive = { readonly [PROVEN_LIVE]: true };
 
 /** The three address fields every card carries — the turn's own `runId`. */
@@ -104,7 +105,9 @@ export async function subAgentToolCardTarget(
   isParentOpen: (parentRunId: string, userId: string) => Promise<boolean>,
 ): Promise<LiveSubAgentToolCardTarget | null> {
   if (!subAgent?.chat) return null;
+
   if (!(await isParentOpen(subAgent.parentRunId, userId))) return null;
+
   return {
     runId: subAgent.parentRunId,
     threadId: subAgent.chat.threadId,
@@ -158,7 +161,7 @@ export function toolCardStarted(
     messageId: target.messageId,
     ...boundToolIdentity(call),
     status: "started",
-    argsPreview: preview(call.input),
+    argsPreview: preview(call.input).text,
     segmentIndex,
     ...(target.subAgent ? { subAgent: target.subAgent } : {}),
   };
@@ -183,6 +186,7 @@ export function toolCardTerminal(
     ...boundToolIdentity(call),
     status: outcome.status,
     resultPreview: outcome.resultPreview,
+    ...(outcome.resultTruncated ? { resultTruncated: outcome.resultTruncated } : {}),
     ...(outcome.sanitized ? { sanitized: outcome.sanitized } : {}),
     ...(outcome.nonExecution ? { nonExecution: outcome.nonExecution } : {}),
     ...(outcome.connectNudge ? { connectNudge: outcome.connectNudge } : {}),

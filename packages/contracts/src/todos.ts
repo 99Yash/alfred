@@ -29,15 +29,37 @@ import { deriveLoopEntityRef } from "./loop-key";
  * those are the deferred agent-executable run-states.
  */
 export const TODO_STATUSES = ["suggested", "open", "done", "dismissed", "cleared"] as const;
+
 export type TodoStatus = (typeof TODO_STATUSES)[number];
+
 export const todoStatusSchema = z.enum(TODO_STATUSES);
 
 // ─── Authorship ──────────────────────────────────────────────────────────
 
 /** Who created the row. Survives promotion so suggestion acceptance is measurable later. */
 export const TODO_CREATED_BY = ["user", "agent"] as const;
+
 export type TodoCreatedBy = (typeof TODO_CREATED_BY)[number];
+
 export const todoCreatedBySchema = z.enum(TODO_CREATED_BY);
+
+// ─── Resolution attribution ──────────────────────────────────────────
+
+/**
+ * Who last moved the row to its current status. Set on every status write;
+ * NULL only on a freshly minted row that has never transitioned.
+ *
+ * `user` — direct UI mutator (Replicache `todoComplete`/`todoDismiss`/…).
+ * `agent` — an agent tool call acting for the user (`system.resolve_todo`,
+ *   `system.remember` suppression dismissal).
+ * `system` — automatic retraction with no user in the loop
+ *   (`close-loop-todos` reply retraction, future reconciler).
+ */
+export const TODO_RESOLVED_BY = ["user", "agent", "system"] as const;
+
+export type TodoResolvedBy = (typeof TODO_RESOLVED_BY)[number];
+
+export const todoResolvedBySchema = z.enum(TODO_RESOLVED_BY);
 
 // ─── Forward-compat: executor + kind ───────────────────────────────────────
 
@@ -46,12 +68,16 @@ export const todoCreatedBySchema = z.enum(TODO_CREATED_BY);
  * (spawns an `agent_runs` run through the boss runtime). Inert at v1.
  */
 export const TODO_EXECUTORS = ["user", "agent"] as const;
+
 export type TodoExecutor = (typeof TODO_EXECUTORS)[number];
+
 export const todoExecutorSchema = z.enum(TODO_EXECUTORS);
 
 /** `task` in v1; executor-specific variants land later without a migration. */
 export const TODO_KINDS = ["task"] as const;
+
 export type TodoKind = (typeof TODO_KINDS)[number];
+
 export const todoKindSchema = z.enum(TODO_KINDS);
 
 // ─── Cross-source provenance ───────────────────────────────────────────────
@@ -71,6 +97,7 @@ export const todoSourceSchema = z
     url: z.url().max(2_048).optional(),
   })
   .strict();
+
 export type TodoSource = z.infer<typeof todoSourceSchema>;
 
 export const todoSourcesSchema = z.array(todoSourceSchema).max(64);
@@ -78,6 +105,30 @@ export const todoSourcesSchema = z.array(todoSourceSchema).max(64);
 /** Canonical dedup key for a source ref. `url` is intentionally excluded. */
 export function todoSourceKey(source: TodoSource): string {
   return JSON.stringify([source.provider, source.kind, source.id]);
+}
+
+/**
+ * True when two source sets overlap on an IDENTITY-bearing ref — anything that
+ * is not a Gmail transport `thread`.
+ *
+ * A Gmail `thread` id is transport, not loop identity: one thread carries many
+ * independent asks, so a resolved (`done`/`dismissed`) todo on a thread must
+ * not suppress a later, genuine ask that reuses that thread. Without this the
+ * ADR-0050 same-thread retraction dismissed a thread's todo and then silenced
+ * every future proposal on the thread for the whole re-suggest window — the
+ * false "doesn't need you" that "demote, never bury" forbids. Identity refs (a
+ * GitHub PR, a Linear issue, a tracker subject, a monitoring alarm) name the
+ * loop itself, so an overlap there still means "the same work". PURE.
+ */
+export function todoSourcesShareIdentityOverlap(
+  existing: readonly TodoSource[],
+  incoming: readonly TodoSource[],
+): boolean {
+  const identityKeys = new Set(incoming.filter((ref) => !isGmailThreadRef(ref)).map(todoSourceKey));
+
+  if (identityKeys.size === 0) return false;
+
+  return existing.some((ref) => !isGmailThreadRef(ref) && identityKeys.has(todoSourceKey(ref)));
 }
 
 /**
@@ -89,12 +140,15 @@ export function todoSourceKey(source: TodoSource): string {
 export function mergeTodoSources(existing: TodoSource[], incoming: TodoSource[]): TodoSource[] {
   const seen = new Set(existing.map(todoSourceKey));
   const merged = [...existing];
+
   for (const ref of incoming) {
     const key = todoSourceKey(ref);
+
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(ref);
   }
+
   return merged;
 }
 
@@ -118,7 +172,7 @@ function isGmailThreadRef(source: TodoSource): boolean {
  *
  * Identity-bearing refs — everything that is NOT a gmail `thread` — win over
  * transport refs. Gmail `thread` refs are evicted oldest-first (merge appends
- * newest last), so the reverse auto-dismiss linkage (`resolveTodosForGmailSender`,
+ * newest last), so the reverse auto-dismiss linkage (`resolveTodosForGmailSource`,
  * which matches recent threads / the loop's single sender) still resolves. If a
  * caller ever supplies more identity refs than the schema cap allows, this still
  * returns a valid capped array by keeping the newest identity refs; the public
@@ -126,11 +180,14 @@ function isGmailThreadRef(source: TodoSource): boolean {
  */
 export function boundTodoSources(sources: TodoSource[], max = TODO_SOURCES_MAX): TodoSource[] {
   if (sources.length <= max) return sources;
+
   if (max <= 0) return [];
 
   const nonThreadCount = sources.filter((s) => !isGmailThreadRef(s)).length;
+
   if (nonThreadCount >= max) {
     const survivingIdentityIndexes = newestIndexes(sources, (s) => !isGmailThreadRef(s), max);
+
     return sources.filter((s, i) => !isGmailThreadRef(s) && survivingIdentityIndexes.has(i));
   }
 
@@ -139,6 +196,7 @@ export function boundTodoSources(sources: TodoSource[], max = TODO_SOURCES_MAX):
   // Newest thread refs win: collect their keys from the tail, then filter the
   // original in place so surviving refs keep their relative order.
   const survivingThreadIndexes = newestIndexes(sources, isGmailThreadRef, room);
+
   return sources.filter((s, i) => !isGmailThreadRef(s) || survivingThreadIndexes.has(i));
 }
 
@@ -148,9 +206,11 @@ function newestIndexes(
   count: number,
 ): Set<number> {
   const indexes = new Set<number>();
+
   for (let i = sources.length - 1; i >= 0 && indexes.size < count; i--) {
     if (predicate(sources[i]!)) indexes.add(i);
   }
+
   return indexes;
 }
 
@@ -158,7 +218,7 @@ function newestIndexes(
  * Provenance sources for a todo minted from a triaged Gmail thread (#355).
  *
  * Always carries the transport `thread` ref — same-thread re-triage dedup, and
- * the reverse linkage `resolveTodosForGmailSender` reads to auto-dismiss a todo
+ * the reverse linkage `resolveTodosForGmailSource` reads to auto-dismiss a todo
  * when the user acts on its email. When the subject/sender yield a stable
  * real-world ref ({@link deriveLoopEntityRef} — a GitHub PR, Linear issue, or
  * tracker task that re-notifies on a NEW thread each time), it ALSO carries a
@@ -175,10 +235,13 @@ export function gmailTodoSources(input: {
   sender: string | null | undefined;
 }): TodoSource[] {
   const sources: TodoSource[] = [{ provider: "gmail", kind: "thread", id: input.threadId }];
+
   const loopRef = deriveLoopEntityRef(input.subject, {
     sender: input.sender,
     requireTrackerSender: true,
   });
+
   if (loopRef) sources.push({ provider: loopRef.provider, kind: loopRef.kind, id: loopRef.id });
+
   return sources;
 }

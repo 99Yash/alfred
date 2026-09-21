@@ -1,15 +1,16 @@
 import { getStringPath } from "@alfred/contracts";
 import * as Accordion from "@radix-ui/react-accordion";
-import { Check, ChevronRight, ExternalLink, Scissors, X } from "lucide-react";
+import { Check, ChevronRight, ExternalLink, Scissors, Search, X } from "lucide-react";
 import { useId } from "react";
-import { CodeBlock } from "~/components/markdown-renderer";
-import { IntegrationIcon } from "~/lib/integrations/integration-icons";
+import { IntegrationGlyph, IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
-import { animatedToolIcon, RunningToolIcon } from "./animated-tool-icons";
+import { brandlessToolIcon, RunningToolIcon } from "./animated-tool-icons";
 import {
   presentBrowsing,
   presentEvidence,
+  searchQueryOf,
+  type BrowsingView,
   type EntityView,
   type EvidenceBadge,
   type FetchUrlView,
@@ -17,7 +18,9 @@ import {
   type WebSearchView,
 } from "./evidence";
 import { Favicon } from "./favicon";
+import { ToolResultJson } from "./tool-result-json";
 import { presentTool, type ToolCallView } from "./tool-call-presentation";
+import { foldClass } from "./trail";
 
 /** The single accordion item value — one card holds one expandable panel. */
 const PANEL_ITEM = "panel";
@@ -36,19 +39,55 @@ const MAX_STAGGERED_ROWS = 6;
 function prettyJson(text: string): string | null {
   try {
     const parsed: unknown = JSON.parse(text);
+
     if (parsed === null || typeof parsed !== "object") return null;
+
     return JSON.stringify(parsed, null, 2);
   } catch {
     return null;
   }
 }
 
+/**
+ * What one call in the row resolved to, computed once per render. The header
+ * needs the head call's shape (its subline, its record count) and the panel
+ * needs every call's, so resolving them together keeps each preview parsed a
+ * single time instead of once per reader.
+ */
+interface ResolvedCall {
+  browsing: BrowsingView | null;
+  evidence: RecordListView | EntityView | null;
+}
+
+/**
+ * How many records the row's calls found, counting the ones the server pruned
+ * from the preview. This is the number the user wants before deciding to open
+ * the panel — "18 results" and "1 result" are different answers to the same
+ * search. Returns `undefined` when no call returned a countable list, so a
+ * fetch or a write never grows a meaningless "0".
+ */
+function recordCount(resolved: ResolvedCall[]): number | undefined {
+  let total = 0;
+  let counted = false;
+
+  for (const { evidence } of resolved) {
+    if (evidence?.kind !== "record-list") continue;
+    counted = true;
+    total += evidence.rows.length + (evidence.remaining ?? 0);
+  }
+
+  return counted ? total : undefined;
+}
+
 /** Pull a clean reason out of a failed tool's result preview. */
 function failureReason(resultPreview: string | undefined): string | undefined {
   const parsed = parseJsonRecord(resultPreview);
+
   if (!parsed) return resultPreview;
   const message = getStringPath(parsed, "error", "message");
+
   if (message) return message;
+
   return asString(parsed.message) ?? asString(parsed.error) ?? resultPreview;
 }
 
@@ -77,16 +116,18 @@ export function ToolCallCard({
 }) {
   const panelId = useId();
   // A run of identical calls collapsed into one row (see buildTrail); they
-  // share a tool name and status, so the first stands in for the label/glyph
-  // and the rest only add to the count and the stacked results below.
+  // share a tool name and `foldClass`, so the first stands in for the label and
+  // glyph and the rest only add to the count and the stacked results below.
+  // Both verdicts are read across the whole run, not off its head: it reads as
+  // running while any call is still out, and as failed if any call failed, so
+  // a row that somehow mixes classes can never hide a failure.
   const tool = tools[0]!;
   const count = tools.length;
-  const running = tool.status === "started";
-  const failed = tool.status === "failed";
+  const running = tools.some((t) => t.status === "started");
+  const failed = tools.some((t) => foldClass(t.status) === "failed");
   // ADR-0070: the result had non-text bytes stripped before storage, so the
   // preview may be incomplete — flag it instead of letting it look pristine.
-  const trimmed = !running && !failed && tools.some((t) => Boolean(t.sanitized));
-  const expandable = !running && tools.some((t) => Boolean(t.resultPreview));
+  const trimmed = !failed && tools.some((t) => Boolean(t.sanitized));
 
   const {
     brand,
@@ -95,28 +136,49 @@ export function ToolCallCard({
     done,
     failed: failedLabel,
     detail,
+    suppressResult,
   } = presentTool(tool);
+
+  // Every call's display shape, resolved once and shared by the header and the
+  // panel below it.
+  const resolved: ResolvedCall[] = tools.map((t) => ({
+    browsing: presentBrowsing(t),
+    evidence: presentEvidence(t),
+  }));
+
+  // Expandable as soon as any call has a result. Not gated on `running`: a run
+  // the user opened mid-turn would otherwise slam shut each time a sibling call
+  // starts, and a still-streaming call simply contributes no block below. A
+  // bookkeeping result (`load_tool`) offers no panel at all unless it failed,
+  // because `{"ok":true,…}` is not evidence — see `suppressResult`.
+  const expandable =
+    tools.some((t) => Boolean(t.resultPreview)) && (failed || suppressResult !== true);
+
   const title = running ? runningLabel : failed ? (failedLabel ?? `${done} failed`) : done;
-  // Brandless system tools (web_search, spawn_sub_agent, …) get an animated
-  // glyph in place of the flat wrench; brand-scoped tools keep their logo coin.
-  const animatedIcon = brand ? undefined : animatedToolIcon(tool.toolName);
+  // Brandless system tools (web_search, corpus_search, …) get their own glyph
+  // in place of the flat wrench; brand-scoped tools keep their logo coin.
+  const BrandlessIcon = brand ? undefined : brandlessToolIcon(tool.toolName);
   // Browsing tools (fetch_url / web_search) get web-native treatment: the coin
   // becomes the site's own favicon, and the subline names the page/query so the
   // user sees *what* Alfred is reading at a glance. A folded run of different
-  // URLs (count > 1) can't be one favicon, so it keeps the Chrome glyph.
-  const browsing = presentBrowsing(tool);
+  // URLs (count > 1) can't be one favicon, so it keeps the browsing glyph.
+  const browsing = resolved[0]?.browsing ?? null;
   const faviconDomain = browsing?.kind === "fetch_url" && count === 1 ? browsing.domain : undefined;
-  // Inline: for a browsing tool, the site/query; otherwise the human "what"
-  // (brief / integration). The "why" of a failure goes in the expandable,
-  // cleaned up from the raw result JSON.
+
+  // Inline: what Alfred actually looked for, when the call is a search and the
+  // row stands for exactly one of them — a folded run of different queries has
+  // no single answer, so it falls back to the human "what" (brief /
+  // integration). A `fetch_url` row names its site instead, because the page is
+  // the target there. The "why" of a failure goes in the expandable, cleaned up
+  // from the raw result JSON.
+  const query = count === 1 ? searchQueryOf(tool) : undefined;
+
   const secondary =
-    browsing?.kind === "fetch_url"
-      ? count === 1
-        ? browsing.domain
-        : detail
-      : browsing?.kind === "web_search"
-        ? browsing.query
-        : detail;
+    browsing?.kind === "fetch_url" && count === 1 ? browsing.domain : (query ?? detail);
+
+  // Shown only once the work lands: a count that climbs while the row streams
+  // reads as a progress bar the panel cannot honor.
+  const found = running || failed ? undefined : recordCount(resolved);
 
   return (
     // Radix accordion so the panel animates its height both opening AND closing
@@ -168,8 +230,8 @@ export function ToolCallCard({
                   running && "chat-node-glow",
                 )}
               >
-                {animatedIcon ? (
-                  <RunningToolIcon icon={animatedIcon.Icon} running={running} size={13} />
+                {BrandlessIcon ? (
+                  <RunningToolIcon icon={BrandlessIcon} running={running} size={13} />
                 ) : (
                   <FallbackIcon size={13} />
                 )}
@@ -199,11 +261,24 @@ export function ToolCallCard({
               </span>
             ) : null}
             {secondary ? (
-              <span className="hidden max-w-[45%] min-w-0 truncate text-xs text-app-fg-3 sm:inline">
-                {secondary}
+              // A separator dot rather than a second column: the subline is a
+              // continuation of the title ("Searched Gmail · from:stripe"), and
+              // a bare gap reads as two unrelated labels.
+              <span className="hidden max-w-[45%] min-w-0 items-center gap-1.5 text-xs text-app-fg-3 sm:flex">
+                <span aria-hidden className="shrink-0 text-app-fg-1">
+                  ·
+                </span>
+                <span className={cn("min-w-0 truncate", query && "font-mono text-[11px]")}>
+                  {secondary}
+                </span>
               </span>
             ) : null}
             <span className="ml-auto flex shrink-0 items-center gap-1.5">
+              {found === undefined ? null : (
+                <span className="text-[11px] text-app-fg-2 tabular-nums">
+                  {found} {found === 1 ? "result" : "results"}
+                </span>
+              )}
               {trimmed ? (
                 <span
                   className="inline-flex items-center text-app-fg-2"
@@ -241,13 +316,15 @@ export function ToolCallCard({
               ) : null}
               {/* One block per collapsed call — a single call renders exactly as
               before; a folded run stacks each call's result in arrival order.
-              A successful JSON result renders pretty-printed in the shared dark
-              CodeBlock card (label + copy + highlighting); a failure reason or a
-              non-JSON preview stays a quiet muted line. */}
+              A mapped result renders as an evidence panel; anything left over
+              renders pretty-printed on the themed result surface; a failure
+              reason stays a quiet muted line. */}
               {tools.map((t, i) => {
                 if (failed) {
                   const reason = failureReason(t.resultPreview) ?? t.resultPreview;
+
                   if (!reason) return null;
+
                   return (
                     <pre
                       key={t.toolCallId}
@@ -260,48 +337,48 @@ export function ToolCallCard({
                     </pre>
                   );
                 }
+
                 // Browsing tools get a web-native panel — a linked page card or a
                 // favicon result list — instead of a raw JSON dump. A web search
                 // with no parsed citations falls through to the JSON (which still
                 // carries the synthesized answer).
-                const b = presentBrowsing(t);
+                const b = resolved[i]?.browsing ?? null;
+
                 if (b?.kind === "fetch_url") {
                   return <FetchUrlDetail key={t.toolCallId} view={b} spaced={i > 0} />;
                 }
+
                 if (b?.kind === "web_search" && b.sources.length > 0) {
                   return <WebSearchDetail key={t.toolCallId} view={b} spaced={i > 0} />;
                 }
+
                 // Integration read tools (github.search, calendar, a PR, an email…)
                 // get the same web-native evidence panel instead of a JSON dump.
                 // A tool with no spec — or a preview too pruned to map — returns
                 // null and falls through to the JSON/raw tiers below, unchanged.
-                const evidence = presentEvidence(t);
+                const evidence = resolved[i]?.evidence ?? null;
+
                 if (evidence?.kind === "record-list") {
                   return <EvidenceListDetail key={t.toolCallId} view={evidence} spaced={i > 0} />;
                 }
+
                 if (evidence?.kind === "entity") {
                   return <EntityDetail key={t.toolCallId} view={evidence} spaced={i > 0} />;
                 }
+
                 const raw = t.resultPreview;
+
                 if (!raw) return null;
                 const json = prettyJson(raw);
-                if (json !== null) {
-                  return (
-                    <div key={t.toolCallId} className={cn(i > 0 && "mt-1.5")}>
-                      <CodeBlock language="json" code={json} />
-                    </div>
-                  );
-                }
+
+                // Last resort, for a result no spec maps. Both tiers render on
+                // the same themed surface (see ToolResultJson) — the markdown
+                // CodeBlock this replaced is a fixed dark slab, which belongs
+                // around quoted code in a reply, not around a trail row.
                 return (
-                  <pre
-                    key={t.toolCallId}
-                    className={cn(
-                      "overflow-x-auto border-l-2 border-app-fg-a1 pl-3 text-[12px] leading-relaxed whitespace-pre-wrap text-app-fg-3",
-                      i > 0 && "mt-1.5",
-                    )}
-                  >
-                    {raw}
-                  </pre>
+                  <div key={t.toolCallId} className={cn(i > 0 && "mt-1.5")}>
+                    <ToolResultJson json={json ?? raw} plain={json === null} />
+                  </div>
                 );
               })}
             </div>
@@ -413,11 +490,13 @@ function EvidenceListDetail({ view, spaced }: { view: RecordListView; spaced: bo
       : view.hasMore
         ? "More available"
         : null;
+
   return (
     <div className={cn("overflow-hidden rounded-lg", spaced && "mt-1.5")}>
       {view.query ? (
-        <p className="truncate border-b border-app-bg-a2 bg-app-bg-a1 px-2.5 py-1.5 text-[11px] text-app-fg-3">
-          {view.query}
+        <p className="flex items-center gap-1.5 border-b border-app-bg-a2 bg-app-bg-a1 px-2.5 py-1.5 text-[11px] text-app-fg-3">
+          <Search size={11} aria-hidden className="shrink-0 text-app-fg-2" />
+          <span className="min-w-0 truncate font-mono">{view.query}</span>
         </p>
       ) : null}
       <div className="flex flex-col divide-y divide-app-bg-a2 bg-app-bg-a1">
@@ -427,9 +506,33 @@ function EvidenceListDetail({ view, spaced }: { view: RecordListView; spaced: bo
           // at once. `backwards` fill (see .animate-chat-row-in) holds each row
           // hidden through its delay. Disabled under prefers-reduced-motion.
           const stagger = { animationDelay: `${Math.min(i, MAX_STAGGERED_ROWS) * 40}ms` };
+
+          // A row's own glyph wins over the list's: a corpus search answers
+          // across several services at once, so "which service is this hit
+          // from" is a per-row fact there. `IntegrationGlyph` draws the real
+          // logo, which is why it is preferred over a fetched favicon, and a
+          // drawn mark is the last resort for a record no service owns.
+          const domain = row.faviconDomain ?? view.faviconDomain;
+          const RowIcon = row.icon;
+
           const inner = (
             <>
-              <Favicon domain={view.faviconDomain} size={16} />
+              {row.brand ? (
+                <span className="grid size-4 shrink-0 place-items-center">
+                  <IntegrationGlyph brand={row.brand} size={14} />
+                </span>
+              ) : domain ? (
+                <Favicon domain={domain} size={16} />
+              ) : RowIcon ? (
+                <span className="grid size-4 shrink-0 place-items-center text-app-fg-3">
+                  <RowIcon size={14} />
+                </span>
+              ) : (
+                <span
+                  aria-hidden
+                  className="size-4 shrink-0 rounded-[4px] bg-app-bg-2 ring-1 ring-white/10 ring-inset"
+                />
+              )}
               <span className="min-w-0 flex-1 truncate text-[13px] text-app-fg-4 group-hover/row:underline">
                 {row.title}
               </span>
@@ -441,6 +544,7 @@ function EvidenceListDetail({ view, spaced }: { view: RecordListView; spaced: bo
               {row.badge ? <BadgePill badge={row.badge} /> : null}
             </>
           );
+
           return row.href ? (
             <a
               key={row.key}

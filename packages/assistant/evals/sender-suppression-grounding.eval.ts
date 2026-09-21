@@ -15,6 +15,7 @@ import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // GROUND / #312: behavioral guard that when the user names a sender by
 // DESCRIPTION ("the onboarding emails", "the recruiter") and asks to stop
@@ -34,11 +35,15 @@ import type { GroundingTaskOutput } from "./lib/grounding";
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
 const NOW = new Date("2026-06-27T04:44:00Z");
+
 const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
+
 const EVAL_TIMEOUT_MS = 60_000;
 
 const SEARCH_TOOL = "gmail.search";
+
 const REMEMBER_TOOL = "system.remember";
+
 const RESOLVE_TODO_TOOL = "system.resolve_todo";
 
 const CONNECTED_SUMMARY = [
@@ -48,7 +53,11 @@ const CONNECTED_SUMMARY = [
   "- system.resolve_todo — dismiss live todos by resolved Gmail sender",
 ].join("\n");
 
-const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+const SYSTEM = buildChatSystemPrompt(
+  formatDateGrounding(TIMEZONE, NOW),
+  CONNECTED_SUMMARY,
+  selfIdentityGrounding(),
+);
 
 interface Case {
   input: string;
@@ -88,6 +97,7 @@ const CASES: Case[] = [
 
 function runFirstCall(input: string) {
   const modelRoute = route("standard");
+
   return generateText({
     model: modelRoute.model(),
     instructions: SYSTEM,
@@ -108,7 +118,9 @@ function runFirstCall(input: string) {
       [REMEMBER_TOOL]: tool({
         description:
           "Persist a resolved sender-level suppression standing instruction. Only persists when the " +
-          "sender email is resolved; otherwise returns a clarification request.",
+          "sender email is resolved; otherwise returns a clarification request. When the user names " +
+          "several senders, pass them all in `senders` in ONE call; each gets its own instruction and " +
+          "its own result. Never call this once per sender.",
         inputSchema: rememberInput,
       }),
       [RESOLVE_TODO_TOOL]: tool({
@@ -122,6 +134,7 @@ function runFirstCall(input: string) {
 }
 
 const CLEAR_SHAPESHIFTER_HIT = gmailSearchResultSchema.parse({
+  query: "acme onboarding",
   messages: [
     {
       messageId: "msg_clear_shape",
@@ -138,6 +151,7 @@ const CLEAR_SHAPESHIFTER_HIT = gmailSearchResultSchema.parse({
 });
 
 const AMBIGUOUS_ONBOARDING_HITS = gmailSearchResultSchema.parse({
+  query: "acme onboarding",
   messages: [
     {
       messageId: "msg_resend",
@@ -164,6 +178,7 @@ const AMBIGUOUS_ONBOARDING_HITS = gmailSearchResultSchema.parse({
 });
 
 const WEAK_ONBOARDING_HIT = gmailSearchResultSchema.parse({
+  query: "acme onboarding",
   messages: [
     {
       messageId: "msg_weak",
@@ -204,6 +219,7 @@ async function runResolutionScenario(
   const remembered: RememberCall[] = [];
   const resolvedTodos: RememberCall[] = [];
   const modelRoute = route("standard");
+
   const result = await generateText({
     model: modelRoute.model(),
     instructions: SYSTEM,
@@ -230,6 +246,7 @@ async function runResolutionScenario(
             senderEmail: typeof input.senderEmail === "string" ? input.senderEmail : null,
             senderLabel: typeof input.senderLabel === "string" ? input.senderLabel : null,
           });
+
           return {
             ok: true,
             status: "remembered",
@@ -251,6 +268,7 @@ async function runResolutionScenario(
             senderEmail: typeof input.senderEmail === "string" ? input.senderEmail : null,
             senderLabel: null,
           });
+
           return {
             ok: true,
             status: "not_found",
@@ -262,6 +280,7 @@ async function runResolutionScenario(
       }),
     },
   });
+
   return {
     toolNames: result.steps.flatMap((step) => step.toolCalls.map((call) => call.toolName)),
     remembered,
@@ -276,12 +295,14 @@ evalite<string, GroundingTaskOutput, null>(
     data: () => CASES.map((c) => ({ input: c.input, expected: null })),
     task: async (input) => {
       void serverEnv().ANTHROPIC_API_KEY;
+
       // Per the eval-lane lesson (project_triage_eval_provider_coupling): an eval
       // must never throw, or evalite's reporter hangs the whole job on a transient
       // provider blip. Degrade to an empty result so the scorers just score 0.
       try {
         const result = await runFirstCall(input);
         const call = result.toolCalls[0];
+
         return {
           toolName: call?.toolName ?? null,
           // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
@@ -341,6 +362,7 @@ evalite<ResolutionInput, ResolutionTaskOutput, string | null>(
     task: async (input) => {
       void serverEnv().ANTHROPIC_API_KEY;
       const searchResult = gmailSearchResultSchema.parse(input.searchResult);
+
       try {
         return await runResolutionScenario(input.prompt, searchResult);
       } catch (err) {
@@ -368,6 +390,7 @@ evalite<ResolutionInput, ResolutionTaskOutput, string | null>(
         scorer: ({ output, expected }) => {
           if (expected === null) {
             const ok = output.remembered.length === 0 && output.resolvedTodos.length === 0;
+
             return {
               score: ok ? 1 : 0,
               metadata: ok
@@ -375,8 +398,10 @@ evalite<ResolutionInput, ResolutionTaskOutput, string | null>(
                 : `acted on ambiguous/weak hits: remembered=${JSON.stringify(output.remembered)} resolved=${JSON.stringify(output.resolvedTodos)}`,
             };
           }
+
           const rememberedEmails = output.remembered.map((call) => call.senderEmail);
           const ok = rememberedEmails.length === 1 && rememberedEmails[0] === expected;
+
           return {
             score: ok ? 1 : 0,
             metadata: ok

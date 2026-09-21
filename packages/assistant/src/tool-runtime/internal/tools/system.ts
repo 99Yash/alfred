@@ -2,6 +2,9 @@ import {
   appendArtifactPageInput,
   appendArtifactSectionInput,
   activateWorkflowInput,
+  ASK_USER_LIMITS,
+  askUserInput,
+  askUserModelInput,
   authorWorkflowInput,
   createArtifactInput,
   editInstructionInput,
@@ -24,7 +27,7 @@ import {
   webSearchInput,
   writeScratchInput,
 } from "@alfred/contracts";
-import type { IanaTimezone } from "@alfred/contracts";
+import type { AskUserResult, IanaTimezone } from "@alfred/contracts";
 import { AppError } from "@alfred/contracts/app-errors";
 import {
   appendArtifactPage,
@@ -90,6 +93,7 @@ function resolveArtifactContext(
       },
     };
   }
+
   return {
     ok: true,
     ctx: {
@@ -120,7 +124,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     availability: { surface: "kernel" },
     description:
-      "Search the available tool catalog by capability without loading full schemas. Returns exact names for system.load_tool.",
+      "Search registered tools and connected MCP catalogs by capability. Registered hits return exact names for system.load_tool. Connected catalog hits return name mcp.call with an exact ref (connectionId, remoteName, catalogRevision); load mcp.call and pass that ref's fields to invoke the remote tool.",
     discovery: {
       title: "Search tools",
       summary:
@@ -139,7 +143,9 @@ export const systemTools: readonly RegisteredTool[] = [
         queryChars: input.query.length,
         startedAt: new Date(),
       });
+
       const startMs = Date.now();
+
       try {
         const candidates = await searchAvailableTools({
           userId: ctx.userId,
@@ -148,11 +154,16 @@ export const systemTools: readonly RegisteredTool[] = [
           allowedIntegrations: ctx.allowedIntegrations ?? [],
           context: ctx.runContext,
         });
+
         span.end({
           candidateNames: candidates.map((candidate) => candidate.name),
           latencyMs: Date.now() - startMs,
         });
-        return { ok: true, candidates };
+
+        // Echo the query. The chat UI drops `argsPreview` when it persists a
+        // turn, so the result is the only channel through which a reloaded
+        // tool card can say what Alfred looked for.
+        return { ok: true, query: input.query, candidates };
       } catch (error) {
         span.error();
         throw error;
@@ -184,7 +195,9 @@ export const systemTools: readonly RegisteredTool[] = [
         source: "model_load",
         startedAt: new Date(),
       });
+
       const startMs = Date.now();
+
       try {
         const result = await resolveExactToolLoad({
           userId: ctx.userId,
@@ -192,10 +205,12 @@ export const systemTools: readonly RegisteredTool[] = [
           allowedIntegrations: ctx.allowedIntegrations ?? [],
           context: ctx.runContext,
         });
+
         span.end({
           outcome: result.ok ? "ok" : result.status,
           latencyMs: Date.now() - startMs,
         });
+
         return result;
       } catch (error) {
         span.error();
@@ -318,6 +333,7 @@ export const systemTools: readonly RegisteredTool[] = [
           reason: "Conversation history is available only inside the current chat thread.",
         };
       }
+
       return readChatHistory({ userId: ctx.userId, threadId: ctx.threadId, input });
     },
   }),
@@ -334,6 +350,7 @@ export const systemTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const workflowAllowed = (ctx.allowedIntegrations ?? []).filter(isLoadableIntegrationSlug);
       const requestedAllowed = input.allowedIntegrations;
+
       if (
         workflowAllowed.length > 0 &&
         requestedAllowed.some((slug) => !workflowAllowed.includes(slug))
@@ -389,6 +406,47 @@ export const systemTools: readonly RegisteredTool[] = [
   }),
   liveTool({
     integration: "system",
+    action: "ask_user",
+    riskTier: "no_risk",
+    description:
+      `Ask the user ${ASK_USER_LIMITS.questions.min} to ${ASK_USER_LIMITS.questions.max} questions and wait for the answers before you continue. ` +
+      "Use it when the task cannot proceed without a choice only the user can make. " +
+      `Each question offers ${ASK_USER_LIMITS.options.min} to ${ASK_USER_LIMITS.options.max} options; the card always adds a free-text answer. ` +
+      "Ask everything you need in one call. Never fill `answers` yourself.",
+    // Boss-only and live-chat-only: a question needs a person watching the
+    // thread. Background workflows have no browser, and a sub-agent returns a
+    // clarification request to its parent instead. Lazy, not kernel — slice
+    // #1019 owns the prompt guidance that would justify the kernel cost.
+    availability: { requiresLiveChat: true, callers: ["boss"] },
+    // ADR-0099: the dispatcher parks the chat turn on a `question` approval.
+    // `execute` runs only on resume, with the decided input the decision route
+    // validated and wrote `answers` into; a row approved with no edit reaches it
+    // without answers and says so.
+    staging: "question",
+    // Two schemas on purpose (ADR-0099). `inputSchema` is what the runtime
+    // validates, so it must accept the `answers` the decision route writes into
+    // the decided input and the resume path re-parses. `modelInputSchema` is
+    // what the model is shown, and it has no `answers` key at all — a model
+    // that can see the key fills it, and then the question arm refuses the
+    // call.
+    inputSchema: askUserInput,
+    modelInputSchema: askUserModelInput,
+    execute: async (input): Promise<AskUserResult> => {
+      if (input.answers === undefined) {
+        return {
+          status: "unanswered",
+          reason: "no_answers",
+          questions: input.questions,
+          message:
+            "The user resumed the turn without answering. Continue on a reasonable assumption and state it in one sentence.",
+        };
+      }
+
+      return { status: "answered", questions: input.questions, answers: input.answers };
+    },
+  }),
+  liveTool({
+    integration: "system",
     action: "read_user_context",
     riskTier: "no_risk",
     description:
@@ -421,6 +479,7 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: readScratchInput,
     execute: async (input, ctx) => {
       const target = parseScratchToolKey(input.key);
+
       const entry =
         target.zone === "shared"
           ? await readScratch({ runId: ctx.scratchpadRunId, zone: "shared", path: target.path })
@@ -432,6 +491,7 @@ export const systemTools: readonly RegisteredTool[] = [
             });
 
       if (!entry) return { ok: true, key: input.key, found: false };
+
       return { ok: true, key: input.key, found: true, entry };
     },
   }),
@@ -448,6 +508,7 @@ export const systemTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const target = parseScratchToolKey(input.key);
       const writtenBy = ctx.caller === "boss" ? "boss" : ctx.caller.subId;
+
       if (target.zone === "shared") {
         await writeScratch({
           runId: ctx.scratchpadRunId,
@@ -466,6 +527,7 @@ export const systemTools: readonly RegisteredTool[] = [
           writtenBy,
         });
       }
+
       return { ok: true, key: input.key, writtenBy };
     },
   }),
@@ -482,6 +544,7 @@ export const systemTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const from = parseScratchToolKey(input.fromKey);
       const to = parseScratchToolKey(input.toKey);
+
       if (from.zone !== "scratch" || to.zone !== "shared") {
         throw new AppError("tool_input_invalid");
       }
@@ -492,7 +555,9 @@ export const systemTools: readonly RegisteredTool[] = [
         fromPath: from.path,
         toSharedPath: to.path,
       });
+
       if (!entry) return { ok: true, promoted: false, fromKey: input.fromKey, toKey: input.toKey };
+
       return { ok: true, promoted: true, fromKey: input.fromKey, toKey: input.toKey, entry };
     },
   }),
@@ -501,7 +566,17 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "remember",
     riskTier: "no_risk",
     description:
-      "Persist a resolved sender-level suppression standing instruction. Only persists when the sender email is resolved; otherwise returns a clarification request.",
+      "Persist a resolved sender suppression standing instruction. Only persists when the " +
+      "sender email is resolved; otherwise returns a clarification request. The instruction " +
+      "suppresses todo suggestions and briefing priority for the sender AND deprioritizes the " +
+      "sender's mail as a triage-category prior (it can move the Gmail label toward 'fyi', " +
+      "though a genuinely urgent item may still surface) — tell the user both halves. " +
+      "When the user names several senders, pass them all in `senders` in ONE call; each " +
+      "gets its own instruction and its own result. Never call this once per sender. " +
+      "Set `scope: 'domain'` when the user names a CLASS of senders rather than one mailbox " +
+      "('apply this to all investment senders'): the instruction then covers every address at " +
+      "that sender's domain, including ones that never wrote before. Tell the user which one " +
+      "you stored.",
     inputSchema: rememberInput,
     execute: async (input, ctx) => {
       return await rememberSenderSuppressionAndDismissTodos({
@@ -606,7 +681,7 @@ export const systemTools: readonly RegisteredTool[] = [
     // (ADR-0050); audit lives on the todo row.
     riskTier: "no_risk",
     description:
-      "Propose a todo for the user's quick rail. Inserts a 'suggested' row the user can accept or dismiss — it never acts on the user's behalf. Idempotent: if a live todo already references one of the given sources, the refs merge into it instead of duplicating.",
+      "Propose a todo for the user's quick rail. Inserts a 'suggested' row the user can accept or dismiss — it never acts on the user's behalf. Idempotent: if a live todo already references one of the given sources, the refs merge into it instead of duplicating. A Gmail thread the user has already answered is suppressed (status 'suppressed', reason 'user_already_replied') — the loop is closed, so do not ask the user to reply again.",
     inputSchema: suggestTodoInput,
     execute: async (input, ctx) => {
       return await suggestTodo({
@@ -678,7 +753,9 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: createArtifactInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
+
       if (!resolved.ok) return resolved.result;
+
       return await createArtifact(resolved.ctx, input);
     },
   }),
@@ -693,7 +770,9 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: appendArtifactPageInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
+
       if (!resolved.ok) return resolved.result;
+
       return await appendArtifactPage(resolved.ctx, input);
     },
   }),
@@ -708,7 +787,9 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: appendArtifactSectionInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
+
       if (!resolved.ok) return resolved.result;
+
       return await appendArtifactSection(resolved.ctx, input);
     },
   }),
@@ -723,7 +804,9 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: updateArtifactInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
+
       if (!resolved.ok) return resolved.result;
+
       return await updateArtifact(resolved.ctx, input);
     },
   }),

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeMimeType } from "./mime";
 
 /**
  * Chat file uploads (ADR-0065). The load-bearing invariant: the boss model only
@@ -17,7 +18,9 @@ import { z } from "zod";
  *   - `failed`  — degrade rejected or errored; surfaced to the user, never sent.
  */
 export const chatAttachmentStatusValues = ["pending", "ready", "failed"] as const;
+
 export type ChatAttachmentStatus = (typeof chatAttachmentStatusValues)[number];
+
 export const chatAttachmentStatusSchema = z.enum(chatAttachmentStatusValues);
 
 /**
@@ -37,8 +40,8 @@ export interface ChatAttachmentDescriptor {
 
 /**
  * How an upload is normalized for the model. This *replaces* the rejected
- * `MODEL_CAPABILITIES` idea (ADR-0065): the question is never "which model reads
- * this" but "how is this turned into text + images."
+ * per-model multimodal capability registry (ADR-0065): the question is never
+ * "which model reads this" but "how is this turned into text + images."
  *   - `pass-through` — universally-supported image; enters the transcript as-is.
  *   - `degrade-text` — extract/transcribe to text (audio, pdf, docs, code).
  *   - `degrade-av`   — split audio→transcript + keyframes→images (video), or
@@ -46,6 +49,7 @@ export interface ChatAttachmentDescriptor {
  *   - `reject`       — refused at the boundary with a clear message.
  */
 export const ingestKindValues = ["pass-through", "degrade-text", "degrade-av", "reject"] as const;
+
 export type IngestKind = (typeof ingestKindValues)[number];
 
 /**
@@ -54,6 +58,7 @@ export type IngestKind = (typeof ingestKindValues)[number];
  * needs no byte-to-text extraction (pass-through / degrade-av).
  */
 export const contentFormatValues = ["pdf", "document", "spreadsheet", "text"] as const;
+
 export type ContentFormat = (typeof contentFormatValues)[number];
 
 export interface IngestPolicyEntry {
@@ -166,13 +171,15 @@ export const SUPPORTED_FILE_TYPES = Object.keys(INGEST_POLICY);
 
 /** True when a Content-Type identifies a PDF, after MIME normalization. */
 export function isPdfContentType(mime: string): boolean {
-  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  const normalized = normalizeMimeType(mime);
+
   return classifyUpload(normalized)?.contentFormat === "pdf";
 }
 
 /** Content format for a MIME type after normalization, or null when outside the whitelist. */
 export function getContentFormat(mime: string): ContentFormat | null {
-  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  const normalized = normalizeMimeType(mime);
+
   return classifyUpload(normalized)?.contentFormat ?? null;
 }
 
@@ -216,13 +223,15 @@ export const MAX_ATTACHMENT_BYTES = Math.max(
  * lower-cased and stripped of any `; charset=…` suffix before lookup.
  */
 export function classifyUpload(mime: string): IngestPolicyEntry | null {
-  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  const normalized = normalizeMimeType(mime);
+
   return ingestPolicyByMime[normalized] ?? null;
 }
 
 /** True when chat can accept and normalize this upload today. */
 export function isChatUploadAllowed(mime: string): boolean {
-  const normalized = mime.split(";")[0]?.trim().toLowerCase() ?? "";
+  const normalized = normalizeMimeType(mime);
+
   return CHAT_UPLOAD_ALLOWED_TYPES.has(normalized);
 }
 

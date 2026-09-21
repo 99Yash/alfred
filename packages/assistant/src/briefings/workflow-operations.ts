@@ -12,14 +12,23 @@ import {
   markBriefingSuppressed,
 } from "./store";
 import { send } from "@alfred/assistant/delivery";
+import { emailLogoUrl } from "@alfred/assistant/settings";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
-import { parseIanaTimezone, type BriefingGather } from "@alfred/contracts";
+import { parseIanaTimezone, type BriefingClosedLoop, type BriefingGather } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { renderBriefingEmail } from "@alfred/mailer";
 import { eq } from "drizzle-orm";
 import { runBriefingAgent } from "./agent/agent";
+import {
+  auditComposedBriefing,
+  describeOpenAskViolation,
+  downgradeOpenAsks,
+  filterDroppedCitations,
+  type ComposedBriefingBody,
+  type OpenAskViolation,
+} from "./open-ask-guard";
 
 /**
  * Daily briefing workflow — LLM-composed prose, two slots ('morning' |
@@ -71,6 +80,7 @@ export interface DailyBriefingOperationState {
   untilIngestedAt?: string;
   briefingId?: string;
   quietDay?: boolean;
+  closedLoops: BriefingClosedLoop[];
   composed?: {
     subject: string;
     bodyText: string;
@@ -85,6 +95,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
 ): Promise<StepResult<State>> {
   const prefs = await resolveBriefingPreferences(ctx.userId);
   const timezone = prefs.timezone;
+
   // `state.briefingDate` is persisted JSON, so it re-enters as a plain string
   // and is parsed back into a key here; a fresh run mints one instead.
   const briefingDate = ctx.state.briefingDate
@@ -106,6 +117,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     await ctx.log(
       `gather: skip existing terminal briefing id=${begun.row.id} status=${begun.row.status}`,
     );
+
     return {
       kind: "done",
       state: { ...ctx.state, briefingId: begun.row.id, briefingDate, timezone },
@@ -130,6 +142,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   // to reuse, so they fall through to a (correct) fresh compose.
   if (begun.action === "resume" && begun.row.status === "composed") {
     const { breakingSummary, fullBriefing, watermarkAt } = begun.row;
+
     // The composed row must carry both its prose AND the frozen window end
     // (`watermarkAt`, stashed by `compose`). With the window end we can send
     // the reused prose AND advance the watermark to exactly the instant the
@@ -141,6 +154,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
         `gather: resume composed briefing id=${begun.row.id} — skipping to send ` +
           `(reuse prose, watermark=${watermarkAt.toISOString()})`,
       );
+
       return {
         kind: "next",
         state: {
@@ -177,6 +191,8 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
 
   let gather: BriefingGather;
   let suppressedByInstruction: BriefingInstructionSuppression[] = [];
+  let closedLoops: BriefingClosedLoop[] = [];
+
   try {
     // Deterministic structured gather over the same watermark window the
     // agent composes from. Cheap (DB reads against email_triage +
@@ -190,9 +206,11 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       windowStart: since ?? undefined,
       windowEnd: until,
     });
+
     gather = gathered.gather;
     suppressedByInstruction = gathered.suppressedByInstruction;
-    await markBriefingGathering({ briefingId: begun.row.id, gather });
+    closedLoops = gathered.closedLoops;
+    await markBriefingGathering({ briefingId: begun.row.id, gather, closedLoops });
   } catch (err) {
     await markBriefingFailed(begun.row.id);
     throw err;
@@ -206,6 +224,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   // `demandingEmailCount` is folded onto day-shape by the gather; its
   // absence falls back to the raw email count.
   const demandingEmailCount = gather.day_shape?.demandingEmailCount;
+
   const quietDay = isQuietMorning({
     demandingEmailCount,
     emailCount: counts.email,
@@ -231,6 +250,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       sinceIngestedAt: since ? since.toISOString() : null,
       untilIngestedAt: until.toISOString(),
       quietDay,
+      closedLoops,
     },
     nextStep: "compose",
   };
@@ -240,9 +260,11 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
   const { briefingId, untilIngestedAt } = ctx.state;
+
   if (!briefingId || !untilIngestedAt || !ctx.state.briefingDate || !ctx.state.timezone) {
     throw new Error("[daily-briefing] compose entered without gather output");
   }
+
   // Persisted state carries both as plain strings — this is the boundary that
   // re-establishes the day key and the zone as their own types.
   const briefingDate = parseLocalDateKey(ctx.state.briefingDate);
@@ -254,6 +276,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   if (ctx.state.slot === "morning" && ctx.state.reason === "cron" && ctx.state.quietDay) {
     const gateReason =
       "quiet morning: no demanding email, integration activity, or calendar events";
+
     if (!ctx.state.dryRun) {
       await markBriefingSuppressed({
         briefingId,
@@ -261,7 +284,9 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         gateReason,
       });
     }
+
     await ctx.log(`compose: suppressed (${gateReason})${ctx.state.dryRun ? " [dryRun]" : ""}`);
+
     return {
       kind: "done",
       state: ctx.state,
@@ -281,27 +306,81 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   await markBriefingComposing(briefingId);
 
   let result: Awaited<ReturnType<typeof runBriefingAgent>>;
+  let body: ComposedBriefingBody;
+  let surfacedDocumentIds: string[] = [];
+
   try {
-    result = await runBriefingAgent({
-      userId: ctx.userId,
-      slot: ctx.state.slot,
-      recipientFirstName: ctx.state.recipientName ?? null,
-      sinceIngestedAt: since,
-      untilIngestedAt: until,
-      briefingDate,
-      timezone,
-      runId: ctx.runId,
-      stepId: "compose",
-    });
+    const compose = async (openAskViolations?: readonly OpenAskViolation[]) => {
+      return runBriefingAgent({
+        userId: ctx.userId,
+        slot: ctx.state.slot,
+        recipientFirstName: ctx.state.recipientName ?? null,
+        sinceIngestedAt: since,
+        untilIngestedAt: until,
+        briefingDate,
+        timezone,
+        runId: ctx.runId,
+        stepId: "compose",
+        closedLoops: ctx.state.closedLoops,
+        ...(openAskViolations ? { openAskViolations } : {}),
+      });
+    };
+
+    const audit = async (draft: ComposedBriefingBody) => {
+      return auditComposedBriefing({
+        userId: ctx.userId,
+        composed: draft,
+        closedLoops: ctx.state.closedLoops,
+      });
+    };
+
+    result = await compose();
+    body = result.briefing;
+
+    // Pre-send open-ask guard (#1082). The prompt rule from #1080 asks the
+    // composer not to present a closed object as an open ask; this proves it.
+    // One aimed re-prompt, then a deterministic downgrade, then failure — the
+    // guard may block or drop, never author.
+    let violations = await audit(body);
+
+    if (violations.length > 0) {
+      await ctx.log(`compose: open-ask guard rejected draft 1 — ${describeViolations(violations)}`);
+      result = await compose(violations);
+      body = result.briefing;
+      violations = await audit(body);
+    }
+
+    surfacedDocumentIds = uniqueStrings(result.briefing.citedDocumentIds);
+
+    if (violations.length > 0) {
+      const downgraded = downgradeOpenAsks(body, violations);
+
+      if (!downgraded) {
+        throw new Error(
+          `[daily-briefing] open-ask guard blocked compose: ${describeViolations(violations)}`,
+        );
+      }
+
+      await ctx.log(
+        `compose: open-ask guard downgraded draft 2 — ${describeViolations(violations)}`,
+      );
+      body = { ...body, ...downgraded };
+      // The downgrade deleted sentences, so citations tied to those sentences
+      // were never delivered. Persist only what went out — a stale id here
+      // becomes a `previouslySurfaced` suppressor that hides an untold item
+      // from the next slot.
+      surfacedDocumentIds = filterDroppedCitations(result.briefing.citedDocumentIds, violations);
+    }
+
     await markBriefingComposed({
       briefingId,
       // Prose body → breaking_summary; headline ← subject; no structured
       // sections (the model emits one markdown body, not buckets).
-      breakingSummary: result.briefing.bodyMarkdown,
+      breakingSummary: body.bodyMarkdown,
       fullBriefing: {
-        headline: result.briefing.subject,
+        headline: body.subject,
         sections: [],
-        surfacedDocumentIds: uniqueStrings(result.briefing.citedDocumentIds),
+        surfacedDocumentIds,
       },
       model: result.modelId,
       composeFallback: false,
@@ -318,7 +397,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   await ctx.log(
     `compose: steps=${result.steps} model=${result.modelId} ` +
       `in=${result.usage.inputTokens ?? 0} out=${result.usage.outputTokens ?? 0} ` +
-      `subject="${result.briefing.subject}"`,
+      `subject="${body.subject}"`,
   );
 
   return {
@@ -326,10 +405,10 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
     state: {
       ...ctx.state,
       composed: {
-        subject: result.briefing.subject,
-        bodyText: result.briefing.bodyText,
-        bodyMarkdown: result.briefing.bodyMarkdown,
-        citedDocumentIds: result.briefing.citedDocumentIds,
+        subject: body.subject,
+        bodyText: body.bodyText,
+        bodyMarkdown: body.bodyMarkdown,
+        citedDocumentIds: surfacedDocumentIds,
         modelId: result.modelId,
       },
     },
@@ -337,12 +416,62 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   };
 }
 
+function describeViolations(violations: readonly OpenAskViolation[]): string {
+  return violations.map(describeOpenAskViolation).join(" | ");
+}
+
 export async function runDailyBriefingSend<State extends DailyBriefingOperationState>(
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
   const { composed, briefingId, briefingDate, untilIngestedAt } = ctx.state;
+
   if (!composed || !briefingId || !briefingDate || !untilIngestedAt) {
     throw new Error("[daily-briefing] send entered without composed output");
+  }
+
+  // Pre-send open-ask guard (#1082; ADR-0103): the compose-time audit can go
+  // stale before send. A resume reuses persisted prose without recomposing, and
+  // an object open at compose can close before send — so check live state again
+  // here, where the payload is final. No re-prompt this late (send owns no model
+  // call): downgrade the payload, or block the send when nothing shippable
+  // remains. The compose-time guard stays — it is the only path that can aim a
+  // re-prompt at the composer. Objects absent from `closedLoops` (always the
+  // case on the resume path) fall through to the live `integration_objects`
+  // read inside the audit, which is what catches a merge that landed after
+  // compose.
+  let body: ComposedBriefingBody = {
+    subject: composed.subject,
+    bodyText: composed.bodyText,
+    bodyMarkdown: composed.bodyMarkdown,
+  };
+
+  const sendViolations = await auditComposedBriefing({
+    userId: ctx.userId,
+    composed: body,
+    closedLoops: ctx.state.closedLoops,
+  });
+
+  // A send-time downgrade means the persisted compose-time row (prose +
+  // citations) no longer matches what the user receives. Carry the corrected
+  // ids alongside the body so the send can patch the row: delivered prose and
+  // continuity state must agree, or the next slot suppresses an untold item.
+  let sendSurfacedDocumentIds: string[] | null = null;
+
+  if (sendViolations.length > 0) {
+    const downgraded = downgradeOpenAsks(body, sendViolations);
+
+    if (!downgraded) {
+      await markBriefingFailed(briefingId);
+      throw new Error(
+        `[daily-briefing] open-ask guard blocked send: ${describeViolations(sendViolations)}`,
+      );
+    }
+
+    await ctx.log(
+      `send: open-ask guard downgraded payload — ${describeViolations(sendViolations)}`,
+    );
+    body = { ...body, ...downgraded };
+    sendSurfacedDocumentIds = filterDroppedCitations(composed.citedDocumentIds, sendViolations);
   }
 
   // Dry run short-circuit: skip Resend. The `composed` briefings row
@@ -350,6 +479,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   // send so the smoke script doesn't need a special path.
   if (ctx.state.dryRun) {
     await ctx.log("send: skipped (dryRun)");
+
     return {
       kind: "done",
       state: ctx.state,
@@ -369,13 +499,13 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   // The template (`@alfred/mailer`) owns all styling; the model only
   // ever produces prose markdown.
   const webOrigin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
+
   const html = await renderBriefingEmail({
-    content: composed.bodyMarkdown,
+    content: body.bodyMarkdown,
     createdAt: new Date().toISOString(),
     timezone: ctx.state.timezone,
-    // Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
-    logoUrl: `${webOrigin}/images/logo/alfred-logo-email.png`,
-    previewText: composed.subject,
+    logoUrl: emailLogoUrl(webOrigin),
+    previewText: body.subject,
     // Both slots get the CTA, pointed at the full briefing for that day
     // (`/briefings/{YYYY-MM-DD}`, ADR-0049) rather than the chat surface.
     ctaUrl: `${webOrigin}/briefings/${briefingDate}`,
@@ -386,15 +516,15 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     userId: ctx.userId,
     kind: ctx.state.slot === "morning" ? "briefing" : "evening_recap",
     idempotencyKey,
-    subject: composed.subject,
+    subject: body.subject,
     html,
-    text: composed.bodyText,
+    text: body.bodyText,
     payload: {
       briefingId,
       briefingDate,
       slot: ctx.state.slot,
-      timezone: ctx.state.timezone,
-      reason: ctx.state.reason,
+      ...(ctx.state.timezone !== undefined ? { timezone: ctx.state.timezone } : {}),
+      ...(ctx.state.reason !== undefined ? { reason: ctx.state.reason } : {}),
     },
   });
 
@@ -416,11 +546,21 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
       : ctx.state.reason !== "cron"
         ? `${ctx.state.reason} run bypasses morning suppression`
         : "demanding signal present";
+
   await markBriefingSent({
     briefingId,
     emailSendId: result.emailSendId,
     watermarkAt: new Date(untilIngestedAt),
     gateReason,
+    ...(sendSurfacedDocumentIds
+      ? {
+          downgraded: {
+            breakingSummary: body.bodyMarkdown,
+            headline: body.subject,
+            surfacedDocumentIds: sendSurfacedDocumentIds,
+          },
+        }
+      : {}),
   });
 
   return {
@@ -463,23 +603,28 @@ function gatherCounts(gather: BriefingGather): GatheredCounts {
 function uniqueStrings(values: readonly string[]): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
+
   for (const value of values) {
     const trimmed = value.trim();
+
     if (!trimmed || seen.has(trimmed)) continue;
     seen.add(trimmed);
     out.push(trimmed);
   }
+
   return out;
 }
 
 function instructionSuppressionLogPart(items: readonly BriefingInstructionSuppression[]): string {
   if (items.length === 0) return " instruction_suppressions=0";
   const factIds = [...new Set(items.map((item) => item.factId))].join(",");
+
   return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;
 }
 
 function pickFirstName(name: string | null): string | null {
   if (!name) return null;
   const first = name.trim().split(/\s+/)[0];
+
   return first || null;
 }

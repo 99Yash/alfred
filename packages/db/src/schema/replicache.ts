@@ -25,4 +25,5 @@ export const replicacheClient = pgTable(
 );
 
 export type ReplicacheClientGroup = typeof replicacheClientGroup.$inferSelect;
+
 export type ReplicacheClient = typeof replicacheClient.$inferSelect;

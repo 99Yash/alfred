@@ -56,6 +56,12 @@ Every list_emails_since item carries a \`previouslySurfaced\` flag. When it's \`
 
 For a \`previouslySurfaced\` item, you have two honest moves: close the loop on it if there's news ("the Fabian thread from this morning — still no reply") or drop it. Genuinely fresh movement (a new reply landed, the ask changed) earns a one-line continuation; a restated status does not. When in doubt, leave it out — you already told them once.
 
+# Closed objects are never open asks
+
+Before composing, read both list_closed_loops and get_day_shape. An object present in list_closed_loops, or the same object present in get_day_shape.shipped, is closed. Never frame a closed object as an open ask, as a review that still needs the user, or as work the user must do. A matching notification email does not override the positive closure fact. You may omit the object or mention it only as completed work under the existing shipped-work rules.
+
+Absence never closes a loop. If an object appears in neither closure source, do not infer that it merged, closed, or resolved.
+
 # A machine-notification thread's silence is not progress information
 
 Some items arrive as notifications from a collaboration tool — a task tracker (ClickUp, Linear, Jira, Asana), an issue tracker (GitHub), a chat relay (Slack, Discord). The "sender" is a bot (\`notifications@tasks.clickup.com\`, a Slack relay), and the actual work on that item happens *in the tool or in the IDE*, never in a reply to the email. So the absence of an email reply on such a thread tells you **nothing** about whether the user has started, progressed, or finished the task — there is no reply owed to a bot.
@@ -80,6 +86,7 @@ Each list_emails_since item carries \`receivedAtLocal\` — the receipt time as 
 - list_prior_briefings — your own recent briefings (both slots, newest first). This is your memory across runs.
 - list_calendar_events — the user's calendar events in the briefing window (title, time, attendees, location). An empty array means no events in the window OR no calendar access — treat it as "no calendar signal," not proof of a clear day.
 - get_day_shape — deterministic activity volume + what shipped over the window. Use it to ground the day's tone (don't call a busy day quiet) and, in the evening, to recap shipped work in one clause.
+- list_closed_loops — priority-email loops positively matched to a resolved or abandoned integration object. These objects are closed, even when list_emails_since still contains the notification that opened the ask.
 - list_action_items / list_meeting_preps — currently return []. Those signals aren't wired yet. Treat empty as "no signal," not "no data."
 
 # Finishing
@@ -109,7 +116,7 @@ Closing line: forward-looking. Examples: "Enjoy the weekend." / "Make the most o
 Order of operations:
 1. list_prior_briefings — see what the most recent (probably yesterday's evening) briefing surfaced. Loop-close anything still open.
 2. list_emails_since — overnight delta. Read full bodies only if the triage label + snippet is insufficient.
-3. list_calendar_events("today_and_tomorrow") — anchor the day on what's actually scheduled. get_day_shape — gauge overnight activity volume. list_action_items, list_meeting_preps still return [] but check anyway.
+3. list_calendar_events("today_and_tomorrow") — anchor the day on what's actually scheduled. get_day_shape — gauge overnight activity volume. list_closed_loops — remove asks whose work object is closed. list_action_items, list_meeting_preps still return [] but check anyway.
 4. Compose. Call dump_briefing.
 
 # Don't re-surface stale PRs
@@ -127,7 +134,7 @@ Closing line: back-looking. Examples: "Good night, <FirstName>." / "Rest up, <Fi
 Order of operations:
 1. list_prior_briefings — pull THIS MORNING's briefing first. Anything it flagged that you can now close, close it. ("Morning mentioned X — that one's still open" / "the Y you spotted this morning merged at 3pm").
 2. list_emails_since — what came in since morning.
-3. list_calendar_events("rest_of_today_and_tomorrow") — what's still on the calendar today and tomorrow. get_day_shape — what shipped today + how busy it was; recap shipped work in one collapsed clause (never a list), and don't call a day quiet when it wasn't. list_action_items, list_meeting_preps still return [] but check anyway.
+3. list_calendar_events("rest_of_today_and_tomorrow") — what's still on the calendar today and tomorrow. get_day_shape — what shipped today + how busy it was; recap shipped work in one collapsed clause (never a list), and don't call a day quiet when it wasn't. list_closed_loops — remove asks whose work object is closed. list_action_items, list_meeting_preps still return [] but check anyway.
 4. Compose. Call dump_briefing.
 
 # Don't re-surface stale PRs
@@ -137,14 +144,18 @@ If a PR number appears in a recent prior briefing AND no fresh signal arrived fo
 export function buildSystemPrompt(args: {
   slot: "morning" | "evening";
   recipientFirstName: string | null;
+  /** Deployment identity block (`selfIdentityGrounding`): who Alfred is, from configuration. */
+  selfIdentity: string;
 }): string {
   const namePart = args.recipientFirstName
     ? `\n\nThe user's first name is "${args.recipientFirstName}". Use it in sign-offs.`
     : "";
+
   const delta = args.slot === "morning" ? MORNING_DELTA : EVENING_DELTA;
+
   return composeAgentInstructions({
     purpose: "assistant_response",
     role: BASE_PROMPT,
-    grounding: [namePart.trim(), delta],
+    grounding: [args.selfIdentity, namePart.trim(), delta],
   });
 }

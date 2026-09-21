@@ -19,10 +19,14 @@
     "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@langfuse/otel": "^5.11.1",
+    "@langfuse/tracing": "^5.11.1",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/context-async-hooks": "^2.11.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
     "ai": "catalog:",
     "ai-retry": "catalog:",
     "drizzle-orm": "^0.45.2",
-    "langfuse": "^3.38.20",
     "zod": "catalog:"
   },
   "devDependencies": {

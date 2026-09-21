@@ -54,6 +54,7 @@ describe("toolCallWouldGate", () => {
       listRegisteredTools().length > 0,
       "the registry must be populated or this asserts nothing",
     );
+
     for (const name of [
       "system.read_user_context",
       "system.spawn_sub_agent",
@@ -112,6 +113,10 @@ function policy(defaultMode: ResolvedPolicy["defaultMode"]): ResolvedPolicy {
  *     over-report, not a mirror.
  *   - the `staging: "fast_path"` route returns from `dispatchToolCall` BEFORE the
  *     gate, so the hint over-reports for `mcp.list_tools` (campaign item 181).
+ *
+ * And one thing it mirrors EXACTLY: a `staging: "question"` tool parks on its
+ * own approval kind without a policy read (ADR-0099), so the gate stages it
+ * under both modes and the hint must say so.
  */
 describe("toolCallWouldGate mirrors the dispatch gate for every registered tool", () => {
   after(() => {
@@ -130,9 +135,14 @@ describe("toolCallWouldGate mirrors the dispatch gate for every registered tool"
       assert.ok(tools.length > 0, "the registry must be populated or this asserts nothing");
 
       for (const tool of tools) {
-        const expected = tool.resolveRiskTier
-          ? true
-          : toolRequiresApproval(await resolvePolicyMode(MIRROR_USER_ID, tool.name), tool.riskTier);
+        const expected =
+          tool.resolveRiskTier || tool.staging === "question"
+            ? true
+            : toolRequiresApproval(
+                await resolvePolicyMode(MIRROR_USER_ID, tool.name),
+                tool.riskTier,
+              );
+
         assert.equal(
           await toolCallWouldGate(MIRROR_USER_ID, tool.name),
           expected,

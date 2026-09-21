@@ -12,9 +12,14 @@ const stateSchema = z.object({
   documentIds: z.array(z.string()),
   startedAt: z.string(),
   processed: z.number().int().nonnegative(),
+  // `.default(0)` so a run persisted before this field shipped still parses.
+  // The INFERRED type stays required, so every construction site is still
+  // forced by the compiler to supply it.
+  extractionErrors: z.number().int().nonnegative().default(0),
   proposed: z.number().int().nonnegative(),
   blocked: z.number().int().nonnegative(),
 });
+
 type State = z.infer<typeof stateSchema>;
 
 const inputSchema = z.object({
@@ -45,6 +50,7 @@ export function buildMemoryExtractionWorkflow(sender: GmailSenderParser): Workfl
     closure: { kind: "none" },
     initialState(input) {
       const parsed = inputSchema.parse(input.input ?? {});
+
       return {
         mode: parsed.mode,
         manualProposals: parsed.manualProposals,
@@ -53,6 +59,7 @@ export function buildMemoryExtractionWorkflow(sender: GmailSenderParser): Workfl
         documentIds: [],
         startedAt: new Date().toISOString(),
         processed: 0,
+        extractionErrors: 0,
         proposed: 0,
         blocked: 0,
       };

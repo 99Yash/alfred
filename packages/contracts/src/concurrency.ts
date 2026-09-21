@@ -19,10 +19,15 @@ export async function runTaskGroup<T>(
 ): Promise<T[]> {
   const settled = await settleTaskGroup(tasks, opts);
   const firstRejected = settled.find((result) => result.status === "rejected");
+
   if (firstRejected?.status === "rejected") throw firstRejected.reason;
-  // SAFETY: the rejected head was thrown above, so every remaining result is
-  // the fulfilled arm of TaskGroupSettledResult.
-  return settled.map((result) => (result as { status: "fulfilled"; value: T }).value);
+
+  return settled.map((result) => {
+    if (result.status !== "fulfilled")
+      throw firstRejected?.reason ?? new Error("task group rejected");
+
+    return result.value;
+  });
 }
 
 export async function settleTaskGroup<T>(
@@ -37,6 +42,7 @@ export async function settleTaskGroup<T>(
 
   const running = tasks.map(async (task): Promise<T> => {
     throwIfAborted(controller.signal);
+
     try {
       return await task({ signal: controller.signal });
     } catch (err) {
@@ -51,6 +57,7 @@ export async function settleTaskGroup<T>(
 
   return settled.map((result): TaskGroupSettledResult<T> => {
     if (result.status === "fulfilled") return result;
+
     return { status: "rejected", reason: result.reason ?? firstRejection };
   });
 }
@@ -76,6 +83,7 @@ export async function mapConcurrent<T>(
       while (true) {
         throwIfAborted(scope.signal);
         const current = index++;
+
         if (current >= items.length) return;
         // SAFETY: current < items.length was checked above, so the indexed
         // read is defined even under noUncheckedIndexedAccess.
@@ -88,12 +96,16 @@ export async function mapConcurrent<T>(
 
 function linkAbortSignal(parent: AbortSignal | undefined, controller: AbortController): () => void {
   if (!parent) return () => {};
+
   if (parent.aborted) {
     abortController(controller, parent.reason);
+
     return () => {};
   }
+
   const onAbort = () => abortController(controller, parent.reason);
   parent.addEventListener("abort", onAbort, { once: true });
+
   return () => parent.removeEventListener("abort", onAbort);
 }
 

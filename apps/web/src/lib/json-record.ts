@@ -1,9 +1,11 @@
-import { isNonEmptyString, isRecord } from "@alfred/contracts";
+import { isNonEmptyString, jsonObjectSchema, type JsonObject } from "@alfred/contracts";
 
-export type JsonRecord = Record<string, unknown>;
+export type JsonRecord = JsonObject;
 
 export function asRecord(value: unknown): JsonRecord | null {
-  return isRecord(value) ? value : null;
+  const parsed = jsonObjectSchema.safeParse(value);
+
+  return parsed.success ? parsed.data : null;
 }
 
 /**
@@ -18,6 +20,7 @@ export function asString(value: unknown): string | undefined {
 
 export function parseJsonRecord(value: string | undefined): JsonRecord | null {
   if (!value) return null;
+
   try {
     return asRecord(JSON.parse(value));
   } catch {

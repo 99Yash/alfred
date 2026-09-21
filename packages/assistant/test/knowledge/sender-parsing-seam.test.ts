@@ -76,6 +76,7 @@ describe("[campaign-04 seam] authoredByGmail — SENT-flag authorship via isSent
       gmailDoc({ isSent: true, from: "Sandro <sandro@maglione.dev>" }, "acc_work"),
       self,
     );
+
     assert.equal(r.authoredByUser, true);
     assert.equal(r.authoredByUser && r.proof.method, "sent_flag");
   });
@@ -115,6 +116,7 @@ describe("[campaign-04 seam] authoredByGmail — From-header normalization via e
       gmailDoc({ from: "Yash Gouravkar <YASH@Gmail.com>" }, "acc_personal"),
       self,
     );
+
     assert.equal(r.authoredByUser, true);
     assert.equal(
       r.authoredByUser && r.proof.source === "gmail" && r.proof.fromEmail,
@@ -167,6 +169,7 @@ describe("[campaign-04 seam] accumulateDoc — team-graph human rescue via isHum
   function keysFor(meta: Record<string, unknown>): string[] {
     const c = new Map<string, ContactAggregate>();
     accumulateDoc(c, gmailSenderAdapter.correspondents(meta), t1, SELF);
+
     return [...c.keys()];
   }
 

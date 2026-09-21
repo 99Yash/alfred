@@ -58,10 +58,24 @@
  * aliases PR 4 of the registry plan deletes. Exported for the self-test, which
  * proves every `export type …Slug` in `slugs.ts` matches it.
  */
-export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Planned|Catalog|Google|GithubApp|Bearer|Supported\w*)Slug|(?:Bearer|Credential)Provider)`;
+export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Planned|Catalog|Google|GithubApp|Bearer|TokenPaste|Supported\w*)Slug|(?:Bearer|Credential)Provider)`;
 
 /** @type {ConsolidationRule[]} */
 export const RULES = [
+  {
+    id: "unfiltered-event-receipt-read",
+    re: /\.(?:from|(?:left|right|inner|full)Join)\(\s*eventReceipts\b/,
+    scope: "chain",
+    severity: "gate",
+    owners: [
+      "packages/db/src/schema/integrations.ts",
+      "packages/assistant/src/connections/ingestion/inbound-receive.ts",
+      "packages/assistant/src/connections/ingestion/inbound-deliver.ts",
+      "packages/assistant/src/connections/raw-receipt-inventory.ts",
+      "packages/assistant/src/connections/ingestion/receipt-corpus-backfill.ts",
+    ],
+    fix: "Read typedEventReceipts from @alfred/db/schemas. Only the view definition, receipt conflict read-back, the deliver job (publishes both tiers), raw inventory, and corpus backfill may read both tiers of eventReceipts.",
+  },
   {
     id: "humanize-integration-slug",
     // `humanizeSlug(tool.integration)` / `humanizeSlug(integration)` — title-casing
@@ -97,6 +111,94 @@ export const RULES = [
     severity: "gate",
     owners: ["packages/contracts/src/guards.ts"],
     fix: "Use toStringArray(x) from @alfred/contracts — it checks the element type at runtime instead of asserting it.",
+  },
+  {
+    id: "sql-any-of-interpolated-list",
+    // `= ANY(${list})` inside a drizzle sql`` template. Drizzle expands an
+    // interpolated JS array to a tuple (`($1, $2, $3)`), so Postgres rejects it
+    // with "op ANY/ALL (array) requires array on right side". The briefing
+    // sender-significance read failed on every run for weeks this way, and a
+    // best-effort catch hid it.
+    re: /\bANY\(\$\{/,
+    severity: "gate",
+    fix: "Use inArray(expr, list) from drizzle-orm inside the template (`WHERE ${inArray(sql`lower(alias)`, list)}`), or pass one array parameter with a cast: `ANY(${sql.param(list)}::text[])`.",
+  },
+  {
+    id: "hand-rolled-object-closure",
+    // "Did this object's lifecycle close an already-open ask?" is a PER-KIND
+    // policy, not a global category list. A pull request closes on `resolved`
+    // and `abandoned`; a CI run and a deployment close on neither, because
+    // their state is the outcome of the latest attempt (#1093). A call site
+    // that compares `stateCategory` to the two literals, or re-implements the
+    // membership test over LOOP_CLOSING_STATE_CATEGORIES, freezes the
+    // pull-request policy into itself and reads the next kind wrong.
+    // `failed` is the trap that makes this sharp: it is terminal for the
+    // object but it OPENS a CI loop, so a hand-rolled "terminal means closed"
+    // inverts the meaning of every failing build.
+    //
+    // The anchor is `\w*[Cc]ategory`, not `stateCategory`, because a local
+    // rename is enough to walk out of the fence: the sanctioned reader itself
+    // binds `const category = object.stateCategory ?? …` one line before it
+    // asks the registry. The anchor is never DROPPED, though — `"resolved"`
+    // alone is overloaded about ten times in this tree by an MCP identity
+    // status and a join result kind. Every live `*category` comparison tests a
+    // triage word (`action_needed`, `awaiting_reply`, `meeting`, `payment`,
+    // `urgent`) or a tool lane (`source`, `action`), so the widened anchor
+    // costs zero false positives today.
+    //
+    // Six spellings, because each is a plausible thing to write and each used
+    // to pass:
+    //   1. `category === "resolved"`, either operand order. No `"` may stand
+    //      between the identifier and the literal, or one line holding two
+    //      unrelated comparisons matches across the pair — the measured shape
+    //      is the ternary `category === "triage" ? "Email" : s === "resolved"`.
+    //   2. `category !== "active"` — the inversion, and the worst reading of
+    //      the six: it calls a FAILED build closed. Only the negated form is
+    //      matched; `=== "active"` is an honest activeness test.
+    //   3. the tuple fed to a membership test THROUGH A CAST —
+    //      `(LOOP_CLOSING_STATE_CATEGORIES as readonly string[]).includes(x)`
+    //      is verbatim the idiom `isTerminalCategory` uses next to the tuple,
+    //      so it is the spelling a reader copies first. `.has(` and `.find(`
+    //      join `.includes(`, `.indexOf(` and `.some(`, because
+    //      `new Set(LOOP_CLOSING_STATE_CATEGORIES).has(category)` is the same
+    //      test one character away.
+    //   4. an inline array holding BOTH closing literals, fed to the same
+    //      membership test. Both literals are required, so the tuple
+    //      declarations stay legal.
+    //   5. `isTerminalCategory(category)` — a CALL, not a spelling of the
+    //      comparison, and shorter than the sanctioned reader. It is a sibling
+    //      export over a DIFFERENT tuple, it returns `true` for `failed`, and
+    //      it sits in autocomplete at every call site this row protects, so a
+    //      row that refuses six comparisons and admits this one call fences
+    //      nothing. The `function` lookbehind exempts its own declaration; a
+    //      caller who genuinely means "terminal for the object" writes a
+    //      `// drift-ok:` marker.
+    //   6. `switch (category) { case "resolved": }`, which code-style.md §2
+    //      actively prefers for a closed union. This one is why the rule is
+    //      `scope: "chain"`: the header and the case land on separate lines,
+    //      which a per-line regex cannot see.
+    //
+    // What the `switch` arm guarantees, exactly: the span between the header
+    // and the `case` may not cross a second `switch` keyword, which is what
+    // keeps an ADJACENT and a NESTED switch out of the match. The 600-character
+    // bound does something weaker and unrelated — it limits how far apart the
+    // header and the case may sit. A bound alone cannot say which `switch` a
+    // `case` belongs to.
+    //
+    // The six spellings are the ones an author is most likely to write. They
+    // are NOT exhaustive, and this row must not be read as a fence: it is a
+    // tier-2 gate, and a novel spelling still compiles. Review round 2
+    // measured nine escapes. Five by name: a rename to an identifier that does
+    // not end in `category` (the destructuring form included), a comparison
+    // that prettier wraps across two lines, a `"` standing between the
+    // identifier and the literal, a lookup table
+    // (`const CLOSES = { resolved: true }`), and a `case "resolved":` that
+    // lands past the 600-character bound behind ordinary multi-line case
+    // bodies.
+    scope: "chain",
+    re: /\b\w*[Cc]ategory\b[^;\n"]*(?:===|!==)[^;\n"]*"(?:resolved|abandoned)"|"(?:resolved|abandoned)"[^;\n"]*(?:===|!==)[^;\n"]*\b\w*[Cc]ategory\b|\b\w*[Cc]ategory\b\s*!==\s*"active"|"active"\s*!==\s*\w*[Cc]ategory\b|\bLOOP_CLOSING_STATE_CATEGORIES\b[^;\n]*\.\s*(?:includes|indexOf|some|has|find)\(|\[[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*\][^;\n]*\.\s*(?:includes|indexOf|some|has|find)\(|(?<!function )\bisTerminalCategory\s*\(|switch\s*\([^)\n]*\b\w*[Cc]ategory\b[^)\n]*\)\s*\{(?:(?!\bswitch\b)[\s\S]){0,600}?\bcase\s+"(?:resolved|abandoned)"\s*:/,
+    severity: "gate",
+    fix: "Call closesOpenAsk(provider, kind, category) from @alfred/contracts for a projection row, or evidenceObjectClosesAsk(card.object) for an evidence card. Both read the registry's per-kind closesAskOn, so a kind that closes on neither category stays correct, and both return the closing category rather than a boolean. `failed` closes nothing: it is terminal for the object but it opens a CI loop, which is why isTerminalCategory is not the reader either — if you truly mean terminal for the object and not closed, say so in a `// drift-ok:` marker.",
   },
   {
     id: "canonical-param-key",
@@ -268,6 +370,17 @@ export const RULES = [
     fix: "Use parseEmailAddress(value) from @alfred/contracts to pull an address out of a `Name <addr>` header and normalize it. It is also the single source of self-mail matching.",
   },
   {
+    id: "hand-rolled-no-reply-regex",
+    // A `no[-_.]?reply` / `no[-_]?reply` alternation inside a regex literal.
+    // `hint`, not `gate`: two SERVICE_LOCAL_PREFIX_RE declarations legitimately
+    // hold this literal, and a whole-file exemption on them would blind the
+    // rule exactly where the next copy would be written.
+    re: /no\[[-_.]+\]\??reply/,
+    severity: "hint",
+    owners: ["packages/contracts/src/identity-affiliation.ts"],
+    fix: "hasServiceWordSuffix(localPart) from @alfred/contracts owns the SUFFIX half of the no-reply family (`messages-noreply`, `nse_alerts`, `store-news`) and carries the prod measurement behind it. Reach for it before re-spelling the alternation. A PREFIX test (`^noreply-…`) is a different question and stays in its owning module.",
+  },
+  {
     id: "spread-over-defaults",
     // `{ ...DEFAULT_X, ...overrides }` — a defaults object (SCREAMING_CASE or
     // `defaultFoo`) with a second spread layered on top. A *present* `undefined`
@@ -416,6 +529,21 @@ export const RULES = [
     fix: 'Use dbBackedSkip("database") from ./support/db-backed in this test tree — it skips on a laptop with no Postgres and THROWS when CI is set, so a job that reached no service cannot exit 0. Do not hand-roll a `{ skip }` on a service variable. If this line is not a skip guard, append `// drift-ok: <reason>`.',
   },
   {
+    id: "sha256-over-json-stringify",
+    // `createHash("sha256").update(JSON.stringify(v))` — a content hash whose
+    // pre-image depends on object key INSERTION order. Three copies fed the
+    // `observations` dedup index `(user_id, family_key, evidence_hash)` (#571):
+    // the same logical payload built along two code paths hashes differently,
+    // so dedup silently misses and an append-only log double-counts. Chain
+    // scope, because a formatter splits `.update(` onto its own line. Hashing
+    // raw bytes (`createHash("sha256").update(rawString)`) is a different
+    // operation and is left alone.
+    re: /createHash\(\s*["']sha256["']\s*\)\s*\.update\(\s*JSON\.stringify\(/,
+    scope: "chain",
+    severity: "gate",
+    fix: "Use sha256Canonical(value) from @alfred/db/hash — SHA-256 over canonicalJson (keys sorted, present-undefined skipped), prefixed `sha256:`. It is the one content hash for observations.evidence_hash and every other dedup / change-detection digest. If the digest is audit-only and never compared, append `// drift-ok: <why order-dependence is safe here>`.",
+  },
+  {
     id: "no-constants-re-export",
     // The single-owner rule for module constants. `constants.ts` owns the fact,
     // `index.ts` (the barrel) is the only sanctioned re-exporter. A logic file
@@ -511,7 +639,9 @@ export function matchLine(line, file, lanes) {
   if (line.includes("// drift-ok")) return [];
   // Skip whole-line comments — doc examples of a banned idiom are not drift.
   const trimmed = line.trim();
+
   if (trimmed.startsWith("//") || trimmed.startsWith("*")) return [];
+
   return RULES.filter(
     (rule) =>
       rule.scope !== "chain" &&
@@ -561,25 +691,34 @@ export function matchChains(text, file, lanes) {
   const lines = text.split("\n");
   /** @type {{rule: ConsolidationRule, line: number, text: string}[]} */
   const found = [];
+
   for (const rule of RULES) {
     if (rule.scope !== "chain") continue;
+
     if (lanes !== "all" && rule.severity !== "gate") continue;
+
     if (!coversFile(rule, file)) continue;
     const re = new RegExp(rule.re.source, `${rule.re.flags.replace(/g/g, "")}g`);
+
     for (let m = re.exec(code); m !== null; m = re.exec(code)) {
       // Widen the match to the whole lines it touches: that is the unit the
       // reported snippet works in.
       const start = code.lastIndexOf("\n", m.index) + 1;
       const lineEnd = code.indexOf("\n", m.index + m[0].length);
       const first = code.slice(0, start).split("\n").length - 1;
+
       const last =
         lineEnd === -1 ? lines.length - 1 : code.slice(0, lineEnd).split("\n").length - 1;
+
       // Then widen again, for the marker only, over the comment block above.
       let markerFrom = first;
+
       while (markerFrom > 0 && isCommentLine(lines[markerFrom - 1])) markerFrom--;
+
       const exempt = lines
         .slice(markerFrom, last + 1)
         .some((line) => /\/\/\s*drift-ok:\s*\S/.test(line));
+
       if (exempt) continue;
       found.push({
         rule,
@@ -592,5 +731,6 @@ export function matchChains(text, file, lanes) {
       });
     }
   }
+
   return found;
 }

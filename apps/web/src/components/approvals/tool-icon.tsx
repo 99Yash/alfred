@@ -18,6 +18,7 @@ const GLYPH_FALLBACK = {
 
 export function ToolIcon({ integration }: { integration: IntegrationSlug }) {
   const brand = brandForIntegration(integration);
+
   if (brand) {
     return <IntegrationIcon brand={brand} size="md" title={integration} />;
   }
@@ -27,13 +28,14 @@ export function ToolIcon({ integration }: { integration: IntegrationSlug }) {
   // catalog slug only lands here when its page has no brand, which the catalog
   // map forbids; the neutral glyph is the same fallback the Map used to return.
   const Glyph = isCatalogSlug(integration) ? Settings2 : GLYPH_FALLBACK[integration];
+
   return (
     <span
       aria-hidden
       title={integration}
       className={cn(
         "grid size-10 shrink-0 place-items-center rounded-full",
-        "bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)]",
+        "bg-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated)",
       )}
     >
       <Glyph size={18} />

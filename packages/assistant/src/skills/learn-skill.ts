@@ -96,6 +96,7 @@ const stateSchema = z.object({
   context: skillLearnContextSchema.optional(),
   distill: distillOutputSchema.optional(),
 });
+
 type State = z.infer<typeof stateSchema>;
 
 export const learnSkillWorkflow: Workflow<State> = {
@@ -111,6 +112,7 @@ export const learnSkillWorkflow: Workflow<State> = {
 
   initialState(input) {
     const parsed = learnSkillWorkflowInputSchema.parse(input.input ?? {});
+
     return {
       skillId: parsed.skillId,
       prompt: parsed.prompt,
@@ -122,6 +124,7 @@ export const learnSkillWorkflow: Workflow<State> = {
   // Different skills run in parallel (different dedup keys).
   dedupKey: ({ input }) => {
     const parsed = learnSkillWorkflowInputSchema.parse(input ?? {});
+
     return learnSkillDedupKey(parsed.skillId);
   },
 
@@ -135,9 +138,11 @@ export const learnSkillWorkflow: Workflow<State> = {
       switch (ctx.outcome) {
         case "failed":
           await finalizeSkillRun({ agentRunId: ctx.runId, status: "failed" });
+
           return;
         case "cancelled":
           await finalizeSkillRun({ agentRunId: ctx.runId, status: "cancelled" });
+
           return;
         default: {
           const unhandled: never = ctx;
@@ -181,6 +186,7 @@ export const learnSkillWorkflow: Workflow<State> = {
         if (!ctx.state.context) {
           throw new Error("[learn-skill] distill entered without context");
         }
+
         // Stable per-run key so api_call_log + Langfuse trace tie
         // attempts of the same step together. Cheap-tier model — the
         // re-bill on retry is not load-bearing.
@@ -191,9 +197,11 @@ export const learnSkillWorkflow: Workflow<State> = {
           stepId: "distill",
           idempotencyKey: `learn-skill.distill:${ctx.runId}`,
         });
+
         await ctx.log(
           `distill: name="${result.suggestedName}" body=${result.body.length}ch proposals=${result.proposals.length} mentions=${result.mentions.length}`,
         );
+
         return {
           kind: "next",
           state: { ...ctx.state, distill: result },
@@ -228,6 +236,7 @@ export const learnSkillWorkflow: Workflow<State> = {
 
         let inserted = 0;
         let skipped = 0;
+
         // SAFETY: distill returns distillOutputSchema-validated output whose
         // proposal objects carry exactly the SkillProposal fields.
         for (const p of distill.proposals as SkillProposal[]) {
@@ -246,6 +255,7 @@ export const learnSkillWorkflow: Workflow<State> = {
               },
             },
           });
+
           if (fact) inserted++;
           else skipped++;
         }
@@ -264,6 +274,7 @@ export const learnSkillWorkflow: Workflow<State> = {
         // (it will re-read the latest revision in its gather step).
         let docRunId: string | null = null;
         let docEnqueueStatus: "enqueued" | "deduplicated" | "failed" = "enqueued";
+
         try {
           const created = await startRun({
             userId: ctx.userId,
@@ -292,6 +303,7 @@ export const learnSkillWorkflow: Workflow<State> = {
               eventId: `learn-skill:${ctx.runId}`,
             },
           });
+
           docRunId = created.runId;
         } catch (err) {
           if (isUniqueViolation(err)) {

@@ -32,6 +32,23 @@ export interface TurnStopController {
    * call it in a `finally`.
    */
   startPolling(): () => void;
+  /**
+   * Sleep `ms`, and end early the moment a user stop lands.
+   *
+   * This exists so a caller cannot wait on {@link signal} alone. The stop flag
+   * lives in Redis, and `controller.abort()` fires only from inside
+   * {@link checkStop} — so a signal with no poller behind it can never fire,
+   * however long the wait. The capacity backoff learned that the expensive
+   * way: it slept on the signal after the guard's poller was already disposed,
+   * and a user Stop went unheard for the whole backoff and then billed a full
+   * model turn. Polling for the duration of the wait is therefore part of the
+   * wait, not something the caller may forget to arrange.
+   *
+   * Returns the ending, rather than resolving void or rejecting, so the caller
+   * must name both cases: a stopped turn and an elapsed backoff want opposite
+   * endings, and a rejection would have made "stopped" look like a fault.
+   */
+  wait(ms: number): Promise<"elapsed" | "stopped">;
 }
 
 export function createTurnStopController(
@@ -46,7 +63,9 @@ export function createTurnStopController(
 
   const checkStop = (): Promise<boolean> => {
     if (stopRequested) return Promise.resolve(true);
+
     if (Date.now() - lastStopCheck < STOP_CHECK_MS) return Promise.resolve(false);
+
     if (stopCheckInFlight) return stopCheckInFlight;
     lastStopCheck = Date.now();
     stopCheckInFlight = isStopRequested(runId)
@@ -55,11 +74,13 @@ export function createTurnStopController(
           stopRequested = true;
           controller.abort();
         }
+
         return stopRequested;
       })
       .finally(() => {
         stopCheckInFlight = undefined;
       });
+
     return stopCheckInFlight;
   };
 
@@ -69,7 +90,32 @@ export function createTurnStopController(
         console.warn(`[chat-turn] stop polling failed (run ${runId}):`, toMessage(error));
       });
     }, STOP_CHECK_MS);
+
     return () => clearInterval(handle);
+  };
+
+  const wait = async (ms: number): Promise<"elapsed" | "stopped"> => {
+    if (stopRequested) return "stopped";
+
+    const disposePolling = startPolling();
+
+    try {
+      return await new Promise<"elapsed" | "stopped">((resolve) => {
+        const timer = setTimeout(() => {
+          controller.signal.removeEventListener("abort", onAbort);
+          resolve("elapsed");
+        }, ms);
+
+        function onAbort() {
+          clearTimeout(timer);
+          resolve("stopped");
+        }
+
+        controller.signal.addEventListener("abort", onAbort, { once: true });
+      });
+    } finally {
+      disposePolling();
+    }
   };
 
   return {
@@ -79,5 +125,6 @@ export function createTurnStopController(
     },
     checkStop,
     startPolling,
+    wait,
   };
 }

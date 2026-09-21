@@ -28,6 +28,7 @@ test("boundToolResult only touches the oversized field, preserving navigational 
     state: "open",
     body: "x".repeat(4000),
   };
+
   const r = boundToolResult(input, 2000);
   const out = r.value as typeof input;
   assert.equal(out.title, input.title);
@@ -45,6 +46,7 @@ test("boundToolResult walks arrays and nested objects", () => {
       { subject: "long", snippet: "z".repeat(3000) },
     ],
   };
+
   const r = boundToolResult(input, 100);
   const out = r.value as typeof input;
   assert.equal(out.messages[0]?.snippet, "short"); // untouched

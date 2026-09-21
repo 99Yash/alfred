@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { JsonObject } from "@alfred/contracts";
 
 /**
  * Tool input schemas are pure zod and almost always `.strict()`, so when a
@@ -21,23 +22,28 @@ import { z } from "zod";
 // schema (every `.describe`, refine, wrapper) and that work is pure waste to
 // repeat. WeakMap keyed on the schema object so a schema that's ever GC'd
 // doesn't pin its cache entry.
-const acceptedParamCache = new WeakMap<z.ZodTypeAny, readonly string[]>();
+const acceptedParamCache = new WeakMap<z.ZodType<any>, readonly string[]>();
 
-export function acceptedParamNames(schema: z.ZodTypeAny): readonly string[] {
+export function acceptedParamNames(schema: z.ZodType<any>): readonly string[] {
   const cached = acceptedParamCache.get(schema);
+
   if (cached) return cached;
   let names: readonly string[];
+
   try {
     // SAFETY: z.toJSONSchema emits a JSON Schema document; this reads only the
     // top-level `properties` keyword off it.
     const json = z.toJSONSchema(schema, { io: "input" }) as {
-      properties?: Record<string, unknown>;
+      properties?: JsonObject;
     };
+
     names = json.properties ? Object.freeze(Object.keys(json.properties)) : EMPTY;
   } catch {
     names = EMPTY;
   }
+
   acceptedParamCache.set(schema, names);
+
   return names;
 }
 
@@ -45,11 +51,13 @@ const EMPTY: readonly string[] = Object.freeze([]);
 
 export function enrichInvalidInputMessage(
   baseMessage: string,
-  schema: z.ZodTypeAny,
+  schema: z.ZodType<any>,
   issues: readonly { code?: string }[],
 ): string {
   if (!issues.some((issue) => issue.code === "unrecognized_keys")) return baseMessage;
   const accepted = acceptedParamNames(schema);
+
   if (accepted.length === 0) return baseMessage;
+
   return `${baseMessage}\nThis tool accepts only these parameters: ${accepted.join(", ")}.`;
 }

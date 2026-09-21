@@ -1,15 +1,23 @@
-import { createHash } from "node:crypto";
 import {
+  classifyEmailDomain,
+  emailDomain,
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
-  SUPPRESSION_EFFECTS,
-  hasSuppressionEffect,
+  standingInstructionTargetKey,
+  standingInstructionTargetSpecificity,
+  memorySourceSchema,
   standingInstructionValueSchema,
+  SUPPRESSION_EFFECTS,
+  targetMatchesSender,
+  type MemorySource,
   type ObservationSource,
+  type StandingInstructionTarget,
+  type StandingInstructionTargetKind,
   type StandingInstructionValue,
   type SuppressionEffect,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
+import { sha256Canonical } from "@alfred/db/hash";
 import { rejectedInferences, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -17,7 +25,6 @@ import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { insertObservation } from "./observations";
 import { normalizeSenderEmail } from "./sender-email";
 import { valueSignature } from "./signature";
-import { memorySourceSchema, type MemorySource } from "./types";
 
 export { normalizeSenderEmail } from "./sender-email";
 
@@ -32,12 +39,23 @@ export interface ActiveSuppressionInstruction {
 export interface SenderSuppressionLookup {
   senderEmail: string | null | undefined;
   accountId?: string | null;
+  /**
+   * Audit echo only — membership is derived at read time, so this never
+   * filters. An active suppression for the sender binds every consumer.
+   * Kept so traces can name which consumer asked.
+   */
   effect: SuppressionEffect;
 }
 
 export type SenderSuppressionMatch = ActiveSuppressionInstruction & {
   matchedEmail: string;
   effect: SuppressionEffect;
+  /**
+   * Which target kind decided the match — the one field that tells a trace
+   * whether a domain target ever fires in production. An address match and a
+   * domain match are otherwise indistinguishable downstream.
+   */
+  matchedVia: StandingInstructionTargetKind;
 };
 
 export const rememberSenderSuppressionArgsSchema = z.object({
@@ -47,8 +65,14 @@ export const rememberSenderSuppressionArgsSchema = z.object({
   accountId: z.string().nullable().optional(),
   directive: z.string().nullish(),
   phrasing: z.string().nullish(),
+  /**
+   * How wide the instruction binds. `"sender"` (the default) binds the one
+   * address. `"domain"` binds every address at that address's domain.
+   */
+  scope: z.enum(["sender", "domain"]).optional(),
   source: memorySourceSchema.optional(),
 });
+
 export type RememberSenderSuppressionArgs = z.infer<typeof rememberSenderSuppressionArgsSchema>;
 
 export type RememberSenderSuppressionResult =
@@ -57,6 +81,12 @@ export type RememberSenderSuppressionResult =
       status: "remembered" | "already_exists";
       factId: string;
       instruction: StandingInstructionValue;
+      /**
+       * The address this write resolved, whatever the target kind stores. A
+       * caller that follows up on the sender (todo dismissal) reads this
+       * instead of `instruction.target.email`, which a domain target lacks.
+       */
+      resolvedSenderEmail: string;
     }
   | {
       ok: false;
@@ -70,24 +100,59 @@ export async function rememberSenderSuppression(
 ): Promise<RememberSenderSuppressionResult> {
   const parsed = rememberSenderSuppressionArgsSchema.parse(args);
   const email = normalizeSenderEmail(parsed.senderEmail);
+
   if (!email) return senderClarification();
 
   const label = normalizeOptionalLabel(parsed.senderLabel);
   const accountId = normalizeOptionalLabel(parsed.accountId);
+
+  // Two rails keep a domain target from growing too wide, and both make the
+  // bad target unrepresentable rather than merely unlikely:
+  //   1. The caller never supplies a domain. The server derives it from an
+  //      address the caller already resolved, so `co.in` cannot become a
+  //      target — no sender has that address.
+  //   2. Only a `corporate_domain` widens. `classifyEmailDomain` is the one
+  //      place that answers "is this domain one organization's", and it also
+  //      rejects consumer mailboxes, school and alumni domains, shared-hosting
+  //      and disposable hosts, and mail-infrastructure hosts — every class
+  //      where one domain carries unrelated senders. It reads the BARE domain,
+  //      never `{ email }`: the address form demands a verified hosted domain
+  //      the sender side never has, so it would answer `ambiguous_domain` for
+  //      every real sender and no instruction would ever widen.
+  const candidateDomain = parsed.scope === "domain" ? emailDomain(email) : null;
+
+  const domain =
+    candidateDomain && classifyEmailDomain({ domain: candidateDomain }) === "corporate_domain"
+      ? candidateDomain
+      : null;
+
+  const target: StandingInstructionTarget = domain
+    ? { kind: "sender_domain", domain, label, accountId }
+    : { kind: "sender_email", email, label, accountId };
+
+  // A domain rule covers senders the label does not name, so the stored
+  // sentence names the DOMAIN. Phrasing it from the sender label would read
+  // back as "…from Ben Book" for a rule that also binds everyone else at that
+  // host — and the model reads this sentence, not the target.
   const directive =
     normalizeOptionalLabel(parsed.directive) ??
-    `Stop surfacing reminders and briefing items from ${label ?? email}.`;
+    (domain
+      ? `Stop surfacing reminders and briefing items from any sender at ${domain}.`
+      : `Stop surfacing reminders and briefing items from ${label ?? email}.`);
+
   const source: MemorySource = parsed.source ?? { kind: "user" };
+
   const candidate = standingInstructionValueSchema.safeParse({
     schemaVersion: STANDING_INSTRUCTION_SCHEMA_VERSION,
     action: "suppress",
     surface: "open_loop",
-    target: {
-      kind: "sender_email",
-      email,
-      label,
-      accountId,
-    },
+    target,
+    // Legacy write snapshot, stamped for schema compat: readers derive
+    // membership at read time (any active suppression binds its sender for
+    // every consumer), so this array is never branched on. Stated, not
+    // hidden: the `system.remember` tool description discloses the category
+    // prior, and the user can narrow or drop the instruction via
+    // list/edit/forget.
     effects: [...SUPPRESSION_EFFECTS],
     directive,
     phrasing: normalizeOptionalLabel(parsed.phrasing) ?? directive,
@@ -96,24 +161,56 @@ export async function rememberSenderSuppression(
   if (!candidate.success) return senderClarification();
   const instruction = candidate.data;
 
-  const existing = await findActiveSenderSuppression(parsed.userId, {
-    senderEmail: instruction.target.email,
-    accountId: instruction.target.accountId,
-    effect: "block_todo_suggestion",
-  });
-  if (
-    existing &&
-    SUPPRESSION_EFFECTS.every((effect) => hasSuppressionEffect(existing.value, effect))
-  ) {
+  // Identity, not coverage: a second remember collapses only onto an
+  // instruction with THIS EXACT target. The sender matcher answered a
+  // different question (does anything already cover this sender?), and a
+  // domain instruction that covers the sender must not block the user from
+  // also pinning the address.
+  const existing = findInstructionByTarget(
+    await listActiveSuppressionInstructions(parsed.userId),
+    instruction.target,
+  );
+
+  if (existing) {
     return {
       ok: true,
       status: "already_exists",
       factId: existing.factId,
       instruction: existing.value,
+      resolvedSenderEmail: email,
     };
   }
 
   const row = await db().transaction(async (tx) => {
+    // Serialize concurrent remembers for the same (user, sender): without
+    // this, two runs can both pass the `existing` check above and insert
+    // duplicate active rows. Same per-key advisory-lock pattern as
+    // `proposeFact`/`confirmFact` in `facts.ts`.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${parsed.userId}:standing_instruction:${standingInstructionTargetKey(instruction.target)}`}, 0))`,
+    );
+
+    // Re-check inside the lock: the outer `existing` read raced with a
+    // concurrent inserter, so a duplicate found here collapses to
+    // `already_exists` instead of a second active row.
+    const rivals = await tx
+      .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
+      .from(userFacts)
+      .where(activeStandingInstructionsWhere(parsed.userId))
+      .orderBy(desc(userFacts.validFrom));
+
+    const rival = findInstructionByTarget(
+      rivals
+        .map(instructionFromFact)
+        .filter(
+          (candidate): candidate is ActiveSuppressionInstruction =>
+            candidate !== null && candidate.value.action === "suppress",
+        ),
+      instruction.target,
+    );
+
+    if (rival) return { id: rival.factId, instruction: rival.value, duplicate: true as const };
+
     const [inserted] = await tx
       .insert(userFacts)
       .values({
@@ -126,6 +223,7 @@ export async function rememberSenderSuppression(
         validUntil: null,
       })
       .returning({ id: userFacts.id });
+
     if (!inserted) return null;
 
     await appendStandingInstructionObservation(
@@ -138,10 +236,22 @@ export async function rememberSenderSuppression(
       },
       tx,
     );
-    return inserted;
+
+    return { id: inserted.id, instruction, duplicate: false as const };
   });
 
   if (!row) throw new Error("[memory.standing-instructions] insert returned no row");
+
+  if (row.duplicate) {
+    return {
+      ok: true,
+      status: "already_exists",
+      factId: row.id,
+      instruction: row.instruction,
+      resolvedSenderEmail: email,
+    };
+  }
+
   emitReplicachePokes([parsed.userId]);
 
   return {
@@ -149,24 +259,55 @@ export async function rememberSenderSuppression(
     status: "remembered",
     factId: row.id,
     instruction,
+    resolvedSenderEmail: email,
   };
+}
+
+/**
+ * Identity read: the active instruction whose target names exactly this thing,
+ * or null. `standingInstructionTargetKey` carries the per-kind match key, so a
+ * new target kind needs no edit here.
+ */
+function findInstructionByTarget(
+  instructions: readonly ActiveSuppressionInstruction[],
+  target: StandingInstructionTarget,
+): ActiveSuppressionInstruction | null {
+  const key = standingInstructionTargetKey(target);
+
+  for (const instruction of instructions) {
+    if (standingInstructionTargetKey(instruction.value.target) !== key) continue;
+
+    if (instruction.value.target.accountId !== target.accountId) continue;
+
+    return instruction;
+  }
+
+  return null;
 }
 
 export async function listActiveSuppressionInstructions(
   userId: string,
+  // Audit echo only — membership is derived at read time, so the filter is
+  // gone. Kept as an optional arg so existing call sites keep compiling while
+  // they migrate off the per-effect read.
   effect?: SuppressionEffect,
 ): Promise<ActiveSuppressionInstruction[]> {
+  void effect;
+
   const facts = await db()
     .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
     .from(userFacts)
     .where(activeStandingInstructionsWhere(userId))
     .orderBy(desc(userFacts.validFrom));
+
   return facts
     .map(instructionFromFact)
     .filter((instruction): instruction is ActiveSuppressionInstruction => {
       if (!instruction) return false;
+
       if (instruction.value.action !== "suppress") return false;
-      return effect ? hasSuppressionEffect(instruction.value, effect) : true;
+
+      return true;
     });
 }
 
@@ -175,6 +316,7 @@ export async function findActiveSenderSuppression(
   lookup: SenderSuppressionLookup,
 ): Promise<SenderSuppressionMatch | null> {
   const instructions = await listActiveSuppressionInstructions(userId, lookup.effect);
+
   return findSenderSuppression(instructions, lookup);
 }
 
@@ -230,6 +372,7 @@ export const editStandingInstructionArgsSchema = z.object({
   senderLabel: z.string().nullish(),
   source: memorySourceSchema.optional(),
 });
+
 export type EditStandingInstructionArgs = z.infer<typeof editStandingInstructionArgsSchema>;
 
 /** Currently-active standing instructions for model management, newest first and capped. */
@@ -238,6 +381,7 @@ export async function listStandingInstructions(
 ): Promise<StandingInstructionListResult> {
   const instructions = await listActiveSuppressionInstructions(userId);
   const capped = instructions.slice(0, STANDING_INSTRUCTION_LIST_LIMIT);
+
   return {
     instructions: capped.map(summarizeStandingInstruction),
     totalActive: instructions.length,
@@ -274,8 +418,10 @@ async function loadOwnedStandingInstruction(
     .from(userFacts)
     .where(activeStandingInstructionWhere(userId, factId))
     .limit(1);
+
   if (!row) return null;
   const parsed = standingInstructionValueSchema.safeParse(row.value);
+
   return parsed.success ? { value: parsed.data } : null;
 }
 
@@ -287,14 +433,24 @@ export async function forgetStandingInstruction(args: {
   source?: MemorySource | undefined;
 }): Promise<ForgetStandingInstructionResult> {
   const forgotten = await db().transaction(async (tx) => {
+    // Per-row serialization: the `status = 'confirmed'` guard below is the
+    // concurrency control (`row_version` is Replicache sync state, never
+    // compared). The lock orders concurrent forget/edit callers on this
+    // factId so the loser deterministically observes the retired row.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${args.userId}:${args.factId}`}, 0))`,
+    );
+
     const [old] = await tx
       .select({ value: userFacts.value })
       .from(userFacts)
       .where(activeStandingInstructionWhere(args.userId, args.factId))
       .limit(1);
+
     if (!old) return null;
 
     const parsed = standingInstructionValueSchema.safeParse(old.value);
+
     if (!parsed.success) return null;
 
     const [row] = await tx
@@ -306,6 +462,7 @@ export async function forgetStandingInstruction(args: {
       })
       .where(activeStandingInstructionWhere(args.userId, args.factId))
       .returning({ id: userFacts.id });
+
     if (!row) return null;
 
     await tx
@@ -333,9 +490,11 @@ export async function forgetStandingInstruction(args: {
 
     return parsed.data;
   });
+
   if (!forgotten) return { ok: false, status: "not_found" };
 
   emitReplicachePokes([args.userId]);
+
   return { ok: true, status: "forgotten", factId: args.factId, instruction: forgotten };
 }
 
@@ -345,9 +504,11 @@ export async function editStandingInstruction(
 ): Promise<EditStandingInstructionResult> {
   const parsed = editStandingInstructionArgsSchema.parse(args);
   const existing = await loadOwnedStandingInstruction(parsed.userId, parsed.factId);
+
   if (!existing) return { ok: false, status: "not_found" };
 
   const nextDirective = normalizeOptionalLabel(parsed.directive);
+
   // `phrasing` is verbatim user provenance — a reframe of the directive never
   // rewrites it. The label is editable, including clearing it (null).
   const nextLabel =
@@ -373,51 +534,18 @@ export async function editStandingInstruction(
     };
   }
 
-  const edited = await db().transaction(async (tx) => {
-    const [row] = await tx
-      .update(userFacts)
-      .set({
-        status: "edited",
-        validUntil: sql`now()`,
-        rowVersion: sql`${userFacts.rowVersion} + 1`,
-      })
-      .where(activeStandingInstructionWhere(parsed.userId, parsed.factId))
-      .returning({ id: userFacts.id });
-    if (!row) return null;
-
-    const [inserted] = await tx
-      .insert(userFacts)
-      .values({
-        userId: parsed.userId,
-        key: STANDING_INSTRUCTION_KEY,
-        value: nextValue,
-        confidence: 1,
-        status: "confirmed",
-        source: parsed.source ?? { kind: "user" },
-        validFrom: sql`now()`,
-        validUntil: null,
-        supersedesId: parsed.factId,
-      })
-      .returning({ id: userFacts.id });
-    if (!inserted) return null;
-
-    await appendStandingInstructionObservation(
-      {
-        userId: parsed.userId,
-        operation: "edit",
-        factId: inserted.id,
-        previousFactId: parsed.factId,
-        instruction: nextValue,
-        previousInstruction: existing.value,
-        source: parsed.source,
-      },
-      tx,
-    );
-    return inserted;
+  const edited = await supersedeStandingInstruction({
+    userId: parsed.userId,
+    factId: parsed.factId,
+    nextValue,
+    previousValue: existing.value,
+    source: parsed.source,
   });
+
   if (!edited) return { ok: false, status: "not_found" };
 
   emitReplicachePokes([parsed.userId]);
+
   return {
     ok: true,
     status: "edited",
@@ -427,24 +555,164 @@ export async function editStandingInstruction(
   };
 }
 
+/**
+ * The single supersede body behind `editStandingInstruction`: close the active
+ * row (`edited`), insert the successor (`supersedesId`), and append the
+ * `user_standing_instruction` observation in one transaction so the edit stays
+ * auditable and reversible.
+ */
+async function supersedeStandingInstruction(args: {
+  userId: string;
+  factId: string;
+  nextValue: StandingInstructionValue;
+  previousValue: StandingInstructionValue;
+  source?: MemorySource | undefined;
+}): Promise<{ id: string } | null> {
+  return db().transaction(async (tx) => {
+    // Per-row serialization, same contract as `forgetStandingInstruction`:
+    // concurrent superseders order here; the loser matches zero rows on the
+    // `status = 'confirmed'` guard and reports `not_found` (stale id, never
+    // retried blindly — the caller re-lists). `row_version` bumps for the
+    // Replicache changelog only.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${args.userId}:${args.factId}`}, 0))`,
+    );
+
+    const [closed] = await tx
+      .update(userFacts)
+      .set({
+        status: "edited",
+        validUntil: sql`now()`,
+        rowVersion: sql`${userFacts.rowVersion} + 1`,
+      })
+      .where(activeStandingInstructionWhere(args.userId, args.factId))
+      .returning({ id: userFacts.id });
+
+    if (!closed) return null;
+
+    const [inserted] = await tx
+      .insert(userFacts)
+      .values({
+        userId: args.userId,
+        key: STANDING_INSTRUCTION_KEY,
+        value: args.nextValue,
+        confidence: 1,
+        status: "confirmed",
+        source: args.source ?? { kind: "user" },
+        validFrom: sql`now()`,
+        validUntil: null,
+        supersedesId: args.factId,
+      })
+      .returning({ id: userFacts.id });
+
+    if (!inserted) return null;
+
+    await appendStandingInstructionObservation(
+      {
+        userId: args.userId,
+        operation: "edit",
+        factId: inserted.id,
+        previousFactId: args.factId,
+        instruction: args.nextValue,
+        previousInstruction: args.previousValue,
+        source: args.source,
+      },
+      tx,
+    );
+
+    return inserted;
+  });
+}
+
+/**
+ * ADR-0060 micro-decision 8, made total: the more specific target wins, then
+ * the newer `validFrom`, then the greater `factId`. `factId` is the primary
+ * key, so two distinct rows never compare equal and the election is a function
+ * of the row set alone, never of the caller's array order.
+ *
+ * `accountId` is a gate, not a rank dimension: the caller filters on it before
+ * this comparison, so two matches here are already scoped to the same mailbox.
+ * `validFrom` is compared at `Date` millisecond resolution because
+ * `Date.getTime()` drops the microseconds Postgres stores — which is exactly
+ * why `factId` is needed below it.
+ */
+function isStrongerSuppressionMatch(
+  candidate: ActiveSuppressionInstruction,
+  incumbent: ActiveSuppressionInstruction,
+): boolean {
+  const candidateSpecificity = standingInstructionTargetSpecificity(candidate.value.target);
+  const incumbentSpecificity = standingInstructionTargetSpecificity(incumbent.value.target);
+
+  if (candidateSpecificity !== incumbentSpecificity) {
+    return candidateSpecificity > incumbentSpecificity;
+  }
+
+  const candidateValidFrom = candidate.validFrom.getTime();
+  const incumbentValidFrom = incumbent.validFrom.getTime();
+
+  if (candidateValidFrom !== incumbentValidFrom) {
+    return candidateValidFrom > incumbentValidFrom;
+  }
+
+  return candidate.factId > incumbent.factId;
+}
+
 export function findSenderSuppression(
   instructions: readonly ActiveSuppressionInstruction[],
   lookup: SenderSuppressionLookup,
 ): SenderSuppressionMatch | null {
   const email = normalizeSenderEmail(lookup.senderEmail);
+
   if (!email) return null;
 
   const accountId = lookup.accountId ?? null;
+
+  let best: ActiveSuppressionInstruction | null = null;
+
   for (const instruction of instructions) {
-    const { value } = instruction;
-    if (!hasSuppressionEffect(value, lookup.effect)) continue;
-    if (value.target.kind !== "sender_email") continue;
-    if (value.target.email !== email) continue;
-    if (value.target.accountId !== null && value.target.accountId !== accountId) continue;
-    return { ...instruction, matchedEmail: email, effect: lookup.effect };
+    // Match `listActiveSuppressionInstructions`: only a `suppress` action is a
+    // suppression. `STANDING_INSTRUCTION_ACTIONS` has one member today, so
+    // `ActiveSuppressionInstruction` cannot carry another action and this
+    // guard is unreachable — it closes the door the day a second action lands,
+    // without moving the filter to the six consumers.
+    if (instruction.value.action !== "suppress") continue;
+
+    const { target } = instruction.value;
+
+    // Derived membership: an active suppression binds its sender for every
+    // consumer. The stored `effects` array is never consulted — it is a
+    // write-time snapshot, not a decision. `lookup.effect` is echoed on the
+    // match for audit only.
+    //
+    // Deterministic: a string comparison per instruction, no model call and no
+    // database read. `@alfred/contracts` owns the per-kind rule — including
+    // how a domain comes off the address — so this loop never restates what a
+    // target kind means.
+    if (!targetMatchesSender(target, email)) continue;
+
+    // `accountId` is a gate, not a rank dimension: a null target is
+    // cross-account and always eligible; a scoped target must name the
+    // caller's mailbox.
+    if (target.accountId !== null && target.accountId !== accountId) continue;
+
+    // ADR-0060 micro-decision 8: several instructions can match one sender, and
+    // the MOST SPECIFIC target wins; `isStrongerSuppressionMatch` breaks a tie
+    // by recency, then by `factId`. `sender_domain` made this reachable: the
+    // user can mute a domain and still pin one address inside it, which
+    // `rememberSenderSuppression` allows on purpose (see the identity-not-
+    // coverage duplicate check above). A pure first-match-wins scan would let
+    // the newer domain mute defeat that pin.
+    if (best === null || isStrongerSuppressionMatch(instruction, best)) best = instruction;
   }
 
-  return null;
+  if (!best) return null;
+
+  return {
+    ...best,
+    matchedEmail: email,
+    effect: lookup.effect,
+    matchedVia: best.value.target.kind,
+  };
 }
 
 function activeStandingInstructionWhere(userId: string, factId: string) {
@@ -467,7 +735,9 @@ function instructionFromFact(fact: {
   validFrom: Date;
 }): ActiveSuppressionInstruction | null {
   const parsed = standingInstructionValueSchema.safeParse(fact.value);
+
   if (!parsed.success) return null;
+
   return {
     factId: fact.id,
     value: parsed.data,
@@ -491,6 +761,7 @@ async function appendStandingInstructionObservation(
   tx: Parameters<typeof insertObservation>[1],
 ): Promise<void> {
   const source = args.source ?? { kind: "user" as const };
+
   const payload = {
     operation: args.operation,
     factId: args.factId,
@@ -500,7 +771,8 @@ async function appendStandingInstructionObservation(
     reason: args.reason ?? null,
     source,
   };
-  const evidenceHash = hashJson(payload);
+
+  const evidenceHash = sha256Canonical(payload);
 
   await insertObservation(
     {
@@ -523,12 +795,9 @@ function observationSourceForMemorySource(source: MemorySource): ObservationSour
   return source.kind === "user" ? "user" : "alfred_chat";
 }
 
-function hashJson(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
-
 function normalizeOptionalLabel(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
+
   return trimmed ? trimmed : null;
 }
 

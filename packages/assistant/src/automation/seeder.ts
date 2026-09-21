@@ -128,10 +128,12 @@ export async function seedBuiltinWorkflowsForAllUsers(): Promise<{
   const users = await db().select({ id: userTable.id }).from(userTable);
   let rowsTouched = 0;
   let rowsRetired = 0;
+
   for (const u of users) {
     const result = await seedBuiltinWorkflowsForUser(u.id);
     rowsTouched += result.seeded;
     rowsRetired += result.retired;
   }
+
   return { users: users.length, rowsTouched, rowsRetired };
 }

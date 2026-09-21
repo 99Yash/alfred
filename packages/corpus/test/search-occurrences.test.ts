@@ -22,6 +22,7 @@ import { dbBackedSkip } from "./support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-search-occ-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -30,6 +31,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Search Occ Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -70,7 +72,9 @@ async function seedAttachmentDoc(userId: string): Promise<string> {
       },
     })
     .returning({ id: documents.id });
+
   assert.ok(doc, "document seed insert returned no row");
+
   return doc.id;
 }
 
@@ -99,7 +103,9 @@ async function seedMailDoc(userId: string): Promise<string> {
       contentHash: sha256("plain mail body"),
     })
     .returning({ id: documents.id });
+
   assert.ok(doc, "mail document seed insert returned no row");
+
   return doc.id;
 }
 
@@ -122,6 +128,7 @@ describe("corpus search occurrences (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -138,6 +145,7 @@ describe("corpus search occurrences (DB-backed)", { skip: SKIP }, () => {
       userId,
       limit: 10,
     });
+
     const attachmentHits = hits.filter((h) => h.documentId === attachmentDocId);
     assert.ok(attachmentHits.length > 0, "seeded attachment chunk must be retrieved");
 
@@ -158,6 +166,7 @@ describe("corpus search occurrences (DB-backed)", { skip: SKIP }, () => {
 
     const mailHits = hits.filter((h) => h.documentId === mailDocId);
     assert.ok(mailHits.length > 0, "seeded mail chunk must be retrieved");
+
     for (const hit of mailHits) {
       assert.equal(hit.occurrences, undefined, "non-attachment hits carry no occurrences");
     }

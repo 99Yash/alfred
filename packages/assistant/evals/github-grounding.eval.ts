@@ -14,6 +14,7 @@ import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // GROUND / #213 / ADR-0071: behavioral guard that the boss answers GitHub
 // questions through the STRUCTURED fields (type + state + *WithinDays) instead
@@ -31,10 +32,13 @@ import type { GroundingTaskOutput } from "./lib/grounding";
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
 const NOW = new Date("2026-06-24T04:44:00Z");
+
 const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
+
 const EVAL_TIMEOUT_MS = 60_000;
 
 const SEARCH_TOOL = "github.search";
+
 const GET_PR_TOOL = "github.get_pull_request";
 
 const CONNECTED_SUMMARY = [
@@ -44,7 +48,11 @@ const CONNECTED_SUMMARY = [
   "- github.search, github.get_pull_request, github.get_issue — the user's GitHub issues and pull requests — connected as 99Yash",
 ].join("\n");
 
-const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+const SYSTEM = buildChatSystemPrompt(
+  formatDateGrounding(TIMEZONE, NOW),
+  CONNECTED_SUMMARY,
+  selfIdentityGrounding(),
+);
 
 interface ExpectedGithubCall {
   type: "pr" | "issue" | "both";
@@ -108,6 +116,7 @@ evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding
     void serverEnv().ANTHROPIC_API_KEY;
     const result = await runFirstCall(input);
     const call = result.toolCalls.find((c) => c.toolName === SEARCH_TOOL) ?? result.toolCalls[0];
+
     return {
       toolName: call?.toolName ?? null,
       // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
@@ -135,9 +144,12 @@ evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding
         const args = output.args ?? {};
         const typeOk = (args.type ?? "pr") === expected.type;
         const stateOk = expected.state === undefined || args.state === expected.state;
+
         const windowOk =
           expected.windowField === undefined || args[expected.windowField] === expected.windowValue;
+
         const ok = typeOk && stateOk && windowOk;
+
         return {
           score: ok ? 1 : 0,
           metadata: ok
@@ -152,6 +164,7 @@ evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding
       name: "No invented or contradictory free-form qualifiers",
       scorer: ({ output }) => {
         const args = output.args ?? {};
+
         const { sanitized } = sanitizeGithubSearchQuery({
           query: typeof args.query === "string" ? args.query : undefined,
           state:
@@ -172,7 +185,9 @@ evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding
           mergedWithinDays:
             typeof args.mergedWithinDays === "number" ? args.mergedWithinDays : undefined,
         });
+
         const issues = githubSearchQueryIssues(sanitized);
+
         return {
           score: issues.length === 0 ? 1 : 0,
           metadata: issues.length === 0 ? "clean query" : issues.join(" "),
@@ -195,6 +210,7 @@ evalite<string, GroundingTaskOutput, null>("Agent GitHub LOC — no give-up", {
     void serverEnv().ANTHROPIC_API_KEY;
     const result = await runFirstCall(input);
     const call = result.toolCalls[0];
+
     return {
       toolName: call?.toolName ?? null,
       // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
@@ -208,6 +224,7 @@ evalite<string, GroundingTaskOutput, null>("Agent GitHub LOC — no give-up", {
       name: "Starts with a github tool call (no give-up, no asking for the repo)",
       scorer: ({ output }) => {
         const used = output.toolName === SEARCH_TOOL || output.toolName === GET_PR_TOOL;
+
         return {
           score: used ? 1 : 0,
           metadata: used

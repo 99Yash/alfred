@@ -38,7 +38,7 @@ import { isToolName, type ToolName } from "./tools";
 
 /**
  * The tool `action` each transport registers: REST providers expose
- * `<slug>.request`; Railway's GraphQL transport exposes `railway.graphql`. The
+ * `<slug>.request`; a future GraphQL provider can expose `<slug>.graphql`. The
  * single source for that mapping — the registration test and the dispatcher's
  * per-run ceiling both derive passthrough tool identity from here rather than
  * re-hardcoding the action strings.
@@ -50,17 +50,19 @@ export const PASSTHROUGH_TOOL_ACTION = {
 
 /**
  * The exact registered tool names of the passthrough tier (`github.request`,
- * `railway.graphql`, …), derived from the supported slugs and their transports.
+ * `notion.request`, …), derived from the supported slugs and their transports.
  * The dispatcher's per-run passthrough ceiling counts prior calls against this
  * set, so a new supported slug is bounded automatically.
  */
 export const PASSTHROUGH_TOOL_NAMES: readonly ToolName[] = SUPPORTED_PASSTHROUGH_SLUGS.map(
   (slug) => {
     const name = `${slug}.${PASSTHROUGH_TOOL_ACTION[INTEGRATIONS[slug].passthrough.transport]}`;
+
     // Constructed from registered slugs + actions; validate rather than cast so a
     // future drift (a supported slug whose action isn't registered) fails loudly
     // at module load instead of silently widening to a non-existent tool name.
     if (!isToolName(name)) throw new Error(`Passthrough tool name is not registered: ${name}`);
+
     return name;
   },
 );
@@ -137,6 +139,7 @@ export const restPassthroughRequestSchema = z.object({
       "JSON request body — accepted only for an allowlisted read-via-POST endpoint (e.g. a Notion search/query). Ignored for GET/HEAD.",
     ),
 });
+
 export type RestPassthroughRequest = z.infer<typeof restPassthroughRequestSchema>;
 
 export const graphqlPassthroughRequestSchema = z.object({
@@ -155,6 +158,7 @@ export const graphqlPassthroughRequestSchema = z.object({
     .optional()
     .describe("Required only when the document defines more than one operation."),
 });
+
 export type GraphqlPassthroughRequest = z.infer<typeof graphqlPassthroughRequestSchema>;
 
 export type PassthroughRequest = RestPassthroughRequest | GraphqlPassthroughRequest;
@@ -171,6 +175,7 @@ export const READ_GATE_REASONS = [
   "graphql_operation_ambiguous",
   "auth_scope_unreachable",
 ] as const;
+
 export type ReadGateReason = (typeof READ_GATE_REASONS)[number];
 
 /**
@@ -187,6 +192,7 @@ export type ReadGateResult = { ok: true } | { ok: false; reason: ReadGateReason;
 // ---------------------------------------------------------------------------
 
 export const TRANSPORT_ERROR_KINDS = ["timeout", "dns", "connection_reset", "tls"] as const;
+
 export type TransportErrorKind = (typeof TRANSPORT_ERROR_KINDS)[number];
 
 /**

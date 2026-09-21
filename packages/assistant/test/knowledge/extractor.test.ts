@@ -23,6 +23,7 @@ describe("buildThreadTranscript", () => {
       { role: "user", content: "who is dvd?" },
       { role: "assistant", content: "Venkata Deepankar Duvvuru." },
     ];
+
     assert.equal(
       buildThreadTranscript(turns),
       "User: who is dvd?\nAlfred: Venkata Deepankar Duvvuru.",
@@ -35,6 +36,7 @@ describe("buildThreadTranscript", () => {
       { role: "assistant", content: "hi" },
       { role: "user", content: "" },
     ];
+
     assert.equal(buildThreadTranscript(turns), "Alfred: hi");
   });
 
@@ -44,6 +46,7 @@ describe("buildThreadTranscript", () => {
       { role: "assistant", content: "middle" },
       { role: "user", content: "NEWEST" },
     ];
+
     // Budget large enough for only the last turn or two.
     const out = buildThreadTranscript(turns, 20);
     assert.match(out, /\[…earlier turns truncated\]/);
@@ -89,16 +92,20 @@ describe("extractPropositionsFromThread", () => {
 
   test("returns [] for an empty transcript WITHOUT calling the model", async () => {
     let called = false;
+
     const generate: GenerateObject = async () => {
       called = true;
+
       return { propositions: [] };
     };
+
     const out = await extractPropositionsFromThread({
       userId: "usr_1",
       threadId: "thread_1",
       transcript: [],
       generate,
     });
+
     assert.deepEqual(out, []);
     assert.equal(called, false);
   });
@@ -106,17 +113,21 @@ describe("extractPropositionsFromThread", () => {
   test("passes the system prompt + built transcript to the model and returns its propositions", async () => {
     let seenPrompt = "";
     let seenSystem = "";
+
     const generate: GenerateObject = async ({ system, prompt }) => {
       seenSystem = system;
       seenPrompt = prompt;
+
       return dvdResult;
     };
+
     const out = await extractPropositionsFromThread({
       userId: "usr_1",
       threadId: "thread_1",
       transcript: dvdThread,
       generate,
     });
+
     assert.equal(seenSystem, SYSTEM_PROMPT);
     // The final, settled correction must be visible to the model (D9).
     assert.match(seenPrompt, /Oliv is not ~6 people/);
@@ -126,10 +137,13 @@ describe("extractPropositionsFromThread", () => {
 
   test("caps an already-rendered transcript before calling the model", async () => {
     let seenPrompt = "";
+
     const generate: GenerateObject = async ({ prompt }) => {
       seenPrompt = prompt;
+
       return { propositions: [] };
     };
+
     await extractPropositionsFromThread({
       userId: "usr_1",
       threadId: "thread_1",
@@ -147,6 +161,7 @@ describe("extractPropositionsFromThread", () => {
       ({
         propositions: [{ ...dvdResult.propositions[0], verificationClass: "vibes" }],
       }) as unknown as ChatMemoryExtractionResult;
+
     await assert.rejects(
       () =>
         extractPropositionsFromThread({
@@ -184,6 +199,7 @@ describe("SYSTEM_PROMPT (D6 guidance)", () => {
       confidence: 0.9,
       rationale: "User stated their timezone.",
     };
+
     assert.equal(p.subject, "user");
   });
 });

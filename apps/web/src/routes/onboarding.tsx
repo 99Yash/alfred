@@ -13,11 +13,13 @@ interface OnboardingSearch {
 }
 
 export const Route = createFileRoute("/onboarding")({
+  staticData: { publicRoute: true },
   head: () => pageMeta({ title: "Get started", path: "/onboarding" }),
   validateSearch: (search): OnboardingSearch => {
     const params = toRecord(search);
     const raw = Number(params.step);
     const step: OnboardingStep = raw === 2 ? 2 : raw === 3 ? 3 : 1;
+
     return {
       step,
       google_connected: getStringPath(params, "google_connected"),

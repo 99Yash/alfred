@@ -15,12 +15,15 @@ import {
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
 import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/connections/mcp/test-support";
+import { GITHUB_MCP_ENDPOINT_HREF } from "../../src/connections/mcp/constants";
 import { projectCatalogRevision } from "../../src/connections/mcp/hash";
 import type { McpConnectionWithServer } from "../../src/connections/mcp/persistence";
 
 type JoinedServerDefinition = McpConnectionWithServer["server"];
+
 // @ts-expect-error - consumers receive definition facts, not a second owner identity.
 type _NoJoinedServerOwner = JoinedServerDefinition["userId"];
+
 // @ts-expect-error - the connection's serverId is authoritative; the nested row does not repeat it.
 type _NoJoinedServerId = JoinedServerDefinition["id"];
 
@@ -41,6 +44,7 @@ class FakeProtocol implements McpProtocolClient {
     this.connectCount += 1;
     this.connectTrace = trace;
     await this.onConnect?.();
+
     return {
       protocolEra: "pre_2026_07_28",
       protocolVersion: "2025-11-25",
@@ -65,6 +69,7 @@ class FakeProtocol implements McpProtocolClient {
     this.listCount += 1;
     this.listTraces.push(trace);
     await this.onListTools?.();
+
     return { tools: this.tools, ttlMs: this.ttlMs, cacheScope: "private" };
   }
 
@@ -87,10 +92,12 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
   readonly connection = connection();
   readonly revisions = new Map<string, string[]>();
   publications = 0;
+  deleted = false;
   readonly updates: Array<Partial<McpConnection>> = [];
   onPublish: (() => void | Promise<void>) | null = null;
   onReadOwned: (() => void | Promise<void>) | null = null;
   onUpdate: ((patch: Partial<McpConnection>) => void | Promise<void>) | null = null;
+  onDelete: (() => void | Promise<void>) | null = null;
   onActivate:
     | ((
         input: Parameters<McpConnectionManagerPersistence["compareAndSetCatalogRevision"]>[0],
@@ -98,14 +105,15 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
     | null = null;
 
   readConnection: McpConnectionManagerPersistence["readConnection"] = async (id) =>
-    id === this.connection.id ? this.connection : undefined;
+    !this.deleted && id === this.connection.id ? this.connection : undefined;
 
   readOwnedConnection: McpConnectionManagerPersistence["readOwnedConnection"] = async (
     id,
     userId,
   ) => {
     await this.onReadOwned?.();
-    return id === this.connection.id && userId === this.connection.userId
+
+    return !this.deleted && id === this.connection.id && userId === this.connection.userId
       ? this.connection
       : undefined;
   };
@@ -115,7 +123,42 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
     this.updates.push(patch);
     await this.onUpdate?.(patch);
     Object.assign(this.connection, patch, { updatedAt: new Date() });
+
     return this.connection;
+  };
+
+  renameOwnedConnection: McpConnectionManagerPersistence["renameOwnedConnection"] = async (
+    input,
+  ) => {
+    if (
+      this.deleted ||
+      input.connectionId !== this.connection.id ||
+      input.userId !== this.connection.userId
+    ) {
+      return undefined;
+    }
+
+    this.connection.label = input.label;
+    this.connection.updatedAt = new Date();
+
+    return this.connection;
+  };
+
+  deleteOwnedConnection: McpConnectionManagerPersistence["deleteOwnedConnection"] = async (
+    input,
+  ) => {
+    if (
+      this.deleted ||
+      input.connectionId !== this.connection.id ||
+      input.userId !== this.connection.userId
+    ) {
+      return "not_found";
+    }
+
+    await this.onDelete?.();
+    this.deleted = true;
+
+    return "removed";
   };
 
   insertCatalogRevision: McpConnectionManagerPersistence["insertCatalogRevision"] = async (
@@ -130,6 +173,7 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
       id,
       input.descriptors.map((entry) => entry.name),
     );
+
     return {
       id,
       connectionId: input.connectionId,
@@ -146,16 +190,19 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
   compareAndSetCatalogRevision: McpConnectionManagerPersistence["compareAndSetCatalogRevision"] =
     async (input) => {
       if (input.nextRevisionId) await this.onActivate?.(input);
+
       if (
         input.connectionId !== this.connection.id ||
         this.connection.currentCatalogRevisionId !== input.expectedCurrentRevisionId
       ) {
         return undefined;
       }
+
       Object.assign(this.connection, input.patch, {
         currentCatalogRevisionId: input.nextRevisionId,
         updatedAt: new Date(),
       });
+
       return this.connection;
     };
 }
@@ -169,6 +216,7 @@ function managerWith(
     persistence,
     clientFactory: (row) =>
       new McpRawClient({
+        auth: { mode: "none" },
         connectionId: row.id,
         endpoint: row.server,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
@@ -180,9 +228,11 @@ function managerWith(
 
 function deferred() {
   let resolve!: () => void;
+
   const promise = new Promise<void>((promiseResolve) => {
     resolve = promiseResolve;
   });
+
   return { promise, resolve };
 }
 
@@ -195,8 +245,10 @@ describe("mcp connection manager lifecycle", () => {
 
     protocol.onListTools = () => {
       listCalls += 1;
+
       if (listCalls === 2) throw new Error("replacement refresh failed");
     };
+
     persistence.onPublish = async () => {
       persistence.onPublish = null;
       await protocol.emitToolsChanged();
@@ -267,17 +319,22 @@ describe("mcp connection manager lifecycle", () => {
     const managerA = managerWith(protocolA, persistence);
     const managerB = managerWith(protocolB, persistence);
     let releaseA: (() => void) | undefined;
+
     const holdA = new Promise<void>((resolve) => {
       releaseA = resolve;
     });
+
     let aReachedPromotion: (() => void) | undefined;
+
     const aAtPromotion = new Promise<void>((resolve) => {
       aReachedPromotion = resolve;
     });
+
     let firstA = true;
 
     persistence.onActivate = async (input) => {
       const names = persistence.revisions.get(input.nextRevisionId ?? "");
+
       if (firstA && names?.[0] === "tool_a") {
         firstA = false;
         aReachedPromotion?.();
@@ -403,10 +460,12 @@ describe("mcp connection manager lifecycle", () => {
     protocol.onListTools = () => {
       throw new Error("initial catalog failed");
     };
+
     protocol.onClose = async () => {
       closeStarted.resolve();
       await releaseClose.promise;
     };
+
     persistence.onReadOwned = () => ownershipRead.resolve();
     persistence.onUpdate = async (patch) => {
       if (patch.status !== "disconnected") return;
@@ -458,10 +517,12 @@ describe("mcp connection manager lifecycle", () => {
     protocol.onListTools = () => {
       throw new Error("replacement catalog failed");
     };
+
     protocol.onClose = async () => {
       closeStarted.resolve();
       await releaseClose.promise;
     };
+
     persistence.onUpdate = async (patch) => {
       if (patch.status !== "disconnected") return;
       disconnectedPatchStarted.resolve();
@@ -503,12 +564,15 @@ describe("mcp connection manager lifecycle", () => {
     const compareAndSetCatalogRevision = persistence.compareAndSetCatalogRevision;
     persistence.compareAndSetCatalogRevision = async (input) => {
       terminalWrites.push(input.patch.status);
+
       if (input.patch.status === "failed") {
         failureWriteStarted.resolve();
         await releaseFailureWrite.promise;
       }
+
       return compareAndSetCatalogRevision(input);
     };
+
     persistence.onReadOwned = () => ownershipRead.resolve();
     protocol.onListTools = () => {
       throw new Error("replacement catalog failed");
@@ -546,6 +610,7 @@ describe("mcp connection manager lifecycle", () => {
 
       let disconnect: Promise<boolean>;
       let closeAll: Promise<void>;
+
       if (disconnectFirst) {
         disconnect = manager.disconnect(persistence.connection.id, persistence.connection.userId);
         await closeStarted.promise;
@@ -555,6 +620,7 @@ describe("mcp connection manager lifecycle", () => {
         await closeStarted.promise;
         disconnect = manager.disconnect(persistence.connection.id, persistence.connection.userId);
       }
+
       await Promise.resolve();
       releaseClose.resolve();
 
@@ -617,10 +683,87 @@ describe("mcp connection manager lifecycle", () => {
     assert.equal(protocol.connectCount, 1);
   });
 
+  test("rename a connection owned by another user is not found and writes nothing", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+
+    const outcome = await manager.rename(persistence.connection.id, "another-user", "Renamed");
+
+    assert.deepEqual(outcome, { outcome: "not_found" });
+    assert.equal(persistence.connection.label, "Lifecycle test");
+  });
+
+  test("rename refuses a built-in connection", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    persistence.connection.server.endpointUrl = GITHUB_MCP_ENDPOINT_HREF;
+    persistence.connection.server.endpointOrigin = "https://api.githubcopilot.com";
+    const manager = managerWith(protocol, persistence);
+
+    const outcome = await manager.rename(
+      persistence.connection.id,
+      persistence.connection.userId,
+      "Renamed",
+    );
+
+    assert.deepEqual(outcome, { outcome: "built_in" });
+    assert.equal(persistence.connection.label, "Lifecycle test");
+  });
+
+  test("removal refuses a connection owned by another user and closes no live client", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+
+    await manager.getReadyClient(persistence.connection.id);
+    const outcome = await manager.remove(persistence.connection.id, "another-user", "none");
+
+    assert.equal(outcome, "not_found");
+    assert.equal(persistence.deleted, false);
+    assert.equal(protocol.closeCount, 0);
+    assert.equal(persistence.connection.status, "ready");
+  });
+
+  test("removal fences admission before the delete completes, then closes the client", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    await manager.getReadyClient(persistence.connection.id);
+    const deleteStarted = deferred();
+    const releaseDelete = deferred();
+    persistence.onDelete = async () => {
+      deleteStarted.resolve();
+      await releaseDelete.promise;
+    };
+
+    const removal = manager.remove(
+      persistence.connection.id,
+      persistence.connection.userId,
+      "none",
+    );
+
+    await deleteStarted.promise;
+
+    await assert.rejects(
+      manager.getReadyClient(persistence.connection.id),
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
+
+    releaseDelete.resolve();
+    assert.equal(await removal, "removed");
+    assert.equal(persistence.deleted, true);
+    assert.equal(protocol.closeCount, 1);
+    // The removal close intent writes no durable row: the deleted row stays
+    // exactly as it was in the fake.
+    assert.equal(persistence.connection.status, "ready");
+  });
+
   test("cold connect and catalog refresh inherit the invocation trace", async () => {
     const protocol = new FakeProtocol();
     const persistence = new MemoryPersistence();
     const manager = managerWith(protocol, persistence);
+
     const parent: McpTraceContext = {
       runId: "run-trace",
       traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
@@ -631,6 +774,7 @@ describe("mcp connection manager lifecycle", () => {
     const traceId = (trace: McpTraceContext | undefined) => trace?.traceparent.split("-")[1];
     assert.equal(traceId(protocol.connectTrace), traceId(parent));
     assert.ok(protocol.listTraces.length > 0);
+
     for (const trace of protocol.listTraces) {
       assert.equal(traceId(trace), traceId(parent));
       assert.equal(trace?.runId, parent.runId);
@@ -665,6 +809,7 @@ function tool(name: string): Tool {
 
 function connection(): McpConnectionWithServer {
   const now = new Date();
+
   return {
     id: "conn_lifecycle",
     userId: "user_lifecycle",

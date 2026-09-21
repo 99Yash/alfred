@@ -13,33 +13,12 @@
  * pending approval, so flipping to Autopilot lets a parked run continue.
  */
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Check, ChevronDown, ShieldCheck, Zap } from "lucide-react";
-import { use, useId, type ComponentType } from "react";
+import { Check, ChevronDown } from "lucide-react";
+import { use, useId, useState } from "react";
 import { AppThemeContext } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
+import { MODE_OPTIONS, modeOption } from "./approval-mode-options";
 import { Tip } from "./tip";
-
-interface ModeOption {
-  /** True = autonomy (Autopilot); false = gated (Review). */
-  autonomy: boolean;
-  label: string;
-  description: string;
-  Icon: ComponentType<{ size?: number | string; className?: string }>;
-}
-
-const REVIEW_OPTION: ModeOption = {
-  autonomy: false,
-  label: "Review",
-  description: "Alfred pauses for your approval before acting.",
-  Icon: ShieldCheck,
-};
-const AUTOPILOT_OPTION: ModeOption = {
-  autonomy: true,
-  label: "Autopilot",
-  description: "Alfred acts without pausing for approval.",
-  Icon: Zap,
-};
-const MODE_OPTIONS: ReadonlyArray<ModeOption> = [REVIEW_OPTION, AUTOPILOT_OPTION];
 
 export function ApprovalModePicker({
   on,
@@ -53,17 +32,20 @@ export function ApprovalModePicker({
   onToggle: () => void;
 }) {
   const listboxId = useId();
+  const [open, setOpen] = useState(false);
   // The popover portals out of the `.app` subtree, so stamp the resolved theme
   // on the content directly (context still flows through the portal). Same
   // pattern as ModelTierPicker / AppSelect.
   const themeCtx = use(AppThemeContext);
+
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
-  const selected = on ? AUTOPILOT_OPTION : REVIEW_OPTION;
+
+  const selected = modeOption(on);
   const SelectedIcon = selected.Icon;
 
   return (
-    <PopoverPrimitive.Root>
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <Tip
         label="Action approval"
         description={on ? "Autopilot: Alfred acts freely." : "Review: Alfred asks before acting."}
@@ -78,7 +60,7 @@ export function ApprovalModePicker({
               "inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2 text-[12px] font-medium",
               "app-press transition-[box-shadow,color,background-color] outline-none",
               "disabled:cursor-not-allowed disabled:opacity-50",
-              "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+              "app-focus",
               on
                 ? cn(
                     // Autopilot on — the lit green pill carries the "acting
@@ -99,7 +81,11 @@ export function ApprovalModePicker({
             {selected.label}
             <ChevronDown
               size={12}
-              className={cn("shrink-0", on ? "text-app-green-4/70" : "text-app-fg-2")}
+              className={cn(
+                "shrink-0 transition-transform duration-200",
+                on ? "text-app-green-4/70" : "text-app-fg-2",
+                open && "rotate-180",
+              )}
             />
           </button>
         </PopoverPrimitive.Trigger>
@@ -115,8 +101,10 @@ export function ApprovalModePicker({
           collisionPadding={16}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl p-1.5",
-            "app-fade-in outline-none",
+            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-2xl p-1.5",
+            "origin-bottom outline-none",
+            "motion-safe:data-[state=open]:animate-[app-popover-in_180ms_cubic-bezier(0.22,1,0.36,1)]",
+            "motion-safe:data-[state=closed]:animate-[app-popover-out_120ms_cubic-bezier(0.22,1,0.36,1)]",
           )}
         >
           <p className="px-2 pt-1 pb-1.5 text-[11px] font-medium tracking-tight text-app-fg-2">
@@ -125,6 +113,7 @@ export function ApprovalModePicker({
           {MODE_OPTIONS.map((option) => {
             const checked = option.autonomy === on;
             const OptionIcon = option.Icon;
+
             return (
               <PopoverPrimitive.Close asChild key={option.label}>
                 <button
@@ -135,9 +124,13 @@ export function ApprovalModePicker({
                     if (!checked) onToggle();
                   }}
                   className={cn(
-                    "flex w-full items-start gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
+                    "app-press flex w-full items-start gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
                     "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
-                    checked && "bg-app-bg-a2",
+                    "active:bg-app-bg-a3",
+                    // Selected holds a step-stronger fill than hover, so a
+                    // hovered row never reads as the active mode — the Codex
+                    // list keeps the same distinction via its check + highlight.
+                    checked && "bg-app-bg-a3",
                   )}
                 >
                   <span

@@ -33,6 +33,7 @@ function stubFetch(body: unknown, status = 200) {
       method: String(init?.method ?? "GET"),
       headers: (init?.headers ?? {}) as Record<string, string>,
     });
+
     return Promise.resolve(
       new Response(JSON.stringify(body), {
         status,
@@ -40,6 +41,7 @@ function stubFetch(body: unknown, status = 200) {
       }),
     );
   }) as typeof fetch;
+
   return calls;
 }
 
@@ -51,6 +53,7 @@ function client(teamId: string | null, onResolve?: () => void) {
   return createVercelClient({
     resolveAuth: async () => {
       onResolve?.();
+
       return { token: redacted("vercel_secret_token"), teamId };
     },
     // Stated, not defaulted: `retry` is required at every client constructor so a
@@ -91,6 +94,7 @@ describe("vercel credential metadata", () => {
       },
       configurationId: "cfg_1",
     });
+
     assert.equal(readVercelTeamId(metadata), "team_abc");
   });
 
@@ -105,6 +109,7 @@ describe("vercel credential metadata", () => {
       },
       configurationId: null,
     });
+
     assert.equal(readVercelTeamId(metadata), null);
   });
 
@@ -168,6 +173,7 @@ describe("vercel client auth", () => {
       assert.equal(err.url, "/v10/projects");
       const text = JSON.stringify(err) + String(err);
       assert.ok(!text.includes("vercel_secret_token"), "the token must not reach the error");
+
       return true;
     });
   });
@@ -183,9 +189,11 @@ describe("vercel client auth", () => {
   test("resolves per request — no client memoizes a credential", async () => {
     stubFetch(PROJECTS);
     let resolves = 0;
+
     const vercel = client("team_abc", () => {
       resolves += 1;
     });
+
     await vercel.projects();
     await vercel.passthrough.execute({ method: "GET", path: "/v9/projects", query: {} });
     // Two methods, two reads. `vercelClientForUser` behaves identically, so a

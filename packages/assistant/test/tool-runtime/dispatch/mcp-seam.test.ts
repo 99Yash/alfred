@@ -50,6 +50,7 @@ import {
 } from "../../../src/tool-runtime/mcp/recovery";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../../support/db-backed";
+import { awaitGate } from "../../support/gate-timeout";
 
 /**
  * DB-backed tests for the dispatch → MCP seam (PRD #540 #6). These prove the two
@@ -71,6 +72,7 @@ import { dbBackedSkip } from "../../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-mcpseam-";
+
 const createdUserIds: string[] = [];
 
 /** The stubbed broker result; every test treats it as an `{ ok: ... }` record. */
@@ -87,6 +89,7 @@ class CapturingBroker {
   async callTool(input: McpBrokerCallInput): Promise<McpBrokerOutcome> {
     this.calls += 1;
     this.lastInput = input;
+
     const envelope: McpCallEnvelope = {
       connectionId: input.ref.connectionId,
       toolName: input.ref.remoteName,
@@ -102,6 +105,7 @@ class CapturingBroker {
         truncated: false,
       },
     };
+
     return { status: "completed", invocationId: `inv_${randomUUID().slice(0, 8)}`, envelope };
   }
 }
@@ -136,14 +140,18 @@ class PausedFirstCallProtocol implements McpProtocolClient {
 
   async callTool(): Promise<McpProtocolCallResult> {
     this.calls += 1;
+
     if (this.calls === 1) {
       this.firstCallStarted.resolve();
       await this.releaseFirstCall.promise;
+
       if (this.firstOutcome === "ambiguous") {
         throw new Error("first worker crashed after delivery");
       }
+
       return { content: [{ type: "text", text: "first worker applied" }] };
     }
+
     return { content: [{ type: "text", text: "successor applied" }] };
   }
 
@@ -169,6 +177,7 @@ async function seedUserAndRun(): Promise<{ userId: string; runId: string }> {
     workflowSlug: "chat",
     currentStep: "dispatch-tools",
   });
+
   return { userId, runId };
 }
 
@@ -184,11 +193,13 @@ async function seedConnectionWithCatalog(
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
+
   await publishCatalogRevision({
     connectionId: conn.id,
     revisionHash: `sha256:${randomUUID().replace(/-/g, "")}`,
     descriptors: tools,
   });
+
   return conn.id;
 }
 
@@ -213,17 +224,20 @@ async function seedOwnedCatalog(
     canonicalResource: `mcp://test/${randomUUID()}`,
     endpoint: new URL("https://mcp.example.test/mcp"),
   });
+
   const revisionHash = `sha256:${randomUUID().replace(/-/g, "")}`;
   await publishCatalogRevision({
     connectionId: conn.id,
     revisionHash,
     descriptors: tools,
   });
+
   // Publication derives the hash map, so read it back the way the resolver
   // does rather than minting a second copy here.
   const descriptorHashes = Object.fromEntries(
     tools.map((entry) => [entry.name, descriptorHash(entry)]),
   );
+
   return { connectionId: conn.id, revisionHash, descriptorHashes };
 }
 
@@ -264,9 +278,11 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     clearToolRegistryForTests();
     _setMcpExecutionBrokerForTests();
     clearPolicyCacheForTests();
+
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
     // mcp.call stages for approval, which enqueues BullMQ jobs — close the Redis
     // connections so the test process can exit (mirrors the gated-tool tests).
@@ -308,15 +324,20 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     // tool's `resolveRiskTier` hook reads the reviewed `low` policy bound to the
     // exact descriptor, the dispatcher gates on that resolved tier (autonomy +
     // `low` → no approval), and the SAME tier is persisted on the staging row.
+    // The descriptor asserts `readOnlyHint`: per the ADR-0069 amendment a
+    // reviewed tier lowers below `high` only for a read tool.
     const broker = new CapturingBroker();
     _setMcpExecutionBrokerForTests(asBroker(broker));
 
     const { userId, runId } = await seedUserAndRun();
     await seedAutonomyPolicy(userId);
+
     const tool: Tool = {
       name: "search_issues",
       inputSchema: { type: "object", additionalProperties: true },
+      annotations: { readOnlyHint: true },
     };
+
     const { connectionId, revisionHash, descriptorHashes } = await seedOwnedCatalog(userId, [tool]);
     await upsertToolPolicy({
       userId,
@@ -329,6 +350,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     });
 
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+
     const result = await dispatchToolCall({
       runId,
       stepId: "dispatch-tools",
@@ -373,6 +395,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
 
     const { userId, runId } = await seedUserAndRun();
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+
     const args = {
       runId,
       stepId: "dispatch-tools",
@@ -426,10 +449,13 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
   test("same-staging re-dispatch preserves ambiguity through boot and an explicit successor", async () => {
     const { userId, runId } = await seedUserAndRun();
     await seedAutonomyPolicy(userId);
+
     const remoteTool: Tool = {
       name: "create_issue",
       inputSchema: { type: "object", additionalProperties: true },
+      annotations: { readOnlyHint: true },
     };
+
     const connection = await ensureConnection({
       userId,
       label: "Paused MCP",
@@ -437,19 +463,27 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       canonicalResource: `mcp://paused/${randomUUID()}`,
       endpoint: new URL("https://paused.example.test/mcp"),
     });
+
     const protocol = new PausedFirstCallProtocol([remoteTool]);
+
     const manager = new McpConnectionManager({
       clientFactory: (owned) =>
         new McpRawClient({
+          auth: { mode: "none" },
           connectionId: owned.id,
           endpoint: owned.server,
           endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
           protocolFactory: () => protocol,
         }),
     });
+
     const client = await manager.getReadyClient(connection.id);
     const catalogRevision = client.catalog?.revision;
     assert.ok(catalogRevision);
+    // Deliberately split fixture: the descriptor's `readOnlyHint` lets the
+    // reviewed `low` execute under autonomy (ADR-0069), while the policy's
+    // `write` class mints the ambiguity barrier — the broker keys barriers on
+    // the reviewed effect class, not the catalog claim.
     await upsertToolPolicy({
       userId,
       connectionId: connection.id,
@@ -463,12 +497,14 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const broker = new McpExecutionBroker(manager);
     _setMcpExecutionBrokerForTests(broker);
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+
     const input = {
       connectionId: connection.id,
       remoteName: remoteTool.name,
       catalogRevision,
       arguments: { title: "one effect" },
     };
+
     const stagingId = `as_${randomUUID().slice(0, 12)}`;
     await db()
       .insert(actionStagings)
@@ -491,19 +527,25 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
         status: "pending",
         outcome: "dispatching",
       });
+
     const ref = {
       kind: "mcp" as const,
       connectionId: connection.id,
       remoteName: remoteTool.name,
       catalogRevision,
     };
+
     const firstWorker = broker.callTool({
       userId,
       stagingId,
       ref,
       arguments: input.arguments,
     });
-    await protocol.firstCallStarted.promise;
+
+    await awaitGate(
+      protocol.firstCallStarted.promise,
+      "mcp-seam paused protocol first call started",
+    );
 
     const repeated = await dispatchToolCall({
       runId,
@@ -517,6 +559,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
     });
+
     assert.equal(repeated.kind, "executed");
     assert.deepEqual(repeated.kind === "executed" ? repeated.toolResult : null, {
       status: "unknown",
@@ -524,10 +567,12 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       message:
         "This exact call was already recorded and may have been delivered. Its outcome must be checked before it can be attempted again.",
     });
+
     const [afterRepeat] = await db()
       .select({ outcome: actionStagings.outcome })
       .from(actionStagings)
       .where(eq(actionStagings.id, stagingId));
+
     assert.equal(afterRepeat?.outcome, "unknown");
     assert.equal(protocol.calls, 1, "the same-staging re-dispatch never sends again");
 
@@ -541,6 +586,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       userId,
       invocationId: visible.operations[0]!.invocationId,
     });
+
     assert.equal(successor.status, "completed");
     assert.ok(successor.successorInvocationId);
     assert.equal(protocol.calls, 2, "only the explicit successor creates another send");
@@ -548,6 +594,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     protocol.releaseFirstCall.resolve();
     const abandonedWorker = await firstWorker;
     assert.equal(abandonedWorker.status, "ambiguous");
+
     const [prior] = await db()
       .select({
         resolvedAt: mcpInvocation.resolvedAt,
@@ -555,6 +602,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       })
       .from(mcpInvocation)
       .where(eq(mcpInvocation.stagingId, stagingId));
+
     assert.ok(prior?.resolvedAt);
     assert.equal(prior?.resolutionReason, "superseded_by_user_successor");
   });
@@ -562,10 +610,13 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
   test("a stale duplicate dispatcher cannot reopen staging after broker success", async () => {
     const { userId, runId } = await seedUserAndRun();
     await seedAutonomyPolicy(userId);
+
     const remoteTool: Tool = {
       name: "create_issue",
       inputSchema: { type: "object", additionalProperties: true },
+      annotations: { readOnlyHint: true },
     };
+
     const connection = await ensureConnection({
       userId,
       label: "Paused MCP",
@@ -573,19 +624,26 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       canonicalResource: `mcp://paused-success/${randomUUID()}`,
       endpoint: new URL("https://paused-success.example.test/mcp"),
     });
+
     const protocol = new PausedFirstCallProtocol([remoteTool], "succeeded");
+
     const manager = new McpConnectionManager({
       clientFactory: (owned) =>
         new McpRawClient({
+          auth: { mode: "none" },
           connectionId: owned.id,
           endpoint: owned.server,
           endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
           protocolFactory: () => protocol,
         }),
     });
+
     const client = await manager.getReadyClient(connection.id);
     const catalogRevision = client.catalog?.revision;
     assert.ok(catalogRevision);
+    // Split fixture, same as the ambiguity test above: `readOnlyHint` lets the
+    // reviewed `low` execute under autonomy (ADR-0069), while the `write`
+    // effect class mints the ambiguity barrier the stale-commit fencing needs.
     await upsertToolPolicy({
       userId,
       connectionId: connection.id,
@@ -599,12 +657,14 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const broker = new McpExecutionBroker(manager);
     _setMcpExecutionBrokerForTests(broker);
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+
     const input = {
       connectionId: connection.id,
       remoteName: remoteTool.name,
       catalogRevision,
       arguments: { title: "one effect" },
     };
+
     const stagingId = `as_${randomUUID().slice(0, 12)}`;
     await db()
       .insert(actionStagings)
@@ -627,6 +687,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
         status: "pending",
         outcome: "dispatching",
       });
+
     const dispatchInput = {
       runId,
       stepId: "dispatch-tools",
@@ -639,11 +700,16 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       runContext: { caller: "boss", interaction: "background" } as const,
       fence: { generation: 0 } as const,
     };
+
     const firstWorker = dispatchToolCall(dispatchInput);
-    await protocol.firstCallStarted.promise;
+    await awaitGate(
+      protocol.firstCallStarted.promise,
+      "mcp-seam paused protocol first call started",
+    );
 
     const staleCommitStarted = Promise.withResolvers<void>();
     const releaseStaleCommit = Promise.withResolvers<void>();
+
     const restoreStore = _setStagingStoreForTests({
       ...postgresStagingStore,
       async commitStaging(id, expected, commit) {
@@ -651,12 +717,14 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
           staleCommitStarted.resolve();
           await releaseStaleCommit.promise;
         }
+
         return postgresStagingStore.commitStaging(id, expected, commit);
       },
     });
+
     try {
       const repeatedWorker = dispatchToolCall(dispatchInput);
-      await staleCommitStarted.promise;
+      await awaitGate(staleCommitStarted.promise, "mcp-seam stale commit intercepted");
 
       protocol.releaseFirstCall.resolve();
       const first = await firstWorker;
@@ -667,10 +735,12 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
         .select({ effectOutcome: mcpInvocation.effectOutcome })
         .from(mcpInvocation)
         .where(eq(mcpInvocation.stagingId, stagingId));
+
       const [settledStaging] = await db()
         .select({ outcome: actionStagings.outcome, result: actionStagings.executeResult })
         .from(actionStagings)
         .where(eq(actionStagings.id, stagingId));
+
       assert.equal(settledInvocation?.effectOutcome, "succeeded");
       assert.equal(settledStaging?.outcome, "succeeded");
       assert.ok(settledStaging?.result, "the matching outer commit enriches the aggregate result");
@@ -683,10 +753,12 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
         .select({ effectOutcome: mcpInvocation.effectOutcome })
         .from(mcpInvocation)
         .where(eq(mcpInvocation.stagingId, stagingId));
+
       const [afterStaging] = await db()
         .select({ outcome: actionStagings.outcome })
         .from(actionStagings)
         .where(eq(actionStagings.id, stagingId));
+
       assert.equal(afterInvocation?.effectOutcome, "succeeded");
       assert.equal(afterStaging?.outcome, "succeeded");
       assert.equal(
@@ -708,12 +780,15 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const broker = new CapturingBroker();
     _setMcpExecutionBrokerForTests(asBroker(broker));
     const { userId, runId } = await seedUserAndRun();
+
     const firstConnectionId = await seedConnectionWithCatalog(userId, "Work MCP", [
       { name: "search", inputSchema: { type: "object", additionalProperties: true } },
     ]);
+
     const secondConnectionId = await seedConnectionWithCatalog(userId, "Personal MCP", [
       { name: "search", inputSchema: { type: "object", additionalProperties: true } },
     ]);
+
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
 
     const result = await dispatchToolCall({
@@ -749,6 +824,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
           assert.ok(isRecord(hit));
           assert.ok(isRecord(hit.ref));
           assert.equal(hit.ref.remoteName, "search");
+
           return hit.ref.connectionId;
         }),
       ),

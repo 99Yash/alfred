@@ -290,6 +290,7 @@ function DimensionDropdownItem({ item }: { item: DimensionComposerMenuItem }) {
       ? "cursor-not-allowed opacity-42"
       : "cursor-default hover:bg-white/[0.055] focus:bg-white/[0.07]",
   );
+
   const content = (
     <>
       {item.icon ? (

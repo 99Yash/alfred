@@ -35,20 +35,29 @@ export {
   buildConnectedSummaryFromAvailability,
   formatRuntimeTimeGrounding,
   resolveRuntimeGroundingAnchor,
+  RUNTIME_GROUNDING_PARK_GRACE_MS,
   foldToolSurfaceState,
   systemToolKernel,
   toolRuntimeForRun,
   toolSurfaceStateFields,
+  uniqueToolNames,
+  toolNamesFromState,
   appendModelResponseMessages,
+  appendSystemNote,
   aggregateRunUsage,
   shouldPublishToolStarted,
   toolCardStarted,
   toolCardTerminal,
   toolEventOutcome,
   pendingToolCallSchema,
-  CHAT_TURN_CAP_MAX,
+  CHAT_TURN_CAP_LANDING_NOTE,
+  chatTurnCap,
+  chatTurnCapVerdict,
   openChatTurnRetries,
   resetChatTurnRetryBudgets,
+  CAPACITY_RETRY_DELAYS_MS,
+  CAPACITY_RETRY_JITTER_MS,
+  type ChatTurnRetries,
   PREVIEW_CHARS,
   registerWorkflowReadinessCheck,
   joinChildRun,
@@ -65,6 +74,7 @@ export {
   effectReceiptColumns,
   toEffectReceipt,
 } from "./index.domain";
+
 export type {
   EffectReceiptSource,
   RunStatus,
@@ -99,4 +109,5 @@ export {
   promoteScratch,
   snapshotScratchToPostgres,
 } from "./scratchpad/index";
+
 export type { WriteScratchArgs, ReadScratchArgs, PromoteScratchArgs } from "./scratchpad/index";

@@ -57,7 +57,9 @@ export type DailyBriefingWorkflowInput = z.infer<typeof dailyBriefingWorkflowInp
  * created before the daily-briefing cutover. New code must not enqueue it.
  */
 export const LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG = "morning-briefing";
+
 export const legacyMorningBriefingWorkflowInputSchema = briefingWorkflowInputBaseSchema;
+
 export type LegacyMorningBriefingWorkflowInput = z.infer<
   typeof legacyMorningBriefingWorkflowInputSchema
 >;

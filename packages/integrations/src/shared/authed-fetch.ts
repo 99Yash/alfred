@@ -54,6 +54,12 @@ export interface AuthedFetchRequest {
    * sent (a bare read).
    */
   body?: unknown;
+  /**
+   * Caller-driven abort (a phase deadline, a user Stop). Combined with the
+   * shared transport timeout — whichever fires first wins — so a deadline
+   * cancels the fetch rather than abandoning it.
+   */
+  signal?: AbortSignal | undefined;
 }
 
 /**
@@ -65,6 +71,7 @@ export async function authedFetch(
   request: AuthedFetchRequest,
 ): Promise<Response> {
   const hasBody = request.body !== undefined;
+
   return fetch(request.url, {
     method: request.method ?? "GET",
     headers: {
@@ -73,6 +80,9 @@ export async function authedFetch(
     },
     ...(hasBody ? { body: JSON.stringify(request.body) } : {}),
     redirect: profile.redirect ?? "follow",
-    signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
+    signal:
+      request.signal === undefined
+        ? AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS)
+        : AbortSignal.any([AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS), request.signal]),
   });
 }

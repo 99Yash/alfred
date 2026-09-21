@@ -101,7 +101,7 @@ Adjacent enums that reuse the same words but are **not** integrations: `DOCUMENT
 | `http/src/tool-tiers.ts` | loadable slug | Tier counts per slug |
 | `env/src/server.ts:234-284` | provider | OAuth client env vars per provider |
 | `sync/src/mutators/policy.ts:8-23` | loadable slug | `policySetIntegrationMode` |
-| `sync/src/mutators/workflows.ts:12` `AUTHORABLE_EVENT_SOURCES` | event source | `["gmail"]` |
+| `contracts/src/event-triggers.ts` `AUTHORABLE_EVENT_SOURCES` | event source | `["gmail", "github", "sentry"]`; inbound sources authorable only on a raw kind (#990) |
 
 ### apps/web
 

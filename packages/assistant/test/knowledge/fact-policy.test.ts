@@ -200,7 +200,6 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     emails: ["yash@oliv.ai"],
     gmailAccountEmailById: { acc_work: "yash@oliv.ai", acc_personal: "yash@gmail.com" },
     github: { login: "99Yash", userId: "583231" },
-    slack: { userId: "U07SELF", emails: ["yash@oliv.ai"] },
   };
 
   function gmailDoc(
@@ -260,6 +259,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
       { source: "github", metadata: { authorId: "583231" }, accountId: null, sender: null },
       self,
     );
+
     assert.equal(byId.authoredByUser, true);
     assert.equal(byId.authoredByUser && byId.proof.method, "author_id");
 
@@ -267,6 +267,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
       { source: "github", metadata: { authorLogin: "99yash" }, accountId: null, sender: null },
       self,
     );
+
     assert.equal(byLogin.authoredByUser, true);
     assert.equal(byLogin.authoredByUser && byLogin.proof.method, "author_login");
 
@@ -274,17 +275,9 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
       { source: "github", metadata: { authorLogin: "mattpocock" }, accountId: null, sender: null },
       self,
     );
+
     assert.equal(other.authoredByUser, false);
     assert.equal(!other.authoredByUser && other.reason, "identity_mismatch");
-  });
-
-  test("slack matches on stable user id or verified email", () => {
-    const r = authoredByUser(
-      { source: "slack", metadata: { authorUserId: "U07SELF" }, accountId: null, sender: null },
-      self,
-    );
-    assert.equal(r.authoredByUser, true);
-    assert.equal(r.authoredByUser && r.proof.method, "author_user_id");
   });
 
   test("github with no self identity fails missing_self_identity (default deny)", () => {
@@ -292,12 +285,18 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
       { source: "github", metadata: { authorLogin: "anyone" }, accountId: null, sender: null },
       { emails: ["yash@oliv.ai"] },
     );
+
     assert.equal(r.authoredByUser, false);
     assert.equal(!r.authoredByUser && r.reason, "missing_self_identity");
   });
 
-  test("gcal / notion / imessage / uploads / unknown are unsupported_source", () => {
-    for (const source of ["gcal", "google_calendar", "notion", "imessage", "upload", "weird"]) {
+  test("a source with no author identity is unsupported_source", () => {
+    // `DOCUMENT_SOURCES` no longer holds a provider whose docs carry a
+    // third-party author, so the reject set is attachments, Sentry, and the
+    // missing-document sentinel (#987).
+    const sources = ["gmail_attachment", "sentry", "unknown"] as const;
+
+    for (const source of sources) {
       const r = authoredByUser({ source, metadata: {}, accountId: null, sender: null }, self);
       assert.equal(r.authoredByUser, false, `${source} should not be authored`);
       assert.equal(!r.authoredByUser && r.reason, "unsupported_source");
@@ -310,6 +309,7 @@ describe("gateDocumentFact", () => {
     emails: ["yash@oliv.ai"],
     gmailAccountEmailById: { acc_work: "yash@oliv.ai" },
   };
+
   const authoredDoc: AuthorshipDocument = {
     source: "gmail",
     metadata: { isSent: true },
@@ -338,6 +338,7 @@ describe("gateDocumentFact", () => {
       document: authoredDoc,
       selfIdentity: self,
     });
+
     assert.deepEqual(r, {
       ok: false,
       reason: "service_sender_relationship",
@@ -352,6 +353,7 @@ describe("gateDocumentFact", () => {
       document: authoredDoc,
       selfIdentity: self,
     });
+
     assert.deepEqual(r, {
       ok: false,
       reason: "invalid_relationship_key",
@@ -366,6 +368,7 @@ describe("gateDocumentFact", () => {
       document: authoredDoc,
       selfIdentity: self,
     });
+
     assert.equal(r.ok, true);
     assert.equal(r.ok && r.key, "relationship:alice@oliv.ai");
   });

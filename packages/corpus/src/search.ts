@@ -1,6 +1,7 @@
 import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
 import {
   parseAttachmentContentReferences,
+  getStringPath,
   type AttachmentContentReference,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -33,11 +34,45 @@ export interface SearchArgs {
   limit?: number;
 }
 
+/**
+ * The provider-native record identity the ingest lane keyed the parent
+ * document by (#1076, prefactor for #428): the tuple
+ * `documents_source_id_idx` is uniquely keyed by (`source`, `sourceId`,
+ * plus `userId`), with the thread grouping and the carrying account as its
+ * two sidecars. Derived from the row type so the shape cannot drift from
+ * the columns.
+ *
+ * `sourceId` for a direct-ingest source is the provider's own id (a Gmail
+ * message id); for an inbound-webhook source it is Alfred's receipt id. A
+ * `gmail_attachment` row folds every byte-identical carrier into one row
+ * whose `sourceId` packs the FIRST carrier's `messageId:attachmentId` pair
+ * (the delimiter lives in `sourceIdOf` in the Gmail media ingest) — that
+ * packed id is not a faithful per-carrier address and no consumer may split
+ * it apart. Per-carrier provenance rides `occurrences` instead, which
+ * already groups one message, thread, and account per carrier.
+ */
+export type RecordIdentity = Pick<Document, "sourceId" | "sourceThreadId" | "accountId">;
+
 export interface SearchHit {
   chunkId: string;
   documentId: string;
   source: Document["source"];
+  /**
+   * Dereference plumbing for the future #428 expander. Nested so the
+   * model-facing shape is one key removal, and so a new dereference fact
+   * lands inside `record` — where {@link ModelFacingHit} provably excludes
+   * it — instead of beside it, where every carrier would inherit it.
+   */
+  record: RecordIdentity;
   title: string | null;
+  /**
+   * Provider receipt kind (an inbound event type such as `pull_request`),
+   * when this hit came from an inbound delivery. This is the RECEIPT's kind,
+   * never the record's shape — the two id-spaces stay in separate fields.
+   */
+  kind?: string;
+  /** Provider URL retained on the document, when supplied. */
+  url?: string;
   position: number;
   /**
    * The 1-indexed PDF page the extractor proved this chunk sits on, when the
@@ -66,8 +101,29 @@ export interface SearchHit {
   occurrences?: AttachmentContentReference[];
 }
 
+/**
+ * One hit as the model reads it: `SearchHit` minus the dereference
+ * plumbing. Corpus-owned so every model-facing carrier strips the same key:
+ * `Omit` names `record` once, and a new dereference fact placed inside
+ * `record` is excluded here by construction instead of by a second
+ * hand-maintained key list.
+ */
+export type ModelFacingHit = Omit<SearchHit, "record">;
+
+/**
+ * Strip the dereference plumbing for a model-facing answer. New plumbing
+ * belongs inside `record`; anything added beside it is model-visible by
+ * default, which is exactly the decision this function forces.
+ */
+export function toModelFacingHit(hit: SearchHit): ModelFacingHit {
+  const { record: _record, ...rest } = hit;
+
+  return rest;
+}
+
 export async function search(args: SearchArgs): Promise<SearchHit[]> {
   const limit = args.limit ?? 10;
+
   const queryVec =
     args.queryEmbedding ??
     (await embed(args.query, {
@@ -75,6 +131,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
       userId: args.userId,
       idempotencyKey: `search:${args.userId}:${hashQuery(args.query)}`,
     }));
+
   assertQueryEmbedding(queryVec);
   // Match the DB vector adapter: pgvector stores float32, so avoid
   // sending float64-precision text for query literals too.
@@ -84,6 +141,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
   const candidateLimit = Math.max(limit * 5, 50);
 
   const filters = [eq(chunks.userId, args.userId), isNotNull(chunks.embedding)];
+
   if (args.source) filters.push(eq(documents.source, args.source));
 
   // HNSW returns at most `hnsw.ef_search` rows per scan (default 40), so the
@@ -101,7 +159,11 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
         chunkId: sql<string>`${chunks.id}`.as("chunk_id"),
         documentId: sql<string>`${documents.id}`.as("document_id"),
         source: documents.source,
+        sourceId: documents.sourceId,
+        sourceThreadId: documents.sourceThreadId,
+        accountId: documents.accountId,
         title: documents.title,
+        url: documents.url,
         position: chunks.position,
         content: chunks.content,
         metadata: chunks.metadata,
@@ -123,7 +185,11 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
         chunkId: candidates.chunkId,
         documentId: candidates.documentId,
         source: candidates.source,
+        sourceId: candidates.sourceId,
+        sourceThreadId: candidates.sourceThreadId,
+        accountId: candidates.accountId,
         title: candidates.title,
+        url: candidates.url,
         position: candidates.position,
         content: candidates.content,
         metadata: candidates.metadata,
@@ -141,6 +207,11 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
       chunkId: r.chunkId,
       documentId: r.documentId,
       source: r.source,
+      record: {
+        sourceId: r.sourceId,
+        sourceThreadId: r.sourceThreadId,
+        accountId: r.accountId,
+      },
       title: r.title,
       position: r.position,
       page: extractPageFromMetadata(r.metadata),
@@ -148,10 +219,19 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
       similarity: 1 - Number(r.distance),
       authoredAt: r.authoredAt,
     };
+
+    const kind = getStringPath(r.documentMetadata, "kind");
+
+    if (kind) hit.kind = kind;
+
+    if (r.url) hit.url = r.url;
+
     if (r.source === "gmail_attachment") {
       const occurrences = parseAttachmentContentReferences(r.documentMetadata);
+
       if (occurrences.length > 0) hit.occurrences = occurrences;
     }
+
     return hit;
   });
 }
@@ -159,7 +239,9 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
 function hashQuery(q: string): string {
   // Stable enough for idempotency keys; doesn't need to be cryptographic.
   let h = 0;
+
   for (let i = 0; i < q.length; i++) h = ((h << 5) - h + q.charCodeAt(i)) | 0;
+
   return Math.abs(h).toString(36);
 }
 

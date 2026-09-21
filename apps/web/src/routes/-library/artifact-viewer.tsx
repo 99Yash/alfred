@@ -27,7 +27,9 @@ export function ArtifactViewer() {
     const handler = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
     };
+
     window.addEventListener("keydown", handler);
+
     return () => window.removeEventListener("keydown", handler);
   }, [close]);
 
@@ -42,6 +44,7 @@ export function ArtifactViewer() {
         </ArtifactDialog>
       );
     }
+
     if (error) {
       return (
         <ArtifactDialog label="Artifact loading error" onClose={close} compact>
@@ -54,6 +57,7 @@ export function ArtifactViewer() {
         </ArtifactDialog>
       );
     }
+
     return (
       <ArtifactDialog label="Artifact not found" onClose={close} compact>
         <ViewerState
@@ -90,8 +94,10 @@ function PopulatedArtifact({
   onClose: () => void;
 }) {
   const pages = artifact.content?.kind === "pages" ? artifact.content.pages : [];
+
   const canDownload =
     artifact.kind === "pages" && pages.length > 0 && artifact.status !== "generating";
+
   // The dialog scrolls inside this `<main>`, not the window. Lazy page mounting
   // roots its IntersectionObserver on this element so the gate tracks the real
   // scroller rather than the viewport.
@@ -174,6 +180,7 @@ function PopulatedArtifact({
 function ArtifactStatus({ artifact }: { artifact: SyncedArtifact }) {
   if (artifact.status === "complete") return null;
   const generating = artifact.status === "generating";
+
   return (
     <div className="mx-auto mb-5 flex w-full max-w-[720px] items-center gap-2 rounded-xl bg-app-bg-2 px-3 py-2 text-xs text-app-fg-3">
       {generating ? <Loader2 size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
@@ -193,6 +200,7 @@ function ArtifactContent({
 }) {
   if (artifact.kind === "document") {
     const markdown = artifact.content?.kind === "document" ? artifact.content.markdown : "";
+
     if (!markdown.trim()) {
       return (
         <ViewerState
@@ -203,6 +211,7 @@ function ArtifactContent({
         />
       );
     }
+
     return (
       <article className="mx-auto w-full max-w-[720px] rounded-2xl bg-app-bg-1 p-6 shadow-[0_8px_24px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.06)] sm:p-10">
         <MarkdownRenderer size="reading">{markdown}</MarkdownRenderer>
@@ -211,6 +220,7 @@ function ArtifactContent({
   }
 
   const pages = artifact.content?.kind === "pages" ? artifact.content.pages : [];
+
   if (pages.length === 0) {
     return (
       <ViewerState
@@ -219,14 +229,18 @@ function ArtifactContent({
       />
     );
   }
+
   const format = artifact.format ?? "pdf";
   const pageKeyOccurrences = new Map<string, number>();
+
   const keyedPages = pages.map((page) => {
     const shapeKey = JSON.stringify([page.title, page.html]);
     const occurrence = pageKeyOccurrences.get(shapeKey) ?? 0;
     pageKeyOccurrences.set(shapeKey, occurrence + 1);
+
     return { key: JSON.stringify([shapeKey, occurrence]), page };
   });
+
   return (
     <div className="mx-auto flex w-full max-w-[720px] flex-col gap-8">
       {keyedPages.map(({ key, page }, index) => (
@@ -287,7 +301,9 @@ function LazyArtifactPage({
   useEffect(() => {
     if (mounted) return;
     const el = ref.current;
+
     if (!el) return;
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry?.isIntersecting) {
@@ -301,14 +317,18 @@ function LazyArtifactPage({
       // entrance far off-screen.
       { root: scrollRef.current, rootMargin: "96px 0px", threshold: 0 },
     );
+
     observer.observe(el);
+
     return () => observer.disconnect();
   }, [mounted, scrollRef]);
 
   if (mounted) {
     return <ArtifactPageFrame html={html} title={title} format={format} />;
   }
+
   const { width, height } = pageGeometry[format];
+
   return (
     <div
       ref={ref}

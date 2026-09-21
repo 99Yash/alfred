@@ -1,4 +1,5 @@
 import {
+  getStringPath,
   isRecord,
   isToolName,
   type IntegrationAvailabilitySnapshot,
@@ -59,8 +60,9 @@ export const toolSurfaceStateFields = {
   // Persisted under an older deploy, so names may refer to tools that have
   // since been retired. The fold drops anything not in today's registry.
   activeTools: z.array(z.string()).optional(),
-  // Exact first-turn deterministic selections, persisted so #414 can measure
-  // preload hits/misses against the durable transcript. Optional for legacy runs.
+  // Exact first-turn deterministic selections (prompt preload and, for chat,
+  // names carried over from the thread's previous run), persisted so #414 can
+  // measure hits/misses against the durable transcript. Optional for legacy runs.
   preloadedTools: z.array(z.string()).default([]),
   // Read only while resuming checkpoints created before exact tool surfaces.
   activeIntegrations: z.array(z.string().min(1)).optional(),
@@ -92,6 +94,7 @@ export function foldToolSurfaceState<T extends ParsedToolSurfaceState>(
   preloadedTools: ToolName[];
 } {
   const { activeTools, activeIntegrations, preloadedTools, ...rest } = parsed;
+
   return {
     ...rest,
     activeTools: migrateActiveTools(
@@ -113,22 +116,21 @@ export function activateTool(activeTools: readonly ToolName[], toolName: ToolNam
 
 /** Apply the bounded effect returned by `system.load_tool`; all other output is inert. */
 export function applyExactToolLoad(activeTools: readonly ToolName[], result: unknown): ToolName[] {
-  if (
-    !isRecord(result) ||
-    result.ok !== true ||
-    typeof result.name !== "string" ||
-    !isRegisteredToolName(result.name)
-  ) {
+  const name = isRecord(result) && result.ok === true ? getStringPath(result, "name") : undefined;
+
+  if (name === undefined || !isRegisteredToolName(name)) {
     return uniqueToolNames(activeTools);
   }
-  return activateTool(activeTools, result.name);
+
+  return activateTool(activeTools, name);
 }
 
 function isRegisteredToolName(name: string): name is ToolName {
   return isToolName(name) && restoreToolSurface({ kind: "exact", names: [name] })[0] === name;
 }
 
-function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
+/** The one spelling of a tool-name set: deduplicated and sorted, so two surfaces compare by value. */
+export function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
   return [...new Set(toolNames)].sort();
 }
 
@@ -176,10 +178,12 @@ function buildTurnToolSurface(args: {
 }): ToolSet {
   const startedAt = new Date();
   const startMs = Date.now();
+
   const surface = resolveToolSurface({
     activeNames: args.activeTools,
     context: args.context,
   });
+
   const tools = surface.tools;
   startToolSurfaceSpan({
     runId: args.runId,
@@ -195,6 +199,7 @@ function buildTurnToolSurface(args: {
     schemaTokens: surface.schemaTokens,
     schemaRebuildMs: Date.now() - startMs,
   });
+
   return tools;
 }
 
@@ -224,6 +229,7 @@ async function applyPromptToolPreload(args: {
   availability: IntegrationAvailabilitySnapshot;
 }): Promise<void> {
   if (args.state.preloadApplied) return;
+
   const span = startToolPreloadSpan({
     runId: args.runId,
     workflow: args.workflow,
@@ -232,6 +238,7 @@ async function applyPromptToolPreload(args: {
     allowedIntegrationCount: args.allowedIntegrations.length,
     startedAt: new Date(),
   });
+
   try {
     const preload = await selectToolPreload({
       userId: args.userId,
@@ -241,16 +248,20 @@ async function applyPromptToolPreload(args: {
       context: args.context,
       availability: args.availability,
     });
+
     const preloaded = preload.selectedNames;
+
     for (const toolName of preloaded) {
       args.state.activeTools = activateTool(args.state.activeTools, toolName);
     }
+
     args.state.preloadedTools = uniqueToolNames([...args.state.preloadedTools, ...preloaded]);
     span.end(preloaded, args.state.activeTools.length, preload.promptChars);
   } catch (error) {
     span.error();
     throw error;
   }
+
   args.state.preloadApplied = true;
 }
 

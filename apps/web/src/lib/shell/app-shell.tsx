@@ -19,8 +19,14 @@ import { ChatContext } from "~/components/chat-context";
 import { AppThemeProvider } from "~/components/ui/v2/theme";
 import { authClient } from "~/lib/auth/auth-client";
 import { client } from "~/lib/eden";
+import { useIsPublicRoute } from "~/lib/shell/public-route";
 import type { ShellThreadViewModel } from "~/lib/shell/thread-view-model";
-import { getLocalStorageItem, LOCAL_STORAGE_KEY, setLocalStorageItem } from "~/lib/storage/storage";
+import {
+  onboardingHintBelongsToAnotherUser,
+  readOnboardingHint,
+  writeOnboardingHint,
+} from "~/lib/onboarding/onboarding-hint";
+import { LOCAL_STORAGE_KEY, setLocalStorageItem } from "~/lib/storage/storage";
 
 /* -----------------------------------------------------------------------------
  * Right-rail slot
@@ -41,6 +47,7 @@ export function useRightRail(node: ReactNode | null) {
   useLayoutEffect(() => {
     if (!ctx) return;
     ctx.setContent(node);
+
     return () => ctx.setContent(null);
   }, [ctx, node]);
 }
@@ -56,6 +63,7 @@ export function useShellThreadViewModel(viewModel: ShellThreadViewModel) {
   useLayoutEffect(() => {
     if (!ctx) return;
     ctx.setViewModel(viewModel);
+
     return () => ctx.setViewModel(null);
   }, [ctx, viewModel]);
 }
@@ -75,9 +83,11 @@ const SidebarStateContext = createContext<SidebarStateValue | null>(null);
 
 export function useSidebarState(): SidebarStateValue {
   const ctx = use(SidebarStateContext);
+
   if (!ctx) {
     throw new Error("useSidebarState must be used inside AppShell");
   }
+
   return ctx;
 }
 
@@ -91,19 +101,24 @@ export function useSidebarState(): SidebarStateValue {
  * -------------------------------------------------------------------------- */
 
 const SIDEBAR_BREAKPOINT = "(min-width: 1024px)";
+
 const LazyAuthedAppShell = lazy(() => import("./authed-app-shell"));
 
 function useSidebarMode(): "inline" | "overlay" {
   const [mode, setMode] = useState<"inline" | "overlay">(() => {
     if (typeof window === "undefined") return "inline";
+
     return window.matchMedia(SIDEBAR_BREAKPOINT).matches ? "inline" : "overlay";
   });
+
   useEffect(() => {
     const mq = window.matchMedia(SIDEBAR_BREAKPOINT);
     const handler = () => setMode(mq.matches ? "inline" : "overlay");
     mq.addEventListener("change", handler);
+
     return () => mq.removeEventListener("change", handler);
   }, []);
+
   return mode;
 }
 
@@ -171,28 +186,35 @@ export function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const sidebarMode = useSidebarMode();
+
   const [shellState, dispatchShell] = useReducer(
     shellReducer,
     sidebarMode,
     createInitialShellState,
   );
+
   const { rightRailNode, paletteOpen, sidebarOpen, activeThread, threadViewModel } = shellState;
+
   const setRightRailNode = useCallback(
     (value: ReactNode | null) => dispatchShell({ type: "setRightRailNode", value }),
     [],
   );
+
   const setPaletteOpen = useCallback(
     (value: SetStateAction<boolean>) => dispatchShell({ type: "setPaletteOpen", value }),
     [],
   );
+
   const setSidebarOpen = useCallback(
     (value: SetStateAction<boolean>) => dispatchShell({ type: "setSidebarOpen", value }),
     [],
   );
+
   const setActiveThread = useCallback(
     (value: string) => dispatchShell({ type: "setActiveThread", value }),
     [],
   );
+
   const setThreadViewModel = useCallback(
     (value: ShellThreadViewModel | null) => dispatchShell({ type: "setThreadViewModel", value }),
     [],
@@ -204,6 +226,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // right-rail mode reset in `chat-shell.tsx`; the ref tracks the
   // previous mode so we only snap on the transition, not every render.
   const [prevSidebarMode, setPrevSidebarMode] = useState(sidebarMode);
+
   if (prevSidebarMode !== sidebarMode) {
     setPrevSidebarMode(sidebarMode);
     setSidebarOpen(sidebarMode === "inline");
@@ -222,11 +245,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (isPending) return;
     setLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED, !!session?.user);
   }, [isPending, session?.user]);
+
   const { data: onboardingData } = useQuery({
     queryKey: ["me", "onboarding"],
     queryFn: async () => {
       const res = await client.api.me.onboarding.get();
+
       if (res.error) throw new Error("Failed to load onboarding state");
+
       return res.data;
     },
     enabled: !isPending && !!sessionUser,
@@ -243,33 +269,26 @@ export function AppShell({ children }: { children: ReactNode }) {
    * matter where the user entered. */
   useEffect(() => {
     const nextRoute = onboardingData?.routeToOnboarding;
-    if (nextRoute === undefined) return;
-    const complete = !nextRoute;
-    setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE, complete);
-    if (sessionUser?.id) {
-      setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID, sessionUser.id);
-    }
+
+    if (nextRoute === undefined || !sessionUser?.id) return;
+    writeOnboardingHint(sessionUser.id, !nextRoute);
   }, [onboardingData?.routeToOnboarding, sessionUser?.id]);
 
   /* First-paint hint: per-user so a DB wipe (old account was onboarded,
    * new account is not) doesn't keep a genuinely new user out of
-   * `/onboarding` via a stale `true`. We store the user ID alongside the
-   * boolean and only trust the hint when the IDs match. Derived during
-   * render so no effect chain is needed. */
-  const onboardingHintComplete = (() => {
-    const stored = getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE);
-    const storedId = getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID);
-    if (sessionUser?.id && storedId !== sessionUser.id) return false;
-    return stored;
-  })();
+   * `/onboarding` via a stale `true`. Derived during render so no effect
+   * chain is needed. The onboarding Finish button writes this same hint
+   * synchronously before its full-page navigation (#991), so the fresh boot
+   * at `/` already reads `true` while the query is still in flight. */
+  const onboardingHintComplete = readOnboardingHint(sessionUser?.id);
   useEffect(() => {
-    const curId = sessionUser?.id ?? null;
+    const curId = sessionUser?.id;
+
     if (!curId) return;
-    const storedId = getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID);
-    if (storedId !== curId) {
+
+    if (onboardingHintBelongsToAnotherUser(curId)) {
       // Stale hint for a different user (DB wipe → new signup) — reset.
-      setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE, false);
-      setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_USER_ID, curId);
+      writeOnboardingHint(curId, false);
     }
   }, [sessionUser?.id]);
   // Route guard: redirect based on server truth, with optimistic hint for
@@ -277,16 +296,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   // guard, not an event handler, so an effect is the correct primitive.
   useEffect(() => {
     if (!session?.user) return;
+
     // Optimistic: hint says not onboarded → go to onboarding immediately
     // (query may still be pending due to server restart / slow network).
     if (!onboardingHintComplete && !onOnboardingRoute) {
       const nextRoute = onboardingData?.routeToOnboarding;
+
       if (nextRoute === false) return;
       void navigate({ to: "/onboarding", search: { step: 1 } });
+
       return;
     }
+
     const nextRoute = onboardingData?.routeToOnboarding;
+
     if (nextRoute === undefined) return;
+
     if (nextRoute && !onOnboardingRoute) {
       void navigate({ to: "/onboarding", search: { step: 1 } });
     } else if (!nextRoute && onOnboardingRoute) {
@@ -306,16 +331,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   // the reset a pure render-phase state adjustment (a ref write during render
   // can leak if React discards the render; a queued setState cannot).
   const [prevLocation, setPrevLocation] = useState(location);
+
   if (prevLocation !== location) {
     const sameHref =
       prevLocation.pathname === location.pathname &&
       prevLocation.searchStr === location.searchStr &&
       prevLocation.hash === location.hash;
+
     setPrevLocation(location);
+
     if (!sameHref) {
       setPaletteOpen(false);
       setRightRailNode(null);
       setThreadViewModel(null);
+
       // Dismiss the overlay drawer on navigation so a tapped nav row doesn't
       // leave it floating over the page it just routed to. Owned here (not via a
       // child effect calling back up) for the same reason as the palette close —
@@ -325,20 +354,21 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }
 
-  /* Routes that render edge-to-edge — no sidebar, no rail. `/` is in
-   * this set because it owns its own layout: signed-out visitors see
-   * the marketing landing, signed-in visitors get redirected to
-   * `/chat`. Wrapping it in app chrome — even briefly during the
-   * pending window — flashes "Memory / Notes / Skills…" at strangers
-   * before the landing renders. */
-  const chromeless =
-    location.pathname === "/" ||
-    location.pathname === "/login" ||
-    location.pathname === "/preview/landing" ||
-    location.pathname === "/privacy-policy" ||
-    location.pathname === "/terms-of-service" ||
-    location.pathname === "/support" ||
-    location.pathname.startsWith("/onboarding");
+  /* Routes that render edge-to-edge — no sidebar, no rail — and skip the auth
+   * guard below. Each such route declares itself with `staticData: {
+   * publicRoute: true }`; see `lib/shell/public-route.ts` for why the two
+   * effects share one flag, and why the declaration lives on the route rather
+   * than in a pathname list here.
+   *
+   * `/` is public because it owns its own layout: signed-out visitors see the
+   * marketing landing, signed-in visitors get redirected to `/chat`. Wrapping
+   * it in app chrome — even briefly during the pending window — would flash
+   * "Memory / Notes / Skills…" at strangers before the landing renders.
+   *
+   * `/c/$slug` — a shared thread (ADR-0102) — is public for BOTH reasons, and
+   * the flag is what makes the page reachable at all: without it a visitor is
+   * redirected to `/login` and never sees the page. */
+  const chromeless = useIsPublicRoute();
 
   /* Auth guard: a signed-out visitor on any non-chromeless (i.e. authed) route
    * is bounced to `/login`, carrying the path they were on as `?redirect=` so
@@ -369,6 +399,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const newChatEvent = useEffectEvent(() => void navigate({ to: "/chat" }));
   useEffect(() => {
     if (!authed) return;
+
     const onKey = (e: KeyboardEvent) => {
       // No isEditableTarget guard: these are navigation chords with no
       // text-editing meaning, and the composer (the dominant focus surface) is
@@ -387,7 +418,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         newChatEvent();
       }
     };
+
     window.addEventListener("keydown", onKey);
+
     return () => window.removeEventListener("keydown", onKey);
   }, [authed]);
 
@@ -395,14 +428,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     () => ({ setContent: setRightRailNode }),
     [setRightRailNode],
   );
+
   const sidebarStateValue = useMemo<SidebarStateValue>(
     () => ({ open: sidebarOpen, setOpen: setSidebarOpen }),
     [sidebarOpen, setSidebarOpen],
   );
+
   const chatContextValue = useMemo(
     () => ({ activeThread, setActiveThread }),
     [activeThread, setActiveThread],
   );
+
   const shellThreadViewModelContextValue = useMemo(
     () => ({ setViewModel: setThreadViewModel }),
     [setThreadViewModel],

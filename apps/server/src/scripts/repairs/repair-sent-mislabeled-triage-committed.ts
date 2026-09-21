@@ -36,7 +36,7 @@
  * `node dist/scripts/repairs/repair-sent-mislabeled-triage-committed.js` — the prod
  * image has no `tsx`/loose `@alfred/*` sources.
  *
- * SAFETY: dry by default — lists the rows + planned action but touches nothing
+ * Dry by default — lists the rows + planned action but touches nothing
  * (no DB writes, no Gmail calls, no token refresh). Pass `--commit` to repair.
  *
  *   # preview (writes nothing):
@@ -73,7 +73,7 @@ type DocRow = {
   sourceId: string;
   authoredAt: Date | null;
   accountId: string | null;
-  metadata: Record<string, unknown>;
+  metadata: unknown;
 };
 
 type GoogleCredentialRow = Pick<IntegrationCredential, "id" | "userId" | "accountId">;
@@ -101,8 +101,7 @@ type RepairCaseBResult =
   | { kind: "stale"; reason: string };
 
 async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[]> {
-  // SAFETY: the select projects exactly the columns DocRow declares.
-  return (await db()
+  return await db()
     .select({
       id: documents.id,
       sourceId: documents.sourceId,
@@ -118,7 +117,7 @@ async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[
         eq(documents.sourceThreadId, threadId),
       ),
     )
-    .orderBy(sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`)) as DocRow[];
+    .orderBy(sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`);
 }
 
 /** Newest non-sent doc — mirrors the runtime live-inbound nulls-last/id tie-breaker. */
@@ -157,6 +156,7 @@ async function loadCurrentMisPointedRow(
     .innerJoin(documents, eq(emailTriage.documentId, documents.id))
     .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, threadId)))
     .limit(1);
+
   return rows[0] ?? null;
 }
 
@@ -166,9 +166,11 @@ function resolveGoogleCredentialId(
 ): string {
   if (accountId) {
     const cred = creds.find((c) => c.accountId === accountId);
+
     if (cred) return cred.id;
     throw new Error(`no google credential for account=${accountId}`);
   }
+
   if (creds.length === 1) return creds[0]!.id;
   throw new Error(
     `cannot choose a google credential for null accountId; user has ${creds.length} credentials`,
@@ -186,13 +188,16 @@ async function stripAlfredLabelsFromMessage(args: {
   alfredLabelIds: ReadonlySet<string>;
 }): Promise<boolean> {
   const removeLabelIds = args.labelIds.filter((labelId) => args.alfredLabelIds.has(labelId));
+
   if (removeLabelIds.length === 0) return false;
+
   try {
     await modifyMessageLabels({
       accessToken: args.accessToken,
       messageId: args.messageId,
       removeLabelIds,
     });
+
     return true;
   } catch (err) {
     if (isGoneInGmail(err)) return false;
@@ -209,16 +214,20 @@ async function repairCaseA(args: {
 }): Promise<RepairCaseAResult> {
   return withTriageThreadLock(args.userId, args.threadId, async () => {
     const current = await loadCurrentMisPointedRow(args.userId, args.threadId);
+
     if (!current) return { kind: "stale", reason: "triage row no longer resolves to a document" };
+
     if (current.documentId !== args.originalDocumentId) {
       return {
         kind: "stale",
         reason: `document changed from ${args.originalDocumentId} to ${current.documentId ?? "null"}`,
       };
     }
+
     if (!current.pointedIsSent) {
       return { kind: "stale", reason: "row no longer points at a SENT document" };
     }
+
     if (!isTriageCategory(current.category)) {
       throw new Error(`unknown triage category ${current.category}`);
     }
@@ -230,24 +239,31 @@ async function repairCaseA(args: {
     const liveMessages = await getThreadMessageLabels({ accessToken, threadId: args.threadId });
     const liveSourceIds = new Set(liveMessages.map((m) => m.id));
     const inbound = newestLiveInbound(docs, liveSourceIds, current.pointedAccountId);
+
     if (!inbound) return { kind: "stale", reason: "no live inbound document remains" };
 
     const target = await loadTriageContext(inbound.id, args.userId);
+
     if (!target) throw new Error(`inbound target document disappeared: ${inbound.id}`);
+
     if (target.credentialId !== credId) {
       throw new Error(
         `live inbound target credential mismatch: pointed=${credId} target=${target.credentialId}`,
       );
     }
+
     const targetLiveMessage = liveMessages.find((m) => m.id === target.document.sourceId);
+
     if (!targetLiveMessage) {
       throw new Error(`inbound target message is not live in Gmail: ${target.document.sourceId}`);
     }
+
     const labels = await ensureAlfredLabels(target.credentialId, { accessToken });
     const targetLabelId = labels.byCategory[category];
     const alfredLabelIds = new Set(labels.allIds);
 
     const originalLiveMessage = liveMessages.find((m) => m.id === args.originalSourceId);
+
     const strippedOriginalSent = originalLiveMessage
       ? await stripAlfredLabelsFromMessage({
           accessToken,
@@ -260,6 +276,7 @@ async function repairCaseA(args: {
     const targetRemoveLabelIds = targetLiveMessage.labelIds.filter(
       (labelId) => alfredLabelIds.has(labelId) && labelId !== targetLabelId,
     );
+
     await modifyMessageLabels({
       accessToken,
       messageId: target.document.sourceId,
@@ -268,14 +285,17 @@ async function repairCaseA(args: {
     });
 
     let strippedSiblingCount = strippedOriginalSent ? 1 : 0;
+
     for (const message of liveMessages) {
       if (message.id === target.document.sourceId || message.id === args.originalSourceId) continue;
+
       const stripped = await stripAlfredLabelsFromMessage({
         accessToken,
         messageId: message.id,
         labelIds: message.labelIds,
         alfredLabelIds,
       });
+
       if (stripped) strippedSiblingCount++;
     }
 
@@ -295,6 +315,7 @@ async function repairCaseA(args: {
         ),
       )
       .returning({ documentId: emailTriage.documentId });
+
     if (updated.length === 0) {
       throw new Error(`failed to repoint row after Gmail repair for thread=${args.threadId}`);
     }
@@ -317,13 +338,16 @@ async function repairCaseB(args: {
 }): Promise<RepairCaseBResult> {
   return withTriageThreadLock(args.userId, args.threadId, async () => {
     const current = await loadCurrentMisPointedRow(args.userId, args.threadId);
+
     if (!current) return { kind: "stale", reason: "triage row no longer resolves to a document" };
+
     if (current.documentId !== args.originalDocumentId) {
       return {
         kind: "stale",
         reason: `document changed from ${args.originalDocumentId} to ${current.documentId ?? "null"}`,
       };
     }
+
     if (!current.pointedIsSent) {
       return { kind: "stale", reason: "row no longer points at a SENT document" };
     }
@@ -332,6 +356,7 @@ async function repairCaseB(args: {
     const accessToken = await getFreshAccessToken(credId);
     const labels = await ensureAlfredLabels(credId, { accessToken });
     let strippedOriginalSent = false;
+
     try {
       await modifyMessageLabels({
         accessToken,
@@ -353,6 +378,7 @@ async function repairCaseB(args: {
         ),
       )
       .returning({ sourceThreadId: emailTriage.sourceThreadId });
+
     if (deleted.length === 0) {
       throw new Error(`failed to delete sent-only triage row for thread=${args.threadId}`);
     }
@@ -380,16 +406,22 @@ async function main() {
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.provider, "google"));
+
   if (creds.length === 0) {
     console.log("no google credentials in this DB — nothing to repair");
+
     return;
   }
+
   const credsByUser = new Map<string, GoogleCredentialRow[]>();
+
   for (const cred of creds) {
     const existing = credsByUser.get(cred.userId);
+
     if (existing) existing.push(cred);
     else credsByUser.set(cred.userId, [cred]);
   }
+
   const userIds = [...new Set(creds.map((c) => c.userId))];
 
   let totalMisPointed = 0;
@@ -426,6 +458,7 @@ async function main() {
         console.warn(`     ! scan returned a row without document_id for thread=${row.threadId}`);
         continue;
       }
+
       const threadId = row.threadId;
       const docs = await loadThreadDocs(userId, threadId);
       const inbound = newestInbound(docs);
@@ -441,7 +474,9 @@ async function main() {
         console.log(
           `  → CASE A: strip sent label, apply inbound label, repoint → ${inbound.id} (authored ${inbound.authoredAt?.toISOString() ?? "?"})`,
         );
+
         if (!COMMIT) continue;
+
         try {
           const result = await repairCaseA({
             userId,
@@ -450,8 +485,10 @@ async function main() {
             originalSourceId: row.pointedSourceId,
             userCreds,
           });
+
           if (result.kind === "repaired") {
             repaintedA++;
+
             if (result.strippedOriginalSent) labelsStripped++;
             console.log(
               `     PERSISTED — label=${result.appliedLabelId} applied to ${result.targetDocId}; ` +
@@ -465,6 +502,7 @@ async function main() {
           errors++;
           console.warn(`     ! repair failed: ${toMessage(err)}`);
         }
+
         continue;
       }
 
@@ -472,7 +510,9 @@ async function main() {
       console.log(
         `  → CASE B: no inbound doc — strip Alfred label off sent msg + delete triage row`,
       );
+
       if (!COMMIT) continue;
+
       try {
         const result = await repairCaseB({
           userId,
@@ -480,6 +520,7 @@ async function main() {
           originalDocumentId: row.documentId,
           userCreds,
         });
+
         if (result.kind === "deleted") {
           if (result.strippedOriginalSent) {
             labelsStripped++;
@@ -487,6 +528,7 @@ async function main() {
           } else {
             console.log(`     sent msg ${row.pointedSourceId} already gone or unlabeled`);
           }
+
           deletedB++;
           console.log(`     PERSISTED — deleted bogus triage row for thread ${threadId}`);
         } else {

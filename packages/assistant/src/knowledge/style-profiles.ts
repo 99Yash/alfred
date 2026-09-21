@@ -7,12 +7,40 @@ import {
 } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import {
-  type StyleAudienceBucket,
-  type StyleChannel,
-  styleAudienceBucketSchema,
-  styleChannelSchema,
-} from "./types";
+
+/**
+ * `style_profiles.channel` / `audience_bucket` vocabularies (ADR-0013). The
+ * text columns are validated at this app-boundary store; the unions derive from
+ * the tuples so a new channel or bucket cannot drift from its parse.
+ */
+export const STYLE_CHANNELS = [
+  "gmail",
+  "imessage",
+  "slack",
+  "doc",
+  "code_review",
+  "twitter",
+  "generic",
+] as const;
+
+export const styleChannelSchema = z.enum(STYLE_CHANNELS);
+
+export type StyleChannel = (typeof STYLE_CHANNELS)[number];
+
+export const STYLE_AUDIENCE_BUCKETS = [
+  "family",
+  "friend",
+  "peer",
+  "manager",
+  "customer",
+  "vendor",
+  "public",
+  "generic",
+] as const;
+
+export const styleAudienceBucketSchema = z.enum(STYLE_AUDIENCE_BUCKETS);
+
+export type StyleAudienceBucket = (typeof STYLE_AUDIENCE_BUCKETS)[number];
 
 /**
  * Style-profile primitives are intentionally minimal in m8a — table
@@ -23,9 +51,13 @@ import {
  */
 
 const channelSchema = styleChannelSchema;
+
 const audienceBucketSchema = styleAudienceBucketSchema;
+
 const styleProfileStatusSchema = z.enum(["draft", "active", "superseded"]);
+
 const stringArraySchema = z.array(z.string());
+
 const unknownArraySchema = z.array(z.unknown());
 
 export const upsertStyleProfileArgsSchema = styleProfileInsertSchema
@@ -66,6 +98,7 @@ export const upsertStyleProfileArgsSchema = styleProfileInsertSchema
     | "status"
   >
 >;
+
 export type UpsertStyleProfileArgs = z.infer<typeof upsertStyleProfileArgsSchema>;
 
 /**
@@ -128,6 +161,7 @@ export async function upsertStyleProfile(args: UpsertStyleProfileArgs): Promise<
           );
 
     const [existing] = await tx.select().from(styleProfiles).where(where).limit(1);
+
     if (!existing) {
       const [row] = await tx
         .insert(styleProfiles)
@@ -145,7 +179,9 @@ export async function upsertStyleProfile(args: UpsertStyleProfileArgs): Promise<
           status,
         })
         .returning();
+
       if (!row) throw new Error("[memory.style-profiles] insert returned no row");
+
       return rowToProfile(row);
     }
 
@@ -163,7 +199,9 @@ export async function upsertStyleProfile(args: UpsertStyleProfileArgs): Promise<
       })
       .where(eq(styleProfiles.id, existing.id))
       .returning();
+
     if (!row) throw new Error("[memory.style-profiles] update returned no row");
+
     return rowToProfile(row);
   });
 }
@@ -212,11 +250,16 @@ export async function getStyleProfile(
   // distinctions left are: exact-recipient match, exact-bucket match, generic.
   const score = (r: StyleProfile) => {
     let s = 0;
+
     if (r.recipientId != null && r.recipientId === recipientId) s += 4;
+
     if (r.audienceBucket === audienceBucket && audienceBucket !== "generic") s += 2;
+
     return s;
   };
+
   candidates.sort((a, b) => score(b) - score(a));
   const top = candidates[0];
+
   return top ? rowToProfile(top) : null;
 }

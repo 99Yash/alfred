@@ -54,8 +54,10 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-embedpoison-";
+
 // More than the old attempt cap (5), to prove attempt count no longer gates.
 const TRANSIENT_FAILURES_IN_WINDOW = 8;
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -64,6 +66,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -74,17 +77,21 @@ function sha256(s: string): string {
 /** Insert an un-embedded memory chunk (embedding NULL) and return its id. */
 async function seedUnembeddedChunk(userId: string): Promise<string> {
   const content = `poison-${randomUUID()}`;
+
   const [row] = await db()
     .insert(memoryChunks)
     .values({ userId, kind: "thread_summary", content, contentHash: sha256(content) })
     .returning({ id: memoryChunks.id });
+
   assert.ok(row, "seed insert returned no row");
+
   return row.id;
 }
 
 /** Insert an un-embedded document (no chunks rows) and return its id. */
 async function seedUnembeddedDocument(userId: string): Promise<string> {
   const content = `poison-doc-${randomUUID()}`;
+
   const [row] = await db()
     .insert(documents)
     .values({
@@ -95,7 +102,9 @@ async function seedUnembeddedDocument(userId: string): Promise<string> {
       contentHash: sha256(content),
     })
     .returning({ id: documents.id });
+
   assert.ok(row, "seed insert returned no row");
+
   return row.id;
 }
 
@@ -110,7 +119,9 @@ async function readChunk(
     })
     .from(memoryChunks)
     .where(eq(memoryChunks.id, chunkId));
+
   assert.ok(row, "chunk row disappeared");
+
   return {
     embedAttempts: row.embedAttempts,
     failed: row.embedFailedAt != null,
@@ -123,7 +134,9 @@ async function readDocument(docId: string): Promise<{ embedAttempts: number; fai
     .select({ embedAttempts: documents.embedAttempts, embedFailedAt: documents.embedFailedAt })
     .from(documents)
     .where(eq(documents.id, docId));
+
   assert.ok(row, "document row disappeared");
+
   return { embedAttempts: row.embedAttempts, failed: row.embedFailedAt != null };
 }
 
@@ -157,6 +170,7 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -238,6 +252,7 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
         `outage must not dead-letter within the window (attempt ${i})`,
       );
     }
+
     const pending = await pendingEmbedChunkIds(userId);
     assert.ok(pending.includes(chunkId), "backlog survives a transient outage");
 
@@ -313,6 +328,7 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
         `outage must not dead-letter within the window (attempt ${i})`,
       );
     }
+
     const pending = await findUnembeddedDocumentIds({ userId, limit: 5000 });
     assert.ok(pending.includes(docId), "backlog survives a transient outage");
 

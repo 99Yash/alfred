@@ -63,10 +63,11 @@ describe("passthroughTruncationTelemetry", () => {
         causes: [{ kind: "body_bytes", droppedApprox: 1_500 }],
       },
     };
-    const t = passthroughTruncationTelemetry("railway.graphql", RUN_ID, result);
+
+    const t = passthroughTruncationTelemetry("notion.request", RUN_ID, result);
     assert.ok(t);
     assert.equal(t.succeeded, false);
-    assert.equal(t.integration, "railway");
+    assert.equal(t.integration, "notion");
     assert.equal(t.droppedBodyBytesApprox, 1_500);
   });
 
@@ -81,12 +82,14 @@ describe("passthroughTruncationTelemetry", () => {
       reason: "method_not_read",
       message: "no",
     };
+
     const transport: PassthroughResult = {
       outcome: "transport",
       kind: "timeout",
       retryable: true,
       message: "timed out",
     };
+
     assert.equal(passthroughTruncationTelemetry("github.request", RUN_ID, rejected), null);
     assert.equal(passthroughTruncationTelemetry("github.request", RUN_ID, transport), null);
   });
@@ -115,6 +118,7 @@ describe("passthroughTruncationTelemetry", () => {
         ],
       },
     };
+
     const t = passthroughTruncationTelemetry("notion.request", RUN_ID, result);
     assert.ok(t);
     assert.equal(t.causes.length, 1, "only the well-formed cause survives");

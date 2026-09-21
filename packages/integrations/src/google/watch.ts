@@ -42,9 +42,12 @@ export const gmailWatchStateSchema = z.object({
   expiresAt: z.iso.datetime(),
   /** The `historyId` Gmail returned at watch creation. Cold-start cursor. */
   baselineHistoryId: z.string().min(1),
-  /** When we last installed/renewed this watch (audit). */
+  /** First installation of this watch. Renewal must not reset push health. */
   installedAt: z.iso.datetime(),
+  /** Most recent installation or renewal (audit); absent on older rows. */
+  renewedAt: z.iso.datetime().optional(),
 });
+
 export type GmailWatchState = z.infer<typeof gmailWatchStateSchema>;
 
 /** Parse the `watch` slice off metadata; normal object parsing ignores sibling keys. */
@@ -55,6 +58,7 @@ const credentialWatchMetadataSchema = z.object({
 /** Read the `watch` slice off a credential's metadata jsonb, else null. */
 export function readGmailWatchState(metadata: unknown): GmailWatchState | null {
   const parsed = credentialWatchMetadataSchema.safeParse(metadata);
+
   return parsed.success && parsed.data.watch ? parsed.data.watch : null;
 }
 
@@ -98,6 +102,7 @@ export async function installGmailWatch(
   deps: Partial<GmailWatchDeps> = {},
 ): Promise<GmailWatchState | null> {
   const d = withDefaults(DEFAULT_DEPS, deps);
+
   // #278: a non-prod instance must not register a watch against the shared real
   // Gmail account — it would drive ingestion + relabel that fights prod. Returns
   // null (not a fake state) so callers can report "skipped" honestly.
@@ -105,38 +110,52 @@ export async function installGmailWatch(
     console.warn(
       `[gmail.watch] install skipped for ${args.credentialId}: mailbox writes disabled (non-prod)`,
     );
+
     return null;
   }
+
   const accessToken = await d.getFreshAccessToken(args.credentialId);
+
   const watch = await d.startWatch({
     accessToken,
     topicName: args.topicName,
     labelIds: args.labelIds,
   });
 
+  const now = new Date().toISOString();
+
   const state: GmailWatchState = {
     topic: args.topicName,
     expiresAt: watch.expiration.toISOString(),
     baselineHistoryId: watch.historyId,
-    installedAt: new Date().toISOString(),
+    installedAt: now,
+    renewedAt: now,
   };
 
   // Merge into existing metadata jsonb so we don't clobber `token_type`
   // and other unrelated keys. Drizzle's `||` operator on jsonb merges
   // shallowly which is exactly what we want here.
-  await d
+  const [updated] = await d
     .db()
     .update(integrationCredentials)
     .set({
-      metadata: sql`${integrationCredentials.metadata} || ${JSON.stringify({ watch: state })}::jsonb`,
+      // Preserve the installation baseline atomically across concurrent renewals.
+      metadata: sql`${integrationCredentials.metadata} || jsonb_build_object('watch',
+        ${JSON.stringify(state)}::jsonb || jsonb_build_object('installedAt',
+          coalesce(${integrationCredentials.metadata}->'watch'->>'installedAt', ${now}::text)))`,
     })
-    .where(eq(integrationCredentials.id, args.credentialId));
+    .where(eq(integrationCredentials.id, args.credentialId))
+    .returning({ metadata: integrationCredentials.metadata });
 
   // The rolling `ingestion_state` cursor is seeded by the ingestion consumer
   // (`installGmailWatchAndSeedCursor`), not here — this provider package no
   // longer writes ingestion-domain tables. `state.baselineHistoryId` carries the
   // historyId the caller needs to seed from.
-  return state;
+  const saved = readGmailWatchState(updated?.metadata);
+
+  if (!saved) throw new Error("Gmail watch metadata was not saved");
+
+  return saved;
 }
 
 /**
@@ -149,6 +168,7 @@ export async function uninstallGmailWatch(
   deps: Partial<GmailWatchDeps> = {},
 ): Promise<void> {
   const d = withDefaults(DEFAULT_DEPS, deps);
+
   // #278: never stop a watch from non-prod — the only live watch belongs to
   // prod, and stopping it here would kill prod ingestion. Still clear local
   // metadata so a manual "uninstall watch" does not report a stale watch as
@@ -164,6 +184,7 @@ export async function uninstallGmailWatch(
       `[gmail.watch] remote uninstall skipped for ${credentialId}: mailbox writes disabled (non-prod)`,
     );
   }
+
   await d
     .db()
     .update(integrationCredentials)
@@ -186,12 +207,15 @@ export async function stopGmailWatchWithAccessToken(
   deps: Partial<Pick<GmailWatchDeps, "mailboxWritesEnabled" | "stopWatch">> = {},
 ): Promise<void> {
   const d = withDefaults(DEFAULT_DEPS, deps);
+
   // #278: don't stop the shared watch from non-prod (would kill prod ingestion).
   if (!d.mailboxWritesEnabled()) {
     const suffix = args.credentialId ? ` for ${args.credentialId}` : "";
     console.warn(`[gmail.watch] stopWatch skipped${suffix}: mailbox writes disabled (non-prod)`);
+
     return;
   }
+
   try {
     await d.stopWatch({ accessToken: args.accessToken });
   } catch (err) {
@@ -207,7 +231,9 @@ export async function getGmailWatchState(credentialId: string): Promise<GmailWat
     .select({ metadata: integrationCredentials.metadata })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+
   const md = rows[0]?.metadata;
+
   return readGmailWatchState(md);
 }
 
@@ -231,6 +257,7 @@ export async function findCredentialByEmail(
       ),
     )
     .limit(1);
+
   return rows[0] ?? null;
 }
 
@@ -252,15 +279,21 @@ export async function findExpiringGmailWatches(
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.provider, "google"));
+
   const out: { id: string; userId: string; expiresAt: Date; topic: string }[] = [];
+
   for (const row of rows) {
     if (row.status !== "active") continue;
     const watch = readGmailWatchState(row.metadata);
+
     if (!watch) continue;
     const expiresAt = new Date(watch.expiresAt);
+
     if (Number.isNaN(expiresAt.getTime())) continue;
+
     if (expiresAt > before) continue;
     out.push({ id: row.id, userId: row.userId, expiresAt, topic: watch.topic });
   }
+
   return out;
 }

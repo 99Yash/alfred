@@ -8,24 +8,35 @@ import { formatTimestamp, shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
 import { RiskPill } from "./risk-pill";
 import { ToolIcon } from "./tool-icon";
-import { useApprovalDecision, type ApprovalDecision } from "./use-approval-decision";
+import { useApprovalDecision, type WriteDecision } from "./use-approval-decision";
 
-export type { ApprovalDecision } from "./use-approval-decision";
+export type { RecordedDecision, WriteDecision } from "./use-approval-decision";
 
 // Hoisted so the `leading` props below don't allocate a fresh element per render.
 const ICON_X = <X size={14} />;
+
 const ICON_PENCIL = <Pencil size={14} />;
+
 const ICON_REVISE = <RefreshCw size={14} />;
+
 const ICON_REVISE_SM = <RefreshCw size={13} />;
+
 const ICON_CHECK = <Check size={14} />;
 
+/**
+ * One staged *write*, reviewed in the `/approvals` queue and in a workflow's
+ * Approvals tab. A question rides the same row and the same route but draws
+ * `QuestionApprovalCard` instead (ADR-0099); `StagedApprovalCard` picks. So
+ * this card only ever sees a write, and its decision union says so — a
+ * reason-less rejection and a dismissal are both uncompilable here.
+ */
 export function ApprovalCard({
   staging,
   onDecide,
 }: {
   staging: SyncedActionStaging;
   /** Resolves when the decision is recorded; throws with a message on failure. */
-  onDecide: (decision: ApprovalDecision) => Promise<void>;
+  onDecide: (decision: WriteDecision) => Promise<void>;
 }) {
   const {
     draftInput,
@@ -46,7 +57,7 @@ export function ApprovalCard({
 
   // On success the row leaves the pending queue and Replicache removes the
   // card; `run` leaves `busy` set and no local cleanup is needed.
-  const decide = (decision: ApprovalDecision) => run(() => onDecide(decision));
+  const decide = (decision: WriteDecision) => run(() => onDecide(decision));
 
   return (
     <AppCard className="space-y-4">
@@ -65,7 +76,7 @@ export function ApprovalCard({
               params={{ workflow: staging.workflowSlug }}
               className={cn(
                 "inline-flex items-center gap-1 rounded font-medium transition-colors hover:text-app-fg-4",
-                "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+                "app-focus",
               )}
             >
               <Workflow size={12} />
@@ -147,7 +158,7 @@ export function ApprovalCard({
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] font-medium text-app-red-4",
                 "transition-colors hover:bg-app-red-1 disabled:cursor-not-allowed disabled:opacity-40",
-                "outline-none focus-visible:ring-2 focus-visible:ring-app-red-2",
+                "app-focus [--app-accent-ring:var(--app-red-2)]",
               )}
             >
               <Ban size={13} />

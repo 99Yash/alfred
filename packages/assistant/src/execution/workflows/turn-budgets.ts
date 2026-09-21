@@ -1,5 +1,5 @@
-import type { AgentTranscriptMessage } from "@alfred/contracts";
-import type { StepResult } from "../types";
+import type { AgentTranscriptMessage, ChatModelTier } from "@alfred/contracts";
+import type { StepResult } from "../registry";
 
 /**
  * Every bound on how much work one agent turn-loop may do, in one place.
@@ -15,19 +15,80 @@ import type { StepResult } from "../types";
  */
 
 /**
- * Turn-loop cap for the interactive chat workflow. Lower than
- * {@link BRIEF_TURN_CAP_MAX} on purpose: a user is watching this one stream, so
- * a wedged loop has to fail while they are still willing to wait, and the two
- * finalize guards can each spend a turn regenerating on top of the model's own
- * tool loop.
+ * Turn-loop cap for the interactive chat workflow, per model tier. A user is
+ * watching this one stream, so a wedged loop has to land while they are still
+ * willing to wait. Sized against a real turn (prod `run_tsevusjk1poq`): with
+ * two steps per lazy tool load and one tool call per model step, a legitimate
+ * thirteen-sender standing-instruction ask burned the old flat cap of 24 on
+ * plumbing and never answered. `deep` buys more room because the user chose
+ * the slower tier on purpose.
+ *
+ * The cap is where the turn *lands*, not where it crashes: see
+ * {@link chatTurnCapVerdict}.
  */
-export const CHAT_TURN_CAP_MAX = 24;
+const CHAT_TURN_CAP_BY_TIER = {
+  standard: 40,
+  deep: 60,
+} as const satisfies Record<ChatModelTier, number>;
 
 /**
- * Turn-loop cap for the background brief / sub-agent workflow. Higher than
- * {@link CHAT_TURN_CAP_MAX} because nobody is watching it stream: an
- * investigation is expected to work several distinct angles, and the run has a
- * compaction step it can spend turns on that the chat path does not.
+ * What the chat step does with the model turn it is about to run, given how
+ * many model turns the run has completed.
+ *
+ *  - `loop`: under the cap; offer the tool surface as usual.
+ *  - `land`: the first turn at the cap. Offer no tools, append the landing
+ *    note, log `chat_turn_cap_landing`. The model must answer from what the
+ *    transcript already holds.
+ *  - `landed`: a later turn past the cap. Still no tools; the note is already
+ *    in the transcript. Every turn here is issued by a spender with its own
+ *    bound: an empty-completion or stream-timeout retry (the budgets below), a
+ *    finalize guard's one regeneration, or a resume from a sub-agent park (one
+ *    per child, each behind a dead-man timer).
+ *
+ * There is deliberately no hard fuse past the cap. With an empty tool set no
+ * tool loop can continue, so nothing past `land` is the failure a cap exists
+ * to stop, and every legitimate spender is already bounded. The number of
+ * turns those spenders may legally add is not a constant (each regeneration
+ * refreshes the retry budgets; a park resume repeats per child), so any fixed
+ * grace would either fire on a legal path, losing a reply after every tool
+ * write persisted, or be loose enough to guard nothing.
+ */
+export type ChatTurnCapVerdict = "loop" | "land" | "landed";
+
+export function chatTurnCapVerdict(
+  tier: ChatModelTier,
+  completedTurns: number,
+): ChatTurnCapVerdict {
+  const cap = CHAT_TURN_CAP_BY_TIER[tier];
+
+  if (completedTurns < cap) return "loop";
+
+  return completedTurns === cap ? "land" : "landed";
+}
+
+/** The tool-loop cap for a chat turn on `tier`, for the landing log line. */
+export function chatTurnCap(tier: ChatModelTier): number {
+  return CHAT_TURN_CAP_BY_TIER[tier];
+}
+
+/**
+ * The transcript note the landing turn runs on, appended once by the `land`
+ * verdict alongside an empty tool set: the model cannot call anything, and this
+ * tells it why the loop ended and what the reply must now contain. Written via
+ * `appendSystemNote`, so it joins a finalize guard's note when one is already
+ * at the tail.
+ */
+export const CHAT_TURN_CAP_LANDING_NOTE =
+  "You have used every tool step available for this reply, so no tools are offered on this turn. " +
+  "Answer the user now from what is already in this conversation. Say plainly what you completed and what is still left, in user terms. " +
+  "Do not claim anything you did not finish, and do not describe the step limit or the mechanism. If work remains, tell the user they can ask you to continue.";
+
+/**
+ * Turn-loop cap for the background brief / sub-agent workflow. Nobody is
+ * watching it stream: an investigation is expected to work several distinct
+ * angles, and the run has a compaction step it can spend turns on that the chat
+ * path does not. Compare {@link chatTurnCapVerdict}: the chat cap is the higher
+ * of the two on both tiers because a chat turn lands there instead of failing.
  */
 export const BRIEF_TURN_CAP_MAX = 30;
 
@@ -104,7 +165,9 @@ function planTurnRetry<S>(
   preTurnTranscript: AgentTranscriptMessage[],
 ): PlannedTurnRetry<S> | null {
   const spent = budget.read(state);
+
   if (spent >= budget.max) return null;
+
   return {
     step: {
       kind: "next",
@@ -118,7 +181,7 @@ function planTurnRetry<S>(
 }
 
 /**
- * The two consecutive-failure counters a chat turn budgets. Named as a type so
+ * The consecutive-failure counters a chat turn budgets. Named as a type so
  * this module — which stays in `agent` — does not import the concrete
  * `ChatRunState` that moved to `chat`. The chat planners are generic
  * over it, exactly like {@link openBriefTurnRetries} is over its own counter.
@@ -126,6 +189,7 @@ function planTurnRetry<S>(
 type ChatRetryState = {
   emptyCompletionRetries: number;
   streamTimeoutRetries: number;
+  capacityRetries: number;
 };
 
 /**
@@ -141,6 +205,7 @@ type ChatRetryState = {
 export function resetChatTurnRetryBudgets<S extends ChatRetryState>(state: S): void {
   state.emptyCompletionRetries = 0;
   state.streamTimeoutRetries = 0;
+  state.capacityRetries = 0;
 }
 
 /** Every bounded retry a chat turn can plan, bound to one pre-turn transcript. */
@@ -154,7 +219,31 @@ export interface ChatTurnRetries {
    * resend that recovers today.
    */
   readonly afterStreamTimeout: <S extends ChatRetryState>(state: S) => PlannedTurnRetry<S> | null;
+  /**
+   * Re-issue a turn that failed on capacity (429/5xx before anything
+   * streamed) after the caller waits out {@link CAPACITY_RETRY_DELAYS_MS}.
+   * The wait is the fix: the gateway budget refills at single digits per
+   * minute, so the ladder's four attempts inside ~3s were mathematically
+   * unable to land and only guaranteed termination. A chat turn is
+   * single-step — it needs one slot — and ~10s of quiet refills roughly one,
+   * so spaced attempts land instead of dying. Chat-only by construction:
+   * triage's 30s total cannot afford the wait and keeps its fast fail.
+   */
+  readonly afterCapacityError: <S extends ChatRetryState>(state: S) => PlannedTurnRetry<S> | null;
 }
+
+/**
+ * Backoff before each capacity retry, 1-based by attempt. Worst single
+ * silence stays ~35s (30s sleep + a fast failure) under the client's 45s SSE
+ * watchdog; worst total added latency ~60s of sleep plus attempt time.
+ */
+export const CAPACITY_RETRY_DELAYS_MS = [10_000, 20_000, 30_000] as const;
+
+/** Jitter ceiling added to each capacity backoff so concurrent retries desync. */
+export const CAPACITY_RETRY_JITTER_MS = 5_000;
+
+/** Bounded wait-and-retry after a capacity failure (see `afterCapacityError`). */
+const CAPACITY_MAX_RETRIES = 3;
 
 /**
  * Bind the chat turn's retry planners to the transcript as it stood *before*
@@ -185,6 +274,17 @@ export function openChatTurnRetries(preTurnTranscript: AgentTranscriptMessage[])
           max: STREAM_TIMEOUT_MAX_RETRIES,
           read: (s) => s.streamTimeoutRetries,
           bump: (s) => ({ ...s, streamTimeoutRetries: s.streamTimeoutRetries + 1 }),
+          nextStep: "chat-turn",
+        },
+        state,
+        preTurnTranscript,
+      ),
+    afterCapacityError: (state) =>
+      planTurnRetry(
+        {
+          max: CAPACITY_MAX_RETRIES,
+          read: (s) => s.capacityRetries,
+          bump: (s) => ({ ...s, capacityRetries: s.capacityRetries + 1 }),
           nextStep: "chat-turn",
         },
         state,

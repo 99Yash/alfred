@@ -20,13 +20,17 @@ export function TypeFilterPopover({
   const toggleType = (value: ArtifactType | "all") => {
     if (value === "all") {
       onSelectedTypesChange(new Set());
+
       return;
     }
+
     const next = new Set(selectedTypes);
+
     if (next.has(value)) next.delete(value);
     else next.add(value);
     onSelectedTypesChange(next);
   };
+
   const label = selectedTypes.size === 0 ? "All types" : `${selectedTypes.size} selected`;
 
   return (
@@ -68,6 +72,7 @@ export function TypeFilterPopover({
             {TYPE_OPTIONS.map((type) => {
               const checked =
                 type.value === "all" ? selectedTypes.size === 0 : selectedTypes.has(type.value);
+
               return (
                 <button
                   key={type.value}

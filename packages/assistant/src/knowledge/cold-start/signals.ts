@@ -46,7 +46,9 @@ const CONSUMER_EMAIL_DOMAINS = FREE_MAIL_DOMAINS;
 
 function parseDomain(email: string): string | null {
   const at = email.lastIndexOf("@");
+
   if (at < 0 || at === email.length - 1) return null;
+
   return email.slice(at + 1).toLowerCase();
 }
 
@@ -65,7 +67,9 @@ export async function collectColdStartSignals(userId: string): Promise<ColdStart
     .from(user)
     .where(eq(user.id, userId))
     .limit(1);
+
   const u = userRows[0];
+
   if (!u) throw new Error(`[cold-start] user ${userId} not found`);
 
   const emailDomain = parseDomain(u.email);
@@ -93,7 +97,9 @@ export async function collectColdStartSignals(userId: string): Promise<ColdStart
     )
     .orderBy(asc(integrationCredentials.createdAt))
     .limit(1);
+
   const google = googleRows[0];
+
   if (google?.accountLabel) {
     integrations.google = { accountEmail: google.accountLabel };
   }

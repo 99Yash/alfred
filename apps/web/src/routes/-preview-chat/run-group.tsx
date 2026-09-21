@@ -14,6 +14,7 @@ export function RunGroup({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+
   return (
     <div className="-mx-1">
       <button
@@ -34,7 +35,7 @@ export function RunGroup({
           )}
         />
         <span className="text-sm font-medium text-app-fg-4">{title}</span>
-        {typeof itemCount === "number" ? (
+        {itemCount !== undefined ? (
           <span className="ml-auto text-xs text-app-fg-2 tabular-nums">
             {itemCount} {itemCount === 1 ? "step" : "steps"}
           </span>

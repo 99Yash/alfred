@@ -32,6 +32,7 @@ describe("computeCost", () => {
       inputTokens: 1_000_000,
       outputTokens: 500_000,
     });
+
     // 1*3 + 0.5*15 = 10.5
     assert.equal(cost, 10.5);
   });
@@ -44,6 +45,7 @@ describe("computeCost", () => {
       cachedInputTokens: 800_000,
       outputTokens: 0,
     });
+
     assert.ok(
       Math.abs(cost - 0.84) < 1e-9,
       `expected ~0.84, got ${cost} (regression: cache reads double-counted)`,
@@ -55,6 +57,7 @@ describe("computeCost", () => {
       { ...PRICE, cachedInputPerMtok: null },
       { inputTokens: 1_000_000, cachedInputTokens: 800_000, outputTokens: 0 },
     );
+
     // 200k @ $3 + 800k @ $3 (fallback) = 1M @ $3 = 3
     assert.ok(Math.abs(cost - 3) < 1e-9, `expected ~3, got ${cost}`);
   });
@@ -66,6 +69,7 @@ describe("computeCost", () => {
       cacheWriteInputTokens: 200_000,
       outputTokens: 100_000,
     });
+
     // 500k uncached @ $3 + 300k read @ $0.30 + 200k write @ $3.75 + 100k output @ $15
     assert.ok(Math.abs(cost - 3.84) < 1e-9, `expected ~3.84, got ${cost}`);
   });
@@ -75,6 +79,7 @@ describe("computeCost", () => {
       { ...PRICE, cacheWriteInputPerMtok: null },
       { inputTokens: 1_000_000, cacheWriteInputTokens: 800_000, outputTokens: 0 },
     );
+
     assert.ok(Math.abs(cost - 3) < 1e-9, `expected ~3, got ${cost}`);
   });
 
@@ -89,6 +94,7 @@ describe("computeCost", () => {
       },
       { inputTokens: 1_000_000, cacheWriteInputTokens: 1_000_000, outputTokens: 0 },
     );
+
     assert.equal(cost, 1.25);
   });
 
@@ -98,6 +104,7 @@ describe("computeCost", () => {
       cachedInputTokens: 800_000,
       outputTokens: 0,
     });
+
     assert.ok(Math.abs(cost - 0.84) < 1e-9, `expected ~0.84, got ${cost}`);
   });
 
@@ -109,6 +116,7 @@ describe("computeCost", () => {
       cacheWriteTtl: "1h",
       outputTokens: 0,
     });
+
     assert.equal(cost, 6);
   });
 
@@ -129,6 +137,7 @@ describe("computeCost", () => {
       },
       { inputTokens: 500_000, noCacheInputTokens: 500_000, outputTokens: 100_000 },
     );
+
     assert.equal(cost, 9.5);
   });
 });

@@ -5,6 +5,7 @@ import {
 } from "@alfred/contracts";
 import {
   AlertCircle,
+  Bug,
   CalendarDays,
   FileText,
   GitBranch,
@@ -14,7 +15,6 @@ import {
   Presentation,
   RefreshCw,
   Table2,
-  TrainFront,
   Triangle,
   type LucideIcon,
 } from "lucide-react";
@@ -80,15 +80,15 @@ const PASSTHROUGH_META = {
     icon: NotebookText,
     tint: "pink",
   },
-  railway: {
-    helper: "Raw read-only Railway GraphQL — service, deployment, and environment fields.",
-    icon: TrainFront,
-    tint: "purple",
-  },
   vercel: {
     helper: "Raw read-only Vercel REST — project and deployment detail.",
     icon: Triangle,
     tint: "amber",
+  },
+  sentry: {
+    helper: "Raw read-only Sentry REST — issues, events, stack traces, and projects.",
+    icon: Bug,
+    tint: "purple",
   },
 } satisfies Record<SupportedPassthroughSlug, PassthroughMeta>;
 
@@ -138,6 +138,7 @@ export function PassthroughSection() {
         <div className="divide-y divide-app-bg-2">
           {SUPPORTED_PASSTHROUGH_SLUGS.map((slug) => {
             const meta = PASSTHROUGH_META[slug];
+
             const agent: BackgroundAgentDef = {
               id: `passthrough-${slug}`,
               label: INTEGRATION_DISPLAY_NAMES[slug],
@@ -145,6 +146,7 @@ export function PassthroughSection() {
               icon: meta.icon,
               tint: meta.tint,
             };
+
             return (
               <AgentRow
                 key={slug}

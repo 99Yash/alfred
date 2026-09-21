@@ -213,6 +213,7 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
       const heartbeat = setInterval(() => {
         write(": heartbeat\n\n");
       }, HEARTBEAT_INTERVAL_MS);
+
       // eslint-disable-next-line anti-slop/no-runtime-typeof -- platform capability check: Node's setInterval returns an object with unref, browsers return a number; not domain parsing
       if (typeof heartbeat === "object" && "unref" in heartbeat) {
         heartbeat.unref();
@@ -222,6 +223,7 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
         if (tornDown) return;
         tornDown = true;
         clearInterval(heartbeat);
+
         for (const fn of cleanups) {
           // One route's failing unsubscribe must not strand the next route's.
           // The whole reason teardown is a LIST is that a later adopter
@@ -239,8 +241,11 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
       const conn: SseConnection = {
         frame({ id, event, data }) {
           let text = "";
+
           if (id !== undefined) text += `id: ${id}\n`;
+
           if (event !== undefined) text += `event: ${event}\n`;
+
           // A raw line break inside `data` would end the field, so each line
           // gets its own `data:`. The client rejoins them with `\n`. CR, LF and
           // CRLF are all line terminators to an SSE reader.
@@ -257,12 +262,15 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
           // subscription leaks for the life of the process. Run it now instead.
           if (tornDown) {
             cleanup();
+
             return;
           }
+
           cleanups.push(cleanup);
         },
         close() {
           runTeardown();
+
           try {
             controller.close();
           } catch {
@@ -280,12 +288,14 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
       // matters: a rejected `start` moves the stream to `errored`, and that
       // transition never invokes the underlying source's `cancel`.
       let opened: void | Promise<void>;
+
       try {
         opened = open(conn);
       } catch (err) {
         runTeardown();
         throw err;
       }
+
       // `Promise.resolve` and not `opened instanceof Promise`: `Promise<T>` is
       // a structural type and `instanceof` is a prototype-chain test, so the
       // two disagree on a promise from another realm or from a library class

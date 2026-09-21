@@ -7,6 +7,7 @@ import {
   mergeTodoSources,
   TODO_SOURCES_MAX,
   todoSourceKey,
+  todoSourcesShareIdentityOverlap,
   type TodoSource,
 } from "@alfred/contracts";
 
@@ -94,6 +95,46 @@ describe("todoSourcesOverlap (the REAL predicate suggestTodo's dedup loop runs)"
 });
 
 // ---------------------------------------------------------------------------
+// The resolved-todo re-suggest guard (ADR-0050 same-thread retraction). A
+// `done`/`dismissed` todo suppresses re-suggestion only on an IDENTITY ref, not
+// on the bare Gmail transport `thread`. One thread carries many independent
+// asks, so the retraction of an answered ask must not silence the next one for
+// the 30-day window — the false "doesn't need you" that "demote, never bury"
+// forbids. The DB transaction has no harness, so the predicate is locked here.
+// ---------------------------------------------------------------------------
+
+describe("todoSourcesShareIdentityOverlap", () => {
+  const prRef: TodoSource = { provider: "github", kind: "pull_request", id: "owner/repo#7" };
+
+  test("overlap on a stable identity ref suppresses re-suggestion", () => {
+    assert.equal(todoSourcesShareIdentityOverlap([prRef], [prRef]), true);
+  });
+
+  test("a thread-only resolved row does NOT suppress a later ask on the same thread", () => {
+    // Both rows carry only the transport thread of the same conversation.
+    assert.equal(todoSourcesShareIdentityOverlap([threadRef], [threadRef]), false);
+  });
+
+  test("incoming with only a thread ref has no identity to suppress on", () => {
+    assert.equal(todoSourcesShareIdentityOverlap([prRef], [threadRef]), false);
+  });
+
+  test("no refs on either side never suppress", () => {
+    assert.equal(todoSourcesShareIdentityOverlap([], [prRef]), false);
+    assert.equal(todoSourcesShareIdentityOverlap([prRef], []), false);
+  });
+
+  test("a shared thread beside the matching identity still suppresses", () => {
+    assert.equal(todoSourcesShareIdentityOverlap([threadRef, prRef], [prRef]), true);
+  });
+
+  test("distinct identities with a shared thread do NOT suppress", () => {
+    const other: TodoSource = { provider: "github", kind: "pull_request", id: "owner/repo#34" };
+    assert.equal(todoSourcesShareIdentityOverlap([threadRef, prRef], [threadRef, other]), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // #355 — dedup a recurring loop on its real-world entity key, not the Gmail
 // thread. `gmailTodoSources` adds a stable `loop` ref alongside the transport
 // `thread` ref; the same overlap guard above then collapses re-notifications
@@ -108,6 +149,7 @@ describe("gmailTodoSources", () => {
       subject: "Quick question about Q3 numbers",
       sender: "priya@client.com",
     });
+
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
   });
 
@@ -117,6 +159,7 @@ describe("gmailTodoSources", () => {
       subject: "Re: [OlivAIRepo/baserow-middleware] Stop dictation harvest (PR #786)",
       sender: "notifications@github.com",
     });
+
     assert.deepEqual(sources, [
       { provider: "gmail", kind: "thread", id: "thread_1" },
       { provider: "github", kind: "pull_request", id: "olivairepo/baserow-middleware#786" },
@@ -129,6 +172,7 @@ describe("gmailTodoSources", () => {
       subject: "Re: [owner/repo] Planning doc review (PR #12)",
       sender: "Priya <priya@client.com>",
     });
+
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
   });
 
@@ -138,6 +182,7 @@ describe("gmailTodoSources", () => {
       subject: "ENG-123: interview loop feedback",
       sender: "Priya <priya@client.com>",
     });
+
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
   });
 
@@ -147,6 +192,7 @@ describe("gmailTodoSources", () => {
       subject: "Netsmart: Save view issues",
       sender: "ClickUp <notifications@tasks.clickup.com>",
     });
+
     assert.deepEqual(sources.at(-1), {
       provider: "clickup",
       kind: "subject",
@@ -163,11 +209,13 @@ describe("gmailTodoSources", () => {
       subject: "Re: [owner/repo] Fix flaky test (PR #12)",
       sender: "notifications@github.com",
     });
+
     const second = gmailTodoSources({
       threadId: "thread_B",
       subject: "Re: [owner/repo] Fix flaky test (PR #12)",
       sender: "notifications@github.com",
     });
+
     assert.notEqual(first[0]?.id, second[0]?.id, "distinct transport threads");
     assert.equal(todoSourcesOverlap(first, second), true, "collapse via the loop ref");
   });
@@ -178,11 +226,13 @@ describe("gmailTodoSources", () => {
       subject: "Re: [owner/repo] Fix flaky test (PR #12)",
       sender: "notifications@github.com",
     });
+
     const b = gmailTodoSources({
       threadId: "thread_B",
       subject: "Re: [owner/repo] Add retries (PR #34)",
       sender: "notifications@github.com",
     });
+
     assert.equal(todoSourcesOverlap(a, b), false);
   });
 
@@ -192,11 +242,13 @@ describe("gmailTodoSources", () => {
       subject: 'ALARM: "Baserow response time alarm" in eu-west-1',
       sender: "no-reply@sns.amazonaws.com",
     });
+
     const second = gmailTodoSources({
       threadId: "thread_B",
       subject: 'ALARM: "Baserow response time alarm" in eu-west-1 — threshold breached',
       sender: "AWS Notifications <no-reply@sns.amazonaws.com>",
     });
+
     assert.deepEqual(first.at(-1), {
       provider: "monitoring",
       kind: "alarm",
@@ -212,6 +264,7 @@ describe("gmailTodoSources", () => {
       subject: 'ALARM: "Baserow response time alarm" in eu-west-1',
       sender: "priya@client.com",
     });
+
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
   });
 });
@@ -241,6 +294,7 @@ describe("boundTodoSources", () => {
       kind: "message",
       id: `m${i}`,
     })) satisfies TodoSource[];
+
     const bounded = boundTodoSources([...many, thread(1)], 4);
     // The public tool schema rejects this shape, but the lower-level write
     // helper still returns a sync-valid array by keeping the newest identity refs.
@@ -251,6 +305,7 @@ describe("boundTodoSources", () => {
   test("a recurring loop stays bounded across many re-notifications", () => {
     // Simulate merge accretion: one loop ref + one fresh thread per notification.
     let acc: TodoSource[] = [];
+
     for (let i = 0; i < TODO_SOURCES_MAX + 40; i++) {
       acc = boundTodoSources(
         mergeTodoSources(
@@ -263,6 +318,7 @@ describe("boundTodoSources", () => {
         ),
       );
     }
+
     assert.ok(acc.length <= TODO_SOURCES_MAX, `bounded at ${acc.length}`);
     // The stable loop ref is retained, so future re-notifications still merge.
     assert.ok(

@@ -10,10 +10,17 @@ import {
   type StreamTextResult,
   type ToolSet,
 } from "ai";
-import { identifyLanguageModel } from "../models";
-import { metered, meteredStream } from "./metered";
-import type { CallAttribution, MeteredMeta, MeteredResult } from "./types";
-import { toMessage } from "@alfred/contracts";
+import { identifyLanguageModel, isModelObject, normalizeProvider } from "../models";
+import { providerForServedModel } from "../provider-adapter";
+import type { JsonObject } from "@alfred/contracts";
+import {
+  metered,
+  meteredStream,
+  type CallAttribution,
+  type MeteredMeta,
+  type MeteredResult,
+  type MeteredStep,
+} from "./metered";
 
 /**
  * AI-SDK call wrappers — thin sugar over `metered()`. They:
@@ -39,6 +46,7 @@ interface ModelIdentifiers {
  */
 function modelIdsFor(model: LanguageModel): ModelIdentifiers {
   const { provider, modelId } = identifyLanguageModel(model);
+
   return { provider, model: modelId };
 }
 
@@ -69,24 +77,37 @@ const DEFAULT_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: DEFAULT_LLM_TIMEOUT_M
 // `metered()` only reads `usage`/`finishReason`/`toolCalls`/`steps`,
 // none of which depend on the OUTPUT generic — so we collapse to the
 // widest valid instantiation and let the call site cast through `never`.
+//
+// Multi-step pricing: `result.usage` is the SUM across steps while
+// `result.response` names the FINAL step only. Pricing the sum at the final
+// leg under-reports a turn whose early steps ran on the expensive primary
+// and only the tail degraded (Sonnet → Gemini). Each step carries its own
+// `usage` + `response.modelId`, so resolve every step's serving leg and let
+// `metered()` sum the per-step costs. Single-step turns skip this and take
+// the single-price path unchanged.
 function extractTextUsage(
   result: GenerateTextResult<ToolSet, never, never>,
   cacheWriteTtl: AttributedCall["cacheWriteTtl"],
+  model: LanguageModel,
 ): MeteredResult {
+  const steps = extractStepAttribution(model, result.steps, cacheWriteTtl);
+
   return {
     usage: usageFromSdk(result.usage, cacheWriteTtl),
     responseMeta: {
       finishReason: result.finishReason,
       toolCallCount: result.toolCalls.length,
       stepCount: result.steps?.length,
+      ...(steps ? { stepModels: steps.map((s) => `${s.provider}/${s.model}`) } : {}),
     },
+    ...(steps ? { steps } : {}),
     // Completion — only sent to Langfuse when capture is on (gated in
     // metering/langfuse.ts). Folds the turn's tool calls in alongside the text:
     // on a tool-call turn the model often emits no prose, so `.text` alone would
     // drop the one thing a trajectory replay needs — what the model decided to
     // call (see captureOutput).
     output: captureOutput({ text: result.text, toolCalls: result.toolCalls }),
-    ...servedFromResponse(result.finalStep.response),
+    ...servedFromModel(model, result.finalStep.response.modelId),
   };
 }
 
@@ -108,14 +129,17 @@ export function captureOutput(args: {
   toolCalls?: readonly { toolName: string; toolCallId: string; input: unknown }[];
 }): unknown {
   const { text, toolCalls } = args;
+
   if (toolCalls && toolCalls.length > 0) {
     const calls = toolCalls.map((c) => ({
       toolName: c.toolName,
       toolCallId: c.toolCallId,
       input: c.input,
     }));
+
     return text ? { text, toolCalls: calls } : { toolCalls: calls };
   }
+
   return text;
 }
 
@@ -127,25 +151,127 @@ export function captureOutput(args: {
  */
 function captureInput(args: { instructions?: unknown; prompt?: unknown; messages?: unknown }) {
   const { instructions, prompt, messages } = args;
+
   if (Array.isArray(messages)) {
     if (typeof instructions === "string") {
       return [{ role: "system", content: instructions }, ...messages];
     }
+
     return instructions !== undefined ? [instructions, ...messages] : messages;
   }
+
   if (prompt !== undefined) return instructions ? { instructions, prompt } : prompt;
+
   return instructions;
 }
 
 /**
- * Pull the served model id off the SDK's response metadata so `metered()`
- * can re-attribute calls a `withFallback` cascade routed to the fallback
- * provider (the pre-call meta still names the primary).
+ * The provider + model id that actually answered, so `metered()` can re-
+ * attribute a call a `withFallback` cascade routed to the fallback leg (the
+ * pre-call meta still names the primary).
+ *
+ * `servedModelId` comes from the SDK result (`result.finalStep.response.modelId`,
+ * the non-deprecated spelling of what `ai@7` still exposes flat as
+ * `result.response`) and is
+ * the ONLY source here that moves with the cascade — the composed model object
+ * cannot answer the question, and the result only answers it because each leg
+ * stamps its own id. `routeLegProviders` in `../provider-adapter` owns both
+ * halves of that rule; read it there rather than restating it here.
+ *
+ * The result carries no provider beside the id, so the route's own legs supply
+ * it. An id that belongs to no leg of this route resolves to nothing and the
+ * row keeps its pre-call attribution, rather than taking a guessed provider.
  */
-function servedFromResponse(
-  response: { modelId?: string } | undefined,
-): Pick<MeteredResult, "served"> {
-  return response?.modelId ? { served: { model: response.modelId } } : {};
+function servedFromModel(
+  model: LanguageModel,
+  servedModelId: string | undefined,
+): Pick<MeteredResult, "served" | "servedUnresolved"> {
+  const nominal = identifyLanguageModel(model);
+
+  if (servedModelId !== undefined && servedModelId !== nominal.modelId && isModelObject(model)) {
+    const provider = providerForServedModel(model, servedModelId);
+
+    if (provider !== undefined) return { served: { provider, model: servedModelId } };
+
+    // The id belongs to no leg of this route (e.g. an Anthropic dated
+    // snapshot echo). Keep the nominal attribution rather than guessing a
+    // provider, but carry the raw id so the row can mark the miss.
+    return { servedUnresolved: servedModelId };
+  }
+
+  if (nominal.provider === "unknown") return {};
+
+  return { served: { provider: nominal.provider, model: nominal.modelId } };
+}
+
+/**
+ * Per-step serving legs for a multi-step turn. Each step ran its own
+ * `doGenerate` through the `withFallback` facade, so each step may have
+ * degraded independently — the turn-level `finalStep.response.modelId` (final
+ * step only) cannot name them. Resolve every step off its own
+ * `step.response.modelId` + the route's leg table, falling back to the
+ * step's own `model` pair and then the nominal route pair.
+ *
+ * Returns `undefined` for single-step (or empty) turns so they keep the
+ * single-price path with no extra lookups and no `response_meta` change.
+ * Multi-step turns with a uniform leg still return the list: the cost sum
+ * equals the single price, and the `stepModels` audit trail stays uniform.
+ */
+function extractStepAttribution(
+  model: LanguageModel,
+  steps: readonly {
+    usage?: LanguageModelUsage | undefined;
+    response?: { modelId?: string | undefined } | undefined;
+    model?: { provider: string; modelId: string } | undefined;
+  }[],
+  cacheWriteTtl: AttributedCall["cacheWriteTtl"],
+): readonly MeteredStep[] | undefined {
+  if (steps.length <= 1) return undefined;
+  const nominal = identifyLanguageModel(model);
+
+  return steps.map((step) => {
+    const responseModelId = step.response?.modelId;
+
+    if (
+      responseModelId !== undefined &&
+      responseModelId !== nominal.modelId &&
+      isModelObject(model)
+    ) {
+      const provider = providerForServedModel(model, responseModelId);
+
+      if (provider !== undefined) {
+        return {
+          provider,
+          model: responseModelId,
+          usage: usageFromSdk(step.usage, cacheWriteTtl),
+        };
+      }
+    }
+
+    if (responseModelId !== undefined && responseModelId === nominal.modelId) {
+      return {
+        provider: nominal.provider,
+        model: nominal.modelId,
+        usage: usageFromSdk(step.usage, cacheWriteTtl),
+      };
+    }
+
+    const stepModel = step.model;
+
+    if (stepModel) {
+      return {
+        provider: normalizeProvider(stepModel.provider),
+        model: stepModel.modelId,
+        usage: usageFromSdk(step.usage, cacheWriteTtl),
+      };
+    }
+
+    return {
+      provider: nominal.provider,
+      model: nominal.modelId,
+      usage: usageFromSdk(step.usage, cacheWriteTtl),
+    };
+  });
 }
 
 function extractEmbedUsage(result: EmbedResult): MeteredResult {
@@ -160,6 +286,7 @@ export function usageFromSdk(usage: LanguageModelUsage | undefined, cacheWriteTt
   const noCacheTokens = usage.inputTokenDetails?.noCacheTokens;
   const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens;
   const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens;
+
   return {
     inputTokens: usage.inputTokens,
     noCacheInputTokens: noCacheTokens,
@@ -171,6 +298,7 @@ export function usageFromSdk(usage: LanguageModelUsage | undefined, cacheWriteTt
 }
 
 export type GenerateTextArgs = Parameters<typeof generateText>[0];
+
 type EmbedArgs = Parameters<typeof embed>[0];
 
 type ObjectSchema<O> = Parameters<typeof Output.object<O>>[0]["schema"];
@@ -185,7 +313,7 @@ export interface MeteredGenerateObjectArgs<O> extends Omit<GenerateTextArgs, "ou
 
 export interface AttributedCall extends CallAttribution {
   /** Trimmed params surfaced to `request_meta` (avoid full prompts). */
-  requestMeta?: Record<string, unknown> | undefined;
+  requestMeta?: JsonObject | undefined;
   /** Override provider/model identifiers — only useful for routed/dispatched models. */
   provider?: string | undefined;
   model?: string | undefined;
@@ -202,16 +330,16 @@ export async function meteredGenerateText(
   attribution: AttributedCall = {},
 ): Promise<GenerateTextResult<ToolSet, never, never>> {
   const ids = resolveIds(args.model, attribution);
+
   const meta: MeteredMeta = {
     ...attribution,
     kind: attribution.kind ?? "llm",
     ...ids,
-    // SAFETY: args is the full metered call arguments and captureInput reads
-    // only the prompt-bearing fields, so its parameter type is a view of these
-    // same args.
-    input: captureInput(args as Parameters<typeof captureInput>[0]),
+    input: captureInput(args),
   };
+
   const callArgs = withDefaultTimeout(args);
+
   // The SDK's natural return type is GenerateTextResult<ToolSet, Output<any,…>>
   // but the `Output` interface is not exported as a nameable type, only via a
   // namespace alias. Cast through unknown to a callable shape and pin the
@@ -220,9 +348,12 @@ export async function meteredGenerateText(
   // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
   return metered(meta, () => generateText(callArgs), ((
     result: GenerateTextResult<ToolSet, never, never>,
-  ) => extractTextUsage(result, attribution.cacheWriteTtl)) as never) as unknown as Promise<
-    GenerateTextResult<ToolSet, never, never>
-  >;
+  ) =>
+    extractTextUsage(
+      result,
+      attribution.cacheWriteTtl,
+      args.model,
+    )) as never) as unknown as Promise<GenerateTextResult<ToolSet, never, never>>;
 }
 
 /**
@@ -236,16 +367,16 @@ export async function meteredGenerateObject<O>(
 ): Promise<GenerateTextResult<ToolSet, never, ReturnType<typeof Output.object<O>>>> {
   const { schema, schemaName, schemaDescription, ...rest } = args;
   const ids = resolveIds(rest.model, attribution);
+
   const meta: MeteredMeta = {
     ...attribution,
     kind: attribution.kind ?? "llm",
     ...ids,
-    // SAFETY: rest is the metered call arguments minus the structured-output
-    // fields; captureInput reads only the prompt-bearing fields of that same
-    // object.
-    input: captureInput(rest as Parameters<typeof captureInput>[0]),
+    input: captureInput(rest),
   };
+
   type Result = GenerateTextResult<ToolSet, never, ReturnType<typeof Output.object<O>>>;
+
   // The discriminated `Prompt` union (prompt | messages) doesn't survive an
   // Omit/spread round trip — TS widens `messages` to `T[] | undefined`. Cast
   // back to the SDK's parameter type so the call type-checks; the original
@@ -260,17 +391,26 @@ export async function meteredGenerateObject<O>(
       ...(schemaDescription !== undefined ? { description: schemaDescription } : {}),
     }),
   } as unknown as Parameters<typeof generateText>[0];
+
   /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
   /* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
   return (await metered(meta, () => generateText(callArgs), ((
     result: GenerateTextResult<ToolSet, never, never>,
-  ) => extractTextUsage(result, attribution.cacheWriteTtl)) as never)) as unknown as Result;
+  ) =>
+    extractTextUsage(
+      result,
+      attribution.cacheWriteTtl,
+      rest.model,
+    )) as never)) as unknown as Result;
   /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
 }
 
 export type StreamTextArgs = Parameters<typeof streamText>[0];
+
 type StreamTextEndEvent = Parameters<NonNullable<StreamTextArgs["onEnd"]>>[0];
+
 type StreamTextErrorEvent = Parameters<NonNullable<StreamTextArgs["onError"]>>[0];
+
 type StreamTextAbortEvent = Parameters<NonNullable<StreamTextArgs["onAbort"]>>[0];
 
 /**
@@ -288,19 +428,19 @@ export function meteredStreamText(
   attribution: AttributedCall = {},
 ): StreamTextResult<ToolSet, never, never> {
   const ids = resolveIds(args.model, attribution);
+
   const meta: MeteredMeta = {
     ...attribution,
     kind: attribution.kind ?? "llm",
     ...ids,
-    // SAFETY: args is the full metered call arguments and captureInput reads
-    // only the prompt-bearing fields, so its parameter type is a view of these
-    // same args.
-    input: captureInput(args as Parameters<typeof captureInput>[0]),
+    input: captureInput(args),
   };
+
   const callerOnEnd = args.onEnd;
   const callerOnError = args.onError;
   const callerOnAbort = args.onAbort;
   const timeout = args.timeout ?? DEFAULT_STREAM_TIMEOUT;
+
   // SAFETY: streamText's own generic parameters are erased by meteredStream's
   // non-generic signature; this restores the SDK result shape the caller passed
   // in for.
@@ -309,36 +449,41 @@ export function meteredStreamText(
       ...args,
       timeout,
       onEnd: (event: StreamTextEndEvent) => {
+        const steps = extractStepAttribution(args.model, event.steps, attribution.cacheWriteTtl);
         finish({
           usage: usageFromSdk(event.usage, attribution.cacheWriteTtl),
           responseMeta: {
             finishReason: event.finishReason,
             toolCallCount: event.toolCalls.length,
             stepCount: event.steps?.length,
+            ...(steps ? { stepModels: steps.map((s) => `${s.provider}/${s.model}`) } : {}),
           },
+          ...(steps ? { steps } : {}),
           // Same fold as the non-streaming path: a streamed tool-call turn emits
           // no prose, so capture the proposed calls or the replay loses them.
           output: captureOutput({ text: event.text, toolCalls: event.toolCalls }),
-          ...servedFromResponse(event.finalStep.response),
+          ...servedFromModel(args.model, event.finalStep.response.modelId),
         });
         callerOnEnd?.(event);
       },
       onError: (event: StreamTextErrorEvent) => {
-        fail(toMessage(event.error));
+        fail(event.error);
         callerOnError?.(event);
       },
       onAbort: (event: StreamTextAbortEvent) => {
-        // No top-level `response` on an abort, so mine the served model id
-        // off the last finished step — otherwise a stop/timeout after a
-        // `withFallback` cascade gets logged as the nominal primary (#216).
-        const served = servedFromSteps(event.steps);
+        // Completed steps keep their own legs (same per-step rule as the
+        // success path), so an abort after N steps prices those steps where
+        // they ran. Only the unknowable remainder falls back to nominal.
+        const served = servedFromModel(args.model, undefined);
+        const steps = extractStepAttribution(args.model, event.steps, attribution.cacheWriteTtl);
         abort({
           usage: usageFromSteps(event.steps, attribution.cacheWriteTtl),
           responseMeta: {
             finishReason: "abort",
             stepCount: event.steps.length,
-            ...(served.served ? {} : { servedModelUnknown: true }),
+            ...(steps ? { stepModels: steps.map((s) => `${s.provider}/${s.model}`) } : {}),
           },
+          ...(steps ? { steps } : {}),
           ...served,
         });
         callerOnAbort?.(event);
@@ -348,21 +493,9 @@ export function meteredStreamText(
 }
 
 /**
- * Latest served model id across finished steps. Walks from the end so the
- * most recent step (the one the cascade landed on) wins; returns `{}` when no
- * step reported a `response.modelId`, so the caller can flag the attribution
- * as unknown rather than silently keeping the pre-call primary.
+ * Sum usage across the steps a streamed turn completed before it aborted.
+ * Returns `undefined` when no step reported usage, matching `usageFromSdk`.
  */
-function servedFromSteps(
-  steps: readonly { response?: { modelId?: string } }[],
-): Pick<MeteredResult, "served"> {
-  for (let i = steps.length - 1; i >= 0; i--) {
-    const modelId = steps[i]?.response?.modelId;
-    if (modelId) return { served: { model: modelId } };
-  }
-  return {};
-}
-
 export function usageFromSteps(
   steps: readonly { usage?: LanguageModelUsage }[],
   cacheWriteTtl?: "5m" | "1h",
@@ -376,23 +509,31 @@ export function usageFromSteps(
   let cachedInputTokens: number | undefined;
   let cacheWriteInputTokens: number | undefined;
   let sawUsage = false;
+
   for (const step of steps) {
     const usage = usageFromSdk(step.usage, cacheWriteTtl);
+
     if (!usage) continue;
     sawUsage = true;
     inputTokens += usage.inputTokens ?? 0;
+
     if (usage.noCacheInputTokens != null) {
       noCacheInputTokens = (noCacheInputTokens ?? 0) + usage.noCacheInputTokens;
     }
+
     outputTokens += usage.outputTokens ?? 0;
+
     if (usage.cachedInputTokens != null) {
       cachedInputTokens = (cachedInputTokens ?? 0) + usage.cachedInputTokens;
     }
+
     if (usage.cacheWriteInputTokens != null) {
       cacheWriteInputTokens = (cacheWriteInputTokens ?? 0) + usage.cacheWriteInputTokens;
     }
   }
+
   if (!sawUsage) return undefined;
+
   return {
     inputTokens,
     noCacheInputTokens,
@@ -416,6 +557,7 @@ export async function meteredEmbed(
   // caller signal so a stop button still works AND the timeout still fires
   // even if the caller's signal never does (#286 review).
   const timeoutSignal = AbortSignal.timeout(DEFAULT_LLM_TIMEOUT_MS);
+
   const callArgs: EmbedArgs = {
     ...args,
     abortSignal:
@@ -423,6 +565,7 @@ export async function meteredEmbed(
         ? AbortSignal.any([args.abortSignal, timeoutSignal])
         : timeoutSignal,
   };
+
   return metered(meta, () => embed(callArgs), extractEmbedUsage);
 }
 
@@ -433,6 +576,7 @@ export async function meteredEmbed(
  */
 function withDefaultTimeout(args: GenerateTextArgs): GenerateTextArgs {
   if (args.timeout !== undefined) return args;
+
   return { ...args, timeout: DEFAULT_LLM_TIMEOUT_MS };
 }
 
@@ -440,6 +584,7 @@ function resolveIds(model: unknown, attribution: AttributedCall): ModelIdentifie
   if (attribution.provider && attribution.model) {
     return { provider: attribution.provider, model: attribution.model };
   }
+
   // SAFETY: callers pass the SDK model instance from the very request being
   // metered, which is a LanguageModel; `unknown` only erases the SDK import.
   return modelIdsFor(model as LanguageModel);

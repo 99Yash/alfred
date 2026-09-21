@@ -21,7 +21,9 @@ import {
 // Asia/Kolkata agree on the calendar day, except where a case picks a
 // near-midnight time to exercise the boundary.
 const NOW = Date.UTC(2026, 5, 6, 12, 0, 0);
+
 const UTC = parseIanaTimezone("UTC");
+
 const KOLKATA = parseIanaTimezone("Asia/Kolkata");
 
 describe("buildGithubSearchQuery", () => {
@@ -136,6 +138,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
       state: "all",
       query: "is:pr author:99Yash state:closed",
     });
+
     assert.equal(sanitized.author, "99Yash");
     assert.equal(sanitized.state, "closed");
     assert.equal(sanitized.type, "pr");
@@ -148,6 +151,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
       query: "merged:>=2026-06-01 repo:99Yash/alfred",
       mergedWithinDays: 7,
     });
+
     assert.equal(sanitized.query, "repo:99Yash/alfred");
     assert.ok(stripped.some((s) => s.startsWith("merged:")));
   });
@@ -156,6 +160,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
     const { sanitized, stripped } = sanitizeGithubSearchQuery({
       query: "merged:2026-10-01..2026-10-31",
     });
+
     assert.equal(sanitized.query, "merged:2026-10-01..2026-10-31");
     assert.deepEqual(stripped, []);
   });
@@ -164,6 +169,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
     const { sanitized, stripped } = sanitizeGithubSearchQuery({
       query: "is:draft label:bug review:approved",
     });
+
     assert.equal(sanitized.query, "is:draft label:bug review:approved");
     assert.deepEqual(stripped, []);
   });
@@ -175,6 +181,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
     const { sanitized, stripped } = sanitizeGithubSearchQuery({
       query: "-author:octocat repo:99Yash/alfred",
     });
+
     assert.equal(sanitized.author, undefined);
     assert.equal(sanitized.query, "-author:octocat repo:99Yash/alfred");
     assert.deepEqual(stripped, []);
@@ -186,6 +193,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
     const { sanitized } = sanitizeGithubSearchQuery({
       query: "is:pr is:private",
     });
+
     assert.equal(sanitized.type, "pr");
     assert.equal(sanitized.query, "is:private");
   });
@@ -197,6 +205,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
     const { sanitized, stripped } = sanitizeGithubSearchQuery({
       query: "state:done repo:99Yash/alfred",
     });
+
     assert.equal(sanitized.state, undefined);
     assert.equal(sanitized.query, "state:done repo:99Yash/alfred");
     assert.deepEqual(stripped, []);
@@ -234,6 +243,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
     const { sanitized } = sanitizeGithubSearchQuery({
       query: "repo:99Yash/alfred type:issue state:open",
     });
+
     assert.equal(sanitized.type, "issue");
     assert.equal(sanitized.state, "open");
     assert.equal(sanitized.query, "repo:99Yash/alfred");
@@ -256,6 +266,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
     const { sanitized, stripped } = sanitizeGithubSearchQuery({
       query: "-type:issue repo:99Yash/alfred",
     });
+
     assert.equal(sanitized.type, undefined);
     assert.equal(sanitized.query, "-type:issue repo:99Yash/alfred");
     assert.deepEqual(stripped, []);
@@ -297,6 +308,7 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
     const issues = githubSearchQueryIssues(
       sanitizeGithubSearchQuery({ query: "state:done repo:99Yash/alfred" }).sanitized,
     );
+
     assert.equal(issues.length, 1);
     assert.match(issues[0]!, /Unrecognized GitHub state value/);
     assert.match(issues[0]!, /state:done/);
@@ -331,6 +343,7 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
     const prIssues = githubSearchQueryIssues(
       sanitizeGithubSearchQuery({ query: "-is:pr" }).sanitized,
     );
+
     assert.equal(prIssues.length, 1);
     assert.match(prIssues[0]!, /Negated type qualifier/);
     assert.match(prIssues[0]!, /-is:pr/);
@@ -339,6 +352,7 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
     const issueIssues = githubSearchQueryIssues(
       sanitizeGithubSearchQuery({ query: "-is:issue repo:99Yash/alfred" }).sanitized,
     );
+
     assert.equal(issueIssues.length, 1);
     assert.match(issueIssues[0]!, /Negated type qualifier/);
 
@@ -410,6 +424,7 @@ describe("github fetch tools accept a URL / number (param-ergonomics)", () => {
     const parsed = githubGetPullRequestInput.parse({
       url: "https://github.com/99Yash/alfred/pull/305",
     });
+
     assert.deepEqual(parsed, { owner: "99Yash", repo: "alfred", pull_number: 305 });
   });
 
@@ -417,6 +432,7 @@ describe("github fetch tools accept a URL / number (param-ergonomics)", () => {
     const parsed = githubGetIssueInput.parse({
       url: "https://github.com/99Yash/alfred/issues/218",
     });
+
     assert.deepEqual(parsed, { owner: "99Yash", repo: "alfred", issue_number: 218 });
   });
 
@@ -441,6 +457,7 @@ describe("github fetch tools accept a URL / number (param-ergonomics)", () => {
       pull_number: 1,
       url: "https://github.com/99Yash/alfred/pull/305",
     });
+
     assert.deepEqual(parsed, { owner: "octocat", repo: "hello", pull_number: 1 });
   });
 
@@ -450,6 +467,7 @@ describe("github fetch tools accept a URL / number (param-ergonomics)", () => {
     const json = z.toJSONSchema(githubGetPullRequestInput, { io: "input" }) as {
       properties?: Record<string, unknown>;
     };
+
     assert.deepEqual(Object.keys(json.properties ?? {}).sort(), ["owner", "pull_number", "repo"]);
   });
 

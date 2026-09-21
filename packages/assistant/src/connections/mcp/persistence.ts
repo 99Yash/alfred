@@ -19,11 +19,14 @@
  * one-way on purpose: nothing in this module may reach the invocation half.
  */
 
-import { db, rowsFromExecute } from "@alfred/db";
+import { BUILT_IN_MCP_CATALOG } from "@alfred/contracts";
+import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
   mcpCatalogRevisions,
   mcpConnections,
+  mcpOauthCredentials,
+  mcpApiKeyCredentials,
   mcpServers,
   type McpCatalogRevision,
   type McpConnection,
@@ -32,7 +35,7 @@ import {
   type NewMcpServer,
 } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
-import { and, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
 import { compareMcpToolNames, projectCatalogRevision } from "./hash";
 
@@ -63,6 +66,15 @@ type McpServerDefinition = Pick<McpServer, "canonicalResource" | "endpointUrl" |
 
 export type McpConnectionWithServer = McpConnection & {
   readonly server: McpServerDefinition;
+};
+
+/**
+ * A connection plus the size of the catalog revision it currently points at.
+ * `toolCount` is `null` until the first revision is published; the integrations
+ * card states the number only when it is known.
+ */
+export type McpConnectionSummary = McpConnectionWithServer & {
+  readonly toolCount: McpCatalogRevision["toolCount"] | null;
 };
 
 /**
@@ -102,6 +114,56 @@ function joinConnection(input: {
   return { ...input.connection, server: input.server };
 }
 
+/**
+ * A small, oldest-first page for the background connection recovery pass.
+ *
+ * Both `connecting` (post-consent transport stall) and `failed` (ordinary
+ * connect, call, or boot failure) rows are eligible: every failure path except
+ * the post-consent transport branch parks the row as `failed`, so selecting
+ * only `connecting` reaches almost no quiet credentialed connection.
+ * `auth_required` rows are excluded — they need the owner, not a probe.
+ */
+export async function listRecoverableCredentialedConnectionIds(
+  cutoff: Date,
+  limit: number,
+  runner: DbRunner = db(),
+): Promise<string[]> {
+  const rows = await runner
+    .select({ id: mcpConnections.id })
+    .from(mcpConnections)
+    .leftJoin(
+      mcpOauthCredentials,
+      and(
+        eq(mcpOauthCredentials.id, mcpConnections.credentialId),
+        eq(mcpOauthCredentials.connectionId, mcpConnections.id),
+        eq(mcpOauthCredentials.userId, mcpConnections.userId),
+      ),
+    )
+    .leftJoin(
+      mcpApiKeyCredentials,
+      and(
+        eq(mcpApiKeyCredentials.id, mcpConnections.apiKeyCredentialId),
+        eq(mcpApiKeyCredentials.connectionId, mcpConnections.id),
+        eq(mcpApiKeyCredentials.userId, mcpConnections.userId),
+      ),
+    )
+    .where(
+      and(
+        inArray(mcpConnections.status, ["connecting", "failed"]),
+        isNotNull(mcpConnections.lastError),
+        lt(mcpConnections.updatedAt, cutoff),
+        or(
+          and(isNotNull(mcpOauthCredentials.accessToken), isNotNull(mcpOauthCredentials.tokenType)),
+          isNotNull(mcpApiKeyCredentials.id),
+        ),
+      ),
+    )
+    .orderBy(asc(mcpConnections.updatedAt), asc(mcpConnections.id))
+    .limit(limit);
+
+  return rows.map((row) => row.id);
+}
+
 export async function readConnection(
   id: string,
   runner: DbRunner = db(),
@@ -112,6 +174,7 @@ export async function readConnection(
     .innerJoin(mcpServers, eq(mcpConnections.serverId, mcpServers.id))
     .where(eq(mcpConnections.id, id))
     .limit(1);
+
   return row ? joinConnection(row) : undefined;
 }
 
@@ -125,6 +188,7 @@ async function readServerByResource(
     .from(mcpServers)
     .where(and(eq(mcpServers.userId, userId), eq(mcpServers.canonicalResource, canonicalResource)))
     .limit(1);
+
   return row;
 }
 
@@ -137,6 +201,7 @@ async function ensureServerDefinition(
 ): Promise<McpServer> {
   const endpointUrl = input.endpoint.href;
   const endpointOrigin = input.endpoint.origin;
+
   const [insertedServer] = await runner
     .insert(mcpServers)
     .values({
@@ -149,26 +214,32 @@ async function ensureServerDefinition(
       target: [mcpServers.userId, mcpServers.canonicalResource],
     })
     .returning();
+
   const server =
     insertedServer ?? (await readServerByResource(input.userId, input.canonicalResource, runner));
+
   if (!server) {
     throw new Error(
       `ensureServerDefinition: server vanished for resource ${input.canonicalResource}`,
     );
   }
+
   if (server.endpointUrl === endpointUrl && server.endpointOrigin === endpointOrigin) {
     return server;
   }
+
   if (input.endpointAuthority !== "registry") {
     throw new Error(
       `MCP resource '${input.canonicalResource}' already uses endpoint ${server.endpointUrl}`,
     );
   }
+
   const [retargeted] = await runner
     .update(mcpServers)
     .set({ endpointUrl, endpointOrigin })
     .where(eq(mcpServers.id, server.id))
     .returning();
+
   return requireRow(retargeted, "ensureServerDefinition");
 }
 
@@ -187,6 +258,7 @@ export async function ensureConnection(
 ): Promise<McpConnectionWithServer> {
   return runAtomic(runner, async (tx) => {
     const server = await ensureServerDefinition(input, tx);
+
     const [connection] = await tx
       .insert(mcpConnections)
       .values({
@@ -201,9 +273,13 @@ export async function ensureConnection(
       })
       .onConflictDoUpdate({
         target: [mcpConnections.userId, mcpConnections.serverId, mcpConnections.instanceKey],
-        set: { updatedAt: new Date() },
+        // The label travels with the ensure. Without it a re-add that corrects a
+        // typo in the display name reports success and keeps the old name, which
+        // reads as the write having been lost.
+        set: { label: input.label, updatedAt: new Date() },
       })
       .returning();
+
     return joinConnection({
       connection: requireRow(connection, "ensureConnection"),
       server,
@@ -212,10 +288,14 @@ export async function ensureConnection(
 }
 
 /**
- * Ensure the one stable slot a closed built-in provider owns. This is the only
- * creation door the HTTP layer may open until the endpoint-authorizer slice
- * admits arbitrary URLs, so the registry — not a request — supplies the
- * endpoint, the canonical resource and the instance key.
+ * Ensure the one stable slot a closed built-in provider owns.
+ *
+ * The registry — not a request — supplies the endpoint, the canonical resource
+ * and the instance key. That is what separates this door from the generic one
+ * `addUserMcpServer` opens (#1004): a built-in's rows carry the registry's
+ * read-only catalog pin (ADR-0094) and protocol-era pin (ADR-0095), which are
+ * keyed on the endpoint the registry supplied, so the generic door refuses a
+ * built-in's URL rather than minting a lookalike row without them.
  */
 export async function ensureBuiltInConnection(
   userId: string,
@@ -223,10 +303,14 @@ export async function ensureBuiltInConnection(
   runner: DbRunner = db(),
 ): Promise<McpConnectionWithServer> {
   const builtIn = BUILT_IN_REGISTRY[provider];
+
   return ensureConnection(
     {
       userId,
-      label: builtIn.label,
+      // The tile title IS the connection label, read from the one browser-safe
+      // catalog rather than restated server-side, so a card and its row cannot
+      // name the same server differently.
+      label: BUILT_IN_MCP_CATALOG[provider].label,
       instanceKey: builtIn.instanceKey,
       canonicalResource: builtIn.canonicalResource,
       endpoint: new URL(builtIn.endpointHref),
@@ -248,21 +332,34 @@ export async function readOwnedConnection(
     .innerJoin(mcpServers, eq(mcpConnections.serverId, mcpServers.id))
     .where(and(eq(mcpConnections.id, id), eq(mcpConnections.userId, userId)))
     .limit(1);
+
   return row ? joinConnection(row) : undefined;
 }
 
 export async function listOwnedConnections(
   userId: string,
   runner: DbRunner = db(),
-): Promise<McpConnectionWithServer[]> {
+): Promise<McpConnectionSummary[]> {
   const rows = await runner
-    .select(connectionWithServerSelection)
+    .select({
+      ...connectionWithServerSelection,
+      toolCount: mcpCatalogRevisions.toolCount,
+    })
     .from(mcpConnections)
     .innerJoin(mcpServers, eq(mcpConnections.serverId, mcpServers.id))
+    // A connection is listable before its first revision exists, so this is a
+    // LEFT join and `toolCount` stays null until a publication lands.
+    .leftJoin(
+      mcpCatalogRevisions,
+      eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+    )
     .where(eq(mcpConnections.userId, userId))
     .orderBy(desc(mcpConnections.updatedAt))
     .limit(100);
-  return rows.map(joinConnection);
+
+  // `toolCount` is already `number | null` here: Drizzle nullifies a LEFT-joined
+  // column on its own, so a `?? null` would only restate the type it has.
+  return rows.map(({ toolCount, ...row }) => ({ ...joinConnection(row), toolCount }));
 }
 
 /**
@@ -346,6 +443,7 @@ function boundedLimit(value: number, maximum: number): number {
       `MCP catalog projection limit must be a non-negative integer; received ${value}`,
     );
   }
+
   return Math.min(value, maximum);
 }
 
@@ -389,6 +487,7 @@ function toCatalogSliceRow(
   if (!Array.isArray(row.summaries)) {
     throw new Error("MCP catalog summary slice is not a JSON array");
   }
+
   return { ...row, descriptorOffset, summaries: row.summaries };
 }
 
@@ -412,10 +511,12 @@ export async function readOwnedCurrentCatalogSlice(
   runner: DbRunner = db(),
 ): Promise<OwnedCurrentCatalogSliceRow | undefined> {
   const descriptorOffset = boundedLimit(input.descriptorOffset, Number.MAX_SAFE_INTEGER);
+
   const descriptorLimit = boundedLimit(
     input.descriptorLimit,
     MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
   );
+
   const [row] = await runner
     .select({
       ...ownedCurrentCatalogSelection,
@@ -430,6 +531,7 @@ export async function readOwnedCurrentCatalogSlice(
     .innerJoin(mcpCatalogRevisions, currentRevisionJoin)
     .where(ownedConnectionWhere(input.userId, input.connectionId))
     .limit(1);
+
   return row ? toCatalogSliceRow(row, descriptorOffset) : undefined;
 }
 
@@ -460,6 +562,7 @@ export async function readOwnedCurrentCatalogDescriptor(
     .innerJoin(mcpCatalogRevisions, currentRevisionJoin)
     .where(ownedConnectionWhere(input.userId, input.connectionId))
     .limit(1);
+
   return row ? { ...row, descriptor: row.descriptor ?? null } : undefined;
 }
 
@@ -481,10 +584,12 @@ export async function listOwnedCurrentCatalogSlices(
   runner: DbRunner = db(),
 ): Promise<OwnedCurrentCatalogSlicePage> {
   const catalogLimit = boundedLimit(input.catalogLimit, MCP_DISCOVERY_SCAN_BUDGET.catalogLimit);
+
   const descriptorLimit = boundedLimit(
     input.descriptorLimit,
     MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
   );
+
   const ownedCurrentCatalog = and(
     eq(mcpConnections.userId, input.userId),
     sql`${mcpConnections.currentCatalogRevisionId} is not null`,
@@ -494,6 +599,7 @@ export async function listOwnedCurrentCatalogSlices(
       ? sql`(${mcpConnections.serverId}, ${mcpConnections.instanceKey}) > (${input.after.namespace}, ${input.after.instanceKey})`
       : undefined,
   );
+
   const result = await runner.execute(sql`
     with selected_catalogs as (
       select pointer."namespace",
@@ -552,7 +658,9 @@ export async function listOwnedCurrentCatalogSlices(
       from budgeted_catalogs
      order by "ordinal"
   `);
+
   const fetched = rowsFromExecute<RawOwnedCurrentCatalogSliceRow & { ordinal: unknown }>(result);
+
   return {
     rows: fetched
       .slice(0, catalogLimit)
@@ -571,7 +679,91 @@ export async function updateConnection(
     .set(patch)
     .where(eq(mcpConnections.id, id))
     .returning();
+
   return row;
+}
+
+/**
+ * Rename one connection the caller owns. Owner scoping is inside the `WHERE`,
+ * not a read-then-write, so a foreign id cannot be renamed and `instanceKey`,
+ * the server definition, credentials, status, scopes, and the catalog pointer
+ * are untouched — only `label` is written.
+ */
+export async function renameOwnedConnection(
+  input: { connectionId: string; userId: string; label: string },
+  runner: DbRunner = db(),
+): Promise<McpConnection | undefined> {
+  const [row] = await runner
+    .update(mcpConnections)
+    .set({ label: input.label })
+    .where(and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)))
+    .returning();
+
+  return row;
+}
+
+/**
+ * A refusal injected into the removal transaction, after the owner row lock and
+ * before the delete. It runs on the transaction handle so it can read the
+ * invocation ledger in the same transaction that holds the row lock; this module
+ * deliberately never imports that ledger, so the caller supplies the gate.
+ */
+export interface McpConnectionRemovalGate {
+  /** Runs inside the removal transaction, after the owner row lock. True = refuse. */
+  blocks(tx: DbTransaction, input: { connectionId: string; userId: string }): Promise<boolean>;
+}
+
+export type McpConnectionRemovalOutcome = "removed" | "not_found" | "blocked";
+
+/**
+ * Delete one connection the caller owns, and every credential row bound to it
+ * (the credential tables cascade from `mcp_connections`).
+ *
+ * One transaction: the owner row is locked `FOR UPDATE` first, then the injected
+ * gate runs, then the row is deleted. The lock is what makes the gate race-free —
+ * a concurrent `mcp_invocation` insert takes `FOR KEY SHARE` on the same parent
+ * row, so it either commits before the lock (and the gate sees it) or blocks
+ * until after the delete (and its foreign key then fails).
+ *
+ * `gate` is required and cannot be omitted: skipping the ambiguity barrier is
+ * spelled `"none"` at the call site, so the decision is visible and reviewable
+ * rather than implied by a missing field (`retry: RetryPolicy | "none"`).
+ */
+export async function deleteOwnedConnection(
+  input: { connectionId: string; userId: string; gate: McpConnectionRemovalGate | "none" },
+  runner: DbRunner = db(),
+): Promise<McpConnectionRemovalOutcome> {
+  return runAtomic(runner, async (tx) => {
+    const [locked] = await tx
+      .select({ id: mcpConnections.id })
+      .from(mcpConnections)
+      .where(
+        and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)),
+      )
+      .for("update")
+      .limit(1);
+
+    if (!locked) return "not_found";
+
+    if (
+      input.gate !== "none" &&
+      (await input.gate.blocks(tx, {
+        connectionId: input.connectionId,
+        userId: input.userId,
+      }))
+    ) {
+      return "blocked";
+    }
+
+    const deleted = await tx
+      .delete(mcpConnections)
+      .where(
+        and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)),
+      )
+      .returning({ id: mcpConnections.id });
+
+    return deleted.length > 0 ? "removed" : "not_found";
+  });
 }
 
 export interface CompareAndSetCatalogRevisionInput {
@@ -593,6 +785,7 @@ export async function compareAndSetCatalogRevision(
   const expectedPointer = input.expectedCurrentRevisionId
     ? eq(mcpConnections.currentCatalogRevisionId, input.expectedCurrentRevisionId)
     : isNull(mcpConnections.currentCatalogRevisionId);
+
   const [row] = await runner
     .update(mcpConnections)
     .set({
@@ -601,6 +794,7 @@ export async function compareAndSetCatalogRevision(
     })
     .where(and(eq(mcpConnections.id, input.connectionId), expectedPointer))
     .returning();
+
   return row;
 }
 
@@ -617,6 +811,7 @@ export async function readRevisionById(
     .from(mcpCatalogRevisions)
     .where(eq(mcpCatalogRevisions.id, id))
     .limit(1);
+
   return row;
 }
 
@@ -635,6 +830,7 @@ export async function readRevisionByHash(
       ),
     )
     .limit(1);
+
   return row;
 }
 
@@ -644,7 +840,9 @@ export async function readCurrentRevision(
   runner: DbRunner = db(),
 ): Promise<McpCatalogRevision | undefined> {
   const connection = await readConnection(connectionId, runner);
+
   if (!connection?.currentCatalogRevisionId) return undefined;
+
   return readRevisionById(connection.currentCatalogRevisionId, runner);
 }
 
@@ -683,6 +881,7 @@ function assertCanonicalCatalogPublication(descriptors: readonly Tool[]): void {
   for (let index = 1; index < descriptors.length; index += 1) {
     const previous = descriptors[index - 1];
     const current = descriptors[index];
+
     if (
       previous === undefined ||
       current === undefined ||
@@ -720,8 +919,10 @@ export async function publishCatalogRevision(
       .update(mcpConnections)
       .set({ currentCatalogRevisionId: revision.id })
       .where(eq(mcpConnections.id, input.connectionId));
+
     return revision;
   };
+
   // Atomic either way: a root client opens a transaction, and a caller's open
   // transaction gets a SAVEPOINT nested inside it, so a failure here rolls back
   // both writes and leaves the caller's transaction usable (see `runAtomic`).
@@ -738,6 +939,7 @@ export async function insertCatalogRevision(
   runner: DbRunner = db(),
 ): Promise<McpCatalogRevision> {
   const run = (tx: DbRunner) => insertCatalogRevisionInTx(input, tx);
+
   return runAtomic(runner, run);
 }
 
@@ -747,6 +949,7 @@ async function insertCatalogRevisionInTx(
 ): Promise<McpCatalogRevision> {
   assertCanonicalCatalogPublication(input.descriptors);
   const projection = projectCatalogRevision(input.descriptors);
+
   const [inserted] = await tx
     .insert(mcpCatalogRevisions)
     .values({
@@ -764,6 +967,7 @@ async function insertCatalogRevisionInTx(
 
   const revision =
     inserted ?? (await readRevisionByHash(input.connectionId, input.revisionHash, tx));
+
   if (!revision) {
     // Unreachable: the row was either just inserted or already present.
     throw new Error(

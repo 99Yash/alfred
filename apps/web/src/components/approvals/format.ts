@@ -4,7 +4,7 @@
  * scope and these stay trivially testable.
  */
 
-import { humanizeSlug } from "@alfred/contracts";
+import { eventTriggerPhrase, humanizeSlug, toStringArray } from "@alfred/contracts";
 
 export type JsonParseResult = { ok: true; value: unknown } | { ok: false; message: string };
 
@@ -17,6 +17,7 @@ export function triggerLabel(trigger: {
   kind: string;
   source?: string | null | undefined;
   type?: string | null | undefined;
+  rawKind?: string | null | undefined;
 }): string {
   switch (trigger.kind) {
     case "manual":
@@ -26,10 +27,18 @@ export function triggerLabel(trigger: {
     case "on_signal":
       return "Signal";
     case "event": {
-      const source = trigger.source ? humanizeSlug(trigger.source) : "an event";
-      const noun = trigger.type ? humanizeSlug(trigger.type.replace(/_received$/, "")) : "";
-      return noun ? `Triggered by ${source} ${noun.toLowerCase()}` : `Triggered by ${source}`;
+      // Historical runs written before ADR-0047 carry no source.
+      const phrase = trigger.source
+        ? eventTriggerPhrase({
+            source: trigger.source,
+            type: trigger.type,
+            rawKind: trigger.rawKind,
+          })
+        : "an event";
+
+      return `Triggered by ${phrase}`;
     }
+
     default:
       return humanizeSlug(trigger.kind);
   }
@@ -49,14 +58,14 @@ export function formatJson(value: unknown): string {
 
 export function stringValue(value: unknown): string {
   if (typeof value === "string") return value;
+
   if (typeof value === "number" || typeof value === "boolean") return String(value);
+
   return "";
 }
 
 export function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
+  return toStringArray(value);
 }
 
 export function shortId(value: string): string {
@@ -65,15 +74,19 @@ export function shortId(value: string): string {
 
 export function formatTimestamp(iso: string): string {
   const d = new Date(iso);
+
   if (Number.isNaN(d.getTime())) return iso;
   const now = new Date();
+
   const sameDay =
     d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
+
   if (sameDay) {
     return `today at ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
   }
+
   return d.toLocaleString(undefined, {
     month: "short",
     day: "numeric",

@@ -7,8 +7,12 @@ import {
   type ToolRiskTier,
   type ToolAvailabilityResult,
   type ToolUnavailabilityCode,
+  type ExternalToolRef,
+  type McpToolDiscoveryHit,
 } from "@alfred/contracts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
+import { searchMcpToolsLocal } from "@alfred/assistant/connections/mcp";
+import { resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
 import {
   evaluateToolAvailability,
   evaluateToolCatalog,
@@ -32,9 +36,30 @@ interface ToolCandidateBase {
  * candidate can't carry a stray `unavailableReason`, and an "unavailable" one
  * can't omit it. Whether the tool can run is read off the `availability` tag,
  * not a separate boolean.
+ *
+ * The `ref` is a second discriminant: only `mcp.call` — the one tool whose
+ * args carry a connected-catalog reference — may carry it. A curated hit for
+ * any other name with a `ref` (e.g. `{ name: "gmail.search", ref: {...} }`)
+ * is unrepresentable, so a stray ref can't route a registered tool at a
+ * remote descriptor. `mcp.call` itself leaves `ref` optional: the curated
+ * `mcp.call` entry has none, while a connected-catalog hit carries the exact
+ * ref whose fields (`connectionId`, `remoteName`, `catalogRevision`) flatten
+ * into the `mcp.call` args.
  */
-export type ToolSearchCandidate = ToolCandidateBase &
-  ({ availability: "available" } | { availability: "unavailable"; unavailableReason: string });
+type AvailabilityTag =
+  | { availability: "available" }
+  | { availability: "unavailable"; unavailableReason: string };
+
+export type ToolSearchCandidate =
+  | (ToolCandidateBase & {
+      name: Exclude<ToolName, "mcp.call">;
+      ref?: never;
+    } & AvailabilityTag)
+  | (ToolCandidateBase & {
+      name: "mcp.call";
+      /** Present only for a connected catalog hit; pass this ref's fields to mcp.call. */
+      ref?: ExternalToolRef;
+    } & AvailabilityTag);
 
 type RankedCandidate = ToolSearchCandidate & {
   score: number;
@@ -84,13 +109,103 @@ export async function searchAvailableTools(args: {
   const tools = listRegisteredTools();
   const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
   const availability = evaluateToolCatalog(snapshot, tools, args.allowedIntegrations, args.context);
-  return searchToolCatalog({
+
+  const curated = rankToolCatalog({
     query: args.query,
-    limit: args.limit,
     tools,
     includeUnavailable: true,
     access: { allowedIntegrations: args.allowedIntegrations, availability },
   });
+
+  const mcpAvailable = availability.get("mcp.call")?.available === true;
+  const remote: RankedCandidate[] = [];
+
+  if (mcpAvailable) {
+    // The local catalog read is bounded and only returns current owned revisions.
+    // A full query string rarely occurs verbatim in a descriptor, so scan compact
+    // pages and rank individual fields against the same query tokens as curated tools.
+    let cursor: string | null = null;
+
+    for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
+      const page = await searchMcpToolsLocal({
+        userId: args.userId,
+        detail: "summary",
+        limit: 10,
+        ...(cursor ? { cursor } : {}),
+      });
+
+      for (const hit of page.tools) {
+        const score = scoreMcpHit(hit, args.query);
+
+        if (score <= 0) continue;
+
+        remote.push({
+          name: "mcp.call",
+          title: hit.title ?? hit.ref.remoteName,
+          summary: hit.description ?? "Connected MCP tool",
+          risk: "high",
+          reason: `connected MCP catalog: ${hit.namespace}`,
+          ref: hit.ref,
+          availability: "available",
+          score,
+          preloadEligible: false,
+        });
+      }
+
+      cursor = page.nextCursor;
+
+      if (!cursor) break;
+    }
+  }
+
+  const ranked = [...curated, ...remote].sort(
+    (a, b) =>
+      rankAvailability(b) - rankAvailability(a) ||
+      b.score - a.score ||
+      (a.ref ? 1 : 0) - (b.ref ? 1 : 0) ||
+      a.title.localeCompare(b.title),
+  );
+
+  const selected = ranked.slice(0, boundedLimit(args.limit, 5));
+
+  return Promise.all(
+    selected.map(async ({ score: _score, preloadEligible: _preloadEligible, ...candidate }) => {
+      if (!candidate.ref) return candidate;
+
+      const risk = await resolveMcpCallRiskTier({
+        userId: args.userId,
+        connectionId: candidate.ref.connectionId,
+        remoteName: candidate.ref.remoteName,
+        catalogRevision: candidate.ref.catalogRevision,
+      });
+
+      return { ...candidate, risk };
+    }),
+  );
+}
+
+function scoreMcpHit(hit: McpToolDiscoveryHit, query: string): number {
+  const tokens = meaningfulTokens(normalize(query));
+
+  const name = meaningfulTokens(
+    normalize(hit.ref.remoteName.replaceAll("-", " ").replaceAll("_", " ")),
+  );
+
+  const title = meaningfulTokens(normalize(hit.title ?? ""));
+  const description = meaningfulTokens(normalize(hit.description ?? ""));
+  let score = 0;
+
+  for (const token of tokens) {
+    if (name.has(token)) score += 55;
+    else if (title.has(token)) score += 30;
+    else if (description.has(token)) score += 4;
+  }
+
+  if (tokens.has(normalize(hit.namespace)) || tokens.has(normalize(hit.connection.label))) {
+    score += 10;
+  }
+
+  return score;
 }
 
 /** Deterministic first-turn selection. Full schemas are returned only by name. */
@@ -106,6 +221,7 @@ export async function preloadToolsForPrompt(args: {
   const tools = listRegisteredTools();
   const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
   const availability = evaluateToolCatalog(snapshot, tools, args.allowedIntegrations, args.context);
+
   return preloadToolCatalog({
     prompt: args.prompt,
     limit: args.limit,
@@ -123,6 +239,7 @@ export function preloadToolCatalog(args: {
   access: ToolCatalogAccess;
 }): ToolName[] {
   const active = new Set(args.activeTools);
+
   return rankToolCatalog({
     query: args.prompt,
     limit: args.limit ?? 4,
@@ -143,9 +260,12 @@ export function latestUserPrompt(
 ): string {
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     const message = transcript[index];
+
     if (message?.role !== "user") continue;
+
     return textFromContent(message.content).slice(0, 8_000);
   }
+
   return "";
 }
 
@@ -162,10 +282,13 @@ export async function resolveExactToolLoad(args: {
   if (!isToolName(args.name)) {
     return { ok: false, status: "unknown_tool", reason: `Tool '${args.name}' is not registered.` };
   }
+
   const tool = getTool(args.name);
+
   if (!tool) {
     return { ok: false, status: "unknown_tool", reason: `Tool '${args.name}' is not registered.` };
   }
+
   // Route the load decision through the same evaluator that ranks the catalog,
   // so the specific reason `system.search_tools` surfaced ("Notion is not
   // connected.") is exactly what the model receives when it acts on that name —
@@ -173,15 +296,18 @@ export async function resolveExactToolLoad(args: {
   // fix. The allowlist is one of those reasons (`not_allowed`), so the inline
   // scope check disappears with it.
   const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
+
   const result = evaluateToolAvailability(
     snapshot,
     tool,
     new Set(args.allowedIntegrations),
     args.context,
   );
+
   if (!result.available) {
     return { ok: false, status: result.code, reason: result.reason };
   }
+
   return { ok: true, name: args.name };
 }
 
@@ -196,6 +322,7 @@ const UNAVAILABLE_MIN_SCORE = 30;
 
 function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
   const query = normalize(args.query);
+
   if (!query) return [];
   const queryTokens = meaningfulTokens(query);
   // Singularize once so phrase matching is number-insensitive: a plural prompt
@@ -208,6 +335,7 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
 
   for (const tool of args.tools ?? listRegisteredTools()) {
     const result = args.access.availability.get(tool.name);
+
     // The workflow integration allowlist is a hard scope, not a fixable gap:
     // tools outside it are never surfaced, available or not. It reads from the
     // same evaluated result as every other reason (`not_allowed`) rather than a
@@ -219,10 +347,13 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
     // diverge. Only a genuine unavailable result carries a reason; a tool absent
     // from the map has none and stays hidden.
     const unavailableReason = !available && result && !result.available ? result.reason : undefined;
+
     if (!available && (!args.includeUnavailable || !unavailableReason)) continue;
 
     const match = scoreTool(tool, query, matchText, queryTokens, queryHasReadIntent);
+
     if (match.score <= 0) continue;
+
     if (!available && match.score < UNAVAILABLE_MIN_SCORE) continue;
 
     const scored = {
@@ -234,13 +365,27 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
       score: match.score,
       preloadEligible: match.preloadEligible,
     };
-    // The discriminant flows from `unavailableReason`: it is set iff the tool is
-    // unavailable (guarded above), so "available" candidates never carry it.
-    ranked.push(
-      unavailableReason
-        ? { ...scored, availability: "unavailable", unavailableReason }
-        : { ...scored, availability: "available" },
-    );
+
+    // The `ref` discriminant flows from the tool name: only `mcp.call` may
+    // carry one, and the curated catalog entry never does. Branch here so a
+    // curated hit for any other name can't acquire a stray `ref`, and the
+    // `ref?: never` arm stays unrepresentable rather than merely unset.
+    // The availability discriminant flows from `unavailableReason`: it is set
+    // iff the tool is unavailable (guarded above), so "available" candidates
+    // never carry it.
+    if (tool.name === "mcp.call") {
+      ranked.push(
+        unavailableReason
+          ? { ...scored, name: tool.name, availability: "unavailable", unavailableReason }
+          : { ...scored, name: tool.name, availability: "available" },
+      );
+    } else {
+      ranked.push(
+        unavailableReason
+          ? { ...scored, name: tool.name, availability: "unavailable", unavailableReason }
+          : { ...scored, name: tool.name, availability: "available" },
+      );
+    }
   }
 
   // Runnable tools first, then by match strength — an unavailable exact match
@@ -276,9 +421,11 @@ function scoreTool(
   queryHasReadIntent: boolean,
 ): ToolScore {
   const name = normalize(tool.name);
+
   if (query === name) return { score: 1_000, reason: "exact tool name", preloadEligible: true };
 
   const aliases = tool.discovery.aliases ?? [];
+
   for (const alias of aliases) {
     if (query === normalize(alias))
       return { score: 900, reason: `exact alias: ${alias}`, preloadEligible: true };
@@ -289,6 +436,7 @@ function scoreTool(
   let matchedAlias = false;
   let matchedEntity = false;
   let matchedVerb = false;
+
   for (const alias of aliases) {
     if (containsPhrase(matchText, alias)) {
       score += 120;
@@ -296,6 +444,7 @@ function scoreTool(
       matchedAlias = true;
     }
   }
+
   score += scorePhrases(tool.discovery.tags, matchText, 35, "tag", (value) => (reason = value));
   score += scorePhrases(tool.discovery.entities, matchText, 35, "entity", (value) => {
     reason = value;
@@ -307,13 +456,17 @@ function scoreTool(
   });
 
   const nameTokens = meaningfulTokens(name);
+
   for (const token of nameTokens) if (queryTokens.has(token)) score += 20;
+
   for (const token of meaningfulTokens(normalize(tool.discovery.title))) {
     if (queryTokens.has(token)) score += 8;
   }
+
   for (const token of meaningfulTokens(normalize(tool.discovery.summary))) {
     if (queryTokens.has(token)) score += 2;
   }
+
   // Search may rank broad noun/tag matches, but preloading a full schema requires
   // intent evidence, not just a noun in the prompt. A known phrase (alias) is
   // intent on its own. Otherwise a matched entity must be paired with a verb: a
@@ -323,10 +476,12 @@ function scoreTool(
   // state-changing tool (`medium`/`high`) still requires a catalog verb, so a
   // bare read-flavored request can never force-load a write sibling.
   const readOnly = !isWriteRiskTier(tool.riskTier);
+
   const preloadEligible =
     matchedAlias ||
     (matchedEntity && matchedVerb) ||
     (matchedEntity && readOnly && queryHasReadIntent);
+
   return { score, reason, preloadEligible };
 }
 
@@ -338,11 +493,13 @@ function scorePhrases(
   setReason: (reason: string) => void,
 ): number {
   let score = 0;
+
   for (const value of values ?? []) {
     if (!containsPhrase(matchText, value)) continue;
     score += points;
     setReason(`${kind} match: ${value}`);
   }
+
   return score;
 }
 
@@ -355,6 +512,7 @@ function scorePhrases(
  */
 function containsPhrase(haystack: string, needle: string): boolean {
   const normalized = singularizePhrase(normalize(needle));
+
   return normalized.length > 0 && ` ${haystack} `.includes(` ${normalized} `);
 }
 
@@ -399,6 +557,7 @@ const READ_INTENT_VERBS = new Set([
 
 function hasReadIntent(queryTokens: ReadonlySet<string>): boolean {
   for (const token of queryTokens) if (READ_INTENT_VERBS.has(token)) return true;
+
   return false;
 }
 
@@ -417,12 +576,16 @@ function meaningfulTokens(value: string): Set<string> {
 
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
+
   if (!Array.isArray(content)) return "";
+
   return content
     .flatMap((part) => {
       if (typeof part === "string") return [part];
+
       if (!part || typeof part !== "object") return [];
       const text = Reflect.get(part, "text");
+
       return typeof text === "string" ? [text] : [];
     })
     .join(" ");

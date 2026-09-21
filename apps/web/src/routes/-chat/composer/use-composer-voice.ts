@@ -37,6 +37,7 @@ interface ComposerVoice {
 
 export function useComposerVoice(editorRef: RefObject<TiptapComposerHandle | null>): ComposerVoice {
   const mic = useMicRecording();
+
   const [voice, dispatchVoice] = useReducer(voiceReducer, {
     transcribing: false,
     error: null,
@@ -50,17 +51,24 @@ export function useComposerVoice(editorRef: RefObject<TiptapComposerHandle | nul
   const onVoiceConfirm = useCallback(async () => {
     dispatchVoice({ type: "clear_error" });
     const blob = await mic.finish();
+
     if (!blob) {
       dispatchVoice({ type: "transcribe_error", error: "We didn't catch that. Try again." });
+
       return;
     }
+
     dispatchVoice({ type: "transcribe_start" });
+
     try {
       const transcript = (await transcribeRecording(blob)).trim();
+
       if (transcript.length === 0) {
         dispatchVoice({ type: "transcribe_error", error: "We didn't catch that. Try again." });
+
         return;
       }
+
       editorRef.current?.insertText(transcript);
       dispatchVoice({ type: "transcribe_success" });
     } catch (err) {

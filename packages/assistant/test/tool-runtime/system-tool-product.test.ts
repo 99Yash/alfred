@@ -6,15 +6,19 @@ import {
   forgetInstruction,
   listInstructions,
   readUserContext,
+  registerSystemToolInstructionAdapter,
   registerSystemToolKnowledgeAdapter,
   registerSystemToolTaskAdapter,
+  registerSystemToolWebSearchAdapter,
   rememberSenderSuppressionAndDismissTodos,
   resolveTodo,
   suggestTodo,
   webSearch,
+  type SystemToolInstructionAdapter,
   type SystemToolKnowledgeAdapter,
   type SystemToolRequest,
   type SystemToolTaskAdapter,
+  type SystemToolWebSearchAdapter,
 } from "@alfred/assistant/tool-runtime";
 
 const context = {
@@ -54,26 +58,40 @@ const requests = {
 };
 
 let unregisterKnowledge: (() => void) | undefined;
+
+let unregisterInstructions: (() => void) | undefined;
+
+let unregisterWebSearch: (() => void) | undefined;
+
 let unregisterTasks: (() => void) | undefined;
 
 afterEach(() => {
   unregisterTasks?.();
   unregisterTasks = undefined;
+  unregisterWebSearch?.();
+  unregisterWebSearch = undefined;
+  unregisterInstructions?.();
+  unregisterInstructions = undefined;
   unregisterKnowledge?.();
   unregisterKnowledge = undefined;
 });
 
 describe("system-tool product seams without registered adapters", () => {
   test("each operation fails with its boot-order error", () => {
-    const knowledgeMessage = "No system-tool knowledge adapter is registered";
-    assert.throws(() => readUserContext(requests.read), { message: knowledgeMessage });
-    assert.throws(() => rememberSenderSuppressionAndDismissTodos(requests.remember), {
-      message: knowledgeMessage,
+    assert.throws(() => readUserContext(requests.read), {
+      message: "No system-tool knowledge adapter is registered",
     });
-    assert.throws(() => listInstructions(requests.list), { message: knowledgeMessage });
-    assert.throws(() => forgetInstruction(requests.forget), { message: knowledgeMessage });
-    assert.throws(() => editInstruction(requests.edit), { message: knowledgeMessage });
-    assert.throws(() => webSearch(requests.search), { message: knowledgeMessage });
+
+    const instructionMessage = "No system-tool instruction adapter is registered";
+    assert.throws(() => rememberSenderSuppressionAndDismissTodos(requests.remember), {
+      message: instructionMessage,
+    });
+    assert.throws(() => listInstructions(requests.list), { message: instructionMessage });
+    assert.throws(() => forgetInstruction(requests.forget), { message: instructionMessage });
+    assert.throws(() => editInstruction(requests.edit), { message: instructionMessage });
+    assert.throws(() => webSearch(requests.search), {
+      message: "No system-tool web search adapter is registered",
+    });
 
     const taskMessage = "No system-tool task adapter is registered";
     assert.throws(() => resolveTodo(requests.resolve), { message: taskMessage });
@@ -84,53 +102,100 @@ describe("system-tool product seams without registered adapters", () => {
 describe("system-tool product seams with registered adapters", () => {
   test("forward exact request and result objects", async () => {
     const calls: Array<{ name: string; args: unknown }> = [];
+
     const results = {
-      read: { value: "read" },
-      remember: { value: "remember" },
-      list: { value: "list" },
-      forget: { value: "forget" },
-      edit: { value: "edit" },
-      search: { value: "search" },
-      resolve: { value: "resolve" },
-      suggest: { value: "suggest" },
+      read: {
+        profile: null,
+        activeIntegrations: [],
+        confirmedFacts: [],
+        preferences: [],
+        entities: [],
+        relations: [],
+        recentMemory: [],
+      } as const,
+      remember: {
+        ok: false,
+        status: "needs_clarification",
+        reason: "invalid_sender_email",
+        message: "not an email address",
+      } as const,
+      list: { instructions: [], totalActive: 0, truncated: false, limit: 50 } as const,
+      forget: { ok: false, status: "not_found" } as const,
+      edit: { ok: false, status: "not_found" } as const,
+      search: {
+        ok: true,
+        query: "current weather",
+        answer: "sunny",
+        citations: [],
+        results: [],
+        searchQueries: ["current weather"],
+      } as const,
+      resolve: {
+        ok: true,
+        status: "dismissed",
+        dismissedCount: 1,
+        todoIds: ["todo_1"],
+        matchedThreadIds: [],
+        auditReason: null,
+      } as const,
+      suggest: { ok: true, status: "created", todoId: "todo_1" } as const,
     };
+
     const knowledge: SystemToolKnowledgeAdapter = {
       readUserContext: (args) => {
         calls.push({ name: "read", args });
+
         return Promise.resolve(results.read);
       },
+    };
+
+    const instructions: SystemToolInstructionAdapter = {
       rememberSenderSuppressionAndDismissTodos: (args) => {
         calls.push({ name: "remember", args });
+
         return Promise.resolve(results.remember);
       },
       listInstructions: (args) => {
         calls.push({ name: "list", args });
+
         return Promise.resolve(results.list);
       },
       forgetInstruction: (args) => {
         calls.push({ name: "forget", args });
+
         return Promise.resolve(results.forget);
       },
       editInstruction: (args) => {
         calls.push({ name: "edit", args });
+
         return Promise.resolve(results.edit);
       },
+    };
+
+    const search: SystemToolWebSearchAdapter = {
       webSearch: (args) => {
         calls.push({ name: "search", args });
+
         return Promise.resolve(results.search);
       },
     };
+
     const tasks: SystemToolTaskAdapter = {
       resolveTodo: (args) => {
         calls.push({ name: "resolve", args });
+
         return Promise.resolve(results.resolve);
       },
       suggestTodo: (args) => {
         calls.push({ name: "suggest", args });
+
         return Promise.resolve(results.suggest);
       },
     };
+
     unregisterKnowledge = registerSystemToolKnowledgeAdapter(knowledge);
+    unregisterInstructions = registerSystemToolInstructionAdapter(instructions);
+    unregisterWebSearch = registerSystemToolWebSearchAdapter(search);
     unregisterTasks = registerSystemToolTaskAdapter(tasks);
 
     assert.equal(await readUserContext(requests.read), results.read);

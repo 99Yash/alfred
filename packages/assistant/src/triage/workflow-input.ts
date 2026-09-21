@@ -9,10 +9,19 @@ import { z } from "zod";
 
 export const TRIAGE_WORKFLOW_SLUG = "email-triage";
 
+/**
+ * Why this run was started. Owned here because the enqueue input carries it
+ * and the run state carries it forward unchanged — `workflow-operations.ts`
+ * reads this schema rather than restating the four names.
+ */
+export const triageRunReasonSchema = z.enum(["ingest", "webhook", "manual", "reply"]);
+
+export type TriageRunReason = z.infer<typeof triageRunReasonSchema>;
+
 export const triageWorkflowInputSchema = z.object({
   documentId: z.string().min(1),
   /** Optional reason metadata — `ingest`, `webhook`, `manual`, `reply`. */
-  reason: z.enum(["ingest", "webhook", "manual", "reply"]).optional(),
+  reason: triageRunReasonSchema.optional(),
   /**
    * Backfill escape hatch: bypass the already-tagged skip guard so a thread
    * still sitting on the message it was last classified from RE-classifies
@@ -21,4 +30,5 @@ export const triageWorkflowInputSchema = z.object({
    */
   force: z.boolean().optional(),
 });
+
 export type TriageWorkflowInput = z.infer<typeof triageWorkflowInputSchema>;

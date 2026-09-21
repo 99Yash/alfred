@@ -24,6 +24,11 @@ import type { BetterAuthOptions } from "better-auth";
  * The `rateLimit` database table is not used and not migrated. `customStorage`
  * wins over `storage` in Better Auth's own resolver, so the table-backed
  * backend is never reached.
+ *
+ * The store is atomic and nothing else. Better Auth 1.7 removed the separate
+ * `get`/`set` storage shape, because a read followed by a write cannot hold a
+ * distributed limit: N concurrent requests all pass one stale read before any
+ * increment lands. `consume` below is the whole interface.
  */
 
 /**
@@ -33,6 +38,7 @@ import type { BetterAuthOptions } from "better-auth";
  * an explicit value is also what stops a library default from moving under us.
  */
 const AUTH_RATE_LIMIT_MAX = 100;
+
 const AUTH_RATE_LIMIT_WINDOW_SECONDS = 10;
 
 /**
@@ -64,9 +70,8 @@ const TRUSTED_PROXY_RANGES = [
 ] as const;
 
 type RateLimitOptions = NonNullable<BetterAuthOptions["rateLimit"]>;
+
 type RateLimitStorage = NonNullable<RateLimitOptions["customStorage"]>;
-/** Better Auth's own row shape, derived rather than restated. */
-type RateLimitRow = Parameters<RateLimitStorage["set"]>[1];
 
 /**
  * The only Redis verbs this module issues, named as a port rather than as
@@ -75,15 +80,13 @@ type RateLimitRow = Parameters<RateLimitStorage["set"]>[1];
  * type without a cast. `getRateLimitRedis` below is what checks a real
  * connection still fits.
  *
- * Drift guard: an ioredis upgrade that changes `eval` or `get` or `set`
- * signatures breaks the assignment at `getRateLimitRedis` — the only call
- * site — because `BoundedRedis` no longer satisfies this port. The break
- * surfaces at `check-types` time, not in production.
+ * Drift guard: an ioredis upgrade that changes the `eval` signature breaks the
+ * assignment at `getRateLimitRedis` — the only call site — because
+ * `BoundedRedis` no longer satisfies this port. The break surfaces at
+ * `check-types` time, not in production.
  */
 type RateLimitRedis = {
   eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
-  get(key: string): Promise<string | null>;
-  set(key: string, value: string, mode: "EX", ttlSeconds: number): Promise<unknown>;
 };
 
 let rateLimitRedis: RateLimitRedis | undefined;
@@ -94,6 +97,7 @@ function getRateLimitRedis(): RateLimitRedis {
   // construction even against a healthy Redis — see the decision test in
   // `packages/db/src/redis.ts`.
   rateLimitRedis ??= createRedisConnection("command");
+
   return rateLimitRedis;
 }
 
@@ -107,6 +111,7 @@ function getRateLimitRedis(): RateLimitRedis {
 function bucketFor(key: string, windowSeconds: number, nowMs: number) {
   const windowMs = windowSeconds * 1000;
   const index = Math.floor(nowMs / windowMs);
+
   return { key: `rate:auth:${key}:${index}`, endsAtMs: (index + 1) * windowMs };
 }
 
@@ -130,6 +135,7 @@ function createFallbackStore() {
     // map is capped as well. Iteration order is insertion order, so this drops
     // the oldest buckets first.
     let overflow = entries.size - MAX_FALLBACK_ENTRIES;
+
     for (const key of entries.keys()) {
       if (overflow <= 0) break;
       entries.delete(key);
@@ -143,15 +149,8 @@ function createFallbackStore() {
       const current = entries.get(key);
       const count = (current?.count ?? 0) + 1;
       entries.set(key, { count, expiresAtMs });
+
       return count;
-    },
-    read(key: string, nowMs: number): number | null {
-      prune(nowMs);
-      return entries.get(key)?.count ?? null;
-    },
-    write(key: string, count: number, expiresAtMs: number, nowMs: number): void {
-      prune(nowMs);
-      entries.set(key, { count, expiresAtMs });
     },
   };
 }
@@ -177,15 +176,12 @@ export function createAuthRateLimitStorage(
   }
 
   return {
-    /**
-     * One request counted, and the answer, in a single step. Better Auth calls
-     * this and nothing else while it exists; `get`/`set` below are its legacy
-     * non-atomic path, which it takes only for a store without a `consume`.
-     */
+    /** One request counted, and the answer, in a single step. */
     consume: async (key, rule) => {
       const nowMs = Date.now();
       const bucket = bucketFor(key, rule.window, nowMs);
       let count: number;
+
       try {
         // SAFETY: RateLimitRedis carries eval (the drift-guard comment in
         // @alfred/db/redis pins it); EvalRedis names that single-command
@@ -195,48 +191,11 @@ export function createAuthRateLimitStorage(
         degrade(err);
         count = fallback.increment(bucket.key, bucket.endsAtMs, nowMs);
       }
+
       if (count <= rule.max) return { allowed: true, retryAfter: null };
       const retryAfter = Math.max(1, Math.ceil((bucket.endsAtMs - nowMs) / 1000));
+
       return { allowed: false, retryAfter };
-    },
-
-    /**
-     * Legacy non-atomic path. Better Auth takes this only for a store without
-     * `consume`; it never fires while `consume` is present. `get` and `set`
-     * receive no `rule`, so the window must be a module constant. That is safe
-     * today because `consume` short-circuits the legacy path, but would become
-     * a latent bug if Better Auth started calling `get`/`set` with custom-rule
-     * windows.
-     */
-    get: async (key): Promise<RateLimitRow | null> => {
-      const nowMs = Date.now();
-      const bucket = bucketFor(key, AUTH_RATE_LIMIT_WINDOW_SECONDS, nowMs);
-      // The stored value is a bare counter, so `lastRequest` is the start of the
-      // window it belongs to. Better Auth's caller only asks whether that start
-      // is still inside the window, which is true for exactly this window.
-      const lastRequest = bucket.endsAtMs - AUTH_RATE_LIMIT_WINDOW_SECONDS * 1000;
-      let raw: string | null;
-      try {
-        raw = await redis().get(bucket.key);
-      } catch (err) {
-        degrade(err);
-        const counted = fallback.read(bucket.key, nowMs);
-        return counted === null ? null : { key, count: counted, lastRequest };
-      }
-      const count = raw === null ? Number.NaN : Number.parseInt(raw, 10);
-      if (!Number.isFinite(count)) return null;
-      return { key, count, lastRequest };
-    },
-
-    set: async (key, value): Promise<void> => {
-      const nowMs = Date.now();
-      const bucket = bucketFor(key, AUTH_RATE_LIMIT_WINDOW_SECONDS, nowMs);
-      try {
-        await redis().set(bucket.key, String(value.count), "EX", AUTH_RATE_LIMIT_WINDOW_SECONDS);
-      } catch (err) {
-        degrade(err);
-        fallback.write(bucket.key, value.count, bucket.endsAtMs, nowMs);
-      }
     },
   };
 }

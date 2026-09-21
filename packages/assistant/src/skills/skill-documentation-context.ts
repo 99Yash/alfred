@@ -1,7 +1,7 @@
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { skillRevisions, skills, user, userFacts } from "@alfred/db/schemas";
-import { search, type SearchHit } from "@alfred/corpus";
+import { search, toModelFacingHit, type ModelFacingHit } from "@alfred/corpus";
 import { and, desc, eq } from "drizzle-orm";
 import { recallMemory, type RecallMemoryHit } from "@alfred/assistant/knowledge";
 
@@ -38,13 +38,21 @@ export interface SkillDocumentationContext {
     currentBody: string;
   };
   facts: Array<{ key: string; value: unknown; confidence: number }>;
-  documentHits: SearchHit[];
+  /**
+   * Model-facing hits only: the collect step strips the corpus `record`
+   * (provider id, account, thread) via `toModelFacingHit`, so the persisted
+   * run state below never carries credential-scoping identity. What reaches
+   * the compose prompt is then a compiler fact, not a field-picking
+   * convention.
+   */
+  documentHits: ModelFacingHit[];
   memoryHits: RecallMemoryHit[];
   /** Distinct `documents.source` values surfaced — drives the email's provenance line. */
   sourceCounts: Record<string, number>;
 }
 
 const CHUNK_HIT_LIMIT = 12;
+
 const MEMORY_HIT_LIMIT = 6;
 
 export async function collectSkillDocumentationContext(args: {
@@ -58,6 +66,7 @@ export async function collectSkillDocumentationContext(args: {
     .from(user)
     .where(eq(user.id, userId))
     .limit(1);
+
   if (!userRow) throw new Error(`[skill-doc] user not found: ${userId}`);
 
   const [skillRow] = await db()
@@ -70,7 +79,9 @@ export async function collectSkillDocumentationContext(args: {
     .from(skills)
     .where(and(eq(skills.id, skillId), eq(skills.userId, userId)))
     .limit(1);
+
   if (!skillRow) throw new Error(`[skill-doc] skill not found or not owned: ${skillId}`);
+
   if (!skillRow.currentRevisionId) {
     throw new Error(
       `[skill-doc] skill ${skillId} has no current revision — learn-skill must complete first`,
@@ -82,6 +93,7 @@ export async function collectSkillDocumentationContext(args: {
     .from(skillRevisions)
     .where(eq(skillRevisions.id, skillRow.currentRevisionId))
     .limit(1);
+
   if (!revRow) {
     throw new Error(`[skill-doc] revision not found: ${skillRow.currentRevisionId}`);
   }
@@ -108,7 +120,8 @@ export async function collectSkillDocumentationContext(args: {
     userId,
     idempotencyKey: `skill-doc-context:${userId}:${skillRow.id}:${skillRow.currentRevisionId}`,
   });
-  const [documentHits, memoryHits] = await Promise.all([
+
+  const [searchHits, memoryHits] = await Promise.all([
     search({
       query: revRow.body,
       userId,
@@ -123,7 +136,13 @@ export async function collectSkillDocumentationContext(args: {
     }),
   ]);
 
+  // Strip the dereference plumbing before anything is held or persisted:
+  // the run store below keeps these hits as-is, so identity that must not
+  // persist must not be present here.
+  const documentHits = searchHits.map(toModelFacingHit);
+
   const sourceCounts: Record<string, number> = {};
+
   for (const h of documentHits) {
     sourceCounts[h.source] = (sourceCounts[h.source] ?? 0) + 1;
   }

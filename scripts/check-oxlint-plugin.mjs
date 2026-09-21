@@ -39,6 +39,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
 const PLUGIN_DIR = join("scripts", "oxlint", "anti-slop");
 
 // Fail fast when the interpreter is older than package.json's `engines.node`.
@@ -48,8 +49,11 @@ const PLUGIN_DIR = join("scripts", "oxlint", "anti-slop");
 // at the interpreter. oxlint loads the plugin through Node's native TS support,
 // so anything below the engines floor cannot drive a single rule.
 const ENGINES_NODE = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).engines?.node;
+
 const ENGINES_FLOOR = /^>=(\d+)\./.exec(String(ENGINES_NODE ?? ""));
+
 const nodeMajor = Number.parseInt(process.versions.node, 10);
+
 if (ENGINES_FLOOR !== null && nodeMajor < Number(ENGINES_FLOOR[1])) {
   console.error(
     `This gate is running on Node ${process.versions.node}, but package.json requires ` +
@@ -58,9 +62,13 @@ if (ENGINES_FLOOR !== null && nodeMajor < Number(ENGINES_FLOOR[1])) {
   );
   process.exit(1);
 }
+
 const RULES_DIR = join(PLUGIN_DIR, "rules");
+
 const INDEX_FILE = join(PLUGIN_DIR, "index.ts");
+
 const GATE_FILE = join("scripts", "check-oxlint-plugin.mjs");
+
 const OXLINT_BIN = resolve(ROOT, "node_modules", ".bin", "oxlint");
 
 // Explicit, not scraped out of the upstream `.test.ts` fixtures: the drive below
@@ -72,7 +80,8 @@ const OXLINT_BIN = resolve(ROOT, "node_modules", ".bin", "oxlint");
 // `vi` one is a trap that already produced a probe that passed for the wrong
 // reason.
 // Each entry maps to { snippet, severity }. The severity must match .oxlintrc.json:
-// "error" for ratchet rules, "warn" for paydown rules.
+// "error" for every rule — the last paydown rule was promoted, so no "warn"
+// probe remains.
 const PROBES = {
   // `vi` is deliberately left UNDECLARED. no-module-mocking resolves the binding
   // and ignores a local one (upstream treats `function f(jest: {mock(): void})`
@@ -106,15 +115,11 @@ const PROBES = {
   },
   "no-runtime-typeof": {
     snippet: `export const isString = typeof input === "string";\n`,
-    severity: "warn",
-  },
-  "no-shape-in-symbol-names": {
-    snippet: `export interface UserShape { id: string }\n`,
-    severity: "warn",
+    severity: "error",
   },
   "no-unknown-returns": {
     snippet: `export function loadUser(): unknown { return input; }\n`,
-    severity: "warn",
+    severity: "error",
   },
   "no-unknown-type-aliases": {
     snippet: `export type ExternalValue = unknown;\n`,
@@ -122,17 +127,22 @@ const PROBES = {
   },
   "no-unsafe-dictionary-type": {
     snippet: `export type Metadata = Record<string, unknown>;\n`,
-    severity: "warn",
+    severity: "error",
+  },
+  "require-readable-spacing": {
+    snippet: `export const first = 1;\nexport const second = 2;\n`,
+    severity: "error",
   },
   "require-safety-comment-for-type-assertion": {
     snippet: `export const userId = value as UserId;\n`,
-    severity: "warn",
+    severity: "error",
   },
 };
 
 // The control. Linted alongside the probes so "every probe reported its rule"
 // cannot be satisfied by a rule that reports everything.
 const CONTROL = `export const ok = { id: "second" };\n`;
+
 const CONTROL_NAME = "control";
 
 const failures = [];
@@ -148,6 +158,7 @@ const failures = [];
  */
 function capturedStdout(error) {
   const stdout = /** @type {{ stdout?: unknown }} */ (error).stdout;
+
   return typeof stdout === "string" ? stdout : "";
 }
 
@@ -156,6 +167,7 @@ function capturedStdout(error) {
 // ---------------------------------------------------------------------------
 
 let entries;
+
 try {
   entries = readdirSync(resolve(ROOT, RULES_DIR));
 } catch (error) {
@@ -169,7 +181,9 @@ try {
 const ruleModules = entries.filter(
   (name) => name.endsWith(".ts") && !name.endsWith(".rule-test.ts"),
 );
+
 const testModules = new Set(entries.filter((name) => name.endsWith(".rule-test.ts")));
+
 const vendored = ruleModules.map((name) => name.slice(0, -".ts".length)).sort();
 
 // A zero count is a failure, not a pass: it means the walk found no rule and the
@@ -195,6 +209,7 @@ for (const rule of vendored) {
 // ---------------------------------------------------------------------------
 
 const indexSource = readFileSync(resolve(ROOT, INDEX_FILE), "utf8");
+
 const registered = [...indexSource.matchAll(/^\s*"([a-z0-9-]+)":\s*[A-Za-z][A-Za-z0-9]*Rule,$/gm)]
   .map((match) => match[1])
   .sort();
@@ -215,6 +230,7 @@ for (const rule of vendored) {
     );
   }
 }
+
 for (const rule of registered) {
   if (!vendored.includes(rule)) {
     failures.push(`${INDEX_FILE} registers "${rule}", which has no module in ${RULES_DIR}.`);
@@ -229,6 +245,7 @@ for (const rule of registered) {
     );
   }
 }
+
 for (const rule of Object.keys(PROBES)) {
   if (!registered.includes(rule)) {
     failures.push(
@@ -246,9 +263,11 @@ for (const rule of Object.keys(PROBES)) {
 // `node file.ts`: the flag is a no-op on a new enough Node, and the engines
 // guard above has already rejected one too old to load the plugin at all.
 let testsRun = 0;
+
 for (const rule of vendored) {
   if (!testModules.has(`${rule}.rule-test.ts`)) continue;
   const testFile = join(RULES_DIR, `${rule}.rule-test.ts`);
+
   try {
     execFileSync(process.execPath, ["--experimental-strip-types", testFile], {
       cwd: ROOT,
@@ -268,16 +287,20 @@ for (const rule of vendored) {
 // ---------------------------------------------------------------------------
 
 const probeDir = mkdtempSync(join(tmpdir(), "alfred-oxlint-anti-slop-"));
+
 const driven = [];
+
 try {
   for (const [rule, { snippet }] of Object.entries(PROBES)) {
     writeFileSync(join(probeDir, `${rule}.ts`), snippet);
   }
+
   writeFileSync(join(probeDir, `${CONTROL_NAME}.ts`), CONTROL);
 
   // oxlint exits non-zero because the probes are meant to fail, so the throw is
   // the expected path; only a missing `stdout` is a real error here.
   let stdout;
+
   try {
     stdout = execFileSync(
       OXLINT_BIN,
@@ -289,6 +312,7 @@ try {
   }
 
   let report;
+
   try {
     report = JSON.parse(stdout);
   } catch {
@@ -300,14 +324,18 @@ try {
   }
 
   const antiSlop = new Map();
+
   for (const diagnostic of report.diagnostics ?? []) {
     const code = /^anti-slop\(([a-z0-9-]+)\)$/.exec(String(diagnostic.code ?? ""));
+
     if (code === null) continue;
+
     const file =
       String(diagnostic.filename ?? "")
         .split("/")
         .pop()
         ?.replace(/\.ts$/, "") ?? "";
+
     const seen = antiSlop.get(file) ?? [];
     seen.push({ rule: code[1], severity: String(diagnostic.severity ?? "") });
     antiSlop.set(file, seen);
@@ -316,6 +344,7 @@ try {
   for (const rule of Object.keys(PROBES)) {
     const reported = antiSlop.get(rule) ?? [];
     const own = reported.filter((entry) => entry.rule === rule);
+
     if (own.length === 0) {
       failures.push(
         `The root config did not report anti-slop(${rule}) on a snippet that violates it. The rule is ` +
@@ -327,9 +356,11 @@ try {
       );
       continue;
     }
+
     const expectedSeverity = PROBES[rule].severity;
     const jsonSeverity = expectedSeverity === "error" ? "error" : "warning";
     const wrongSeverity = own.filter((entry) => entry.severity !== jsonSeverity);
+
     if (wrongSeverity.length > 0) {
       failures.push(
         `anti-slop(${rule}) reported at "${wrongSeverity[0].severity}", not "${jsonSeverity}". ` +
@@ -337,10 +368,12 @@ try {
       );
       continue;
     }
+
     driven.push(rule);
   }
 
   const controlHits = antiSlop.get(CONTROL_NAME) ?? [];
+
   if (controlHits.length > 0) {
     failures.push(
       `The control snippet, which violates none of these rules, was reported by ` +
@@ -354,12 +387,15 @@ try {
 
 if (failures.length > 0) {
   console.error("The vendored anti-slop plugin is not fully wired:\n");
+
   for (const failure of failures) console.error(`  ${failure}\n`);
   process.exit(1);
 }
 
 const errorCount = driven.filter((r) => PROBES[r].severity === "error").length;
+
 const warnCount = driven.filter((r) => PROBES[r].severity === "warn").length;
+
 console.log(
   `check-oxlint-plugin: ${vendored.length} vendored rule(s) — ${testsRun} upstream fixture suite(s) pass, ` +
     `all registered in ${INDEX_FILE}, ${errorCount} at "error" + ${warnCount} at "warn" through .oxlintrc.json ` +

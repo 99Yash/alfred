@@ -1,0 +1,3 @@
+ALTER TABLE "documents" DROP CONSTRAINT "documents_source_valid";--> statement-breakpoint
+CREATE INDEX "documents_source_admission_idx" ON "documents" USING btree ("user_id","source","ingested_at");--> statement-breakpoint
+ALTER TABLE "documents" ADD CONSTRAINT "documents_source_valid" CHECK ("documents"."source" IN ('gmail', 'gmail_attachment', 'drive', 'gcal', 'slack', 'linear', 'github', 'sentry', 'notion', 'imessage'));

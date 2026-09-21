@@ -4,6 +4,34 @@
 
 **Amendment 2026-08-16.** The module named `conversations` in the module-structure plan keeps the name `chat`. The module is chat-only (threads, messages, turn admission, compaction), and the schema (`chat_threads`, `chat_messages`), the contracts, the sync adapters, and the web routes already use `chat`. The plan's "Phase 6 renamed `chat` to `conversations`" is reversed for this module only; the `workflows` → `automation` rename stands.
 
+**Amendment 2026-09-19 (#1148).** The system-tool `bootPort` seams in
+`packages/assistant/src/tool-runtime/index.ts` return named result types, not
+`unknown`. Every adapter is a thin forward to an owner function whose result
+type already exists (execution sub-agent and scratch operations, chat history
+retrieval, knowledge reads and instruction writes, task resolution, workflow
+authoring and revisions), so naming the seam type lifts an existing contract
+instead of inventing one. The seam keeps its direction: `tool-runtime`
+imports no owner module, not even with `import type`, because
+`scripts/check-module-architecture.mjs` reads a type-only import as an edge
+too. Each seam type is therefore declared in `tool-runtime/index.ts` and
+states in its doc comment which owner type it mirrors — the same precedent
+`SystemToolContextSearchAdapter` already sets with `ContextSearchToolResult`.
+The compiler holds the two halves together at the install site: the adapter
+object is annotated with the seam interface, so a removed or retyped owner
+field fails `check-types`. A field the owner ADDS is the residual risk: it
+reaches the model at run time but stays unnamed at the seam. The fix, when
+that cost grows, is to move the owner type into `@alfred/contracts` and let
+both sides import one declaration. The `unknown`-as-design alternative is
+rejected:
+`internal/tools/system.ts` returns each adapter result straight into a
+model-facing tool result, so an erased seam contract propagates into the model
+surface. Honest `unknown` stays where the value is genuinely untyped at the
+boundary (`safeJsonParse`, `getPath`, `parseBody`, `pruneToBudget`) and where
+an external contract demands it (BullMQ `Processor`), each covered by a named
+scope exemption rather than a seam-wide widening. The six-method
+`SystemToolKnowledgeAdapter` grab-bag is split by product owner (knowledge
+reads, instruction writes, web search) as part of the typing.
+
 **Decision.** Alfred will separate HTTP adaptation from assistant behavior and
 name both packages for what they own:
 

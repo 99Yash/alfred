@@ -1,7 +1,7 @@
 import { google } from "@ai-sdk/google";
 import type { SharedV4ProviderOptions } from "@ai-sdk/provider";
-import type { ChatModelTier } from "@alfred/contracts";
-import { isCallerAbort } from "./abort";
+import { chatEffortSchema, type ChatEffort, type ChatModelTier } from "@alfred/contracts";
+import { findApiCallError, isCallerAbort } from "./abort";
 import { APICallError, type ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV4` — the concrete model
 // instances our provider factories return, deliberately narrower than `ai`'s
@@ -9,13 +9,15 @@ import { APICallError, type ToolSet } from "ai";
 // warden does; see its packages/ai/src/models.ts.
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 import { createRetryableModel, error, or, timeout } from "ai-retry/language-model";
-import { MODEL_CAPABILITIES, type ModelId } from "./models";
 import {
+  anthropicLeg,
   createProviderRouteModel,
-  type ModelReasoningPolicy,
-  providerOptionsForModel,
-  type ProviderAdaptedLanguageModel,
+  googleLeg,
+  openAiLeg,
+  type RouteLeg,
+  type RouteReasoning,
 } from "./provider-adapter";
+import { identifyLanguageModel } from "./models";
 
 // Re-export so existing `@alfred/ai` consumers keep importing `ChatModelTier`
 // from here; the literal itself is owned by `@alfred/contracts` (single source
@@ -27,46 +29,75 @@ export type { ChatModelTier };
 // indirection from the original `provider-adapter.ts:CallOptions` alias.
 export type ChatProviderOptions = SharedV4ProviderOptions;
 
-type ModelChain = readonly [ModelId, ...ModelId[]];
+export const MEDIA_INPUT_MODALITIES = ["text", "image", "audio", "video", "pdf"] as const;
+
+export type MediaInputModality = (typeof MEDIA_INPUT_MODALITIES)[number];
+
+/**
+ * The generic AI SDK `reasoning` maps to Google `thinkingLevel`/`thinkingBudget`
+ * but never enables thought summaries. Alfred asks for them — the retired
+ * `reasoning-policy.ts` always sent `includeThoughts: true` on a reasoning-on
+ * Google leg — so a Google-bearing route with reasoning on carries this
+ * provider-option exception: the Google analogue of Anthropic's package-owned
+ * `display: "summarized"`. It rides on the whole route; non-Google primaries
+ * ignore the namespace.
+ */
+const GOOGLE_THOUGHT_SUMMARIES = {
+  google: { thinkingConfig: { includeThoughts: true } },
+} as const satisfies SharedV4ProviderOptions;
+
 interface ModelRoute {
-  readonly chain: ModelChain;
-  readonly reasoning: ModelReasoningPolicy;
+  /** Validated leg makers, in fallback order. A bare model cannot be spelled here. */
+  readonly legs: readonly (() => RouteLeg)[];
+  /** Generic AI SDK reasoning ceiling; the provider package maps/clamps it. */
+  readonly reasoning: RouteReasoning;
+  /** Provider-option exception the generic reasoning setting cannot express (e.g. OpenAI `max`). */
+  readonly providerOptions?: SharedV4ProviderOptions;
 }
 
 /**
- * Product model routes. A route is the model chain plus the reasoning policy
- * that must travel with every leg. Adding a fallback is one edit to `chain`;
- * model composition and provider-option projection both fold that same tuple.
+ * Product model routes. A route is the ordered leg list plus the reasoning
+ * policy that travels with every leg. Every leg is constructed directly by its
+ * installed provider package and carries its matching adapter; the model
+ * object, not a second registry entry, supplies provider and model id.
  */
 const MODEL_ROUTES = {
+  // Background boss runs `gpt-5.6-luna` for cost (2026-09-18): briefings,
+  // triage deepen, cold start, and skill compose are non-interactive, so
+  // Luna's turn bloat hurts less than on chat while the 13.3x blended
+  // discount lands. Same legs as `standard`; rollback restores
+  // `anthropicLeg("claude-sonnet-4-6")` as the primary.
   boss: {
-    chain: ["claude-sonnet-4-6", "gemini-3.8-flash"],
+    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
+    providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
   // Sub-agents follow the chat tiers onto Luna (ADR-0077 amendment
   // 2026-09-03d) so a delegating chat turn is one vendor end to end. The July
   // bake-off measured the mixed pairing — Luna boss + Sonnet worker — as the
   // worst shape at 10 calls / 97s / $0.241, and a Sonnet worker still costs
-  // 13× a Luna one. `boss` stays on Sonnet: it drives background work only.
+  // 13× a Luna one; the background boss is on Luna too now, so no route
+  // mixes vendors.
   subAgent: {
-    chain: ["gpt-5.6-luna", "gemini-3.8-flash"],
+    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
+    providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
   cheap: {
-    chain: ["gemini-2.5-flash-lite", "gemini-3.8-flash"],
-    reasoning: "disabled",
+    legs: [() => googleLeg("gemini-2.5-flash-lite"), () => googleLeg("gemini-3.8-flash")],
+    reasoning: "none",
   },
   webSearch: {
-    chain: ["gemini-3.8-flash"],
-    reasoning: "disabled",
+    legs: [() => googleLeg("gemini-3.8-flash")],
+    reasoning: "none",
   },
   compactor: {
-    chain: ["claude-sonnet-4-6"],
-    reasoning: "disabled",
+    legs: [() => anthropicLeg("claude-sonnet-4-6")],
+    reasoning: "none",
   },
   compactorFallback: {
-    chain: ["gemini-3.8-flash"],
-    reasoning: "disabled",
+    legs: [() => googleLeg("gemini-3.8-flash")],
+    reasoning: "none",
   },
   // Both chat tiers run `gpt-5.6-luna` and differ only in effort (ADR-0077
   // amendment 2026-09-03d). The 2026-09-02 `db:sync-prices` run cut Luna 5×
@@ -80,107 +111,155 @@ const MODEL_ROUTES = {
   // / 63s against Sonnet's 4 / 28s, and the first live Auto turn took 16 legs
   // / 86s.
   standard: {
-    chain: ["gpt-5.6-luna", "gemini-3.8-flash"],
+    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
+    providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
-  // Deep is the same model at its strongest effort. `max` is in Luna's
-  // vocabulary; the Gemini leg clamps it to `high`.
+  // Deep is the same model at its strongest effort. `xhigh` is the generic AI
+  // SDK ceiling; the OpenAI leg pins the provider-only `max` value and the
+  // Gemini leg maps `xhigh` to its own `high`.
   deep: {
-    chain: ["gpt-5.6-luna", "gemini-3.8-flash"],
-    reasoning: "max",
+    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
+    reasoning: "xhigh",
+    providerOptions: { ...GOOGLE_THOUGHT_SUMMARIES, openai: { reasoningEffort: "max" } },
   },
 } as const satisfies Record<string, ModelRoute>;
 
 export type ModelRouteName = keyof typeof MODEL_ROUTES;
 
 export interface ModelRouteHandle {
-  model(): ProviderAdaptedLanguageModel;
+  model(): LanguageModelV4;
+  /** Alfred's provider-option exceptions; the generic reasoning rides on the model defaults. */
   providerOptions(): ChatProviderOptions;
-}
-
-function mergeRouteProviderOptions(definition: ModelRoute): ChatProviderOptions {
-  const merged: ChatProviderOptions = {};
-  for (const modelId of definition.chain) {
-    const next = providerOptionsForModel(modelId, definition.reasoning);
-    for (const [provider, options] of Object.entries(next)) {
-      const previous = merged[provider];
-      if (previous && JSON.stringify(previous) !== JSON.stringify(options)) {
-        throw new Error(
-          `route maps multiple ${provider} models with incompatible provider options`,
-        );
-      }
-      merged[provider] = options;
-    }
-  }
-  return merged;
+  /** The generic reasoning ceiling this route selects. */
+  reasoning(): RouteReasoning;
 }
 
 function createRouteHandle(definition: ModelRoute): ModelRouteHandle {
-  const providerOptions = mergeRouteProviderOptions(definition);
-  let model: ProviderAdaptedLanguageModel | undefined;
+  const providerOptions: ChatProviderOptions = definition.providerOptions ?? {};
+  let model: LanguageModelV4 | undefined;
+
   return {
     model: () =>
-      (model ??= createProviderRouteModel(definition.chain, withFallback, providerOptions)),
+      (model ??= createProviderRouteModel(definition.legs, withFallback, {
+        reasoning: definition.reasoning,
+        ...(definition.providerOptions ? { providerOptions: definition.providerOptions } : {}),
+      })),
     providerOptions: () => providerOptions,
+    reasoning: () => definition.reasoning,
   };
 }
 
 const namedRouteHandles = new Map<ModelRouteName, ModelRouteHandle>();
 
-function isModelRouteName(value: ModelRouteName | ModelId): value is ModelRouteName {
-  return Object.hasOwn(MODEL_ROUTES, value);
+/** Resolve a named product route. Handles are memoized per name. */
+export function route(name: ModelRouteName): ModelRouteHandle {
+  let handle = namedRouteHandles.get(name);
+
+  if (!handle) {
+    handle = createRouteHandle(MODEL_ROUTES[name]);
+    namedRouteHandles.set(name, handle);
+  }
+
+  return handle;
 }
 
 /**
- * Resolve a named product route, or build a one-model probe/eval route with an
- * explicit reasoning policy. Both forms return the same paired route handle.
+ * Build a one-model probe/eval route from an already-validated {@link RouteLeg}.
+ * Takes the leg triple so identity is carried, not reconstructed from a
+ * handwritten model-to-provider table. Not memoized — probe callers pick a
+ * fresh leg each time.
  */
-export function route(name: ModelRouteName): ModelRouteHandle;
-export function route(modelId: ModelId, reasoning: ModelReasoningPolicy): ModelRouteHandle;
-export function route(
-  nameOrModelId: ModelRouteName | ModelId,
-  reasoning?: ModelReasoningPolicy,
-): ModelRouteHandle {
-  if (isModelRouteName(nameOrModelId)) {
-    let handle = namedRouteHandles.get(nameOrModelId);
-    if (!handle) {
-      handle = createRouteHandle(MODEL_ROUTES[nameOrModelId]);
-      namedRouteHandles.set(nameOrModelId, handle);
-    }
-    return handle;
-  }
-  if (!reasoning) throw new Error(`registered model route ${nameOrModelId} needs reasoning policy`);
-  return createRouteHandle({ chain: [nameOrModelId], reasoning });
+export function probeRoute(leg: RouteLeg, reasoning: RouteReasoning): ModelRouteHandle {
+  return createRouteHandle({ legs: [() => leg], reasoning });
 }
 
-const MEDIA_ENRICHMENT_ROUTES = [
-  "gemini-3.8-flash",
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "claude-sonnet-4-6",
-] as const satisfies readonly ModelId[];
+/**
+ * The displayable reasoning effort a named route selects. `route(name)`
+ * exposes the raw SDK `reasoning` value, which admits `provider-default` —
+ * "let the provider decide", not a level and nothing the readout can show.
+ * No named route selects it today, so this throws rather than rendering a
+ * non-level; a route that does must decide what its turns claim.
+ */
+export function routeEffort(name: ModelRouteName): ChatEffort {
+  const reasoning = route(name).reasoning();
+  const parsed = chatEffortSchema.safeParse(reasoning);
 
-export function mediaEnrichmentModelRoutes(
-  modality: import("./models").MediaInputModality,
-  byteSize: number,
-): ModelId[] {
-  if (!Number.isInteger(byteSize) || byteSize < 0) throw new Error("byteSize must be non-negative");
-  return MEDIA_ENRICHMENT_ROUTES.filter((id) => {
-    const capabilities = MODEL_CAPABILITIES[id];
-    const inputModalities: readonly import("./models").MediaInputModality[] =
-      capabilities.inputModalities;
-    return inputModalities.includes(modality) && byteSize <= capabilities.maxInlineMediaBytes;
-  });
+  if (!parsed.success) throw new Error(`route "${name}" selects a non-level reasoning effort`);
+
+  return parsed.data;
 }
 
-/** Ordered multimodal routes, filtered before any provider receives the payload. */
+interface MediaEnrichmentLeg {
+  readonly modalities: readonly MediaInputModality[];
+  readonly maxInlineBytes: number;
+  readonly make: () => LanguageModelV4;
+}
+
+/**
+ * Inline attachment ceilings: the largest payload each provider reads natively
+ * before Alfred must degrade it to text. Alfred product policy, not a model
+ * registry — the provider package still owns how the model reads the bytes.
+ */
+const GOOGLE_INLINE_MEDIA_BYTES = 50 * 1024 * 1024;
+
+const ANTHROPIC_INLINE_MEDIA_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Ordered multimodal legs, filtered before any provider receives the payload.
+ * These are Alfred product policy (which leg attempts a given attachment), not
+ * a second model-mechanics catalog: the provider package still owns how the
+ * model reads the bytes. The order is the enrichment attempt order.
+ */
+const MEDIA_ENRICHMENT_LEGS: readonly MediaEnrichmentLeg[] = [
+  {
+    modalities: ["text", "image", "audio", "video", "pdf"],
+    maxInlineBytes: GOOGLE_INLINE_MEDIA_BYTES,
+    make: () => withDisabledReasoning(googleLeg("gemini-3.8-flash")),
+  },
+  {
+    modalities: ["text", "image", "audio", "video"],
+    maxInlineBytes: GOOGLE_INLINE_MEDIA_BYTES,
+    make: () => withDisabledReasoning(googleLeg("gemini-2.5-flash")),
+  },
+  {
+    modalities: ["text", "image", "audio", "video", "pdf"],
+    maxInlineBytes: GOOGLE_INLINE_MEDIA_BYTES,
+    make: () => withDisabledReasoning(googleLeg("gemini-2.5-flash-lite")),
+  },
+  {
+    modalities: ["text", "image", "pdf"],
+    maxInlineBytes: ANTHROPIC_INLINE_MEDIA_BYTES,
+    make: () => withDisabledReasoning(anthropicLeg("claude-sonnet-4-6")),
+  },
+];
+
+/**
+ * Select the generic `none` ceiling. The provider package maps it to the
+ * generation's closest-to-off value: Gemini 2.5 gets `thinkingBudget: 0`, while
+ * Gemini 3 reaches its model-specific minimum `thinkingLevel` — the package
+ * documents that full disable is unavailable there. The retired policy's
+ * `thinkingBudget: 0` for a Gemini 3 model was a shape that generation does not
+ * own; this is the SDK-owned equivalent, not a new budget.
+ */
+function withDisabledReasoning(leg: RouteLeg): LanguageModelV4 {
+  return createProviderRouteModel([() => leg], withFallback, { reasoning: "none" });
+}
+
+/** Ordered multimodal route legs for a payload, filtered by modality and inline size. */
 export function getMediaEnrichmentModels(
-  modality: import("./models").MediaInputModality,
+  modality: MediaInputModality,
   byteSize: number,
-): ProviderAdaptedLanguageModel[] {
-  const routes = mediaEnrichmentModelRoutes(modality, byteSize);
-  if (routes.length === 0) throw new Error("media_enrichment_input_unsupported");
-  return routes.map((modelId) => route(modelId, "disabled").model());
+): LanguageModelV4[] {
+  if (!Number.isInteger(byteSize) || byteSize < 0) throw new Error("byteSize must be non-negative");
+
+  const models = MEDIA_ENRICHMENT_LEGS.filter(
+    (leg) => leg.modalities.includes(modality) && byteSize <= leg.maxInlineBytes,
+  ).map((leg) => leg.make());
+
+  if (models.length === 0) throw new Error("media_enrichment_input_unsupported");
+
+  return models;
 }
 
 /**
@@ -221,11 +300,6 @@ export function googleSearchGroundingTools(): ToolSet {
  *
  * Streaming caveat: fallback only covers errors raised before the stream
  * starts; a provider dying mid-stream after tokens flowed is not replayable.
- *
- * Attribution: the returned model proxies `provider`/`modelId` to whichever
- * model is *currently* serving, and the metering layer records the served
- * model from the response (`served` in `MeteredResult`), so `api_call_log`
- * stays correct when the fallback fires.
  */
 /**
  * True when a 4xx is a billing/quota *capacity* condition (a workspace spend
@@ -243,6 +317,7 @@ export function googleSearchGroundingTools(): ToolSet {
  */
 function isQuotaOrBillingError(e: APICallError): boolean {
   const haystack = `${e.message} ${e.responseBody ?? ""}`.toLowerCase();
+
   return (
     haystack.includes("usage limit") ||
     haystack.includes("credit balance") ||
@@ -250,6 +325,63 @@ function isQuotaOrBillingError(e: APICallError): boolean {
   );
 }
 
+/**
+ * True when a failed call is worth WAITING for rather than terminating over:
+ * a 429, 408, or 5xx `APICallError`, direct or as the newest attempt inside a
+ * `RetryError`. The chat turn's capacity retries (`afterCapacityError`) gate
+ * on this to convert termination into latency.
+ *
+ * Structural only, per ADR-0072 — no message sniffing. That deliberately
+ * excludes the classifier's `overloaded` message net (`fetch failed`,
+ * `econnreset`, …): those stay terminal-tagged with the client's retry
+ * affordance rather than auto-waited, so a fault that never clears (DNS, TLS)
+ * cannot park a run.
+ *
+ * Excludes quota/billing 4xx even though they degrade: money does not refill
+ * on a backoff schedule, so waiting burns attempts without landing the turn.
+ * Excludes timeouts, which already own a retry budget (the streaming
+ * circuit-breaker's single regeneration) — counting them here too would
+ * double-spend a ~180s anomaly. Caller aborts carry no status and never match.
+ */
+export function isCapacityError(err: unknown): boolean {
+  const apiError = findApiCallError(err);
+
+  if (!apiError || apiError.statusCode === undefined) return false;
+  const code = apiError.statusCode;
+
+  if (code !== 429 && code !== 408 && code < 500) return false;
+
+  return !isQuotaOrBillingError(apiError);
+}
+
+/**
+ * Compose a primary leg with a fallback leg: retry the primary twice, then
+ * degrade to the fallback on any capacity condition.
+ *
+ * The returned object is a STATELESS FACADE, and that is load-bearing. It
+ * builds a fresh `createRetryableModel` per call instead of holding one.
+ * ai-retry's `RetryableLanguageModel` keeps the serving leg in an INSTANCE
+ * field (`currentModel`, plus `stickyState`): `doGenerate` assigns the start
+ * model, the retry loop re-reads the field at dispatch time, and the backoff
+ * delay sits between the two. One instance therefore cannot serve two calls at
+ * once. `createRouteHandle` memoizes one model per named route, so before this
+ * facade every concurrent caller of a route shared that field — a call whose
+ * attempt 1 failed on OpenAI was directly observed dispatching attempt 2 to
+ * Google, because a sibling call moved the field during the 1-second sleep.
+ * The retry budget was mis-charged the same way, since `findRetryModel` counts
+ * attempts by `getModelKey(attempt.model)`.
+ *
+ * The memo stays: the facade is built once per route, so `route(name).model()`
+ * keeps returning the same object and referential-identity callers still hold.
+ * Only the mutable retry state is now per call.
+ *
+ * `provider` and `modelId` name the PRIMARY leg and never move. Do not read
+ * them to learn which leg answered — they cannot tell you. `wrapLanguageModel`
+ * copies both into plain properties when `createProviderRouteModel` installs
+ * the reasoning middleware, so even ai-retry's own live values were frozen at
+ * the primary before any call ran. `providerForServedModel` plus the SDK's
+ * `result.response.modelId` is the seam that does know.
+ */
 export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4): LanguageModelV4 {
   // True for any error worth degrading to the fallback; false for a
   // non-retryable client bug we want to surface. Built with the raw `error`
@@ -262,9 +394,34 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
     // is waiting for. Without this, the triage hedge (#436) would have made
     // every cancelled duplicate fan out to `gemini-2.5-flash`.
     if (isCallerAbort(e)) return false;
+
     if (APICallError.isInstance(e) && e.statusCode !== undefined) {
+      // A 429 degrades, INCLUDING a Cloudflare `2018` "Wholesale Rate limited"
+      // from the gateway edge — but for a smaller reason than an earlier
+      // comment here claimed, and the distinction matters to anyone reading
+      // this as a reliability guarantee.
+      //
+      // Unified Billing meters ONE budget per gateway, shared across
+      // providers. Two order-reversed bursts on 2026-09-13 show it: whichever
+      // provider fires first takes the slots and the one that fires second
+      // gets 13-20 percent. So on a `2018` the fallback leg draws on the same
+      // exhausted bucket as the primary, and degrading is NOT what lands the
+      // turn. It lands roughly one attempt in five, which still beats failing
+      // outright, and it costs one request.
+      //
+      // The switch stays for the case it is actually good at: a 429 the
+      // PROVIDER raised (an Anthropic or OpenAI account limit), which is per
+      // provider and which the other leg genuinely escapes. Nothing here can
+      // separate the two from the status code alone — the `2018` body is the
+      // only tell, and a TERMINAL failure records it on
+      // `api_call_log.response_body` (via `transportFacts`, which unwraps the
+      // `RetryError` to the last `APICallError`). A degrade that SUCCEEDS
+      // writes no body anywhere — the success row carries only the
+      // `servedModelId` / `requestedModelId` divergence — so do not read this
+      // as a guarantee that every 2018 is queryable from the ledger.
       const code = e.statusCode;
       const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;
+
       // A spend-cap / workspace-usage-limit error is a *capacity* condition we
       // want to degrade through, but Anthropic returns it as a 4xx billing
       // error (not 408/429), so the generic client-bug guard would surface it
@@ -273,13 +430,88 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
       // still surface loudly.
       if (isClientBug && !isQuotaOrBillingError(e)) return false;
     }
+
     return true;
   });
-  return createRetryableModel({
-    model: primary,
-    retries: [
-      or(error.isRetryable(true), timeout()).retry({ delay: 1_000, maxAttempts: 2 }),
-      shouldSwitch.switch({ model: fallback }),
-    ],
-  });
+
+  const compose = (): LanguageModelV4 =>
+    createRetryableModel({
+      model: primary,
+      retries: [
+        or(error.isRetryable(true), timeout()).retry({ delay: 1_000, maxAttempts: 2 }),
+        shouldSwitch.switch({ model: fallback }),
+      ],
+    });
+
+  return {
+    specificationVersion: primary.specificationVersion,
+    provider: primary.provider,
+    modelId: primary.modelId,
+    // Either leg can serve, so the facade accepts what either leg accepts. A
+    // primary-only value would reject the fallback's inputs (or vice versa) on
+    // the one turn the other leg answers.
+    supportedUrls: mergeSupportedUrls(primary.supportedUrls, fallback.supportedUrls),
+    doGenerate: (options) => compose().doGenerate(options),
+    doStream: (options) => compose().doStream(options),
+  };
+}
+
+/**
+ * Union of two legs' URL patterns, keyed by media kind. Both sides are
+ * awaited rather than branched on: the field admits a plain record or a
+ * promise of one, and awaiting covers both without a shape check.
+ */
+function mergeSupportedUrls(
+  primary: LanguageModelV4["supportedUrls"],
+  fallback: LanguageModelV4["supportedUrls"],
+): LanguageModelV4["supportedUrls"] {
+  return (async () => {
+    const [a, b] = await Promise.all([primary, fallback]);
+    const merged: Record<string, RegExp[]> = {};
+
+    for (const record of [a, b]) {
+      for (const [kind, patterns] of Object.entries(record)) {
+        merged[kind] = [...(merged[kind] ?? []), ...patterns];
+      }
+    }
+
+    return merged;
+  })();
+}
+
+/**
+ * Every (provider, model) pair any route in this module can serve — every leg
+ * of every named route plus every media-enrichment leg. The boot guard
+ * verifies this set rather than the route facades: a facade reports only its
+ * primary leg, so verifying facades silently skips every fallback.
+ */
+export function allRouteLegIdentifiers(): Array<{
+  route: string;
+  provider: string;
+  model: string;
+}> {
+  const seen = new Set<string>();
+  const identifiers: Array<{ route: string; provider: string; model: string }> = [];
+
+  const add = (route: string, provider: string, model: string): void => {
+    const key = `${provider}/${model}`;
+
+    if (seen.has(key)) return;
+    seen.add(key);
+    identifiers.push({ route, provider, model });
+  };
+
+  for (const [name, definition] of Object.entries(MODEL_ROUTES)) {
+    for (const makeLeg of definition.legs) {
+      const leg = makeLeg();
+      add(name, leg.provider, leg.modelId);
+    }
+  }
+
+  for (const entry of MEDIA_ENRICHMENT_LEGS) {
+    const { provider, modelId } = identifyLanguageModel(entry.make());
+    add("media_enrichment", provider, modelId);
+  }
+
+  return identifiers;
 }

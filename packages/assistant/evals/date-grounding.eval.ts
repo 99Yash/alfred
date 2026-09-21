@@ -7,6 +7,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
+import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // ADR-0055: behavioral eval for agent date grounding. Guards the regression
 // where the chat agent, given "how many meetings do i have in october 2026",
@@ -23,7 +24,9 @@ loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") }
 
 // Pin "now" so expected windows are stable: noon IST on Wed 10 June 2026.
 const NOW = new Date("2026-06-10T06:30:00Z");
+
 const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
+
 const EVAL_TIMEOUT_MS = 60_000;
 
 const CALENDAR_TOOL = "calendar.list_events";
@@ -86,6 +89,7 @@ const CASES: Case[] = [
 function parseDate(value: unknown): Date | null {
   if (typeof value !== "string") return null;
   const d = new Date(value);
+
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -93,12 +97,14 @@ function parseDate(value: unknown): Date | null {
 function windowOverlaps(args: Record<string, unknown>, target: TargetWindow): boolean {
   const start = parseDate(args.timeMin);
   const end = parseDate(args.timeMax);
+
   // A specific month is outside the today/tomorrow/next_7_days enums, so the
   // only correct call uses explicit RFC3339 bounds. A relative `window` here is
   // a miss by construction.
   if (!start || !end) return false;
   const from = new Date(`${target.fromISO}T00:00:00Z`);
   const to = new Date(`${target.toISO}T00:00:00Z`);
+
   return start < to && end > from;
 }
 
@@ -110,7 +116,8 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
     // date, and "now" rides the ephemeral runtime line as an assistant turn just
     // before the user's message (withEphemeralReference). Grounding the eval the
     // same way keeps it a faithful guard for the single-source path (#410).
-    const system = buildChatSystemPrompt("", CONNECTED_SUMMARY);
+    const system = buildChatSystemPrompt("", CONNECTED_SUMMARY, selfIdentityGrounding());
+
     const result = await generateText({
       model: route("standard").model(),
       system,
@@ -131,7 +138,9 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
         }),
       },
     });
+
     const call = result.toolCalls.find((c) => c.toolName === CALENDAR_TOOL) ?? result.toolCalls[0];
+
     return {
       toolName: call?.toolName ?? null,
       // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
@@ -160,10 +169,13 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
       name: "Targets the right window",
       scorer: ({ output, expected }) => {
         if (!expected) return { score: 1, metadata: "n/a (relative window)" };
+
         if (output.toolName !== CALENDAR_TOOL) {
           return { score: 0, metadata: "no calendar call to evaluate" };
         }
+
         const ok = output.args ? windowOverlaps(output.args, expected) : false;
+
         return {
           score: ok ? 1 : 0,
           metadata: ok
@@ -181,6 +193,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
         const ok =
           output.system.includes("integration.action") &&
           output.system.includes("calendar.list_events");
+
         return {
           score: ok ? 1 : 0,
           metadata: ok

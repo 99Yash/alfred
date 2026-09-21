@@ -21,16 +21,18 @@ Everything outside a `.app` ancestor is unaffected.
 
 ## Primitives
 
-| Primitive       | What it is                                                                                          |
-| --------------- | --------------------------------------------------------------------------------------------------- |
-| `AppButton`     | 32px-tall pill with the two-shadow elevation stack. Variants: white, primary, ghost, destructive.   |
-| `AppCard`       | White-surface panel. Shadow-as-border, no border property. Optional `interactive` + `padded` props. |
-| `AppCardHeader` | Title-left, trailing-right row. Used as the first child of a `AppCard`.                             |
-| `AppPill`       | Selector pill — "Today", "USD", "30 days". Optional leading icon + trailing chevron.                |
-| `AppKpi`        | Label / value / delta stack. No card chrome.                                                        |
-| `AppDock`       | Floating bottom-center dark pill for secondary nav. Active item highlights violet.                  |
-| `AppHeader`     | Fixed top bar with masked-blur backdrop (no harsh edge against page content).                       |
-| `AppInput`      | Pill input. `readOnly` flips to the muted `bg-app-bg-2` token-display variant.                      |
+| Primitive       | What it is                                                                                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `AppButton`     | 32px-tall pill with the two-shadow elevation stack. Variants: white, primary, ghost, destructive.                                         |
+| `AppCard`       | White-surface panel. Shadow-as-border, no border property. Optional `interactive` + `padded` props.                                       |
+| `AppCardHeader` | Title-left, trailing-right row. Used as the first child of a `AppCard`.                                                                   |
+| `AppPill`       | Selector pill — "Today", "USD", "30 days". Optional leading icon + trailing chevron.                                                      |
+| `AppKpi`        | Label / value / delta stack. No card chrome.                                                                                              |
+| `AppDock`       | Floating bottom-center dark pill for secondary nav. Active item highlights violet.                                                        |
+| `AppHeader`     | Fixed top bar with masked-blur backdrop (no harsh edge against page content).                                                             |
+| `AppInput`      | Pill input. `readOnly` flips to the muted `bg-app-bg-2` token-display variant.                                                            |
+| `AppField`      | Field wrapper: label + control + helper/error, with `AppFieldLabel` / `AppFieldHelperText` / `AppFieldError` exported for custom layouts. |
+| `AppModal`      | Responsive overlay: a centered themed dialog at 640px and up, a drag-to-dismiss bottom sheet below.                                       |
 
 ## Tokens
 
@@ -45,7 +47,7 @@ text-app-fg-a{1..4}     alpha variants
 bg-app-{purple|green|red|amber|sky|blue|yellow|pink|orange|gray}-{1..4}
                        -1 = tint  -2 = soft / border  -3 = icon / chart  -4 = accent
 
-ring-app-purple-2       focus halo (paired with ring-offset-4)
+--app-accent-ring       shared one-pixel focus stroke
 shadow-[var(--app-shadow-elevated)]   the two-shadow stack
 rounded-app-{1..6}      0.125rem → 1rem radius scale
 ```
@@ -57,7 +59,42 @@ rounded-app-{1..6}      0.125rem → 1rem radius scale
 | `.app`              | Subtree opt-in: white bg, fg-3 text, -0.02em tracking, cursor:default.            |
 | `.app-elevated`     | Two-shadow stack (1px drop + 0-blur hairline). Bumps on hover.                    |
 | `.app-frost-header` | Masked backdrop-blur for fixed headers — fades to no-blur at the very top.        |
-| `.app-press`        | `active:scale(0.99)` press microinteraction. Used on every interactive primitive. |
+| `.app-focus`        | One-pixel focus stroke, placed 2px outside small controls.                        |
+| `.app-focus-inset`  | One-pixel focus stroke inside fields and large surfaces.                          |
+| `.app-focus-within` | The inset stroke for a composite surface when a child has keyboard focus.         |
+| `.app-press`        | `active:scale(0.96)` press microinteraction. Used on every interactive primitive. |
+
+## Form values
+
+`omitBlankStringFields(values)` (in `./form-values.ts`) trims each string and drops
+the keys that trim to nothing, so an untouched optional field is absent from the
+body rather than `""`. Spread only the optional fields through it and keep the
+required ones explicit:
+
+```tsx
+const body: McpAddServerBody = {
+  endpointUrl: value.endpointUrl.trim(),
+  ...omitBlankStringFields({ label: value.label }),
+};
+```
+
+## Forms
+
+`useAppForm` (from `./form.ts`) is `@tanstack/react-form`'s `useForm` with the app
+field components registered. Render a field through `form.AppField` and the
+component owns the input wiring and the error slot:
+
+```tsx
+const form = useAppForm({ defaultValues, onSubmit });
+
+<form.AppField name="endpointUrl" validators={{ onBlur: urlSchema }}>
+  {(field) => <field.TextField label="Server URL" placeholder="https://…" />}
+</form.AppField>;
+```
+
+`field.TextField` and `field.TextAreaField` are registered today. To add a
+control, write it in `form-fields.tsx`, register it in `form.ts`, and every form
+can use it.
 
 ## Preview
 

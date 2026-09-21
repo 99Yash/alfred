@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { attentionBandSchema } from "./attention";
+import { LOOP_CLOSING_STATE_CATEGORIES } from "./integration-objects";
 import { triageCategorySchema } from "./triage";
 import { isIntegrationSlug, type IntegrationSlug } from "./integrations";
 
@@ -22,17 +23,21 @@ export const GATHER_SOURCE_SLUGS = [
   "weather",
   "day_of_week",
 ] as const;
+
 export type GatherSourceSlug = (typeof GATHER_SOURCE_SLUGS)[number];
 
 export const gatherSourceSlugSchema = z.enum(GATHER_SOURCE_SLUGS);
 
 export const BRIEFING_REFERENCE_KINDS = ["activity", "meeting", "email"] as const;
+
 export type BriefingReferenceKind = (typeof BRIEFING_REFERENCE_KINDS)[number];
+
 export const briefingReferenceKindSchema = z.enum(BRIEFING_REFERENCE_KINDS);
 
 // ─── IANA timezone (branded string) ───────────────────────────────────────
 
 declare const ianaTimezoneBrand: unique symbol;
+
 export type IanaTimezone = string & { readonly [ianaTimezoneBrand]: true };
 
 /**
@@ -59,10 +64,12 @@ const SUPPORTED_TIMEZONES: Set<string> = new Set(Intl.supportedValuesOf("timeZon
  */
 function isSupportedTimezone(value: string): boolean {
   if (SUPPORTED_TIMEZONES.has(value)) return true;
+
   try {
     // Throws RangeError on an unknown zone; succeeds for valid aliases.
     new Intl.DateTimeFormat("en-US", { timeZone: value });
     SUPPORTED_TIMEZONES.add(value);
+
     return true;
   } catch {
     return false;
@@ -89,11 +96,13 @@ export function assertIanaTimezone(value: string): asserts value is IanaTimezone
  */
 export function parseIanaTimezone(value: string): IanaTimezone {
   assertIanaTimezone(value);
+
   return value;
 }
 
 export function isIanaTimezone(value: unknown): value is IanaTimezone {
   if (typeof value !== "string") return false;
+
   return isSupportedTimezone(value);
 }
 
@@ -138,8 +147,10 @@ export const calendarContributionSchema = z.object({
 
 export type CalendarContribution = z.infer<typeof calendarContributionSchema>;
 
-export const INTEGRATION_ACTIVITY_SOURCES = ["direct_api", "email_triage"] as const;
+export const INTEGRATION_ACTIVITY_SOURCES = ["direct_api", "email_triage", "mcp"] as const;
+
 export type IntegrationActivitySource = (typeof INTEGRATION_ACTIVITY_SOURCES)[number];
+
 export const integrationActivitySourceSchema = z.enum(INTEGRATION_ACTIVITY_SOURCES);
 
 export const INTEGRATION_ACTIVITY_CATEGORIES = [
@@ -152,7 +163,9 @@ export const INTEGRATION_ACTIVITY_CATEGORIES = [
   "usage",
   "other",
 ] as const;
+
 export type IntegrationActivityCategory = (typeof INTEGRATION_ACTIVITY_CATEGORIES)[number];
+
 export const integrationActivityCategorySchema = z.enum(INTEGRATION_ACTIVITY_CATEGORIES);
 
 export const INTEGRATION_ACTIVITY_STATUSES = [
@@ -162,11 +175,15 @@ export const INTEGRATION_ACTIVITY_STATUSES = [
   "resolved",
   "needs_attention",
 ] as const;
+
 export type IntegrationActivityStatus = (typeof INTEGRATION_ACTIVITY_STATUSES)[number];
+
 export const integrationActivityStatusSchema = z.enum(INTEGRATION_ACTIVITY_STATUSES);
 
 export const INTEGRATION_ACTIVITY_SEVERITIES = ["info", "warning", "critical"] as const;
+
 export type IntegrationActivitySeverity = (typeof INTEGRATION_ACTIVITY_SEVERITIES)[number];
+
 export const integrationActivitySeveritySchema = z.enum(INTEGRATION_ACTIVITY_SEVERITIES);
 
 export type IntegrationActivityRollup = z.infer<typeof integrationActivityRollupSchema>;
@@ -207,7 +224,9 @@ export type DayOfWeekContribution = z.infer<typeof dayOfWeekContributionSchema>;
 // no LLM judgment.
 
 export const DAY_SHAPE_VOLUMES = ["busy", "normal", "quiet"] as const;
+
 export type DayShapeVolume = (typeof DAY_SHAPE_VOLUMES)[number];
+
 export const dayShapeVolumeSchema = z.enum(DAY_SHAPE_VOLUMES);
 
 export const dayShapeSchema = z.object({
@@ -238,6 +257,24 @@ export const dayShapeSchema = z.object({
 });
 
 export type DayShape = z.infer<typeof dayShapeSchema>;
+
+/**
+ * A priority email removed from the live briefing lanes because a deterministic
+ * integration-object projection positively proved that its work loop closed.
+ * Persisted separately from `gather` so replays and operators can inspect the
+ * exact closure facts supplied to the composer.
+ */
+export const briefingClosedLoopSchema = z.object({
+  documentId: z.string().min(1),
+  category: triageCategorySchema,
+  subject: z.string().nullable(),
+  objectTitle: z.string().nullable(),
+  objectUrl: z.url().nullable(),
+  stateCategory: z.enum(LOOP_CLOSING_STATE_CATEGORIES),
+  nativeState: z.string().nullable(),
+});
+
+export type BriefingClosedLoop = z.infer<typeof briefingClosedLoopSchema>;
 
 /**
  * Output of the gather step. Sources split into guaranteed vs optional:
@@ -387,11 +424,15 @@ export interface BriefingContributor<T> {
 // ─── Slot + status machine ────────────────────────────────────────────────
 
 export const briefingSlotValues = ["morning", "evening"] as const;
+
 export type BriefingSlot = (typeof briefingSlotValues)[number];
+
 export const briefingSlotSchema = z.enum(briefingSlotValues);
 
 export const briefingSendDecisionValues = ["sent", "suppressed"] as const;
+
 export type BriefingSendDecision = (typeof briefingSendDecisionValues)[number];
+
 export const briefingSendDecisionSchema = z.enum(briefingSendDecisionValues);
 
 export const briefingStatusValues = [
@@ -403,6 +444,7 @@ export const briefingStatusValues = [
   "suppressed",
   "failed",
 ] as const;
+
 export type BriefingStatus = (typeof briefingStatusValues)[number];
 
 export const briefingStatusSchema = z.enum(briefingStatusValues);

@@ -13,7 +13,9 @@ import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
+
 const ID_PREFIX = "test-briefing-read-suppress-";
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -22,6 +24,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Briefing Read Test", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -57,6 +60,7 @@ async function seedEmail(args: {
     model: "test",
     documentId: docId,
   });
+
   return docId;
 }
 
@@ -71,6 +75,7 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeReplicachePokeBridge();
     await closeRedis();
     await closeConnections();
@@ -86,6 +91,7 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
       subject: 'Your milestone "Professional Networking" is due tomorrow',
       ingestedAt: suppressedIngestedAt,
     });
+
     const keepDocId = await seedEmail({
       userId,
       from: "Sakshi <sakshi@example.com>",
@@ -101,6 +107,7 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
       sinceIngestedAt: null,
       untilIngestedAt: until,
     });
+
     assert.equal(before.length, 2);
 
     // The user tells Alfred to stop surfacing the coaching sender.
@@ -109,6 +116,7 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
       senderEmail: "no-reply@shapeshifter.so",
       senderLabel: "Acme Coaching",
     });
+
     assert.equal(remembered.ok, true);
 
     // After: the suppressed sender is gone; the real ask remains.
@@ -117,6 +125,7 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
       sinceIngestedAt: null,
       untilIngestedAt: until,
     });
+
     assert.equal(after.length, 1);
     assert.equal(after[0]?.documentId, keepDocId);
     assert.ok(!after.some((e) => e.from?.includes("shapeshifter")));
@@ -129,18 +138,21 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
       untilIngestedAt: until,
       limit: 1,
     });
+
     assert.equal(limited.length, 1);
     assert.equal(limited[0]?.documentId, keepDocId);
   });
 
   test("suppressed newest rows do not under-fill a limited email window", async () => {
     const userId = await seedUser();
+
     const keepDocId = await seedEmail({
       userId,
       from: "Sakshi <sakshi@example.com>",
       subject: "The real ask behind the noisy sender",
       ingestedAt: new Date("2026-06-27T09:00:00.000Z"),
     });
+
     await seedEmail({
       userId,
       from: "Acme Coaching <no-reply@shapeshifter.so>",
@@ -165,6 +177,7 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
       senderEmail: "no-reply@shapeshifter.so",
       senderLabel: "Acme Coaching",
     });
+
     assert.equal(remembered.ok, true);
 
     const rows = await listEmailsSinceWatermark({
@@ -180,11 +193,13 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
 
   test("readEmailDocument refuses bodies from suppressed senders", async () => {
     const userId = await seedUser();
+
     const suppressedDocId = await seedEmail({
       userId,
       from: "Acme Coaching <no-reply@shapeshifter.so>",
       subject: "Suppressed body",
     });
+
     const keepDocId = await seedEmail({
       userId,
       from: "Sakshi <sakshi@example.com>",
@@ -196,6 +211,7 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
       senderEmail: "no-reply@shapeshifter.so",
       senderLabel: "Acme Coaching",
     });
+
     assert.equal(remembered.ok, true);
 
     const suppressed = await readEmailDocument({ userId, documentId: suppressedDocId });

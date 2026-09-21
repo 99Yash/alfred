@@ -31,6 +31,7 @@ export function UsageSection() {
   // thrash the cache. ISO strings keep the keys primitive.
   const window = useMemo(() => {
     const { start, end } = resolveRangePreset(preset, new Date());
+
     return { start: start.toISOString(), end: end.toISOString() };
   }, [preset]);
 

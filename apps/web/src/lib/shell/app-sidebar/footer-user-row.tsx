@@ -24,6 +24,7 @@ export function FooterRow({ path }: { path: string }) {
 export function RailUserButton() {
   const { name, email, initial } = useUserRow();
   const label = name || email || "Account";
+
   return (
     <RailTip label={label}>
       <Link
@@ -57,6 +58,7 @@ function useUserRow() {
   const signOut = async () => {
     if (signingOut) return;
     setSigningOut(true);
+
     try {
       await authClient.signOut();
     } catch (err) {
@@ -72,7 +74,10 @@ function useUserRow() {
 
 function displayName(user: SessionUser | null | undefined): string {
   if (!user) return "";
+
   if (user.name && user.name.trim()) return user.name.trim().split(/\s+/)[0] ?? "";
+
   if (user.email) return user.email.split("@")[0] ?? "";
+
   return "";
 }

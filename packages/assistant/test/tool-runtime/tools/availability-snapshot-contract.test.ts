@@ -74,12 +74,14 @@ describe("skipping the credential read is a promise phase 2 keeps", () => {
         .filter((tool) => !readsAvailabilitySnapshot(tool))
         .map((tool) => tool.integration),
     );
+
     assert.deepEqual([...excusedIntegrations].sort(), ["mcp", "system"]);
   });
 
   test("a credential-bearing tool is NOT excused — it must pay the read", () => {
     const gmail = listRegisteredTools().filter((tool) => tool.integration === "gmail");
     assert.ok(gmail.length > 0);
+
     for (const tool of gmail) assert.equal(readsAvailabilitySnapshot(tool), true);
   });
 });

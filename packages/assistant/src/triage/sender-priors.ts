@@ -21,6 +21,7 @@ import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
  */
 
 const CACHE_PREFIX = "alfred:sender-prior:";
+
 const CACHE_TTL_SECONDS = 60 * 60; // 1h — increments bust it well before this
 
 /**
@@ -59,9 +60,13 @@ export function senderKeyFor(
   senderAddress: string | null,
 ): string | null {
   if (senderContext.effectiveAuthor === "person") return null;
+
   if (senderContext.botSlug) return `service:${senderContext.botSlug}`;
+
   if (senderContext.effectiveAuthor !== "service") return null;
+
   if (senderAddress) return senderAddress.toLowerCase();
+
   return null;
 }
 
@@ -80,7 +85,9 @@ export interface SenderPriorWriteKeyArgs {
  */
 export function senderPriorWriteKeyFor(args: SenderPriorWriteKeyArgs): string | null {
   if (args.isSent) return null;
+
   if (args.model === "fallback") return null;
+
   return senderKeyFor(args.senderContext, args.senderAddress);
 }
 
@@ -89,6 +96,7 @@ export function senderPriorWriteKeyFor(args: SenderPriorWriteKeyArgs): string | 
 // ---------------------------------------------------------------------------
 
 let redis: BoundedRedis | undefined;
+
 function getRedis(): BoundedRedis {
   // One of only two `"fail-fast"` callers left after #127, and it carries its
   // own justification because the kind's precondition is easy to assume rather
@@ -104,6 +112,7 @@ function getRedis(): BoundedRedis {
   // offline queue is bounded out, and a cache read with a table behind it should
   // not wait that long.
   if (!redis) redis = createRedisConnection("fail-fast");
+
   return redis;
 }
 
@@ -127,8 +136,11 @@ async function loadSenderPriorFromDb(
     .from(senderPriors)
     .where(and(eq(senderPriors.userId, userId), eq(senderPriors.senderKey, senderKey)))
     .limit(1);
+
   const row = rows[0];
+
   if (!row) return null;
+
   return { categoryCounts: row.categoryCounts ?? {}, lastCategory: row.lastCategory };
 }
 
@@ -142,8 +154,10 @@ export async function getSenderPrior(
   senderKey: string,
 ): Promise<SenderPrior | null> {
   const key = cacheKey(userId, senderKey);
+
   try {
     const cached = await getRedis().get(key);
+
     if (cached !== null) {
       // Sentinel for a known-absent sender so we don't re-hit PG every email
       // for a brand-new bulk sender mid-burst.
@@ -157,11 +171,13 @@ export async function getSenderPrior(
   }
 
   const fromDb = await loadSenderPriorFromDb(userId, senderKey);
+
   try {
     await getRedis().set(key, fromDb ? JSON.stringify(fromDb) : "null", "EX", CACHE_TTL_SECONDS);
   } catch {
     // best-effort cache write
   }
+
   return fromDb;
 }
 
@@ -184,6 +200,7 @@ export interface IncrementSenderPriorArgs {
  */
 export async function incrementSenderPrior(args: IncrementSenderPriorArgs): Promise<void> {
   const now = new Date();
+
   const updateSet: PgUpdateSetSource<typeof senderPriors> = {
     categoryCounts: sql`jsonb_set(
       ${senderPriors.categoryCounts},
@@ -194,6 +211,7 @@ export async function incrementSenderPrior(args: IncrementSenderPriorArgs): Prom
     lastSeenAt: now,
     updatedAt: now,
   };
+
   // Only overwrite displayName when we actually have one — don't null out a
   // previously-captured name because this message lacked a display name.
   if (args.displayName) updateSet.displayName = args.displayName;

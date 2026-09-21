@@ -11,7 +11,14 @@
  * schedule the notification without forming an import cycle.
  */
 
-import { humanizeSlug, humanizeToolName, isRecord, jsonValueSchema } from "@alfred/contracts";
+import {
+  humanizeSlug,
+  humanizeToolName,
+  isQuestionApproval,
+  isRecord,
+  jsonValueSchema,
+  type ToolName,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
 import { renderApprovalEmail, type ApprovalEmailField } from "@alfred/mailer";
@@ -26,10 +33,10 @@ import {
   workflowBlockedNotificationJobDataSchema,
   type NotificationJobData,
 } from "@alfred/assistant/tool-runtime";
+import { emailLogoUrl, webOrigin } from "@alfred/assistant/settings";
 import {
-  emailLogoUrl,
   processWorkflowBlockedNotification,
-  webOrigin,
+  type WorkflowBlockedNotificationResult,
 } from "./workflow-blocked-notification";
 
 let _worker: Worker<NotificationJobData> | undefined;
@@ -62,14 +69,29 @@ export async function stopApprovalNotificationWorker(): Promise<void> {
 }
 
 /**
+ * The outcome of one approval notification job. A failed send throws for a
+ * BullMQ retry instead of returning, so `sent`/`duplicate` are the only send
+ * outcomes a caller ever sees. `reason` stays `string` because a `skipped`
+ * row reports whatever non-pending status it holds.
+ */
+export type ApprovalNotificationResult =
+  | { status: "missing"; stagingId: string }
+  | { status: "skipped"; reason: string; stagingId: string }
+  | { status: "sent" | "duplicate"; stagingId: string; emailSendId: string };
+
+/**
  * One worker, two job shapes (#561): the legacy approval job (`{stagingId,
  * userId}`, no `kind`) and the workflow-blocked job (`kind: "workflow_blocked"`).
  * Parse the union once here and branch; each branch owns its own re-read,
  * render, send, and stamp.
  */
-async function processNotificationJob(job: Job<NotificationJobData>): Promise<unknown> {
+async function processNotificationJob(
+  job: Job<NotificationJobData>,
+): Promise<ApprovalNotificationResult | WorkflowBlockedNotificationResult> {
   const blocked = workflowBlockedNotificationJobDataSchema.safeParse(job.data);
+
   if (blocked.success) return processWorkflowBlockedNotification(blocked.data);
+
   return processApprovalNotificationJob(approvalNotificationJobDataSchema.parse(job.data));
 }
 
@@ -79,7 +101,7 @@ async function processApprovalNotificationJob({
 }: {
   stagingId: string;
   userId: string;
-}): Promise<unknown> {
+}): Promise<ApprovalNotificationResult> {
   const rows = await db()
     .select({
       id: actionStagings.id,
@@ -103,8 +125,11 @@ async function processApprovalNotificationJob({
     .limit(1);
 
   const row = rows[0];
+
   if (!row) return { status: "missing", stagingId };
+
   if (row.status !== "pending") return { status: "skipped", reason: row.status, stagingId };
+
   if (row.notifiedAt) return { status: "skipped", reason: "already_notified", stagingId };
 
   // #374: render the email and persist the payload from the redacted display
@@ -113,6 +138,7 @@ async function processApprovalNotificationJob({
   // The fallback covers only pre-column legacy rows (removed by 0107 backfill).
   const displayInput = jsonValueSchema.parse(row.displayInput ?? row.proposedInput);
   const approvalUrl = approvalDeepLink(stagingId);
+
   const rendered = await renderApprovalNotification({
     stagingId,
     runId: row.runId,
@@ -157,6 +183,7 @@ async function processApprovalNotificationJob({
   }
 
   const now = new Date();
+
   const updated = await db()
     .update(actionStagings)
     .set({
@@ -173,6 +200,7 @@ async function processApprovalNotificationJob({
     .returning({ id: actionStagings.id });
 
   if (updated[0]) emitReplicachePokes([row.userId], stagingId);
+
   return { status: result.status, stagingId, emailSendId: result.emailSendId };
 }
 
@@ -181,7 +209,7 @@ interface RenderApprovalNotificationArgs {
   runId: string;
   stepId: string;
   workflowSlug: string;
-  toolName: string;
+  toolName: ToolName;
   integration: string;
   riskTier: string;
   displayInput: unknown;
@@ -193,10 +221,15 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
   html: string;
   text: string;
 }> {
+  // A question is an approval with a different card (ADR-0099): the same row,
+  // the same email door, but the copy asks for an answer, not a decision, and
+  // a risk prefix on a question would mislead.
+  const isQuestion = isQuestionApproval(args.toolName);
   const action = humanizeToolName(args.toolName);
-  const heading = `Alfred wants to ${action}`;
-  const subject = `[${args.riskTier}] ${heading}`;
+  const heading = isQuestion ? "Alfred has a question for you" : `Alfred wants to ${action}`;
+  const subject = isQuestion ? heading : `[${args.riskTier}] ${heading}`;
   const inputFields = summarizeInput(args.displayInput);
+
   // Workflow / Tool / Risk lead the table, then the summarized input fields.
   const fields: ApprovalEmailField[] = [
     { label: "Workflow", value: args.workflowSlug },
@@ -204,6 +237,7 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
     { label: "Risk", value: args.riskTier },
     ...inputFields,
   ];
+
   const textLines = [
     subject,
     "",
@@ -235,8 +269,11 @@ function summarizeInput(input: unknown): Array<{ label: string; value: string }>
   if (!isRecord(input)) {
     return [{ label: "Input", value: truncate(formatValue(input), 500) }];
   }
+
   const entries = Object.entries(input).slice(0, 8);
+
   if (entries.length === 0) return [{ label: "Input", value: "{}" }];
+
   return entries.map(([key, value]) => ({
     label: humanizeSlug(key),
     value: truncate(formatValue(value), 500),
@@ -245,8 +282,11 @@ function summarizeInput(input: unknown): Array<{ label: string; value: string }>
 
 function formatValue(value: unknown): string {
   if (typeof value === "string") return value;
+
   if (typeof value === "number" || typeof value === "boolean") return String(value);
+
   if (value == null) return "None";
+
   return JSON.stringify(value);
 }
 

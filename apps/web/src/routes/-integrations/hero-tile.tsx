@@ -11,6 +11,7 @@ export function HeroTile({
   rotate?: number | undefined;
 }) {
   const isCenter = variant === "center";
+
   // The full-bleed tile is the artwork itself; the wrapper only carries the
   // rotation and the elevated drop shadow that floats it off the backdrop.
   return (

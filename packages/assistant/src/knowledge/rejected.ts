@@ -13,6 +13,7 @@ import { valueSignature } from "./signature";
 /** Has the user already rejected `(key, value)`? */
 export async function isRejected(userId: string, key: string, value: unknown): Promise<boolean> {
   const sig = valueSignature(value);
+
   const [hit] = await db()
     .select({ id: rejectedInferences.id })
     .from(rejectedInferences)
@@ -24,6 +25,7 @@ export async function isRejected(userId: string, key: string, value: unknown): P
       ),
     )
     .limit(1);
+
   return hit != null;
 }
 
@@ -43,6 +45,7 @@ export async function listRejections(
   }>
 > {
   const filters = [eq(rejectedInferences.userId, userId)];
+
   if (key) filters.push(eq(rejectedInferences.key, key));
 
   const rows = await db()
@@ -51,6 +54,7 @@ export async function listRejections(
     .where(and(...filters))
     .orderBy(desc(rejectedInferences.rejectedAt))
     .limit(limit);
+
   return rows.map((r) => ({
     id: r.id,
     key: r.key,

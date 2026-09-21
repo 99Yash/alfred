@@ -1042,16 +1042,29 @@ export const projectionSyncState = pgTable(
 );
 
 export type Observation = typeof observations.$inferSelect;
+
 export type ObservationFamilyHead = typeof observationFamilyHeads.$inferSelect;
+
 export type EntityNode = typeof entityNodes.$inferSelect;
+
 export type EntityIdentity = typeof entityIdentities.$inferSelect;
+
 export type EntityProfile = typeof entityProfiles.$inferSelect;
+
 export type EntityEdge = typeof entityEdges.$inferSelect;
+
 export type EntityCoOccurrence = typeof entityCoOccurrence.$inferSelect;
+
 export type ActiveEntityProfile = typeof activeEntityProfiles.$inferSelect;
+
 export type ActiveEntityEdge = typeof activeEntityEdges.$inferSelect;
+
 export type ActiveEntityCoOccurrence = typeof activeEntityCoOccurrence.$inferSelect;
+
 export type ProjectionRun = typeof projectionRuns.$inferSelect;
+
 export type ProjectionCursor = typeof projectionCursors.$inferSelect;
+
 export type ActiveProjectionVersion = typeof activeProjectionVersions.$inferSelect;
+
 export type ProjectionSyncState = typeof projectionSyncState.$inferSelect;

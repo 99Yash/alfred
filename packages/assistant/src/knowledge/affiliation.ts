@@ -42,7 +42,7 @@ import {
 } from "@alfred/contracts";
 import { db, type DbRoot } from "@alfred/db";
 import { integrationCredentials, observationFamilyHeads } from "@alfred/db/schemas";
-import { createHash } from "node:crypto";
+import { sha256Canonical } from "@alfred/db/hash";
 import { and, eq } from "drizzle-orm";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { insertObservation } from "./observations";
@@ -78,6 +78,7 @@ export type BuildOrgAffiliationSkipReason =
   | "unclassifiable_domain";
 
 const ORG_AFFILIATION_APPEND_MAX_ATTEMPTS = 3;
+
 const OBSERVATION_CHAIN_CONSTRAINTS = new Set([
   "observations_no_fork_idx",
   "observations_single_root_idx",
@@ -85,6 +86,7 @@ const OBSERVATION_CHAIN_CONSTRAINTS = new Set([
 
 export function isOrgAffiliationObservationAppendConflict(err: unknown): boolean {
   const constraint = uniqueViolationConstraint(err);
+
   return constraint !== null && OBSERVATION_CHAIN_CONSTRAINTS.has(constraint);
 }
 
@@ -108,11 +110,8 @@ export async function retryOnObservationChainConflict<T>(fn: () => Promise<T>): 
 function hostedDomainFromMetadata(metadata: unknown): string | null {
   if (!isRecord(metadata)) return null;
   const hd = metadata["googleHostedDomain"];
-  return isNonEmptyString(hd) ? hd : null;
-}
 
-function hashJson(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return isNonEmptyString(hd) ? hd : null;
 }
 
 function payloadsMatchForCurrentAffiliation(
@@ -145,30 +144,37 @@ export function buildOrgAffiliationObservationInput(
   opts: { status: OrgAffiliationStatus; occurredAt: Date },
 ): BuildOrgAffiliationResult {
   const accountId = cred.accountId.trim();
+
   if (!accountId) return { ok: false, reason: "missing_account_id" };
 
   if (!isNonEmptyString(cred.accountEmail)) return { ok: false, reason: "missing_account_email" };
   const accountEmail = canonicalizeIdentityValue("email", cred.accountEmail);
+
   if (!identityValueMatchesKind("email", accountEmail)) {
     return { ok: false, reason: "invalid_account_email" };
   }
+
   // A canonical, format-valid email always has a single `@`; the domain after it
   // is a valid hostname (the email regex validates it), so it satisfies the
   // payload's canonical-domain schema without a second normalization pass.
   const accountEmailDomain = accountEmail.slice(accountEmail.indexOf("@") + 1);
 
   const rawHostedDomain = hostedDomainFromMetadata(cred.metadata);
+
   const hostedDomain = rawHostedDomain
     ? canonicalizeIdentityValue("domain", rawHostedDomain)
     : null;
+
   const verifiedHostedDomain =
     hostedDomain && identityValueMatchesKind("domain", hostedDomain) ? hostedDomain : null;
+
   // Google documents `hd` as the hosted-domain authority. The email claim can be
   // an alias/secondary domain, so the org lifecycle family is keyed by `hd` when
   // present; the accountEmail still preserves the actual mailbox.
   const orgDomain = verifiedHostedDomain ?? accountEmailDomain;
 
   const domainClass = classifyEmailDomain({ email: accountEmail, verifiedHostedDomain });
+
   if (!domainClass) return { ok: false, reason: "unclassifiable_domain" };
 
   const payload: UserOrgAffiliationPayload = {
@@ -185,9 +191,10 @@ export function buildOrgAffiliationObservationInput(
   // Family = the account×org lifecycle; connect/disconnect/reconnect rows share
   // it so the projection reads the latest member to decide currentness.
   const familyKey = `org_affiliation:${accountId}:${orgDomain}`;
+
   // The hash carries `occurredAtMs` so distinct lifecycle EVENTS never dedup,
   // while a re-auth/backfill at the same connect time DOES (stable `createdAt`).
-  const evidenceHash = hashJson({
+  const evidenceHash = sha256Canonical({
     accountId,
     orgDomain,
     domainClass,
@@ -277,6 +284,7 @@ async function loadGoogleCredentialForAffiliation(
       ),
     )
     .limit(1);
+
   return cred ?? null;
 }
 
@@ -286,8 +294,10 @@ async function recordOrgAffiliationConnectEvent(
   tx?: DbTransaction,
 ): Promise<RecordOrgAffiliationResult> {
   const built = buildOrgAffiliationObservationInput(cred, { status: "connected", occurredAt });
+
   if (!built.ok) return { status: "skipped", reason: built.reason };
   const { deduped } = await insertOrgAffiliationObservation(built.input, tx);
+
   return { status: deduped ? "deduped" : "emitted" };
 }
 
@@ -304,6 +314,7 @@ export async function recordOrgAffiliationOnConnect(
 ): Promise<RecordOrgAffiliationResult> {
   const ex = tx ?? db();
   const cred = await loadGoogleCredentialForAffiliation(credentialId, ex);
+
   if (!cred) return { status: "skipped", reason: "missing_account_id" };
 
   return recordOrgAffiliationConnectEvent(cred, cred.createdAt, tx);
@@ -327,25 +338,30 @@ export async function recordOrgAffiliationOnCredentialUpsert(
 ): Promise<RecordOrgAffiliationOnCredentialUpsertResult> {
   const run = async (ex: DbTransaction): Promise<RecordOrgAffiliationOnCredentialUpsertResult> => {
     const current = await loadGoogleCredentialForAffiliation(args.credentialId, ex);
+
     if (!current) {
       return { connectedCurrent: { status: "skipped", reason: "missing_account_id" } };
     }
 
     let connectOccurredAt = current.createdAt;
     let disconnectedPrevious: RecordOrgAffiliationResult | undefined;
+
     if (args.previousCredential) {
       const previousConnectBuilt = buildOrgAffiliationObservationInput(args.previousCredential, {
         status: "connected",
         occurredAt: args.changedAt,
       });
+
       const currentBuiltAtChange = buildOrgAffiliationObservationInput(current, {
         status: "connected",
         occurredAt: args.changedAt,
       });
+
       const familyChanged =
         previousConnectBuilt.ok &&
         (!currentBuiltAtChange.ok ||
           previousConnectBuilt.input.familyKey !== currentBuiltAtChange.input.familyKey);
+
       const affiliationEvidenceChanged =
         currentBuiltAtChange.ok &&
         (!previousConnectBuilt.ok ||
@@ -365,6 +381,7 @@ export async function recordOrgAffiliationOnCredentialUpsert(
           ex,
         );
       }
+
       if (affiliationEvidenceChanged) connectOccurredAt = args.changedAt;
     }
 
@@ -391,7 +408,9 @@ export async function recordOrgAffiliationOnDisconnect(
   tx?: DbTransaction,
 ): Promise<RecordOrgAffiliationResult> {
   const built = buildOrgAffiliationObservationInput(cred, { status: "disconnected", occurredAt });
+
   if (!built.ok) return { status: "skipped", reason: built.reason };
   const { deduped } = await insertOrgAffiliationObservation(built.input, tx);
+
   return { status: deduped ? "deduped" : "emitted" };
 }

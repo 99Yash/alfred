@@ -3,6 +3,7 @@ import {
   type CallWarning,
   type FinishReason,
   type GenerateTextResult,
+  type LanguageModel,
   type LanguageModelUsage,
   type ModelMessage,
   type StreamTextResult,
@@ -12,7 +13,7 @@ import {
 import type { SharedV4ProviderOptions } from "@ai-sdk/provider";
 import { withDefaults } from "@alfred/contracts";
 import { meteredGenerateText, meteredStreamText, type AttributedCall } from "./metering/wrappers";
-import { attachProviderTurnPolicy, type ProviderAdaptedLanguageModel } from "./provider-adapter";
+import { attachProviderTurnPolicy } from "./provider-adapter";
 
 type AlfredProviderOptions = SharedV4ProviderOptions;
 
@@ -66,13 +67,12 @@ export interface AlfredAgentSettings<CTX = unknown> {
   tools: (ctx: CTX) => Promise<ToolSet> | ToolSet;
 
   /**
-   * Provider-adapted model from an @alfred/ai model factory. Resolver form lets
-   * capability-tagged dispatch swap providers per CTX without admitting a raw
-   * SDK model that cannot consume Alfred's internal turn-policy envelope.
+   * Model from an @alfred/ai route or leg factory, so it carries the request
+   * adapter that consumes Alfred's internal turn-policy envelope and applies the
+   * provider's cache decoration. Resolver form lets capability-tagged dispatch
+   * swap providers per CTX.
    */
-  model:
-    | ProviderAdaptedLanguageModel
-    | ((ctx: CTX) => Promise<ProviderAdaptedLanguageModel> | ProviderAdaptedLanguageModel);
+  model: LanguageModel | ((ctx: CTX) => Promise<LanguageModel> | LanguageModel);
 
   /**
    * Prompt-cache policy consumed by the concrete model's protocol wrapper.
@@ -182,6 +182,7 @@ export class AlfredAgent<CTX = unknown> {
   async turn(args: TurnArgs<CTX>): Promise<TurnResult> {
     const { request, attribution } = await this.prepareTurn(args);
     const result = await meteredGenerateText(request, attribution);
+
     return classifyTurnResult(result);
   }
 
@@ -199,6 +200,7 @@ export class AlfredAgent<CTX = unknown> {
    */
   async streamTurn(args: TurnArgs<CTX>): Promise<StreamTextResult<ToolSet, never, never>> {
     const { request, attribution } = await this.prepareTurn(args);
+
     return meteredStreamText(
       { ...request, timeout: args.streamTimeout ?? DEFAULT_TURN_STREAM_TIMEOUT },
       attribution,
@@ -251,25 +253,32 @@ export class AlfredAgent<CTX = unknown> {
 
   private cacheTtl(): "5m" | "1h" | undefined {
     if (this.s.cacheControl === false) return undefined;
+
     return this.s.cacheControl?.ttl ?? DEFAULT_CACHE_TTL;
   }
 
   private assertStableSystem(system: string): void {
     if (this.pinnedSystem === undefined) {
       this.pinnedSystem = system;
+
       return;
     }
+
     if (this.pinnedSystem === system) return;
     const tag = this.id ? ` ${this.id}` : "";
+
     const msg =
       `[AlfredAgent${tag}] system prompt changed between turns — kills the prompt cache. ` +
       `original_len=${this.pinnedSystem.length} new_len=${system.length}. ` +
       `Pin the system to stable user/tool-surface context only; never include run state, timestamps, or ids.`;
+
     if (this.s.strictSystem === false) {
       console.warn(msg);
       this.pinnedSystem = system;
+
       return;
     }
+
     throw new Error(msg);
   }
 
@@ -287,9 +296,11 @@ export class AlfredAgent<CTX = unknown> {
       withDefaults<AttributedCall>({ cacheWriteTtl }, this.s.attribution),
       perTurn,
     );
+
     if (!merged.name && this.id) {
       merged.name = `agent:${this.id}`;
     }
+
     return merged;
   }
 }
@@ -310,11 +321,14 @@ async function resolve<T, CTX>(v: T | ((ctx: CTX) => Promise<T> | T), ctx: CTX):
 function prepareTools(tools: ToolSet): ToolSet {
   const sortedNames = Object.keys(tools).sort((a, b) => a.localeCompare(b));
   const out: ToolSet = {};
+
   for (const name of sortedNames) {
     const def = tools[name];
+
     if (!def) continue;
     out[name] = stripExecute(def);
   }
+
   return out;
 }
 
@@ -332,6 +346,7 @@ function stripExecute(t: ToolSetEntry): ToolSetEntry {
   // providerOptions, etc.). A tool without `execute` is still a valid tool
   // (it's optional), so the rest object needs no cast.
   const { execute: _execute, ...rest } = t;
+
   return rest;
 }
 
@@ -342,6 +357,7 @@ function classifyTurnResult(result: GenerateTextResult<ToolSet, never, never>): 
     warnings: result.finalStep.warnings,
     raw: result,
   } as const;
+
   if (result.toolCalls.length > 0) {
     return {
       kind: "tool-calls",
@@ -350,6 +366,7 @@ function classifyTurnResult(result: GenerateTextResult<ToolSet, never, never>): 
       ...base,
     };
   }
+
   if (
     isRetryableEmptyCompletion({
       finishReason: result.finishReason,
@@ -359,14 +376,17 @@ function classifyTurnResult(result: GenerateTextResult<ToolSet, never, never>): 
   ) {
     return { kind: "empty", ...base };
   }
+
   if (result.finishReason === "stop") {
     return { kind: "final", text: result.text, ...base };
   }
+
   return { kind: "stopped", reason: nonStopReason(result.finishReason), ...base };
 }
 
 function nonStopReason(r: FinishReason): "length" | "content-filter" | "error" | "other" {
   if (r === "length" || r === "content-filter" || r === "error") return r;
+
   return "other";
 }
 
@@ -395,6 +415,7 @@ export function isRetryableEmptyCompletion(input: {
   textLength: number;
 }): boolean {
   if (input.hasToolCalls || input.textLength > 0) return false;
+
   return input.finishReason !== "content-filter" && input.finishReason !== "length";
 }
 
@@ -422,6 +443,7 @@ export function classifyStreamFinish(input: {
   textLength: number;
 }): StreamFinishOutcome {
   if (input.toolCalls.length > 0) return { kind: "tool-calls" };
+
   if (
     isRetryableEmptyCompletion({
       finishReason: input.finishReason,
@@ -431,6 +453,8 @@ export function classifyStreamFinish(input: {
   ) {
     return { kind: "empty" };
   }
+
   if (input.finishReason === "stop") return { kind: "final" };
+
   return { kind: "stopped", reason: nonStopReason(input.finishReason) };
 }

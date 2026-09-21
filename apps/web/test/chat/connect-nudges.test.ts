@@ -31,6 +31,7 @@ describe("splitPersistedToolCalls", () => {
         connectNudge: { integration: "gmail", action: "connect" },
       },
     ]);
+
     assert.deepEqual(
       cards.map((c) => c.toolCallId),
       ["t1"],
@@ -62,6 +63,7 @@ describe("splitPersistedToolCalls", () => {
         connectNudge: { integration: "gmail", action: "reconnect" },
       },
     ]);
+
     // Same rule as the live stream state's map: gmail stays in first position
     // and its last offer wins, so a reload matches what the turn streamed.
     assert.deepEqual(nudges, [
@@ -86,6 +88,7 @@ describe("presentConnectNudges", () => {
       [{ integration: "gmail", action: "connect" }],
       statuses(["gmail", "available"]),
     );
+
     assert.ok(view);
     assert.equal(view.slug, "gmail");
     assert.equal(view.name, "Gmail");
@@ -98,6 +101,7 @@ describe("presentConnectNudges", () => {
       [{ integration: "github", action: "reconnect" }],
       statuses(["github", "available"]),
     );
+
     assert.ok(view);
     assert.equal(view.line, "GitHub needs to be reconnected.");
     assert.equal(view.cta, "Reconnect GitHub");
@@ -132,6 +136,7 @@ describe("presentConnectNudges", () => {
       [{ integration: "calendar", action: "connect" }],
       statuses(["calendar", "available"]),
     );
+
     assert.ok(view);
     assert.equal(view.slug, "calendar");
   });

@@ -7,10 +7,11 @@ import ReactMarkdown from "react-markdown";
 import remend from "remend";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { MarkdownPre } from "~/components/markdown-renderer";
+import { altTextImageComponents, MarkdownPre } from "~/components/markdown-renderer";
 import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
 import { ConnectNudgeRows } from "./connect-nudge-rows";
+import { useMarkdownImageMode } from "./published-transcript";
 import { splitPersistedToolCalls } from "./connect-nudges";
 import { ReasoningSection } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
@@ -134,30 +135,40 @@ function hideIncompleteTableTail(text: string): string {
   // it has no `|`, nothing is held back, so skip the O(n) split (keeps streaming
   // linear instead of O(n²)).
   let last = text.length - 1;
+
   while (last >= 0 && /\s/.test(text[last]!)) last--;
+
   if (last < 0) return text; // all blank
   const lastLineStart = text.lastIndexOf("\n", last) + 1;
+
   if (!text.slice(lastLineStart, last + 1).includes("|")) return text;
 
   const lines = text.split("\n");
   // Ignore trailing blank lines: a header that just gained its newline
   // (`| a | b |\n`) is still a header-only fragment, not a finished block.
   let end = lines.length - 1;
+
   while (end >= 0 && lines[end]?.trim() === "") end--;
+
   if (end < 0) return text;
   // Walk back over the trailing run of pipe lines.
   let start = end + 1;
+
   for (let i = end; i >= 0; i--) {
     if (lines[i]?.includes("|")) start = i;
     else break;
   }
+
   if (start > end) return text; // no trailing pipe lines
   const block = lines.slice(start, end + 1);
+
   // A real table header starts the line with a pipe; a stray inline `|` in
   // prose (e.g. "a | b") does not, so we leave that alone.
   if (!/^\s*\|/.test(block[0] ?? "")) return text;
   const dataRowStarted = block.length > 2 && TABLE_DELIMITER.test(block[1] ?? "");
+
   if (dataRowStarted) return text; // valid table — render it and stream its rows
+
   return lines.slice(0, start).join("\n"); // hold back the header / partial delimiter
 }
 
@@ -186,6 +197,16 @@ function healStreamingMarkdown(text: string): string {
 /** Assistant markdown body, with a blinking caret + per-word reveal while streaming. */
 export function AssistantMarkdown({ text, streaming }: { text: string; streaming?: boolean }) {
   const body = streaming ? healStreamingMarkdown(text) : text;
+
+  // This file drives `ReactMarkdown` itself rather than going through
+  // `MarkdownRenderer`, so it has no `images` prop to set: it merges the same
+  // override in by hand. The merge is LAST so nothing above it can put a remote
+  // `<img>` back on a published page.
+  const imageComponents =
+    useMarkdownImageMode() === "alt-text" ? altTextImageComponents("surface") : null;
+
+  const baseComponents = streaming ? STREAMING_COMPONENTS : BASE_COMPONENTS;
+
   return (
     <div
       // The reply reads at a larger scale than the rail, so its fenced code
@@ -198,7 +219,7 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
     >
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
-        components={streaming ? STREAMING_COMPONENTS : BASE_COMPONENTS}
+        components={imageComponents ? { ...baseComponents, ...imageComponents } : baseComponents}
       >
         {body}
       </ReactMarkdown>
@@ -228,6 +249,7 @@ function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment
 function AttachmentPlaceholder({ label, onRetry }: { label: string; onRetry?: () => void }) {
   const className =
     "grid size-40 place-items-center rounded-xl border border-app-fg-a1/30 bg-app-bg-2 px-2 text-center text-xs text-app-fg-3";
+
   if (onRetry) {
     return (
       <button type="button" onClick={onRetry} className={`${className} hover:bg-app-bg-3`}>
@@ -235,6 +257,7 @@ function AttachmentPlaceholder({ label, onRetry }: { label: string; onRetry?: ()
       </button>
     );
   }
+
   return <div className={className}>{label}</div>;
 }
 
@@ -243,6 +266,7 @@ function MessageAttachment({ attachment }: { attachment: SyncedChatAttachment })
   // load failure instead of leaving the placeholder stuck forever.
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [loadFailed, setLoadFailed] = useState(false);
+
   if (attachment.status !== "ready") {
     return (
       <AttachmentPlaceholder
@@ -250,6 +274,7 @@ function MessageAttachment({ attachment }: { attachment: SyncedChatAttachment })
       />
     );
   }
+
   if (loadFailed) {
     return (
       <AttachmentPlaceholder
@@ -261,7 +286,9 @@ function MessageAttachment({ attachment }: { attachment: SyncedChatAttachment })
       />
     );
   }
+
   const url = `${API_URL}/api/chat/attachments/${attachment.id}/content`;
+
   return (
     <a
       href={url}
@@ -301,6 +328,7 @@ export function MessageBubble({
   // the rich (text/html) clipboard flavor. Unconditional — hooks can't sit
   // behind the user/assistant branch.
   const bodyRef = useRef<HTMLDivElement | null>(null);
+
   if (message.role === "user") {
     return (
       <div className="flex flex-col items-end gap-1">
@@ -315,21 +343,25 @@ export function MessageBubble({
       </div>
     );
   }
+
   // Connection-health bounces ride the log as repair offers, not drawable
   // cards (#378 item 3): split them out so the trail, run summary and source
   // extraction see exactly the calls that executed or failed on their own.
   const { cards: tools, nudges } = splitPersistedToolCalls(message.toolCalls ?? []);
   const sources = collectSources(tools);
   const failed = message.status === "failed";
+
   const failure = failed
     ? message.errorKind
       ? FAILURE_PRESENTATION[message.errorKind]
       : LEGACY_FAILURE
     : null;
+
   const failureMessage =
     failure?.retry === "without_attachments" && !onRetryWithoutAttachments
       ? "I couldn't read the attached file. Start a new chat with a different file, or send a text message instead."
       : failure?.message;
+
   return (
     <div className="group/message flex flex-col gap-2">
       {message.reasoning && message.reasoning.trim().length > 0 ? (
@@ -380,7 +412,7 @@ export function MessageBubble({
       {message.content.length > 0 ? (
         <CopyMessageButton content={message.content} htmlRef={bodyRef} />
       ) : null}
-      {import.meta.env.DEV && message.usage ? <UsageLine usage={message.usage} /> : null}
+      {message.usage ? <UsageLine usage={message.usage} tone={failed ? "failed" : "ok"} /> : null}
     </div>
   );
 }
@@ -408,9 +440,11 @@ export function CopyMessageButton({
     },
     [],
   );
+
   const onCopy = () => {
     if (copied) return;
     const html = htmlRef.current?.innerHTML;
+
     const write =
       html && typeof ClipboardItem !== "undefined"
         ? navigator.clipboard.write([
@@ -420,9 +454,11 @@ export function CopyMessageButton({
             }),
           ])
         : navigator.clipboard.writeText(content);
+
     write.then(
       () => {
         setCopied(true);
+
         if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
         resetTimerRef.current = window.setTimeout(() => setCopied(false), 1500);
       },
@@ -431,6 +467,7 @@ export function CopyMessageButton({
       },
     );
   };
+
   return (
     <div
       className={cn(

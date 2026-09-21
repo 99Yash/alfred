@@ -16,6 +16,7 @@ import {
 import { AppButton, AppPill } from "~/components/ui/v2";
 import { formatTimestamp } from "~/components/approvals/format";
 import { API_URL } from "~/lib/eden";
+import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import {
   effectCounts,
   revisionLabel,
@@ -39,7 +40,9 @@ function headlineIcon(headline: RunHeadline, status: WorkflowRunHistoryRow["stat
   if (status === "running" || status === "pending" || status === "runnable") {
     return <LoaderCircle size={16} className="animate-spin" />;
   }
+
   if (status === "waiting" || status === "deferred") return <Clock size={16} />;
+
   switch (headline.tone) {
     case "green":
       return <CheckCircle2 size={16} />;
@@ -109,7 +112,10 @@ export function HistoryRunRow({
               variant="primary"
               size="sm"
               onClick={() => {
-                window.location.href = `${API_URL}${recovery.path}`;
+                // Authorization opens in a new tab so the workflow context
+                // stays in place; the row's Recheck action picks up the new
+                // grant on return.
+                openAuthorizationTab(`${API_URL}${recovery.path}`);
               }}
             >
               {recovery.label}

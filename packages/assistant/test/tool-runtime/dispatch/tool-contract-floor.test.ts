@@ -59,6 +59,7 @@ function bossOnlyTool(onExecute: () => void) {
     inputSchema: z.object({}).loose(),
     execute: async () => {
       onExecute();
+
       return { ok: true };
     },
   });
@@ -76,6 +77,7 @@ function threadOnlyTool(onExecute: () => void) {
     inputSchema: z.object({}).loose(),
     execute: async () => {
       onExecute();
+
       return { ok: true };
     },
   });
@@ -97,6 +99,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
 
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
+
     if (result.kind !== "not_allowed") return;
     assert.match(result.result.message, /boss caller/);
   });
@@ -131,6 +134,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
 
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
+
     if (result.kind !== "not_allowed") return;
     assert.match(result.result.message, /live chat/);
   });
@@ -179,6 +183,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
     });
 
     assert.equal(result.kind, "not_allowed");
+
     if (result.kind !== "not_allowed") return;
     assert.match(result.result.message, /boss caller/);
   });

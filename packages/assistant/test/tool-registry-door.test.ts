@@ -70,6 +70,7 @@ test("the package door retires every internal registry reader", () => {
   for (const name of RETIRED_REGISTRY_READERS) {
     assert.ok(!keys.has(name), `${name} must leave the registry door`);
   }
+
   for (const name of NEVER_PUBLIC_REGISTRY_READERS) {
     assert.ok(!keys.has(name), `${name} must stay private`);
   }

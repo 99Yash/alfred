@@ -27,8 +27,10 @@ export async function loadChatThreadContext(
     .from(chatThreadContext)
     .where(and(eq(chatThreadContext.userId, userId), eq(chatThreadContext.threadId, threadId)))
     .limit(1);
+
   if (!row) return null;
   const parsed = parsePersistedConversationSummary(row.summary);
+
   return {
     ...row,
     summary: parsed.summary,
@@ -54,6 +56,7 @@ export async function markConversationCompactionRequested(
   ex: AgentDbExecutor = db(),
 ): Promise<{ requestedAt: Date; generation: number }> {
   const requestedAt = new Date();
+
   const [row] = await ex
     .insert(chatThreadContext)
     .values({ userId, threadId, compactionRequestedAt: requestedAt })
@@ -63,7 +66,9 @@ export async function markConversationCompactionRequested(
       setWhere: eq(chatThreadContext.userId, userId),
     })
     .returning({ generation: chatThreadContext.compactionGeneration });
+
   if (!row) throw new Error("conversation_compaction_request_not_recorded");
+
   return { requestedAt, generation: row.generation };
 }
 
@@ -79,6 +84,7 @@ export async function recordConversationCompactionFailure(
   ex: AgentDbExecutor = db(),
 ): Promise<boolean> {
   const failedAt = new Date();
+
   const rows = await ex
     .update(chatThreadContext)
     .set({
@@ -96,6 +102,7 @@ export async function recordConversationCompactionFailure(
       ),
     )
     .returning({ threadId: chatThreadContext.threadId });
+
   return rows.length === 1;
 }
 
@@ -115,6 +122,7 @@ export async function persistConversationReplayEstimate(
     .insert(chatThreadContext)
     .values({ userId: args.userId, threadId: args.threadId })
     .onConflictDoNothing({ target: chatThreadContext.threadId });
+
   const watermarkPredicate = args.expectedWatermark
     ? and(
         eq(chatThreadContext.replayEstimateWatermarkCreatedAt, args.expectedWatermark.createdAt),
@@ -124,6 +132,7 @@ export async function persistConversationReplayEstimate(
         isNull(chatThreadContext.replayEstimateWatermarkCreatedAt),
         isNull(chatThreadContext.replayEstimateWatermarkMessageId),
       );
+
   const rows = await ex
     .update(chatThreadContext)
     .set({
@@ -141,6 +150,7 @@ export async function persistConversationReplayEstimate(
       ),
     )
     .returning({ threadId: chatThreadContext.threadId });
+
   return rows.length === 1;
 }
 
@@ -155,10 +165,13 @@ export async function persistConversationSummary(
   if (!Number.isInteger(args.estimatedReplayTokens) || args.estimatedReplayTokens < 0) {
     throw new Error("estimatedReplayTokens must be a non-negative integer");
   }
+
   if (!Number.isInteger(args.expectedGeneration) || args.expectedGeneration < 0) {
     throw new Error("expectedGeneration must be a non-negative integer");
   }
+
   const summary = validateConversationSummary(args.summary, args.eligibleSources);
+
   if (!args.eligibleSources.messageIds.has(args.watermark.messageId)) {
     throw new Error("conversation_summary_invalid_provenance: watermark message");
   }
@@ -177,11 +190,14 @@ export async function persistConversationSummary(
         isNull(chatThreadContext.summaryWatermarkCreatedAt),
         isNull(chatThreadContext.summaryWatermarkMessageId),
       );
+
   const now = new Date();
+
   const retainNewerReplayEstimate = sql<boolean>`
     (${chatThreadContext.replayEstimateWatermarkCreatedAt}, ${chatThreadContext.replayEstimateWatermarkMessageId}) >
     (${args.replayEstimateWatermark.createdAt}, ${args.replayEstimateWatermark.messageId})
   `;
+
   const rows = await db()
     .update(chatThreadContext)
     .set({
@@ -216,5 +232,6 @@ export async function persistConversationSummary(
       ),
     )
     .returning({ threadId: chatThreadContext.threadId });
+
   return rows.length === 1;
 }

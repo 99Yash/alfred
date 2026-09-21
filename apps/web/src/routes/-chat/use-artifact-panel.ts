@@ -11,9 +11,11 @@ import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage"
  * executes and the id is bound, the selection migrates to the real id.
  */
 const PENDING_PREFIX = "pending:";
+
 function pendingSelectionId(toolCallId: string): string {
   return `${PENDING_PREFIX}${toolCallId}`;
 }
+
 export function pendingToolCallId(selectedId: string | null): string | null {
   return selectedId?.startsWith(PENDING_PREFIX) ? selectedId.slice(PENDING_PREFIX.length) : null;
 }
@@ -32,8 +34,11 @@ export function pendingToolCallId(selectedId: string | null): string | null {
  */
 
 const WIDTH_KEY = "alfred:artifact-panel-width";
+
 const ARTIFACT_PANEL_MIN_WIDTH = 360;
+
 const ARTIFACT_PANEL_MAX_WIDTH = 760;
+
 const ARTIFACT_PANEL_DEFAULT_WIDTH = 460;
 
 export interface ArtifactPanelState {
@@ -60,6 +65,7 @@ interface SelectionState {
 
 function clampWidth(width: number): number {
   if (!Number.isFinite(width)) return ARTIFACT_PANEL_DEFAULT_WIDTH;
+
   return Math.min(ARTIFACT_PANEL_MAX_WIDTH, Math.max(ARTIFACT_PANEL_MIN_WIDTH, Math.round(width)));
 }
 
@@ -76,11 +82,13 @@ export function useArtifactPanel(
     threadId,
     selectedId: null,
   }));
+
   const [width, setWidthState] = useState<number>(readStoredWidth);
   // Keys we've already auto-opened per thread, so closing one doesn't make the
   // next poke re-open it. Holds both real artifact ids and `pending:<tcid>`
   // keys for creates surfaced before their row exists.
   const autoOpenedByThreadRef = useRef<Map<string | undefined, Set<string>>>(new Map());
+
   const markAutoOpened = useCallback(
     (key: string) => {
       const set = autoOpenedByThreadRef.current.get(threadId) ?? new Set<string>();
@@ -93,6 +101,7 @@ export function useArtifactPanel(
   if (selection.threadId !== threadId) {
     setSelection({ threadId, selectedId: null });
   }
+
   const selectedId = selection.threadId === threadId ? selection.selectedId : null;
 
   // Auto-open a `create_artifact` the instant it begins streaming — before its
@@ -106,6 +115,7 @@ export function useArtifactPanel(
   useEffect(() => {
     if (!pending || !pendingKey) return;
     const autoOpened = autoOpenedByThreadRef.current.get(threadId);
+
     if (autoOpened?.has(pendingKey)) return;
     markAutoOpened(pendingKey);
     setSelection({ threadId, selectedId: pendingKey });
@@ -115,9 +125,11 @@ export function useArtifactPanel(
   // resolves the artifact id, so the panel reconciles to the synced content
   // (future edits, server-sanitized body) instead of freezing on the stream.
   const selectedPendingTcid = pendingToolCallId(selectedId);
+
   const resolvedId = selectedPendingTcid
     ? artifactStream.byToolCallId(selectedPendingTcid)?.artifactId
     : null;
+
   useEffect(() => {
     if (!selectedPendingTcid || !resolvedId) return;
     markAutoOpened(resolvedId);
@@ -137,12 +149,15 @@ export function useArtifactPanel(
     // `threadArtifacts` is newest-first, so this opens the most recent artifact
     // the live run has produced so far.
     const fresh = threadArtifacts.find((a) => a.runId === activeRunId);
+
     if (!fresh) return;
     const autoOpened = autoOpenedByThreadRef.current.get(threadId) ?? new Set<string>();
+
     if (autoOpened.has(fresh.id)) return;
     // A create already surfaced (and maybe manually closed) as a pending stream
     // must not be re-opened here by its freshly-synced row.
     const live = artifactStream.byArtifactId(fresh.id);
+
     if (live && autoOpened.has(pendingSelectionId(live.toolCallId))) return;
     autoOpened.add(fresh.id);
     autoOpenedByThreadRef.current.set(threadId, autoOpened);
@@ -153,6 +168,7 @@ export function useArtifactPanel(
     (artifactId: string) => setSelection({ threadId, selectedId: artifactId }),
     [threadId],
   );
+
   const close = useCallback(() => setSelection({ threadId, selectedId: null }), [threadId]);
 
   const setWidth = useCallback((next: number) => {

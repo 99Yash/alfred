@@ -13,12 +13,15 @@ export const NOTIFICATION_KINDS = [
   "approval",
   "skill_documented",
   "health_alert",
+  "delivery_alert",
   "workflow_blocked",
 ] as const;
+
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
 /** `queued` on insert, then `sent` on Resend success or `failed` on error. */
 export const EMAIL_SEND_STATUSES = ["queued", "sent", "failed"] as const;
+
 export type EmailSendStatus = (typeof EMAIL_SEND_STATUSES)[number];
 
 /**
@@ -35,6 +38,18 @@ export type EmailSendStatus = (typeof EMAIL_SEND_STATUSES)[number];
  *   `briefing:{userId}:{YYYY-MM-DD-in-user-tz}:{slot}` — slotted briefing
  *   `approval:{userId}:{runId}:{stepId}`               — HIL approval ping
  *   `health_alert:{userId}:{metric}:{YYYY-MM-DD-in-user-tz}` — drift breach (≤1/metric/local day)
+ *   `delivery_alert:{userId}:{source}:{YYYY-MM-DD-in-user-tz}` — an event source
+ *       stopped delivering (ADR-0100). The key bounds one local day; the sender
+ *       additionally reads this table for a 7-day window, so a broken source is
+ *       emailed at most once a week.
+ *
+ *       That window read is why this is its own kind rather than a `health_alert`
+ *       subject. The read pulls a bounded page of recent rows for the kind and
+ *       matches a prefix in JavaScript (`health_alert` contains `_`, a `LIKE`
+ *       wildcard, so `LIKE` is unsafe here). Sharing a kind with the drift
+ *       alerts would make that page size depend on how many drift metrics
+ *       exist, and a page that fills with drift rows silently stops finding the
+ *       delivery row and re-sends it.
  *
  * `notification_preferences` (ADR-0020's per-kind channel routing) is
  * deliberately deferred. Every send today goes via email; once a second

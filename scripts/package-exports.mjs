@@ -70,45 +70,61 @@ export function exportTargets(exportsValue) {
 function isSubpathMap(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const keys = Object.keys(value);
+
   return keys.length > 0 && keys.every((key) => key.startsWith("."));
 }
 
 function visitConditions(value, subpath, targets, failures) {
   if (value === null) {
     targets.push({ subpath, target: null, kind: "blocked" });
+
     return;
   }
+
   if (typeof value === "string") {
     targets.push({ subpath, target: value, kind: "target" });
+
     return;
   }
+
   if (Array.isArray(value)) {
     if (value.length === 0) {
       failures.push(
         `"${subpath}" is an empty array, so it advertises a subpath that resolves to nothing`,
       );
+
       return;
     }
+
     for (const element of value) visitConditions(element, subpath, targets, failures);
+
     return;
   }
+
   if (typeof value === "object") {
     const keys = Object.keys(value);
+
     if (keys.length === 0) {
       failures.push(
         `"${subpath}" is an empty object, so it advertises a subpath that resolves to nothing`,
       );
+
       return;
     }
+
     if (keys.some((key) => key.startsWith("."))) {
       failures.push(
         `"${subpath}" mixes subpath keys into a condition object, which the exports spec forbids`,
       );
+
       return;
     }
+
     for (const key of keys) visitConditions(value[key], subpath, targets, failures);
+
     return;
   }
+
   failures.push(
     `"${subpath}" maps to ${JSON.stringify(value)}, which is neither a target string, an array, a condition object, nor null`,
   );
@@ -129,9 +145,11 @@ function visitConditions(value, subpath, targets, failures) {
  */
 export function matchesSubpathKey(key, subpath) {
   const star = key.indexOf("*");
+
   if (star === -1) return key === subpath;
   const before = key.slice(0, star);
   const after = key.slice(star + 1);
+
   return (
     subpath.length >= before.length + after.length &&
     subpath.startsWith(before) &&
@@ -157,11 +175,13 @@ export function targetProblem(target, packageDir, listed) {
   }
 
   const stars = target.split("*").length - 1;
+
   if (stars > 1) {
     return 'holds more than one "*", which the exports spec forbids';
   }
 
   const path = `${packageDir}/${target.slice(2)}`;
+
   if (path.split("/").includes("..")) {
     return "escapes its own package directory";
   }
@@ -173,6 +193,7 @@ export function targetProblem(target, packageDir, listed) {
   for (const file of listed) {
     if (matchesSubpathKey(path, file)) return null;
   }
+
   return "matches no file git lists";
 }
 
@@ -185,6 +206,7 @@ export function targetProblem(target, packageDir, listed) {
  */
 export function packageExportsFailures(root) {
   const { workspaces, globs, failures } = listWorkspaces(root);
+
   if (workspaces.length === 0) return { checked: 0, blocked: 0, failures };
 
   const listed = new Set(listGitSourceFiles(globs, root));
@@ -194,6 +216,7 @@ export function packageExportsFailures(root) {
 
   for (const { dir: packageDir, manifest } of workspaces) {
     let parsed;
+
     try {
       parsed = JSON.parse(readFileSync(join(root, manifest), "utf8"));
     } catch (error) {
@@ -207,6 +230,7 @@ export function packageExportsFailures(root) {
     mapped += 1;
 
     const { targets, failures: shapeFailures } = exportTargets(parsed.exports);
+
     for (const failure of shapeFailures) failures.push(`${manifest} · ${failure}.`);
 
     for (const { subpath, target, kind } of targets) {
@@ -214,8 +238,10 @@ export function packageExportsFailures(root) {
         blocked += 1;
         continue;
       }
+
       checked += 1;
       const problem = targetProblem(target, packageDir, listed);
+
       if (problem) failures.push(`${manifest} · "${subpath}" → "${target}" ${problem}.`);
     }
   }
@@ -273,11 +299,15 @@ export function publishedKey(keys, subpath) {
   if (keys.has(subpath)) return subpath;
   /** @type {string | null} */
   let best = null;
+
   for (const key of keys.keys()) {
     if (!key.includes("*")) continue;
+
     if (!matchesSubpathKey(key, subpath)) continue;
+
     if (best === null || key.indexOf("*") > best.indexOf("*")) best = key;
   }
+
   return best;
 }
 
@@ -295,6 +325,7 @@ export function wildcardTargetPath(packageDir, key, target, subpath) {
   const star = key.indexOf("*");
   const matched = subpath.slice(star, subpath.length - (key.length - star - 1));
   const path = `${packageDir}/${target.replace("*", matched).slice(2)}`;
+
   return path.split("/").includes("..") ? null : path;
 }
 
@@ -323,18 +354,21 @@ export function workspaceExportIndex(root) {
     if (name === null) continue;
 
     let parsed;
+
     try {
       parsed = JSON.parse(readFileSync(resolve(root, manifest), "utf8"));
     } catch {
       packages.set(name, { dir, keys: new Map(), problem: `${manifest} does not parse` });
       continue;
     }
+
     if (parsed === null || typeof parsed !== "object" || !("exports" in parsed)) {
       packages.set(name, { dir, keys: new Map(), problem: `${name} declares no exports map` });
       continue;
     }
 
     const { targets, failures: shapeFailures } = exportTargets(parsed.exports);
+
     if (shapeFailures.length > 0) {
       packages.set(name, {
         dir,
@@ -345,11 +379,14 @@ export function workspaceExportIndex(root) {
     }
 
     const keys = new Map();
+
     for (const { subpath, target, kind } of targets) {
       const seen = keys.get(subpath) ?? { blocked: true, targets: [] };
+
       if (kind === "blocked") keys.set(subpath, seen);
       else keys.set(subpath, { blocked: false, targets: [...seen.targets, target] });
     }
+
     packages.set(name, { dir, keys, problem: null });
   }
 

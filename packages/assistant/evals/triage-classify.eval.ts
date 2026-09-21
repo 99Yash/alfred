@@ -14,8 +14,10 @@ import {
   resolveTodoSuggestion,
   todoSuppressionReason,
   type ClassifyEmailArgs,
+  type RunPass,
   type TodoDecisionOutcome,
 } from "@alfred/assistant/triage/classify";
+import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
 import { assembleObservations, type Observations } from "@alfred/assistant/triage/observations";
 import type { ThreadMessageContext } from "@alfred/assistant/triage/thread-state";
@@ -27,12 +29,20 @@ import { llmJudgeScorer } from "./lib/llm-judge";
  * Runs the REAL `classifyEmail` sequence (cheap-model first pass → conditional
  * second pass → override floor) against the cheap model, then evaluates both the
  * category AND the rail-todo mint decision — the two outputs we keep hand-tuning
- * the rubric for. Three scorers, two deterministic + one LLM judge:
- *   1. Category match            — exact, deterministic.
+ * the rubric for. Four scorers, three deterministic + one LLM judge:
+ *   1. Category match            — deterministic. Set membership, not equality:
+ *                                  `Expected.category` is always a LIST of the
+ *                                  categories that score 1, and `Expected.guards`
+ *                                  additionally pins WHICH branch decided
+ *                                  (`+spamfloor`, `+2pass`) for a case whose
+ *                                  subject is a deterministic guard.
  *   2. Todo mint decision        — did a rail todo mint? deterministic, mirrors
  *                                  production (resolveTodoSuggestion + the
  *                                  structural suppression guard).
- *   3. Classification defensible — LLM judge grading rationale soundness (the
+ *   3. CollabActivity match      — deterministic, and only for a case that
+ *                                  asserts `collabActivity`: compares the
+ *                                  PARTITION, not the literal kind.
+ *   4. Classification defensible — LLM judge grading rationale soundness (the
  *                                  subjective dimension a deterministic check
  *                                  can't see). See ./lib/llm-judge.ts.
  *
@@ -44,8 +54,9 @@ import { llmJudgeScorer } from "./lib/llm-judge";
  * ADR-0056) is wired, its `cause='user'` rows become the regression tier — see
  * ./README.md.
  *
- * Run locally with GOOGLE_GENERATIVE_AI_API_KEY (classifier) + ANTHROPIC_API_KEY
- * (judge) in env: `pnpm --filter @alfred/assistant eval`.
+ * Run locally with GOOGLE_GENERATIVE_AI_API_KEY in env: `pnpm --filter
+ * @alfred/assistant eval`. That one key covers the whole suite — the classifier
+ * under test and the judge both run on `route("cheap")` (Gemini Flash-Lite).
  */
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
@@ -57,7 +68,39 @@ const NOW = new Date("2026-06-10T12:00:00Z");
 const USER = { name: "Yash", email: "yash@example.com" };
 
 interface Expected {
-  category: TriageCategory;
+  /**
+   * The SET of categories that score 1 — ALWAYS a list, never a bare label, even
+   * when the set has one member. The list-only shape is the enforcement: under a
+   * `TriageCategory | list` union the compiler still accepts
+   * `output.category === expected.category`, a template interpolation and a
+   * spread, so the union would have caught none of this file's readers. A list
+   * makes that equality a hard `TS2367` and leaves membership as the only thing
+   * that compiles. Cases whose correct answer genuinely is a set — a spam-filed
+   * promo is right as any passive tag and wrong only in a demand lane — then pin
+   * the set instead of a coin flip between `marketing` and `fyi`.
+   */
+  category: readonly [TriageCategory, ...TriageCategory[]];
+  /**
+   * WHOLE tags from `classifyEmail`'s assembled `model` tag string that MUST be
+   * present. The scorer splits that string on `+` and compares whole tags, so a
+   * prefix never matches its longer sibling: `+2pass` does NOT match a row that
+   * only ran `+2pass_failed`. Write one full tag per entry, leading `+` included.
+   *
+   * Six tags exist. Two come from this module's own passes, in
+   * `classify.ts:1162-1165`: `+2pass` (the re-ask completed) and `+2pass_failed`
+   * (the re-ask THREW — `classify.ts` sets this tag only in the `catch` arm, so
+   * there is no second answer at all; the first pass is kept instead). Four come from the floor
+   * fold, one per floor, in `floors/index.ts:140,155,160,172`: `+floor`
+   * (override escalate), `+kindfloor`, `+spamfloor` and `+meetingfloor` (each a
+   * demote). A floor that keeps the classification contributes no tag.
+   *
+   * This is what makes a case pin a DETERMINISTIC guard rather than the prompt:
+   * a category that the first pass already gets right scores 1 whether the floor
+   * fires or is deleted, because the accept set holds both answers. Naming the
+   * tag here reddens the row when the branch that was supposed to decide never
+   * ran. Omit it when the case is only pinning the rubric.
+   */
+  guards?: readonly string[];
   /** Whether a rail todo should mint. */
   todo: "mint" | "suppress";
   /** Expected model-emitted collaboration activity kind when the case exercises rule 19. */
@@ -99,9 +142,37 @@ interface Case {
   lastUserReplyAt?: Date | null;
   /** Active user-model projection signal; set when an eval must exercise sender-kind floors. */
   senderKind?: Observations["senderKind"];
-  sender: SenderContext;
+  /**
+   * Hand-set `SenderContext`, for a case whose sender shape is scene-setting
+   * rather than the thing under test. OMIT it to DERIVE the context from `from`,
+   * `subject` and `body` through the production `extractSenderContext` — which is
+   * what a case must do when the envelope parse IS the fix it pins. A hard-coded
+   * `{ fromKind: "service" }` on such a case asserts its own precondition and
+   * stays green after the parse that produces it is reverted.
+   */
+  sender?: SenderContext;
+  /**
+   * Inject both cheap-model passes instead of calling the model. Only for a case
+   * whose subject is a DETERMINISTIC guard downstream of the model: a floor that
+   * only fires on a demand lane cannot be reached from a prompt the model is
+   * meant to answer passively, so the canned pass hands the floor the input it
+   * exists for. A case that leaves this unset runs the real classifier, which is
+   * still what every rubric case does.
+   */
+  runPass?: RunPass;
   authoredAt?: Date;
   expected: Expected;
+}
+
+/**
+ * The `SenderContext` a case classifies under: its own when it sets one, else the
+ * production parse of its `From:` header. See `Case.sender`.
+ */
+function senderContextFor(c: Case): SenderContext {
+  return (
+    c.sender ??
+    extractSenderContext({ fromHeader: c.from, subject: c.subject, body: c.body }).context
+  );
 }
 
 const CASES: Case[] = [
@@ -113,7 +184,7 @@ const CASES: Case[] = [
     senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "urgent",
+      category: ["urgent"],
       todo: "mint",
       note: "Exposed live secret — urgent (override floor), and a real rotate-now obligation.",
     },
@@ -126,7 +197,7 @@ const CASES: Case[] = [
     senderKey: "noreply@anthropic.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       note: "Self-initiated auth (rule 15) — fyi, nothing to remember (16c would_not_forget).",
     },
@@ -140,7 +211,7 @@ const CASES: Case[] = [
     knownContact: true,
     sender: { fromKind: "person", effectiveAuthor: "person" },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       note: "The action is owned by Sakshi, not the user (16a-ii) — fyi, no todo.",
     },
@@ -170,7 +241,7 @@ const CASES: Case[] = [
       bodyActor: { kind: "bot", name: "Brain" },
     },
     expected: {
-      category: "action_needed",
+      category: ["action_needed"],
       todo: "mint",
       note: "Filing a backlog task OPENS work; the thread shows a live bug assigned to the user (rules 12e/17). The bot 'Done' is the filing, not the fix.",
     },
@@ -196,7 +267,7 @@ const CASES: Case[] = [
       bodyActor: { kind: "bot", name: "Brain" },
     },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       collabActivity: "other_activity",
       note: "The bot completed filing a new task, but no thread message assigns it to the user. Filing opens work, so this is passive activity (fyi), never done.",
@@ -219,7 +290,7 @@ const CASES: Case[] = [
     },
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       collabActivity: "state_change",
       note: "The imperative subject names the tracked item. The body only records a passive status change, with no action assigned to the user.",
@@ -242,7 +313,7 @@ const CASES: Case[] = [
     },
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       collabActivity: "other_activity",
       note: "Rule 19: passive third-party ClickUp comment is not directed at the user. The service sender-kind floor should demote any action_needed spike to fyi.",
@@ -265,7 +336,7 @@ const CASES: Case[] = [
     },
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "action_needed",
+      category: ["action_needed"],
       todo: "mint",
       collabActivity: "assigned_to_user",
       note: "Rule 19 counter-case: assignment to the user is ownership activity, so the sender-kind floor must not demote it.",
@@ -288,7 +359,7 @@ const CASES: Case[] = [
     },
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "action_needed",
+      category: ["action_needed"],
       todo: "mint",
       collabActivity: "mentioned_user",
       note: "Rule 19 counter-case: an @mention with a concrete merge ask is directed at the user and must stay demanding.",
@@ -307,7 +378,7 @@ const CASES: Case[] = [
       bodyActor: { kind: "bot", name: "coderabbitai" },
     },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       note: "Bot review on unmerged PR code — advisory by default (12a) and pre-merge, nothing live at stake (16b liveness); structural suppression also fires.",
     },
@@ -320,20 +391,34 @@ const CASES: Case[] = [
     senderKey: "noreply@greptile.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "marketing",
+      category: ["marketing"],
       todo: "suppress",
       note: "Freemium upsell, nothing owed (11a) — marketing; manufactured conversion stake (16b not_significant).",
     },
   },
   {
+    // Pins the `linkedin.com` entry of `KNOWN_SERVICE_DOMAINS` ALONE. `invitations`
+    // is not a strong or weak service local and matches neither the prefix nor the
+    // `…-noreply` suffix rule, so the domain entry is the only door to `service`
+    // here: drop the entry and this envelope parses `unknown`. NO hand-set
+    // `sender` — the parse is the thing under test. See `linkedin-invite-reminder-
+    // relay` (the prod miss, either door) and `circle-relay-noreply-suffix` (the
+    // suffix rule alone).
+    //
+    // That is a claim about the PARSE, not a promise that this row reddens. The
+    // only scorer here reads `output.category`, and the system prompt already
+    // names this envelope in an exemplar (`classify.ts:338`,
+    // `invitations@linkedin.com → fyi`) that never reads `SenderContext`. So a
+    // dropped domain entry most probably still scores 1 here. Of the two rows,
+    // only `circle-relay-noreply-suffix` has a MEASURED revert proxy: its
+    // envelope flips to `person`, which disarms rule 8a.
     label: "linkedin-senior-ic-connect",
     from: "LinkedIn <invitations@linkedin.com>",
     subject: "Ankur Singh wants to connect",
     body: "Ankur Singh, Senior Software Developer at Sosuv, would like to connect with you on LinkedIn. Accept or ignore.",
     senderKey: "invitations@linkedin.com",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       note: "A social-network connection request is passive social activity → fyi (rule 8a), NOT awaiting_reply/action_needed — accepting or ignoring is the sender's want, not a question the user must answer (16a-i no_obligation); no todo.",
     },
@@ -346,7 +431,7 @@ const CASES: Case[] = [
     senderKey: "notifications@linkedin.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       note: "Network-growth nudges are passive social activity (rule 8a), not a task the user owns; no todo.",
     },
@@ -359,7 +444,7 @@ const CASES: Case[] = [
     senderKey: "notifications@linkedin.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       note: "Profile-activity notifications are passive awareness / manufactured engagement (rule 8a); no todo.",
     },
@@ -378,7 +463,7 @@ const CASES: Case[] = [
     },
     senderRelationship: 'strong · two-way thread · same-org · you: "Founder, Acme"',
     expected: {
-      category: "awaiting_reply",
+      category: ["awaiting_reply"],
       todo: "mint",
       note: "Rule 8a exception: a real correspondent's platform message with a genuine ask is judged on content; strong relationship means a real person is waiting.",
     },
@@ -391,7 +476,7 @@ const CASES: Case[] = [
     senderKey: "billing@stripe.com",
     sender: { fromKind: "service", effectiveAuthor: "service", botSlug: "stripe-billing" },
     expected: {
-      category: "payment",
+      category: ["payment"],
       todo: "mint",
       note: "Money owed on an existing paid relationship, access at risk (rule 11) — payment, real obligation with a date.",
     },
@@ -406,7 +491,7 @@ const CASES: Case[] = [
     sender: { fromKind: "person", effectiveAuthor: "person" },
     authoredAt: NOW,
     expected: {
-      category: "done",
+      category: ["done"],
       todo: "mint",
       note: "Closure email (done) carrying a real trailing ask the user owns — category and todo disagree (16a-c all pass).",
     },
@@ -444,7 +529,7 @@ const CASES: Case[] = [
     ],
     authoredAt: new Date("2026-06-10T09:00:00Z"),
     expected: {
-      category: "done",
+      category: ["done"],
       todo: "suppress",
       note: "The user has ALREADY replied — the latest thread message is the user's send and thread state shows the reply. The user owes nothing further, so the thread is no longer awaiting_reply → done (rule 18; the user's side of the loop is closed, waiting on the recruiter is not a user action). No todo: already handled (16e) and a cold sender besides.",
     },
@@ -460,7 +545,7 @@ const CASES: Case[] = [
     labelIds: ["INBOX", "CATEGORY_UPDATES"],
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "newsletter",
+      category: ["newsletter"],
       todo: "suppress",
       note: "Subscribed editorial digest — newsletter, no obligation.",
     },
@@ -480,7 +565,7 @@ const CASES: Case[] = [
     senderRelationship: "no prior contact on record",
     isColdContact: true,
     expected: {
-      category: "awaiting_reply",
+      category: ["awaiting_reply"],
       todo: "suppress",
       note: "Cold sender, no correspondence history — not a real person waiting (16b cold_sender). The direct ask keeps awaiting_reply honest, but no todo. THIS is failure A.",
     },
@@ -501,7 +586,7 @@ const CASES: Case[] = [
     isColdContact: true,
     authoredAt: NOW,
     expected: {
-      category: "awaiting_reply",
+      category: ["awaiting_reply"],
       todo: "suppress",
       note: "Cold sales follow-up from a personal-gmail 'sales team', no prior contact — the person-waiting stake is uncorroborated (16b cold_sender). 'Worth a conversation?' keeps awaiting_reply honest, but no rail todo. The HyperNexus prod leak.",
     },
@@ -516,7 +601,7 @@ const CASES: Case[] = [
     sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: 'strong · two-way thread · same-org · you: "Founder, Acme"',
     expected: {
-      category: "action_needed",
+      category: ["action_needed"],
       todo: "mint",
       note: "Strong two-way same-org colleague with a direct, blocking ask — a real person is waiting (16b passes). Same ask shape as the cold seeker, opposite todo call.",
     },
@@ -531,7 +616,7 @@ const CASES: Case[] = [
     senderRelationship: "no prior contact on record",
     isColdContact: true,
     expected: {
-      category: "payment",
+      category: ["payment"],
       todo: "mint",
       note: "Cold sender, but money owed is an INTRINSIC stake — NOT gated by the person-waiting rule. Over-correction guard: the relationship gate must not kill real bills.",
     },
@@ -544,7 +629,7 @@ const CASES: Case[] = [
     senderKey: "invitations@linkedin.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       note: "A connection request is passive social activity → fyi (rule 8a), even from a 'Founder & CEO' — the seniority of the requester does not make it a question the user must answer. Todo also suppressed (16a-i optional nicety). Reverses the prior action_needed expectation: an optional nicety with no obligation is passive awareness, not an action.",
     },
@@ -560,7 +645,7 @@ const CASES: Case[] = [
     isColdContact: true,
     authoredAt: NOW,
     expected: {
-      category: "action_needed",
+      category: ["action_needed"],
       todo: "mint",
       note: "Weak/one-way sender, but a hard deadline + loss of publication is an INTRINSIC stake — ungated. Over-correction guard alongside the invoice case.",
     },
@@ -576,7 +661,7 @@ const CASES: Case[] = [
     senderRelationship: "moderate · two-way thread · same-org",
     authoredAt: NOW,
     expected: {
-      category: "action_needed",
+      category: ["action_needed"],
       todo: "mint",
       note: "Moderate, two-way, same-org colleague with a concrete blocking ask — a real person waiting (16b passes).",
     },
@@ -593,7 +678,7 @@ const CASES: Case[] = [
     lastCategory: "fyi",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       note: "The VENDOR'S own outage — the user only consumes Claude, cannot act on the outage (rule 12f). fyi while ongoing (would be done on 'resolved'); NEVER urgent, however alarming 'elevated error rate' reads. The 06-24 doc_b608m5vh4cni miss.",
     },
@@ -612,7 +697,7 @@ const CASES: Case[] = [
       bodyActor: { kind: "bot", name: "Sentry" },
     },
     expected: {
-      category: "urgent",
+      category: ["urgent"],
       todo: "mint",
       note: "The USER'S OWN project failing in production, same-day actionable (rule 12c) — stays urgent. The ownership counter-case to the vendor-status rule: don't sweep the user's own infra into fyi.",
     },
@@ -626,35 +711,35 @@ const CASES: Case[] = [
     senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "fyi",
+      category: ["fyi"],
       todo: "suppress",
       note: "Self-initiated step-up / sudo code the user just triggered (rule 15) — mid-flow, expires harmlessly. fyi, nothing to remember (16c). The doc_tcfumx9884kk-class miss.",
     },
   },
   {
-    label: "persistent-passkey-created-action-needed",
+    label: "vendor-self-echo-passkey-created-fyi",
     from: "GitHub <noreply@github.com>",
     subject: "Passkey created",
     body: "A new passkey was just added to your account. You can now use it to sign in. If you did not create this passkey, review your security settings.",
     senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "action_needed",
+      category: ["fyi"],
       todo: "suppress",
-      note: "Persistent account-access grant, not a transient code. The email alone cannot prove the user initiated it, so keep it surfaced as action_needed; no todo because checking security settings is a mechanical same-session action.",
+      note: "Rule 15a vendor self-echo: GitHub reports an event on the GitHub account that the user could have performed, and asserts no observation of its own. The 'if you did not create this passkey' line is boilerplate that reads the same on a legitimate echo and on a phish, so it carries no signal.",
     },
   },
   {
-    label: "persistent-2fa-enabled-action-needed",
+    label: "vendor-self-echo-2fa-enabled-fyi",
     from: "GitHub <noreply@github.com>",
     subject: "Two-factor authentication enabled",
     body: "Two-factor authentication has been enabled for your account. If you did not make this change, review your security settings.",
     senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "action_needed",
+      category: ["fyi"],
       todo: "suppress",
-      note: "Persistent auth-setting change. Unlike a sudo/login code, it affects future account access and should stay surfaced as action_needed unless there is deterministic same-flow proof.",
+      note: "Rule 15a vendor self-echo. The demotion does NOT turn on proving the user was mid-flow — it turns on the vendor asserting no observation about who acted.",
     },
   },
   {
@@ -664,28 +749,317 @@ const CASES: Case[] = [
     body: "We detected a suspicious sign-in to your account from a new device in a location you don't usually sign in from. If this wasn't you, secure your account immediately.",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "urgent",
+      category: ["urgent"],
       todo: "mint",
       note: "The UNSOLICITED inverse of rule 15 — a sign-in the user did NOT initiate. Stays urgent. The counter-case that keeps the self-initiated demotion from over-reaching.",
     },
   },
   {
-    label: "oauth-app-added-boundary-action-needed",
+    // Prod misses 1a0b21d242456b1b (urgent) and 1a0b21c6768a0e22 (action_needed):
+    // both tagged off the vendor's "if you didn't do this" boilerplate alone. This
+    // is the BOUNDARY exemplar for rule 15a — the loudest wording the rule must
+    // still hold against — not the rule itself.
+    label: "vendor-self-echo-password-changed-boilerplate-fyi",
+    from: "Wellfound <team@wellfound.com>",
+    subject: "Your Wellfound password was changed",
+    body: "Your Wellfound password was changed. If you did not make this change, your account may be compromised — contact support immediately.",
+    senderKey: "team@wellfound.com",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: ["fyi"],
+      todo: "suppress",
+      note: "Rule 15a at its loudest: the vendor reports an event on its own account and asserts NO observation about who performed it. The compromise language is the vendor's boilerplate, which never escalates a category on its own. Contrast the unsolicited-new-device case, where the asserter names a device it observed.",
+    },
+  },
+  {
+    // Floor pin, not a prompt exemplar. `token` is still in the override floor's
+    // noun set and `compromised` is still an exposure verb, so before #1165 this
+    // body matched noun+verb inside the 100-char window and the floor forced
+    // `urgent` at 0.85 — with the under-classification re-ask suppressed, because
+    // `floorMatches` gates it. Deleting `password` from the noun set did not
+    // reach this body. The fix blanks the rule-15a hedge before the predicate
+    // runs. If the floor ever reads that hedge again, this row goes red.
+    label: "vendor-self-echo-otp-token-boilerplate-fyi",
+    from: "LinkedIn <security-noreply@linkedin.com>",
+    subject: "Your verification code is 419283",
+    body: "Your one-time token is 419283. This token expires in 10 minutes. Never share this token with anyone. If you did not request it, your account may be compromised.",
+    senderKey: "security-noreply@linkedin.com",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: ["fyi"],
+      todo: "suppress",
+      note: "Rule 15a. The vendor echoes a code the user asked for and asserts NO observation about who asked. The compromise line is the same boilerplate the Wellfound row carries; the only difference is the noun it sits next to.",
+    },
+  },
+  {
+    // Second floor pin, on the other shape the old predicate reached: a reset
+    // LINK, where `token=` is a query parameter rather than a word. Same hedge,
+    // same 100-char window, same forced `urgent` before #1165.
+    label: "vendor-self-echo-reset-link-token-param-fyi",
+    from: "Supabase <noreply@mail.app.supabase.io>",
+    subject: "Reset your password",
+    body: "Follow this link to reset your password: https://app.example.com/auth/v1/verify?token=pkce_9f1c4&type=recovery. If you did not request a password reset, your account may be compromised.",
+    senderKey: "noreply@mail.app.supabase.io",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: ["fyi"],
+      todo: "suppress",
+      note: "Rule 15a. The user asked for the reset; the vendor is echoing the link back. No asserter claims to have observed anything about who asked.",
+    },
+  },
+  {
+    label: "vendor-self-echo-oauth-app-added-fyi",
     from: "GitHub <noreply@github.com>",
     subject: "A third-party OAuth application was added to your account",
     body: "The OAuth application 'DeployBot' was authorized to access your account with repo and read:org scopes. If you did not authorize this, revoke its access.",
     senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "action_needed",
+      category: ["fyi"],
       todo: "suppress",
-      note: "Rule 15 BOUNDARY: not a code — could be unsolicited compromise and the email can't tell. Keep surfaced at action_needed (not urgent absent a same-day breach, not fyi). No todo: verifying is a mechanical check, not a memorable obligation.",
+      note: "Rule 15a. The email cannot tell an authorization from a compromise, and that is exactly why it is zero signal: an urgent tag inside the mailbox it warns about is not a security control (rule 15c). No todo: verifying is a mechanical check, not a memorable obligation.",
+    },
+  },
+  {
+    // Prod miss #1097: tagged `awaiting_reply` off the reminder copy alone.
+    // `senderKind` stays null ON PURPOSE — an unscored projection keeps the
+    // sender-kind floor silent, so nothing but rule 8a and the third conflict
+    // net stands between this envelope and the miss.
+    label: "linkedin-invite-reminder-relay",
+    from: "Vaibhav Sharma (via LinkedIn) <messages-noreply@linkedin.com>",
+    subject: "Reminder: Vaibhav Sharma invited you to connect",
+    body: "Vaibhav Sharma: Hi Yash, I'm still waiting for your response. Accept my invitation to connect on LinkedIn.",
+    // NO hand-set `sender`: the LinkedIn half of #1097 lives entirely in
+    // `extractSenderContext`, so writing `{ fromKind: "service" }` here would
+    // assert the precondition the fix produces and stay green after the fix is
+    // reverted. Derived instead. This EXACT envelope carries BOTH new rules — the
+    // `…-noreply` suffix and the `linkedin.com` domain — and `classifyFromKind`
+    // tests the suffix first, so this row proves their OR and neither one alone.
+    // That is on purpose: it is the prod envelope, kept verbatim. The two rows
+    // that separate the rules are `linkedin-senior-ic-connect` (domain alone) and
+    // `circle-relay-noreply-suffix` (suffix alone).
+    expected: {
+      category: ["fyi"],
+      todo: "suppress",
+      note: "A platform relay, not a person: the `…-noreply@linkedin.com` envelope parses as a service, so rule 8a governs and the reminder copy is invitation boilerplate. Passive social activity → fyi, never awaiting_reply; no todo (16a-i no_obligation).",
+    },
+  },
+  {
+    // Pins the `…-noreply` SUFFIX rule alone: a platform relay on a domain that is
+    // NOT in `KNOWN_SERVICE_DOMAINS`, so `hasServiceWordSuffix` is the only door to
+    // `service`. Rename the local to `community-digest@` and the same header
+    // parses `person` — measured against the production function. Generalizes the
+    // #1097 fix past LinkedIn: every relay platform sends reminder copy in the
+    // first person from an envelope it owns. NO hand-set `sender`.
+    label: "circle-relay-noreply-suffix",
+    from: "Rhea Kapoor (via Circle) <community-noreply@circle-community-mail.com>",
+    subject: "Reminder: Rhea Kapoor is waiting for your reply in Build Club",
+    body: "Rhea Kapoor: I'm still waiting for your response to my post in Build Club. Reply in the community to continue the thread.",
+    expected: {
+      category: ["fyi"],
+      todo: "suppress",
+      note: "The envelope is the platform's, not Rhea's, so rule 8a governs: passive social activity → fyi, never awaiting_reply off the relayed reminder copy. No todo (16a-i no_obligation).",
+    },
+  },
+  {
+    // Prod miss #1097: tagged `awaiting_reply` off "Would love your thoughts!".
+    // Person-shaped ON PURPOSE — no service envelope and no sender prior help
+    // here, so the case proves the Gmail SPAM label alone carries the outcome.
+    label: "spam-filed-cold-promo",
+    from: "Arjun Mehta <arjun@growthloop-outreach.com>",
+    subject: "A quick idea for your onboarding funnel",
+    body: "Hi Yash — I put together a short teardown of your onboarding funnel and found three drop-off points you could close in a week. Would love your thoughts!",
+    labelIds: ["SPAM"],
+    sender: { fromKind: "person", effectiveAuthor: "person" },
+    expected: {
+      category: ["marketing", "fyi", "newsletter"],
+      todo: "suppress",
+      note: "Gmail filed this as spam — a third party's verdict that the mail is unsolicited (rule 20). Judge the gist, not the phrasing: an unsolicited pitch is right as any passive tag and wrong in a reply lane, which the spam floor demotes to fyi if the model emits one.",
+    },
+  },
+  {
+    // The spam floor's DEMOTE branch, which `spam-filed-cold-promo` cannot reach:
+    // that case's accept set holds both `marketing` (the first pass's own answer,
+    // floor silent) and `fyi` (the floor's answer), so its row scores 1 whether
+    // `applySpamDemotionFloor` fires or is deleted. Nothing else in the repo runs
+    // the demote branch. So this case CANS both passes into `awaiting_reply` and
+    // asserts the tag: `+spamfloor` disappears and the category reverts to
+    // `awaiting_reply` the moment the floor stops demoting.
+    //
+    // A REPLY lane, not the `urgent` this case used to inject, because #1098
+    // narrowed the floor to `awaiting_reply`/`follow_up`. The shape is the
+    // measured prod true positive: a spam-filed event pitch whose "thoughts?"
+    // copy the cheap model reads as an owed reply.
+    label: "spam-filed-reply-lane-demotes",
+    from: "Mira Sethi <mira@agentbuild-summit.com>",
+    subject: "Re: AgentBuild Summit <> Yash!",
+    body: "Hey Yash — following up on the summit. Would love your thoughts on the blog post we published last week. Registration closes soon, grab a spot here.",
+    labelIds: ["SPAM"],
+    sender: { fromKind: "person", effectiveAuthor: "person" },
+    runPass: () =>
+      Promise.resolve({
+        category: "awaiting_reply",
+        confidence: 0.8,
+        rationale: "The sender asks for the user's thoughts on a post and is waiting on a reply.",
+        todoSuggestion: { name: "Reply with thoughts on the blog post", assist: null },
+        todoDecision: { outcome: "proposed", note: "The sender is waiting on a response." },
+        collabActivity: null,
+      }),
+    expected: {
+      category: ["fyi"],
+      guards: ["+spamfloor"],
+      todo: "suppress",
+      note: 'Gmail filed this as spam, so "would love your thoughts" is engagement copy, not an owed reply (rule 20). A reply lane claims the SENDER is owed something, which is exactly what the spam verdict denies, so the floor demotes it to fyi and clears the proposed todo — demote, never bury.',
+    },
+  },
+  {
+    // The other half of the narrowed floor (#1098): a spam-filed DEMAND lane is
+    // now the final answer to keep. It injects both passes like the row above,
+    // so the prompt is out of the path entirely and only the floor decides — the
+    // category reverts to `fyi` and `+spamfloor` appears the moment the floor
+    // goes back to gating all four demand lanes.
+    //
+    // Everything else about the pair DIFFERS, and the difference is the point:
+    // that row injects `awaiting_reply` behind a person envelope (the lane the
+    // floor still gates), this one injects `urgent` behind a service envelope
+    // (the lane it released). One canned shape either side of the new gate line.
+    //
+    // `+spamfloor` is asserted by ABSENCE, through the category: `Expected.guards`
+    // has no negative form, and it needs none here. A fired floor lands on `fyi`,
+    // which is not in this accept set.
+    //
+    // Deliberately the PHISH body, not a genuine ask, because that is the cost
+    // #1098 accepted: Gmail's verdict is fallible, so a spam-filed `urgent` now
+    // reaches the rail on the model's word. DEMOTE, NEVER BURY cuts the other way
+    // here — a false `urgent` is dismissible, a buried rotation ask is not.
+    label: "spam-filed-phish-keeps-model-answer",
+    from: "Billing Support <secure-billing@acme-invoices-verify.com>",
+    subject: "URGENT: your account will be suspended in 24 hours",
+    body: "We could not process your last payment. Verify your billing details within 24 hours or your account and all data will be permanently suspended.",
+    labelIds: ["SPAM"],
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    runPass: () =>
+      Promise.resolve({
+        category: "urgent",
+        confidence: 0.9,
+        rationale:
+          "The body threatens permanent account suspension within 24 hours unless billing details are verified now.",
+        todoSuggestion: { name: "Verify billing details", assist: null },
+        todoDecision: { outcome: "proposed", note: "Stated 24-hour deadline on account access." },
+        collabActivity: null,
+      }),
+    expected: {
+      category: ["urgent"],
+      todo: "mint",
+      note: "The spam floor no longer gates `urgent`/`action_needed` (#1098): Gmail's spam verdict is a fallible third party's, so on the demand lanes it is a prompt-side prior and the model owns the call. This row cans the model away, so it pins the floor's silence alone — and the surviving todo is the accepted cost, since the floor no longer clears one here.",
+    },
+  },
+  {
+    // Acceptance criterion 2, and the only row in the file that can prove rule
+    // 20's EXCEPTION: a spam-filed mail carrying an obligation the USER already
+    // owns keeps its demand lane. The shape is the prod miss of 2026-09-16 — a
+    // recruiter asking the user to finish a job application the USER opened,
+    // filed `SPAM` by Gmail, one of five spam-labelled documents in ten days.
+    //
+    // NO `runPass` and NO hand-set `sender`, on purpose. The rule-20 prose IS the
+    // thing under test, so the real classifier must answer it, and the envelope
+    // must derive `person` through the production parse. Revert the rule-20
+    // exception and this row reddens: the old text said a spam-filed mail is
+    // NEVER a demand lane, and the model obeyed it.
+    //
+    // READ THIS ROW'S WARRANT NARROWLY. The subject, the sender and the domain
+    // match nothing in the system prompt, which is why the row is a support
+    // ticket rather than the prod recruiter mail it is modelled on. But the
+    // OBLIGATION does match: the worked example at classify.ts:338 — added by
+    // this same PR — names "a case or ticket the user opened themselves", and
+    // this row is ticket HD-4471. So the row instantiates the arm the example
+    // names. It proves COMPLIANCE inside rule 20's rubric, not generalization
+    // past it; a row that generalizes needs an obligation shape the example
+    // does not name. Keep that distinction when this row is cited as proof —
+    // a strengthened prompt masking the rule beneath it is the third instance
+    // of this class in the campaign, see
+    // .lessons/a-strengthened-prompt-masks-the-deterministic-branch-under-it.md.
+    //
+    // The discriminator against `spam-filed-phish-keeps-model-answer` above is
+    // whether the demand survives WITHOUT trusting the sender. This ticket is
+    // the user's own; the phish deadline exists only in the sender's claim. The
+    // ask is an upload rather than a written answer, so rule 3's reply-shape
+    // preference does not pull it into the lane the floor still gates.
+    label: "spam-filed-owned-ticket-keeps-demand-lane",
+    from: "Deepa Raman <deepa.raman@northbeam-support.com>",
+    subject: "Ticket HD-4471 needs your diagnostics upload before Friday",
+    body: "Hi Yash — your ticket HD-4471 is open with our engineering team. They cannot reproduce the fault until you upload the diagnostics bundle to the support portal and set the firmware version on the ticket. The ticket auto-closes on Friday if the upload is still missing.",
+    labelIds: ["SPAM"],
+    expected: {
+      category: ["action_needed", "urgent"],
+      todo: "mint",
+      note: "Gmail filed this as spam and Gmail is wrong: the user opened ticket HD-4471 themselves, so the upload is an obligation the user ALREADY owns and it does not depend on trusting the sender (rule 20's exception). A hard spam bound would bury a real ask — demote, never bury, cuts the other way on the demand lanes.",
+    },
+  },
+  {
+    // Pins conflict net C (over-classification C) ALONE, the way
+    // `spam-filed-reply-lane-demotes` pins the spam floor. Every other relay row
+    // reaches `fyi` on the FIRST pass, because rule 8a already answers a relayed
+    // invitation — so deleting net C leaves all of them green and the net
+    // unpinned. A canned first pass removes the prompt from the path entirely.
+    //
+    // The row satisfies every net-C gate deterministically: `awaiting_reply`,
+    // no exposed-secret match (`floorMatches` is `matchesExposedSecret` only),
+    // not Gmail IMPORTANT, `senderKind` null (no `senderKey`, so the projection
+    // never scored this sender), `effectiveAuthor: "service"` DERIVED from the
+    // `…-noreply` suffix, and no ownership `collabActivity`. Delete the net and
+    // the first pass persists: the category reverts to `awaiting_reply` and
+    // `+2pass` disappears. A double red, measured, with no classifier tokens.
+    //
+    // On the Circle envelope, not a LinkedIn one, because `classify.ts:338`
+    // names the LinkedIn reminder verbatim — a LinkedIn row would prove the
+    // exemplar as much as the net.
+    label: "circle-relay-net-c-reask",
+    from: "Rhea Kapoor (via Circle) <community-noreply@circle-community-mail.com>",
+    subject: "Rhea Kapoor is still waiting for your reply in Build Club",
+    body: "Rhea Kapoor: I'm still waiting for your response. Reply in the community to continue the thread.",
+    runPass: ({ pass }) =>
+      Promise.resolve(
+        pass === "first"
+          ? {
+              category: "awaiting_reply",
+              confidence: 0.8,
+              rationale:
+                "The sender says they are still waiting for a response, so a reply is owed.",
+              todoSuggestion: null,
+              todoDecision: { outcome: "no_obligation", note: "No concrete deliverable." },
+              collabActivity: null,
+            }
+          : {
+              category: "fyi",
+              confidence: 0.9,
+              rationale:
+                "The envelope belongs to the platform, so rule 8a governs: relayed community activity is passive, and the waiting phrase is engagement boilerplate.",
+              todoSuggestion: null,
+              todoDecision: { outcome: "no_obligation", note: "No user-owned obligation." },
+              collabActivity: null,
+            },
+      ),
+    expected: {
+      category: ["fyi"],
+      guards: ["+2pass"],
+      todo: "suppress",
+      note: "A deterministic service envelope cannot owe a reply, so net C re-asks once and the second pass returns the passive answer rule 8a requires. The `+2pass` tag proves the re-ask ran rather than threw.",
     },
   },
 ];
 
 interface TaskOutput {
   category: TriageCategory;
+  /**
+   * `classifyEmail`'s assembled model-tag string: the base model id followed, in
+   * sequence order, by `+2pass` / `+2pass_failed` and one tag per floor that
+   * fired. It is the ONLY place a caller can read WHICH branch decided the
+   * category — the classification itself looks identical whether the first pass
+   * answered `fyi` or a floor demoted a demand lane into it. `Expected.guards`
+   * asserts against this, and every row renders it.
+   */
+  model: string;
   confidence: number;
   rationale: string;
   collabActivity: CollabActivityKind | null;
@@ -713,6 +1087,7 @@ interface TaskOutput {
  */
 function isTransientOverload(err: unknown): boolean {
   const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+
   return /high demand|overloaded|rate.?limit|too many requests|\b429\b|\b503\b|temporarily unavailable|AI_RetryError/i.test(
     msg,
   );
@@ -730,6 +1105,7 @@ function isTransientOverload(err: unknown): boolean {
  */
 function isEmptyOutput(err: unknown): boolean {
   const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+
   return /AI_NoOutputGeneratedError|AI_NoObjectGeneratedError|No output generated|No object generated/i.test(
     msg,
   );
@@ -748,22 +1124,26 @@ async function classifyWithRetry(
   args: ClassifyEmailArgs,
 ): Promise<Awaited<ReturnType<typeof classifyEmail>>> {
   let lastErr: unknown;
+
   for (let attempt = 1; attempt <= EMPTY_OUTPUT_ATTEMPTS; attempt++) {
     try {
       return await classifyEmail(args);
     } catch (err) {
       lastErr = err;
+
       if (!isEmptyOutput(err) || attempt === EMPTY_OUTPUT_ATTEMPTS) throw err;
       // Brief escalating backoff so the flash-lite pool can drain between tries.
       await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
     }
   }
+
   throw lastErr;
 }
 
 function buildArgs(c: Case): ClassifyEmailArgs {
   const authoredAt = c.authoredAt ?? NOW;
   const signalText = [c.subject, c.body, c.snippet ?? ""].join("\n");
+
   const observations = assembleObservations({
     senderKey: c.senderKey ?? null,
     senderPrior: c.senderPrior
@@ -783,6 +1163,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     labelIds: c.labelIds ?? ["INBOX"],
     signalText,
   });
+
   return {
     identity: USER,
     document: {
@@ -792,8 +1173,11 @@ function buildArgs(c: Case): ClassifyEmailArgs {
       authoredAt,
       metadata: { from: c.from, snippet: c.snippet ?? c.body.slice(0, 160) },
     },
-    senderContext: c.sender,
+    senderContext: senderContextFor(c),
     observations,
+    // Spread rather than assigned: `exactOptionalPropertyTypes` is on, so a
+    // literal `runPass: undefined` is not the same as an absent key.
+    ...(c.runPass ? { runPass: c.runPass } : {}),
     // Fail fast to the configured fallback under provider overload instead of burning
     // three exponential-backoff cycles per case. Without this, a CI run during a
     // sustained-throttle window blows the eval job's wall-clock budget. Prod
@@ -808,11 +1192,21 @@ function buildArgs(c: Case): ClassifyEmailArgs {
   };
 }
 
-function renderJudgeContext(c: Case): string {
+function renderJudgeContext(c: Case, sender: SenderContext): string {
   const lines: string[] = [
-    `SenderContext: ${JSON.stringify(c.sender)}`,
+    // The RESOLVED context, not `c.sender` — a case that derives its sender from
+    // the `From:` header has no `c.sender` to print, and the judge grades the
+    // rationale against what the classifier actually saw.
+    `SenderContext: ${JSON.stringify(sender)}`,
     `Known contact: ${c.knownContact ? "yes" : "no"}`,
   ];
+
+  // The classifier reads the Gmail label set (SPAM/TRASH/IMPORTANT/CATEGORY_*),
+  // so the judge must see it too — otherwise a rationale that cites Gmail's own
+  // spam verdict looks like a fabricated cue and grades D.
+  if (c.labelIds) {
+    lines.push(`Gmail labels: ${c.labelIds.join(", ")}`);
+  }
 
   if (c.senderRelationship) {
     lines.push(`Sender relationship: ${c.senderRelationship}`);
@@ -824,6 +1218,7 @@ function renderJudgeContext(c: Case): string {
           .map(([category, count]) => `${category}:${count}`)
           .join(", ")
       : "no history";
+
     lines.push(`Sender prior [${c.senderKey}]: ${prior}`);
   }
 
@@ -831,9 +1226,11 @@ function renderJudgeContext(c: Case): string {
     lines.push(
       `Thread: ${c.messageCount ?? 0} prior message(s); newest is ${c.newestDirection ?? "unknown"}`,
     );
+
     if (c.lastUserReplyAt) {
       lines.push(`You last replied on ${c.lastUserReplyAt.toISOString().slice(0, 10)}`);
     }
+
     for (const message of c.recentMessages ?? []) {
       const who = message.direction === "sent" ? "you sent" : "received";
       lines.push(`Recent thread message [${who}]: ${message.snippet}`);
@@ -855,11 +1252,13 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
     void serverEnv().GOOGLE_GENERATIVE_AI_API_KEY;
     const args = buildArgs(input);
     const email = { from: input.from, subject: input.subject, body: input.body };
-    const context = renderJudgeContext(input);
+    const context = renderJudgeContext(input, args.senderContext);
 
     let classification;
+    let model;
+
     try {
-      ({ classification } = await classifyWithRetry(args));
+      ({ classification, model } = await classifyWithRetry(args));
     } catch (err) {
       // The task must NEVER throw: a classifier-QUALITY regression shows up as a
       // wrong category (which still scores), whereas a THROW here is always an
@@ -870,11 +1269,15 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       // until the CI job's wall-clock timeout. So skip the case (scores 0) and
       // log it loudly — many skips mean a provider/SDK outage, not a regression.
       const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+
       const kind =
         isTransientOverload(err) || isEmptyOutput(err) ? "provider overload" : "classify error";
+
       console.warn(`[triage-eval] SKIP "${input.label}" — ${kind}: ${reason}`);
+
       return {
         category: "fyi",
+        model: "(not classified)",
         confidence: 0,
         rationale: `[skipped: ${kind}]`,
         collabActivity: null,
@@ -889,12 +1292,14 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
     }
 
     const authoredAt = input.authoredAt ?? NOW;
+
     // Fixtures carry no user, so the anchor zone is fixed at UTC — the assist
     // dates the cases assert are relative to that.
     const resolved = resolveTodoSuggestion(classification, {
       sentAt: authoredAt,
       timezone: DEFAULT_USER_TIMEZONE,
     });
+
     const suppression = todoSuppressionReason({
       sender: input.from,
       subject: input.subject,
@@ -902,9 +1307,12 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       category: classification.category,
       isColdContact: input.isColdContact ?? false,
     });
+
     const wouldMintTodo = resolved !== null && suppression === null;
+
     return {
       category: classification.category,
+      model,
       confidence: classification.confidence,
       rationale: classification.rationale,
       collabActivity: classification.collabActivity ?? null,
@@ -919,15 +1327,42 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
   },
   scorers: [
     {
-      // The hard signal: did the classifier land the right category?
+      // The hard signal: did the classifier land the right category — AND, when
+      // the case names one, did the guard that was supposed to decide it run?
+      // The second half is not decoration: a case whose accept set holds both the
+      // first pass's answer and a floor's answer scores 1 with the floor deleted,
+      // which is how the spam floor came to have no net at all.
       name: "Category match",
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
+
+        if (!expected) return { score: 0, metadata: "no expectation" };
+
+        const categoryOk = expected.category.includes(output.category);
+
+        // Whole-tag match, never a substring: `model` is one CONCATENATED tag list
+        // (`<base>+2pass+spamfloor`), and one tag is a prefix of another —
+        // `"+2pass_failed".includes("+2pass")` is true, so a substring test would
+        // score a discarded re-ask as a completed one. Split on the separator the
+        // assembler joins with and compare whole tags.
+        const ranTags = new Set(
+          output.model
+            .split("+")
+            .slice(1)
+            .map((tag) => `+${tag}`),
+        );
+
+        const missingGuards = (expected.guards ?? []).filter((tag) => !ranTags.has(tag));
+
+        const got =
+          `got ${output.category} (conf ${output.confidence.toFixed(2)}) via ${output.model}, ` +
+          `want ${expected.category.join("/")}`;
+
         return {
-          score: expected && output.category === expected.category ? 1 : 0,
-          metadata: expected
-            ? `got ${output.category} (conf ${output.confidence.toFixed(2)}), want ${expected.category}`
-            : "no expectation",
+          score: categoryOk && missingGuards.length === 0 ? 1 : 0,
+          metadata: missingGuards.length
+            ? `${got}; guard never ran: ${missingGuards.join(", ")}`
+            : got,
         };
       },
     },
@@ -938,12 +1373,15 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       name: "Todo mint decision",
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
+
         if (!expected) return { score: 0, metadata: "no expectation" };
         const want = expected.todo === "mint";
         const ok = output.wouldMintTodo === want;
+
         const got = output.wouldMintTodo
           ? `mint "${output.todoName}"`
           : `suppress (${output.suppression ?? output.todoOutcome ?? "no todo"})`;
+
         return {
           score: ok ? 1 : 0,
           metadata: `${got}; want ${expected.todo}`,
@@ -954,11 +1392,14 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       name: "CollabActivity match",
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
+
         if (!("collabActivity" in (expected ?? {}))) {
           return { score: 1, metadata: "not asserted" };
         }
+
         const gotPartition = collabActivityPartition(output.collabActivity);
         const wantPartition = collabActivityPartition(expected?.collabActivity);
+
         return {
           score: gotPartition === wantPartition ? 1 : 0,
           metadata:
@@ -988,8 +1429,12 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
           `- category: ${output.category}`,
           `- rationale: ${output.rationale}`,
           "",
+          // The WHOLE accept set, not its first member: on the one path a
+          // set-valued case exists to catch — the floor fires and the answer
+          // moves to `fyi` — naming only the primary would score the row 1 on
+          // `Category match` and have the judge grade the same row down.
           expected
-            ? `For reference, the expected category is "${expected.category}" because: ${expected.note}`
+            ? `For reference, the expected category is any of ${expected.category.map((c) => `"${c}"`).join(", ")} because: ${expected.note}`
             : "",
           "",
           "Grade the classifier's category + rationale against the rubric.",

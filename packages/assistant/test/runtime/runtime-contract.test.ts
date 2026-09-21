@@ -54,6 +54,7 @@ describe("assistant runtime door", () => {
 describe("teardown step policy", () => {
   test("reports a step that finished", async () => {
     let ran = false;
+
     const finished = await runShutdownStep("worker", async () => {
       ran = true;
     });

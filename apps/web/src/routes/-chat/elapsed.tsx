@@ -36,19 +36,24 @@ export function Elapsed({
   // paint one frame of the stale duration first, which for a clock is visibly
   // a jump backwards.
   const [prevRunning, setPrevRunning] = useState(running);
+
   if (prevRunning !== running) {
     setPrevRunning(running);
+
     if (running) setNow(Date.now());
   }
 
   useEffect(() => {
     if (!running) return;
     const id = setInterval(() => setNow(Date.now()), TICK_MS);
+
     return () => clearInterval(id);
   }, [running]);
 
   const elapsed = Math.max(0, (endedTs ?? now) - startedTs);
+
   if (elapsed < MIN_VISIBLE_MS) return null;
+
   return (
     <span className={cn("shrink-0 text-[11px] text-app-fg-2 tabular-nums", className)}>
       {formatDuration(elapsed)}

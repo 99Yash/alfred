@@ -36,6 +36,7 @@ describe("attachment content references", () => {
       references: [{ foo: "bar" }, validRef, { ...validRef, size: "big" }],
       filename: "unrelated-key-stays-unread",
     };
+
     assert.deepEqual(parseAttachmentContentReferences(metadata), [validRef]);
   });
 

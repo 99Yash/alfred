@@ -1,12 +1,12 @@
 /**
  * The connected rule (ADR-0093): a live provider is connected for a user when
  * one credential row satisfies the rule its `CredentialSpec` declares. The rule
- * is prose on each `CredentialSpec` member in `./types`; this is its one
+ * is prose on each `CredentialSpec` member in `./registry`; this is its one
  * executable home. The server's availability read and the web's connectedness
  * probe both call it, so the two cannot disagree on which rows count.
  */
 
-import type { CredentialSpec } from "./types";
+import type { CredentialSpec } from "./registry";
 
 /**
  * The credential row fields the connected rule reads. The server's
@@ -16,7 +16,7 @@ import type { CredentialSpec } from "./types";
 export interface CredentialProofRow {
   readonly status: string;
   readonly scopes: Iterable<string>;
-  /** GitHub App installation id; `null` on every other shape and on a legacy classic-OAuth GitHub row. */
+  /** The provider installation id (GitHub App id, Sentry installation uuid); `null` on a legacy classic-OAuth GitHub row and on providers that send no webhooks. Only the `github_app` arm reads it. */
   readonly installationId: string | null;
 }
 
@@ -26,9 +26,11 @@ export interface CredentialProofRow {
  */
 export function holdsAnyScope(granted: Iterable<string>, anyOfScopes: readonly string[]): boolean {
   if (anyOfScopes.length === 0) return true;
+
   for (const scope of granted) {
     if (anyOfScopes.includes(scope)) return true;
   }
+
   return false;
 }
 
@@ -46,6 +48,7 @@ export function holdsAnyScope(granted: Iterable<string>, anyOfScopes: readonly s
  */
 export function credentialSatisfies(spec: CredentialSpec, row: CredentialProofRow): boolean {
   if (row.status !== "active") return false;
+
   switch (spec.shape) {
     case "google_oauth":
       return holdsAnyScope(row.scopes, spec.anyOfScopes);

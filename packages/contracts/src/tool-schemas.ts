@@ -42,10 +42,11 @@ import {
   artifactKindSchema,
   artifactPageSchema,
 } from "./artifacts";
+import { contextSearchRequestSchema } from "./context-search";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
 import { isRecord } from "./guards";
-import { mcpCallInput, mcpListToolsInput } from "./mcp";
-import { graphqlPassthroughRequestSchema, restPassthroughRequestSchema } from "./passthrough";
+import { mcpCallInput, mcpToolInspectInputSchema, mcpToolSearchInputSchema } from "./mcp";
+import { restPassthroughRequestSchema } from "./passthrough";
 import { todoSourceSchema } from "./todos";
 import {
   GMAIL_SEARCH_DEFAULT_RESULTS,
@@ -119,15 +120,19 @@ export const canonicalParamKey = (key: string): string => key.toLowerCase().repl
  * the server gets more tolerant. Applied to the `q`-named tools, which the
  * model is likeliest to call with the more common `query`.
  */
-function withQueryAlias<S extends z.ZodTypeAny>(canonical: "q" | "query", schema: S) {
+function withQueryAlias<S extends z.ZodType<any>>(canonical: "q" | "query", schema: S) {
   const alias = canonical === "q" ? "query" : "q";
+
   return z.preprocess((value) => {
     if (isRecord(value) && typeof value[alias] === "string") {
       const rest = { ...value };
+
       if (!(canonical in rest)) rest[canonical] = rest[alias];
       delete rest[alias];
+
       return rest;
     }
+
     return value;
   }, schema);
 }
@@ -169,6 +174,7 @@ function withKeyAliases<S extends z.ZodObject>(
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
+
     for (const [alias, canonical] of Object.entries(aliases)) {
       // Match the alias case/underscore-insensitively (`Limit` → `limit`): the
       // dispatch normalizer only canonicalizes toward accepted keys, and an
@@ -177,14 +183,18 @@ function withKeyAliases<S extends z.ZodObject>(
         alias in next
           ? alias
           : Object.keys(next).find((k) => canonicalParamKey(k) === canonicalParamKey(alias));
+
       if (key === undefined) continue;
+
       if (next === value) next = { ...value };
+
       // An alias is never itself an accepted key, so always remove it: fold it
       // into the canonical field when that's absent, else drop it as redundant
       // (the explicit canonical wins rather than the call bouncing).
       if (!(canonical in next)) next[canonical] = next[key];
       delete next[key];
     }
+
     return next;
   }, schema);
 }
@@ -205,16 +215,18 @@ function withKeyAliases<S extends z.ZodObject>(
  * web_search `query`) should still reject the empty string rather than silently
  * search for nothing.
  */
-function blankFieldToOmitted<S extends z.ZodTypeAny>(fields: readonly string[], schema: S) {
+function blankFieldToOmitted<S extends z.ZodType<any>>(fields: readonly string[], schema: S) {
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
+
     for (const field of fields) {
       if (typeof next[field] === "string" && next[field].trim() === "") {
         if (next === value) next = { ...value };
         delete next[field];
       }
     }
+
     return next;
   }, schema);
 }
@@ -234,20 +246,25 @@ function blankFieldToOmitted<S extends z.ZodTypeAny>(fields: readonly string[], 
  * doesn't JSON-parse to an array is left untouched, so it still fails strict
  * validation and surfaces the enriched dispatcher error.
  */
-export function coerceJsonArrayFields<S extends z.ZodTypeAny>(
+export function coerceJsonArrayFields<S extends z.ZodType<any>>(
   fields: readonly string[],
   schema: S,
 ) {
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
+
     for (const field of fields) {
       const raw = next[field];
+
       if (typeof raw !== "string") continue;
       const trimmed = raw.trim();
+
       if (!trimmed.startsWith("[")) continue;
+
       try {
         const parsed: unknown = JSON.parse(trimmed);
+
         if (Array.isArray(parsed)) {
           if (next === value) next = { ...value };
           next[field] = parsed;
@@ -256,6 +273,7 @@ export function coerceJsonArrayFields<S extends z.ZodTypeAny>(
         // Not valid JSON — leave it for the array schema to reject normally.
       }
     }
+
     return next;
   }, schema);
 }
@@ -323,11 +341,13 @@ function promoteWindowSynonym(value: unknown): unknown {
   // The preprocessor deliberately hands back an untyped record for the schema
   // to validate, so build it as a plain record rather than a literal.
   const obj = Object.assign({}, value);
+
   if (obj.window !== undefined) return obj;
   // SAFETY: CALENDAR_WINDOW_VALUES is the closed const table of window
   // literals; widening it to readonly string[] only types the receiver of
   // .includes so a candidate field value can be tested against the table.
   const windowValues = CALENDAR_WINDOW_VALUES as readonly string[];
+
   for (const [key, val] of Object.entries(obj)) {
     if (typeof val === "string" && windowValues.includes(val)) {
       obj.window = val;
@@ -335,6 +355,7 @@ function promoteWindowSynonym(value: unknown): unknown {
       break;
     }
   }
+
   return obj;
 }
 
@@ -364,18 +385,23 @@ export const calendarListEventsInput = z.preprocess(promoteWindowSynonym, calend
  */
 const MINUTE_PRECISION_DATETIME_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/;
 
-function padDatetimeSeconds<S extends z.ZodTypeAny>(fields: readonly string[], schema: S) {
+function padDatetimeSeconds<S extends z.ZodType<any>>(fields: readonly string[], schema: S) {
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
+
     for (const field of fields) {
       const raw = next[field];
+
       if (typeof raw !== "string") continue;
       const match = MINUTE_PRECISION_DATETIME_RE.exec(raw);
+
       if (!match) continue;
+
       if (next === value) next = { ...value };
       next[field] = `${match[1]}:00${match[2]}`;
     }
+
     return next;
   }, schema);
 }
@@ -452,16 +478,21 @@ const driveFileId = z.string().min(1).max(200).describe("The Drive file id.");
  * `name contains '…'` itself.
  */
 const DRIVE_BARE_TERM_RE = /^[\w.-]+$/;
+
 function promoteDriveBareQuery(value: unknown): unknown {
   if (!isRecord(value)) return value;
   const q = value.q;
+
   if (typeof q !== "string") return value;
   const trimmed = q.trim();
+
   if (trimmed === "*") {
     const next = Object.assign({}, value);
     delete next.q;
+
     return next;
   }
+
   if (DRIVE_BARE_TERM_RE.test(trimmed)) {
     // The regex admits only word chars / `.` / `-`, so `trimmed` can never carry
     // a quote or backslash — it's safe to interpolate into the single-quoted
@@ -470,6 +501,7 @@ function promoteDriveBareQuery(value: unknown): unknown {
       q: `name contains '${trimmed}' or fullText contains '${trimmed}'`,
     });
   }
+
   return value;
 }
 
@@ -589,6 +621,7 @@ const GITHUB_ITEM_URL_RE = /github\.com\/([^/\s]+)\/([^/\s]+)\/(?:pull|issues)\/
  * tied to the wrapped object's keys, so it can't drift from the schema.
  */
 const GITHUB_OWNER_REPO_SLUG_RE = /^([^/\s]+)\/([^/\s]+)$/;
+
 /**
  * Canonical forms (see {@link canonicalParamKey}) of the number synonyms the model
  * actually reaches for. Kept a closed set on purpose — see the wrapper's note.
@@ -599,6 +632,7 @@ const GITHUB_ITEM_NUMBER_SYNONYMS: ReadonlySet<string> = new Set([
   "pullrequestnumber",
   "issuenumber",
 ]);
+
 function withGithubItemUrl<S extends z.ZodObject>(
   numberKey: keyof S["shape"] & ("pull_number" | "issue_number"),
   schema: S,
@@ -606,6 +640,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
+
     const fork = () => {
       if (next === value) next = { ...value };
     };
@@ -613,10 +648,14 @@ function withGithubItemUrl<S extends z.ZodObject>(
     // 1. Decompose a full github.com URL the model was handed by github.search.
     if (typeof next.url === "string") {
       const match = GITHUB_ITEM_URL_RE.exec(next.url);
+
       if (match) {
         fork();
+
         if (!("owner" in next)) next.owner = match[1];
+
         if (!("repo" in next)) next.repo = match[2];
+
         if (!(numberKey in next)) next[numberKey] = Number(match[3]);
         delete next.url;
       }
@@ -626,6 +665,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
     //    a real repo name never contains a slash, so this can only be the slug.
     if (typeof next.repo === "string" && !("owner" in next)) {
       const slug = GITHUB_OWNER_REPO_SLUG_RE.exec(next.repo.trim());
+
       if (slug) {
         fork();
         next.owner = slug[1];
@@ -637,6 +677,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
     if (!(numberKey in next)) {
       for (const key of Object.keys(next)) {
         if (key === "owner" || key === "repo") continue;
+
         if (!GITHUB_ITEM_NUMBER_SYNONYMS.has(canonicalParamKey(key))) continue;
         fork();
         next[numberKey] = next[key];
@@ -644,6 +685,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
         break;
       }
     }
+
     return next;
   }, schema);
 }
@@ -747,6 +789,7 @@ export const githubSearchInput = withKeyAliases(
   // Runs on the wrapper output (post key-alias fold), so it sees canonical keys.
   .superRefine((value, ctx) => {
     const { sanitized } = sanitizeGithubSearchQuery(value);
+
     for (const message of githubSearchQueryIssues(sanitized)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ["query"] });
     }
@@ -812,14 +855,23 @@ export const gmailSearchHitSchema = z
     url: z.string().nullable(),
   })
   .strict();
+
 export type GmailSearchHit = z.infer<typeof gmailSearchHitSchema>;
 
 export const gmailSearchResultSchema = z
   .object({
+    /**
+     * The Gmail query that produced these hits, echoed back. The chat UI drops
+     * `argsPreview` when it persists a turn, so a reload can only name what a
+     * search looked for if the result carries the query itself. The model also
+     * reads it as a reminder of what it asked for across a long tool loop.
+     */
+    query: z.string(),
     messages: z.array(gmailSearchHitSchema),
     nextPageToken: z.string().nullable(),
   })
   .strict();
+
 export type GmailSearchResult = z.infer<typeof gmailSearchResultSchema>;
 
 export const gmailSearchInput = withQueryAlias(
@@ -875,18 +927,24 @@ export const gmailSearchInput = withQueryAlias(
  * only the server gets more tolerant.
  */
 const GMAIL_RECIPIENT_FIELDS = ["to", "cc", "bcc"] as const;
+
 function wrapScalarRecipients(value: unknown): unknown {
   if (!isRecord(value)) return value;
   let next = value;
+
   for (const field of GMAIL_RECIPIENT_FIELDS) {
     const raw = next[field];
+
     if (typeof raw !== "string") continue;
+
     // A `[`-prefixed string is a malformed JSON array coerceJsonArrayFields
     // already declined; leave it to fail strict validation, don't wrap it.
     if (raw.trim().startsWith("[")) continue;
+
     if (next === value) next = { ...value };
     next[field] = [raw];
   }
+
   return next;
 }
 
@@ -924,6 +982,7 @@ export const gmailSendDraftInput = coerceJsonArrayFields(
     ),
   ),
 );
+
 export type GmailSendDraftInput = z.infer<typeof gmailSendDraftInput>;
 
 export const gmailReadMessageInput = z
@@ -956,15 +1015,24 @@ export const gmailReadMessageInput = z
     message: "documentId or messageId is required",
   })
   // Fold the legacy `id` alias into `messageId` so consumers read one field.
-  .transform((value) => ({
-    documentId: value.documentId,
-    messageId: value.messageId ?? value.id,
-  }));
+  // Omit the key the caller did not supply rather than writing it as
+  // `undefined`: the dispatcher persists the parsed input as a `JsonValue`,
+  // and a record with an `undefined` value is not JSON, so an explicit key
+  // would throw at the staging boundary before the tool ever executes.
+  .transform((value) => {
+    const messageId = value.messageId ?? value.id;
+
+    return {
+      ...(value.documentId === undefined ? {} : { documentId: value.documentId }),
+      ...(messageId === undefined ? {} : { messageId }),
+    };
+  });
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
 
 /** A single cell on write: string, number, boolean, or null (blank). */
 const cellValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
 const cellGrid = z
   .array(z.array(cellValue))
   .min(1)
@@ -1145,17 +1213,6 @@ export const notionAppendBlocksInput = z
   })
   .strict();
 
-/* ── railway ──────────────────────────────────────────────────────────── */
-
-/**
- * Railway's general read-only passthrough (ADR-0074). The request shape is the
- * shared {@link graphqlPassthroughRequestSchema} contract; the read gate + honest
- * envelope live in `@alfred/assistant`. Not `.strict()` on purpose — the schema is the
- * pure GraphQL request the boss composes, and a mistaken write reaches the *gate*
- * (a visible rejection it can self-correct), not a hidden Zod failure.
- */
-export const railwayGraphqlInput = graphqlPassthroughRequestSchema;
-
 /**
  * The shared REST general-passthrough (ADR-0074) request shape for every
  * REST-transport integration (`github.request`, `notion.request`,
@@ -1166,99 +1223,6 @@ export const railwayGraphqlInput = graphqlPassthroughRequestSchema;
  * visible rejection the boss can self-correct), not a hidden Zod failure.
  */
 export const restPassthroughInput = restPassthroughRequestSchema;
-
-export const railwayListProjectsInput = z.object({}).strict();
-
-const railwayCredentialId = z
-  .string()
-  .min(1)
-  .max(200)
-  .describe(
-    "Credential id from railway.list_projects identifying which Railway connection to act through. Omit if only one Railway connection exists; required when several are connected.",
-  )
-  .optional();
-
-export const railwayListDeploymentsInput = z
-  .object({
-    credentialId: railwayCredentialId,
-    projectId: z.string().min(1).max(200).describe("Railway project id to list deployments for."),
-    serviceId: z
-      .string()
-      .min(1)
-      .max(200)
-      .optional()
-      .describe("Optional service id to narrow deployments to a single service."),
-    environmentId: z
-      .string()
-      .min(1)
-      .max(200)
-      .optional()
-      .describe("Optional environment id (e.g. production) to narrow deployments."),
-    limit: z.coerce.number().int().min(1).max(20).default(5).catch(5),
-  })
-  .strict();
-
-export const railwayRecentDeploymentsInput = z
-  .object({
-    limit: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(30)
-      .default(15)
-      .catch(15)
-      .describe(
-        "Max deployments to return, merged across all projects and Railway connections and sorted newest first.",
-      ),
-  })
-  .strict();
-
-export const railwayGetLogsInput = z
-  .object({
-    credentialId: railwayCredentialId,
-    deploymentId: z.string().min(1).max(200).describe("Railway deployment id to read logs for."),
-    limit: z.coerce.number().int().min(1).max(500).default(100).catch(100),
-  })
-  .strict();
-
-export const railwayRedeployInput = z
-  .object({
-    credentialId: railwayCredentialId,
-    deploymentId: z
-      .string()
-      .min(1)
-      .max(200)
-      .describe("Railway deployment id to redeploy (re-runs the same build/release)."),
-    // Display-only context for the human approval card. `redeploy` is the one
-    // irreversible Railway action and its approval can fire by email / from the
-    // standalone /approvals page with no surrounding chat narration — where the
-    // raw deploymentId + credentialId are two opaque cuids the approver can't
-    // evaluate. These name what is actually being redeployed (which the boss
-    // already resolved from list_projects + list_deployments). They are NOT used
-    // by the execute path — only deploymentId + credentialId drive the mutation —
-    // so a wrong label can mislead the card but can never redirect the redeploy.
-    serviceName: z
-      .string()
-      .min(1)
-      .max(200)
-      .describe(
-        "Human name of the service being redeployed (from list_projects). Shown on the approval card so the user can see what is being redeployed, not just an id.",
-      ),
-    projectName: z
-      .string()
-      .min(1)
-      .max(200)
-      .describe("Human name of the project the service belongs to (from list_projects)."),
-    environmentName: z
-      .string()
-      .min(1)
-      .max(200)
-      .optional()
-      .describe(
-        "Environment the deployment runs in, e.g. 'production' or 'staging' (from list_projects). Critical safety context on the approval card — include it whenever known.",
-      ),
-  })
-  .strict();
 
 /* ── vercel ───────────────────────────────────────────────────────────── */
 
@@ -1341,13 +1305,16 @@ export const recoverWorkflowInput = z
 const copiedWorkflowCapabilitySchema = workflowRequiredCapabilitySchema.extend({
   tool: z.string().min(1).max(200),
 });
+
 const copiedWorkflowDefinitionSchema = authorableWorkflowDefinitionSchema.extend({
   allowedTools: z.array(z.string().min(1).max(200)).max(100),
   requiredCapabilities: z.array(copiedWorkflowCapabilitySchema).max(50),
 });
+
 const copiedWorkflowCapabilityDisplaySchema = workflowCapabilityDisplaySchema.extend({
   tool: z.string().min(1).max(200),
 });
+
 export const activateWorkflowInput = coerceJsonArrayFields(
   ["resolvedAccounts", "resolvedCapabilities"],
   activateWorkflowInputSchema.extend({
@@ -1469,51 +1436,98 @@ export const readChatHistoryInput = z
     path: ["kind"],
   });
 
-export const rememberInput = z
-  .object({
-    kind: z
-      .literal("sender_suppression")
-      .describe("Persist a resolved sender-level standing instruction."),
-    senderEmail: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .max(320)
-      .optional()
-      .describe(
-        "Resolved sender email to suppress. If unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
-      ),
-    senderLabel: z
-      .string()
-      .trim()
-      .max(200)
-      .nullish()
-      .describe("Human display label for the sender, if known."),
-    accountId: z
-      .string()
-      .trim()
-      .max(200)
-      .nullable()
-      .optional()
-      .describe(
-        "Optional account scope. Null or omitted means suppress this sender across accounts.",
-      ),
-    directive: z
-      .string()
-      .trim()
-      .max(1_000)
-      .optional()
-      .describe(
-        "Resolved instruction sentence. Omit to use the default open-loop suppression wording.",
-      ),
-    phrasing: z
-      .string()
-      .trim()
-      .max(1_000)
-      .optional()
-      .describe("Verbatim user phrasing that asked Alfred to remember this."),
-  })
-  .strict();
+/** A resolved sender email as `system.remember` accepts it, in both its single and batch forms. */
+const rememberSenderEmail = z.string().trim().toLowerCase().max(320);
+
+const rememberSenderLabel = z
+  .string()
+  .trim()
+  .max(200)
+  .nullish()
+  .describe("Human display label for the sender, if known.");
+
+const rememberScope = z
+  .enum(["sender", "domain"])
+  .optional()
+  .describe(
+    "How wide the instruction binds. `sender` (default) binds this one address. `domain` binds every " +
+      "address at the sender's domain, including ones that never wrote before; pick it when the user " +
+      "names a class of senders, not one mailbox. Alfred derives the domain from the address, and " +
+      "only a single organization's domain widens: a personal, school, shared-hosting, or " +
+      "mail-service host falls back to `sender`.",
+  );
+
+/** Per-entry override of the top-level `scope`. Same values, shorter prose. */
+const rememberEntryScope = z
+  .enum(["sender", "domain"])
+  .optional()
+  .describe("Overrides the top-level `scope` for this sender.");
+
+export const rememberInput = coerceJsonArrayFields(
+  ["senders"],
+  z
+    .object({
+      kind: z
+        .literal("sender_suppression")
+        .describe("Persist a resolved sender-level standing instruction."),
+      senderEmail: rememberSenderEmail
+        .optional()
+        .describe(
+          "Resolved sender email to suppress. If unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
+        ),
+      senderLabel: rememberSenderLabel,
+      scope: rememberScope,
+      senders: z
+        .array(
+          z
+            .object({
+              senderEmail: rememberSenderEmail,
+              senderLabel: rememberSenderLabel,
+              scope: rememberEntryScope,
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(50)
+        .optional()
+        .describe(
+          "Every resolved sender to suppress when the user names more than one. One call persists one " +
+            "instruction per entry; `accountId`, `directive`, `phrasing`, and the top-level `scope` " +
+            "apply to all of them, and an entry's own `scope` overrides that default. Use this " +
+            "instead of one call per sender.",
+        ),
+      accountId: z
+        .string()
+        .trim()
+        .max(200)
+        .nullable()
+        .optional()
+        .describe(
+          "Optional account scope. Null or omitted means suppress this sender across accounts.",
+        ),
+      directive: z
+        .string()
+        .trim()
+        .max(1_000)
+        .refine((s) => !/[\r\n]/.test(s), {
+          message: "directive must be single-line",
+        })
+        .optional()
+        .describe(
+          "Resolved instruction sentence. Omit to use the default open-loop suppression wording.",
+        ),
+      phrasing: z
+        .string()
+        .trim()
+        .max(1_000)
+        .refine((s) => !/[\r\n]/.test(s), {
+          message: "phrasing must be single-line",
+        })
+        .optional()
+        .describe("Verbatim user phrasing that asked Alfred to remember this."),
+    })
+    .strict(),
+);
 
 /**
  * List the user's active standing instructions so the model can reference a
@@ -1564,6 +1578,9 @@ export const editInstructionInput = z
       .string()
       .trim()
       .max(1_000)
+      .refine((s) => !/[\r\n]/.test(s), {
+        message: "directive must be single-line",
+      })
       .optional()
       .describe("New resolved instruction sentence. Omit to leave unchanged."),
     senderLabel: z
@@ -1655,6 +1672,33 @@ export const corpusSearchInput = z
       ),
   })
   .strict();
+
+/**
+ * `system.search_context` input (epic #422; ADR-0101). The model supplies the
+ * query envelope; the server binds `userId` from the call context, exactly as
+ * `searchContext` expects. Derived from the boundary's own
+ * {@link contextSearchRequestSchema} by dropping the server-owned fields and
+ * tightening the object to `.strict()`, so the model-facing shape cannot drift
+ * from the envelope the boundary parses — there is one set of bounds and one
+ * cap.
+ *
+ * Three fields are dropped. `userId` is the caller's identity, which the model
+ * never states. `expand` (#1077) and `maxSourceCost` (#1078) are latency and
+ * money budgets: whether the read may pay for live provider round trips is the
+ * server's call, not a knob the model can price, and exposing either would cost
+ * schema bytes on a kernel tool for a choice the model cannot reason about. The
+ * boundary's defaults (expansion on, every declared cost affordable) therefore
+ * apply to every model-issued read.
+ */
+export const searchContextInput = coerceJsonArrayFields(
+  ["objects"],
+  contextSearchRequestSchema
+    .omit({ userId: true, expand: true, maxSourceCost: true })
+    .strict()
+    .describe(
+      "One read across Alfred's registered evidence sources for a query. Use it to assemble first-pass evidence, then drill into provider-specific tools for actions or exact records.",
+    ),
+);
 
 export const suggestTodoInput = coerceJsonArrayFields(
   ["sources"],
@@ -1821,6 +1865,228 @@ export const updateArtifactInput = coerceJsonArrayFields(
 );
 
 /**
+ * The list bounds of a `system.ask_user` call. One table, read by the schema
+ * bounds and by every prose string that quotes them, so the tool description
+ * and the field descriptions cannot disagree with what the parser accepts.
+ */
+export const ASK_USER_LIMITS = {
+  /** Questions per call. */
+  questions: { min: 1, max: 4 },
+  /** Options per question. */
+  options: { min: 2, max: 6 },
+  /**
+   * Characters of free text per answer. The card reads it too: it caps the
+   * textarea at this number, because the draft is re-parsed against
+   * `askUserAnswerSchema` on every keystroke and a longer paste would fail
+   * that parse and replace the card with a raw-JSON editor mid-edit.
+   */
+  customAnswer: { max: 4_000 },
+} as const;
+
+/** One option the user can pick for a `system.ask_user` question. */
+const askUserOptionSchema = z
+  .object({
+    label: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .describe("Short option text, one to five words. The answer carries this exact label."),
+    description: z
+      .string()
+      .trim()
+      .max(400)
+      .describe("What choosing this option means or implies for the task."),
+  })
+  .strict();
+
+/** One question inside a `system.ask_user` call. */
+export const askUserQuestionSchema = z
+  .object({
+    question: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1_000)
+      .describe("The complete question, phrased to the user, ending with a question mark."),
+    header: z
+      .string()
+      .trim()
+      .min(1)
+      .max(24)
+      .describe(
+        "Very short chip label for the question, at most 24 characters, e.g. 'Recipients'.",
+      ),
+    options: z
+      .array(askUserOptionSchema)
+      .min(ASK_USER_LIMITS.options.min)
+      .max(ASK_USER_LIMITS.options.max)
+      .describe(
+        `${ASK_USER_LIMITS.options.min} to ${ASK_USER_LIMITS.options.max} distinct choices. The card always adds a free-text answer, so never add an 'Other' option.`,
+      ),
+    multiSelect: z
+      .boolean()
+      .default(false)
+      .describe("True when the user may pick several options at once."),
+  })
+  .strict()
+  // The label IS the option's identity: an answer carries labels, and the card
+  // keys each row on its label and marks it selected by membership. Two options
+  // sharing a label therefore render as one selection and un-toggle together.
+  // "Distinct choices" was prose in a `.describe()`, which the model may read
+  // and no boundary enforced; this makes the duplicate a validation error the
+  // dispatcher hands back with the repair.
+  .refine((v) => new Set(v.options.map((option) => option.label)).size === v.options.length, {
+    message: "options must carry distinct labels",
+    path: ["options"],
+  });
+
+export type AskUserQuestion = z.infer<typeof askUserQuestionSchema>;
+
+/**
+ * The user's answer to one question, in question order. `selectedOptions`
+ * carries option labels; `customAnswer` is the free-text answer, or null.
+ *
+ * `customAnswer` is deliberately NOT trimmed. The question card holds its
+ * draft as the tool input and re-reads it through this schema on every
+ * keystroke, so a trim here deleted the space the user had just typed and made
+ * the free-text field unable to accept a space at all. The labels in
+ * `selectedOptions` are still trimmed: the card writes them from the question,
+ * so no one ever types them. The card decides emptiness for itself, and the
+ * model reads prose, so no boundary needs the whitespace removed.
+ */
+export const askUserAnswerSchema = z
+  .object({
+    selectedOptions: z.array(z.string().trim().min(1).max(120)).max(ASK_USER_LIMITS.options.max),
+    customAnswer: z.string().max(ASK_USER_LIMITS.customAnswer.max).nullable(),
+  })
+  .strict();
+
+export type AskUserAnswer = z.infer<typeof askUserAnswerSchema>;
+
+/**
+ * The fields of a `system.ask_user` call that the model writes. Kept
+ * unwrapped so the three schemas below can each add their own tolerance
+ * wrapper and their own rules on top of one field list.
+ */
+const askUserFields = z.object({
+  context: z
+    .string()
+    .trim()
+    .max(4_000)
+    .optional()
+    .describe(
+      "Optional short markdown paragraph that frames why you ask, shown above the questions.",
+    ),
+  questions: z
+    .array(askUserQuestionSchema)
+    .min(ASK_USER_LIMITS.questions.min)
+    .max(ASK_USER_LIMITS.questions.max)
+    .describe(
+      `${ASK_USER_LIMITS.questions.min} to ${ASK_USER_LIMITS.questions.max} questions the user answers before the turn continues. Ask everything you need in ONE call.`,
+    ),
+});
+
+/**
+ * The user's half, added by the decision route and never by the model.
+ */
+const askUserAnswersField = z
+  .array(askUserAnswerSchema)
+  .optional()
+  .describe("Filled by the user, never by the model. One entry per question, in the same order.");
+
+/**
+ * The half of `system.ask_user` the model may write (ADR-0099): the framing
+ * paragraph and the questions. It has no `answers` key at all, and it is the
+ * schema the tool surface advertises, so the model cannot answer its own
+ * question. Slice 1 shipped one schema for both halves; the model then read
+ * the optional `answers` key as a field to fill, and the two rules that guard
+ * it contradicted each other on every retry. See {@link askUserInput}.
+ */
+export const askUserModelInput = coerceJsonArrayFields(["questions"], askUserFields.strict());
+
+export type AskUserModelInput = z.infer<typeof askUserModelInput>;
+
+/**
+ * The whole sheet: the model's questions plus the user's answers. Named once
+ * because the two schemas below must stay byte-identical apart from the
+ * pairing rule — "the same shape plus one rule" is only true while one
+ * expression states the shape.
+ */
+const askUserAnswerSheet = askUserFields.extend({ answers: askUserAnswersField }).strict();
+
+/**
+ * `system.ask_user` (ADR-0099) as the tool runtime validates it. The chat turn
+ * parks on a `question` approval, the decision route writes the user's
+ * `answers` into the row's decided input, and the dispatcher's ordinary
+ * "re-validate the decided input against the tool schema" path carries the
+ * answer back to the tool's `execute`. So this schema accepts `answers` while
+ * {@link askUserModelInput} hides it.
+ *
+ * It holds no cross-field rule on purpose. A stray `answers` on a fresh call
+ * must reach the dispatcher's question arm, which names the one repair ("send
+ * only context and questions"); a length rule here would answer first and tell
+ * the model to fill the field instead. {@link askUserDecidedInput} adds the
+ * rule at the one boundary that writes answers.
+ */
+export const askUserInput = coerceJsonArrayFields(["questions", "answers"], askUserAnswerSheet);
+
+export type AskUserInput = z.infer<typeof askUserInput>;
+
+/**
+ * The answer sheet the decision route accepts (ADR-0099). Same shape as
+ * {@link askUserInput} plus the pairing rule, so a wrong-length answer list is
+ * a 400 the question card shows instead of a failed row and a generic
+ * `tool_input_invalid` the model re-asks past.
+ */
+export const askUserDecidedInput = coerceJsonArrayFields(
+  ["questions", "answers"],
+  askUserAnswerSheet.refine(
+    (v) => v.answers === undefined || v.answers.length === v.questions.length,
+    {
+      message: "answers must carry exactly one entry per question",
+      path: ["answers"],
+    },
+  ),
+);
+
+export type AskUserDecidedInput = z.infer<typeof askUserDecidedInput>;
+
+/**
+ * Why the user's answers did not arrive. `dismissed` and `expired` come from
+ * the dispatcher, which synthesizes the result from the parked row's status
+ * without running the tool. `no_answers` comes from the tool itself when the
+ * row was approved with no edit, so the decided input carries no `answers`.
+ */
+export const askUserUnansweredReasonSchema = z.enum(["dismissed", "expired", "no_answers"]);
+
+export type AskUserUnansweredReason = z.infer<typeof askUserUnansweredReasonSchema>;
+
+/**
+ * What the model sees after a `system.ask_user` park settles. One shape for
+ * the tool's own `execute` and for the dispatcher's synthesized results, so the
+ * two cannot drift. The dispatcher adds its envelope fields (`toolName`,
+ * `retryPolicy`) on top of the `unanswered` variant.
+ */
+export const askUserResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("answered"),
+    questions: z.array(askUserQuestionSchema),
+    answers: z.array(askUserAnswerSchema),
+  }),
+  z.object({
+    status: z.literal("unanswered"),
+    reason: askUserUnansweredReasonSchema,
+    questions: z.array(askUserQuestionSchema),
+    message: z.string(),
+  }),
+]);
+
+export type AskUserResult = z.infer<typeof askUserResultSchema>;
+
+export type AskUserUnansweredResult = Extract<AskUserResult, { status: "unanswered" }>;
+
+/**
  * Every tool whose input shape lives here, keyed by `ToolName`. The dispatcher
  * resolves the schema from the owning module (which re-exports these); this
  * map exists so the web layer can look a schema up by name without importing
@@ -1844,12 +2110,6 @@ export const TOOL_INPUT_SCHEMAS = {
   "notion.create_page": notionCreatePageInput,
   "notion.append_blocks": notionAppendBlocksInput,
   "notion.request": restPassthroughInput,
-  "railway.list_projects": railwayListProjectsInput,
-  "railway.list_deployments": railwayListDeploymentsInput,
-  "railway.recent_deployments": railwayRecentDeploymentsInput,
-  "railway.get_logs": railwayGetLogsInput,
-  "railway.redeploy": railwayRedeployInput,
-  "railway.graphql": railwayGraphqlInput,
   "vercel.list_projects": vercelListProjectsInput,
   "vercel.list_deployments": vercelListDeploymentsInput,
   "vercel.redeploy": vercelRedeployInput,
@@ -1887,12 +2147,15 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.web_search": webSearchInput,
   "system.fetch_url": fetchUrlInput,
   "system.corpus_search": corpusSearchInput,
+  "system.search_context": searchContextInput,
   "system.create_artifact": createArtifactInput,
   "system.append_artifact_page": appendArtifactPageInput,
   "system.append_artifact_section": appendArtifactSectionInput,
   "system.update_artifact": updateArtifactInput,
+  "system.ask_user": askUserInput,
   "mcp.call": mcpCallInput,
-  "mcp.list_tools": mcpListToolsInput,
+  "mcp.list_tools": mcpToolSearchInputSchema,
+  "mcp.inspect_tool": mcpToolInspectInputSchema,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
 
 /**

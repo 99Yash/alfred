@@ -110,6 +110,7 @@ export async function joinChildRun(
     parentRunId: args.parentRunId,
     delayMs: AWAIT_SUB_AGENT_CEILING_MS,
   });
+
   if (scheduled !== "scheduled") {
     // The timer is load-bearing, not best-effort. If it could not be scheduled
     // ("failed" transient queue error, or "disabled" with no queue at all),
@@ -121,7 +122,9 @@ export async function joinChildRun(
       ") — refusing to park",
       args.childRunId,
     );
+
     return { kind: "resolved", outcome: { ...outcome, reason: "join_timer_unavailable" } };
   }
+
   return { kind: "park", signalName: mintParkSignal(args.childRunId) };
 }

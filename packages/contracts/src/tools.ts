@@ -9,6 +9,7 @@ import {
 } from "./integrations";
 
 export const POLICY_MODES = ["autonomy", "gated"] as const;
+
 export type PolicyMode = (typeof POLICY_MODES)[number];
 
 /**
@@ -53,6 +54,7 @@ export interface ToolRunContext {
 export const cancellationFenceSchema = z.object({
   generation: z.number().int().min(0),
 });
+
 export type CancellationFence = z.infer<typeof cancellationFenceSchema>;
 
 /**
@@ -65,6 +67,7 @@ export const cancellationEnvelopeSchema = z.object({
   retry: z.literal("never"),
   message: z.string(),
 });
+
 export type CancellationEnvelope = z.infer<typeof cancellationEnvelopeSchema>;
 
 /**
@@ -76,9 +79,34 @@ export type CancellationEnvelope = z.infer<typeof cancellationEnvelopeSchema>;
  * every one of those comparisons false.
  */
 export const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent" satisfies ToolName;
+
 export const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent" satisfies ToolName;
 
+/**
+ * The one tool that parks a chat turn on a `question` approval (ADR-0099). The
+ * dispatcher routes it by its registered staging arm; every reader without the
+ * registry in hand (the decision route's reason rule, the notification email
+ * copy, the recent-rejection card note, run metrics) keys on this name. The
+ * registry proves at boot that the arm's single declarer IS this tool, so the
+ * two cannot drift.
+ */
+export const ASK_USER_TOOL = "system.ask_user" satisfies ToolName;
+
+/**
+ * Does this staged row hold a question rather than a write? The one reader-side
+ * spelling of {@link ASK_USER_TOOL}, so "is this a question?" is answered by a
+ * named predicate at every call site instead of by a repeated comparison.
+ *
+ * Takes a plain `string` on purpose: every caller reads the tool name off a
+ * database row, a synced entity, or an event payload, none of which prove
+ * `ToolName`.
+ */
+export function isQuestionApproval(toolName: string): boolean {
+  return toolName === ASK_USER_TOOL;
+}
+
 export const TOOL_RISK_TIERS = ["no_risk", "low", "medium", "high"] as const;
+
 export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
 
 /**
@@ -98,6 +126,7 @@ export const isToolRiskTier = enumGuard(TOOL_RISK_TIERS);
  * approval tray labels, the run-history effect ledger) reads this one list.
  */
 export const WRITE_RISK_TIERS = ["medium", "high"] as const satisfies readonly ToolRiskTier[];
+
 export const isWriteRiskTier = enumGuard(WRITE_RISK_TIERS);
 
 /**
@@ -132,6 +161,7 @@ export function resolveIntegrationMode(
 
 export function integrationFromToolName(toolName: ToolName): IntegrationSlug {
   const integration = toolName.slice(0, toolName.indexOf("."));
+
   if (isIntegrationSlug(integration)) return integration;
   throw new Error(`Unknown integration in tool name '${toolName}'`);
 }
@@ -141,19 +171,23 @@ export function buildToolName<I extends IntegrationSlug, A extends ActionSlug<I>
   action: A,
 ): ToolName {
   const name = `${integration}.${action}`;
+
   if (isToolName(name)) return name;
   throw new Error(`Unknown tool name '${name}'`);
 }
 
 export function isToolName(value: string): value is ToolName {
   const separator = value.indexOf(".");
+
   if (separator <= 0 || separator !== value.lastIndexOf(".")) return false;
 
   const integration = value.slice(0, separator);
+
   if (!isIntegrationSlug(integration)) return false;
 
   const action = value.slice(separator + 1);
   const actions: readonly string[] = INTEGRATION_ACTIONS[integration];
+
   return actions.includes(action);
 }
 
@@ -161,7 +195,9 @@ export function isToolName(value: string): value is ToolName {
 export const TOOL_NAMES: readonly ToolName[] = INTEGRATION_SLUGS.flatMap((integration) =>
   INTEGRATION_ACTIONS[integration].map((action) => {
     const name = `${integration}.${action}`;
+
     if (!isToolName(name)) throw new Error(`Invalid declared tool name '${name}'`);
+
     return name;
   }),
 );
@@ -200,6 +236,7 @@ export function hashToolRequest(
   target: string | undefined,
 ): string {
   const binding = target === undefined ? "" : `:${target}`;
+
   return `req:fnv1a64:${fnv1a64(`${toolName}${binding}:${canonicalJson(input)}`)}`;
 }
 
@@ -253,9 +290,9 @@ export interface ToolLabel {
  */
 export const TOOL_LABELS = {
   "system.search_tools": {
-    running: "Searching available tools",
-    done: "Searched available tools",
-    title: "search available tools",
+    running: "Searching for a tool",
+    done: "Searched for a tool",
+    title: "search for a tool",
   },
   "system.load_tool": {
     running: "Loading a tool",
@@ -354,6 +391,11 @@ export const TOOL_LABELS = {
     done: "Searched your documents",
     title: "search your ingested documents",
   },
+  "system.search_context": {
+    running: "Gathering context",
+    done: "Gathered context",
+    title: "search across your context",
+  },
   "system.create_artifact": {
     running: "Creating an artifact",
     done: "Created an artifact",
@@ -374,6 +416,13 @@ export const TOOL_LABELS = {
     done: "Updated an artifact",
     title: "update an artifact",
   },
+  "system.ask_user": {
+    running: "Waiting for your answer",
+    // Also the label for a dismissed or expired question: the call landed
+    // without an answer, so the copy must not claim one arrived.
+    done: "Asked you a question",
+    title: "ask you a question",
+  },
 
   "mcp.call": {
     running: "Calling a connected tool",
@@ -384,6 +433,11 @@ export const TOOL_LABELS = {
     running: "Listing connected tools",
     done: "Listed connected tools",
     title: "list connected tools",
+  },
+  "mcp.inspect_tool": {
+    running: "Inspecting a connected tool",
+    done: "Inspected a connected tool",
+    title: "inspect a connected tool",
   },
 
   "gmail.search": { running: "Searching Gmail", done: "Searched Gmail", title: "search Gmail" },
@@ -566,37 +620,6 @@ export const TOOL_LABELS = {
     title: "run a read-only Notion API request",
   },
 
-  "railway.list_projects": {
-    running: "Listing Railway projects",
-    done: "Listed Railway projects",
-    title: "list Railway projects",
-  },
-  "railway.list_deployments": {
-    running: "Checking Railway deployments",
-    done: "Checked Railway deployments",
-    title: "check Railway deployments",
-  },
-  "railway.recent_deployments": {
-    running: "Checking recent Railway deployments",
-    done: "Checked recent Railway deployments",
-    title: "check recent Railway deployments",
-  },
-  "railway.get_logs": {
-    running: "Reading Railway logs",
-    done: "Read Railway logs",
-    title: "read Railway logs",
-  },
-  "railway.redeploy": {
-    running: "Redeploying on Railway",
-    done: "Triggered a Railway redeploy",
-    title: "redeploy a Railway service",
-  },
-  "railway.graphql": {
-    running: "Querying the Railway API",
-    done: "Queried the Railway API",
-    title: "run a read-only Railway GraphQL query",
-  },
-
   "vercel.list_projects": {
     running: "Listing Vercel projects",
     done: "Listed Vercel projects",
@@ -616,6 +639,12 @@ export const TOOL_LABELS = {
     running: "Querying the Vercel API",
     done: "Queried the Vercel API",
     title: "run a read-only Vercel API request",
+  },
+
+  "sentry.request": {
+    running: "Querying the Sentry API",
+    done: "Queried the Sentry API",
+    title: "run a read-only Sentry API request",
   },
 } satisfies Record<ToolName, ToolLabel>;
 
@@ -659,13 +688,16 @@ export const TOOL_CATEGORIES = {
   "system.web_search": "source",
   "system.fetch_url": "source",
   "system.corpus_search": "source",
+  "system.search_context": "source",
   "system.create_artifact": "action",
   "system.append_artifact_page": "action",
   "system.append_artifact_section": "action",
   "system.update_artifact": "action",
+  "system.ask_user": "system",
 
   "mcp.call": "action",
   "mcp.list_tools": "system",
+  "mcp.inspect_tool": "system",
 
   "gmail.search": "source",
   "gmail.read_message": "source",
@@ -711,17 +743,12 @@ export const TOOL_CATEGORIES = {
   "notion.append_blocks": "action",
   "notion.request": "source",
 
-  "railway.list_projects": "source",
-  "railway.list_deployments": "source",
-  "railway.recent_deployments": "source",
-  "railway.get_logs": "source",
-  "railway.redeploy": "action",
-  "railway.graphql": "source",
-
   "vercel.list_projects": "source",
   "vercel.list_deployments": "source",
   "vercel.redeploy": "action",
   "vercel.request": "source",
+
+  "sentry.request": "source",
 } satisfies Record<ToolName, ToolCategory>;
 
 /** The declared category for a tool, or `null` for an unregistered name. */
@@ -741,6 +768,7 @@ export function humanizeToolName(toolName: string): string {
   const separator = toolName.indexOf(".");
   const integration = separator > 0 ? toolName.slice(0, separator) : toolName;
   const action = separator > 0 ? toolName.slice(separator + 1) : "";
+
   return action
     ? `${humanizeSlug(action)} in ${integrationDisplayName(integration)}`
     : integrationDisplayName(integration);
@@ -759,16 +787,22 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
   if (value === null) return "null";
 
   const valueType = typeof value;
+
   if (valueType === "string") return JSON.stringify(value);
+
   if (valueType === "number") return Number.isFinite(value) ? String(value) : "null";
+
   if (valueType === "boolean") return value ? "true" : "false";
+
   if (valueType === "bigint") throw new TypeError("Cannot hash tool input containing bigint");
+
   if (valueType === "undefined" || valueType === "function" || valueType === "symbol") {
     return "null";
   }
 
   if (typeof value === "object" && value !== null) {
     const toJSON = Reflect.get(value, "toJSON");
+
     if (typeof toJSON === "function") {
       return stringifyCanonical(toJSON.call(value), seen);
     }
@@ -777,34 +811,43 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
   if (Array.isArray(value)) {
     if (seen.has(value)) throw new TypeError("Cannot hash circular tool input");
     seen.add(value);
+
     const items = value.map((item) => {
       const itemType = typeof item;
+
       if (itemType === "undefined" || itemType === "function" || itemType === "symbol") {
         return "null";
       }
+
       return stringifyCanonical(item, seen);
     });
+
     seen.delete(value);
+
     return `[${items.join(",")}]`;
   }
 
-  if (valueType === "object") {
-    // SAFETY: value === null returned "null" at the top of the walk and
-    // valueType is `typeof value`, so this branch holds a non-null object.
-    const objectValue = value as object;
+  if (typeof value === "object" && value !== null) {
+    const objectValue = value;
+
     if (seen.has(objectValue)) throw new TypeError("Cannot hash circular tool input");
     seen.add(objectValue);
+
     const entries = Object.keys(objectValue)
       .sort()
       .flatMap((key) => {
         const item = Reflect.get(objectValue, key);
         const itemType = typeof item;
+
         if (itemType === "undefined" || itemType === "function" || itemType === "symbol") {
           return [];
         }
+
         return [`${JSON.stringify(key)}:${stringifyCanonical(item, seen)}`];
       });
+
     seen.delete(objectValue);
+
     return `{${entries.join(",")}}`;
   }
 

@@ -8,8 +8,10 @@ import { pgErrorChain } from "@alfred/db/pg-errors";
 import { sql } from "drizzle-orm";
 
 import { dbBackedSkip } from "../support/db-backed";
+import { awaitGate } from "../support/gate-timeout";
 
 const SKIP = dbBackedSkip("database");
+
 const PG_LOCK_NOT_AVAILABLE = "55P03";
 
 describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
@@ -27,7 +29,8 @@ describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
       firstLocked.resolve();
       await releaseFirst.promise;
     });
-    await firstLocked.promise;
+
+    await awaitGate(firstLocked.promise, "chat storage first lock acquired");
 
     try {
       await assert.rejects(
@@ -40,6 +43,7 @@ describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
             [...pgErrorChain(error)].some((entry) => entry.code === PG_LOCK_NOT_AVAILABLE),
             true,
           );
+
           return true;
         },
       );
@@ -64,7 +68,8 @@ describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
       sessionLocked.resolve();
       await releaseSession.promise;
     });
-    await sessionLocked.promise;
+
+    await awaitGate(sessionLocked.promise, "chat session lock acquired");
 
     try {
       await assert.rejects(
@@ -77,6 +82,7 @@ describe("chat storage-key coordination (DB-backed)", { skip: SKIP }, () => {
             [...pgErrorChain(error)].some((entry) => entry.code === PG_LOCK_NOT_AVAILABLE),
             true,
           );
+
           return true;
         },
       );

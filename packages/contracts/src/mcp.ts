@@ -1,5 +1,5 @@
 /**
- * Browser-safe MCP cross-boundary contracts: the `mcp.call` / `mcp.list_tools`
+ * Browser-safe MCP cross-boundary contracts: `mcp.call`, catalog search, and inspection
  * argument envelopes and the literal unions that back the persisted MCP tables
  * (`packages/db/src/schema/mcp.ts`) and the execution broker
  * (`packages/assistant/src/tool-runtime/mcp/`).
@@ -12,6 +12,9 @@
  */
 
 import { z } from "zod";
+import { enumGuard } from "./guards";
+import type { CatalogSlug } from "./integrations";
+import { TOOL_RISK_TIERS } from "./tools";
 import { jsonObjectSchema, jsonValueSchema } from "./user-model";
 
 // ---------------------------------------------------------------------------
@@ -27,7 +30,9 @@ export const mcpConnectionStatusValues = [
   "auth_required",
   "failed",
 ] as const;
+
 export type McpConnectionStatus = (typeof mcpConnectionStatusValues)[number];
+
 export const mcpConnectionStatusSchema = z.enum(mcpConnectionStatusValues);
 
 // ---------------------------------------------------------------------------
@@ -42,6 +47,7 @@ export const mcpServerIdentitySchema = z.object({
   hasTools: z.boolean(),
   toolsListChanged: z.boolean(),
 });
+
 export type McpServerIdentity = z.infer<typeof mcpServerIdentitySchema>;
 
 // ---------------------------------------------------------------------------
@@ -52,11 +58,15 @@ export type McpServerIdentity = z.infer<typeof mcpServerIdentitySchema>;
 // Defaults are conservative: unknown effect handled as effectful, never retry.
 // ---------------------------------------------------------------------------
 export const mcpEffectClassValues = ["read", "write", "unknown"] as const;
+
 export type McpEffectClass = (typeof mcpEffectClassValues)[number];
+
 export const mcpEffectClassSchema = z.enum(mcpEffectClassValues);
 
 export const mcpRetryContractValues = ["never", "same_key", "reconcile"] as const;
+
 export type McpRetryContract = (typeof mcpRetryContractValues)[number];
+
 export const mcpRetryContractSchema = z.enum(mcpRetryContractValues);
 
 // ---------------------------------------------------------------------------
@@ -74,15 +84,21 @@ export const mcpAttemptLifecycleValues = [
   "delivery_possible",
   "response_received",
 ] as const;
+
 export type McpAttemptLifecycle = (typeof mcpAttemptLifecycleValues)[number];
+
 export const mcpAttemptLifecycleSchema = z.enum(mcpAttemptLifecycleValues);
 
 export const mcpEffectOutcomeValues = ["succeeded", "rejected", "failed", "unknown"] as const;
+
 export type McpEffectOutcome = (typeof mcpEffectOutcomeValues)[number];
+
 export const mcpEffectOutcomeSchema = z.enum(mcpEffectOutcomeValues);
 
 export const mcpRetryDispositionValues = ["safe", "blocked", "reconcile", "same_key_only"] as const;
+
 export type McpRetryDisposition = (typeof mcpRetryDispositionValues)[number];
+
 export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
 
 // ---------------------------------------------------------------------------
@@ -90,11 +106,14 @@ export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
 // staging proposal and decided input remain server-side.
 // ---------------------------------------------------------------------------
 export const mcpRecoveryDecisionSchema = z.enum(["confirmed_succeeded", "confirmed_not_applied"]);
+
 export type McpRecoveryDecision = z.infer<typeof mcpRecoveryDecisionSchema>;
+
 /** The one request body the resolve route accepts; the HTTP layer validates with it directly. */
 export const mcpRecoveryDecisionBodySchema = z
   .object({ decision: mcpRecoveryDecisionSchema })
   .strict();
+
 export type McpRecoveryDecisionBody = z.infer<typeof mcpRecoveryDecisionBodySchema>;
 
 const mcpRecoveryOperationBaseSchema = z.object({
@@ -140,19 +159,26 @@ export const mcpRecoveryOperationSchema = z.union([
     })
     .strict(),
 ]);
+
 export type McpRecoveryOperation = z.infer<typeof mcpRecoveryOperationSchema>;
 
 /** Twenty keeps the card-heavy recovery view bounded while showing a useful batch. */
 export const MCP_RECOVERY_PAGE_SIZE = 20;
+
 export const mcpRecoveryCursorSchema = z.string().min(1);
+
 export const mcpRecoveryOperationsPageQuerySchema = z
   .object({ cursor: mcpRecoveryCursorSchema.optional() })
   .strict();
+
 export type McpRecoveryOperationsPageQuery = z.infer<typeof mcpRecoveryOperationsPageQuerySchema>;
+
 export const mcpRecoveryOperationsPageInputSchema = mcpRecoveryOperationsPageQuerySchema
   .extend({ userId: z.string().min(1) })
   .strict();
+
 export type McpRecoveryOperationsPageInput = z.infer<typeof mcpRecoveryOperationsPageInputSchema>;
+
 /**
  * One page of the recovery list. The read is pure: it never repairs a row.
  * `awaitingRepair` counts the owner's invocations whose provider phase ended
@@ -167,6 +193,7 @@ export const mcpRecoveryOperationsPageSchema = z
     awaitingRepair: z.number().int().nonnegative(),
   })
   .strict();
+
 export type McpRecoveryOperationsPage = z.infer<typeof mcpRecoveryOperationsPageSchema>;
 
 export const mcpRecoveryMutationStatusSchema = z.enum([
@@ -176,6 +203,7 @@ export const mcpRecoveryMutationStatusSchema = z.enum([
   "ambiguous",
   "blocked",
 ]);
+
 export const mcpRecoveryMutationResultSchema = z
   .object({
     status: mcpRecoveryMutationStatusSchema,
@@ -183,7 +211,246 @@ export const mcpRecoveryMutationResultSchema = z
     successorInvocationId: z.string().nullable(),
   })
   .strict();
+
 export type McpRecoveryMutationResult = z.infer<typeof mcpRecoveryMutationResultSchema>;
+
+// ---------------------------------------------------------------------------
+// Generic server connection (PRD #1004). The owner supplies the endpoint URL;
+// the server validates and probes it. The label is optional and defaults to the
+// endpoint host when omitted. `outcome` is the closed answer the add route
+// returns: a reachable no-auth server is connected on the spot, and a server
+// that answers with an authorization challenge becomes a connection in
+// `auth_required` whose id the answer carries, so the browser can walk it to
+// its consent screen.
+// ---------------------------------------------------------------------------
+export const MCP_ADD_SERVER_MAX_URL_LENGTH = 2_048;
+
+export const MCP_ADD_SERVER_MAX_LABEL_LENGTH = 100;
+
+// ---------------------------------------------------------------------------
+// Owner-supplied API key (third authentication variant, after no-auth and
+// OAuth). The owner names ONE explicit placement — a request header or a query
+// parameter — and the three facts are (kind, placed name, value). The value is
+// the only secret and never appears here after the route boundary parses it: the
+// store seals it and the runtime opens it per request.
+//
+// A placement name that the MCP transport, `fetch`, or the hop-by-hop rules
+// already own is refused, so an owner-supplied key can never shadow a header the
+// transport sets. `authorization` is deliberately NOT refused: a bearer key in
+// the standard header is the most common API-key dialect.
+// ---------------------------------------------------------------------------
+export const MCP_API_KEY_MAX_LENGTH = 4_096;
+
+export const MCP_API_KEY_MAX_PLACEMENT_NAME_LENGTH = 128;
+
+/**
+ * The headers Alfred refuses to let a stored key occupy. `host`, the framing
+ * headers, and the connection headers are owned by `fetch` and the HTTP stack.
+ * The MCP transport owns the rest: `mcp-session-id`, `mcp-protocol-version`,
+ * the body-derived `mcp-method` and `mcp-name` are exactly the names
+ * `@modelcontextprotocol/client`'s reserved set keeps a per-request carrier
+ * from overriding, and `last-event-id` is the SSE resumption header. Putting
+ * the key on any of them would let the transport's own value and the sent key
+ * collide.
+ *
+ * `authorization` is deliberately absent: this variant exists to place an
+ * owner-supplied key there, and no OAuth provider is built on this path to
+ * contest it. Compared case-insensitively because HTTP header names are.
+ */
+export const MCP_API_KEY_REFUSED_HEADERS = [
+  "host",
+  "content-type",
+  "accept",
+  "content-length",
+  "connection",
+  "transfer-encoding",
+  "te",
+  "trailer",
+  "upgrade",
+  "mcp-session-id",
+  "mcp-protocol-version",
+  "mcp-method",
+  "mcp-name",
+  "last-event-id",
+] as const;
+
+const MCP_API_KEY_REFUSED_HEADER_SET: ReadonlySet<string> = new Set(MCP_API_KEY_REFUSED_HEADERS);
+
+/**
+ * An RFC 9110 `token`, the character set a header field name may use.
+ *
+ * Both arms are held to it: a header name outside it makes `Headers.set` throw
+ * a bare `TypeError` at request time (a 500, because no `HostedEndpointError`
+ * carries it), and a query parameter that identifies a credential placement is a
+ * wire identifier too, so the token set is the conservative intersection rather
+ * than free text. A refused placement is a 400 the owner can retry.
+ */
+const MCP_API_KEY_PLACEMENT_NAME_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+function isPlacementNameToken(name: string): boolean {
+  return MCP_API_KEY_PLACEMENT_NAME_TOKEN.test(name);
+}
+
+const mcpApiKeyPlacementNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MCP_API_KEY_MAX_PLACEMENT_NAME_LENGTH);
+
+export const mcpApiKeyPlacementSchema = z.discriminatedUnion("in", [
+  z
+    .object({ in: z.literal("header"), name: mcpApiKeyPlacementNameSchema })
+    .strict()
+    .refine((placement) => !MCP_API_KEY_REFUSED_HEADER_SET.has(placement.name.toLowerCase()), {
+      path: ["name"],
+      message: "This header is owned by the MCP transport or the HTTP stack",
+    })
+    .refine((placement) => isPlacementNameToken(placement.name), {
+      path: ["name"],
+      message: "A placement name must be an RFC 9110 token",
+    }),
+  z
+    .object({ in: z.literal("query"), name: mcpApiKeyPlacementNameSchema })
+    .strict()
+    .refine((placement) => isPlacementNameToken(placement.name), {
+      path: ["name"],
+      message: "A placement name must be an RFC 9110 token",
+    }),
+]);
+
+export type McpApiKeyPlacement = z.infer<typeof mcpApiKeyPlacementSchema>;
+
+export const mcpApiKeyAuthSchema = z
+  .object({
+    kind: z.literal("api_key"),
+    placement: mcpApiKeyPlacementSchema,
+    value: z.string().min(1).max(MCP_API_KEY_MAX_LENGTH),
+  })
+  .strict();
+
+/**
+ * The wire credential the create route accepts: the plaintext key exactly once.
+ * The per-request transport reader that opens the sealed row is
+ * `McpApiKeyCredentialReader` in `@alfred/assistant/connections/mcp`, a
+ * different shape with the same job; this name stays the contract's.
+ */
+export type McpApiKeyAuth = z.infer<typeof mcpApiKeyAuthSchema>;
+
+/**
+ * The authentication variants the create route accepts. Today it is the API key
+ * alone; no-auth is the ABSENCE of this field, and OAuth is discovered from the
+ * endpoint rather than supplied. A discriminated union keeps that open for a
+ * future variant without changing the body's shape.
+ */
+export const mcpAddServerAuthSchema = z.discriminatedUnion("kind", [mcpApiKeyAuthSchema]);
+
+export type McpAddServerAuth = z.infer<typeof mcpAddServerAuthSchema>;
+
+export const mcpAddServerBodySchema = z
+  .object({
+    endpointUrl: z.url().max(MCP_ADD_SERVER_MAX_URL_LENGTH),
+    label: z.string().trim().min(1).max(MCP_ADD_SERVER_MAX_LABEL_LENGTH).optional(),
+    auth: mcpAddServerAuthSchema.optional(),
+  })
+  .strict();
+
+export type McpAddServerBody = z.infer<typeof mcpAddServerBodySchema>;
+
+/**
+ * The one field a completed connection may be renamed to. Renaming changes the
+ * display label ALONE: `instanceKey`, the endpoint definition, credentials,
+ * status, scopes, and the catalog pointer are facts the owner did not ask to
+ * change. The label shares `MCP_ADD_SERVER_MAX_LABEL_LENGTH` with creation so a
+ * name cannot be legal to create and illegal to rename back to.
+ */
+export const mcpRenameConnectionBodySchema = z
+  .object({ label: z.string().trim().min(1).max(MCP_ADD_SERVER_MAX_LABEL_LENGTH) })
+  .strict();
+
+export type McpRenameConnectionBody = z.infer<typeof mcpRenameConnectionBodySchema>;
+
+// ---------------------------------------------------------------------------
+// First-class remote MCP servers. The record's keys ARE the provider key space,
+// exactly as `INTEGRATIONS` owns the integration slug space (ADR-0093): a
+// built-in provider is spelled once, here.
+//
+// This half is browser-safe and presentational — the name a tile shows, the
+// brand artwork it borrows, and the one line that says what connecting buys.
+// The server half (endpoint, issuer, scope baseline, protocol pins) is
+// `BUILT_IN_REGISTRY` in `@alfred/assistant`, which is keyed by this union. An
+// entry here with no definition there is a compile error, and so is the
+// reverse, so neither half can ship a provider the other does not know.
+// ---------------------------------------------------------------------------
+export interface McpBuiltInEntry {
+  /**
+   * The registry slug whose brand artwork the tile borrows.
+   *
+   * `CatalogSlug`, not `IntegrationSlug`: only a PROVIDER entry carries brand
+   * artwork, so the wider union would admit a slug with no mark and force
+   * every tile to carry a fallback glyph for a case that cannot occur.
+   */
+  readonly slug: CatalogSlug;
+  /**
+   * The tile title. It is not the slug's display name: this names the SERVER,
+   * and one product can serve more than one (a read-only path and a read-write
+   * one are two resources).
+   */
+  readonly label: string;
+  /** What connecting this server buys, in one line. */
+  readonly blurb: string;
+}
+
+export const BUILT_IN_MCP_CATALOG = {
+  github: {
+    slug: "github",
+    label: "GitHub MCP",
+    blurb: "Read pull requests, issues, and code.",
+  },
+  linear: {
+    slug: "linear",
+    label: "Linear MCP",
+    blurb: "Work with Linear issues, projects, and cycles.",
+  },
+  notion: {
+    slug: "notion",
+    label: "Notion MCP",
+    blurb: "Work with Notion pages and databases.",
+  },
+  sentry: {
+    slug: "sentry",
+    label: "Sentry MCP",
+    blurb: "Investigate Sentry issues and error events.",
+  },
+  railway: {
+    slug: "railway",
+    label: "Railway MCP",
+    blurb: "Read Railway deployment status.",
+  },
+  polylane: {
+    slug: "polylane",
+    label: "Polylane MCP",
+    blurb: "Read production logs, metrics, traces, and tracked issues.",
+  },
+} as const satisfies Record<string, McpBuiltInEntry>;
+
+/** The provider key space: the catalog's keys. Nothing else names a built-in. */
+export type BuiltInMCPProvider = keyof typeof BUILT_IN_MCP_CATALOG;
+
+/**
+ * The providers in record order. `Object.keys` keeps insertion order for string
+ * keys, so this is the order the catalog is written in, and the order the
+ * integrations page renders.
+ */
+export const BUILT_IN_MCP_PROVIDERS: readonly BuiltInMCPProvider[] =
+  // SAFETY: `Object.keys` types its result as `string[]`; the keys of a
+  // non-indexed literal are exactly `keyof typeof BUILT_IN_MCP_CATALOG`.
+  Object.keys(BUILT_IN_MCP_CATALOG) as BuiltInMCPProvider[];
+
+/**
+ * Narrow a path segment to a built-in provider. The connect route takes the
+ * provider from the URL, so the value is untrusted until this says otherwise.
+ */
+export const isBuiltInMCPProvider = enumGuard(BUILT_IN_MCP_PROVIDERS);
 
 // ---------------------------------------------------------------------------
 // Content-block kinds (#541). The CLOSED set the MCP `ContentBlock` union
@@ -202,7 +469,9 @@ export const mcpContentKindValues = [
   "resource",
   "unknown",
 ] as const;
+
 export type McpContentKind = (typeof mcpContentKindValues)[number];
+
 export const mcpContentKindSchema = z.enum(mcpContentKindValues);
 
 // ---------------------------------------------------------------------------
@@ -246,6 +515,7 @@ export const mcpResultProvenanceSchema = z.object({
   /** The model projection was bounded/clipped on the way out. */
   truncated: z.boolean(),
 });
+
 export type McpResultProvenance = z.infer<typeof mcpResultProvenanceSchema>;
 
 // ---------------------------------------------------------------------------
@@ -270,6 +540,7 @@ export const mcpExternalToolRefSchema = z
     catalogRevision: z.string().min(1),
   })
   .strict();
+
 export type ExternalToolRef = z.infer<typeof mcpExternalToolRefSchema>;
 
 export const mcpCallInput = z
@@ -283,6 +554,7 @@ export const mcpCallInput = z
     arguments: jsonObjectSchema,
   })
   .strict();
+
 export type McpCallInput = z.infer<typeof mcpCallInput>;
 
 /**
@@ -292,6 +564,7 @@ export type McpCallInput = z.infer<typeof mcpCallInput>;
  * explicitly selected `remoteName` (issue clarification #5).
  */
 export const MCP_LIST_TOOLS_MAX_LIMIT = 50;
+
 export const MCP_LIST_TOOLS_DEFAULT_LIMIT = 25;
 
 /**
@@ -306,7 +579,9 @@ export const MCP_LIST_TOOLS_DEFAULT_LIMIT = 25;
  *    narrowing with `query` or asking for one descriptor.
  */
 export const mcpListToolsDetailValues = ["names", "summary"] as const;
+
 export type McpListToolsDetail = (typeof mcpListToolsDetailValues)[number];
+
 export const mcpListToolsDetailSchema = z.enum(mcpListToolsDetailValues);
 
 export const mcpToolSearchInputSchema = z
@@ -324,6 +599,7 @@ export const mcpToolSearchInputSchema = z
     limit: z.coerce.number().int().positive().max(MCP_LIST_TOOLS_MAX_LIMIT).optional(),
   })
   .strict();
+
 export type McpToolSearchInput = z.infer<typeof mcpToolSearchInputSchema>;
 
 export const mcpToolInspectInputSchema = z
@@ -331,6 +607,7 @@ export const mcpToolInspectInputSchema = z
     ref: mcpExternalToolRefSchema,
   })
   .strict();
+
 export type McpToolInspectInput = z.infer<typeof mcpToolInspectInputSchema>;
 
 /**
@@ -346,7 +623,9 @@ export const mcpListToolsInput = z
   .strict()
   .superRefine((input, ctx) => {
     const inputKeys = Object.keys(input);
+
     if (!inputKeys.includes("ref")) return;
+
     if (input.ref === undefined || inputKeys.some((key) => key !== "ref")) {
       ctx.addIssue({
         code: "custom",
@@ -354,6 +633,7 @@ export const mcpListToolsInput = z
       });
     }
   });
+
 export type McpListToolsInput = z.infer<typeof mcpListToolsInput>;
 
 export type McpListToolsOperation =
@@ -363,9 +643,11 @@ export type McpListToolsOperation =
 /** Parse the provider-compatible root object into its strict domain operation. */
 export function parseMcpListToolsOperation(input: unknown): McpListToolsOperation {
   const parsed = mcpListToolsInput.parse(input);
+
   if (parsed.ref !== undefined) {
     return { operation: "inspect", input: { ref: parsed.ref } };
   }
+
   return { operation: "search", input: mcpToolSearchInputSchema.parse(parsed) };
 }
 
@@ -376,6 +658,7 @@ export const mcpDiscoveryConnectionSchema = z
     label: z.string().min(1),
   })
   .strict();
+
 export type McpDiscoveryConnection = z.infer<typeof mcpDiscoveryConnectionSchema>;
 
 function enforceConnectionRefIdentity(
@@ -400,6 +683,7 @@ function enforceInspectionIdentity(
   ctx: z.RefinementCtx,
 ): void {
   enforceConnectionRefIdentity(input, ctx);
+
   if (input.tool.name !== input.ref.remoteName) {
     ctx.addIssue({
       code: "custom",
@@ -419,6 +703,7 @@ export const mcpToolDiscoveryHitSchema = z
   })
   .strict()
   .superRefine(enforceConnectionRefIdentity);
+
 export type McpToolDiscoveryHit = z.infer<typeof mcpToolDiscoveryHitSchema>;
 
 export const mcpToolDiscoveryPageSchema = z
@@ -428,6 +713,7 @@ export const mcpToolDiscoveryPageSchema = z
     nextCursor: z.string().min(1).nullable(),
   })
   .strict();
+
 export type McpToolDiscoveryPage = z.infer<typeof mcpToolDiscoveryPageSchema>;
 
 export const mcpToolInspectionSuccessSchema = z
@@ -439,6 +725,7 @@ export const mcpToolInspectionSuccessSchema = z
   })
   .strict()
   .superRefine(enforceInspectionIdentity);
+
 export type McpToolInspectionSuccess = z.infer<typeof mcpToolInspectionSuccessSchema>;
 
 export const mcpToolInspectionNotFoundSchema = z
@@ -448,6 +735,7 @@ export const mcpToolInspectionNotFoundSchema = z
     message: z.string(),
   })
   .strict();
+
 export type McpToolInspectionNotFound = z.infer<typeof mcpToolInspectionNotFoundSchema>;
 
 export const mcpToolInspectionCatalogStaleSchema = z
@@ -457,6 +745,7 @@ export const mcpToolInspectionCatalogStaleSchema = z
     message: z.string(),
   })
   .strict();
+
 export type McpToolInspectionCatalogStale = z.infer<typeof mcpToolInspectionCatalogStaleSchema>;
 
 export const mcpToolInspectionResultSchema = z.union([
@@ -464,4 +753,83 @@ export const mcpToolInspectionResultSchema = z.union([
   mcpToolInspectionNotFoundSchema,
   mcpToolInspectionCatalogStaleSchema,
 ]);
+
 export type McpToolInspectionResult = z.infer<typeof mcpToolInspectionResultSchema>;
+
+// ---------------------------------------------------------------------------
+// Exact-descriptor policy review (ADR-0088 / ADR-0096). The owner reviews ONE
+// `(connectionId, remoteName, descriptorHash)` through the tool they inspected;
+// the review is bound to the descriptor the server derived, never to one the
+// client named. There is deliberately NO `descriptorHash` and NO
+// `policyRevision` on these wire shapes: both are server derived, so "review an
+// arbitrary descriptor" and "set an arbitrary revision" are unrepresentable
+// (the tier-1 half of the binding).
+// ---------------------------------------------------------------------------
+export const MCP_TOOL_POLICY_NOTE_MAX = 500;
+
+/**
+ * The reviewed fields the owner supplies. `ref` names the EXACT tool the owner
+ * inspected, including the `catalogRevision` they saw; the server re-derives the
+ * descriptor hash under that revision and refuses a stale one rather than
+ * silently binding the review to a descriptor the owner never saw.
+ */
+export const mcpToolPolicyReviewInputSchema = z
+  .object({
+    ref: mcpExternalToolRefSchema,
+    riskTier: z.enum(TOOL_RISK_TIERS),
+    effectClass: mcpEffectClassSchema,
+    retryContract: mcpRetryContractSchema,
+    note: z.string().trim().max(MCP_TOOL_POLICY_NOTE_MAX).nullable(),
+  })
+  .strict();
+
+export type McpToolPolicyReviewInput = z.infer<typeof mcpToolPolicyReviewInputSchema>;
+
+/** The persisted review, projected. `policyRevision` is server-owned and monotonic. */
+export const mcpToolPolicySchema = z
+  .object({
+    riskTier: z.enum(TOOL_RISK_TIERS),
+    effectClass: mcpEffectClassSchema,
+    retryContract: mcpRetryContractSchema,
+    note: z.string().nullable(),
+    policyRevision: z.number().int().positive(),
+    reviewedAt: z.string().nullable(),
+  })
+  .strict();
+
+export type McpToolPolicy = z.infer<typeof mcpToolPolicySchema>;
+
+/**
+ * Exactly one of these is true of `(connection, ref)` now.
+ *
+ *  - `reviewed`: the current descriptor carries a review.
+ *  - `unreviewed`: the descriptor exists and has never been reviewed.
+ *  - `drifted`: this tool WAS reviewed, under a different descriptor, so the
+ *    floor still applies until the owner reviews the current one.
+ *  - `catalog_stale`: the named revision is not the connection's current one.
+ *  - `not_found`: the named tool has no descriptor in the current revision.
+ *
+ * A missing or foreign connection is NOT an arm: it is a 404 at the route, so
+ * the union carries no value the browser could never read.
+ */
+export const mcpToolPolicyStateSchema = z.union([
+  z
+    .object({
+      status: z.literal("reviewed"),
+      ref: mcpExternalToolRefSchema,
+      policy: mcpToolPolicySchema,
+    })
+    .strict(),
+  z.object({ status: z.literal("unreviewed"), ref: mcpExternalToolRefSchema }).strict(),
+  z
+    .object({
+      status: z.literal("drifted"),
+      ref: mcpExternalToolRefSchema,
+      previous: mcpToolPolicySchema,
+    })
+    .strict(),
+  z.object({ status: z.literal("catalog_stale"), ref: mcpExternalToolRefSchema }).strict(),
+  z.object({ status: z.literal("not_found"), ref: mcpExternalToolRefSchema }).strict(),
+]);
+
+export type McpToolPolicyState = z.infer<typeof mcpToolPolicyStateSchema>;

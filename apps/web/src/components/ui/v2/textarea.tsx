@@ -31,13 +31,12 @@ export function AppTextarea({
       readOnly={readOnly}
       className={cn(
         "block w-full resize-none rounded-2xl px-3.5 py-2.5 text-sm",
-        "transition-shadow outline-none",
+        "transition-shadow",
         "placeholder:text-app-fg-2",
         variant === "card"
           ? cn(
               "bg-app-bg-1 text-app-fg-4",
-              "app-elevated",
-              "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+              "app-elevated app-focus-inset",
               readOnly && "cursor-default bg-app-bg-2 text-app-fg-3",
               "disabled:cursor-not-allowed disabled:opacity-60",
             )

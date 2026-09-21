@@ -26,6 +26,7 @@ export const approvalExpiryJobDataSchema = z.object({
   stagingId: z.string().min(1),
   userId: z.string().min(1),
 });
+
 export type ApprovalExpiryJobData = z.infer<typeof approvalExpiryJobDataSchema>;
 
 let _queue: Queue<ApprovalExpiryJobData> | undefined;
@@ -47,6 +48,7 @@ export function getApprovalExpiryQueue(): Queue<ApprovalExpiryJobData> {
       removeOnFail: { count: 200, age: 24 * 60 * 60 },
     },
   });
+
   return _queue;
 }
 
@@ -56,6 +58,7 @@ export async function scheduleApprovalExpiryJob(args: {
   delayMs: number;
 }): Promise<"scheduled" | "disabled" | "failed"> {
   if (!isQueueEnabled()) return "disabled";
+
   try {
     const queue = getApprovalExpiryQueue();
     const jobId = approvalExpiryJobId(args.stagingId);
@@ -69,12 +72,15 @@ export async function scheduleApprovalExpiryJob(args: {
     // which is the intended idempotency; an `active` job is mid-expiry and
     // must not be removed out from under the worker.)
     const existing = await queue.getJob(jobId);
+
     if (existing) {
       const state = await existing.getState();
+
       if (state === "completed" || state === "failed") {
         await existing.remove();
       }
     }
+
     await queue.add(
       "approval.expire",
       { stagingId: args.stagingId, userId: args.userId },
@@ -83,15 +89,18 @@ export async function scheduleApprovalExpiryJob(args: {
         jobId,
       },
     );
+
     return "scheduled";
   } catch (err) {
     console.warn("[approvals] failed to schedule approval expiry", args.stagingId, toMessage(err));
+
     return "failed";
   }
 }
 
 export async function removeApprovalExpiryJob(stagingId: string): Promise<void> {
   if (!isQueueEnabled()) return;
+
   try {
     const job = await getApprovalExpiryQueue().getJob(approvalExpiryJobId(stagingId));
     await job?.remove();

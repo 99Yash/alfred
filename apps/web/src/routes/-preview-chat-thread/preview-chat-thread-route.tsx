@@ -9,6 +9,7 @@ export function PreviewChatThreadRoute() {
 
   useLayoutEffect(() => {
     setActiveThread(threadId);
+
     return () => setActiveThread("");
   }, [threadId, setActiveThread]);
 

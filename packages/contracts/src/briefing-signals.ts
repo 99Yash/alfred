@@ -43,7 +43,9 @@ export const BRIEFING_CONTEXT_SIGNAL_KINDS = [
   "pattern",
   "constraint",
 ] as const;
+
 export const briefingContextSignalKindSchema = z.enum(BRIEFING_CONTEXT_SIGNAL_KINDS);
+
 export type BriefingContextSignalKind = (typeof BRIEFING_CONTEXT_SIGNAL_KINDS)[number];
 
 export const BRIEFING_CONTEXT_SIGNALS = {
@@ -97,4 +99,5 @@ export const briefingContextSignalSchema = z
     confidence: z.number().min(0).max(1).optional(),
   })
   .strict();
+
 export type BriefingContextSignal = z.infer<typeof briefingContextSignalSchema>;

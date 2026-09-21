@@ -21,9 +21,12 @@ import { dbBackedSkip } from "./support/db-backed";
  *      `empty: true` WITHOUT a Voyage call, so it must NOT count as
  *      `succeeded`, and the empty path throws nothing (`failed` stays 0).
  *
- * `retryPending` is a global sweep keyed only on `source` (matching the
- * original worker loop, which passed no `userId`), so the test isolates on the
- * `imessage` source — no other DB-backed suite inserts an `imessage` document.
+ * `retryPending` sweeps every user when the caller omits `userId` (matching
+ * the original worker loop). `source` is NOT isolation — every source in
+ * `DOCUMENT_SOURCES` has a live writer, so one local Sentry webhook would put
+ * a real un-embedded row in this sweep and the assertion counts would move.
+ * So the test passes its own seeded `userId` and the sweep can only reach the
+ * three documents below.
  *
  * The `succeeded` path (a real chunk+embed) needs Voyage credentials the local
  * env lacks; it is covered by the `smoke-embed` script, not here.
@@ -35,7 +38,9 @@ import { dbBackedSkip } from "./support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-retrypending-";
-const SOURCE = "imessage" as const;
+
+const SOURCE = "sentry" as const;
+
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -44,6 +49,7 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
+
   return userId;
 }
 
@@ -58,6 +64,7 @@ function sha256(s: string): string {
  */
 async function seedEmptyDocument(userId: string, deadLettered = false): Promise<string> {
   const content = "";
+
   const [row] = await db()
     .insert(documents)
     .values({
@@ -69,7 +76,9 @@ async function seedEmptyDocument(userId: string, deadLettered = false): Promise<
       ...(deadLettered ? { embedFailedAt: new Date() } : {}),
     })
     .returning({ id: documents.id });
+
   assert.ok(row, "seed insert returned no row");
+
   return row.id;
 }
 
@@ -78,7 +87,9 @@ async function readFailedAt(docId: string): Promise<Date | null> {
     .select({ embedFailedAt: documents.embedFailedAt })
     .from(documents)
     .where(eq(documents.id, docId));
+
   assert.ok(row, "document row disappeared");
+
   return row.embedFailedAt;
 }
 
@@ -93,6 +104,7 @@ describe("corpus retryPending sweep (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     await closeConnections();
   });
 
@@ -102,7 +114,7 @@ describe("corpus retryPending sweep (DB-backed)", { skip: SKIP }, () => {
     const emptyB = await seedEmptyDocument(userId);
     const dead = await seedEmptyDocument(userId, true);
 
-    const result = await retryPending({ source: SOURCE, limit: 1000 });
+    const result = await retryPending({ userId, source: SOURCE, limit: 1000 });
 
     assert.equal(
       result.candidates,
@@ -118,7 +130,7 @@ describe("corpus retryPending sweep (DB-backed)", { skip: SKIP }, () => {
     assert.ok(await readFailedAt(emptyB), "candidate B dead-lettered after the sweep");
     assert.ok(await readFailedAt(dead), "pre-dead-lettered doc still carries its marker");
 
-    const rerun = await retryPending({ source: SOURCE, limit: 1000 });
+    const rerun = await retryPending({ userId, source: SOURCE, limit: 1000 });
     assert.equal(
       rerun.candidates,
       0,

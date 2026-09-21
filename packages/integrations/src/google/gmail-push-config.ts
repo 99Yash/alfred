@@ -16,6 +16,7 @@ export class GmailPushOidcConfigError extends Error {
 
 export function pubSubOidcConfigFromEnv(): PubSubOidcConfig {
   const env = serverEnv();
+
   return {
     nodeEnv: env.NODE_ENV,
     pushTopic: env.GOOGLE_PUBSUB_TOPIC,
@@ -30,11 +31,13 @@ export function isGmailPushOidcConfigError(err: unknown): err is GmailPushOidcCo
 
 export function assertGmailPushOidcConfigured(config = pubSubOidcConfigFromEnv()): void {
   if (config.nodeEnv !== "production" && !config.pushTopic) return;
+
   if (!config.audience) {
     throw new GmailPushOidcConfigError(
       "GOOGLE_PUBSUB_AUDIENCE is required when Gmail push is enabled",
     );
   }
+
   if (!config.expectedServiceAccount) {
     throw new GmailPushOidcConfigError(
       "GOOGLE_PUBSUB_SERVICE_ACCOUNT is required when Gmail push is enabled",

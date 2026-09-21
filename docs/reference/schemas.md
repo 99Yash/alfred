@@ -19,6 +19,56 @@ no front door, high-traffic merges, and contract split from owner. A package
 level schema module is earned by a registry need (that is why sync has one),
 never by convention.
 
+## Colocate the schema with its type, caps, and minting logic
+
+A boundary shape has one home file, and everything that co-changes with it
+lives there:
+
+- The schema, its `z.infer` type, and the caps/constants its bounds enforce
+  stay together in the owning domain file (`contextSearchRequestSchema` with
+  `ContextSearchRequest` and `CONTEXT_SEARCH_DEFAULT_LIMIT` /
+  `CONTEXT_SEARCH_MAX_LIMIT` in `packages/contracts/src/context-search.ts`;
+  the model is `briefing-constants.ts`: `briefingHourSchema` with
+  `BriefingHour` and its 0–23 bounds). Do not split the schema into
+  `schemas.ts`, the type into `types.ts`, and the caps into `constants.ts` —
+  that is the same junk drawer in three files, and a cap change then touches
+  three owners instead of one.
+- The result a verb mints lives with that verb. `searchContext` in
+  `packages/assistant/src/context-search/search.ts` owns `ContextSearchResult`
+  and the `ContextSourceReport` / `ContextSourceStatus` it constructs;
+  `registry.ts` owns the `ContextSource` contract (returning the shared
+  `EvidenceCard`) because it stores `Map<string, ContextSource>`. A shared
+  `types.ts` holding all of those shapes groups by syntax instead of by owner
+  and hides which file may change which shape.
+- The evidence element is a shared contract, not a module-internal shape:
+  `evidenceCardSchema` / `EvidenceCard` live in
+  `packages/contracts/src/evidence-card.ts` (#423) because source adapters, the
+  model-facing packer (`context-search/pack.ts`), the source capability manifest
+  (#466), and the `system.search_context` tool (#426) must all agree on
+  it. A provisional/internal shape stays with its owning module file until a
+  second boundary must agree on it; `EvidenceCard` crossed to contracts at that
+  point rather than early, just as the provisional `ContextEvidence` it replaced
+  stayed in `registry.ts` until then.
+
+- The same split separates a shape's MEANING from a reader's JUDGEMENT.
+  `sourceManifestSchema` / `SourceManifest` live in
+  `packages/contracts/src/source-manifest.ts` (#466) with their enums
+  (`SOURCE_READ_CAPABILITIES`, `SOURCE_COST_CLASSES`, ...) and their
+  fact-level helpers (`sourceManifestDisplayName`,
+  `sourceManifestSupportsRead`, `declaresReadSemantics`), because the server
+  boundary reads the shape today and a future web catalog reads the same shape
+  without a move. The ranking WEIGHTS that fold a manifest into a number stay in
+  `context-search/rank.ts`, the selection policy and the trust predicate
+  (`isTrustedRetrievalSource`) stay in `context-search/manifest.ts`: those are
+  decisions about a manifest, not facts about one, and putting them in contracts
+  would make every consumer inherit one reader's opinion. The trust predicate
+  stays there until a second reader across a boundary (a web catalog) must
+  agree on it.
+
+Deletion test: deleting the owner file must delete the shape. If the shape
+survives in `types.ts` / `schemas.ts` / `constants.ts` after its logic is
+gone, it was in the wrong file.
+
 ## Finding schemas
 
 [`pnpm schemas`](../../scripts/schema-catalog.mjs) prints every schema binding

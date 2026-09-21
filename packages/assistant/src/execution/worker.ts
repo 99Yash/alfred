@@ -22,6 +22,7 @@ const HEARTBEAT_INTERVAL_MS = 10_000;
 const RESUME_SWEEP_INTERVAL_MS = 30_000;
 
 let _worker: Worker<AgentJobData> | undefined;
+
 let _resumeTimer: ReturnType<typeof setInterval> | undefined;
 
 export interface StartAgentWorkerOpts {
@@ -68,6 +69,7 @@ export async function startAgentWorker(opts: StartAgentWorkerOpts): Promise<void
   _resumeTimer = setInterval(() => {
     void resumeSweep();
   }, RESUME_SWEEP_INTERVAL_MS);
+
   if (typeof _resumeTimer === "object" && "unref" in _resumeTimer) {
     _resumeTimer.unref();
   }
@@ -94,10 +96,13 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
                 console.warn(
                   `[agent:worker] heartbeat no-op for run ${runId} attempt ${attempt}; lease was superseded or run is no longer running`,
                 );
+
                 if (heartbeat) clearInterval(heartbeat);
                 heartbeat = undefined;
+
                 return;
               }
+
               missedHeartbeats = 0;
             })
             .catch((err) => {
@@ -108,19 +113,23 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
               );
             });
         }, HEARTBEAT_INTERVAL_MS);
+
         if (typeof heartbeat === "object" && "unref" in heartbeat) {
           heartbeat.unref();
         }
       },
     });
+
     // If the run advanced, immediately re-enqueue so the next step picks
     // up without waiting for a sweep — keeps short workflows snappy.
     if (outcome.kind === "advanced") {
       await enqueueRun(runId);
     }
+
     if (outcome.kind === "deferred") {
       await enqueueRun(runId, { delayMs: Math.max(0, outcome.retryAt.getTime() - Date.now()) });
     }
+
     // Which skips are worth a log is the executor's call, not this file's — it
     // owns the closed `RunSkipReason` set and declares the volume of each member
     // (`SKIP_REASON_VOLUME`). A `||` chain here would have to be revisited from
@@ -128,6 +137,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
     if (outcome.kind === "skipped" && skipReasonIsLoud(outcome.reason)) {
       console.warn(`[agent:worker] run ${runId} commit skipped: ${outcome.reason}`);
     }
+
     // Terminal-step scratchpad snapshot (ADR-0036): when a run reaches a
     // terminal state, persist its Redis scratchpad into `agent_run_context` so
     // the durable record survives the 30-day key TTL. Keyed by `runId` — for a
@@ -145,6 +155,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
         console.warn("[agent:worker] scratchpad snapshot failed for", runId, toMessage(err));
       }
     }
+
     // ADR-0073: a sub-agent child just reached a terminal state — wake the
     // parent joining it (system.await_sub_agent) and enqueue it for an
     // immediate resume so the boss reports the real result this turn instead
@@ -153,6 +164,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
     if (outcome.kind === "completed" || outcome.kind === "failed" || outcome.kind === "blocked") {
       try {
         const parentRunId = await signalParentOfSubAgent(runId);
+
         if (parentRunId) await enqueueRun(parentRunId);
       } catch (err) {
         console.warn("[agent:worker] sub-agent parent signal failed for", runId, toMessage(err));
@@ -166,6 +178,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
 async function resumeSweep(): Promise<void> {
   try {
     const ids = await findResumableRunIds({ limit: 50 });
+
     for (const id of ids) {
       await enqueueRun(id);
     }
@@ -187,6 +200,7 @@ export async function stopAgentWorker(): Promise<void> {
     clearInterval(_resumeTimer);
     _resumeTimer = undefined;
   }
+
   if (_worker) {
     await _worker.close();
     _worker = undefined;

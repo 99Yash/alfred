@@ -1,6 +1,12 @@
 import { readChatHistoryInput } from "@alfred/contracts";
+import type {
+  ChatHistoryAttachmentEvidence,
+  ChatHistoryMessageEvidence,
+  ChatHistoryToolResult,
+} from "@alfred/assistant/tool-runtime";
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
 import { db } from "@alfred/db";
+import { escapeLike } from "@alfred/db/helpers";
 import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import type { z } from "zod";
@@ -10,6 +16,7 @@ import {
 } from "./attachments";
 
 const CHAT_HISTORY_RESULT_LIMIT = 10;
+
 export const CHAT_HISTORY_EXCERPT_CHARS = 4_000;
 
 type MessageRow = {
@@ -19,6 +26,7 @@ type MessageRow = {
   toolCalls: ChatMessageToolCall[] | null;
   createdAt: Date;
 };
+
 type AttachmentRow = {
   id: string;
   messageId: string;
@@ -61,7 +69,7 @@ export type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
 export async function readChatHistory(
   args: { userId: string; threadId: string; input: ReadChatHistoryInput },
   dependencies: ChatHistoryRetrievalDependencies = {},
-): Promise<unknown> {
+): Promise<ChatHistoryToolResult> {
   // `readChatHistoryInput` refinements guarantee `query` in search mode and
   // `kind`+`id` in fetch mode, but the flattened object types them optional
   // (the schema is one object, not a discriminated union — see tool-schemas.ts).
@@ -69,16 +77,20 @@ export async function readChatHistory(
   // can't dereference an undefined.
   if (args.input.mode === "search") {
     const { query } = args.input;
+
     if (query === undefined) {
       return { ok: false, mode: "search", error: "query is required in search mode" };
     }
+
     const limit = Math.min(Math.max(args.input.limit, 1), CHAT_HISTORY_RESULT_LIMIT);
+
     const rows = await (dependencies.searchMessages ?? searchMessages)({
       userId: args.userId,
       threadId: args.threadId,
       query,
       limit,
     });
+
     return {
       ok: true,
       mode: "search",
@@ -88,6 +100,7 @@ export async function readChatHistory(
   }
 
   const { kind, id } = args.input;
+
   if (kind === undefined || id === undefined) {
     return { ok: false, mode: "fetch", error: "kind and id are required in fetch mode" };
   }
@@ -98,6 +111,7 @@ export async function readChatHistory(
       threadId: args.threadId,
       id,
     });
+
     return row
       ? { ok: true, mode: "fetch", found: true, result: attachmentEvidence(row) }
       : { ok: true, mode: "fetch", found: false, kind, id };
@@ -107,12 +121,17 @@ export async function readChatHistory(
     kind === "message"
       ? (dependencies.fetchMessage ?? fetchMessage)
       : (dependencies.fetchToolCall ?? fetchToolCall);
+
   const row = await loader({ userId: args.userId, threadId: args.threadId, id });
+
   if (!row) return { ok: true, mode: "fetch", found: false, kind, id };
+
   if (kind === "message") {
     return { ok: true, mode: "fetch", found: true, result: messageEvidence(row) };
   }
+
   const call = row.toolCalls?.find((candidate) => candidate.toolCallId === id);
+
   return call
     ? {
         ok: true,
@@ -133,7 +152,7 @@ export async function readChatHistory(
     : { ok: true, mode: "fetch", found: false, kind, id };
 }
 
-function messageEvidence(row: MessageRow) {
+function messageEvidence(row: MessageRow): ChatHistoryMessageEvidence {
   return {
     kind: "message",
     id: row.id,
@@ -146,8 +165,9 @@ function messageEvidence(row: MessageRow) {
   };
 }
 
-function attachmentEvidence(row: AttachmentRow) {
+function attachmentEvidence(row: AttachmentRow): ChatHistoryAttachmentEvidence {
   const parsed = chatAttachmentRepresentationSchema.safeParse(row.representation);
+
   return {
     kind: "attachment",
     id: row.id,
@@ -164,6 +184,7 @@ function attachmentEvidence(row: AttachmentRow) {
 
 function excerpt(value: string) {
   const clean = value.replaceAll("\u0000", "");
+
   return {
     text: clean.slice(0, CHAT_HISTORY_EXCERPT_CHARS),
     truncated: clean.length > CHAT_HISTORY_EXCERPT_CHARS,
@@ -215,6 +236,7 @@ async function fetchMessage(args: { userId: string; threadId: string; id: string
       ),
     )
     .limit(1);
+
   return row ?? null;
 }
 
@@ -236,6 +258,7 @@ async function fetchToolCall(args: { userId: string; threadId: string; id: strin
       ),
     )
     .limit(1);
+
   return row ?? null;
 }
 
@@ -274,9 +297,6 @@ async function fetchAttachment(args: { userId: string; threadId: string; id: str
       ),
     )
     .limit(1);
-  return row ?? null;
-}
 
-function escapeLike(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+  return row ?? null;
 }

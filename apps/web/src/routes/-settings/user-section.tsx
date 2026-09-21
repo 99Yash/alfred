@@ -10,7 +10,7 @@ import {
   Trash2,
   User,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AppButton,
   AppInput,
@@ -82,15 +82,40 @@ export function UserSection() {
   const [bioSaving, setBioSaving] = useState(false);
   const bioValue = bioDraft ?? bio;
 
+  // The newest edit the debounce has not written yet. The unmount flush is its
+  // only reader; a completed save clears it.
+  const unsavedBioRef = useRef<string | null>(null);
+  // `saveBio` gets a new identity on every Replicache pull, because it closes
+  // over the synced fact row. Read it through a ref so neither effect below
+  // lists it: as a dependency it restarted the debounce timer on every poke,
+  // which postponed the save for as long as the pokes kept arriving.
+  const saveBioRef = useRef(saveBio);
+
+  useEffect(() => {
+    saveBioRef.current = saveBio;
+  }, [saveBio]);
+
   useEffect(() => {
     if (bioDraft === null) return; // untouched — nothing to persist
+
     const next = bioDraft.trim();
-    if (next === bio.trim()) return; // matches synced truth (incl. post-save)
+
+    if (next === bio.trim()) {
+      unsavedBioRef.current = null; // matches synced truth (incl. post-save)
+
+      return;
+    }
+
     if (next === "") return; // don't let a transient empty wipe the bio
+
+    unsavedBioRef.current = next;
+
     const timer = setTimeout(async () => {
       setBioSaving(true);
+
       try {
-        await saveBio(next);
+        await saveBioRef.current(next);
+        unsavedBioRef.current = null;
         toast.success("Background saved");
       } catch {
         toast.error("Couldn't save background");
@@ -98,11 +123,32 @@ export function UserSection() {
         setBioSaving(false);
       }
     }, BIO_SAVE_DEBOUNCE_MS);
+
     return () => clearTimeout(timer);
-  }, [bioDraft, bio, saveBio]);
+  }, [bioDraft, bio]);
+
+  // Flush on unmount. The cleanup above cancels the timer, so a keystroke
+  // inside the debounce window used to be dropped outright whenever the user
+  // left the page before it fired — no click, no error, the edit simply gone.
+  // The mutator writes locally first, so it still lands after this component
+  // goes away.
+  useEffect(
+    () => () => {
+      const pending = unsavedBioRef.current;
+
+      if (pending === null) return;
+
+      unsavedBioRef.current = null;
+      saveBioRef.current(pending).catch(() => {
+        toast.error("Couldn't save background");
+      });
+    },
+    [],
+  );
 
   const onSignOut = async () => {
     setSigningOut(true);
+
     try {
       await authClient.signOut();
       await navigate({ to: "/login" });
@@ -116,8 +162,10 @@ export function UserSection() {
   // unavailable for some valid sessions. See `docs/reference/auth.md`.
   const onRevokeOtherSessions = async () => {
     setRevokingOthers(true);
+
     try {
       const { error } = await authClient.revokeOtherSessions();
+
       if (error) throw new Error(error.message ?? "revoke failed");
       toast.success("Signed out on every other device");
     } catch {

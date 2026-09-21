@@ -23,6 +23,7 @@ export const fetchWorkflows = syncEntity(SYNC_MODEL.workflow, {
       .leftJoin(workflowRevisions, eq(workflows.currentRevisionId, workflowRevisions.id))
       .where(eq(workflows.userId, userId))
       .orderBy(asc(workflows.slug));
+
     return rows.filter((r) => !isInternalWorkflowSlug(r.workflow.slug));
   },
   map: ({ workflow: w, currentRevision }: WorkflowRow) => ({

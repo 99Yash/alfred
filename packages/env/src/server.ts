@@ -147,6 +147,51 @@ const serverEnvSchema = z
     CLOUDFLARE_ACCOUNT_ID: optionalSecret(),
     CLOUDFLARE_GATEWAY_ID: optionalSecret(),
     /**
+     * Requests per minute the client-side pacer allows through the gateway.
+     *
+     * Unified Billing DOCUMENTS 200 requests per 60 seconds per gateway. Over
+     * the line the edge returns a 429 `AiGatewayError` 2018 and the turn dies
+     * with its tool results already written, so
+     * `packages/ai/src/gateway-throttle.ts` paces every call. Unset takes that
+     * module's default, which holds a margin below the documented ceiling for
+     * the other callers that share the bucket.
+     *
+     * Treat 200 as documented, not measured. The measured bucket is a burst of
+     * roughly 15 to 25 that then refills at single digits per minute, so no
+     * value here keeps a drained budget serving. `gateway-throttle.ts` carries
+     * the measurement and is the number's owner; this field only overrides it.
+     *
+     * This is NOT the gateway's own `rate_limiting_limit`. That field is a
+     * separate self-imposed rule which answers 429 `2003`; `alfred-dev` has
+     * none. Setting one again puts the tighter of the two in charge and this
+     * value must then move under it.
+     */
+    CLOUDFLARE_AI_GATEWAY_RPM: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.coerce
+        .number()
+        .int()
+        .positive()
+        // Past 120 000 the GCRA interval `Math.round(60_000 / rpm)` rounds to
+        // 0 and pacing turns off silently — a blank-tolerant field with no
+        // ceiling would accept it. Fail loud at boot instead.
+        .max(120_000)
+        .optional(),
+    ),
+    /**
+     * Idle burst the client-side pacer allows through the gateway.
+     *
+     * GCRA lets a caller run `burst` intervals ahead of the queue, so an idle
+     * bucket serves `burst + 1` immediately and the worst minute holds
+     * `rpm + burst`. Unset takes `gateway-throttle.ts`'s default. Capped so a
+     * burst cannot quietly erase the margin the rate holds below the
+     * documented ceiling.
+     */
+    CLOUDFLARE_AI_GATEWAY_BURST: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.coerce.number().int().min(0).max(10).optional(),
+    ),
+    /**
      * Vercel AI Gateway (`vck_` token) — kept for migration but unused when
      * Cloudflare is configured. `optionalSecret` tolerates `AI_GATEWAY_API_KEY=`
      * blank line; a `cfut_` token here is also accepted as Cloudflare alias so
@@ -205,6 +250,12 @@ const serverEnvSchema = z
     LANGFUSE_PUBLIC_KEY: z.string().optional(),
     LANGFUSE_SECRET_KEY: z.string().optional(),
     LANGFUSE_HOST: z.url().optional(),
+    /**
+     * Langfuse release tag. v5 removed `release` as a trace attribute; the
+     * `LangfuseSpanProcessor` reads `LANGFUSE_RELEASE` directly. Declared here
+     * so the value is validated and typed like the other Langfuse vars.
+     */
+    LANGFUSE_RELEASE: z.string().optional(),
     /**
      * Langfuse tracing environment slug (#226 review). `NODE_ENV` only
      * separates development|production|test, but every deploy target (staging,
@@ -295,6 +346,14 @@ const serverEnvSchema = z
       z.url().optional(),
     ),
     VERCEL_APP_SLUG: optionalSecret(),
+    /**
+     * The Client Secret of the Sentry internal integration Alfred's Sentry
+     * provider pairs with (Settings → Developer Settings). Sentry signs every
+     * webhook body with it (`sentry-hook-signature`, HMAC-SHA256 hex over the
+     * raw bytes). Optional so the server boots before the integration exists;
+     * the `sentry` ingress descriptor rejects every delivery while it is unset.
+     */
+    SENTRY_WEBHOOK_CLIENT_SECRET: optionalSecret(),
     /**
      * Object storage for chat file uploads (ADR-0065). Backed by **Cloudflare R2**
      * (S3-compatible) via `files-sdk`'s `s3` adapter. Create an R2 bucket + an R2
@@ -402,9 +461,12 @@ const serverEnvSchema = z
     const cfToken =
       data.CLOUDFLARE_AI_GATEWAY_TOKEN ??
       (data.AI_GATEWAY_API_KEY?.startsWith("cfut_") ? data.AI_GATEWAY_API_KEY : undefined);
+
     const cfEnabled = Boolean(cfToken && data.CLOUDFLARE_ACCOUNT_ID && data.CLOUDFLARE_GATEWAY_ID);
+
     if (cfEnabled) return;
     const hasDirectKey = Boolean(data.ANTHROPIC_API_KEY ?? data.GOOGLE_GENERATIVE_AI_API_KEY);
+
     if (!hasDirectKey && data.NODE_ENV !== "test") {
       ctx.addIssue({
         code: "custom",
@@ -422,13 +484,17 @@ let _serverEnv: ServerEnv | undefined;
 export function serverEnv(): ServerEnv {
   if (_serverEnv) return _serverEnv;
   const result = serverEnvSchema.safeParse(process.env);
+
   if (!result.success) {
     const formatted = result.error.issues
       .map((i) => `  ${i.path.join(".")}: ${i.message}`)
       .join("\n");
+
     throw new Error(`Missing or invalid environment variables:\n${formatted}`);
   }
+
   _serverEnv = result.data;
+
   return _serverEnv;
 }
 
@@ -446,6 +512,7 @@ export function serverEnv(): ServerEnv {
 export function nodeEnv(): ServerEnv["NODE_ENV"] {
   const field = serverEnvSchema.shape.NODE_ENV;
   const result = field.safeParse(process.env.NODE_ENV);
+
   return result.success ? result.data : field.parse(undefined);
 }
 
@@ -459,6 +526,7 @@ export function nodeEnv(): ServerEnv["NODE_ENV"] {
  */
 export function gmailMailboxWritesEnabled(): boolean {
   const env = serverEnv();
+
   return env.GMAIL_MAILBOX_WRITES_ENABLED ?? env.NODE_ENV === "production";
 }
 
@@ -471,6 +539,7 @@ export function gmailMailboxWritesEnabled(): boolean {
  */
 export function scheduledJobsEnabled(): boolean {
   const env = serverEnv();
+
   return env.ALFRED_RUN_SCHEDULED_JOBS ?? env.NODE_ENV === "production";
 }
 
@@ -482,15 +551,21 @@ function gatewayTokenFromEnv(): string | undefined {
   const tokenField = serverEnvSchema.shape.CLOUDFLARE_AI_GATEWAY_TOKEN;
   const legacyField = serverEnvSchema.shape.AI_GATEWAY_API_KEY;
   const tokenResult = tokenField.safeParse(process.env.CLOUDFLARE_AI_GATEWAY_TOKEN);
+
   if (tokenResult.success && tokenResult.data) return tokenResult.data;
   const legacyResult = legacyField.safeParse(process.env.AI_GATEWAY_API_KEY);
+
   if (legacyResult.success && legacyResult.data?.startsWith("cfut_")) return legacyResult.data;
+
   return undefined;
 }
 
 export function envFieldValue<K extends keyof ServerEnv>(key: K): ServerEnv[K] | undefined {
   const field = serverEnvSchema.shape[key];
-  const result = field.safeParse(process.env[key as string]);
+  const result = field.safeParse(process.env[key]);
+
+  // SAFETY: `field` is the schema for `key`, so a successful parse yields exactly
+  // the inferred output type of that field, which is ServerEnv[K].
   return result.success ? (result.data as ServerEnv[K]) : undefined;
 }
 
@@ -505,9 +580,11 @@ export function cloudflareGatewayConfig():
   | { token: string; accountId: string; gatewayId: string }
   | undefined {
   const token = gatewayTokenFromEnv();
-  const accountId = envFieldValue("CLOUDFLARE_ACCOUNT_ID") as string | undefined;
-  const gatewayId = envFieldValue("CLOUDFLARE_GATEWAY_ID") as string | undefined;
+  const accountId = envFieldValue("CLOUDFLARE_ACCOUNT_ID");
+  const gatewayId = envFieldValue("CLOUDFLARE_GATEWAY_ID");
+
   if (token && accountId && gatewayId) return { token, accountId, gatewayId };
+
   return undefined;
 }
 

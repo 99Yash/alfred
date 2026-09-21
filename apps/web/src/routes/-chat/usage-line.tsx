@@ -1,9 +1,10 @@
 import type { ChatMessageAgentUsage, ChatMessageUsage } from "@alfred/contracts";
 import type { SyncedChatMessage } from "@alfred/sync";
-import { ArrowDown, ArrowUp, Gauge, Repeat, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Gauge, Repeat, Snowflake, TriangleAlert, Zap } from "lucide-react";
 import { modelLabel, providerOf, type SvgIcon } from "~/components/provider-marks";
 import { formatCost, formatTokens, outputTokensPerSecond } from "~/lib/usage-format";
 import { cn } from "~/lib/utils";
+import { CostFlow } from "./cost-flow";
 import { Tip } from "./tip";
 
 /**
@@ -52,12 +53,34 @@ type ModelFallback = NonNullable<ChatMessageUsage["models"][number]["fallback"]>
 function fallbackNote(fallback: ModelFallback, calls: number): string {
   const share =
     fallback.calls === calls ? (calls === 1 ? "It" : "Every call") : `${fallback.calls} of them`;
+
   const primary = fallback.primary ? `the primary (${fallback.primary})` : "the primary";
+
   return `${share} ran here as a fallback: ${primary} errored, so withFallback degraded the turn.`;
+}
+
+/**
+ * The three-way input split in one sentence: served from the cache, written
+ * into it on a miss, and neither. Without the middle number a reader takes
+ * `input - cached` for ordinary fresh prompt, when most of it is usually a
+ * premium-rate cache write — the exact thing that makes a cold turn expensive.
+ *
+ * Omitted for a rollup persisted before the write half existed, because "fresh"
+ * would then be a guess rather than a subtraction.
+ */
+function cacheSplitNote(usage: ChatMessageUsage): string {
+  const written = usage.cacheWriteInputTokens;
+
+  if (written === null) return "Cache hits are the biggest lever on turn cost.";
+
+  const fresh = Math.max(0, usage.inputTokens - usage.cachedInputTokens - written);
+
+  return `Split: ${usage.cachedInputTokens.toLocaleString()} read from the cache, ${written.toLocaleString()} written into it, ${fresh.toLocaleString()} neither.`;
 }
 
 /** Circumference of the ring below, hoisted so it isn't recomputed per render. */
 const RING_RADIUS = 5;
+
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 /**
@@ -99,6 +122,7 @@ function CacheRing({ pct }: { pct: number }) {
  * are tints. Full class strings, so Tailwind can see them.
  */
 const BOSS_FILL = "bg-app-fg-4";
+
 const WORKER_FILLS = [
   "bg-app-purple-4",
   "bg-app-sky-4",
@@ -125,15 +149,20 @@ interface CostSlice {
 function costSlices(agents: readonly ChatMessageAgentUsage[], total: number): CostSlice[] {
   const ordered = [...agents].sort((a, b) => {
     if ((a.subId === null) !== (b.subId === null)) return a.subId === null ? -1 : 1;
+
     return b.costUsd - a.costUsd;
   });
+
   let worker = 0;
+
   return ordered.map((agent) => {
     const subId = agent.subId;
+
     // `worker++` walks the tint list only for workers, so the boss never
     // consumes a tint and the first worker always wears the first tint.
     const fill =
       subId === null ? BOSS_FILL : (WORKER_FILLS[worker++ % WORKER_FILLS.length] ?? BOSS_FILL);
+
     return {
       key: subId === null ? "boss" : `sub:${subId}`,
       label: subId ?? "boss",
@@ -161,6 +190,7 @@ function costSlices(agents: readonly ChatMessageAgentUsage[], total: number): Co
 function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]; total: number }) {
   const slices = costSlices(agents, total);
   const workers = slices.filter((s) => s.key !== "boss").length;
+
   return (
     <Tip
       label="Cost by agent"
@@ -197,11 +227,26 @@ function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]
   );
 }
 
+/** Which of the two receipts to draw. */
+export type UsageTone = "ok" | "failed";
+
 /**
- * Dev-only per-turn token + cost readout under an assistant reply. Gated by the
- * caller on `import.meta.env.DEV` (stripped from prod bundles) — it exposes the
- * raw economics of the whole turn (the boss run plus every sub-agent it
- * spawned) so we can eyeball cost while iterating. Numbers come from the synced
+ * How the strip reads: an ordinary receipt, or the receipt of a turn that
+ * faulted. Only two things change on a failure — the pill takes the same
+ * `bg-app-red-1` tint as the failure alert above it, and the cost anchor turns
+ * red ink. The amber cache ring and the sky `Snowflake` keep their own colors,
+ * because those cells answer "was the prompt cached", which a fault does not
+ * change. Full class strings, so Tailwind can see them.
+ */
+const TONE = {
+  ok: { container: "", cost: "text-app-fg-4" },
+  failed: { container: "bg-app-red-1", cost: "text-app-red-4" },
+} satisfies Record<UsageTone, { container: string; cost: string }>;
+
+/**
+ * Per-turn token + cost readout under an assistant reply. A product surface in
+ * every env — it exposes the economics of the whole turn (the boss run plus
+ * every sub-agent it spawned) so the spend stays legible. Numbers come from the synced
  * `usage` rollup (aggregated server-side from `api_call_log`); absent on older
  * messages.
  *
@@ -215,18 +260,42 @@ function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]
  * mark; a chip glows amber only when the rollup says some of its calls ran as a
  * `withFallback` degrade (spend cap, 429). That fact travels on
  * `usage.models[].fallback` from the metering rows, so the strip never has to
- * know which model the route table currently calls primary.
+ * know which model the route table currently calls primary. The turn's
+ * reasoning effort rides on the model name (`Luna · Xhigh`): both tiers run
+ * the same model and differ only in thinking, so the effort is which model
+ * served, not a separate stat. It travels on `usage.effort`, resolved
+ * server-side from the route table, for the same reason.
  *
  * Every cell carries a `Tip` hover card rather than a native `title`, so the
  * abbreviated figure keeps its exact count and its explanation one hover away.
  * `Tip` needs an ancestor `Tooltip.Provider`; `chat-shell.tsx` wraps the whole
  * chat surface in one, so this component must stay inside that tree.
+ *
+ * A failed turn passes `tone="failed"`. It draws the same numbers — a fault
+ * does not refund them — but says up front that they bought an error. See
+ * {@link TONE} for what the tone changes and what it deliberately leaves alone.
  */
-export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usage"]> }) {
+export function UsageLine({
+  usage,
+  tone = "ok",
+}: {
+  usage: NonNullable<SyncedChatMessage["usage"]>;
+  tone?: UsageTone | undefined;
+}) {
+  const toneClass = TONE[tone];
   const cost = formatCost(usage.costUsd);
   const tokensPerSecond = outputTokensPerSecond(usage.outputTokens, usage.modelLatencyMs);
+
   const cachePct =
     usage.inputTokens > 0 ? Math.round((usage.cachedInputTokens / usage.inputTokens) * 100) : 0;
+
+  // A rollup written before the write half was recorded carries `null`. Folding
+  // it to 0 here suppresses the cold cell, which is the honest render for it:
+  // we don't know, and an old turn that WAS cold must not claim it was warm.
+  const cacheWritten = usage.cacheWriteInputTokens ?? 0;
+
+  const effort = usage.effort ?? "no effort";
+  const effortLabel = effort.slice(0, 1).toUpperCase() + effort.slice(1);
 
   return (
     <div
@@ -234,8 +303,22 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
         "inline-flex max-w-full flex-wrap items-center gap-x-2.5 gap-y-1.5",
         "rounded-lg px-2.5 py-1.5",
         "text-[11px] leading-none text-app-fg-2 tabular-nums",
+        toneClass.container,
       )}
     >
+      {/* The one cell a healthy turn never draws. It leads the strip so the
+       * reader knows what the numbers are before reading them: this is what
+       * the failure cost, not what a reply cost. */}
+      {tone === "failed" ? (
+        <Tip
+          label="The turn failed"
+          description="These tokens were still billed. A turn pays for every model call it made before the fault, so a turn that died late can be the most expensive one in the thread."
+        >
+          <span className="inline-flex items-center">
+            <TriangleAlert className="size-3 shrink-0 text-app-red-4" />
+          </span>
+        </Tip>
+      ) : null}
       <Stat
         icon={ArrowUp}
         value={formatTokens(usage.inputTokens)}
@@ -260,13 +343,27 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
       {usage.cachedInputTokens > 0 ? (
         <Tip
           label="Cached input"
-          description={`${usage.cachedInputTokens.toLocaleString()} of ${usage.inputTokens.toLocaleString()} input tokens (${cachePct}%) were served from the prompt cache. Cache hits are the biggest lever on turn cost.`}
+          description={`${usage.cachedInputTokens.toLocaleString()} of ${usage.inputTokens.toLocaleString()} input tokens (${cachePct}%) were served from the prompt cache. ${cacheSplitNote(usage)}`}
         >
           <span className="inline-flex items-center gap-1">
             <Zap className="size-3 shrink-0 text-app-amber-4" />
             <span className="text-app-fg-3">{formatTokens(usage.cachedInputTokens)}</span>
             <CacheRing pct={cachePct} />
             <span className="text-app-fg-1">{cachePct}%</span>
+          </span>
+        </Tip>
+      ) : null}
+      {/* The miss half, and the only cell a fully cold turn draws. Sits beside
+       * the hit cell with no divider: the two are one fact seen twice. */}
+      {cacheWritten > 0 ? (
+        <Tip
+          label="Cold input"
+          description={`${cacheWritten.toLocaleString()} of ${usage.inputTokens.toLocaleString()} input tokens missed the prompt cache and were written into it. A write bills ABOVE the plain input rate, so a cold turn costs more than an uncached one. ${cacheSplitNote(usage)}`}
+        >
+          <span className="inline-flex items-center gap-1">
+            <Snowflake className="size-3 shrink-0 text-app-sky-4" />
+            <span className="text-app-fg-3">{formatTokens(cacheWritten)}</span>
+            <span className="text-app-fg-1">cold</span>
           </span>
         </Tip>
       ) : null}
@@ -277,9 +374,9 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
         label={`${cost} this turn`}
         description="The whole turn at the snapshot prices in api_call_log: the boss run plus every sub-agent it spawned."
       >
-        <span className="inline-flex items-center gap-1.5 font-medium text-app-fg-4">
+        <span className={cn("inline-flex items-center gap-1.5 font-medium", toneClass.cost)}>
           <span className="text-app-fg-2">$</span>
-          {cost.replace(/^\$/, "")}
+          <CostFlow value={usage.costUsd} />
         </span>
       </Tip>
       {/* Only a turn that delegated has a split worth drawing: with one agent
@@ -301,16 +398,24 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
         // back without a schema pass: absent must mean "no degrade", not amber.
         const fallback = m.fallback ?? null;
         const Icon = provider?.Icon;
+
         const served =
           m.calls === 1 ? "Served 1 call this turn." : `Served ${m.calls} calls this turn.`;
+
+        // The turn's reasoning-effort ceiling, worn on the model name: both
+        // tiers run the same model and differ only in thinking, so the effort
+        // reads as which model served, not as a separate stat. One value for
+        // the whole turn — every chip repeats it.
+        const effortNote = `Ran at ${effort} reasoning effort (the turn's ceiling; each provider maps it to its own scale).`;
+
         return (
           <Tip
             key={m.model}
-            label={m.model}
+            label={`${m.model} · ${effort}`}
             description={
               fallback
-                ? `${served} ${fallbackNote(fallback, m.calls)}`
-                : `${served}${provider ? ` Provider: ${provider.label}.` : ""}`
+                ? `${served} ${fallbackNote(fallback, m.calls)} ${effortNote}`
+                : `${served}${provider ? ` Provider: ${provider.label}.` : ""} ${effortNote}`
             }
           >
             <span className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-app-fg-4 transition-colors">
@@ -321,6 +426,7 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
                 <Icon className="size-3.5 shrink-0" style={{ color: provider?.tint }} />
               ) : null}
               <span className="font-medium">{modelLabel(m.model)}</span>
+              <span className="text-app-fg-2">· {effortLabel}</span>
               {m.calls > 1 ? <span className="text-app-fg-2">×{m.calls}</span> : null}
             </span>
           </Tip>

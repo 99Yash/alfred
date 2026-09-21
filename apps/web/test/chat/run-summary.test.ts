@@ -34,6 +34,7 @@ describe("runSummary", () => {
       call("github.search", "failed", "c2"),
       call("linear.search", "failed", "c3"),
     ];
+
     // One source landed, so this reads as that one read — not as the
     // "Searched multiple sources" a three-call tally would produce.
     assert.equal(mixed.filter((t) => t.status === "succeeded").length, 1);

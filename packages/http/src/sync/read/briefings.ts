@@ -10,6 +10,7 @@ export const fetchBriefings = syncEntity(SYNC_MODEL.briefing, {
     const cutoff = new Date();
     cutoff.setUTCDate(cutoff.getUTCDate() - BRIEFING_PULL_WINDOW_DAYS);
     const cutoffDate = cutoff.toISOString().slice(0, 10);
+
     return tx
       .select()
       .from(briefings)
@@ -26,6 +27,7 @@ export const fetchBriefings = syncEntity(SYNC_MODEL.briefing, {
     sendDecision: b.sendDecision,
     gateReason: b.gateReason,
     gather: b.gather,
+    closedLoops: b.closedLoops,
     breakingSummary: b.breakingSummary,
     fullBriefing: b.fullBriefing,
     model: b.model,

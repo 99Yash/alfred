@@ -11,7 +11,7 @@
  *   1. ensureAlfredLabels installs the ten Alfred labels (or recovers them
  *      from the credential metadata cache).
  *   2. Triggering email-triage on a real ingested doc runs through:
- *        classify  →  apply-label  →  done
+ *        classify  →  apply-label  →  close-loop-todos  →  done
  *      with a metered LLM call landing in api_call_log.
  *   3. The corresponding Gmail message picks up exactly one Alfred label.
  *   4. A single triage row keyed on (userId, sourceThreadId) lands in the DB
@@ -44,6 +44,7 @@ import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 250;
+
 const POLL_TIMEOUT_MS = 90_000;
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -64,6 +65,7 @@ async function findGoogleCredential(): Promise<{
     .from(integrationCredentials)
     .where(eq(integrationCredentials.provider, "google"))
     .limit(1);
+
   return rows[0] ?? null;
 }
 
@@ -80,25 +82,32 @@ async function pickIngestedDocument(userId: string) {
     .where(and(eq(documents.userId, userId), eq(documents.source, "gmail")))
     .orderBy(desc(documents.authoredAt))
     .limit(1);
+
   return rows[0] ?? null;
 }
 
 async function pollRun(runId: string, label: string) {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+
   while (Date.now() < deadline) {
     const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
+
     if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
+
     if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
       return row;
     }
+
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+
   throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
 
 async function fetchMessageLabelIds(credentialId: string, messageId: string): Promise<string[]> {
   const accessToken = await getFreshAccessToken(credentialId);
   const message = await getMessage({ accessToken, id: messageId, format: "metadata" });
+
   return message.labelIds ?? [];
 }
 
@@ -113,29 +122,36 @@ async function main() {
   registerBuiltinWorkflows();
 
   const cred = await findGoogleCredential();
+
   if (!cred) {
     console.log("[smoke-triage] no Google credential found.");
     console.log("Run smoke-google.ts first to connect an account + bulk ingest.");
+
     return;
   }
+
   console.log(`[smoke-triage] target: ${cred.accountLabel ?? cred.id} (user=${cred.userId})`);
 
   // ---- Phase 1: ensure Alfred labels exist ---------------------------------
   const labels = await ensureAlfredLabels(cred.id);
+
   for (const cat of TRIAGE_CATEGORIES) {
     assert(labels.byCategory[cat], `missing label for category=${cat}`);
   }
+
   console.log(
     `[smoke-triage] alfred labels installed (${Object.keys(labels.byCategory).length} categories)`,
   );
 
   // ---- Phase 2: pick a real ingested email --------------------------------
   const doc = await pickIngestedDocument(cred.userId);
+
   if (!doc) {
     throw new Error(
       "[smoke-triage] no ingested gmail documents — run smoke-google.ts to ingest first",
     );
   }
+
   assert(doc.sourceThreadId, `picked doc=${doc.id} missing sourceThreadId`);
   console.log(
     `[smoke-triage] target doc=${doc.id} thread=${doc.sourceThreadId} ` +
@@ -154,6 +170,7 @@ async function main() {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   console.log(`[smoke-triage] run 1 enqueued: ${runId1}`);
 
   const run1 = await pollRun(runId1, "run 1");
@@ -161,34 +178,20 @@ async function main() {
     run1.status === "completed",
     `run 1 status=${run1.status} error=${JSON.stringify(run1.error)}`,
   );
-  // SAFETY: triage workflow's own committed output shape.
-  const out1 = run1.output as {
-    category: TriageCategory;
-    confidence: number;
-    applied: boolean;
-    appliedLabelId: string;
-    removedLabelIds: string[];
-  };
-  console.log(
-    `[smoke-triage] run 1 output: category=${out1.category} confidence=${out1.confidence?.toFixed(2)} ` +
-      `applied=${out1.applied} appliedLabelId=${out1.appliedLabelId}`,
-  );
-  assert(out1.applied, "run 1 did not apply a label");
-  assert(
-    TRIAGE_CATEGORIES.includes(out1.category),
-    `run 1 category outside taxonomy: ${out1.category}`,
-  );
 
   // ---- Phase 4: verify DB row + Gmail state -------------------------------
+  // The run's contract is the canonical row plus the Gmail label itself —
+  // triage run output carries nothing (no production reader inspects it),
+  // so every assertion below reads the row and the mailbox, never `run.output`.
   const triageRow = await getTriage(cred.userId, doc.sourceThreadId);
   assert(triageRow, "email_triage row missing after run 1");
+  assert(triageRow.appliedLabelId, "run 1 did not apply a label");
   assert(
-    triageRow.category === out1.category,
-    `db category=${triageRow.category} != output category=${out1.category}`,
+    TRIAGE_CATEGORIES.includes(triageRow.category),
+    `run 1 category outside taxonomy: ${triageRow.category}`,
   );
-  assert(
-    triageRow.appliedLabelId === out1.appliedLabelId,
-    `db appliedLabelId mismatch: ${triageRow.appliedLabelId} vs ${out1.appliedLabelId}`,
+  console.log(
+    `[smoke-triage] run 1: category=${triageRow.category} appliedLabelId=${triageRow.appliedLabelId}`,
   );
   assert(
     triageRow.documentId === doc.id,
@@ -201,8 +204,8 @@ async function main() {
   const labelsAfter = await fetchMessageLabelIds(cred.id, doc.sourceId);
   console.log(`[smoke-triage] gmail labels after: ${labelsAfter.join(", ")}`);
   assert(
-    labelsAfter.includes(out1.appliedLabelId),
-    `gmail message missing applied label ${out1.appliedLabelId}; has=${labelsAfter.join(", ")}`,
+    labelsAfter.includes(triageRow.appliedLabelId),
+    `gmail message missing applied label ${triageRow.appliedLabelId}; has=${labelsAfter.join(", ")}`,
   );
   const alfredLabelsOnMessage = labelsAfter.filter((id) => labels.allIds.includes(id));
   assert(
@@ -219,14 +222,18 @@ async function main() {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
+
   console.log(`[smoke-triage] run 2 enqueued: ${runId2}`);
 
   const run2 = await pollRun(runId2, "run 2");
   assert(run2.status === "completed", `run 2 status=${run2.status}`);
-  // SAFETY: triage workflow's own committed output shape.
-  const out2 = run2.output as { category: TriageCategory; appliedLabelId: string };
+
+  const finalRow = await getTriage(cred.userId, doc.sourceThreadId);
+  assert(finalRow, "triage row missing after run 2");
+  assert(finalRow.runId === runId2, `triage row runId=${finalRow.runId} != run2=${runId2}`);
+  assert(finalRow.appliedLabelId, "run 2 did not apply a label");
   console.log(
-    `[smoke-triage] run 2 output: category=${out2.category} appliedLabelId=${out2.appliedLabelId}`,
+    `[smoke-triage] run 2: category=${finalRow.category} appliedLabelId=${finalRow.appliedLabelId}`,
   );
 
   const labelsFinal = await fetchMessageLabelIds(cred.id, doc.sourceId);
@@ -236,13 +243,9 @@ async function main() {
     `after re-run expected exactly 1 alfred label, got ${alfredLabelsFinal.length}: ${alfredLabelsFinal.join(", ")}`,
   );
   assert(
-    alfredLabelsFinal[0] === out2.appliedLabelId,
-    `final alfred label ${alfredLabelsFinal[0]} != run 2 output ${out2.appliedLabelId}`,
+    alfredLabelsFinal[0] === finalRow.appliedLabelId,
+    `final alfred label ${alfredLabelsFinal[0]} != triage row ${finalRow.appliedLabelId}`,
   );
-
-  const finalRow = await getTriage(cred.userId, doc.sourceThreadId);
-  assert(finalRow, "triage row missing after run 2");
-  assert(finalRow.runId === runId2, `triage row runId=${finalRow.runId} != run2=${runId2}`);
 
   // One row per thread invariant — the user's mental model.
   const rowsForThread = await db()
@@ -251,6 +254,7 @@ async function main() {
     .where(
       and(eq(emailTriage.userId, cred.userId), eq(emailTriage.sourceThreadId, doc.sourceThreadId)),
     );
+
   assert(
     rowsForThread.length === 1,
     `expected 1 triage row for thread, got ${rowsForThread.length}`,
@@ -278,6 +282,7 @@ async function main() {
     .groupBy(documents.sourceThreadId)
     .having(sql`count(*) > 1`)
     .limit(1);
+
   const candidateThread = candidateThreads[0];
 
   if (!candidateThread?.threadId) {
@@ -298,7 +303,9 @@ async function main() {
         ),
       )
       .orderBy(desc(documents.authoredAt));
+
     const [latest, ...older] = threadDocs;
+
     if (!latest || older.length === 0) {
       console.log("[smoke-triage] candidate thread degenerate — skipping sibling-strip phase");
     } else {
@@ -311,6 +318,7 @@ async function main() {
       // no per-doc triage rows since the new schema doesn't have them). This
       // gives the workflow something to strip.
       const seedCategory: TriageCategory = "fyi";
+
       for (const d of threadDocs) {
         await applyTriageLabel({
           credentialId: cred.id,
@@ -328,16 +336,13 @@ async function main() {
         trigger: { kind: "manual" },
         occurrence: { kind: "manual", requestId: randomUUID() },
       });
+
       const latestRun = await pollRun(latestRunId, "strip-siblings");
       assert(latestRun.status === "completed", `strip-siblings status=${latestRun.status}`);
-      // SAFETY: strip-siblings step's own committed output shape.
-      const latestOut = latestRun.output as { strippedSiblings: number };
+      // Stripped-sibling proof is the mailbox itself (older messages bare,
+      // latest tagged), asserted below — run output carries nothing.
       console.log(
-        `[smoke-triage] strip-siblings stripped=${latestOut.strippedSiblings} (expected=${older.length})`,
-      );
-      assert(
-        latestOut.strippedSiblings === older.length,
-        `expected to strip ${older.length} siblings, got ${latestOut.strippedSiblings}`,
+        `[smoke-triage] strip-siblings run completed; verifying ${older.length} older siblings bare in Gmail`,
       );
 
       // Every older message should have zero alfred labels in Gmail.
@@ -345,6 +350,7 @@ async function main() {
         const onMessage = (await fetchMessageLabelIds(cred.id, d.sourceId)).filter((id) =>
           labels.allIds.includes(id),
         );
+
         assert(
           onMessage.length === 0,
           `older message ${d.sourceId} still has alfred labels: ${onMessage.join(", ")}`,
@@ -355,6 +361,7 @@ async function main() {
       const onLatest = (await fetchMessageLabelIds(cred.id, latest.sourceId)).filter((id) =>
         labels.allIds.includes(id),
       );
+
       assert(
         onLatest.length === 1,
         `latest message expected 1 alfred label, got ${onLatest.length}: ${onLatest.join(", ")}`,

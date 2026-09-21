@@ -62,11 +62,13 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
   const takeOutput = (): string => {
     const next = output;
     output = "";
+
     return next;
   };
 
   const emitWhitespace = (): void => {
     output += whitespace;
+
     if (whitespace.length > 0) currentProseToken = "";
     whitespace = "";
   };
@@ -87,11 +89,13 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
 
   const resolveLineStartHyphensAsProse = (): void => {
     if (lineStartHyphens.length === 0) return;
+
     if (lineStartHyphens.length === 1) {
       pendingHyphenBefore = whitespace;
     } else {
       pendingDash = { char: "--", before: whitespace };
     }
+
     whitespace = "";
     lineStartHyphens = "";
   };
@@ -100,6 +104,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
     if (!pendingDash) return;
     const before = pendingDash.before;
     const after = whitespace;
+
     if (pendingDash.char === "–") {
       // An en dash is ambiguous between a range and a clause separator. ASCII
       // hyphenation preserves both meanings without guessing from neighboring
@@ -110,6 +115,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       // manufacturing a comma splice between clauses.
       const beforeBreak = hasLineBreak(before) ? withoutTrailingHorizontalSpace(before) : "";
       const afterBreak = hasLineBreak(after) ? withoutTrailingHorizontalSpace(after) : "";
+
       if (beforeBreak || afterBreak) {
         output += beforeBreak || afterBreak;
       } else if (previousProseNonSpace && !/[.!?:;,]/.test(previousProseNonSpace)) {
@@ -131,17 +137,22 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
         output += char;
         currentProseToken += char;
         previousProseNonSpace = char;
+
         return;
       }
+
       // Treat an adjacent dash run as one separator.
       pendingDash = { char, before: pendingDash?.before ?? whitespace };
       whitespace = "";
+
       return;
     }
 
     if (/\s/u.test(char)) {
       whitespace += char;
+
       if (char === "\n" || char === "\r") atLineStart = true;
+
       return;
     }
 
@@ -164,11 +175,13 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       codeDelimiterLength = tickBuffer.length;
     } else {
       output += tickBuffer;
+
       if (tickBuffer.length >= codeDelimiterLength) {
         mode = "prose";
         codeDelimiterLength = 0;
       }
     }
+
     tickBuffer = "";
   };
 
@@ -178,10 +191,12 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
 
     if (structuralMarkdownLine) {
       output += char;
+
       if (char === "\n" || char === "\r") {
         structuralMarkdownLine = false;
         atLineStart = true;
       }
+
       return;
     }
 
@@ -193,18 +208,23 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
         output += structuralPipeScan + char;
         structuralPipeScan = null;
         atLineStart = true;
+
         return;
       }
+
       if (char === "|" || char === "-" || char === ":" || char === " " || char === "\t") {
         structuralPipeScan += char;
+
         return;
       }
+
       // A prose character means this is a table content row, not a delimiter.
       // Replay the buffered prefix through the normal path, then fall through
       // to handle the current character.
       const buffered = structuralPipeScan;
       structuralPipeScan = null;
       replayingPipeScan = true;
+
       for (const bufferedChar of buffered) processChar(bufferedChar);
       replayingPipeScan = false;
       previousInputChar = char; // replay overwrote this; restore for the current char
@@ -213,6 +233,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
     if (lineStartHyphens.length > 0) {
       if (char === "-") {
         lineStartHyphens += char;
+
         if (lineStartHyphens.length === 3) {
           resolveDash();
           emitWhitespace();
@@ -221,32 +242,43 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
           structuralMarkdownLine = true;
           atLineStart = false;
         }
+
         return;
       }
+
       resolveLineStartHyphensAsProse();
     }
 
     if (markdownDestinationDepth > 0) {
       output += char;
+
       if (char === "(") markdownDestinationDepth += 1;
+
       if (char === ")") markdownDestinationDepth -= 1;
+
       return;
     }
 
     if (blockQuoteLine) {
       output += char;
+
       if (char === "\n" || char === "\r") {
         blockQuoteLine = false;
         atLineStart = true;
       }
+
       return;
     }
 
     if (asciiQuoteOpen || curlyQuoteOpen) {
       output += char;
+
       if (asciiQuoteOpen && char === '"') asciiQuoteOpen = false;
+
       if (curlyQuoteOpen && char === "”") curlyQuoteOpen = false;
+
       if (char === "\n" || char === "\r") atLineStart = true;
+
       return;
     }
 
@@ -257,29 +289,37 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
           currentProseToken += "--";
           previousProseNonSpace = "-";
           pendingHyphenBefore = null;
+
           return;
         }
+
         pendingDash = { char: "--", before: pendingHyphenBefore };
         pendingHyphenBefore = null;
+
         return;
       }
+
       emitSingleHyphen();
     }
 
     if (char === "`") {
       tickBuffer += char;
+
       return;
     }
+
     resolveTicks();
 
     if (mode === "code") {
       output += char;
+
       return;
     }
 
     if (char === "(" && priorInputChar === "]") {
       emitProseChar(char);
       markdownDestinationDepth = 1;
+
       return;
     }
 
@@ -290,11 +330,13 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       previousProseNonSpace = char;
       blockQuoteLine = true;
       atLineStart = false;
+
       return;
     }
 
     const asciiQuoteStarts =
       char === '"' && (priorInputChar.length === 0 || /[\s([{<>=:;]/u.test(priorInputChar));
+
     if (asciiQuoteStarts || char === "“") {
       resolveDash();
       emitWhitespace();
@@ -303,6 +345,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       asciiQuoteOpen = char === '"';
       curlyQuoteOpen = char === "“";
       atLineStart = false;
+
       return;
     }
 
@@ -313,16 +356,20 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       resolveDash();
       emitWhitespace();
       structuralPipeScan = char;
+
       return;
     }
 
     if (char === "-") {
       if (atLineStart && mode === "prose") {
         lineStartHyphens = "-";
+
         return;
       }
+
       pendingHyphenBefore = whitespace;
       whitespace = "";
+
       return;
     }
 
@@ -332,6 +379,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
   return {
     push(raw: string): string {
       for (const char of raw) processChar(char);
+
       return takeOutput();
     },
     flush(): string {
@@ -340,19 +388,23 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
         output += structuralPipeScan;
         structuralPipeScan = null;
       }
+
       resolveLineStartHyphensAsProse();
       resolveTicks();
       emitSingleHyphen();
+
       if (pendingDash) {
         // A reply that ends on a separator has no right-hand clause. Preserve
         // line structure but drop the stranded punctuation and horizontal space.
         const structural = `${pendingDash.before}${whitespace}`;
+
         if (hasLineBreak(structural)) output += withoutTrailingHorizontalSpace(structural);
         pendingDash = null;
         whitespace = "";
       } else {
         emitWhitespace();
       }
+
       const finalOutput = takeOutput();
       // A tool-call boundary starts a new prose segment. Do not let an unmatched
       // quote/fence in narration leak lexical state into the post-tool answer.
@@ -371,6 +423,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       structuralMarkdownLine = false;
       structuralPipeScan = null;
       replayingPipeScan = false;
+
       return finalOutput;
     },
   };
@@ -380,5 +433,6 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
 export function sanitizeVoice(text: string): string {
   if (!text.includes("—") && !text.includes("–") && !text.includes("--")) return text;
   const sanitizer = createVoiceStreamSanitizer();
+
   return sanitizer.push(text) + sanitizer.flush();
 }

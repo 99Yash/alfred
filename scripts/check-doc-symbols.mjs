@@ -29,8 +29,11 @@ import { fileURLToPath } from "node:url";
 import { listWorkspaces } from "./workspaces.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
 const SEARCH_ROOTS = ["packages", "apps", "scripts"];
+
 const SEARCH_EXTENSIONS = /\.(ts|tsx|mjs|js|json|sql|yaml|yml)$/;
+
 const SKIP_DIRECTORIES = new Set(["node_modules", "dist", "build", ".turbo", "coverage"]);
 
 const { workspaces, failures: workspaceFailures } = listWorkspaces(ROOT);
@@ -76,10 +79,44 @@ const ALLOWED = new Map([
   ["nextRunAtIso", "placeholder inside a BullMQ jobId template, not an exported name"],
   ["some_provider", "metavariable in an integration-activity `providerKind` example"],
   ["suggestedMessages", "dimension.dev's entity name, cited as the shape Alfred did NOT copy"],
+  // Provider webhook event names that docs/reference/operations.md records as
+  // the console subscriptions. The raw receipt tier stores every delivery, so
+  // no typed handler in this repo declares these names.
+  ...[
+    "commit_comment",
+    "installation_target",
+    "issue_dependencies",
+    "merge_queue_entry",
+    "pull_request_review_comment",
+    "pull_request_review_thread",
+    "repository_dispatch",
+    "security_advisory",
+    "sub_issues",
+    "workflow_dispatch",
+    "workflow_job",
+    "workflow_run",
+  ].map((name) => /** @type {[string, string]} */ ([name, "GitHub App webhook event name"])),
+  ...[
+    "root_cause_started",
+    "root_cause_completed",
+    "solution_started",
+    "solution_completed",
+    "coding_started",
+    "coding_completed",
+    "iteration_started",
+    "iteration_completed",
+    "preprod_artifact",
+    "size_analysis_completed",
+    "build_distribution_completed",
+  ].map((name) => /** @type {[string, string]} */ ([
+    name,
+    "Sentry integration webhook resource or action name",
+  ])),
 ]);
 
 function referenceDocs() {
   const dir = join(ROOT, "docs/reference");
+
   return readdirSync(dir)
     .filter((name) => name.endsWith(".md"))
     .map((name) => `docs/reference/${name}`);
@@ -94,14 +131,17 @@ function referenceDocs() {
  */
 function packageGuides(declared) {
   const guides = [];
+
   for (const workspace of declared) {
     for (const name of ["CLAUDE.md", "AGENTS.md"]) {
       const candidate = join(ROOT, workspace.dir, name);
+
       if (!isFile(candidate)) continue;
       guides.push(relative(ROOT, candidate));
       break; // AGENTS.md is usually a symlink to CLAUDE.md; one read is enough.
     }
   }
+
   return guides;
 }
 
@@ -131,35 +171,46 @@ const DESIGN_ENTRY_LEAD = /^\*\*[^*]*\((?:deferred|designed, not built)\)\.?\*\*
  */
 function withoutDesignRegions(markdown) {
   const kept = [];
+
   for (const section of markdown.split(/^(?=## )/m)) {
     if (DESIGN_SECTION_BANNER.test(section)) continue;
+
     const paragraphs = section
       .split(/\n{2,}/)
       .filter((paragraph) => !DESIGN_ENTRY_LEAD.test(paragraph.trimStart()));
+
     kept.push(paragraphs.join("\n\n"));
   }
+
   return kept.join("\n\n");
 }
 
 function isCodeShaped(token) {
   if (token.length < 5) return false;
+
   if (token.includes(".")) return false;
+
   if (token.startsWith("_") || token.endsWith("_")) return false;
   const hasInternalCapital = /[a-z][A-Z]/.test(token);
   const hasUnderscore = token.includes("_");
+
   return hasInternalCapital || hasUnderscore;
 }
 
 function symbolsIn(markdown) {
   const symbols = new Set();
   const scannable = withoutDesignRegions(withoutFencedBlocks(markdown));
+
   for (const match of scannable.matchAll(/`([^`\n]+)`/g)) {
     const span = match[1] ?? "";
+
     for (const token of span.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
       const name = token[0];
+
       if (isCodeShaped(name) && !ALLOWED.has(name)) symbols.add(name);
     }
   }
+
   return symbols;
 }
 
@@ -167,10 +218,12 @@ function* walk(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name.startsWith(".") || SKIP_DIRECTORIES.has(entry.name)) continue;
     const path = join(dir, entry.name);
+
     if (entry.isDirectory()) {
       yield* walk(path);
       continue;
     }
+
     if (SEARCH_EXTENSIONS.test(entry.name)) yield path;
   }
 }
@@ -178,29 +231,38 @@ function* walk(dir) {
 /** One pass over the tree; a per-symbol grep would be O(symbols x files). */
 function collectDefinedNames() {
   const defined = new Set();
+
   for (const searchRoot of SEARCH_ROOTS) {
     const dir = join(ROOT, searchRoot);
+
     if (!isFile(dir) && !statSync(dir).isDirectory()) continue;
+
     for (const file of walk(dir)) {
       const source = readFileSync(file, "utf8");
+
       for (const token of source.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
         defined.add(token[0]);
       }
     }
   }
+
   return defined;
 }
 
 const defined = collectDefinedNames();
+
 const missing = [];
+
 const absent = [];
 
 for (const doc of DOC_FILES) {
   const path = join(ROOT, doc);
+
   if (!isFile(path)) {
     absent.push(doc);
     continue;
   }
+
   for (const symbol of symbolsIn(readFileSync(path, "utf8"))) {
     if (!defined.has(symbol)) missing.push({ doc, symbol });
   }
@@ -213,6 +275,7 @@ for (const doc of DOC_FILES) {
 // names is unscanned either way.
 if (absent.length > 0) {
   console.error("A doc this check names does not exist, so its symbols went unchecked:\n");
+
   for (const doc of absent) console.error(`- ${doc}`);
   console.error(
     "\nRepoint the entry in DOC_FILES in scripts/check-doc-symbols.mjs at the doc's" +
@@ -225,15 +288,18 @@ if (absent.length > 0) {
 // resolves" would be a statement about docs this run never opened.
 if (workspaceFailures.length > 0) {
   console.error("The workspace enumeration did not resolve, so some package guides went unread:\n");
+
   for (const failure of workspaceFailures) console.error(`- ${failure}`);
   console.error("");
 }
 
 if (missing.length > 0) {
   console.error("Docs name symbols that do not exist in packages/apps/scripts:\n");
+
   for (const { doc, symbol } of missing) {
     console.error(`- ${doc}: \`${symbol}\``);
   }
+
   console.error(
     "\nFix the doc to match the code, or add the name to ALLOWED in" +
       "\nscripts/check-doc-symbols.mjs with a reason if it is genuinely external" +

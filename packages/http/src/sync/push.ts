@@ -21,6 +21,7 @@ import {
 import type { DbTransaction } from "@alfred/db";
 
 export type PushRequestBody = ReplicacheModel.Push;
+
 export type PushResponse =
   | Record<string, never>
   | { error: "ClientStateNotFound" | "VersionNotSupported" };
@@ -36,6 +37,7 @@ type MutationOutcome = { applied: boolean; followUps: MutatorFollowUp[] };
 
 function didMutatorApply(result: MutatorResult | undefined): boolean {
   if (!result) return true;
+
   return result.applied ?? true;
 }
 
@@ -57,12 +59,15 @@ async function applyMutation<K extends MutatorName>(
   const outcome: MutationOutcome = { applied: false, followUps: [] };
   const entry = serverMutators[mutatorName];
   const parsed = entry.args.safeParse(rawArgs);
+
   if (!parsed.success) {
     console.warn("[replicache:push] invalid args for", mutatorName, parsed.error.issues);
+
     return outcome;
   }
 
   let mutatorResult: MutatorResult | undefined;
+
   try {
     // Savepoint isolates mutator failures so one bad mutation doesn't
     // poison the whole batch.
@@ -75,13 +80,16 @@ async function applyMutation<K extends MutatorName>(
     } else {
       console.error("[replicache:push] mutator crashed", mutatorName, toMessage(err));
     }
+
     return outcome;
   }
 
   if (!didMutatorApply(mutatorResult)) return outcome;
 
   outcome.applied = true;
+
   if (entry.followUp) outcome.followUps = entry.followUp(ctx.userId, parsed.data);
+
   return outcome;
 }
 
@@ -111,6 +119,7 @@ async function getLMID(tx: DbTransaction, clientID: string): Promise<number> {
     .select({ lmid: replicacheClient.lastMutationId })
     .from(replicacheClient)
     .where(eq(replicacheClient.id, clientID));
+
   return row?.lmid ?? 0;
 }
 
@@ -165,6 +174,7 @@ export async function handlePush(
       }
 
       const lastMutationId = await getLMID(tx, mutation.clientID);
+
       if (mutation.id <= lastMutationId) {
         // Already applied — Replicache retries produce duplicates by design.
         continue;
@@ -215,6 +225,7 @@ export async function handlePush(
   // relabel JOB converges Gmail.
   for (const f of outcome.followUps) {
     if (f.kind !== "relabelThread") continue;
+
     try {
       await enqueueTriageRelabel(userId, f.sourceThreadId);
     } catch (err) {
@@ -228,6 +239,7 @@ export async function handlePush(
   // the account-delete prefix sweep eventually reaps.
   for (const f of outcome.followUps) {
     if (f.kind !== "cleanChatStorage") continue;
+
     try {
       await enqueueChatStorageCleanup(userId, `chat/${userId}/${f.threadId}/`);
     } catch (err) {

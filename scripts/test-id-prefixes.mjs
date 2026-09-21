@@ -129,6 +129,7 @@ const LIKE_WILDCARD = /[%_]/;
  */
 export function isScanFile(file) {
   if (!file.endsWith(".ts") && !file.endsWith(".tsx")) return false;
+
   return /(?:^|\/)test\//.test(file) || /\.test\.tsx?$/.test(file);
 }
 
@@ -141,15 +142,18 @@ export function testFiles(root) {
 function constDeclarations(source) {
   /** @type {{ name: string, line: number, expression: string }[]} */
   const declarations = [];
+
   for (const match of source.matchAll(CONST_DECLARATION)) {
     const line =
       source.slice(0, match.index ?? 0).split("\n").length + (match[0][0] === "\n" ? 1 : 0);
+
     declarations.push({
       name: match[1] ?? "",
       line,
       expression: (match[2] ?? "").replace(/;\s*$/, "").trim(),
     });
   }
+
   return declarations;
 }
 
@@ -170,13 +174,17 @@ function constDeclarations(source) {
 function stringConstants(declarations) {
   /** @type {Map<string, string | null>} */
   const constants = new Map();
+
   for (let pass = 0; pass <= declarations.length; pass += 1) {
     let changed = false;
+
     for (const declaration of declarations) {
       if (constants.get(declaration.name) === null) continue;
       const value = staticString(declaration.expression, constants);
+
       if (value === null) continue;
       const known = constants.get(declaration.name);
+
       if (known === undefined) {
         constants.set(declaration.name, value);
         changed = true;
@@ -185,22 +193,28 @@ function stringConstants(declarations) {
         changed = true;
       }
     }
+
     if (!changed) break;
   }
+
   return constants;
 }
 
 /** The argument list text of a call whose `(` sits at `open`, or `null` if unbalanced. */
 function callArguments(source, open) {
   let depth = 0;
+
   for (let index = open; index < source.length; index += 1) {
     const character = source[index];
+
     if (character === "(") depth += 1;
     else if (character === ")") {
       depth -= 1;
+
       if (depth === 0) return source.slice(open + 1, index);
     }
   }
+
   return null;
 }
 
@@ -209,8 +223,10 @@ function splitArguments(text) {
   const parts = [];
   let depth = 0;
   let start = 0;
+
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index];
+
     if (character === "(" || character === "[" || character === "{") depth += 1;
     else if (character === ")" || character === "]" || character === "}") depth -= 1;
     else if (character === "," && depth === 0) {
@@ -218,7 +234,9 @@ function splitArguments(text) {
       start = index + 1;
     }
   }
+
   parts.push(text.slice(start));
+
   return parts;
 }
 
@@ -227,12 +245,15 @@ function splitConcatenation(text) {
   const operands = [];
   let depth = 0;
   let start = 0;
+
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index];
+
     if (character === "(" || character === "[" || character === "{") depth += 1;
     else if (character === ")" || character === "]" || character === "}") depth -= 1;
     else if (character === "`" || character === '"' || character === "'") {
       const end = text.indexOf(character, index + 1);
+
       if (end === -1) return null;
       index = end;
     } else if (character === "+" && depth === 0) {
@@ -240,8 +261,10 @@ function splitConcatenation(text) {
       start = index + 1;
     }
   }
+
   if (operands.length === 0) return null;
   operands.push(text.slice(start));
+
   return operands;
 }
 
@@ -249,10 +272,12 @@ function splitConcatenation(text) {
 function isWholeTemplate(text) {
   if (text.length < 2 || !text.startsWith("`") || !text.endsWith("`")) return false;
   const body = text.slice(1, -1);
+
   for (let index = 0; index < body.length; index += 1) {
     if (body[index] === "\\") index += 1;
     else if (body[index] === "`") return false;
   }
+
   return true;
 }
 
@@ -267,42 +292,57 @@ function isWholeTemplate(text) {
 function staticString(expression, constants) {
   const text = expression.trim();
   const plain = /^(["'])((?:[^"'\\]|\\.)*)\1$/.exec(text);
+
   if (plain) return plain[2] ?? "";
+
   if (IDENTIFIER.test(text)) {
     const value = constants.get(text);
+
     return value === null || value === undefined ? null : value;
   }
+
   if (!isWholeTemplate(text)) {
     const operands = splitConcatenation(text);
+
     if (operands === null) return null;
     let joined = "";
+
     for (const operand of operands) {
       const value = staticString(operand, constants);
+
       if (value === null) return null;
       joined += value;
     }
+
     return joined;
   }
 
   const body = text.slice(1, -1);
   let resolved = "";
   let index = 0;
+
   while (index < body.length) {
     const open = body.indexOf("${", index);
+
     if (open === -1) {
       resolved += body.slice(index);
       break;
     }
+
     resolved += body.slice(index, open);
     const close = body.indexOf("}", open);
+
     if (close === -1) return null;
     const name = body.slice(open + 2, close).trim();
+
     if (!constants.has(name)) return null;
     const value = constants.get(name);
+
     if (value === null || value === undefined) return null;
     resolved += value;
     index = close + 1;
   }
+
   return resolved;
 }
 
@@ -319,21 +359,28 @@ function staticString(expression, constants) {
 function unreadablePrefixDeclarations(file, source, declarations, constants) {
   const failures = [];
   const lines = source.split("\n");
+
   for (const declaration of declarations) {
     if (!PREFIX_NAME.test(declaration.name)) continue;
     const value = constants.get(declaration.name);
+
     if (value !== null && value !== undefined) continue;
+
     if (EXEMPTION.test(lines[declaration.line - 1] ?? "")) continue;
     failures.push(
       `${file}:${declaration.line}: the prefix constant ${declaration.name} = ${JSON.stringify(declaration.expression)} does not resolve to one static string, so the rows it mints are outside the census\n` +
         "    Fix: declare it as a plain string literal, or build it from string `const`s of the same file, or append `// prefix-ok: <reason>` to the line.",
     );
   }
+
   for (const clause of source.matchAll(IMPORT_CLAUSE)) {
     const imported = (clause[1] ?? "").match(/[A-Za-z_$][\w$]*/g) ?? [];
+
     const line =
       source.slice(0, clause.index ?? 0).split("\n").length + (clause[0][0] === "\n" ? 1 : 0);
+
     if (EXEMPTION.test(lines[line - 1] ?? "")) continue;
+
     for (const name of imported) {
       if (!PREFIX_NAME.test(name) || constants.has(name)) continue;
       failures.push(
@@ -342,6 +389,7 @@ function unreadablePrefixDeclarations(file, source, declarations, constants) {
       );
     }
   }
+
   return failures;
 }
 
@@ -362,6 +410,7 @@ export function likePrefixPatterns(root) {
   const prefixes = [];
 
   const files = testFiles(root);
+
   if (files.length === 0) {
     failures.push(
       `the ${SCAN_ROOTS.join(" / ")} test-file walk yielded 0 files, so the rule enforces nothing`,
@@ -370,6 +419,7 @@ export function likePrefixPatterns(root) {
 
   for (const file of files) {
     let source;
+
     try {
       source = readFileSync(join(root, file), "utf8");
     } catch (error) {
@@ -378,25 +428,33 @@ export function likePrefixPatterns(root) {
       );
       continue;
     }
+
     const declarations = constDeclarations(source);
     const constants = stringConstants(declarations);
     failures.push(...unreadablePrefixDeclarations(file, source, declarations, constants));
+
     for (const call of source.matchAll(LIKE_CALL)) {
       const open = (call.index ?? 0) + call[0].length - 1;
       const line = source.slice(0, call.index ?? 0).split("\n").length;
       const args = callArguments(source, open);
+
       if (args === null) {
         failures.push(`${file}:${line}: the ${call[1]}(…) call has no balanced argument list`);
         continue;
       }
+
       const parts = splitArguments(args);
+
       if (parts.length < 2) {
         failures.push(`${file}:${line}: the ${call[1]}(…) call has no pattern argument`);
         continue;
       }
+
       const source_line = source.split("\n")[line - 1] ?? "";
+
       if (EXEMPTION.test(source_line)) continue;
       const pattern = staticString(parts[1] ?? "", constants);
+
       if (pattern === null) {
         failures.push(
           `${file}:${line}: the ${call[1]}(…) pattern ${JSON.stringify((parts[1] ?? "").trim())} does not resolve to a static string, so its reach cannot be read\n` +
@@ -404,14 +462,17 @@ export function likePrefixPatterns(root) {
         );
         continue;
       }
+
       const wildcard = pattern.search(LIKE_WILDCARD);
       const prefix = wildcard === -1 ? pattern : pattern.slice(0, wildcard);
+
       if (prefix === "") {
         failures.push(
           `${file}:${line}: the ${call[1]}(…) pattern ${JSON.stringify(pattern)} starts with a wildcard, so it matches every other suite's rows`,
         );
         continue;
       }
+
       prefixes.push({ file, line, prefix, pattern });
     }
   }
@@ -446,32 +507,39 @@ function staticStrings(source) {
   const readTemplateText = (emit) => {
     const startLine = line;
     let value = "";
+
     while (index < source.length) {
       const character = source[index];
+
       if (character === "\\") {
         if (source[index + 1] === "\n") line += 1;
         value += source[index + 1] ?? "";
         index += 2;
         continue;
       }
+
       if (character === "`") {
         index += 1;
         break;
       }
+
       if (character === "$" && source[index + 1] === "{") {
         index += 2;
         templates.push(0);
         break;
       }
+
       if (character === "\n") line += 1;
       value += character;
       index += 1;
     }
+
     if (emit && value !== "") found.push({ line: startLine, value });
   };
 
   while (index < source.length) {
     const character = source[index];
+
     if (character === "\n") {
       line += 1;
       index += 1;
@@ -479,26 +547,32 @@ function staticStrings(source) {
       while (index < source.length && source[index] !== "\n") index += 1;
     } else if (character === "/" && source[index + 1] === "*") {
       index += 2;
+
       while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
         if (source[index] === "\n") line += 1;
         index += 1;
       }
+
       index += 2;
     } else if (character === '"' || character === "'") {
       const startLine = line;
       let value = "";
       index += 1;
+
       while (index < source.length && source[index] !== character && source[index] !== "\n") {
         if (source[index] === "\\") {
           value += source[index + 1] ?? "";
           index += 2;
           continue;
         }
+
         value += source[index];
         index += 1;
       }
+
       if (source[index] === "\n") line += 1; // an unterminated literal ends at the line.
       index += 1;
+
       if (value !== "") found.push({ line: startLine, value });
     } else if (character === "`") {
       index += 1;
@@ -519,6 +593,7 @@ function staticStrings(source) {
       index += 1;
     }
   }
+
   return found;
 }
 
@@ -538,31 +613,40 @@ function staticStrings(source) {
 export function testStringLiterals(root) {
   /** @type {TestLiteral[]} */
   const literals = [];
+
   for (const file of testFiles(root)) {
     let source;
+
     try {
       source = readFileSync(join(root, file), "utf8");
     } catch {
       continue; // likePrefixPatterns reports the unreadable file; do not report it twice.
     }
+
     const lines = source.split("\n");
     const seen = new Set();
+
     for (const { line, value } of staticStrings(source)) {
       if (EXEMPTION.test(lines[line - 1] ?? "")) continue;
       literals.push({ file, line, literal: value });
       seen.add(value);
     }
+
     // A constant assembled from other constants has no literal of its own.
     const declarations = constDeclarations(source);
     const constants = stringConstants(declarations);
+
     for (const declaration of declarations) {
       const value = constants.get(declaration.name);
+
       if (value === null || value === undefined || value === "" || seen.has(value)) continue;
+
       if (EXEMPTION.test(lines[declaration.line - 1] ?? "")) continue;
       literals.push({ file, line: declaration.line, literal: value });
       seen.add(value);
     }
   }
+
   return literals;
 }
 
@@ -584,16 +668,20 @@ export function crossFilePrefixCollisions(prefixes, literals) {
   /** @type {Collision[]} */
   const collisions = [];
   const reported = new Set();
+
   for (const prefix of prefixes) {
     for (const match of literals) {
       if (match.file === prefix.file) continue;
+
       if (!match.literal.startsWith(prefix.prefix)) continue;
       const pair = `${prefix.file}:${prefix.line} -> ${match.file}`;
+
       if (reported.has(pair)) continue;
       reported.add(pair);
       collisions.push({ prefix, match });
     }
   }
+
   return collisions;
 }
 

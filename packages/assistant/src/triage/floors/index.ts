@@ -5,30 +5,40 @@ import { applyFloorVerdict, type FloorResult } from "./floor";
 import { applyMeetingDemotionFloor } from "./meeting";
 import { applyOverrideFloor } from "./override";
 import { applySenderKindDemotionFloor } from "./sender-kind";
+import { applySpamDemotionFloor } from "./spam";
 
 /**
  * Deterministic post-classification floors (ADR-0051 §5, #210/#218/#354).
  *
- * Three floors wrap the cheap model's category in a fixed sequence and hold the
+ * Four floors wrap the cheap model's category in a fixed sequence and hold the
  * guarantees the natural-language prompt only asks for as judgment. The pairing
  * is deliberate — each floor is the deterministic HALF of a `SYSTEM_PROMPT` rule:
  *
  *   - override      ↔ nothing in the prompt (the one pure severity guarantee)
  *   - sender-kind   ↔ rules 8a/12e/12f (passive group/service activity → fyi)
+ *   - spam          ↔ rule 20 (Gmail-filed spam never holds a reply lane)
  *   - meeting       ↔ rules 7/8/9 (recap/prep/relay/AGM/public-event ≠ meeting)
  *
  * The prompt owns JUDGMENT; the floor owns the GUARANTEE. A policy change on one
  * of those rules has one obvious home per half. Individual floors are exported
  * for their unit tests; `classifyEmail` consumes only {@link applyFloors}.
  */
-export { applyOverrideFloor, matchesExposedSecret } from "./override";
+export {
+  applyOverrideFloor,
+  matchesExposedCredentialClaim,
+  matchesExposedSecret,
+} from "./override";
+
 export {
   applySenderKindDemotionFloor,
   isGithubNotificationSender,
   matchesCollabIntrinsicStake,
   matchesPrThread,
 } from "./sender-kind";
+
 export { applyMeetingDemotionFloor } from "./meeting";
+
+export { applySpamDemotionFloor } from "./spam";
 
 /** Everything the floor sequence reads about one email. Assembled by `classifyEmail`. */
 export interface FloorContext {
@@ -36,6 +46,11 @@ export interface FloorContext {
   signalText: string;
   /** Body + snippet only (no subject) — collab intrinsic-stake vetoes ignore imperative task titles. */
   collabVetoText: string;
+  /**
+   * Whether Gmail filed the message as spam. The spam floor reads this, not
+   * the label list — the label parsing stays in `extractGmailSignals`.
+   */
+  isSpam: boolean;
   senderKind: Observations["senderKind"];
   effectiveAuthor: SenderContext["effectiveAuthor"] | null;
   sender: string | null;
@@ -81,6 +96,7 @@ function floor<N extends string, R extends FloorResult>(
     name,
     run: (input: TriageClassification, ctx: FloorContext) => {
       const audit = apply(input, ctx);
+
       return {
         classification: applyFloorVerdict(input, audit.verdict),
         audit,
@@ -98,9 +114,16 @@ function floor<N extends string, R extends FloorResult>(
  *     the sender-kind demotion entirely and keeps any legitimate security todo.
  *  2. `senderKind` — the DEMOTION for confident group/no-reply senders whose
  *     demand is structurally passive.
- *  3. `meeting` — the meeting gate runs last: it only fires on a surviving
- *     `meeting` tag, so a secret-escalated `urgent` or a sender-kind-demoted
- *     `fyi` is already past it and left untouched.
+ *  3. `spam` — the DEMOTION for Gmail-filed spam, on the REPLY lanes only
+ *     (`awaiting_reply`/`follow_up`). A spam-filed `urgent`/`action_needed` is
+ *     left to the model under rule 20's prior — see `./spam.ts`. Runs after
+ *     `senderKind` so the record names the sender reason when both match (both
+ *     land on `fyi`, so order changes only the audit, never the category); runs
+ *     before `meeting`, which only fires on a surviving `meeting` tag the spam
+ *     floor never touches.
+ *  4. `meeting` — the meeting gate runs last: it only fires on a surviving
+ *     `meeting` tag, so a secret-escalated `urgent`, a sender-kind-demoted
+ *     `fyi`, or a spam-demoted `fyi` is already past it and left untouched.
  *
  * Each floor receives the PREVIOUS floor's classification because {@link applyFloors}
  * folds the list — the threading is structural, not something each new floor has
@@ -136,6 +159,11 @@ const FLOOR_SEQUENCE = [
         collabActivity: classification.collabActivity ?? null,
       }),
     (audit) => (audit.verdict.kind === "demote" ? "+kindfloor" : ""),
+  ),
+  floor(
+    "spam",
+    (classification, ctx) => applySpamDemotionFloor(classification, ctx.isSpam),
+    (audit) => (audit.verdict.kind === "demote" ? "+spamfloor" : ""),
   ),
   floor(
     "meeting",
@@ -187,12 +215,15 @@ export function applyFloors(classification: TriageClassification, ctx: FloorCont
   let current = classification;
   const modelIdTags: string[] = [];
   const audits: Record<string, unknown> = {};
+
   for (const step of FLOOR_SEQUENCE) {
     const result = step.run(current, ctx);
     current = result.classification;
     audits[step.name] = result.audit;
+
     if (result.modelIdTag) modelIdTags.push(result.modelIdTag);
   }
+
   // Localized cast: the loop fills exactly one key per sequence entry, which is
   // the same set `FloorAudits` derives from it. The public type stays precise per
   // floor via that mapped type, so callers never see this widening.

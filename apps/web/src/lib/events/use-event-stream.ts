@@ -20,6 +20,7 @@ export function useEventStream(limit = 50): EventStreamFrame[] {
   // the reset happens during render, not in an effect. The conditional setter
   // only fires on the render that observes the change, so it won't loop.
   const [prevUserId, setPrevUserId] = useState<string | undefined>(userId);
+
   if (prevUserId !== userId) {
     setPrevUserId(userId);
     setFrames([]);
@@ -27,6 +28,7 @@ export function useEventStream(limit = 50): EventStreamFrame[] {
 
   useEffect(() => {
     if (!userId) return;
+
     // No `onError` — debug feed is low-stakes; fatal bus failure is surfaced
     // by the global `EventStreamBanner` and the shared bus backs off + re-opens.
     const close = openEventStream({
@@ -34,6 +36,7 @@ export function useEventStream(limit = 50): EventStreamFrame[] {
         setFrames((prev) => [frame, ...prev].slice(0, limit));
       },
     });
+
     return close;
   }, [session?.user?.id, limit]);
 

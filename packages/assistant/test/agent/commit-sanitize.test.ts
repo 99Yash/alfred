@@ -13,7 +13,7 @@ import {
   getWorkflow,
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
-import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
+import type { StepResult, Workflow } from "@alfred/assistant/execution";
 import type { SenderExtractionEvent } from "@alfred/assistant/triage";
 import { dbBackedSkip } from "../support/db-backed";
 
@@ -34,9 +34,13 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const NUL = String.fromCharCode(0);
+
 const LONE_SURROGATE = String.fromCharCode(0xd800); // unpaired high surrogate
+
 const ID_PREFIX = "test-commit-sanitize-";
+
 const SLUG = "__test-commit-sanitize";
+
 const createdUserIds: string[] = [];
 
 interface TestState {
@@ -65,10 +69,13 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     senderKindDemotionReason: null,
     meetingDemotedCategory: false,
     meetingDemotionReason: null,
+    spamDemotedCategory: false,
+    spamFloorOutcome: null,
     threadMessages: 1,
     threadNewest: "received",
     gmailImportant: false,
     gmailCategories: [],
+    gmailSpam: false,
     contentFlags: {
       hasUnsubscribe: false,
       hasCurrencyAmount: false,
@@ -93,7 +100,12 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     standingInstructionSuppressedTodo: false,
     standingInstructionFactId: null,
     standingInstructionEffect: null,
+    standingInstructionMatchedVia: null,
     standingInstructionReadFailed: false,
+    standingInstructionCategoryFactId: null,
+    standingInstructionCategoryReadFailed: false,
+    userContextPresent: false,
+    userContextReadFailed: false,
     todoOutcome: null,
     todoNote: null,
   };
@@ -126,9 +138,11 @@ const poisonWorkflow: Workflow<TestState> = {
         ctx.trace("triage.classification", traceFixture(`secondary${LONE_SURROGATE}poison`), {
           decisionKey: "secondary",
         });
+
         const transcript: AgentTranscriptMessage[] = [
           { role: "assistant", content: `tool input ${NUL} echoed` },
         ];
+
         return {
           kind: "next",
           state: { marker: `state${NUL}poison` },
@@ -143,6 +157,7 @@ const poisonWorkflow: Workflow<TestState> = {
         const transcript: AgentTranscriptMessage[] = [
           { role: "assistant", content: `final ${LONE_SURROGATE} answer` },
         ];
+
         return {
           kind: "done",
           state: { marker: `done${NUL}state` },
@@ -173,6 +188,7 @@ async function seedRunnableRun(): Promise<{ userId: string; runId: string }> {
       state: { marker: "init" },
       lastCheckpointAt: new Date(),
     });
+
   return { userId, runId };
 }
 
@@ -181,6 +197,7 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
+
     if (!getWorkflow(SLUG)) registerRecipe(poisonWorkflow);
   });
 
@@ -188,6 +205,7 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+
     _resetRegistryForTests();
     await closeConnections();
   });
@@ -206,6 +224,7 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
       .select({ payload: pendingActions.payload })
       .from(pendingActions)
       .where(eq(pendingActions.runId, runId));
+
     const payload = staged[0]?.payload as { body: string; nested: { x: string } } | undefined;
     assert.equal(payload?.body, "stagedpayload", "NUL stripped from staged payload string");
     assert.equal(payload?.nested.x, "s", "lone surrogate stripped from nested staged value");
@@ -223,6 +242,7 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
       })
       .from(agentDecisionTraces)
       .where(eq(agentDecisionTraces.runId, runId));
+
     assert.equal(
       tr.length,
       2,
@@ -260,6 +280,7 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
       })
       .from(agentRuns)
       .where(eq(agentRuns.id, runId));
+
     const row = rows[0];
     assert.ok(row, "the run row exists");
     assert.equal(row.status, "completed", "the run reaches terminal success, never stuck running");

@@ -7,6 +7,7 @@ import {
   artifactKindSchema,
   artifactStatusSchema,
   briefingGatherSchema,
+  briefingClosedLoopSchema,
   briefingSendDecisionSchema,
   briefingSlotSchema,
   briefingStatusSchema,
@@ -15,6 +16,7 @@ import {
   chatMessageUsageSchema,
   fullBriefingSchema,
   isIntegrationSlug,
+  isRecord,
   isToolName,
   jsonRecordSchema,
   jsonValueSchema,
@@ -35,15 +37,12 @@ import {
   type PolicyMode,
   type ToolName,
 } from "@alfred/contracts";
-import { runStatusSchema, workflowTriggerSchema } from "@alfred/contracts";
+import { isoDateTimeStringSchema, runStatusSchema, workflowTriggerSchema } from "@alfred/contracts";
 import { z } from "zod";
 
-export const isoDateTimeStringSchema = z
-  .string()
-  .refine((value) => !Number.isNaN(new Date(value).getTime()), {
-    message: "must be a valid date-time string",
-  });
-
+// `isoDateTimeStringSchema` is NOT re-exported. It belongs to `@alfred/contracts`,
+// which is browser-safe and already a direct dependency of every consumer, so a
+// second import path for it only creates a choice with no right answer.
 export { jsonRecordSchema, memorySourceSchema, type MemorySource };
 
 export const factValueSchema = z.union([
@@ -53,9 +52,11 @@ export const factValueSchema = z.union([
   z.array(jsonValueSchema),
   jsonRecordSchema,
 ]);
+
 export type FactValue = z.infer<typeof factValueSchema>;
 
 export const preferenceValueSchema = z.union([factValueSchema, z.null()]);
+
 export type PreferenceValue = z.infer<typeof preferenceValueSchema>;
 
 export { toolNameSchema };
@@ -67,6 +68,7 @@ export const syncedNoteSchema = z.object({
   createdAt: isoDateTimeStringSchema,
   rowVersion: z.number(),
 });
+
 export type SyncedNote = z.infer<typeof syncedNoteSchema>;
 
 export const syncedPreferenceSchema = z.object({
@@ -76,6 +78,7 @@ export const syncedPreferenceSchema = z.object({
   source: memorySourceSchema,
   rowVersion: z.number(),
 });
+
 export type SyncedPreference = z.infer<typeof syncedPreferenceSchema>;
 
 export const syncedSkillSchema = z.object({
@@ -92,6 +95,7 @@ export const syncedSkillSchema = z.object({
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
+
 export type SyncedSkill = z.infer<typeof syncedSkillSchema>;
 
 export const syncedSkillRevisionSchema = z.object({
@@ -105,6 +109,7 @@ export const syncedSkillRevisionSchema = z.object({
   rowVersion: z.number(),
   createdAt: isoDateTimeStringSchema,
 });
+
 export type SyncedSkillRevision = z.infer<typeof syncedSkillRevisionSchema>;
 
 export const syncedSkillRunSchema = z.object({
@@ -119,6 +124,7 @@ export const syncedSkillRunSchema = z.object({
   startedAt: isoDateTimeStringSchema,
   endedAt: isoDateTimeStringSchema.nullable(),
 });
+
 export type SyncedSkillRun = z.infer<typeof syncedSkillRunSchema>;
 
 export const syncedActionStagingSchema = z.object({
@@ -137,6 +143,8 @@ export const syncedActionStagingSchema = z.object({
     kind: z.string(),
     source: z.string().nullish(),
     type: z.string().nullish(),
+    /** The provider kind a raw event run fired under (#990). */
+    rawKind: z.string().nullish(),
   }),
   /** Server-truncated (~280c) preview of the run's brief, for provenance. */
   brief: z.string().nullable(),
@@ -162,6 +170,7 @@ export const syncedActionStagingSchema = z.object({
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
+
 export type SyncedActionStaging = z.infer<typeof syncedActionStagingSchema>;
 
 export const syncedFactSchema = z.object({
@@ -179,6 +188,7 @@ export const syncedFactSchema = z.object({
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
+
 export type SyncedFact = z.infer<typeof syncedFactSchema>;
 
 export const syncedBriefingSchema = z.object({
@@ -191,6 +201,7 @@ export const syncedBriefingSchema = z.object({
   sendDecision: briefingSendDecisionSchema.nullable(),
   gateReason: z.string().nullable(),
   gather: briefingGatherSchema.nullable(),
+  closedLoops: z.array(briefingClosedLoopSchema).default([]),
   breakingSummary: z.string().nullable(),
   fullBriefing: fullBriefingSchema.nullable(),
   model: z.string().nullable(),
@@ -200,6 +211,7 @@ export const syncedBriefingSchema = z.object({
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
+
 export type SyncedBriefing = z.infer<typeof syncedBriefingSchema>;
 
 /**
@@ -229,6 +241,7 @@ export const syncedTodoSchema = z.object({
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
+
 export type SyncedTodo = z.infer<typeof syncedTodoSchema>;
 
 /**
@@ -250,6 +263,7 @@ export const syncedChatThreadSchema = z.object({
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
+
 export type SyncedChatThread = z.infer<typeof syncedChatThreadSchema>;
 
 /** Tool card captured on a finished assistant turn (mirrors `chat.tool`). */
@@ -259,6 +273,15 @@ export const syncedChatToolCallSchema = z.object({
   status: z.enum(["succeeded", "failed"]),
   argsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
+  /**
+   * `preview()` pruned `resultPreview` to fit its cap. Synced because a pruned
+   * preview still parses as JSON, so the settled question card (ADR-0099) —
+   * and every other reader that re-reads a preview as its record — has no
+   * other way to know it is holding a partial answer sheet. Absent on rows
+   * written before this field existed, which read back as "not truncated";
+   * those rows are pre-#1018 and no reader keyed on the fact then.
+   */
+  resultTruncated: z.boolean().optional(),
   /**
    * The narration segment this call follows, so a reload interleaves it with
    * the stored narration. Defaulted so rows written before this field existed
@@ -281,6 +304,7 @@ export const syncedChatToolCallSchema = z.object({
    */
   connectNudge: chatConnectNudgeSchema.nullable().optional().catch(null),
 });
+
 export type SyncedChatToolCall = z.infer<typeof syncedChatToolCallSchema>;
 
 /** A closed narration segment captured on a finished assistant turn. */
@@ -288,6 +312,7 @@ export const syncedChatNarrationSchema = z.object({
   index: z.number(),
   text: z.string(),
 });
+
 export type SyncedChatNarration = z.infer<typeof syncedChatNarrationSchema>;
 
 /**
@@ -333,6 +358,7 @@ export const syncedChatMessageSchema = z.object({
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
+
 export type SyncedChatMessage = z.infer<typeof syncedChatMessageSchema>;
 
 /**
@@ -355,6 +381,7 @@ export const syncedChatAttachmentSchema = z.object({
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
+
 export type SyncedChatAttachment = z.infer<typeof syncedChatAttachmentSchema>;
 
 /**
@@ -381,6 +408,7 @@ export const syncedArtifactSchema = z.object({
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
+
 export type SyncedArtifact = z.infer<typeof syncedArtifactSchema>;
 
 /**
@@ -431,6 +459,7 @@ export const syncedTriageTagSchema = z.discriminatedUnion("source", [
     ...triageTagSharedSchema,
   }),
 ]);
+
 export type SyncedTriageTag = z.infer<typeof syncedTriageTagSchema>;
 
 export const policyModeSchema = z.enum(POLICY_MODES);
@@ -444,26 +473,33 @@ function normalizeToolOverrides(
   toolOverrides: Record<string, PolicyMode> | undefined,
 ): IntegrationRule["toolOverrides"] {
   const filtered: Partial<Record<ToolName, PolicyMode>> = {};
+
   for (const [toolName, mode] of Object.entries(toolOverrides ?? {})) {
     if (isToolName(toolName)) filtered[toolName] = mode;
   }
+
   return Object.keys(filtered).length > 0 ? filtered : undefined;
 }
 
 export const integrationRuleSchema: z.ZodType<IntegrationRule> = rawIntegrationRuleSchema.transform(
   (rule) => {
     const toolOverrides = normalizeToolOverrides(rule.toolOverrides);
+
     return toolOverrides ? { mode: rule.mode, toolOverrides } : { mode: rule.mode };
   },
 );
 
-function normalizeIntegrationRules(rawRules: Record<string, unknown>): IntegrationRules {
+function normalizeIntegrationRules(rawRules: unknown): IntegrationRules {
+  if (!isRecord(rawRules)) return {};
   const rules: IntegrationRules = {};
+
   for (const [slug, rawRule] of Object.entries(rawRules)) {
     if (!isIntegrationSlug(slug)) continue;
     const result = integrationRuleSchema.safeParse(rawRule);
+
     if (result.success) rules[slug] = result.data;
   }
+
   return rules;
 }
 
@@ -474,9 +510,11 @@ export const syncedActionPolicySchema = z.object({
   approvalNotifyDelayMs: z.number(),
   rowVersion: z.number(),
 });
+
 export type SyncedActionPolicy = z.infer<typeof syncedActionPolicySchema>;
 
 export const workflowStatusSchema = z.enum(["active", "draft", "paused", "archived"]);
+
 export type WorkflowStatus = z.infer<typeof workflowStatusSchema>;
 
 /**
@@ -507,4 +545,5 @@ export const syncedWorkflowSchema = z.object({
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
+
 export type SyncedWorkflow = z.infer<typeof syncedWorkflowSchema>;

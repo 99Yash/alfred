@@ -1,4 +1,10 @@
-import { parseIanaTimezone, type IanaTimezone, type WorkflowTrigger } from "@alfred/contracts";
+import {
+  eventTriggerPhrase,
+  isRawEventType,
+  parseIanaTimezone,
+  type IanaTimezone,
+  type WorkflowTrigger,
+} from "@alfred/contracts";
 import { CronExpressionParser } from "cron-parser";
 import { isValidTimezone } from "@alfred/assistant/time";
 import { resolveTimezone } from "@alfred/assistant/settings";
@@ -25,17 +31,21 @@ export function validateCronTrigger(
   opts: { timezone?: IanaTimezone } = {},
 ): { ok: true } | { ok: false; message: string } {
   if (trigger.kind !== "cron") return { ok: true };
+
   if (trigger.timezone && !isValidTimezone(trigger.timezone)) {
     return { ok: false, message: `invalid timezone '${trigger.timezone}'` };
   }
+
   const timezone = trigger.timezone
     ? parseIanaTimezone(trigger.timezone)
     : (opts.timezone ?? DEFAULT_WORKFLOW_TIMEZONE);
+
   try {
     CronExpressionParser.parse(trigger.schedule, {
       currentDate: new Date(),
       tz: timezone,
     }).next();
+
     return { ok: true };
   } catch (err) {
     return {
@@ -60,6 +70,7 @@ export async function resolveWorkflowTimezone(
   if (trigger.kind === "cron" && trigger.timezone && isValidTimezone(trigger.timezone)) {
     return parseIanaTimezone(trigger.timezone);
   }
+
   return resolveTimezone(userId);
 }
 
@@ -78,11 +89,13 @@ export function computeNextRunAt(
   opts: { from?: Date; timezone: IanaTimezone },
 ): Date | null {
   if (trigger.kind !== "cron") return null;
+
   try {
     const expr = CronExpressionParser.parse(trigger.schedule, {
       currentDate: opts.from ?? new Date(),
       tz: opts.timezone,
     });
+
     return expr.next().toDate();
   } catch {
     return null;
@@ -95,7 +108,13 @@ export function workflowScheduleSummary(trigger: WorkflowTrigger): string {
     case "cron":
       return describeCronSchedule(trigger.schedule, trigger.timezone);
     case "event":
-      return "For every Gmail delivery; Alfred evaluates semantic conditions inside the run";
+      // A typed trigger keeps the exact pre-#990 string: activation compares
+      // this summary with the staged preview (`validateActivationSchedule`),
+      // so an approval staged before a deploy must still activate after it.
+      // Only a raw trigger names the provider's own kind.
+      return isRawEventType(trigger.type) && trigger.rawKind
+        ? `For every ${eventTriggerPhrase(trigger)} event; Alfred evaluates semantic conditions inside the run`
+        : "For every Gmail delivery; Alfred evaluates semantic conditions inside the run";
     case "manual":
       return "Manual runs only";
     case "on_signal":
@@ -108,6 +127,7 @@ function describeCronSchedule(schedule: string, timezone?: string): string {
   const numericMinute = Number(minute);
   const numericHour = Number(hour);
   const zone = timezone ? ` (${timezone})` : "";
+
   if (
     Number.isInteger(numericMinute) &&
     Number.isInteger(numericHour) &&
@@ -115,23 +135,30 @@ function describeCronSchedule(schedule: string, timezone?: string): string {
     month === "*"
   ) {
     const time = friendlyClock(numericHour, numericMinute);
+
     if (dayOfWeek === "1-5") return `Every weekday at ${time}${zone}`;
+
     if (dayOfWeek === "*") return `Every day at ${time}${zone}`;
     const weekday = dayOfWeek === undefined ? undefined : friendlyWeekdays(dayOfWeek);
+
     if (weekday) return `Every ${weekday} at ${time}${zone}`;
   }
+
   return `Schedule ${schedule}${zone}`;
 }
 
 function friendlyClock(hour: number, minute: number): string {
   const period = hour >= 12 ? "PM" : "AM";
   const displayHour = hour % 12 || 12;
+
   return `${displayHour}:${String(minute).padStart(2, "0")} ${period}`;
 }
 
 function friendlyWeekdays(value: string): string | null {
   const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const indexes = value.split(",").map(Number);
+
   if (indexes.some((index) => !Number.isInteger(index) || index < 0 || index > 6)) return null;
+
   return indexes.map((index) => names[index]).join(", ");
 }

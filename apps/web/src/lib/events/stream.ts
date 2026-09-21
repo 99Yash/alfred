@@ -27,7 +27,9 @@ let sharedStream: SharedEventStream | null = null;
 function eventStreamUrl(): URL {
   const url = new URL(`${API_URL}/api/events/`);
   const anchor = getReplaySince();
+
   if (anchor > 0) url.searchParams.set("since", String(anchor));
+
   return url;
 }
 
@@ -39,10 +41,12 @@ function eventStreamUrl(): URL {
  * Tuned against `apps/web` browser-only usage — no operator knob needed.
  */
 const RECONNECT_BASE_MS = 1_000;
+
 const RECONNECT_MAX_MS = 30_000;
 
 function backoffMs(attempt: number): number {
   const base = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
+
   // Small jitter so a fleet of tabs does not thunder-herd on the same second.
   return Math.round(base * (0.85 + Math.random() * 0.3));
 }
@@ -55,6 +59,7 @@ function attachSource(shared: SharedEventStream): void {
 
   const onFrame = (frame: EventStreamFrame) => {
     noteReplayFrame(frame);
+
     for (const subscriber of shared.subscribers.values()) {
       subscriber.onFrame(frame);
     }
@@ -63,6 +68,7 @@ function attachSource(shared: SharedEventStream): void {
   for (const kind of EVENT_KINDS) {
     source.addEventListener(kind, (msg) => {
       const frame = parseEventFrame(kind, msg);
+
       if (frame) onFrame(frame);
     });
   }
@@ -79,10 +85,12 @@ function attachSource(shared: SharedEventStream): void {
     // CONNECTING and auto-reconnects. Only the CLOSED case is fatal and needs
     // an explicit backoff re-open plus subscriber notification.
     const isFatal = source.readyState === EventSource.CLOSED;
+
     if (isFatal) {
       for (const subscriber of shared.subscribers.values()) {
         subscriber.onError?.(err);
       }
+
       // Tear down the dead source. Keep the shared object (and its subscriber
       // map) so a reconnect can re-attach without callers re-subscribing.
       try {
@@ -90,6 +98,7 @@ function attachSource(shared: SharedEventStream): void {
       } catch {
         // ignore
       }
+
       if (shared.source === source) shared.source = null;
 
       if (shared.subscribers.size === 0) {
@@ -97,8 +106,10 @@ function attachSource(shared: SharedEventStream): void {
           clearTimeout(shared.reconnectTimer);
           shared.reconnectTimer = null;
         }
+
         if (sharedStream === shared) sharedStream = null;
         setEventStreamStatus("disconnected");
+
         return;
       }
 
@@ -106,14 +117,18 @@ function attachSource(shared: SharedEventStream): void {
       shared.reconnectAttempts += 1;
       const delay = backoffMs(attempt);
       setEventStreamStatus("reconnecting");
+
       if (shared.reconnectTimer) clearTimeout(shared.reconnectTimer);
       shared.reconnectTimer = setTimeout(() => {
         shared.reconnectTimer = null;
+
         if (shared.subscribers.size === 0) {
           if (sharedStream === shared) sharedStream = null;
           setEventStreamStatus("disconnected");
+
           return;
         }
+
         // Re-entering connecting before the new EventSource fires onopen/onerror.
         setEventStreamStatus("connecting");
         attachSource(shared);
@@ -130,6 +145,7 @@ function attachSource(shared: SharedEventStream): void {
   // The new source starts in CONNECTING; if we were previously reconnecting
   // (backoff), we now transition to connecting until onopen confirms.
   const curStatus = getEventStreamStatus();
+
   if (curStatus === "reconnecting" || curStatus === "disconnected") {
     setEventStreamStatus("connecting");
   }
@@ -180,6 +196,7 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
 
   return () => {
     stream.subscribers.delete(subscriberId);
+
     if (stream.subscribers.size === 0) {
       if (stream.source) {
         try {
@@ -187,12 +204,15 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
         } catch {
           // ignore
         }
+
         stream.source = null;
       }
+
       if (stream.reconnectTimer) {
         clearTimeout(stream.reconnectTimer);
         stream.reconnectTimer = null;
       }
+
       if (sharedStream === stream) sharedStream = null;
       setEventStreamStatus("disconnected");
     }

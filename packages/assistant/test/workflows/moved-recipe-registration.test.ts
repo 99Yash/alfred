@@ -15,7 +15,8 @@ import { emailTriageWorkflow, gmailSenderAdapter } from "@alfred/assistant/triag
 // The recipe is built with the injected Gmail sender adapter (ADR-0089); its
 // identity (slug/steps/entry/trigger/dedup) is independent of the injection.
 const memoryExtractionWorkflow = buildMemoryExtractionWorkflow(gmailSenderAdapter);
-import type { Workflow, WorkflowInput } from "@alfred/assistant/execution/types";
+
+import type { Workflow, WorkflowInput } from "@alfred/assistant/execution";
 
 /**
  * Item 04 moves the product recipe declarations out of
@@ -92,7 +93,7 @@ describe("moved product recipes keep their identity at their owning module seam"
       recipe: emailTriageWorkflow as Workflow<unknown>,
       slug: "email-triage",
       initialStep: "classify",
-      steps: ["classify", "apply-label"],
+      steps: ["classify", "apply-label", "close-loop-todos"],
       trigger: { kind: "event", source: "gmail", type: "message_received" },
       dedup: null,
     },
@@ -189,10 +190,13 @@ describe("moved product recipes keep their identity at their owning module seam"
         c.steps,
         "the ordered step ids must be unchanged",
       );
+
       if (c.resumeOnly !== undefined) {
         assert.equal(c.recipe.resumeOnly, c.resumeOnly, "resume-only flag must be unchanged");
       }
+
       assert.deepEqual(c.recipe.trigger, c.trigger, "trigger declaration must be unchanged");
+
       if (c.dedup === null) {
         assert.equal(
           typeof c.recipe.dedupKey,
@@ -205,6 +209,7 @@ describe("moved product recipes keep their identity at their owning module seam"
           "function",
           "recipe must declare a singleton dedup key",
         );
+
         for (const s of c.dedup) {
           assert.equal(
             c.recipe.dedupKey!(s.input),
