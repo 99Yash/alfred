@@ -282,80 +282,109 @@ export function targetMatchesSender(
 }
 
 /**
- * Does `outer` cover every sender `inner` covers? Reflexive: a target covers
- * itself. This is the SUBSET/SUPERSET relation ADR-0060 micro-decision 6 names,
- * and it sits beside {@link targetMatchesSender} because it answers the same
- * question over a target instead of over one address — a `sender_domain` covers
- * exactly the addresses `targetMatchesSender` accepts for it.
- *
- * `sender_domain` covers a `sender_email` at that EXACT domain, and covers only
- * the identical domain. Never a subdomain, for the reason
- * {@link targetMatchesSender} states: a correct suffix rule needs a
- * public-suffix list, and without one `co.in` would cover a whole country.
- *
- * The SENDER axis only. `accountId` scopes an instruction to a mailbox, which
- * is the caller's question and not the target's — the same split
- * {@link targetMatchesSender} already makes.
- *
- * Two nested exhaustive guards, so a third target kind fails to compile until
- * it declares both what it covers and what covers it.
- */
-export function standingInstructionTargetCovers(
-  outer: StandingInstructionTarget,
-  inner: StandingInstructionTarget,
-): boolean {
-  switch (outer.kind) {
-    case "sender_email":
-      switch (inner.kind) {
-        case "sender_email":
-          return outer.email === inner.email;
-        // One address never covers a whole domain.
-        case "sender_domain":
-          return false;
-        default: {
-          const exhaustive: never = inner;
-          void exhaustive;
-
-          return false;
-        }
-      }
-
-    case "sender_domain":
-      switch (inner.kind) {
-        case "sender_email":
-          return targetMatchesSender(outer, inner.email);
-        case "sender_domain":
-          return outer.domain === inner.domain;
-        default: {
-          const exhaustive: never = inner;
-          void exhaustive;
-
-          return false;
-        }
-      }
-
-    default: {
-      const exhaustive: never = outer;
-      void exhaustive;
-
-      return false;
-    }
-  }
-}
-
-/**
  * How an EXISTING instruction relates to the one a write just stored, when the
- * two overlap but are not the same target. `wider` = the existing target covers
- * the stored one (a domain mute above an address pin); `narrower` = the stored
- * target covers the existing one.
+ * two overlap but are not the same target. `wider` = the existing target
+ * contains the stored one (a domain mute above an address pin); `narrower` =
+ * the stored target contains the existing one.
  *
- * Only a STRICT relation is reported, so the identity row is never its own
+ * Only a STRICT relation is an overlap, so the identity row is never its own
  * overlap.
  */
 export const STANDING_INSTRUCTION_OVERLAP_RELATIONS = ["wider", "narrower"] as const;
 
 export type StandingInstructionOverlapRelation =
   (typeof STANDING_INSTRUCTION_OVERLAP_RELATIONS)[number];
+
+/**
+ * Every answer {@link standingInstructionTargetRelation} gives: the two strict
+ * relations above, plus the two that are not overlaps — `same` for one target
+ * twice, `disjoint` for two targets where neither contains the other.
+ */
+export type StandingInstructionTargetRelation =
+  | StandingInstructionOverlapRelation
+  | "same"
+  | "disjoint";
+
+/**
+ * Is this relation a strict one — the only kind a write reports as an overlap?
+ * One place says so, so a caller never re-spells the pair of members.
+ */
+export function isStandingInstructionOverlapRelation(
+  relation: StandingInstructionTargetRelation,
+): relation is StandingInstructionOverlapRelation {
+  return STANDING_INSTRUCTION_OVERLAP_RELATIONS.some((strict) => strict === relation);
+}
+
+/**
+ * How the target `of` relates to the target `relativeTo`, over senders. This
+ * is the SUBSET/SUPERSET relation ADR-0060 micro-decision 6 names, and it sits
+ * beside {@link targetMatchesSender} because it answers the same question over
+ * a target instead of over one address — a `sender_domain` covers exactly the
+ * addresses `targetMatchesSender` accepts for it.
+ *
+ * A relation rather than a boolean, and one named pair rather than two
+ * positional targets: `wider` always describes `of`, and a caller that swaps
+ * the two has to write the swap down to compile it.
+ *
+ * `sender_domain` covers a `sender_email` at that EXACT domain, and covers only
+ * the identical domain. Never a subdomain, for the reason
+ * {@link targetMatchesSender} states: a correct suffix rule needs a
+ * public-suffix list, and without one `co.in` would cover a whole country.
+ *
+ * The SENDER axis only, where `disjoint` means the two targets share no sender
+ * at all. `accountId` scopes an instruction to a mailbox, which is the
+ * caller's question and not the target's — the same split
+ * {@link targetMatchesSender} already makes.
+ *
+ * Two nested exhaustive guards, so a third target kind fails to compile until
+ * it declares both what it covers and what covers it.
+ */
+export function standingInstructionTargetRelation(pair: {
+  /** The target the answer describes. */
+  readonly of: StandingInstructionTarget;
+  /** The target it is described against. */
+  readonly relativeTo: StandingInstructionTarget;
+}): StandingInstructionTargetRelation {
+  const { of: subject, relativeTo } = pair;
+
+  switch (subject.kind) {
+    case "sender_email":
+      switch (relativeTo.kind) {
+        case "sender_email":
+          return subject.email === relativeTo.email ? "same" : "disjoint";
+        // One address never covers a whole domain. It can only sit under one.
+        case "sender_domain":
+          return targetMatchesSender(relativeTo, subject.email) ? "narrower" : "disjoint";
+        default: {
+          const exhaustive: never = relativeTo;
+          void exhaustive;
+
+          return "disjoint";
+        }
+      }
+
+    case "sender_domain":
+      switch (relativeTo.kind) {
+        case "sender_email":
+          return targetMatchesSender(subject, relativeTo.email) ? "wider" : "disjoint";
+        case "sender_domain":
+          return subject.domain === relativeTo.domain ? "same" : "disjoint";
+        default: {
+          const exhaustive: never = relativeTo;
+          void exhaustive;
+
+          return "disjoint";
+        }
+      }
+
+    default: {
+      const exhaustive: never = subject;
+      void exhaustive;
+
+      return "disjoint";
+    }
+  }
+}
 
 /**
  * One active instruction that overlaps a write, reported on the successful
@@ -378,9 +407,14 @@ export interface StandingInstructionOverlap {
 
 /**
  * Why a write that asked for `scope:"domain"` stored a `sender_email` target
- * instead. Each member is read off a real branch of the corporate-domain rail:
- * `emailDomain(email)` answering `null`, and `classifyEmailDomain` answering
- * anything but `corporate_domain`.
+ * instead. Each member names a branch of the corporate-domain rail that a real
+ * address reaches:
+ *   - `domain_unparseable` — the address has no domain `domainSchema` accepts.
+ *     The sender grammar upstream is zod's email pattern, which is looser than
+ *     the shared hostname one, so `a@ab-.com` and a label over 63 characters
+ *     both arrive here rather than being rejected as addresses.
+ *   - `domain_not_single_organization` — the domain parses, and
+ *     `classifyEmailDomain` answers anything but `corporate_domain`.
  */
 export const STANDING_INSTRUCTION_SCOPE_NARROWINGS = [
   "domain_not_single_organization",

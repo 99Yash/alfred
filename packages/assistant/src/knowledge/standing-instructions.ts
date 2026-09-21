@@ -1,12 +1,14 @@
 import {
   buildStandingInstructionTarget,
   classifyBareDomain,
+  domainSchema,
   emailDomain,
+  isStandingInstructionOverlapRelation,
   normalizeEmailAddress,
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
-  standingInstructionTargetCovers,
   standingInstructionTargetKey,
+  standingInstructionTargetRelation,
   standingInstructionTargetSpecificity,
   memorySourceSchema,
   standingInstructionValueSchema,
@@ -15,7 +17,9 @@ import {
   type MemorySource,
   type ObservationSource,
   type StandingInstructionOverlap,
+  type StandingInstructionOverlapRelation,
   type StandingInstructionScopeNarrowing,
+  type StandingInstructionTargetRelation,
   type StandingInstructionTarget,
   type StandingInstructionTargetKind,
   type StandingInstructionValue,
@@ -97,6 +101,11 @@ export type RememberSenderSuppressionResult =
        * `suppress`, so the overlap contradicts nothing and ADR-0060 §8 already
        * elects one of them at apply time. Reporting it is what stops a second
        * row from looking like a bug.
+       *
+       * SNAPSHOT-SCOPED. The advisory lock this write takes is keyed on its own
+       * target, and an overlapping instruction has a different target key by
+       * definition, so a concurrent write at a nesting target takes a different
+       * key and neither call reports the other.
        *
        * Capped at {@link STANDING_INSTRUCTION_OVERLAP_LIMIT}; `overlapCount`
        * carries the true total.
@@ -216,7 +225,11 @@ export async function rememberSenderSuppression(
       );
 
     // The locked read is the snapshot both remaining paths report from, so it
-    // travels out of the transaction beside the row they decided.
+    // travels out of the transaction beside the row they decided. It orders
+    // the DUPLICATE check only: the advisory lock is keyed on THIS target, and
+    // an overlapping instruction has a different target key by definition, so
+    // two concurrent writes at nesting targets take different keys, neither
+    // blocks, and each reports only what its own snapshot held.
     const overlaps = findTargetOverlaps(locked, instruction.target);
     const rival = findInstructionByTarget(locked, instruction.target);
 
@@ -325,6 +338,13 @@ function isSameStandingInstructionTarget(
  *      domain the sender side never has, so it would answer `ambiguous_domain`
  *      for every real sender and no instruction would ever widen.
  *
+ * Rail 2 reads a domain the SHARED grammar accepts, which is the stricter of
+ * the two grammars this path crosses: the sender was normalized by zod's email
+ * pattern, which admits hosts `domainSchema` rejects. So the grammar is tested
+ * here, before the class question — `classifyEmailDomain` answers `null` for
+ * both an invalid domain and an unclassifiable one, and a caller told that
+ * `ab-.com` "is not a single organization" has been told something false.
+ *
  * Either rail refusing is a NARROWED write, not a plain address write, and the
  * caller has to be told which one refused. The return is a discriminated pair,
  * so a fall back to the address cannot be built without a reason.
@@ -334,15 +354,15 @@ type DomainWidening =
   | { domain: null; narrowing: StandingInstructionScopeNarrowing };
 
 function widenToDomain(email: string): DomainWidening {
-  const candidateDomain = emailDomain(email);
+  const candidateDomain = domainSchema.safeParse(emailDomain(email));
 
-  if (!candidateDomain) return { domain: null, narrowing: "domain_unparseable" };
+  if (!candidateDomain.success) return { domain: null, narrowing: "domain_unparseable" };
 
-  if (classifyBareDomain({ domain: candidateDomain }) !== "corporate_domain") {
+  if (classifyBareDomain({ domain: candidateDomain.data }) !== "corporate_domain") {
     return { domain: null, narrowing: "domain_not_single_organization" };
   }
 
-  return { domain: candidateDomain, narrowing: null };
+  return { domain: candidateDomain.data, narrowing: null };
 }
 
 /**
@@ -354,21 +374,54 @@ function widenToDomain(email: string): DomainWidening {
 const STANDING_INSTRUCTION_OVERLAP_LIMIT = 10;
 
 /**
- * Does `outer`'s SCOPE — its senders crossed with its mailboxes — contain
- * everything `inner` binds? `@alfred/contracts` owns the sender axis
- * ({@link standingInstructionTargetCovers}); the account gate is the same rule
- * `findSenderSuppression` applies, and it lives here for the same reason the
- * match rule's account half does: `accountId` is the caller's question, not
- * the target's. A `null` `accountId` is cross-account, so it covers every
- * mailbox; a scoped one covers only itself.
+ * The account axis of the same relation `@alfred/contracts` answers over
+ * senders. It lives here for the reason the match rule's account half does:
+ * `accountId` is the caller's question, not the target's, and this is the rule
+ * `findSenderSuppression` already applies. A `null` `accountId` binds every
+ * mailbox, so it is strictly wider than any one of them; two different
+ * mailboxes share none.
  */
-function targetScopeCovers(
-  outer: StandingInstructionTarget,
-  inner: StandingInstructionTarget,
-): boolean {
-  if (!standingInstructionTargetCovers(outer, inner)) return false;
+function accountScopeRelation(pair: {
+  readonly of: StandingInstructionTarget;
+  readonly relativeTo: StandingInstructionTarget;
+}): StandingInstructionTargetRelation {
+  const { of: subject, relativeTo } = pair;
 
-  return outer.accountId === null || outer.accountId === inner.accountId;
+  if (subject.accountId === relativeTo.accountId) return "same";
+
+  if (subject.accountId === null) return "wider";
+
+  if (relativeTo.accountId === null) return "narrower";
+
+  return "disjoint";
+}
+
+/**
+ * How the instruction `of` nests against the write `relativeTo`, over the full
+ * SCOPE — its senders crossed with its mailboxes. Null when neither scope
+ * contains the other, which covers three cases: one target twice, two
+ * unrelated targets, and the crossing pair the account axis admits (a domain
+ * row in one mailbox against an address row in every mailbox). The crossing
+ * pair intersects without nesting, and this result reports nesting only.
+ */
+function scopeOverlapRelation(pair: {
+  readonly of: StandingInstructionTarget;
+  readonly relativeTo: StandingInstructionTarget;
+}): StandingInstructionOverlapRelation | null {
+  const sender = standingInstructionTargetRelation(pair);
+  const account = accountScopeRelation(pair);
+
+  if (sender === "disjoint" || account === "disjoint") return null;
+
+  // An axis that matches exactly defers to the other one. Both matching is the
+  // identity row, which the strict guard refuses.
+  if (sender === "same") return isStandingInstructionOverlapRelation(account) ? account : null;
+
+  if (account === "same") return sender;
+
+  // Opposite directions: the two scopes intersect, and neither contains the
+  // other.
+  return sender === account ? sender : null;
 }
 
 /**
@@ -396,16 +449,19 @@ function findTargetOverlaps(
   instructions: readonly ActiveSuppressionInstruction[],
   target: StandingInstructionTarget,
 ): TargetOverlapReport {
-  const matched: Array<ActiveSuppressionInstruction & { relation: "wider" | "narrower" }> = [];
+  const matched: Array<
+    ActiveSuppressionInstruction & { relation: StandingInstructionOverlapRelation }
+  > = [];
 
   for (const instruction of instructions) {
-    const other = instruction.value.target;
-    const otherCovers = targetScopeCovers(other, target);
-    const targetCovers = targetScopeCovers(target, other);
+    const relation = scopeOverlapRelation({
+      of: instruction.value.target,
+      relativeTo: target,
+    });
 
-    if (otherCovers === targetCovers) continue;
+    if (relation === null) continue;
 
-    matched.push({ ...instruction, relation: otherCovers ? "wider" : "narrower" });
+    matched.push({ ...instruction, relation });
   }
 
   matched.sort((a, b) => {
