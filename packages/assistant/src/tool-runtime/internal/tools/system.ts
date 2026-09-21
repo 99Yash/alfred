@@ -576,8 +576,10 @@ export const systemTools: readonly RegisteredTool[] = [
       "Set `scope: 'domain'` when the user names a CLASS of senders rather than one mailbox " +
       "('apply this to all investment senders'): the instruction then covers every address at " +
       "that sender's domain, including ones that never wrote before. Tell the user which one " +
-      "you stored. The result names any wider or narrower instruction already stored, and " +
-      "says when a domain scope fell back to one address. Tell the user.",
+      "you stored. A domain scope also writes its own wording and keeps no display label, so " +
+      "any `directive` or `senderLabel` you send comes back under `droppedInputs`. The result " +
+      "names any wider or narrower instruction already stored, and says when a domain scope " +
+      "fell back to one address. Tell the user.",
     inputSchema: rememberInput,
     execute: async (input, ctx) => {
       return await rememberSenderSuppressionAndDismissTodos({
@@ -641,7 +643,9 @@ export const systemTools: readonly RegisteredTool[] = [
     description:
       "Reframe an existing standing instruction's wording or display label, by its `factId` (from " +
       "list_instructions), without changing what it targets. To point an instruction at a different " +
-      "sender, forget the wrong one and remember the right one instead.",
+      "sender, forget the wrong one and remember the right one instead. A row that targets a DOMAIN " +
+      "takes neither edit — its sentence comes from the domain and it carries no display label — and " +
+      "returns what it ignored under `droppedInputs`. Tell the user.",
     inputSchema: editInstructionInput,
     execute: async (input, ctx) => {
       return await editInstruction({

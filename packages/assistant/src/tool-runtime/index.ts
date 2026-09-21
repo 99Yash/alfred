@@ -11,6 +11,7 @@ import {
   type IntegrationAvailabilitySnapshot,
   type PersistedWorkflowReadinessProblem,
   type ScratchEntry,
+  type StandingInstructionDroppedInput,
   type StandingInstructionOverlap,
   type StandingInstructionScopeNarrowing,
   type StandingInstructionValue,
@@ -690,6 +691,14 @@ export type RememberSenderSuppressionAndDismissResult =
       readonly overlapCount: number;
       /** Set when the caller asked for `scope:"domain"` and got one address. */
       readonly scopeNarrowing: StandingInstructionScopeNarrowing | null;
+      /**
+       * Inputs the write could not store because the stored target names a
+       * CLASS: a `directive` the derived domain sentence supersedes, a
+       * `senderLabel` the domain arm has no field for. Empty when the write
+       * stored everything the model sent. The model reads this and tells the
+       * user, the same way it reads `scopeNarrowing`.
+       */
+      readonly droppedInputs: readonly StandingInstructionDroppedInput[];
       readonly resolvedTodos: ResolveTodoResult;
     }
   | {
@@ -788,12 +797,21 @@ export type EditInstructionResult =
       readonly factId: string;
       readonly previousFactId: string;
       readonly instruction: StandingInstructionValue;
+      /**
+       * Edits the row could not take because its target names a CLASS — a
+       * domain row's sentence is its target's, and the arm has no label
+       * field. Empty on an address row. Without it, `edited` and `unchanged`
+       * both answer a dropped request with no reason.
+       */
+      readonly droppedInputs: readonly StandingInstructionDroppedInput[];
     }
   | {
       readonly ok: true;
       readonly status: "unchanged";
       readonly factId: string;
       readonly instruction: StandingInstructionValue;
+      /** Same reading as the `edited` arm: edits the row could not take. */
+      readonly droppedInputs: readonly StandingInstructionDroppedInput[];
     }
   | { readonly ok: false; readonly status: "not_found" };
 
