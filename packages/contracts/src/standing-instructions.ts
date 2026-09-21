@@ -149,6 +149,47 @@ export const standingInstructionTargetSchema = z.discriminatedUnion("kind", [
 export type StandingInstructionTarget = z.infer<typeof standingInstructionTargetSchema>;
 
 /**
+ * What the mint boundary already decided, before the target is built. The
+ * corporate-domain gate (`classifyEmailDomain`) stays at the mint boundary in
+ * the assistant — it lives in `identity-affiliation.ts`, which this module
+ * must not import — so the constructor takes the already-gated
+ * `domain: string | null` and only picks the arm. `email` is the normalized
+ * sender address.
+ */
+export interface BuildStandingInstructionTargetInput {
+  email: string;
+  domain: string | null;
+  label: string | null;
+  accountId: string | null;
+}
+
+/**
+ * THE constructor: build the target this mint stores. It sits beside the
+ * union with the key, the match rule, and the rank, so building a target is
+ * a fourth union-adjacent operation — a third kind has no input channel here
+ * until this body names it.
+ */
+export function buildStandingInstructionTarget(
+  input: BuildStandingInstructionTargetInput,
+): StandingInstructionTarget {
+  if (input.domain !== null) {
+    return {
+      kind: "sender_domain",
+      domain: input.domain,
+      label: input.label,
+      accountId: input.accountId,
+    };
+  }
+
+  return {
+    kind: "sender_email",
+    email: input.email,
+    label: input.label,
+    accountId: input.accountId,
+  };
+}
+
+/**
  * The stable identity of a target — `"sender_email:a@b.com"` or
  * `"sender_domain:b.com"`. Two targets name the same thing when their keys are
  * equal, so a duplicate check and an advisory-lock key both read this instead
@@ -188,20 +229,29 @@ export function standingInstructionTargetKey(target: StandingInstructionTarget):
  * suppress a whole country's mail. Exact equality fails safe: a target that is
  * too wide matches nothing.
  *
- * `accountId` is NOT read here. It scopes the instruction to a mailbox, which
- * is the caller's question, not the target's.
+ * One rule, two axes. The sender axis first: an exact address match, or an
+ * exact domain match with the domain derived from the address through
+ * {@link emailDomain}. Then the scope gate: a `null` target `accountId` is
+ * cross-account and always eligible; a scoped target must name the caller's
+ * mailbox. The default keeps existing two-arg callers compiling with today's
+ * null-account semantics.
  */
 export function targetMatchesSender(
   target: StandingInstructionTarget,
   senderEmail: string,
+  accountId: string | null = null,
 ): boolean {
+  let senderMatches: boolean;
+
   switch (target.kind) {
     case "sender_email":
-      return target.email === senderEmail;
+      senderMatches = target.email === senderEmail;
+      break;
     case "sender_domain": {
       const senderDomain = emailDomain(senderEmail);
 
-      return senderDomain !== null && target.domain === senderDomain;
+      senderMatches = senderDomain !== null && target.domain === senderDomain;
+      break;
     }
 
     default: {
@@ -211,6 +261,12 @@ export function targetMatchesSender(
       return false;
     }
   }
+
+  if (!senderMatches) return false;
+
+  if (target.accountId !== null && target.accountId !== accountId) return false;
+
+  return true;
 }
 
 /**

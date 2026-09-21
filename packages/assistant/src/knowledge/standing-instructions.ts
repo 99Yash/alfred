@@ -1,4 +1,5 @@
 import {
+  buildStandingInstructionTarget,
   classifyEmailDomain,
   emailDomain,
   STANDING_INSTRUCTION_KEY,
@@ -126,9 +127,7 @@ export async function rememberSenderSuppression(
       ? candidateDomain
       : null;
 
-  const target: StandingInstructionTarget = domain
-    ? { kind: "sender_domain", domain, label, accountId }
-    : { kind: "sender_email", email, label, accountId };
+  const target = buildStandingInstructionTarget({ email, domain, label, accountId });
 
   // A domain rule covers senders the label does not name, so the stored
   // sentence names the DOMAIN. Phrasing it from the sender label would read
@@ -686,14 +685,9 @@ export function findSenderSuppression(
     //
     // Deterministic: a string comparison per instruction, no model call and no
     // database read. `@alfred/contracts` owns the per-kind rule — including
-    // how a domain comes off the address — so this loop never restates what a
-    // target kind means.
-    if (!targetMatchesSender(target, email)) continue;
-
-    // `accountId` is a gate, not a rank dimension: a null target is
-    // cross-account and always eligible; a scoped target must name the
-    // caller's mailbox.
-    if (target.accountId !== null && target.accountId !== accountId) continue;
+    // how a domain comes off the address and the `accountId` scope gate — so
+    // this loop never restates what a target kind means.
+    if (!targetMatchesSender(target, email, accountId)) continue;
 
     // ADR-0060 micro-decision 8: several instructions can match one sender, and
     // the MOST SPECIFIC target wins; `isStrongerSuppressionMatch` breaks a tie
