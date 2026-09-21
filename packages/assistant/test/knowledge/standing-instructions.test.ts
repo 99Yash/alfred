@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  normalizeEmailAddress,
   SUPPRESSION_EFFECTS,
   rememberInput,
   standingInstructionTargetKey,
@@ -9,7 +10,7 @@ import {
   type StandingInstructionValue,
 } from "@alfred/contracts";
 
-import { findSenderSuppression, normalizeSenderEmail } from "@alfred/assistant/knowledge";
+import { findSenderSuppression } from "@alfred/assistant/knowledge";
 // `ActiveSuppressionInstruction` is internal-by-intent (dropped from the barrel,
 // item 15) — read from its owning file directly.
 import { type ActiveSuppressionInstruction } from "@alfred/assistant/knowledge/standing-instructions";
@@ -40,14 +41,14 @@ function active(value: StandingInstructionValue): ActiveSuppressionInstruction {
   };
 }
 
-describe("normalizeSenderEmail", () => {
+describe("normalizeEmailAddress", () => {
   test("extracts and canonicalizes an RFC-822 display address", () => {
-    assert.equal(normalizeSenderEmail("Ben Book <BEN@Example.com>"), "ben@example.com");
+    assert.equal(normalizeEmailAddress("Ben Book <BEN@Example.com>"), "ben@example.com");
   });
 
   test("returns null for an unresolved or malformed sender", () => {
-    assert.equal(normalizeSenderEmail("Ben Book"), null);
-    assert.equal(normalizeSenderEmail(""), null);
+    assert.equal(normalizeEmailAddress("Ben Book"), null);
+    assert.equal(normalizeEmailAddress(""), null);
   });
 });
 

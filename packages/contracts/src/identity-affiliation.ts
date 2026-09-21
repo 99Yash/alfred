@@ -292,64 +292,76 @@ function isAmbiguousDomain(domain: string): boolean {
   return false;
 }
 
-export interface ClassifyDomainInput {
-  /** A full email address — its local part is checked for role/service mailboxes. */
-  readonly email?: string | null;
-  /** A bare domain (used when no address is available — e.g. an org domain on its own). */
-  readonly domain?: string | null;
+export interface ConnectedAccountInput {
+  /** A connected-account email address — its local part is checked for role/service mailboxes. */
+  readonly email: string;
   /**
    * Verified hosted/workspace domain for the account, when the provider exposes
-   * one (Google's `hd` claim). For a full email address, a custom domain without
-   * this corroboration is ambiguous rather than an auto-grounding employer.
+   * one (Google's `hd` claim). A custom domain without this corroboration is
+   * ambiguous rather than an auto-grounding employer.
    */
   readonly verifiedHostedDomain?: string | null;
 }
 
+export interface BareDomainInput {
+  /** A bare domain (used when no address is available — e.g. an org domain on its own). */
+  readonly domain: string;
+}
+
+function normalizeVerifiedHostedDomain(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = normalizeDomain(value);
+
+  return isValidDomain(normalized) ? normalized : null;
+}
+
 /**
- * Classify a connected-account address / domain into its employer-signal outcome
- * (ADR-0080 §4b). DETERMINISTIC — same input always yields the same class, so a
- * projection replay converges and the class is unit-testable without a DB or LLM.
+ * The deprecated alias input: exactly one question per call. Each member
+ * forbids the other's keys, so the old mixed literal (`{ email, domain }`)
+ * does not compile — under the old shape it routed to the email half, under a
+ * naive union it would route to the domain half, and that silent answer-switch
+ * is precisely what the split removes.
+ */
+type DeprecatedClassifyInput =
+  | (ConnectedAccountInput & { readonly domain?: never })
+  | (BareDomainInput & { readonly email?: never; readonly verifiedHostedDomain?: never });
+
+/** Narrows the deprecated alias input to the bare-domain question. */
+function isBareDomainInput(input: DeprecatedClassifyInput): input is BareDomainInput {
+  return "domain" in input;
+}
+
+/**
+ * Classify a CONNECTED ACCOUNT into its employer-signal outcome (ADR-0080 §4b).
+ * DETERMINISTIC — same input always yields the same class, so a projection
+ * replay converges and the class is unit-testable without a DB or LLM.
  *
  * Precedence (first match wins):
  *   1. a role/service LOCAL PART or service host  → `service_or_role_account`
  *      (checked first: `noreply@acme.com` is a service mailbox, not employment at Acme);
  *   2. a free-mail domain                         → `consumer_email`;
  *   3. an academic / alumni / shared-hosting / disposable domain → `ambiguous_domain`;
- *   4. otherwise                                  → `corporate_domain`.
+ *   4. otherwise                                  → `corporate_domain` with
+ *      hosted-domain corroboration, `ambiguous_domain` without it.
  *
- * A bare domain is treated as an org-domain candidate. A full email address gets
- * the stricter connected-account rule: a custom non-free address is corporate
- * only when the provider also verifies a hosted domain (e.g. Google `hd`). When
- * `hd` is present it is the verified org domain even if the email claim uses an
- * alias/secondary domain; the email local part still gates role/service mailboxes.
- * Without that corroboration, personal custom domains stay ambiguous.
+ * A full email address gets the stricter connected-account rule: a custom
+ * non-free address is corporate only when the provider also verifies a hosted
+ * domain (e.g. Google `hd`). When `hd` is present it is the verified org domain
+ * even if the email claim uses an alias/secondary domain; the email local part
+ * still gates role/service mailboxes. Without that corroboration, personal
+ * custom domains stay ambiguous.
  */
-export function classifyEmailDomain(input: ClassifyDomainInput): DomainClass | null {
-  const parsed = input.email ? splitEmail(input.email) : null;
+export function classifyConnectedAccount(input: ConnectedAccountInput): DomainClass | null {
+  const parsed = splitEmail(input.email);
 
-  const normalizedVerifiedHostedDomain = input.verifiedHostedDomain
-    ? normalizeDomain(input.verifiedHostedDomain)
-    : null;
+  if (!parsed) return null;
 
-  const verifiedHostedDomain =
-    normalizedVerifiedHostedDomain && isValidDomain(normalizedVerifiedHostedDomain)
-      ? normalizedVerifiedHostedDomain
-      : null;
-
-  const domain =
-    parsed && verifiedHostedDomain
-      ? verifiedHostedDomain
-      : parsed
-        ? parsed.domain
-        : input.domain
-          ? normalizeDomain(input.domain)
-          : null;
-
-  if (!domain) return null;
+  const verifiedHostedDomain = normalizeVerifiedHostedDomain(input.verifiedHostedDomain);
+  const domain = verifiedHostedDomain ?? parsed.domain;
 
   if (!isValidDomain(domain)) return null;
 
-  if (parsed && isRoleServiceLocalPart(parsed.localPart)) return "service_or_role_account";
+  if (isRoleServiceLocalPart(parsed.localPart)) return "service_or_role_account";
 
   if (isFreeMailDomain(domain)) return "consumer_email";
 
@@ -357,9 +369,48 @@ export function classifyEmailDomain(input: ClassifyDomainInput): DomainClass | n
 
   if (isAmbiguousDomain(domain)) return "ambiguous_domain";
 
-  if (parsed) return verifiedHostedDomain === domain ? "corporate_domain" : "ambiguous_domain";
+  return verifiedHostedDomain === domain ? "corporate_domain" : "ambiguous_domain";
+}
+
+/**
+ * Classify a BARE DOMAIN into its employer-signal outcome (ADR-0080 §4b).
+ * DETERMINISTIC, same contract as {@link classifyConnectedAccount} minus the
+ * address half: no local part to gate on, no hosted-domain corroboration to
+ * ask for. A bare domain is treated as an org-domain candidate — the question
+ * that gates a domain-wide write.
+ *
+ * Precedence (first match wins):
+ *   1. a service host                             → `service_or_role_account`;
+ *   2. a free-mail domain                         → `consumer_email`;
+ *   3. an academic / alumni / shared-hosting / disposable domain → `ambiguous_domain`;
+ *   4. otherwise                                  → `corporate_domain`.
+ */
+export function classifyBareDomain(input: BareDomainInput): DomainClass | null {
+  const domain = normalizeDomain(input.domain);
+
+  if (!isValidDomain(domain)) return null;
+
+  if (isFreeMailDomain(domain)) return "consumer_email";
+
+  if (isServiceDomain(domain)) return "service_or_role_account";
+
+  if (isAmbiguousDomain(domain)) return "ambiguous_domain";
 
   return "corporate_domain";
+}
+
+/**
+ * @deprecated Answer one question instead: {@link classifyConnectedAccount}
+ * for a connected-account address, {@link classifyBareDomain} for a bare
+ * domain. Kept for `user-model.ts` (another campaign's file — item 49
+ * migrates it and deletes this alias). The old mixed/empty shapes
+ * (`{}`, `{ email, domain }`) no longer compile; every migrated site names
+ * its question.
+ */
+export function classifyEmailDomain(input: DeprecatedClassifyInput): DomainClass | null {
+  if (isBareDomainInput(input)) return classifyBareDomain(input);
+
+  return classifyConnectedAccount(input);
 }
 
 /** True iff `domain` (or the domain of an address) is a free/consumer mailbox provider. */

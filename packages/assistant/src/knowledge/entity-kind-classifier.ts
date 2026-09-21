@@ -1,6 +1,6 @@
 import {
   canonicalizeIdentityValue,
-  classifyEmailDomain,
+  classifyBareDomain,
   gmailEmailMessagePayloadSchema,
   hasServiceWordSuffix,
   identityRefSchema,
@@ -474,8 +474,8 @@ function entityKindForNodeKind(kind: EntityNodeKind): EntityKind {
  * It states the cross-kind duplicate rule exactly. `collectOrgDomains` mints
  * ONE `organization` row per non-free-mail sender domain, so a contact whose
  * display value IS its own mail domain is that organization restated
- * (`Amazon.in` from `order-update@amazon.in`). It asks `classifyEmailDomain`
- * with a bare `{ domain }` first, so "is this string a hostname at all" reuses
+ * (`Amazon.in` from `order-update@amazon.in`). It asks `classifyBareDomain`
+ * first, so "is this string a hostname at all" reuses
  * the ONE DNS grammar in `@alfred/contracts` (`hostname.ts`) rather than a
  * fourth hand-rolled regex.
  *
@@ -500,7 +500,7 @@ function restatesOwnDomain(value: string, domain: string): boolean {
 
   if (!candidate || !domain) return false;
 
-  if (classifyEmailDomain({ domain: candidate }) === null) return false;
+  if (classifyBareDomain({ domain: candidate }) === null) return false;
 
   return (
     candidate === domain || domain.endsWith(`.${candidate}`) || candidate.endsWith(`.${domain}`)

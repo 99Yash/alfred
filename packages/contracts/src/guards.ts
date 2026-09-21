@@ -13,6 +13,8 @@
  * collapses the nested-cast ladder into a single call that never throws.
  */
 
+import { extractEmailAddress } from "./domain";
+
 /**
  * True only for plain object records — not `null`, arrays, Date, Map, or class
  * instances. This is the narrowing most `typeof x === "object"` checks meant:
@@ -182,12 +184,12 @@ export function enumGuard<const T extends readonly string[]>(
  * route through this so they match exactly the same set — display-name-aware,
  * exact-address, never a substring of display text. Keep behaviour pinned: a
  * change here silently widens or narrows what gets dropped/retired.
+ *
+ * Delegates to {@link extractEmailAddress} — same rule, same name kept so the
+ * ~20 callers do not churn.
  */
 export function parseEmailAddress(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const raw = (value.match(/<([^>]+)>/)?.[1] ?? value).trim().toLowerCase();
-
-  return raw.includes("@") ? raw : null;
+  return extractEmailAddress(value);
 }
 
 /**
