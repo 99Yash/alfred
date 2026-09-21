@@ -1,8 +1,30 @@
 // The email/domain grammar: split an address, normalize a domain, and decide
-// whether a string is a syntactically valid one. Encoded ONCE, here, so the
+// whether a string is a syntactically valid one.
+//
+// This module holds the one implementation of the address/domain split its
+// importers share. A module that needs an address's domain imports
+// `emailDomain`; a module that needs both halves imports `splitEmail`. So the
 // domain classifier (`identity-affiliation.ts`), the domain identity floor
 // (`user-model.ts`, through the same `./hostname` fragment), and a stored
-// standing-instruction target all read the same rule.
+// standing-instruction target all read the same rule. A second, stricter
+// grammar restates the same local-part decision as a regex in `user-model.ts`
+// (`IDENTITY_VALUE_FORMATS.email`, which also applies `HOSTNAME`);
+// reconciling the two is queued as a follow-up and is not claimed here.
+//
+// Things this module does NOT own include, so a hand-written `@` split is not
+// automatically a bug: a local-part slice taken for DISPLAY (a greeting, an
+// avatar initial), the bulk-sender heuristic local-part read in `attention.ts`
+// (whose `senderAddress` accepts a string with no `@`, so moving it onto
+// `splitEmail` would change `isLikelyBulkSender`'s answer), the authority read
+// of a URL, and the parse of an RFC 5322 Message-ID (which is not an
+// address). Each asks a different question from the one this grammar answers,
+// or asks it over inputs this grammar rejects.
+//
+// The claim is "one implementation", not "every call site already uses it".
+// Known domain reads that still hand-roll the split include:
+// `assistant/src/connections/object-state/github-adapter.ts`, the sibling
+// `sentry-adapter.ts`, and `assistant/src/knowledge/cold-start/signals.ts`.
+// They are named here rather than promised a date.
 //
 // A dependency-free leaf on purpose, like `./hostname` itself: `user-model.ts`
 // value-imports `classifyEmailDomain` from `identity-affiliation.ts`, so any
@@ -11,9 +33,9 @@
 // measured as a real one — `domainSchema` read from a half-initialized module
 // threw `Cannot access 'domainSchema' before initialization` at import time.
 //
-// `index.ts` re-exports `emailDomain`, `domainSchema`, `extractEmailAddress`
-// and `normalizeEmailAddress`. The rest stays internal grammar, not a public
-// contract surface.
+// `index.ts` re-exports `emailDomain`, `splitEmail`, `domainSchema`,
+// `extractEmailAddress` and `normalizeEmailAddress`. The rest stays internal
+// grammar, not a public contract surface.
 
 import { z } from "zod";
 import { HOSTNAME } from "./hostname";
@@ -73,7 +95,7 @@ export function emailDomain(value: string | null | undefined): string | null {
  * validated against the shared hostname grammar. Use it wherever a domain is
  * stored or compared, so a stored domain is already canonical.
  */
-export const domainSchema: z.ZodType<string> = z
+export const domainSchema: z.ZodType<string, string> = z
   .string()
   .transform(normalizeDomain)
   .refine(isValidDomain, { message: "must be a valid domain" });

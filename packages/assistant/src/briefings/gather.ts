@@ -239,7 +239,7 @@ export async function gatherBriefingDigest(
         ),
       )
       .orderBy(desc(documents.authoredAt)),
-    listActiveSuppressionInstructions(args.userId, "exclude_briefing_priority"),
+    listActiveSuppressionInstructions(args.userId),
   ]);
 
   const newPriorityBucket = (): BriefingItem[] => [];
