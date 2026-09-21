@@ -379,7 +379,7 @@ function isSameStandingInstructionTarget(
  * Rail 2 reads a domain the SHARED grammar accepts, which is the stricter of
  * the two grammars this path crosses: the sender was normalized by zod's email
  * pattern, which admits hosts `domainSchema` rejects. So the grammar is tested
- * here, before the class question — `classifyEmailDomain` answers `null` for
+ * here, before the class question — `classifyBareDomain` answers `null` for
  * both an invalid domain and an unclassifiable one, and a caller told that
  * `ab-.com` "is not a single organization" has been told something false.
  *
