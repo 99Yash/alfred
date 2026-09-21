@@ -36,6 +36,21 @@
 #                   default 15. Below this, a non-progressing phase is treated as
 #                   never having run rather than as stuck. See the guard below.
 #   DRY_RUN         default 0
+#   ENGINE          which CLI runs a phase: `claude` (default) or `opencode`.
+#                   `opencode` is NOT equivalent, and three differences matter:
+#                     1. It has no `--max-budget-usd`. MAX_BUDGET_USD and
+#                        REVIEW_BUDGET_USD are IGNORED, so MAX_ITER is the only
+#                        ceiling on a run. Use a free model, or watch it.
+#                     2. It loads AGENTS.md (a symlink to CLAUDE.md here), so the
+#                        repo directives carry over — but NOT `.claude/skills/`,
+#                        `.claude/hooks/` or `.claude/agents/`. The helper-hint and
+#                        recall hooks do not fire.
+#                     3. REVIEW.md fans a review round out to three parallel
+#                        subagents. That is a Claude Code construct. Under opencode
+#                        the model runs the three lanes itself, in one context,
+#                        which is what REVIEW.md's cost note says to avoid.
+#   MODEL           model for ENGINE=opencode, as `provider/model`. Default
+#                   `opencode/muse-spark-1.3-contributor-free`. Ignored by `claude`.
 
 set -euo pipefail
 
@@ -45,6 +60,16 @@ REVIEW_BUDGET_USD="${REVIEW_BUDGET_USD:-12}"
 MIN_PHASE_SECONDS="${MIN_PHASE_SECONDS:-15}"
 DRY_RUN="${DRY_RUN:-0}"
 ITEM="${ITEM:-}"
+ENGINE="${ENGINE:-claude}"
+MODEL="${MODEL:-opencode/muse-spark-1.3-contributor-free}"
+
+case "$ENGINE" in
+  claude|opencode) ;;
+  *) echo "unknown ENGINE $ENGINE — expected claude or opencode" >&2; exit 1 ;;
+esac
+command -v "$ENGINE" >/dev/null || { echo "$ENGINE is not on PATH" >&2; exit 1; }
+MODEL_LABEL=""
+[[ "$ENGINE" == "opencode" ]] && MODEL_LABEL=" ($MODEL, no budget cap)"
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
@@ -209,7 +234,7 @@ build_prompt() {
 
 # --- main loop ------------------------------------------------------------
 
-echo "campaign: $SLUG   base: $BASE_BRANCH   budget: \$$MAX_BUDGET_USD/iter, \$$REVIEW_BUDGET_USD for review"
+echo "campaign: $SLUG   base: $BASE_BRANCH   engine: $ENGINE${MODEL_LABEL}   budget: \$$MAX_BUDGET_USD/iter, \$$REVIEW_BUDGET_USD for review"
 [[ -n "$ITEM" ]] && echo "restricted to item $ITEM"
 
 completed=0
@@ -268,6 +293,9 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   fifo="$(mktemp -u -t campaign-fifo.XXXXXX)"
   mkfifo "$fifo"
 
+  # Two engines, two event schemas. `claude` streams `stream_event`/`assistant`/
+  # `result`; `opencode --format json` streams `text`/`tool_use`/`step_finish` with
+  # the payload under `.part`. One filter reads both so the console looks the same.
   jq -j --unbuffered '
         if .type == "stream_event" then
           ( .event
@@ -281,18 +309,39 @@ for ((i = 1; i <= MAX_ITER; i++)); do
                                | tostring | .[0:100])\n" )
         elif .type == "result" then
           "\n[\(.subtype) · \(.num_turns // 0) turns · $\((.total_cost_usd // 0) * 100 | round / 100)]\n"
+        elif .type == "text" then
+          ( .part.text // "" )
+        elif .type == "tool_use" then
+          ( .part
+            | "\n  · \(.tool // "tool") \((.state.input.path // .state.input.filePath
+                                          // .state.input.file_path // .state.input.command
+                                          // .state.input.pattern // .state.input.query
+                                          // .state.input.description // "")
+                                         | tostring | .[0:100])\n" )
         else empty end
       ' < "$fifo" &
   JQ_PID=$!
 
   set +e
-  printf '%s' "$prompt" | claude -p \
-      --permission-mode bypassPermissions \
-      --max-budget-usd "$iter_budget" \
-      --no-session-persistence \
-      --output-format stream-json \
-      --include-partial-messages \
-      --verbose > "$fifo" &
+  case "$ENGINE" in
+    claude)
+      printf '%s' "$prompt" | claude -p \
+          --permission-mode bypassPermissions \
+          --max-budget-usd "$iter_budget" \
+          --no-session-persistence \
+          --output-format stream-json \
+          --include-partial-messages \
+          --verbose > "$fifo" &
+      ;;
+    opencode)
+      # No budget flag exists, so $iter_budget is deliberately unused here. The
+      # header documents that MAX_ITER is the only ceiling under this engine.
+      printf '%s' "$prompt" | opencode run \
+          --model "$MODEL" \
+          --auto \
+          --format json > "$fifo" &
+      ;;
+  esac
   CHILD_PID=$!
   wait "$CHILD_PID"
   claude_status=$?
