@@ -1,3 +1,4 @@
+import { type SentryIssueNativeState } from "@alfred/contracts";
 import { z } from "zod";
 
 import { authedJson } from "../shared/authed-json";
@@ -24,12 +25,46 @@ import { SENTRY_API } from "./client";
  * module comment in `./client`).
  */
 
+/**
+ * Sentry's REST issue statuses. This is NOT the webhook lifecycle vocabulary
+ * the object-state reducer writes: REST says `ignored` where the webhook says
+ * `archived`, so a pass-through would leave the reducer's `archived` arm dead
+ * on this path and make a live `ignored` indistinguishable from a read
+ * failure.
+ *
+ * A `z.enum` rather than `z.string()` for the reason that matters to the
+ * caller: if Sentry ever renames a status, the boundary parse FAILS and the
+ * briefing's keep-on-failure path keeps the ask and warns. A `z.string()`
+ * would instead map the unknown token to "not closed", so the feature would
+ * close nothing, forever, with no signal.
+ */
+const SENTRY_REST_STATUSES = ["resolved", "unresolved", "ignored"] as const;
+
+/**
+ * REST status to stored native token, stated one member at a time. `satisfies`
+ * over the REST vocabulary, so a status added to the list above does not
+ * compile until this map says which lifecycle token it means.
+ */
+const NATIVE_STATE_BY_REST_STATUS = {
+  resolved: "resolved",
+  unresolved: "unresolved",
+  ignored: "archived",
+} satisfies Record<(typeof SENTRY_REST_STATUSES)[number], SentryIssueNativeState>;
+
 const liveSentryIssueSchema = z.object({
   id: z.string(),
-  status: z.string(),
+  status: z.enum(SENTRY_REST_STATUSES),
 });
 
-export type LiveSentryIssue = z.infer<typeof liveSentryIssueSchema>;
+/**
+ * One live issue, in the vocabulary the object-state registry reads. The REST
+ * status is translated here, at the boundary that owns the REST payload, so no
+ * consumer holds both vocabularies at once.
+ */
+export interface LiveSentryIssue {
+  id: string;
+  nativeState: SentryIssueNativeState;
+}
 
 export async function readLiveSentryIssue(args: {
   userId: string;
@@ -58,5 +93,7 @@ export async function readLiveSentryIssue(args: {
     { provider: "sentry", urlLabel: path, bodyPolicy: "summarize" },
   );
 
-  return liveSentryIssueSchema.parse(raw);
+  const issue = liveSentryIssueSchema.parse(raw);
+
+  return { id: issue.id, nativeState: NATIVE_STATE_BY_REST_STATUS[issue.status] };
 }
