@@ -1444,7 +1444,10 @@ const rememberSenderLabel = z
   .trim()
   .max(200)
   .nullish()
-  .describe("Human display label for the sender, if known.");
+  .describe(
+    "Human display label for the sender, if known. A `domain` scope drops it — a class rule names " +
+      "no one person — and the result lists `senderLabel` under `droppedInputs`.",
+  );
 
 const rememberScope = z
   .enum(["sender", "domain"])
@@ -1493,7 +1496,9 @@ export const rememberInput = coerceJsonArrayFields(
         .describe(
           "Every resolved sender to suppress when the user names more than one. One call persists one " +
             "instruction per entry; `accountId`, `directive`, `phrasing`, and the top-level `scope` " +
-            "apply to all of them, and an entry's own `scope` overrides that default. Use this " +
+            "apply to all of them, and an entry's own `scope` overrides that default. An entry at " +
+            "`domain` scope ignores `directive` and its own `senderLabel`, so several entries at one " +
+            "domain can persist ONE instruction — read each entry's result, not the count. Use this " +
             "instead of one call per sender.",
         ),
       accountId: z
@@ -1514,7 +1519,9 @@ export const rememberInput = coerceJsonArrayFields(
         })
         .optional()
         .describe(
-          "Resolved instruction sentence. Omit to use the default open-loop suppression wording.",
+          "Resolved instruction sentence for a `sender` scope. Omit to use the default open-loop " +
+            "suppression wording. A `domain` scope ignores it: Alfred writes the sentence from the " +
+            "domain, and the result lists `directive` under `droppedInputs`.",
         ),
       phrasing: z
         .string()
@@ -1566,6 +1573,11 @@ export const forgetInstructionInput = z
  * row with a new one (the old row is kept, linked, and reversible). To retarget
  * a different sender, `forget_instruction` the wrong one and `remember` the
  * right one instead.
+ *
+ * A row whose target is a DOMAIN takes neither edit: its sentence is written
+ * from the domain and its target carries no display label. Such a call answers
+ * `unchanged` (or `edited`, when it rewrites a stale sentence) and lists every
+ * ignored field under `droppedInputs`.
  */
 export const editInstructionInput = z
   .object({
@@ -1582,13 +1594,19 @@ export const editInstructionInput = z
         message: "directive must be single-line",
       })
       .optional()
-      .describe("New resolved instruction sentence. Omit to leave unchanged."),
+      .describe(
+        "New resolved instruction sentence. Omit to leave unchanged. A domain-target row ignores " +
+          "it and reports it under `droppedInputs`.",
+      ),
     senderLabel: z
       .string()
       .trim()
       .max(200)
       .nullish()
-      .describe("New human display label for the sender. Omit to leave unchanged."),
+      .describe(
+        "New human display label for the sender. Omit to leave unchanged. A domain-target row " +
+          "ignores it and reports it under `droppedInputs`.",
+      ),
   })
   .strict();
 
