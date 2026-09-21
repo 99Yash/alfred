@@ -141,6 +141,11 @@ const senderEmailAddressSchema: z.ZodType<string, string> = z
  *
  * The `sender_email` arm keeps every field rule it had at v1, so a stored row
  * parses unchanged and {@link STANDING_INSTRUCTION_SCHEMA_VERSION} stays 1.
+ * The `sender_domain` arm carries NO personal label: a domain target names a
+ * class (every address at the host), and a label taken from the one sender the
+ * user named would describe that class as one person everywhere the target is
+ * read. Old rows that stored one still parse — `z.object` strips the unknown
+ * key by default — so the version stays 1 here too.
  */
 export const standingInstructionTargetSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -152,7 +157,6 @@ export const standingInstructionTargetSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("sender_domain"),
     domain: domainSchema,
-    label: z.string().nullish(),
     accountId: z.string().nullable(),
   }),
 ]);
@@ -161,7 +165,7 @@ export type StandingInstructionTarget = z.infer<typeof standingInstructionTarget
 
 /**
  * What the mint boundary already decided, before the target is built. The
- * corporate-domain gate (`classifyEmailDomain`) stays at the mint boundary in
+ * corporate-domain gate (`classifyBareDomain`) stays at the mint boundary in
  * the assistant — it lives in `identity-affiliation.ts`, which this module
  * must not import — so the constructor takes the already-gated
  * `domain: string | null` and only picks the arm. `email` is the normalized
@@ -187,7 +191,6 @@ export function buildStandingInstructionTarget(
     return {
       kind: "sender_domain",
       domain: input.domain,
-      label: input.label,
       accountId: input.accountId,
     };
   }
@@ -198,6 +201,35 @@ export function buildStandingInstructionTarget(
     label: input.label,
     accountId: input.accountId,
   };
+}
+
+/**
+ * Prompt-ready sentence derived from the target alone. The single home of
+ * the "any sender at <domain>" vs "from <label ?? email>" wording that item
+ * 01r1 built inline at the Alfred-written branch: a domain rule covers
+ * senders no label names, so its sentence names the DOMAIN, while an address
+ * rule names the one sender the label (or address) identifies.
+ *
+ * Every writer stores this for a `sender_domain` target and every reader
+ * renders it for one, so a domain instruction never carries a sentence that
+ * names one address — whatever prose the model supplied, and whatever prose
+ * a pre-fix row still stores. The `sender_email` arm keeps model prose: this
+ * is the capture default for that kind only. Sits beside the union so a
+ * third target kind fails the exhaustive guard until it declares its
+ * sentence.
+ */
+export function renderStandingInstructionDirective(target: StandingInstructionTarget): string {
+  switch (target.kind) {
+    case "sender_domain":
+      return `Stop surfacing reminders and briefing items from any sender at ${target.domain}.`;
+    case "sender_email":
+      return `Stop surfacing reminders and briefing items from ${target.label ?? target.email}.`;
+    default: {
+      const exhaustive: never = target;
+
+      return String(exhaustive);
+    }
+  }
 }
 
 /**
