@@ -43,6 +43,7 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | normalize / extract an email address                                                          | `parseEmailAddress(value)`                                                                                                                                                                                                                                                                                         | `@alfred/contracts`           | manual `<...>` / lowercase parsing                                                                                                                                          |
 | parse an OAuth `scope` response field into scopes                                             | `parseOAuthScopeList(scope)`                                                                                                                                                                                                                                                                                       | `@alfred/contracts`           | `scope.split(/\s+/)` — loses GitHub's comma list; **drift check bans the raw idiom**                                                                                       |
 | fold a key to a canonical form                                                                | `canonicalParamKey(key)`                                                                                                                                                                                                                                                                                           | `@alfred/contracts`           | `.toLowerCase().replace(/[_-]/g, "")` — **drift check bans the raw idiom**                                                                                                  |
+| collapse a whitespace run to one space for **display** text | `collapseWhitespace(text)` | `@alfred/contracts` | `.replace(/\s+/g, " ").trim()`, and the `/\s{2,}/` and `/\s\s+/` spellings of the same run — **drift check bans the raw idiom**. A value other code compares byte for byte keeps its own fold, under a per-line `// drift-ok:` reason or the rule's `owners` list — the two exemptions are not interchangeable, see below. |
 | strip tool-result / error noise before it hits a model                                        | `sanitizeToolResult` / `sanitizeErrorMessage`                                                                                                                                                                                                                                                                      | `@alfred/contracts`           | inline trimming                                                                                                                                                             |
 | enforce Alfred's prose voice (no em-dashes, plain words)                                      | `sanitizeVoice` / `createVoiceStreamSanitizer`                                                                                                                                                                                                                                                                     | `@alfred/ai/voice`            | manual string replaces                                                                                                                                                      |
 | read an environment variable                                                                  | `serverEnv()`                                                                                                                                                                                                                                                                                                      | `@alfred/env/server`          | `process.env.*` — **repo invariant**                                                                                                                                        |
@@ -169,6 +170,25 @@ provider we called; `ApiError` is the _outbound_ failure we answer a client with
 ### Sanitize — `@alfred/contracts` (`src/sanitize.ts`)
 
 - `sanitizeToolResult`, `sanitizeErrorMessage`
+
+### Display text — `@alfred/contracts` (`src/text.ts`)
+
+- `collapseWhitespace(text)` — one whitespace fold for every snippet, preview,
+  title and summary a person or a model reads. Deliberately not in `sanitize.ts`:
+  that module is the ADR-0070 poison boundary, and nothing here protects a sink.
+- It is **not** for a value other code compares byte for byte — a key, a hash, a
+  dedup token, a cache lookup, or a query a provider must receive unchanged.
+  This fold may change whenever a display improves; an identity may not. Being
+  stored is not that test, and neither is being read by a classifier: a stored
+  summary and a classifier's input snippet are both prose a reader sees.
+- It is also not `context-search/pack.ts`'s `oneLine`, which folds only the four
+  line terminators so a packed record keeps the provider's own typography.
+- Two kinds of exemption, and they are not interchangeable. A site outside
+  `packages/assistant/src/knowledge/` carries a per-line `// drift-ok:` reason.
+  The three sites inside it are listed in the rule's `owners` array instead,
+  because a parallel campaign owns that directory and this campaign may not edit
+  it — a whole-file exemption, so a second fold landing in one of those files is
+  unrefused until the markers replace it.
 
 ### Env — `@alfred/env/server`
 

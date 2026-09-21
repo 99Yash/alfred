@@ -11,6 +11,7 @@
 import {
   GOOGLE_SCOPE,
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
+  collapseWhitespace,
   gmailReadMessageInput,
   gmailSearchInput,
   gmailSearchResultSchema,
@@ -41,7 +42,7 @@ const GMAIL_READ_SCOPES = [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modif
 /** Collapse whitespace and cap length so a search hit's preview stays a glanceable one-liner. */
 function truncateSnippet(text: string | null): string | null {
   if (!text) return null;
-  const collapsed = text.replace(/\s+/g, " ").trim();
+  const collapsed = collapseWhitespace(text);
 
   if (!collapsed) return null;
 

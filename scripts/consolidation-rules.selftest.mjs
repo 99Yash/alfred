@@ -72,6 +72,14 @@ const FILE = "packages/api/src/modules/agent/executor.ts";
 const TEST_TREE_FILE = "packages/assistant/test/flags.behavior.test.ts";
 
 /**
+ * One of the three `packages/assistant/src/knowledge/` files
+ * `hand-rolled-whitespace-collapse` names in `owners`. Those folds feed a
+ * persisted `EntityKind` decision and a `holdsResearchPrior` guard, not a
+ * display, so the file a fixture claims to be is part of the answer here too.
+ */
+const KNOWLEDGE_OWNER_FILE = "packages/assistant/src/knowledge/entity-kind-classifier.ts";
+
+/**
  * @type {{name: string, caught: boolean, code: string, file?: string, rule?: string}[]} `file`
  *   defaults to {@link FILE}; name it only when the rule under test scopes on the
  *   path. `rule` names the rule id that must fire: `selfTestFailures` asserts the
@@ -574,6 +582,143 @@ switch (resultCategory) {
     name: "two unrelated comparisons on one ternary line are not one reading",
     caught: false,
     code: `const label = category === "triage" ? "Email" : identity.status === "resolved" ? "Done" : "";`,
+  },
+  {
+    // `hand-rolled-whitespace-collapse` replaced eleven copies of this line.
+    // The catch cases are the spellings an author reaches for; the ignore cases
+    // are the near-misses that share the `\s+` shape and do a different job.
+    name: "hand-rolled-whitespace-collapse — the display fold eleven sites hand-rolled",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text.replace(/\s+/g, " ").trim();`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — replaceAll with the unicode flag is the same fold",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text.replaceAll(/\s+/gu, " ").trim();`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — the character-class spelling of the same run",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text.replace(/[\s]+/g, " ").trim();`,
+  },
+  {
+    // The three spellings of the run. `/\s{2,}/` and `/\s\s+/` differ from
+    // `/\s+/` only on a lone whitespace character, which a display fold wants
+    // normalized anyway — so they are the same idiom, not near-misses. Before
+    // the rule enumerated them, `triage/classify.ts` folded an assist line in
+    // the `{2,}` spelling and the gate stayed green.
+    name: "hand-rolled-whitespace-collapse — the {2,} spelling of the same run",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text.replace(/\s{2,}/g, " ").trim();`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — the character class with the {2,} quantifier",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text.replace(/[\s]{2,}/g, " ").trim();`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — the doubled-atom spelling of the same run",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text.replace(/\s\s+/g, " ").trim();`,
+  },
+  {
+    // The doubled-atom form takes the character class on either atom
+    // independently, so the rule reads it on each atom independently too. An
+    // earlier regex spelled the two atoms literally and both of these evaded it
+    // while the comment above the rule claimed they did not.
+    name: "hand-rolled-whitespace-collapse — the doubled atom with the class on the first atom",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text.replace(/[\s]\s+/g, " ").trim();`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — the doubled atom with the class on both atoms",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text.replace(/[\s][\s]+/g, " ").trim();`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — single quotes around the replacement space",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text.replace(/\s+/g, ' ').trim();`,
+  },
+  {
+    // Why the rule is `scope: "chain"`: `oxfmt` splits a long call, and a line
+    // rule then matches nothing while `pnpm check` still exits 0.
+    name: "hand-rolled-whitespace-collapse — the call the formatter split across lines",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text
+    .replace(
+      /\s+/g,
+      " ",
+    )
+    .trim();`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — the adjacent split/join spelling of the same fold",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text.split(/\s+/).join(" ").trim();`,
+  },
+  {
+    // `matchChains` blanks comment lines but keeps their byte offsets, so a
+    // comment inside the chain must not break the adjacency the rule uses to
+    // tell a fold from a tokenizer.
+    name: "hand-rolled-whitespace-collapse — a comment inside the chain does not hide it",
+    rule: "hand-rolled-whitespace-collapse",
+    caught: true,
+    code: String.raw`  const collapsed = text
+    .split(/\s+/)
+    // one token per word
+    .join(" ");`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — folding to EMPTY is a length measure, not this fold",
+    caught: false,
+    code: String.raw`  if (out.text.replace(/\s+/g, "").length < MIN_READABLE_CHARS) return null;`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — pack.ts's narrow line-terminator fold is a different job",
+    caught: false,
+    code: String.raw`    .replace(/[\r\n  ]+/g, " ")`,
+  },
+  {
+    // Also the proof that widening to `{2,}` stayed narrow: the quantifier is
+    // the same, the class is not `\s`, so the row still ignores it.
+    name: "hand-rolled-whitespace-collapse — pack.ts's space/tab run is a different job too",
+    caught: false,
+    code: String.raw`    .replace(/[ \t]{2,}/g, " ")`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — a query-grammar fold is not a whitespace run",
+    caught: false,
+    code: String.raw`      .replace(/\(\s*(?:AND|OR)\s+/g, "(")`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — collapsing the space before a newline keeps the newline",
+    caught: false,
+    code: String.raw`    .replace(/\s+\n/g, "\n")`,
+  },
+  {
+    // The distant `.join(` a tokenizer never writes. Chasing it is what would
+    // manufacture a false positive on `loop-key.ts`'s token split.
+    name: "hand-rolled-whitespace-collapse — a tokenizer split with no join is not a fold",
+    caught: false,
+    code: String.raw`  const tokens = normalized.split(/\s+/).filter(Boolean);`,
+  },
+  {
+    name: "hand-rolled-whitespace-collapse — a knowledge owner keeps its non-display fold",
+    caught: false,
+    code: String.raw`  const collapsed = content.replace(/\s+/g, " ").trim();`,
+    file: KNOWLEDGE_OWNER_FILE,
   },
 ];
 
