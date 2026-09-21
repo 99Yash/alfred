@@ -16,6 +16,7 @@ import {
   type SignificanceBand,
   bucketSignificance,
   clamp01,
+  emailDomain,
   jsonRecordSchema,
   toMessage,
   toStringArray,
@@ -127,15 +128,6 @@ export function computeSignificance(
   return { score: round3(score), components, computedAt: now.toISOString() };
 }
 
-function domainOf(email: string | null | undefined): string | null {
-  if (!email) return null;
-  const at = email.lastIndexOf("@");
-
-  if (at < 1 || at === email.length - 1) return null;
-
-  return email.slice(at + 1).toLowerCase();
-}
-
 /**
  * The user's own account domains — the `same-org-domain` reference set. v1
  * derives them from the `user.email` row; connected-account domains can be
@@ -149,7 +141,10 @@ export async function loadUserDomains(userId: string): Promise<Set<string>> {
     .limit(1);
 
   const domains = new Set<string>();
-  const d = domainOf(rows[0]?.email ?? null);
+  // `user.email` is read straight off the table with no schema gate in front
+  // of it, so a malformed stored address answers `null` here and the
+  // same-org component falls to 0 rather than matching on a half-parsed host.
+  const d = emailDomain(rows[0]?.email ?? null);
 
   if (d) domains.add(d);
 

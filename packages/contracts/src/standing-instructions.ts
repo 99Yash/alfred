@@ -120,7 +120,7 @@ export const standingInstructionTargetKindSchema = z.enum(STANDING_INSTRUCTION_T
  * acceptance set as the old trim → lowercase → `z.email()` chain, plus `<>`
  * and `mailto:` tolerance. The stored match key is canonical by construction.
  */
-const senderEmailAddressSchema: z.ZodType<string> = z
+const senderEmailAddressSchema: z.ZodType<string, string> = z
   .string()
   .transform((value) => normalizeEmailAddress(value))
   .refine((value): value is string => value !== null, {
@@ -215,7 +215,7 @@ export function standingInstructionTargetKey(target: StandingInstructionTarget):
     default: {
       const exhaustive: never = target;
 
-      return String(exhaustive);
+      return exhaustive;
     }
   }
 }
@@ -268,9 +268,8 @@ export function targetMatchesSender(
 
     default: {
       const exhaustive: never = target;
-      void exhaustive;
 
-      return false;
+      return exhaustive;
     }
   }
 
