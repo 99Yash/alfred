@@ -107,9 +107,12 @@ export interface ApplyEventArgs {
    *
    * A {@link DeliveryInstant}, not a `Date`: the guard compares this against
    * the stored instant, and a `Date` holds only milliseconds while Postgres
-   * records `delivered_at` to the microsecond. Mint it with
-   * `receiptDeliveryInstant()` when a receipt row exists, or
-   * `deliveryInstantFromDate()` when the caller has only a JavaScript clock.
+   * records `delivered_at` to the microsecond. Read it with
+   * `receiptDeliveryInstant()` off the `typed_event_receipts` view, or
+   * `deliveryInstantOf(column)` off any other `timestamptz`, when a receipt row
+   * exists. Only a caller with no row at all — a pull — mints it, with
+   * `deliveryInstantNow()`. None of the three accepts a `Date`, because a
+   * `Date` has already lost the microseconds this guard compares.
    */
   deliveredAt: DeliveryInstant;
 }

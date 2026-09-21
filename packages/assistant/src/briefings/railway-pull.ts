@@ -4,7 +4,7 @@ import {
   type IntegrationActivityItem,
 } from "@alfred/contracts";
 import {
-  deliveryInstantFromDate,
+  deliveryInstantNow,
   objectStateStore,
   type ObjectState,
 } from "@alfred/assistant/connections";
@@ -434,7 +434,7 @@ export async function pullRailwayTargets(
       payload: receipt.payload,
       // A pull mints no receipt row, so this instant comes from a JavaScript
       // clock and is honestly millisecond-true with zero microseconds.
-      deliveredAt: deliveryInstantFromDate(new Date()),
+      deliveredAt: deliveryInstantNow(),
     });
 
     // The store's recency guard may refuse a stale read — a SUCCESS for an

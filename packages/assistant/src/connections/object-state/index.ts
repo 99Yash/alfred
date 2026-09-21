@@ -1,5 +1,6 @@
 export {
-  deliveryInstantFromDate,
+  deliveryInstantNow,
+  deliveryInstantOf,
   receiptDeliveryInstant,
   type DeliveryInstant,
 } from "./delivery-instant";

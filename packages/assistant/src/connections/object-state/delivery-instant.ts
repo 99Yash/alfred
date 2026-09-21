@@ -24,9 +24,18 @@ import { z } from "zod";
  * and `inKeyLockOrder` in `store.ts` compare with `<`/`>` rather than
  * `localeCompare`.
  *
- * Directory-private except for the two constructors `object-state/index.ts`
+ * Directory-private except for the three readers `object-state/index.ts`
  * re-exports: the store owns the comparison, and no consumer outside this
  * directory has a reason to build one.
+ *
+ * None of those three accepts a `Date`. That is the fence, not a convention:
+ * `deliveryInstantFromDate(receipt.deliveredAt)` restores the exact truncation
+ * #1200 removed and reads correctly, so the only defence that holds is for the
+ * name to be unreachable. A caller minting an instant from a clock calls
+ * {@link deliveryInstantNow}, which takes no argument. The `Date` mint that
+ * fixtures need lives behind
+ * `@alfred/assistant/connections/object-state/test-support`, whose subpath no
+ * product file has a reason to write.
  */
 
 declare const deliveryInstantBrand: unique symbol;
@@ -37,8 +46,7 @@ declare const deliveryInstantBrand: unique symbol;
  * Branded because the defect this module closes was a precision loss no
  * signature could see: `deliveredAt: Date` accepted a value that had already
  * thrown its microseconds away, and every call site looked correct. With the
- * brand, {@link receiptDeliveryInstant} and {@link deliveryInstantFromDate} are
- * the only ways to reach `ApplyEventArgs.deliveredAt`, so a fifth caller cannot
+ * brand, {@link deliveryInstantSchema} is the only parser, so a caller cannot
  * invent its own precision.
  */
 export type DeliveryInstant = string & { readonly [deliveryInstantBrand]: true };
@@ -89,9 +97,15 @@ export function receiptDeliveryInstant(): SQL<DeliveryInstant> {
 }
 
 /**
- * The same read for any nullable `timestamptz`, used by the store's own locked
- * identity select so the incumbent side of the comparison keeps its
- * microseconds too.
+ * The same read for any nullable `timestamptz` column — the general form.
+ *
+ * Two readers exist because {@link receiptDeliveryInstant} hard-codes the
+ * `typed_event_receipts` view, and four production files select the RAW
+ * `event_receipts` table instead. A select whose `from` clause does not hold
+ * the view raises Postgres `42P01` on the narrow reader, so it names its own
+ * column through this one: `deliveryInstantOf(eventReceipts.deliveredAt)`. The
+ * store's locked identity select uses it for `integration_objects`, so the
+ * incumbent side of the comparison keeps its microseconds too.
  *
  * The `SQL<…>` result type is an assertion, not a proof. It is honest only
  * because the store parses what comes back with {@link deliveryInstantSchema}
@@ -102,25 +116,23 @@ export function deliveryInstantOf(column: SQLWrapper): SQL<DeliveryInstant | nul
 }
 
 /**
- * A caller whose instant comes from a JavaScript clock, so it has only
- * milliseconds.
+ * Now, from this process's clock, so the instant has only milliseconds.
  *
- * The name is deliberately blunt: `railway-pull.ts` mints a receipt that has no
- * row, so its delivery instant is honestly millisecond-true with `000` in the
- * microsecond digits. Anything that has a receipt row must read
- * {@link receiptDeliveryInstant} instead.
+ * `railway-pull.ts` mints a receipt that has no row, so its delivery instant is
+ * honestly millisecond-true with `000` in the microsecond digits. Anything that
+ * HAS a receipt row reads {@link receiptDeliveryInstant} or
+ * {@link deliveryInstantOf} instead, and keeps all six.
  *
- * The brand cannot enforce that, because this constructor's job is to accept a
- * `Date`: `deliveryInstantFromDate(receipt.deliveredAt)` compiles and silently
- * restores the truncation #1200 removed. The `delivery-instant-from-receipt-date`
- * row in `scripts/consolidation-rules.mjs` refuses that line instead.
- *
- * Throws on an invalid `Date`, which cannot render an instant at all.
+ * It takes no argument on purpose. A `Date` parameter would accept
+ * `receipt.deliveredAt`, which `node-postgres` already truncated — the call
+ * would compile, read correctly, and restore the defect #1200 closed. No
+ * signature can tell one `Date` from another, so the parameter is removed
+ * rather than documented.
  */
-export function deliveryInstantFromDate(at: Date): DeliveryInstant {
+export function deliveryInstantNow(): DeliveryInstant {
   // `toISOString` renders exactly three fractional digits; the instant needs
   // six, so the missing microseconds are zero.
-  return deliveryInstantSchema.parse(`${at.toISOString().slice(0, -1)}000Z`);
+  return deliveryInstantSchema.parse(`${new Date().toISOString().slice(0, -1)}000Z`);
 }
 
 /**
