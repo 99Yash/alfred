@@ -9,11 +9,16 @@ import type { FloorResult } from "./floor";
  * 15a declares that sentence ZERO signal: it appears identically on a legitimate
  * echo and on a phish, so the account's own vendor asserts nothing about who
  * acted. The exposure verb in it is bound to `account`, never to the secret the
- * mail carries, but a 100-character colocation window cannot read that binding —
- * so "your token expires in 10 minutes … your account may be compromised"
- * matched, and the floor force-tagged the exact class rule 15a demotes.
+ * mail carries.
  *
- * Blanking it is the narrowest cut that keeps the real signals: an exposure verb
+ * `EXPOSURE_GAP` below now enforces that binding on its own for the common
+ * shape, because a period separates the hedge from the code line. This blank
+ * covers the shape the gap rule cannot: the same hedge with a LINE BREAK instead
+ * of a period, where "…may be compromised\nYour token is 419283" leaves the verb
+ * one word from the secret. Both are ordinary in plain-text vendor mail, so the
+ * two rules are kept together rather than traded.
+ *
+ * Blanking is the narrowest cut that keeps the real signals: an exposure verb
  * whose object IS the secret ("your api key was leaked", "GitGuardian detected an
  * exposed API key in commit a1b2c3") is untouched, and so is an account
  * compromise asserted alongside a named secret, because that body carries a
@@ -36,14 +41,15 @@ function withoutSelfEchoBoilerplate(text: string): string {
  * Exposure predicates (ADR-0051 §5, Phase 3 seed = ONE signal). Both key on
  * EXPOSURE VERBS, deliberately narrower than the broad `hasSecurityKeyword`
  * content flag — a self-initiated "sign in"/"your code is 123456" link contains
- * none of these verbs, so it never trips them (the bug that opened v3).
- * `[\s\S]` (dotall) so the noun and verb can wrap onto separate lines, as
- * security-bot bodies do.
+ * none of these verbs, so it never trips them (the bug that opened v3). The two
+ * must also stand in ONE unbroken phrase — see `EXPOSURE_GAP` — which is what
+ * stops an exposure verb aimed at something else in the same paragraph from
+ * reading as a claim about the secret.
  *
  * Both noun sets are narrower than `hasSecurityKeyword` ON PURPOSE: the generic
  * `credential` is excluded from both (it stays in the broad hint regex) because
- * `credential` + `exposed` over an 80-char window matches ordinary engineering
- * prose ("the credential object is exposed to the network").
+ * "the credential object is exposed to the network" is ordinary engineering
+ * prose that satisfies every gap rule this module can state.
  *
  * The two sets differ on `password`, and the difference is the whole point of
  * having two. They answer opposite questions with opposite error costs:
@@ -65,10 +71,14 @@ function withoutSelfEchoBoilerplate(text: string): string {
  *                                     PRESERVE a category or a rail todo the model
  *                                     already chose, so a miss buries a live
  *                                     exposure and it wants recall. `password`
- *                                     belongs: `DB_PASSWORD` in a commit, a
- *                                     broadcast alarm naming an exposed production
- *                                     database password, and "your password was
- *                                     found in a data breach" are all real.
+ *                                     belongs: "a database password committed to
+ *                                     a public repo", a broadcast alarm naming an
+ *                                     exposed production database password, and
+ *                                     "your password was found in a data breach"
+ *                                     are all real. Write the example as prose,
+ *                                     not as `DB_PASSWORD` — `_` is a word
+ *                                     character, so no `\b` opens before the noun
+ *                                     and the identifier form never matches.
  *
  * Before #1188 one regex answered both, so tightening the floor silently relaxed
  * the six vetoes. Change a noun set only after deciding WHICH question it answers.
@@ -79,9 +89,48 @@ const EXPOSED_CREDENTIAL_NOUN = String.raw`(?:secret|api[ -]?key|token|private k
 
 const OVERRIDE_FLOOR_EXPOSURE_VERB = String.raw`(?:exposed|leaked|committed|compromised|found|detected)`;
 
+/**
+ * One word of the run that may sit between the secret and the exposure verb: a
+ * plain word, or a bracketed aside, because leak bots write the credential's
+ * identity in parentheses ("A secret (Redis connection URI) was found exposed").
+ */
+const EXPOSURE_GAP_WORD = String.raw`(?:\([^()\n]*\)|\[[^\]\n]*\]|[\w'’-]+)`;
+
+/**
+ * The gap the two must share: at most three words, separated by whitespace
+ * ALONE. Whitespace-only is what binds the verb to the secret. Any other
+ * character — a period, a comma, a colon, a URL delimiter — ends the run, so the
+ * verb and the noun must stand in one unbroken phrase rather than merely in the
+ * same paragraph.
+ *
+ * This replaced a 100-character dotall window that read the two as one signal
+ * whenever they shared a neighbourhood, which is how the floor force-tagged the
+ * exact class rule 15a demotes. Both halves of the gap rule carry weight, and
+ * each one alone lets a real self-echo through:
+ *
+ *   "We found your account associated with this email. Your password reset
+ *    token is abc123."          — blocked by the sentence break, 5 words apart
+ *   "we detected this login attempt and sent you a verification token."
+ *                               — no punctuation at all; blocked by the 3-word cap
+ *   "We are committed to protecting your account. Your one-time token is 419283."
+ *                               — blocked by both
+ *
+ * Three words, not one, because a real exposure names the credential with its
+ * own modifiers: "found a hard-coded API key", "an exposed production database
+ * password", "the aws secret access key was committed". An auxiliary verb is
+ * just another word in the run, so "an api key was leaked" needs no separate
+ * rule.
+ *
+ * This is a proximity rule with a clause barrier, not a parse. It cannot see
+ * that "your token expires soon, nothing was compromised" is a denial. What it
+ * does guarantee is that the verb and the secret belong to one phrase, which is
+ * the property the old window lacked.
+ */
+const EXPOSURE_GAP = String.raw`(?:\s+${EXPOSURE_GAP_WORD}){0,3}\s+`;
+
 function exposureRe(noun: string): RegExp {
   return new RegExp(
-    String.raw`\b(?:${noun}\b[\s\S]{0,100}\b${OVERRIDE_FLOOR_EXPOSURE_VERB}|${OVERRIDE_FLOOR_EXPOSURE_VERB}\b[\s\S]{0,100}\b${noun})\b`,
+    String.raw`\b(?:${noun}\b${EXPOSURE_GAP}${OVERRIDE_FLOOR_EXPOSURE_VERB}|${OVERRIDE_FLOOR_EXPOSURE_VERB}\b${EXPOSURE_GAP}${noun})\b`,
     "i",
   );
 }
