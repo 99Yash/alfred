@@ -141,3 +141,5 @@ export * from "./workflow-run";
 export * from "./iso-date-time";
 
 export * from "./shared-thread";
+
+export * from "./text";

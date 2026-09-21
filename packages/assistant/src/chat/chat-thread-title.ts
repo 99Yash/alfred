@@ -1,5 +1,5 @@
 import { route, meteredGenerateText } from "@alfred/ai";
-import { toMessage } from "@alfred/contracts";
+import { collapseWhitespace, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
@@ -143,7 +143,7 @@ function cleanTitle(raw: string): string | null {
   if (s.length === 0) return null;
   s = s.replace(/^title\s*[:\-—]\s*/i, "");
   s = s.replace(/^["'“”`]+|["'“”`]+$/g, "");
-  s = s.replace(/\s+/g, " ").trim();
+  s = collapseWhitespace(s);
   s = s.replace(/[.。!?]+$/, "").trim();
 
   if (s.length === 0) return null;

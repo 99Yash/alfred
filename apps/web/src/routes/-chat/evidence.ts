@@ -1,4 +1,5 @@
 import {
+  collapseWhitespace,
   GOOGLE_WORKSPACE_MIME_PREFIX,
   INTEGRATIONS,
   isToolName,
@@ -73,7 +74,7 @@ export function presentBrowsing(tool: ToolCallView): BrowsingView | null {
       domain: domainOf(href),
       title: asString(result?.title),
       href,
-      excerpt: text ? text.replace(/\s+/g, " ").trim().slice(0, 400) : undefined,
+      excerpt: text ? collapseWhitespace(text).slice(0, 400) : undefined,
     };
   }
 
@@ -281,7 +282,7 @@ function joinMeta(...parts: (string | undefined)[]): string | undefined {
 /** Collapse whitespace and cap a free-text blob into a one-glance peek. */
 function snippetOf(text: string | undefined, max = 300): string | undefined {
   if (!text) return undefined;
-  const collapsed = text.replace(/\s+/g, " ").trim();
+  const collapsed = collapseWhitespace(text);
 
   return collapsed ? collapsed.slice(0, max) : undefined;
 }

@@ -671,6 +671,10 @@ function tidyBooleanResidue(query: string): string | undefined {
       // the emitted query byte-identical to the one a clean input would build.
       .replace(/\(\s+/g, "(")
       .replace(/\s+\)/g, ")")
+      // drift-ok: the emitted GitHub query, not display text. It is a query a
+      // provider must receive unchanged: GitHub parses these bytes as an
+      // operator grammar, so a changed fold changes which results come back
+      // rather than how something renders.
       .replace(/\s{2,}/g, " ")
       .replace(/^\s*(AND|OR|NOT)\s+/i, "")
       .replace(/\s+(AND|OR|NOT)\s*$/i, "")

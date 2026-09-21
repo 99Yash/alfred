@@ -1,4 +1,9 @@
-import { flattenJson, type InboundEventSource, INTEGRATION_DISPLAY_NAMES } from "@alfred/contracts";
+import {
+  collapseWhitespace,
+  flattenJson,
+  type InboundEventSource,
+  INTEGRATION_DISPLAY_NAMES,
+} from "@alfred/contracts";
 import type { InboundDescription } from "./descriptor";
 
 /** Fallback for every provider kind without a named describer. */
@@ -23,7 +28,7 @@ export function describeInboundJson(
 
   return {
     title,
-    summary: `${title}${text ? `: ${text}` : ""}`.replace(/\s+/g, " ").slice(0, 400),
+    summary: collapseWhitespace(`${title}${text ? `: ${text}` : ""}`).slice(0, 400),
     body: `${title}\n${text}`,
     url,
   };
