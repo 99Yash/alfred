@@ -145,6 +145,18 @@ export const evidenceObjectRefSchema = objectIdentitySchema.extend({
   stateCategory: z.enum(OBJECT_STATE_CATEGORIES).optional(),
   /** Raw provider state for display — `open`/`merged`/`closed`. */
   nativeState: z.string().min(1).max(200).optional(),
+  /**
+   * The OBJECT's own instant: when the last state-advancing delivery arrived
+   * (#1087, item 08). Distinct from {@link evidenceTimeSchema}, which dates the
+   * CARD. On a `names` card the card is a corpus chunk, so its `observedAt`
+   * means "when the source observed the chunk"; dating the object's lifecycle
+   * with that instant pairs a lifecycle with the wrong record. Populated only
+   * for an annotation (`relation: "names"`), because an `is` card already
+   * carries the same instant as its `time.observedAt` — the card IS the object.
+   * Absent when the projection has none, so a card never invents a lifecycle
+   * date.
+   */
+  stateDeliveredAt: z.iso.datetime({ offset: true }).optional(),
   title: z.string().min(1).max(500).optional(),
   url: z.string().min(1).max(2_048).optional(),
   /** Provider-specific locator — `owner/repo` for a GitHub PR. */
