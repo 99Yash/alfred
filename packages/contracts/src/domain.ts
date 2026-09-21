@@ -13,9 +13,10 @@
 // this grammar answers.
 //
 // The claim is "one implementation", not "every call site already uses it".
-// Two known domain reads still hand-roll the split:
-// `assistant/src/connections/object-state/github-adapter.ts` and the sibling
-// `sentry-adapter.ts`. They are named here rather than promised a date.
+// Known domain reads that still hand-roll the split include:
+// `assistant/src/connections/object-state/github-adapter.ts`, the sibling
+// `sentry-adapter.ts`, and `assistant/src/knowledge/cold-start/signals.ts`.
+// They are named here rather than promised a date.
 //
 // A dependency-free leaf on purpose, like `./hostname` itself: `user-model.ts`
 // value-imports `classifyEmailDomain` from `identity-affiliation.ts`, so any
