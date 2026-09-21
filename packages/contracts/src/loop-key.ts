@@ -300,5 +300,9 @@ function stripReplyPrefixes(subject: string): string {
 
 /** Lowercased, whitespace-collapsed subject. */
 function normalizeSubject(subject: string): string {
+  // drift-ok: a KEY normalizer, not a display one. This fold feeds the stored
+  // loop key, so changing it re-keys every existing row. `collapseWhitespace`
+  // is documented as free to change whenever a display improves; binding an
+  // identity to it would put a display concern on an identity's write path.
   return subject.replace(/\s+/g, " ").trim().toLowerCase();
 }
