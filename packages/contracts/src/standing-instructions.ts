@@ -283,6 +283,115 @@ export function targetMatchesSender(
 }
 
 /**
+ * Does `outer` cover every sender `inner` covers? Reflexive: a target covers
+ * itself. This is the SUBSET/SUPERSET relation ADR-0060 micro-decision 6 names,
+ * and it sits beside {@link targetMatchesSender} because it answers the same
+ * question over a target instead of over one address — a `sender_domain` covers
+ * exactly the addresses `targetMatchesSender` accepts for it.
+ *
+ * `sender_domain` covers a `sender_email` at that EXACT domain, and covers only
+ * the identical domain. Never a subdomain, for the reason
+ * {@link targetMatchesSender} states: a correct suffix rule needs a
+ * public-suffix list, and without one `co.in` would cover a whole country.
+ *
+ * The SENDER axis only. `accountId` scopes an instruction to a mailbox, which
+ * is the caller's question and not the target's — the same split
+ * {@link targetMatchesSender} already makes.
+ *
+ * Two nested exhaustive guards, so a third target kind fails to compile until
+ * it declares both what it covers and what covers it.
+ */
+export function standingInstructionTargetCovers(
+  outer: StandingInstructionTarget,
+  inner: StandingInstructionTarget,
+): boolean {
+  switch (outer.kind) {
+    case "sender_email":
+      switch (inner.kind) {
+        case "sender_email":
+          return outer.email === inner.email;
+        // One address never covers a whole domain.
+        case "sender_domain":
+          return false;
+        default: {
+          const exhaustive: never = inner;
+          void exhaustive;
+
+          return false;
+        }
+      }
+
+    case "sender_domain":
+      switch (inner.kind) {
+        case "sender_email":
+          return targetMatchesSender(outer, inner.email);
+        case "sender_domain":
+          return outer.domain === inner.domain;
+        default: {
+          const exhaustive: never = inner;
+          void exhaustive;
+
+          return false;
+        }
+      }
+
+    default: {
+      const exhaustive: never = outer;
+      void exhaustive;
+
+      return false;
+    }
+  }
+}
+
+/**
+ * How an EXISTING instruction relates to the one a write just stored, when the
+ * two overlap but are not the same target. `wider` = the existing target covers
+ * the stored one (a domain mute above an address pin); `narrower` = the stored
+ * target covers the existing one.
+ *
+ * Only a STRICT relation is reported, so the identity row is never its own
+ * overlap.
+ */
+export const STANDING_INSTRUCTION_OVERLAP_RELATIONS = ["wider", "narrower"] as const;
+
+export type StandingInstructionOverlapRelation =
+  (typeof STANDING_INSTRUCTION_OVERLAP_RELATIONS)[number];
+
+/**
+ * One active instruction that overlaps a write, reported on the successful
+ * result so the model and the user learn what else already binds this sender.
+ * ADR-0060 §6 asks `system.remember` to report a subset or superset overlap; at
+ * v1 both rows always carry `suppress`, so the overlap contradicts nothing and
+ * ADR-0060 §8 already elects one of them at apply time.
+ *
+ * A minted report: never persisted, never parsed from outside, so it is an
+ * interface and not a schema — the same call {@link StandingInstructionValue}'s
+ * consumers make for `StandingInstructionSummary`.
+ */
+export interface StandingInstructionOverlap {
+  factId: string;
+  /** The EXISTING instruction, seen from the one just written. */
+  relation: StandingInstructionOverlapRelation;
+  target: StandingInstructionTarget;
+  directive: string;
+}
+
+/**
+ * Why a write that asked for `scope:"domain"` stored a `sender_email` target
+ * instead. Each member is read off a real branch of the corporate-domain rail:
+ * `emailDomain(email)` answering `null`, and `classifyEmailDomain` answering
+ * anything but `corporate_domain`.
+ */
+export const STANDING_INSTRUCTION_SCOPE_NARROWINGS = [
+  "domain_not_single_organization",
+  "domain_unparseable",
+] as const;
+
+export type StandingInstructionScopeNarrowing =
+  (typeof STANDING_INSTRUCTION_SCOPE_NARROWINGS)[number];
+
+/**
  * ADR-0060 §8, most specific first. Position IS the rank. The deferred kinds
  * slot in at their ADR position when they ship — `category` after
  * `sender_domain`, then `topic` — and the insertion renumbers every later kind,
