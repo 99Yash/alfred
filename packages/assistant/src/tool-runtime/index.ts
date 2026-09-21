@@ -712,6 +712,15 @@ export type RememberBatchEntryResult =
  * The batch result `system.remember` returns when several senders were named.
  * Minted beside the coordinator in `runtime/adapters/system-tool-product.ts`;
  * the entries inside it are the derived single-sender result.
+ *
+ * UNIT SPLIT. `rememberedCount` is DISTINCT INSTRUCTION ROWS the batch wrote
+ * or affirmed — several senders collapsing onto one domain instruction report
+ * 1 with one entry each, because the second remember of the same target
+ * collapses onto the first row instead of writing again. `clarificationCount`
+ * keeps the other unit: per-sender ENTRIES that clarified, derived from the
+ * ok-ENTRY count and never from `rememberedCount`, or the two units mix.
+ * `ok` stays `rememberedCount > 0`, so a batch that fully collapses onto an
+ * existing row still reports success.
  */
 export interface RememberBatchResult {
   readonly ok: boolean;
@@ -720,7 +729,9 @@ export interface RememberBatchResult {
     readonly senderEmail: string;
     readonly result: RememberBatchEntryResult;
   }[];
+  /** Distinct `factId`s across ok entries — instruction rows, not senders. */
   readonly rememberedCount: number;
+  /** Per-sender entries that clarified — entry count, never row count. */
   readonly clarificationCount: number;
   readonly failedCount: number;
 }

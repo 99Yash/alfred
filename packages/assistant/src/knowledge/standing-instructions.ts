@@ -5,6 +5,7 @@ import {
   emailDomain,
   isStandingInstructionOverlapRelation,
   normalizeEmailAddress,
+  renderStandingInstructionDirective,
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   standingInstructionTargetKey,
@@ -160,14 +161,15 @@ export async function rememberSenderSuppression(
   const target = buildStandingInstructionTarget({ email, domain, label, accountId });
 
   // A domain rule covers senders the label does not name, so the stored
-  // sentence names the DOMAIN. Phrasing it from the sender label would read
-  // back as "…from Ben Book" for a rule that also binds everyone else at that
-  // host — and the model reads this sentence, not the target.
+  // sentence is derived from the TARGET alone: a model-supplied `directive`
+  // is ignored for the domain kind, and the target carries no label. Silent
+  // derivation keeps the write flowing (precedent: the 01r1 default branch
+  // below). `renderStandingInstructionDirective` is the single home of both
+  // wordings, so this sentence and every read-back agree by construction.
+  const modelDirective = normalizeOptionalLabel(parsed.directive);
+
   const directive =
-    normalizeOptionalLabel(parsed.directive) ??
-    (domain
-      ? `Stop surfacing reminders and briefing items from any sender at ${domain}.`
-      : `Stop surfacing reminders and briefing items from ${label ?? email}.`);
+    domain || modelDirective === null ? renderStandingInstructionDirective(target) : modelDirective;
 
   const source: MemorySource = parsed.source ?? { kind: "user" };
 
@@ -515,7 +517,7 @@ function findTargetOverlaps(
       factId: instruction.factId,
       relation: instruction.relation,
       target: instruction.value.target,
-      directive: instruction.value.directive,
+      directive: readStandingInstructionDirective(instruction.value),
     })),
     overlapCount: matched.length,
   };
@@ -634,9 +636,21 @@ function summarizeStandingInstruction(
     action: instruction.value.action,
     target: instruction.value.target,
     effects: instruction.value.effects,
-    directive: instruction.value.directive,
+    directive: readStandingInstructionDirective(instruction.value),
     validFrom: instruction.validFrom,
   };
+}
+
+/**
+ * The sentence the model reads for a stored row. A domain row renders from
+ * its target, so a pre-fix row whose stored prose names one address still
+ * reads back as a class rule; an address row keeps its stored (possibly
+ * reframed) prose, which names exactly the one address it binds.
+ */
+function readStandingInstructionDirective(value: StandingInstructionValue): string {
+  return value.target.kind === "sender_domain"
+    ? renderStandingInstructionDirective(value.target)
+    : value.directive;
 }
 
 /**
@@ -743,25 +757,41 @@ export async function editStandingInstruction(
 
   if (!existing) return { ok: false, status: "not_found" };
 
-  const nextDirective = normalizeOptionalLabel(parsed.directive);
+  const isDomainRow = existing.value.target.kind === "sender_domain";
+
+  // A domain row's sentence is derived from its target, so a model-supplied
+  // `directive` re-derives to the same sentence and the edit reads `unchanged`
+  // unless the target itself changed. A `senderLabel` on a domain row is a
+  // no-op: the arm carries no personal label. The `sender_email` arm keeps
+  // both edits — reframe prose and relabel — exactly as before.
+  const nextDirective = isDomainRow
+    ? renderStandingInstructionDirective(existing.value.target)
+    : normalizeOptionalLabel(parsed.directive);
 
   // `phrasing` is verbatim user provenance — a reframe of the directive never
   // rewrites it. The label is editable, including clearing it (null).
   const nextLabel =
-    parsed.senderLabel === undefined
-      ? existing.value.target.label
-      : normalizeOptionalLabel(parsed.senderLabel);
+    existing.value.target.kind === "sender_domain"
+      ? null
+      : parsed.senderLabel === undefined
+        ? existing.value.target.label
+        : normalizeOptionalLabel(parsed.senderLabel);
 
   const nextValue = standingInstructionValueSchema.parse({
     ...existing.value,
     directive: nextDirective ?? existing.value.directive,
-    target: { ...existing.value.target, label: nextLabel },
+    target:
+      existing.value.target.kind === "sender_domain"
+        ? existing.value.target
+        : { ...existing.value.target, label: nextLabel },
   });
 
-  if (
-    nextValue.directive === existing.value.directive &&
-    nextValue.target.label === existing.value.target.label
-  ) {
+  const nextLabelValue = nextValue.target.kind === "sender_email" ? nextValue.target.label : null;
+
+  const existingLabelValue =
+    existing.value.target.kind === "sender_email" ? existing.value.target.label : null;
+
+  if (nextValue.directive === existing.value.directive && nextLabelValue === existingLabelValue) {
     return {
       ok: true,
       status: "unchanged",
@@ -938,8 +968,19 @@ export function findSenderSuppression(
 
   if (!best) return null;
 
+  // The model reads this match through the triage prior (`directive` +
+  // `phrasing`), so a pre-fix domain row's stored personal prose is replaced
+  // with the class sentence here — inside knowledge, so the prior shape and
+  // every consumer stay untouched. An address row keeps its stored prose,
+  // which names exactly the one address it binds.
+  const value =
+    best.value.target.kind === "sender_domain"
+      ? { ...best.value, directive: renderStandingInstructionDirective(best.value.target) }
+      : best.value;
+
   return {
     ...best,
+    value,
     matchedEmail: email,
     effect: lookup.effect,
     matchedVia: best.value.target.kind,
