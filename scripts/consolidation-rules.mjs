@@ -246,7 +246,38 @@ export const RULES = [
     scope: "chain",
     re: /\b\w*[Cc]ategory\b[^;"]*(?:===|!==)[^;"]*"(?:resolved|abandoned)"|"(?:resolved|abandoned)"[^;"]*(?:===|!==)[^;"]*\b\w*[Cc]ategory\b|\b\w*[Cc]ategory\b\s*!==\s*"active"|"active"\s*!==\s*\w*[Cc]ategory\b|\bLOOP_CLOSING_STATE_CATEGORIES\b[^;\n]*\.\s*(?:includes|indexOf|some|has|find)\(|\[[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*\][^;\n]*\.\s*(?:includes|indexOf|some|has|find)\(|(?<!function )\bisTerminalCategory\s*\(|\bstateCategory\b[\s\S]{0,300}?(?:===|!==|\.\s*(?:includes|some|indexOf)\(|\bcase\s+)[^;"\n]{0,60}?"(?:resolved|abandoned)"|\bstateCategory\b[\s\S]{0,300}?(?:!==[^;"\n]{0,60}?"active"|"active"[^;"\n]{0,60}?!==)|\bstateCategory\b[\s\S]{0,300}?"(?:resolved|abandoned)"[^;"\n]{0,60}?(?:===|!==)|\{\s*[^};]*\bresolved\b[^};]*\babandoned\b[^};]*\}\s*;?[\s\S]{0,300}?\[\s*\w*[Cc]ategory\s*\]|switch\s*\([^)\n]*\b\w*[Cc]ategory\b[^)\n]*\)\s*\{(?:(?!\bswitch\s*\()[\s\S]){0,1500}?\bcase\s+"(?:resolved|abandoned)"\s*:/,
     severity: "gate",
-    fix: "Call closesOpenAsk(provider, kind, category) from @alfred/contracts for a projection row, or evidenceObjectClosesAsk(card.object) for an evidence card. Both read the registry's per-kind closesAskOn, so a kind that closes on neither category stays correct, and both return the closing category rather than a boolean. `failed` closes nothing: it is terminal for the object but it opens a CI loop, which is why a terminal-means-closed helper is not the reader either — if you truly mean terminal for the object and not closed, say so in a `// drift-ok:` marker.",
+    fix: "Call closesOpenAsk(provider, kind, category, proof) from @alfred/contracts for a projection row — `proof` is the reading you actually hold, and a sync reader with no IO holds `stored_projection` — or evidenceObjectClosesAsk(card.object) for an evidence card, or closureCandidate(provider, kind, category) when you only mean to nominate a candidate for a consumer that will go get the proof. All read the registry's per-kind closesAskOn and closesAskFrom, so a kind that closes on neither category stays correct, and both return the closing category rather than a boolean. `failed` closes nothing: it is terminal for the object but it opens a CI loop, which is why a terminal-means-closed helper is not the reader either — if you truly mean terminal for the object and not closed, say so in a `// drift-ok:` marker.",
+  },
+  {
+    id: "unowned-live-confirmation-proof",
+    // The fourth argument of `closesOpenAsk` is a SELF-REPORT. The caller
+    // states which reading it holds, and no type separates a caller that just
+    // took a live provider read from one holding a stored `integration_objects`
+    // row. The registry half of the ADR-0103 split is tier 1 — a kind declares
+    // `closesAskFrom` once, and the compiler keeps that record exhaustive — but
+    // the caller half is tier 5 without this row: a site that types
+    // `"live_confirmation"` over a stored row compiles, lints and passes
+    // `pnpm check` while it asserts a closure it never proved.
+    //
+    // `hand-rolled-object-closure` above cannot see that site. It fences the
+    // COMPARISON, and its own selftest records the four-argument registry call
+    // as the intended form, so the argument's VALUE is outside its reach.
+    //
+    // The token is therefore owned rather than free. Two files may write it:
+    // the registry that declares the vocabulary, and the one site that takes
+    // the read (`dropClosedLoops`). A second confirmation site adds itself
+    // here, which keeps every site that may assert a live proof readable in
+    // one place. That is the only witness the registry's DEMAND has.
+    //
+    // Comment-only lines are already out of reach (`matchLine` skips them), so
+    // the docstrings that name the token are not drift.
+    re: /["'`]live_confirmation["'`]/,
+    severity: "gate",
+    owners: [
+      "packages/contracts/src/integration-objects.ts",
+      "packages/assistant/src/briefings/gather.ts",
+    ],
+    fix: "Pass the proof you actually hold to closesOpenAsk(provider, kind, category, proof) from @alfred/contracts. A reader over a stored integration_objects row holds `stored_projection`; only a caller that just took a live provider read of THIS object may name `live_confirmation`. If you mean to nominate a candidate for a consumer that will go get the read, call closureCandidate(provider, kind, category) and hand on its `proof` instead of naming one. A new site that genuinely takes the read joins this rule's `owners`; a one-off states the read it holds in a `// drift-ok:` marker.",
   },
   {
     id: "canonical-param-key",

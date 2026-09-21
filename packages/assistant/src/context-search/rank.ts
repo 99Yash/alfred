@@ -260,9 +260,11 @@ export function sourcePriorityFromManifest(manifest: SourceManifest): number {
  * A kind-agnostic score over the four lifecycle buckets, answering "how much
  * does this object's state matter to a query about current state". It is NOT
  * the registry's per-kind closure policy, and the two may differ by design: a
- * resolved Sentry issue is fixed work and ranks last even though
- * `sentry.issue.closesAskOn` is empty (ADR-0103 refuses suppression until
- * transition order is proven), and a green CI target ranks below a red one
+ * resolved Sentry issue is fixed work and ranks last, and its
+ * `sentry.issue.closesAskOn: ["resolved"]` still asserts nothing from stored
+ * state alone — the kind declares `closesAskFrom: "live_confirmation"`, so
+ * only a consumer holding a live issue read may close on it (ADR-0103) — and a
+ * green CI target ranks below a red one
  * because the red build is the alert. Suppression is not relevance.
  * `closesOpenAsk` / `evidenceObjectClosesAsk` are the closure readers; this
  * table must not call them, and the `hand-rolled-object-closure` fence rightly

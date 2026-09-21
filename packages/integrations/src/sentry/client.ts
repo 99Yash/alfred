@@ -26,7 +26,8 @@ import type { RetryPolicy } from "../shared/retry";
  * instead: one Client Secret is one integration in one organization.
  */
 
-const SENTRY_API = "https://sentry.io/api/0";
+/** Pinned REST authority, shared with the curated reads beside this client. */
+export const SENTRY_API = "https://sentry.io/api/0";
 
 /** A pasted token is wrong iff Sentry says so; a 5xx or a timeout is not the user's fault. */
 export function isSentryAuthorizationError(err: unknown): boolean {

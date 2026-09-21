@@ -3,6 +3,7 @@ import {
   getIdPath,
   getStringPath,
   isEventTypeForSource,
+  type SentryIssueNativeState,
 } from "@alfred/contracts";
 import { collectSentryIssueIds } from "./sentry-issue-url";
 import type { ObjectStateDelta } from "./store";
@@ -26,8 +27,9 @@ import type { ObjectStateDelta } from "./store";
  * `issue_assigned` and every other type is a no-op (`[]`): assignment moves
  * no lifecycle state.
  *
- * Nothing about a Sentry issue absorbs, and nothing about it closes an ask —
- * both are declared once in `INTEGRATION_OBJECT_DEFS.sentry.issue`, not here.
+ * Nothing about a Sentry issue absorbs, and the kind's `closesAskOn` decides
+ * what closes an ask — both are declared once in
+ * `INTEGRATION_OBJECT_DEFS.sentry.issue`, not here.
  */
 export function reduceSentryEvent(
   eventType: string,
@@ -98,9 +100,7 @@ export function reduceSentryEvent(
  * file says what lifecycle state it asserts, rather than silently folding to
  * no state at all.
  */
-function issueNativeState(
-  eventType: EventTypeForSource<"sentry">,
-): "unresolved" | "resolved" | "archived" | null {
+function issueNativeState(eventType: EventTypeForSource<"sentry">): SentryIssueNativeState | null {
   switch (eventType) {
     case "issue_created":
     case "issue_unresolved":

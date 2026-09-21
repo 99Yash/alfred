@@ -432,7 +432,7 @@ switch (category) {
   {
     name: "delegating to the registry is the intended form",
     caught: false,
-    code: `  return closesOpenAsk(object.provider, object.kind, object.stateCategory);`,
+    code: `  return closesOpenAsk(object.provider, object.kind, object.stateCategory, "stored_projection");`,
   },
   {
     name: "hand-rolled-object-closure — the sibling export that answers the same question in one argument",
@@ -880,6 +880,40 @@ const LINE_CASES = [
     name: "object-state-row-lock-mode — FOR UPDATE outside the module stays the package's idiom",
     caught: false,
     code: `      .for("update")`,
+  },
+  {
+    // `unowned-live-confirmation-proof` is the only witness that a caller's
+    // `proof` argument is honest. The compiler cannot be one: the argument is
+    // a member of a union, and every member typechecks at every site. So the
+    // three fixtures below are the whole enforcement — it fires on the false
+    // claim, it stays quiet on the honest weaker claim, and it stays quiet in
+    // the two files that own the token.
+    name: "unowned-live-confirmation-proof — a stored-row reader claiming a live read it never took",
+    caught: true,
+    rule: "unowned-live-confirmation-proof",
+    code: `  return closesOpenAsk(row.provider, row.kind, row.stateCategory, "live_confirmation");`,
+  },
+  {
+    name: "unowned-live-confirmation-proof — the weaker proof a sync reader honestly holds",
+    caught: false,
+    code: `  return closesOpenAsk(row.provider, row.kind, row.stateCategory, "stored_projection");`,
+  },
+  {
+    name: "unowned-live-confirmation-proof — the one site that takes the read owns the token",
+    caught: false,
+    code: `      : closesOpenAsk(state.provider, state.kind, live, "live_confirmation");`,
+    file: "packages/assistant/src/briefings/gather.ts",
+  },
+  {
+    name: "unowned-live-confirmation-proof — the registry declaring the vocabulary owns it too",
+    caught: false,
+    code: `export const CLOSURE_PROOFS = ["stored_projection", "live_confirmation"] as const;`,
+    file: "packages/contracts/src/integration-objects.ts",
+  },
+  {
+    name: "unowned-live-confirmation-proof — a docstring naming the token is prose, not an assertion",
+    caught: false,
+    code: ` * declaring \`closesAskFrom: "live_confirmation"\` needs a read taken at the`,
   },
 ];
 
