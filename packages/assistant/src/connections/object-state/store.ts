@@ -297,18 +297,47 @@ function compareIdentity(a: ObjectStateDelta, b: ObjectStateDelta): number {
  * `externalId` decide the whole order. `sort` is stable, so two deltas for ONE
  * identity keep their emitted order and the later one still wins.
  *
- * SCOPE, because the guarantee is partial. This orders the object rows only.
- * The `integrationObjectKeys` upsert at the end of each delta also takes a row
- * lock, interleaved between two object locks and outside this order, so an ABBA
- * cycle across the two tables stays reachable: one transaction holds an object
- * and waits on a key, the other holds that key and waits on that object. It
- * needs one key value to move between objects in two concurrent deliveries,
- * which is what `set: { objectId }` exists for. Postgres detects it as `40P01`
- * and `ingress.deliver` retries (`attempts: 5`). #1203 closes it by taking every
- * key lock after every object lock, in its own order.
+ * This is phase 1 of two, and the pair is deadlock-free over BOTH tables
+ * (#1203). `applyEvent` takes every `integration_objects` row lock of a
+ * delivery here, then every `integration_object_keys` row lock after the loop,
+ * in `inKeyLockOrder`. A transaction that waits on a key row has finished phase
+ * 1, so it holds objects only and waits on no object; a transaction that waits
+ * on an object row is still in phase 1, so it holds no key. A wait-for cycle
+ * therefore lies inside one phase, and each phase is ordered, so no cycle
+ * exists.
  */
 function inLockOrder(deltas: readonly ObjectStateDelta[]): ObjectStateDelta[] {
   return [...deltas].sort(compareIdentity);
+}
+
+/** One deferred key upsert, bound to the object its delta resolved. */
+interface PendingKeyUpsert {
+  readonly keyKind: string;
+  readonly keyValue: string;
+  readonly objectId: string;
+}
+
+/**
+ * Code-unit order over `(keyKind, keyValue)`, for the same reason
+ * `compareIdentity` is: `localeCompare` ranks some DISTINCT strings equal, so a
+ * sort built on it is not a strict total order and two transactions can keep
+ * two key rows in opposite order — which is the cycle this order removes.
+ *
+ * `objectId` is deliberately NOT a tie-break. Two deltas that carry one key
+ * value for two different objects must fall through to the stable `sort` and
+ * keep their delta order, so the later delta still wins the row.
+ */
+function compareKeyUpsert(a: PendingKeyUpsert, b: PendingKeyUpsert): number {
+  if (a.keyKind !== b.keyKind) return a.keyKind < b.keyKind ? -1 : 1;
+
+  if (a.keyValue === b.keyValue) return 0;
+
+  return a.keyValue < b.keyValue ? -1 : 1;
+}
+
+/** Phase 2 of the lock order: the `integration_object_keys` rows of one delivery. */
+function inKeyLockOrder(upserts: readonly PendingKeyUpsert[]): PendingKeyUpsert[] {
+  return [...upserts].sort(compareKeyUpsert);
 }
 
 export const objectStateStore: ObjectStateStore = {
@@ -319,6 +348,12 @@ export const objectStateStore: ObjectStateStore = {
     if (deltas.length === 0) return;
 
     await db().transaction(async (tx) => {
+      // Phase 2's work, collected during phase 1. A key upsert takes a row lock
+      // on a SECOND table, so issuing it inside the loop would interleave key
+      // locks between object locks and reopen the ABBA cycle `inLockOrder`
+      // closes.
+      const pendingKeys: PendingKeyUpsert[] = [];
+
       for (const delta of inLockOrder(deltas)) {
         // Unknown kinds never write: without a kind def there is no absorbing
         // policy, so the monotonicity guard below would fail open and let a later
@@ -456,27 +491,42 @@ export const objectStateStore: ObjectStateStore = {
         }
 
         // Keys are additive identity facts about the object — upsert regardless
-        // of event order (the same head_sha always maps to the same PR).
+        // of event order (the same head_sha always maps to the same PR). The
+        // write itself waits for phase 2; `objectId` rides along, because the
+        // deferred row must still name the object THIS delta resolved.
         for (const key of delta.keys) {
-          await tx
-            .insert(integrationObjectKeys)
-            .values({
-              userId: args.userId,
-              objectId,
-              provider: args.provider,
-              keyKind: key.keyKind,
-              keyValue: key.keyValue,
-            })
-            .onConflictDoUpdate({
-              target: [
-                integrationObjectKeys.userId,
-                integrationObjectKeys.provider,
-                integrationObjectKeys.keyKind,
-                integrationObjectKeys.keyValue,
-              ],
-              set: { objectId },
-            });
+          pendingKeys.push({ keyKind: key.keyKind, keyValue: key.keyValue, objectId });
         }
+      }
+
+      // Phase 2: every key row of the delivery, after every object row, in its
+      // own order. `sort` is stable, so two deltas that carry one key value for
+      // two objects keep their delta order and the later one still wins.
+      //
+      // Nothing between the fold loop and here reads `integration_object_keys`,
+      // so this transaction observes no value it has not yet written. An edit
+      // that resolves an object BY KEY inside the loop would break that: it
+      // would read a key this delivery has collected but not issued, and see
+      // the old `objectId`. Such an edit must read `pendingKeys` too.
+      for (const pending of inKeyLockOrder(pendingKeys)) {
+        await tx
+          .insert(integrationObjectKeys)
+          .values({
+            userId: args.userId,
+            objectId: pending.objectId,
+            provider: args.provider,
+            keyKind: pending.keyKind,
+            keyValue: pending.keyValue,
+          })
+          .onConflictDoUpdate({
+            target: [
+              integrationObjectKeys.userId,
+              integrationObjectKeys.provider,
+              integrationObjectKeys.keyKind,
+              integrationObjectKeys.keyValue,
+            ],
+            set: { objectId: pending.objectId },
+          });
       }
     });
   },
