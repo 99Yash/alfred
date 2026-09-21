@@ -49,6 +49,7 @@ describe("sender suppression coordinator", () => {
       overlaps: [],
       overlapCount: 0,
       scopeNarrowing: null,
+      droppedInputs: [],
     };
 
     const dismissed: ResolveTodosForGmailSourceResult = {

@@ -457,6 +457,18 @@ export type StandingInstructionScopeNarrowing =
   (typeof STANDING_INSTRUCTION_SCOPE_NARROWINGS)[number];
 
 /**
+ * An input the caller sent that a write could not store, because the target
+ * names a CLASS of senders rather than one mailbox. A `sender_domain` row
+ * renders its sentence from the domain alone
+ * ({@link renderStandingInstructionDirective}) and its arm carries no personal
+ * label, so a supplied `directive` and a supplied `senderLabel` both stop at
+ * the write boundary. The members use the tool-input spelling, so a caller
+ * reads back the name of the field it sent. An empty list means the write
+ * stored everything it was given.
+ */
+export type StandingInstructionDroppedInput = "directive" | "senderLabel";
+
+/**
  * ADR-0060 §8, most specific first. Position IS the rank. The deferred kinds
  * slot in at their ADR position when they ship — `category` after
  * `sender_domain`, then `topic` — and the insertion renumbers every later kind,
