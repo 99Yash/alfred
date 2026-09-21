@@ -207,7 +207,10 @@ export async function rememberSenderSuppression(
       ok: true,
       status: "already_exists",
       factId: existing.factId,
-      instruction: existing.value,
+      // Rendered, not raw: this path collapses onto a row it never rewrites,
+      // so a pre-derivation domain row would otherwise echo its stored
+      // personal sentence forever.
+      instruction: readStandingInstruction(existing.value),
       resolvedSenderEmail: email,
       // Reported from the snapshot THIS path decided on — the unlocked outer
       // read. No path may report an overlap set its own write never saw.
@@ -301,7 +304,9 @@ export async function rememberSenderSuppression(
       ok: true,
       status: "already_exists",
       factId: row.id,
-      instruction: row.instruction,
+      // Same reason as the unlocked echo above: the locked re-check found a
+      // rival row and returned it without a write.
+      instruction: readStandingInstruction(row.instruction),
       resolvedSenderEmail: email,
       ...row.overlaps,
       scopeNarrowing,
@@ -580,6 +585,21 @@ function readStandingInstructionDirective(value: StandingInstructionValue): stri
   return value.target.kind === "sender_domain"
     ? renderStandingInstructionDirective(value.target)
     : value.directive;
+}
+
+/**
+ * The same rule at value level, for a path that hands the model a whole
+ * stored row rather than one field. `already_exists` echoes the row it
+ * collapsed onto, and that row can predate the derivation — it never writes,
+ * so it also never self-heals. Without this the echo carries the personal
+ * sentence while `overlaps[]` in the same result carries the class one.
+ * Returns the input unchanged when nothing renders, so an address row stays
+ * reference-equal.
+ */
+function readStandingInstruction(value: StandingInstructionValue): StandingInstructionValue {
+  const directive = readStandingInstructionDirective(value);
+
+  return directive === value.directive ? value : { ...value, directive };
 }
 
 /**
