@@ -662,7 +662,7 @@ export const RULES = [
   {
     id: "hand-rolled-whitespace-collapse",
     // `.replace(/\s+/g, " ")` — folding a whitespace run to one space, for a
-    // value a person or a model reads. It was hand-written in ten display
+    // value a person or a model reads. It was hand-written in eleven display
     // places before `collapseWhitespace` existed, and each copy was free to
     // drift into a slightly different preview.
     //
@@ -674,7 +674,9 @@ export const RULES = [
     //
     // Three spellings of the run, because an author reaches for all three:
     // `/\s+/`, `/\s{2,}/` and `/\s\s+/`, each with or without the character
-    // class. The `{2,}` form is NOT a near-miss — `/\s{2,}/g` differs from
+    // class — and the doubled-atom form reads the class on either atom
+    // independently, so `/[\s]\s+/` and `/[\s][\s]+/` are read too. The `{2,}`
+    // form is NOT a near-miss — `/\s{2,}/g` differs from
     // `/\s+/g` only on a single whitespace character, which a display fold
     // wants normalized anyway. What it does catch besides display is a value a
     // provider must receive unchanged, and that site carries a marker.
@@ -688,16 +690,21 @@ export const RULES = [
     // No `paths` clause, so the rule inherits `isSkippedPath`: a copy landing in
     // `scripts/` or a test tree is unrefused. A `paths` clause would opt the
     // rule out of that filter entirely and then flag deliberate fixtures.
-    re: /\.replace(?:All)?\(\s*\/(?:\[?\\s\]?(?:\+|\{2,\})|\\s\\s\+)\/[a-z]*\s*,\s*(["'`]) \1\s*,?\s*\)|\.split\(\s*\/\[?\\s\]?\+\/[a-z]*\)\s*\.join\(\s*(["'`]) \2\s*,?\s*\)/,
+    re: /\.replace(?:All)?\(\s*\/(?:\[?\\s\]?(?:\+|\{2,\})|(?:\[?\\s\]?){2}\+)\/[a-z]*\s*,\s*(["'`]) \1\s*,?\s*\)|\.split\(\s*\/\[?\\s\]?\+\/[a-z]*\)\s*\.join\(\s*(["'`]) \2\s*,?\s*\)/,
     scope: "chain",
     severity: "gate",
     owners: [
       // `packages/assistant/src/knowledge/` belongs to a parallel campaign, so
       // this campaign may not edit the directory at all. THAT is why all three
       // are exempt — not because all three fold for a non-display reason. Two
-      // do: `entity-kind-classifier` normalizes a display name that feeds a
-      // persisted `EntityKind` decision, and `no-profile` folds a chunk only so
-      // the `holdsResearchPrior` guard can read it.
+      // do, and both pass the byte-for-byte test the `fix` string states.
+      // `entity-kind-classifier` puts its folded name straight into a `Set`
+      // (`names.add(normalized)`), so the fold IS the dedup token: two
+      // spellings of one name merge or stay apart on its exact bytes.
+      // `no-profile` never shows its folded copy; it compares the whole copy
+      // against the anchored `NO_PUBLIC_PROFILE_RE`, whose `^…$` and
+      // 20-character tail bound measure those bytes, so a wider fold silently
+      // drops a real prior.
       //
       // `user-context-line` does NOT. Its folded value is returned as
       // `UserContextLine.text` and rendered into the triage prompt, so it is a
