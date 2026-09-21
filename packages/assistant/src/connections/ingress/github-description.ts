@@ -1,5 +1,6 @@
 import {
   isEventTypeForSource,
+  parseGitBranchRef,
   vercelDeploymentOutcome,
   type EventTypeForSource,
 } from "@alfred/contracts";
@@ -128,7 +129,13 @@ function describeGithubActivity(
       // The DEPLOYMENT's branch. The top-level `ref`/`branch` of a
       // `repository_dispatch` is always the default branch, so it would read
       // `main` for a preview deploy of any feature branch.
-      const branch = deployment.git?.ref ? ` on ${deployment.git.ref}` : "";
+      //
+      // How a branch ref is spelled is decided ONCE, in contracts, so this
+      // line reads the same branch the reducer folds on rather than a second
+      // reading of the same field. A ref that names no branch (a tag, a pull
+      // ref) has no branch to show, so the raw ref stands.
+      const gitRef = deployment.git?.ref;
+      const branch = gitRef ? ` on ${parseGitBranchRef(gitRef) ?? gitRef}` : "";
       const environment = deployment.environment ? ` (${deployment.environment})` : "";
 
       return {
