@@ -1,4 +1,5 @@
 import {
+  collapseWhitespace,
   INBOX_DEFAULT_LIMIT,
   isTriageCategory,
   parseEmailAddress,
@@ -321,15 +322,15 @@ function toneFor(name: string): AppTint {
 function cleanPreview(snippet: string | null): string {
   if (!snippet) return "";
 
-  return snippet
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\s+/g, " ")
-    .trim();
+  return collapseWhitespace(
+    snippet
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">"),
+  );
 }
 
 const MINUTE = 60 * 1000;

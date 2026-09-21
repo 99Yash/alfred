@@ -1,6 +1,7 @@
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import {
+  collapseWhitespace,
   extractGmailDocumentBody,
   parseGmailDocumentMetadata,
   type GmailDocumentMetadata,
@@ -68,14 +69,14 @@ export function buildThreadSnippet(
   metadata: GmailDocumentMetadata,
   max: number,
 ): string {
-  const body = extractGmailDocumentBody(content, {
-    from: metadata.from,
-    to: metadata.to,
-    cc: metadata.cc,
-    subject: title,
-  })
-    .replace(/\s+/g, " ")
-    .trim();
+  const body = collapseWhitespace(
+    extractGmailDocumentBody(content, {
+      from: metadata.from,
+      to: metadata.to,
+      cc: metadata.cc,
+      subject: title,
+    }),
+  );
 
   const base = body || (title ?? "").trim();
 

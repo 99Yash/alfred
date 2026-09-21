@@ -1,3 +1,4 @@
+import { collapseWhitespace } from "@alfred/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
@@ -39,7 +40,7 @@ const ALFRED_TOAST_ICON = (
  * text (tool-only / artifact-only), so the caller can fall back to a subtitle.
  */
 function replySnippet(text: string | undefined): string | null {
-  const collapsed = text?.replace(/\s+/g, " ").trim();
+  const collapsed = collapseWhitespace(text ?? "");
 
   if (!collapsed) return null;
 

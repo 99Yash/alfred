@@ -659,6 +659,44 @@ export const RULES = [
     severity: "gate",
     fix: 'Lock an `integration_objects` row with `.for("no key update")`, through lockIdentityRow in ./store.ts. A key upsert takes `FOR KEY SHARE` on its parent object row, which waits behind `FOR UPDATE` and re-opens the cross-table deadlock the two-phase lock order closes. If this lock is over another table, append `// drift-ok: <table, and why its mode is free>`.',
   },
+  {
+    id: "hand-rolled-whitespace-collapse",
+    // `.replace(/\s+/g, " ")` — folding a whitespace run to one space, for a
+    // value a person or a model reads. It was hand-written in nine display
+    // places before `collapseWhitespace` existed, and each copy was free to
+    // drift into a slightly different preview.
+    //
+    // The fold to EMPTY (`.replace(/\s+/g, "")`) is a length measure, not this
+    // idiom, so the replacement argument must be a quoted single space.
+    // `context-search/pack.ts`'s `oneLine` is a deliberately NARROW fold over
+    // the four line terminators and must not match either — its regex does not
+    // open with `\s`.
+    //
+    // `scope: "chain"`: the formatter can split a `.replace(…)` call across
+    // lines, and a chain rule's `drift-ok` marker must carry a reason, which
+    // `matchLine` does not require. Chain scope also reaches the adjacent
+    // `.split(/\s+/).join(" ")` spelling. The span is bounded by adjacency, not
+    // by a `[^;]*` run, so it cannot swallow the next statement.
+    //
+    // No `paths` clause, so the rule inherits `isSkippedPath`: a copy landing in
+    // `scripts/` or a test tree is unrefused. A `paths` clause would opt the
+    // rule out of that filter entirely and then flag deliberate fixtures.
+    re: /\.replace(?:All)?\(\s*\/\[?\\s\]?\+\/[a-z]*\s*,\s*(["'`]) \1\s*,?\s*\)|\.split\(\s*\/\[?\\s\]?\+\/[a-z]*\)\s*\.join\(\s*(["'`]) \2\s*,?\s*\)/,
+    scope: "chain",
+    severity: "gate",
+    owners: [
+      // `packages/assistant/src/knowledge/` belongs to a parallel campaign, so
+      // these three keep a whole-file exemption instead of the per-line marker
+      // the other two excluded sites carry. Each folds for a NON-display reason:
+      // `entity-kind-classifier` feeds a persisted `EntityKind` decision, and
+      // the other two fold a chunk before a `holdsResearchPrior` guard reads it.
+      // Convert them to `// drift-ok:` lines once that campaign closes.
+      "packages/assistant/src/knowledge/entity-kind-classifier.ts",
+      "packages/assistant/src/knowledge/user-context-line.ts",
+      "packages/assistant/src/knowledge/cold-start/no-profile.ts",
+    ],
+    fix: "Call collapseWhitespace(text) from @alfred/contracts — one fold for every display snippet, preview, title and summary. If the value builds a key, a hash, a dedup token or a classifier input, keep the private fold and append `// drift-ok: <what the value identifies>`: the shared helper is free to change whenever a display improves, and a stored identity is not.",
+  },
 ];
 
 /**

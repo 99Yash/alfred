@@ -1,4 +1,5 @@
 import {
+  collapseWhitespace,
   isEventTypeForSource,
   parseGitBranchRef,
   vercelDeploymentOutcome,
@@ -174,7 +175,7 @@ export function describeGithubReceipt(kind: string, raw: unknown): InboundDescri
     ...fallback,
     ...activity,
     url: activity.url ?? fallback.url,
-    summary: activity.title.replace(/\s+/g, " "),
+    summary: collapseWhitespace(activity.title),
     body: `${activity.title}\n${fallback.body}`,
   };
 }
