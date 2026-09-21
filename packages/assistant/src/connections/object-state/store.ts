@@ -258,16 +258,19 @@ function objectIdentityWhere(userId: string, identity: ObjectIdentity) {
  * spelling it in SQL would move that policy out of the registry and into this
  * file — the thing the guard's own comment forbids.
  *
- * The lock MODE is load-bearing for the two-phase order in {@link inLockOrder}.
- * `integration_object_keys.object_id` references this table, so every phase-2
- * upsert runs a referential-integrity check that takes `FOR KEY SHARE` on the
- * parent object row. `FOR KEY SHARE` waits behind `FOR UPDATE`; it does not
- * conflict with `FOR NO KEY UPDATE`. The weaker mode therefore removes phase
- * 2's wait edge back to the object table at the substrate, rather than leaving
- * it merely unreachable by a premise about where `objectId` came from.
- * `applyEvent` never writes `integration_objects.id`, so the weaker mode gives
- * up nothing it uses, and it still conflicts with `FOR UPDATE`,
- * `FOR NO KEY UPDATE`, `UPDATE` and `DELETE` — two concurrent folds of one
+ * The lock MODE is load-bearing for the two-phase order in {@link inLockOrder},
+ * which states why. The `object-state-row-lock-mode` rule in
+ * `scripts/consolidation-rules.mjs` gates it, so this comment does not have to.
+ *
+ * What the mode gives up is nothing this path uses. Postgres counts a column as
+ * a KEY column when it belongs to ANY immediate unique index, not only the
+ * primary key, so the key columns here are `id` PLUS
+ * `(user_id, provider, kind, external_id)` from
+ * `integration_objects_identity_idx`. `applyEvent`'s `UPDATE` sets
+ * `state_category`, `native_state`, `title`, `url`, `repo`, `attributes`,
+ * `state_delivered_at` and `provider_event_at`, and nothing else — no key
+ * column of either index. The weaker mode still conflicts with `FOR UPDATE`,
+ * `FOR NO KEY UPDATE`, `UPDATE` and `DELETE`, so two concurrent folds of one
  * target still exclude each other, which is what this lock exists for.
  */
 function lockIdentityRow(
@@ -316,9 +319,10 @@ function compareIdentity(a: ObjectStateDelta, b: ObjectStateDelta): number {
  * delivery here, then every `integration_object_keys` row lock after the loop,
  * in `inKeyLockOrder`.
  *
- * A transaction that waits on a key row has finished phase 1, so it holds
- * objects only and waits on no object. That second half is a fact about the
- * lock MODE, not about this loop: the foreign key on
+ * A transaction that waits on a key row has finished phase 1, so it waits on no
+ * object. It still HOLDS objects, plus every key row phase 2 already inserted;
+ * only the "waits on no object" half carries the proof, and that half is a fact
+ * about the lock MODE, not about this loop: the foreign key on
  * `integration_object_keys.object_id` makes every phase-2 upsert take
  * `FOR KEY SHARE` on its parent object row, and `FOR KEY SHARE` does not
  * conflict with the `FOR NO KEY UPDATE` {@link lockIdentityRow} holds, so that
@@ -327,11 +331,18 @@ function compareIdentity(a: ObjectStateDelta, b: ObjectStateDelta): number {
  * phase, and each phase is ordered, so no cycle exists.
  *
  * The guarantee is over the application write path, and `applyEvent` is that
- * path's only writer of either table. Two writers sit outside it: migration
- * `0131_violet_elektra.sql`, which bulk-inserted key rows once in scan order,
- * and the `user` `ON DELETE CASCADE`, whose row deletes do conflict with
- * `FOR KEY SHARE`. Neither runs beside a delivery — 0131 has run, and the
- * cascade fires only when the account itself goes away.
+ * path's only writer of either table. The pair is the whole list because
+ * `integration_objects`' only OTHER foreign-key child,
+ * `integration_object_relations.object_id`, has no writer anywhere in the tree.
+ * Its object edge stays closed under this mode for the same `FOR KEY SHARE`
+ * reason, but a transaction that writes a relation AND an object needs a phase
+ * of its own here before it exists.
+ *
+ * Two writers sit outside `applyEvent`: migration `0131_violet_elektra.sql`,
+ * which bulk-inserted key rows once in scan order, and the `user`
+ * `ON DELETE CASCADE`, whose row deletes do conflict with `FOR KEY SHARE`.
+ * Neither runs beside a delivery — 0131 has run, and the cascade fires only
+ * when the account itself goes away.
  */
 function inLockOrder(deltas: readonly ObjectStateDelta[]): ObjectStateDelta[] {
   return [...deltas].sort(compareIdentity);

@@ -491,6 +491,13 @@ switch (resultCategory) {
 const LINE_FILE = "packages/assistant/src/connections/ingestion/chat-media.ts";
 
 /**
+ * A file inside the object-state module. `object-state-row-lock-mode` names its
+ * own `paths`, so the file a fixture claims to be is part of the answer, not
+ * scenery — {@link LINE_FILE} sits in the same package and must NOT match.
+ */
+const OBJECT_STATE_FILE = "packages/assistant/src/connections/object-state/store.ts";
+
+/**
  * @type {{name: string, caught: boolean, code: string, file?: string}[]} `file`
  *   defaults to {@link LINE_FILE}, as in {@link CASES}.
  */
@@ -611,6 +618,28 @@ const LINE_CASES = [
     name: "read-write-github-mcp-endpoint — another origin serving /mcp is not GitHub's write catalog",
     caught: false,
     code: `assert.equal(resolveBuiltInClient(new URL("https://evil.example.test/mcp")), undefined);`,
+  },
+  {
+    // `object-state-row-lock-mode` names its own `paths`, so the file is part of
+    // the answer. A rule whose path regex missed the directory would scan zero
+    // files and still report "no drift" — these three fix that in both
+    // directions: it fires inside, stays quiet on the intended mode, and stays
+    // quiet on the ~30 `.for("update")` sites elsewhere in the same package.
+    name: "object-state-row-lock-mode — FOR UPDATE on an object-state row re-opens the cross-table cycle",
+    caught: true,
+    code: `      .for("update")`,
+    file: OBJECT_STATE_FILE,
+  },
+  {
+    name: "object-state-row-lock-mode — the weaker mode the FK check needs is the intended form",
+    caught: false,
+    code: `      .for("no key update")`,
+    file: OBJECT_STATE_FILE,
+  },
+  {
+    name: "object-state-row-lock-mode — FOR UPDATE outside the module stays the package's idiom",
+    caught: false,
+    code: `      .for("update")`,
   },
 ];
 
