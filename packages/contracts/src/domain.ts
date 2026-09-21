@@ -1,17 +1,23 @@
 // The email/domain grammar: split an address, normalize a domain, and decide
 // whether a string is a syntactically valid one.
 //
-// This module holds the ONE implementation of that grammar. A module that needs
-// an address's domain imports `emailDomain`; a module that needs both halves
-// imports `splitEmail`. So the domain classifier (`identity-affiliation.ts`),
-// the domain identity floor (`user-model.ts`, through the same `./hostname`
-// fragment), and a stored standing-instruction target all read the same rule.
+// This module holds the one implementation of the address/domain split its
+// importers share. A module that needs an address's domain imports
+// `emailDomain`; a module that needs both halves imports `splitEmail`. So the
+// domain classifier (`identity-affiliation.ts`), the domain identity floor
+// (`user-model.ts`, through the same `./hostname` fragment), and a stored
+// standing-instruction target all read the same rule. A second, stricter
+// grammar restates the same local-part decision as a regex in `user-model.ts`
+// (`IDENTITY_VALUE_FORMATS.email`, which also applies `HOSTNAME`);
+// reconciling the two is queued as a follow-up and is not claimed here.
 //
-// Three things this module does NOT own, so a hand-written `@` split is not
+// Things this module does NOT own include, so a hand-written `@` split is not
 // automatically a bug: a local-part slice taken for DISPLAY (a greeting, an
-// avatar initial), the authority read of a URL, and the parse of an RFC 5322
-// Message-ID (which is not an address). None asks the question this grammar
-// answers.
+// avatar initial), the bulk-sender heuristic local-part read in `attention.ts`
+// (whose `senderAddress` accepts a string with no `@`, so moving it onto
+// `splitEmail` would change `isLikelyBulkSender`'s answer), the authority read
+// of a URL, and the parse of an RFC 5322 Message-ID (which is not an
+// address). None asks the question this grammar answers.
 //
 // The claim is "one implementation", not "every call site already uses it".
 // Known domain reads that still hand-roll the split include:
