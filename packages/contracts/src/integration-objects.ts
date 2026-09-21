@@ -53,12 +53,54 @@ export const OBJECT_STATE_CLOSURE_SOURCES = ["verified_push", "verified_pull"] a
 export type ClosureSource = (typeof OBJECT_STATE_CLOSURE_SOURCES)[number];
 
 /**
+ * How strong a reading of current state must be before it may ASSERT closure
+ * of an already-open ask, per object KIND (ADR-0103).
+ *
+ * - `stored_projection` — the store's own row is enough. Sound only where the
+ *   projection cannot be wrong about current state: a kind that closes by
+ *   TRANSITION and absorbs its closing state (a merged pull request), or one
+ *   whose row IS the latest authenticated read.
+ * - `live_confirmation` — the row may only NOMINATE a candidate, and closure
+ *   needs a read of provider state taken at the moment closure is asserted. A
+ *   kind whose deliveries carry no transition version needs this: the store
+ *   orders by OBSERVATION time, so a delayed resolve arriving after an
+ *   unresolve would falsely restore `resolved` (`sentry.issue`).
+ *
+ * A gate, not naming (tier 2, unlike {@link ClosureSource} above):
+ * {@link closesOpenAsk} takes the proof the caller actually HOLDS as a
+ * required argument. A synchronous reader with no IO — `evidenceObjectClosesAsk`
+ * over an evidence card — can therefore only ever pass `stored_projection`,
+ * and reads a `live_confirmation` kind as closing nothing. That is what stops
+ * one per-kind flag from answering two different questions: "is this a
+ * closure candidate" belongs to {@link closureCandidate}, and only a caller
+ * that went and got the proof may assert.
+ */
+export const CLOSURE_PROOFS = ["stored_projection", "live_confirmation"] as const;
+
+export type ClosureProof = (typeof CLOSURE_PROOFS)[number];
+
+/**
+ * Proof strength, ordered: a live read is strictly stronger than the stored
+ * projection, so it satisfies every kind. `satisfies` over the vocabulary, so
+ * a third proof is a compile error here instead of a silent `undefined`
+ * comparison.
+ */
+const PROOF_STRENGTH = {
+  stored_projection: 0,
+  live_confirmation: 1,
+} satisfies Record<ClosureProof, number>;
+
+/**
  * Per-KIND lifecycle policy. Two rules that generic code must not hard-code,
  * because they differ per kind rather than per provider (#1088, #1093):
  *
  * - `closesAskOn` — which categories close an already-open ask about an object
  *   of this kind. A pull request closes on `resolved` (merged) and `abandoned`
  *   (closed unmerged).
+ * - `closesAskFrom` — the weakest reading that may ASSERT those categories
+ *   (see {@link ClosureProof}). Required with no default, so a kind cannot be
+ *   added, and an empty `closesAskOn` cannot be filled, without deciding
+ *   whether stored state proves the closure or a live read has to.
  * - `absorbing` — which categories, once reached, no later delivery may move
  *   the object out of. A merged pull request stays merged, so a delayed
  *   `synchronize` delivery cannot regress it to `active`.
@@ -72,6 +114,7 @@ export type ClosureSource = (typeof OBJECT_STATE_CLOSURE_SOURCES)[number];
  */
 export interface ObjectKindDef {
   readonly closesAskOn: readonly LoopClosingStateCategory[];
+  readonly closesAskFrom: ClosureProof;
   readonly absorbing: readonly StateCategory[];
 }
 
@@ -366,6 +409,9 @@ export const INTEGRATION_OBJECT_DEFS = {
       // it closed against stale redeliveries.
       pull_request: {
         closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
+        // Stored state proves it: `resolved` absorbs, so no later delivery
+        // and no reorder can make a merged PR unmerged.
+        closesAskFrom: "stored_projection",
         absorbing: ["resolved"],
       },
       // A CI attempt closes by SUCCESSION, never by transition: the suite run
@@ -373,6 +419,7 @@ export const INTEGRATION_OBJECT_DEFS = {
       // target does) and never absorbs.
       ci_attempt: {
         closesAskOn: [],
+        closesAskFrom: "stored_projection",
         absorbing: [],
       },
       // The succession target (`owner/repo#branch`): its state is the outcome
@@ -381,6 +428,10 @@ export const INTEGRATION_OBJECT_DEFS = {
       // stays open. Nothing absorbs, so the store needs no second branch.
       ci_target: {
         closesAskOn: ["resolved"],
+        // Stored state proves it: a check-suite delivery carries a provider
+        // clock (`updated_at`), so the row already orders by provider event
+        // time rather than by observation time.
+        closesAskFrom: "stored_projection",
         absorbing: [],
       },
     },
@@ -429,18 +480,24 @@ export const INTEGRATION_OBJECT_DEFS = {
       // same delivery key and the ingress path answers it `duplicate`. That is
       // an ingress property shared with GitHub, not a policy this table states.
       //
-      // `closesAskOn: ["resolved"]` holds only behind a fresh provider-state
-      // confirmation (ADR-0103). The store orders by OBSERVATION time and
-      // Sentry ships no transition version, so stored `resolved` alone may
-      // never suppress an ask — a delayed resolve arriving after an unresolve
-      // would falsely restore it. `dropClosedLoops` (briefings/gather.ts)
-      // confirms each sentry/issue hit with a live issue read under the stored
-      // org credential before it becomes a `BriefingClosedLoop`; any other live
-      // status, or a read failure, keeps the ask. `abandoned` stays out: an
-      // archived issue is a triage decision, not a fix, and the archive policy
-      // is unreviewed.
+      // `closesAskOn: ["resolved"]` with `closesAskFrom: "live_confirmation"`
+      // (ADR-0103). The store orders by OBSERVATION time and Sentry ships no
+      // transition version, so stored `resolved` alone may never assert a
+      // closure — a delayed resolve arriving after an unresolve would falsely
+      // restore it. The proof declaration is what enforces that, not a comment
+      // and not a branch in one consumer: every asserter passes the reading it
+      // holds to `closesOpenAsk`, so the synchronous card reader
+      // (`evidenceObjectClosesAsk`) closes nothing here, and only
+      // `dropClosedLoops` (briefings/gather.ts) — which takes a live issue read
+      // under the stored org credential — can close. Any other live status, or
+      // a read failure, keeps the ask. `abandoned` stays out: an archived issue
+      // is a triage decision, not a fix, and the archive policy is unreviewed.
       issue: {
         closesAskOn: ["resolved"],
+        // The whole point of the pair above: a live read at assertion time,
+        // never the stored row. The sync card reader cannot take one, so it
+        // reads this kind as closing nothing.
+        closesAskFrom: "live_confirmation",
         absorbing: [],
       },
     },
@@ -468,6 +525,7 @@ export const INTEGRATION_OBJECT_DEFS = {
       // `ci_attempt` (#1093).
       deployment_attempt: {
         closesAskOn: [],
+        closesAskFrom: "stored_projection",
         absorbing: [],
       },
       // The succession target (`projectId/serviceId/environmentId`): its
@@ -482,6 +540,9 @@ export const INTEGRATION_OBJECT_DEFS = {
       // reachable (ADR-0062 amendment 2026-09-20).
       deployment_target: {
         closesAskOn: [],
+        // The row IS the latest authenticated read (`verified_pull` at gather
+        // time), so stored state will prove the restored `["resolved"]`.
+        closesAskFrom: "stored_projection",
         absorbing: [],
       },
     },
@@ -533,6 +594,7 @@ export const INTEGRATION_OBJECT_DEFS = {
       // environment folds its attempt alone rather than vanishing.
       deployment_attempt: {
         closesAskOn: [],
+        closesAskFrom: "stored_projection",
         absorbing: [],
       },
       // The succession target (`owner/repo#branch#environment`): its state is
@@ -549,6 +611,10 @@ export const INTEGRATION_OBJECT_DEFS = {
       // grammar that makes it reachable.
       deployment_target: {
         closesAskOn: [],
+        // A dispatch carries Vercel's own state for one deployment and the
+        // target succeeds rather than transitions, so nothing reorders into a
+        // false close: stored state will prove the restored `["resolved"]`.
+        closesAskFrom: "stored_projection",
         absorbing: [],
       },
     },
@@ -604,12 +670,46 @@ export function getObjectKindDef(
 }
 
 /**
- * The closing category for an already-open ask about an object of this kind,
- * or `null` when this state closes nothing.
+ * The closure this kind's state WOULD assert, and the proof an asserter must
+ * hold first, or `null` when the state closes nothing for this kind.
  *
- * The single reading reconciliation uses — `reconcileEvidence` calls this
- * rather than testing the category against a global list. An undeclared kind
- * closes nothing: absence never closes (ADR-0048-D).
+ * For a NOMINATOR: a caller that resolves stored state and hands the candidate
+ * to whoever can go get that proof (`reconcileEvidence` proposes, the briefing
+ * drop confirms). An undeclared kind closes nothing: absence never closes
+ * (ADR-0048-D).
+ *
+ * A nominator must not write this into user- or model-facing text. That is an
+ * ASSERTION, and an assertion reads {@link closesOpenAsk} with the proof it
+ * actually holds — a `live_confirmation` kind's stored `resolved` is a
+ * question, not an answer (ADR-0103).
+ */
+export function closureCandidate(
+  provider: ObjectStateProvider,
+  kind: string,
+  category: StateCategory,
+): { closesAskAs: LoopClosingStateCategory; proof: ClosureProof } | null {
+  const def = getObjectKindDef(provider, kind);
+
+  if (!def) return null;
+
+  for (const closing of def.closesAskOn) {
+    if (closing === category) return { closesAskAs: closing, proof: def.closesAskFrom };
+  }
+
+  return null;
+}
+
+/**
+ * The closing category for an already-open ask about an object of this kind,
+ * or `null` when this state closes nothing — or when the reading the caller
+ * holds is too weak to assert it.
+ *
+ * The single reading an ASSERTER uses. `proof` names what the caller actually
+ * read, and it is required for the reason the whole {@link ClosureProof} split
+ * exists: a synchronous card reader with no IO can only pass
+ * `stored_projection`, so a kind declaring `closesAskFrom:
+ * "live_confirmation"` closes nothing for it, and only the caller that took a
+ * live read may pass `live_confirmation` and close.
  *
  * Returns the category rather than a boolean so a caller can record WHICH
  * closure it saw without re-deriving it. A boolean predicate would be unsound
@@ -620,16 +720,15 @@ export function closesOpenAsk(
   provider: ObjectStateProvider,
   kind: string,
   category: StateCategory,
+  proof: ClosureProof,
 ): LoopClosingStateCategory | null {
-  const def = getObjectKindDef(provider, kind);
+  const candidate = closureCandidate(provider, kind, category);
 
-  if (!def) return null;
+  if (!candidate) return null;
 
-  for (const closing of def.closesAskOn) {
-    if (closing === category) return closing;
-  }
+  if (PROOF_STRENGTH[proof] < PROOF_STRENGTH[candidate.proof]) return null;
 
-  return null;
+  return candidate.closesAskAs;
 }
 
 /**

@@ -424,7 +424,7 @@ switch (category) {
   {
     name: "delegating to the registry is the intended form",
     caught: false,
-    code: `  return closesOpenAsk(object.provider, object.kind, object.stateCategory);`,
+    code: `  return closesOpenAsk(object.provider, object.kind, object.stateCategory, "stored_projection");`,
   },
   {
     name: "hand-rolled-object-closure — the sibling export that answers the same question in one argument",
