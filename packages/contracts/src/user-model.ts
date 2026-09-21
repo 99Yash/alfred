@@ -1099,6 +1099,50 @@ export const entityKindClassificationSchema = z
 
 export type EntityKindClassification = z.infer<typeof entityKindClassificationSchema>;
 
+/**
+ * Every evidence code a `service` classification carries, named once.
+ *
+ * `evidenceCodes` is `string[]` on purpose — the other branches of the kind
+ * classifier mint open-ended codes (`identity:…`, `gmail:list_id`) and no
+ * reader switches on them. The `service` codes are different: TWO consumers in
+ * different packages read them to decide whether a non-person claim is hard
+ * enough to act on, and they disagree deliberately.
+ *   - `@alfred/assistant` knowledge asks "may this take `person` away from a
+ *     mail contact", which gates a live `gmail.send_draft`.
+ *   - `@alfred/assistant` triage asks "may this demote a demanding thread to
+ *     `fyi`", which is the #210 sender-kind floor.
+ *
+ * Each consumer therefore declares a TOTAL `satisfies Record<ServiceEvidenceCode, …>`
+ * table rather than a set of bare literals. A new member here fails to compile
+ * in both tables until each one answers for it. That is the enforcement the
+ * bare literals did not buy: the `email:domain:service_strong` member was added
+ * in one consumer and silently switched the other consumer's floor off.
+ */
+export const SERVICE_EVIDENCE_CODES = {
+  /** A strong service LOCAL part: `noreply@`, `notifications@`, `…-noreply@`. */
+  localStrong: "email:local:service_strong",
+  /** A strong service leftmost host LABEL: `…@noreply.github.com`. */
+  domainStrong: "email:domain:service_strong",
+  /** A soft ROLE mailbox: `billing@`, `support@`, `admin@`. A human may sit behind it. */
+  localRole: "email:local:service",
+  /** An `Auto-Submitted` header. A human's out-of-office carries this too. */
+  autoSubmitted: "gmail:auto_submitted",
+} as const;
+
+export type ServiceEvidenceCode =
+  (typeof SERVICE_EVIDENCE_CODES)[keyof typeof SERVICE_EVIDENCE_CODES];
+
+const SERVICE_EVIDENCE_CODE_VALUES = new Set<string>(Object.values(SERVICE_EVIDENCE_CODES));
+
+/**
+ * True when a persisted evidence code is one of the `service` vocabulary
+ * members. The boundary between the open `string[]` column and a consumer's
+ * total decision table: a code this returns false for cannot index one. PURE.
+ */
+export function isServiceEvidenceCode(value: string): value is ServiceEvidenceCode {
+  return SERVICE_EVIDENCE_CODE_VALUES.has(value);
+}
+
 // `looseObject` rather than `.catchall(jsonValueSchema)`: a catchall checks the
 // *declared* optional keys against the index signature too, which would force
 // `JsonValue` to admit `undefined` and put the type out of step with the

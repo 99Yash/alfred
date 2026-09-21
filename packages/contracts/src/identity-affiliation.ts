@@ -173,6 +173,55 @@ const ROLE_SERVICE_LOCAL_PARTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Locals whose LAST separated token is a service word: the no-reply family
+ * (`messages-noreply`, `jobalerts-noreply`, `notifications-noreply`) plus the
+ * alert/notice family (`nse_alerts`, `waareeenergies.update`, `store-news`).
+ * The mirror of a service-word PREFIX: providers prefix (`noreply-accounts@`)
+ * and suffix (`messages-noreply@`) interchangeably.
+ *
+ * The suffix form used to fall through to `person`/`unknown`, because a local
+ * part joined by `.`/`_`/`-` also reads as a first-name/last-name pair. Three
+ * prod misses, measured over 319 `triage.classification` runs (2026-09-06..16):
+ *   - `messages-noreply@linkedin.com`, "Reminder: … invited you to connect" —
+ *     parsed `person`, tagged `awaiting_reply` off the reminder copy (#1097).
+ *   - `waareeenergies.update@in.mpms.mufg.com`, "Waaree Energies Limited -
+ *     Communication of deduction of Tax at Source on Dividend" — parsed
+ *     `person`, tagged `action_needed`. MUFG Intime is a share registrar: the
+ *     envelope is the registrar's and the ACTOR is the local part (#1100).
+ *   - `nse_alerts@nse.co.in`, "Funds/Securities Balance" — parsed `person`,
+ *     first pass `fyi`, escalated to `action_needed` by the
+ *     `under_classification` net (#1100).
+ *
+ * A SEPARATOR is required, so a bare `news@`/`newsletter@`/`updates@` local
+ * stays weak and a staffed `news@` mailbox at a small company is not
+ * force-typed. A bare trailing `reply` (`reply@`, `replies@`) is not matched
+ * for the same reason.
+ *
+ * This union has no `^` alternative, unlike the `NO_REPLY_SUFFIX_RE` it
+ * replaced in the triage sender parser. Dropping it preserved behaviour there:
+ * every bare form that branch matched (`noreply`, `no-reply`, `no_reply`,
+ * `donotreply`, `do-not-reply`, `do_not_reply`) is an exact member of the
+ * strong-service local set each caller tests first. Measured over the
+ * 116-address prod corpus: the whole-corpus `fromKind` diff is 3 addresses,
+ * 0 of them in the no-reply family and 0 of them a person.
+ */
+const SERVICE_WORD_SUFFIX_RE =
+  /[-_.](?:no[-_]?reply|donotreply|do[-_]not[-_]reply|alerts?|notifications?|newsletters?|news|updates?)$/i;
+
+/**
+ * True when the LAST separated token of a local part is a service word.
+ *
+ * Deliberately NOT folded into {@link isRoleServiceLocalPart}: that predicate
+ * already token-splits on `[._-]`, so `noreply`, `alerts` and `updates` reach
+ * it today. The real delta is `news`/`newsletter`, and widening
+ * {@link classifyEmailDomain} over them is an affiliation-grounding change
+ * that belongs to whoever needs it, not to a caller of this predicate.
+ */
+export function hasServiceWordSuffix(localPart: string): boolean {
+  return SERVICE_WORD_SUFFIX_RE.test(localPart);
+}
+
+/**
  * Apex/host-name tokens that mark a SENDING-SERVICE / bounce domain (the domain
  * itself is infrastructure, not an org the user works at): `bounce.acme.com`,
  * `email.notifications.foo.com`, `mailer.x.io`. Matched as a leading domain label.
