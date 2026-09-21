@@ -2037,11 +2037,16 @@ describe("classifyEmail", () => {
     assert.match(result.model, /\+2pass$/);
   });
 
-  test("a failing under-classification second pass records the failure and escalates conservatively", async () => {
+  test("a failing under-classification second pass records the failure and keeps the first pass", async () => {
     // Regression guard: a transient failure on the optional second pass must not
     // propagate (the workflow would force the message to the default `fyi`,
-    // de-escalating it). Under-classification is the safety-critical direction,
-    // so a passive first pass is not preserved either.
+    // de-escalating it). It must not ESCALATE either: the under-classification
+    // net fires on the broad `hasSecurityKeyword` flag, which every vendor auth
+    // echo sets, so escalating on a transient model outage put that whole class
+    // in a demand lane on model weather alone (rule 15a). The exposed-secret
+    // case does not need this branch — the override floor forces `urgent`
+    // deterministically, and `detectConflict` suppresses this conflict whenever
+    // the floor matches, so the escalation branch was unreachable anyway.
     let calls = 0;
 
     const runPass: RunPass = async ({ pass }) => {
@@ -2065,8 +2070,8 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.conflict?.kind, "under_classification");
     assert.equal(result.audit.secondPass, null);
     assert.match(result.audit.secondPassFailure?.message ?? "", /transient second-pass failure/);
-    assert.equal(result.classification.category, "action_needed");
-    assert.match(result.classification.rationale, /conservatively escalated/i);
+    assert.equal(result.classification.category, "newsletter");
+    assert.equal(result.classification.confidence, 0.7);
     assert.equal(result.model, "injected+2pass_failed");
   });
 
