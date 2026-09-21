@@ -157,21 +157,22 @@ export const RULES = [
     //      matched; `=== "active"` is an honest activeness test.
     //   3. the tuple fed to a membership test THROUGH A CAST —
     //      `(LOOP_CLOSING_STATE_CATEGORIES as readonly string[]).includes(x)`
-    //      is verbatim the idiom `isTerminalCategory` uses next to the tuple,
-    //      so it is the spelling a reader copies first. `.has(` and `.find(`
-    //      join `.includes(`, `.indexOf(` and `.some(`, because
+    //      was verbatim the idiom the deleted `isTerminalCategory` used next
+    //      to the tuple, so it is the spelling a reader copies first. `.has(`
+    //      and `.find(` join `.includes(`, `.indexOf(` and `.some(`, because
     //      `new Set(LOOP_CLOSING_STATE_CATEGORIES).has(category)` is the same
     //      test one character away.
     //   4. an inline array holding BOTH closing literals, fed to the same
     //      membership test. Both literals are required, so the tuple
     //      declarations stay legal.
     //   5. `isTerminalCategory(category)` — a CALL, not a spelling of the
-    //      comparison, and shorter than the sanctioned reader. It is a sibling
-    //      export over a DIFFERENT tuple, it returns `true` for `failed`, and
-    //      it sits in autocomplete at every call site this row protects, so a
-    //      row that refuses six comparisons and admits this one call fences
-    //      nothing. The `function` lookbehind exempts its own declaration; a
-    //      caller who genuinely means "terminal for the object" writes a
+    //      comparison, and shorter than the sanctioned reader. It was a sibling
+    //      export over a DIFFERENT tuple, it returned `true` for `failed`, and
+    //      it sat in autocomplete at every call site this row protects, so a
+    //      row that refused six comparisons and admitted this one call fenced
+    //      nothing. The arm stays as a tombstone against reintroduction: the
+    //      `function` lookbehind exempts the declaration itself; a caller who
+    //      genuinely means "terminal for the object" writes a
     //      `// drift-ok:` marker.
     //   6. `switch (category) { case "resolved": }`, which code-style.md §2
     //      actively prefers for a closed union. This one is why the rule is
@@ -217,13 +218,35 @@ export const RULES = [
     //   - a `case "resolved":` past the old 600-character bound: the bound is
     //     1500, and the selftest switch fixture sits past 600 so the cliff is
     //     tested either way.
-    // Still residue, measured: a formatter-split tuple or inline-array
-    // membership (`LOOP_CLOSING…\n.includes(`) misses — queued as its own
+    // Still residue, measured through `matchChains` (review round 0). The row
+    // covers the measured-spelling subset below, not every spelling of the
+    // comparison — it is a tier-2 gate, and a novel spelling still compiles:
+    //   - a helper-extracted comparison with no nearby `stateCategory` token,
+    //     e.g. `isClosed(s: string) { return s === "abandoned"; }`. The rename
+    //     bridge needs the field token within 300 chars; a bare annotation
+    //     such as `cat: StateCategory` matches only via its own anchor text.
+    //   - a single-literal membership: `["resolved"].includes(category)`,
+    //     a single-key `Set.has`, or a single-key lookup table plus
+    //     subscript. The tuple/inline-array arms require both closing
+    //     literals (or both keys).
+    //   - a header/case gap: `switch (s)` whose header names no `*Category`,
+    //     or `switch (stateCategory)` whose `case` is `"failed"`. The header
+    //     needs `*Category`; the case alternation names only
+    //     `resolved`/`abandoned` (`failed` opens a CI loop, so fencing it
+    //     would conflate openers with closers).
+    //   - a 300-char bridge cliff: filler past 300 chars between the
+    //     `stateCategory` read and the comparison walks out of the rename
+    //     arm. Widening any of these buys the overload the `*Category`
+    //     anchor exists to refuse (`"resolved"` is an MCP identity status
+    //     and a join result kind elsewhere), so each stays residue with
+    //     this reason until its own item probes it.
+    // A formatter-split tuple or inline-array membership
+    // (`LOOP_CLOSING…\n.includes(`) misses too — queued as its own
     // item, since the fix touches arms this item does not own.
     scope: "chain",
     re: /\b\w*[Cc]ategory\b[^;"]*(?:===|!==)[^;"]*"(?:resolved|abandoned)"|"(?:resolved|abandoned)"[^;"]*(?:===|!==)[^;"]*\b\w*[Cc]ategory\b|\b\w*[Cc]ategory\b\s*!==\s*"active"|"active"\s*!==\s*\w*[Cc]ategory\b|\bLOOP_CLOSING_STATE_CATEGORIES\b[^;\n]*\.\s*(?:includes|indexOf|some|has|find)\(|\[[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*"(?:resolved|abandoned)"[^\]\n]*\][^;\n]*\.\s*(?:includes|indexOf|some|has|find)\(|(?<!function )\bisTerminalCategory\s*\(|\bstateCategory\b[\s\S]{0,300}?(?:===|!==|\.\s*(?:includes|some|indexOf)\(|\bcase\s+)[^;"\n]{0,60}?"(?:resolved|abandoned)"|\bstateCategory\b[\s\S]{0,300}?(?:!==[^;"\n]{0,60}?"active"|"active"[^;"\n]{0,60}?!==)|\bstateCategory\b[\s\S]{0,300}?"(?:resolved|abandoned)"[^;"\n]{0,60}?(?:===|!==)|\{\s*[^};]*\bresolved\b[^};]*\babandoned\b[^};]*\}\s*;?[\s\S]{0,300}?\[\s*\w*[Cc]ategory\s*\]|switch\s*\([^)\n]*\b\w*[Cc]ategory\b[^)\n]*\)\s*\{(?:(?!\bswitch\s*\()[\s\S]){0,1500}?\bcase\s+"(?:resolved|abandoned)"\s*:/,
     severity: "gate",
-    fix: "Call closesOpenAsk(provider, kind, category) from @alfred/contracts for a projection row, or evidenceObjectClosesAsk(card.object) for an evidence card. Both read the registry's per-kind closesAskOn, so a kind that closes on neither category stays correct, and both return the closing category rather than a boolean. `failed` closes nothing: it is terminal for the object but it opens a CI loop, which is why isTerminalCategory is not the reader either — if you truly mean terminal for the object and not closed, say so in a `// drift-ok:` marker.",
+    fix: "Call closesOpenAsk(provider, kind, category) from @alfred/contracts for a projection row, or evidenceObjectClosesAsk(card.object) for an evidence card. Both read the registry's per-kind closesAskOn, so a kind that closes on neither category stays correct, and both return the closing category rather than a boolean. `failed` closes nothing: it is terminal for the object but it opens a CI loop, which is why a terminal-means-closed helper is not the reader either — if you truly mean terminal for the object and not closed, say so in a `// drift-ok:` marker.",
   },
   {
     id: "canonical-param-key",
