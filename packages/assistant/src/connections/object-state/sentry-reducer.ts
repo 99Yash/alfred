@@ -26,8 +26,9 @@ import type { ObjectStateDelta } from "./store";
  * `issue_assigned` and every other type is a no-op (`[]`): assignment moves
  * no lifecycle state.
  *
- * Nothing about a Sentry issue absorbs, and nothing about it closes an ask —
- * both are declared once in `INTEGRATION_OBJECT_DEFS.sentry.issue`, not here.
+ * Nothing about a Sentry issue absorbs, and the kind's `closesAskOn` decides
+ * what closes an ask — both are declared once in
+ * `INTEGRATION_OBJECT_DEFS.sentry.issue`, not here.
  */
 export function reduceSentryEvent(
   eventType: string,
