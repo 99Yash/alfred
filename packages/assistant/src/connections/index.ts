@@ -64,7 +64,8 @@ export {
 } from "./hosted-endpoint";
 
 export {
-  deliveryInstantFromDate,
+  deliveryInstantNow,
+  deliveryInstantOf,
   firstClosingObject,
   objectStateFoldConsumers,
   objectStateStore,

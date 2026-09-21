@@ -10,7 +10,8 @@ import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { gatherDayShape } from "@alfred/assistant/briefings/gather";
-import { deliveryInstantFromDate, objectStateStore } from "@alfred/assistant/connections";
+import { objectStateStore } from "@alfred/assistant/connections";
+import { deliveryInstantFromDate } from "@alfred/assistant/connections/object-state/test-support";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 

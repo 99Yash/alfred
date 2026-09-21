@@ -611,31 +611,6 @@ export const RULES = [
     severity: "gate",
     fix: 'Lock an `integration_objects` row with `.for("no key update")`, through lockIdentityRow in ./store.ts. A key upsert takes `FOR KEY SHARE` on its parent object row, which waits behind `FOR UPDATE` and re-opens the cross-table deadlock the two-phase lock order closes. If this lock is over another table, append `// drift-ok: <table, and why its mode is free>`.',
   },
-  {
-    id: "delivery-instant-from-receipt-date",
-    // `deliveryInstantFromDate(receipt.deliveredAt)` — the one line that undoes
-    // #1200. `event_receipts.delivered_at` is `timestamptz` and Postgres keeps
-    // it to the microsecond, but `node-postgres` parses it into a `Date`, which
-    // holds only milliseconds. Feeding that `Date` back through the JavaScript
-    // constructor re-truncates the instant, and the object-state recency guard
-    // returns to last-writer-wins under 1 ms. The brand cannot see it: the
-    // constructor's whole job is to accept a `Date`, so the call compiles and
-    // reads correctly. `connections/ingestion/receipt-corpus-backfill.ts`
-    // already loops over whole receipt rows and passes `receipt.deliveredAt`
-    // onward, so this is the line a reader writes when such a loop grows a fold.
-    //
-    // The anchor is the ARGUMENT, not the field name: `deliveredAt:
-    // deliveryInstantFromDate(new Date())` is the sanctioned form and must stay
-    // quiet. Deliberately NOT `paths`-scoped. `connections/index.ts` re-exports
-    // the constructor, so a caller can live in any package, and a `paths` rule
-    // also opts out of the global skip filter — which would flag the test
-    // fixtures that pass a `Date` named `deliveredAt` on purpose. The
-    // identifier is unique tree-wide, so the global scope costs no false
-    // positive.
-    re: /\bdeliveryInstantFromDate\(\s*[^;)]*\bdelivered(?:At|_at)\b/,
-    severity: "gate",
-    fix: "Do not rebuild a delivery instant from a receipt `Date` — `node-postgres` already truncated it to the millisecond. Read the column with `receiptDeliveryInstant()` in the select that loads the receipt (packages/assistant/src/connections/object-state/delivery-instant.ts). `deliveryInstantFromDate` is only for a caller whose clock is JavaScript's, such as a minted pull receipt with no row. If this `Date` provably never came from a `timestamptz`, append `// drift-ok: <where the instant comes from>`.",
-  },
 ];
 
 /**
