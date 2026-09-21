@@ -7,10 +7,11 @@
 // the domain identity floor (`user-model.ts`, through the same `./hostname`
 // fragment), and a stored standing-instruction target all read the same rule.
 //
-// Two things this module does NOT own, so a hand-written `@` split is not
+// Three things this module does NOT own, so a hand-written `@` split is not
 // automatically a bug: a local-part slice taken for DISPLAY (a greeting, an
-// avatar initial), and the authority read of a URL. Neither asks the question
-// this grammar answers.
+// avatar initial), the authority read of a URL, and the parse of an RFC 5322
+// Message-ID (which is not an address). None asks the question this grammar
+// answers.
 //
 // The claim is "one implementation", not "every call site already uses it".
 // Known domain reads that still hand-roll the split include:
