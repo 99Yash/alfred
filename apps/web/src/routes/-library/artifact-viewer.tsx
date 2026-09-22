@@ -1,10 +1,23 @@
-import { pageGeometry } from "@alfred/artifacts-design/tokens";
-import type { ArtifactFormat } from "@alfred/contracts";
+import type { ArtifactFormat, ArtifactPage } from "@alfred/contracts";
 import type { SyncedArtifact } from "@alfred/sync";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { AlertTriangle, Download, FileText, Layers, Loader2, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { ArtifactPageFrame } from "~/components/artifact-page-frame";
+import { AlertTriangle, Download, FileText, Layers, Loader2, Maximize2, X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
+import { ArtifactIconButton } from "~/components/artifacts/artifact-icon-button";
+import { ArtifactPagesBody } from "~/components/artifacts/artifact-pages-body";
+import { ArtifactPresentOverlay } from "~/components/artifacts/artifact-present-overlay";
+import {
+  useArtifactPageIndex,
+  useArtifactPageKeys,
+} from "~/components/artifacts/use-artifact-pages";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { AppButton } from "~/components/ui/v2";
 import { printArtifactPages } from "~/lib/artifacts/export-artifact";
@@ -12,6 +25,16 @@ import { useArtifact, useRecentArtifacts } from "~/lib/replicache/use-artifacts"
 import { cn } from "~/lib/utils";
 import { artifactTypeLabel, formatArtifactDate } from "./helpers";
 
+/**
+ * The library's full-screen reader for one artifact, opened from a card at
+ * `/library/$artifact`.
+ *
+ * A `pages` artifact renders through the same {@link ArtifactPagesBody} the chat
+ * sidebar uses — thumbnail strip, one large page, click to present — so a deck
+ * reads identically in both places. Page index and presentation state live here
+ * rather than in the body, because Escape must exit the presentation before it
+ * closes the viewer, and the two viewers must not both answer an arrow key.
+ */
 export function ArtifactViewer() {
   const { artifact: artifactId } = useParams({ from: "/library/$artifact" });
   const navigate = useNavigate();
@@ -19,19 +42,40 @@ export function ArtifactViewer() {
   const { artifacts, loading, error, initialPullPending, retry } = useRecentArtifacts();
   const artifact = subscribedArtifact ?? artifacts.find((row) => row.id === artifactId) ?? null;
 
+  const [pageIndex, setPageIndex] = useArtifactPageIndex(artifactId);
+  const [presenting, setPresenting] = useState(false);
+
+  const pages: ArtifactPage[] = artifact?.content?.kind === "pages" ? artifact.content.pages : [];
+  const canPresent = artifact?.kind === "pages" && pages.length > 0;
+
   const close = useCallback(() => {
     void navigate({ to: "/library" });
   }, [navigate]);
 
+  // Escape exits the presentation first, then closes the viewer. The handler
+  // reads the latest state through an Effect Event, so the listener mounts once.
+  const onEscape = useEffectEvent(() => {
+    if (presenting) setPresenting(false);
+    else close();
+  });
+
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      if (event.key === "Escape") onEscape();
     };
 
     window.addEventListener("keydown", handler);
 
     return () => window.removeEventListener("keydown", handler);
-  }, [close]);
+  }, []);
+
+  // Arrow keys page through the deck. Disabled while presenting, where the
+  // overlay owns the same keys against the same index.
+  useArtifactPageKeys({
+    enabled: canPresent && !presenting,
+    pageCount: pages.length,
+    onIndexChange: setPageIndex,
+  });
 
   if (!artifact) {
     if (loading || (initialPullPending && !error)) {
@@ -77,264 +121,190 @@ export function ArtifactViewer() {
     );
   }
 
-  return (
-    <PopulatedArtifact artifact={artifact} syncError={error} onRetry={retry} onClose={close} />
-  );
-}
-
-function PopulatedArtifact({
-  artifact,
-  syncError,
-  onRetry,
-  onClose,
-}: {
-  artifact: SyncedArtifact;
-  syncError: string | null;
-  onRetry: () => void;
-  onClose: () => void;
-}) {
-  const pages = artifact.content?.kind === "pages" ? artifact.content.pages : [];
-
-  const canDownload =
-    artifact.kind === "pages" && pages.length > 0 && artifact.status !== "generating";
-
-  // The dialog scrolls inside this `<main>`, not the window. Lazy page mounting
-  // roots its IntersectionObserver on this element so the gate tracks the real
-  // scroller rather than the viewport.
-  const scrollRef = useRef<HTMLElement | null>(null);
-
-  const onDownload = useCallback(() => {
-    if (!canDownload) return;
-    const downloadablePages = artifact.content?.kind === "pages" ? artifact.content.pages : [];
-    const format: ArtifactFormat = artifact.format ?? "pdf";
-    void printArtifactPages(
-      downloadablePages.map((page) => page.html),
-      format,
-      artifact.title,
-    );
-  }, [artifact.content, artifact.format, artifact.title, canDownload]);
+  const format: ArtifactFormat = artifact.format ?? "pdf";
 
   return (
-    <ArtifactDialog label={artifact.title} onClose={onClose}>
-      <header className="relative flex min-h-[60px] items-center justify-between gap-4 px-4 shadow-[inset_0_-1px_0_rgba(0,0,0,0.06)] sm:px-6">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-app-fg-4">{artifact.title}</p>
-          <p className="mt-0.5 text-[11.5px] text-app-fg-3">
-            {artifactTypeLabel(artifact)} · {formatArtifactDate(artifact)}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {canDownload ? (
-            <AppButton
-              variant="ghost"
-              size="md"
-              aria-label="Download artifact"
-              onClick={onDownload}
-            >
-              <Download size={15} />
-            </AppButton>
-          ) : null}
-          <Link
-            to="/library"
-            aria-label="Close artifact"
-            className={cn(
-              "grid size-8 place-items-center rounded-full bg-app-bg-2 text-app-fg-3",
-              "transition-colors hover:bg-app-bg-3 hover:text-app-fg-4",
-              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-            )}
-          >
-            <X size={15} />
-          </Link>
-        </div>
-      </header>
+    <ArtifactDialog label={artifact.title} onClose={close}>
+      <ArtifactHeader
+        artifact={artifact}
+        pages={pages}
+        format={format}
+        onPresent={canPresent ? () => setPresenting(true) : null}
+        onClose={close}
+      />
 
-      <main
-        ref={scrollRef}
-        className="scroll-stable relative min-h-0 flex-1 overflow-y-auto px-4 py-8"
-      >
-        {syncError ? (
-          <div className="mx-auto mb-5 flex w-full max-w-[720px] items-center justify-between gap-3 rounded-xl bg-app-bg-2 px-3 py-2 text-xs text-app-fg-3">
-            <span>
-              Showing a cached artifact. <span className="text-app-red-4">{syncError}</span>
-            </span>
-            <button
-              type="button"
-              onClick={onRetry}
-              className="shrink-0 font-medium hover:underline"
-            >
-              Retry
-            </button>
-          </div>
-        ) : null}
-        <ArtifactStatus artifact={artifact} />
-        <ArtifactContent artifact={artifact} scrollRef={scrollRef} />
-      </main>
+      {syncErrorBanner(error, retry)}
 
-      <div className="pointer-events-none absolute right-5 bottom-4 text-[11.5px] text-app-fg-2">
-        Esc to exit
-      </div>
+      <ArtifactBody
+        artifact={artifact}
+        pages={pages}
+        format={format}
+        pageIndex={pageIndex}
+        onPageIndexChange={setPageIndex}
+        onPresent={canPresent ? () => setPresenting(true) : null}
+      />
+
+      {presenting && canPresent ? (
+        <ArtifactPresentOverlay
+          title={artifact.title}
+          pages={pages}
+          format={format}
+          index={pageIndex}
+          onIndexChange={setPageIndex}
+          onClose={() => setPresenting(false)}
+        />
+      ) : null}
     </ArtifactDialog>
   );
 }
 
-function ArtifactStatus({ artifact }: { artifact: SyncedArtifact }) {
-  if (artifact.status === "complete") return null;
-  const generating = artifact.status === "generating";
+function syncErrorBanner(error: string | null, onRetry: () => void): ReactNode {
+  if (!error) return null;
 
   return (
-    <div className="mx-auto mb-5 flex w-full max-w-[720px] items-center gap-2 rounded-xl bg-app-bg-2 px-3 py-2 text-xs text-app-fg-3">
-      {generating ? <Loader2 size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
-      {generating
-        ? "This artifact is still generating."
-        : "Generation ended before this artifact completed."}
+    <div className="mx-auto mt-4 flex w-full max-w-[720px] shrink-0 items-center justify-between gap-3 rounded-xl bg-app-bg-2 px-3 py-2 text-xs text-app-fg-3">
+      <span>
+        Showing a cached artifact. <span className="text-app-red-4">{error}</span>
+      </span>
+      <button type="button" onClick={onRetry} className="shrink-0 font-medium hover:underline">
+        Retry
+      </button>
     </div>
   );
 }
 
-function ArtifactContent({
+function ArtifactHeader({
   artifact,
-  scrollRef,
+  pages,
+  format,
+  onPresent,
+  onClose,
 }: {
   artifact: SyncedArtifact;
-  scrollRef: RefObject<HTMLElement | null>;
+  pages: ArtifactPage[];
+  format: ArtifactFormat;
+  onPresent: (() => void) | null;
+  onClose: () => void;
 }) {
+  const isPages = artifact.kind === "pages";
+  const canDownload = isPages && pages.length > 0 && artifact.status !== "generating";
+
+  const onDownload = useCallback(() => {
+    void printArtifactPages(
+      pages.map((page) => page.html),
+      format,
+      artifact.title,
+    );
+  }, [pages, format, artifact.title]);
+
+  return (
+    <header className="flex min-h-[60px] shrink-0 items-center justify-between gap-4 px-4 shadow-[inset_0_-1px_0_rgba(0,0,0,0.06)] sm:px-6">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-app-bg-a2 text-app-fg-3">
+          {isPages ? <Layers size={16} /> : <FileText size={16} />}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-app-fg-4">{artifact.title}</p>
+          <p className="mt-0.5 flex items-center gap-1.5 truncate text-[11.5px] text-app-fg-3">
+            {artifact.status === "generating" ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : artifact.status === "error" ? (
+              <AlertTriangle size={12} />
+            ) : null}
+            <span>
+              {artifactTypeLabel(artifact)} · {formatArtifactDate(artifact)}
+              {isPages && pages.length > 0
+                ? ` · ${pages.length} ${pages.length === 1 ? "page" : "pages"}`
+                : ""}
+            </span>
+          </p>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {canDownload ? (
+          <ArtifactIconButton label="Download artifact" onClick={onDownload}>
+            <Download size={14} />
+          </ArtifactIconButton>
+        ) : null}
+        {onPresent ? (
+          <ArtifactIconButton label="Present fullscreen" onClick={onPresent}>
+            <Maximize2 size={14} />
+          </ArtifactIconButton>
+        ) : null}
+        <button
+          type="button"
+          aria-label="Close artifact"
+          onClick={onClose}
+          className={cn(
+            "grid size-8 place-items-center rounded-full bg-app-bg-2 text-app-fg-3",
+            "transition-colors hover:bg-app-bg-3 hover:text-app-fg-4",
+            "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+          )}
+        >
+          <X size={15} />
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function ArtifactBody({
+  artifact,
+  pages,
+  format,
+  pageIndex,
+  onPageIndexChange,
+  onPresent,
+}: {
+  artifact: SyncedArtifact;
+  pages: ArtifactPage[];
+  format: ArtifactFormat;
+  pageIndex: number;
+  onPageIndexChange: Dispatch<SetStateAction<number>>;
+  onPresent: (() => void) | null;
+}) {
+  const generating = artifact.status === "generating";
+
   if (artifact.kind === "document") {
     const markdown = artifact.content?.kind === "document" ? artifact.content.markdown : "";
 
     if (!markdown.trim()) {
       return (
         <ViewerState
-          icon={
-            artifact.status === "generating" ? <Loader2 className="animate-spin" /> : <FileText />
-          }
-          title={artifact.status === "generating" ? "Writing document" : "This document is empty"}
+          icon={generating ? <Loader2 className="animate-spin" /> : <FileText />}
+          title={generating ? "Writing document" : "This document is empty"}
         />
       );
     }
 
     return (
-      <article className="mx-auto w-full max-w-[720px] rounded-2xl bg-app-bg-1 p-6 shadow-[0_8px_24px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.06)] sm:p-10">
-        <MarkdownRenderer size="reading">{markdown}</MarkdownRenderer>
-      </article>
+      <main className="scroll-stable min-h-0 flex-1 overflow-y-auto px-4 py-8">
+        <article className="mx-auto w-full max-w-[720px] rounded-2xl bg-app-bg-1 p-6 shadow-[0_8px_24px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.06)] sm:p-10">
+          <MarkdownRenderer size="reading">{markdown}</MarkdownRenderer>
+        </article>
+      </main>
     );
   }
-
-  const pages = artifact.content?.kind === "pages" ? artifact.content.pages : [];
 
   if (pages.length === 0) {
     return (
       <ViewerState
-        icon={artifact.status === "generating" ? <Loader2 className="animate-spin" /> : <Layers />}
-        title={artifact.status === "generating" ? "Creating pages" : "This artifact has no pages"}
+        icon={generating ? <Loader2 className="animate-spin" /> : <Layers />}
+        title={generating ? "Creating pages" : "This artifact has no pages"}
       />
     );
   }
 
-  const format = artifact.format ?? "pdf";
-  const pageKeyOccurrences = new Map<string, number>();
-
-  const keyedPages = pages.map((page) => {
-    const shapeKey = JSON.stringify([page.title, page.html]);
-    const occurrence = pageKeyOccurrences.get(shapeKey) ?? 0;
-    pageKeyOccurrences.set(shapeKey, occurrence + 1);
-
-    return { key: JSON.stringify([shapeKey, occurrence]), page };
-  });
-
   return (
-    <div className="mx-auto flex w-full max-w-[720px] flex-col gap-8">
-      {keyedPages.map(({ key, page }, index) => (
-        <section key={key} aria-label={`Page ${index + 1}`}>
-          <div className="mb-2 flex items-center justify-between text-[11.5px] text-app-fg-3">
-            <span>{page.title || "Page"}</span>
-            <span className="tabular-nums">
-              {index + 1} / {pages.length}
-            </span>
-          </div>
-          <LazyArtifactPage
-            html={page.html}
-            title={`${artifact.title} page ${index + 1}`}
-            format={format}
-            scrollRef={scrollRef}
-          />
-        </section>
-      ))}
-    </div>
-  );
-}
-
-/**
- * Mount each page's sandboxed iframe only once it first scrolls into view (with a
- * small pre-margin), then keep it mounted. The live win TODAY is paint cost: a
- * long deck no longer spins up every sandboxed iframe on open, only the few near
- * the viewport. It is ALSO the seam for artifact motion (ADR-0086): the shell
- * defines autoplay-on-mount entrance classes, the only motion a `sandbox=""` +
- * `pointer-events: none` iframe can carry. That vocabulary is still dormant — not
- * yet named in the authoring prompt — so nothing animates yet; but once the
- * expression dial enables it, gating the mount on intersection makes
- * mount == reveal, so each page's entrance will fire as it arrives rather than
- * all at once on open. The seam is in place ahead of the vocabulary, not the
- * reverse.
- *
- * Until a page mounts we render a same-aspect placeholder so scroll height is
- * stable (the observer for later pages can fire) and the swap causes no layout
- * shift. The observer roots on the real scroll container (`scrollRef` -> the
- * dialog's `<main>`), not the viewport, so the gate stays correct if the viewer
- * layout ever nests that scroller; it falls back to the viewport (`null`) if the
- * ref is not attached yet. The observer lives in the parent app DOM, where JS is
- * allowed — the sealed iframe never sees it.
- */
-function LazyArtifactPage({
-  html,
-  title,
-  format,
-  scrollRef,
-}: {
-  html: string;
-  title: string;
-  format: ArtifactFormat;
-  scrollRef: RefObject<HTMLElement | null>;
-}) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    if (mounted) return;
-    const el = ref.current;
-
-    if (!el) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          setMounted(true);
-          observer.disconnect();
-        }
-      },
-      // Root on the scroll container so the gate tracks the real scroller. A
-      // small positive margin pre-mounts just before the page enters view so the
-      // iframe has loaded by the time it is looked at, without spending the
-      // entrance far off-screen.
-      { root: scrollRef.current, rootMargin: "96px 0px", threshold: 0 },
-    );
-
-    observer.observe(el);
-
-    return () => observer.disconnect();
-  }, [mounted, scrollRef]);
-
-  if (mounted) {
-    return <ArtifactPageFrame html={html} title={title} format={format} />;
-  }
-
-  const { width, height } = pageGeometry[format];
-
-  return (
-    <div
-      ref={ref}
-      aria-hidden
-      className="rounded-lg bg-app-bg-2 shadow-2xl"
-      style={{ aspectRatio: `${width} / ${height}` }}
+    <ArtifactPagesBody
+      pages={pages}
+      format={format}
+      generating={generating}
+      pageIndex={pageIndex}
+      onPageIndexChange={onPageIndexChange}
+      onPresent={onPresent}
+      className="min-h-0"
+      pageClassName={format === "slides" ? "max-w-[1100px]" : "max-w-[760px]"}
     />
   );
 }
@@ -351,12 +321,17 @@ function ArtifactDialog({
   children: ReactNode;
 }) {
   return (
+    // `size-full` is load-bearing: the UA stylesheet sizes a `<dialog>` with
+    // `width/height: fit-content`, which `inset-0` alone cannot override (an
+    // over-constrained box keeps the width and drops `right`). Without it the
+    // viewer collapses to the width of its own header.
     <dialog
       open
       aria-modal="true"
       aria-label={label}
       className={cn(
-        "app-fade-in fixed inset-0 z-[60] m-0 flex max-h-none max-w-none border-0 bg-transparent p-0",
+        "app-fade-in fixed inset-0 z-[60] m-0 flex size-full max-h-none max-w-none",
+        "overflow-hidden border-0 bg-transparent p-0",
         compact ? "items-center justify-center" : "flex-col",
       )}
     >
@@ -364,7 +339,10 @@ function ArtifactDialog({
         type="button"
         aria-label="Close artifact"
         onClick={onClose}
-        className="absolute inset-0 -z-10 bg-app-background/88 backdrop-blur-[6px]"
+        // Near-opaque, not translucent: the library grid behind stays legible
+        // through an 88% wash, and a deck read over rows of chat titles is the
+        // noise this viewer exists to remove.
+        className="absolute inset-0 -z-10 bg-app-background/97 backdrop-blur-xl"
       />
       {compact ? (
         <div className="w-[min(420px,92vw)] rounded-2xl bg-app-bg-1 p-6 shadow-[0_24px_64px_rgba(0,0,0,0.20),0_0_0_1px_rgba(0,0,0,0.06)]">
@@ -372,6 +350,11 @@ function ArtifactDialog({
         </div>
       ) : (
         children
+      )}
+      {compact ? null : (
+        <div className="pointer-events-none absolute right-5 bottom-4 text-[11.5px] text-app-fg-2">
+          Esc to exit
+        </div>
       )}
     </dialog>
   );
@@ -389,7 +372,7 @@ function ViewerState({
   action?: ReactNode | undefined;
 }) {
   return (
-    <div className="grid min-h-[220px] place-items-center text-center">
+    <div className="grid min-h-[220px] flex-1 place-items-center text-center">
       <div className="flex max-w-sm flex-col items-center">
         <span className="text-app-fg-3">{icon}</span>
         <p className="mt-3 text-sm font-medium text-app-fg-4">{title}</p>
