@@ -32,7 +32,10 @@ async function seedUser(): Promise<string> {
 }
 
 /** A live gmail-sourced todo whose thread's sender matches {@link SENDER}. */
-async function seedGmailTodoFromSender(userId: string): Promise<{ todoId: string }> {
+async function seedGmailTodoFromSender(
+  userId: string,
+  status: "open" | "suggested" = "open",
+): Promise<{ todoId: string }> {
   const threadId = `thread_${randomUUID().slice(0, 12)}`;
   await db()
     .insert(documents)
@@ -51,9 +54,7 @@ async function seedGmailTodoFromSender(userId: string): Promise<{ todoId: string
     });
   const todoId = `todo_${randomUUID().slice(0, 12)}`;
   const sources = [{ provider: "gmail", kind: "thread", id: threadId }] satisfies TodoSource[];
-  await db()
-    .insert(todos)
-    .values({ id: todoId, userId, name: "Pay the invoice", status: "open", sources });
+  await db().insert(todos).values({ id: todoId, userId, name: "Pay the invoice", status, sources });
 
   return { todoId };
 }
@@ -110,7 +111,9 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
 
   test("the coordinator dismisses the sender's todos on the `remembered` path", async () => {
     const userId = await seedUser();
-    const { todoId } = await seedGmailTodoFromSender(userId);
+    // The remember-then-dismiss sweep is an automatic retraction: it may drop
+    // an unpromoted `suggested` proposal, never an `open` commitment.
+    const { todoId } = await seedGmailTodoFromSender(userId, "suggested");
 
     const result = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
     assert.equal(result.ok, true);
@@ -127,7 +130,7 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
 
   test("the coordinator still dismisses on the `already_exists` path", async () => {
     const userId = await seedUser();
-    const first = await seedGmailTodoFromSender(userId);
+    const first = await seedGmailTodoFromSender(userId, "suggested");
 
     // First call mints the suppression (remembered) and dismisses the first todo.
     const remembered = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
@@ -137,8 +140,8 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     assert.equal(remembered.status, "remembered");
     assert.equal(await todoStatus(first.todoId), "dismissed");
 
-    // A new open todo from the same sender arrives after the suppression exists.
-    const second = await seedGmailTodoFromSender(userId);
+    // A new suggested todo from the same sender arrives after the suppression exists.
+    const second = await seedGmailTodoFromSender(userId, "suggested");
 
     // Second call hits the `already_exists` branch and must still dismiss.
     const again = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));

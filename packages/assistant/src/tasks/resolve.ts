@@ -23,12 +23,13 @@ const resolveTodosForGmailSourceArgsSchema = z
     sourceThreadId: z.string().nullish(),
     accountId: z.string().nullable().optional(),
     /**
-     * A stored standing-instruction target to sweep: dismisses every live
-     * todo whose thread carries at least one (sender, account) pair the
-     * target covers, per {@link targetMatchesSender}. The `system.remember`
-     * path passes the instruction it just wrote; the thread-only and
-     * single-address callers leave this unset. Never alongside `senderEmail`
-     * — two sender-scopes is a caller bug.
+     * A stored standing-instruction target to sweep: dismisses every
+     * `suggested` todo whose thread carries at least one (sender, account)
+     * pair the target covers, per {@link targetMatchesSender}. The
+     * `system.remember` path passes the instruction it just wrote; the
+     * thread-only and single-address callers leave this unset. Never
+     * alongside `senderEmail` or `accountId` — the target already carries
+     * the `accountId` gate, so a second scope riding along is a caller bug.
      */
     target: standingInstructionTargetSchema.nullish(),
     /**
@@ -47,22 +48,35 @@ const resolveTodosForGmailSourceArgsSchema = z
     actor: z.enum(TODO_RESOLVED_BY).default("agent"),
     /**
      * Which live statuses to retract. Defaults to both: the manual
-     * `system.resolve_todo` / `system.remember` paths dismiss whatever the user
-     * pointed at, promoted or not. The automatic `close-loop-todos` retraction
+     * `system.resolve_todo` path dismisses whatever the user pointed at,
+     * promoted or not. The automatic `close-loop-todos` retraction
      * passes `["suggested"]` on purpose — it may only drop an **unpromoted**
      * proposal, never a commitment the user explicitly promoted to `open`, where
      * a holding reply ("I'll send it tomorrow") is progress, not closure.
+     * The `target` sweep is forced to the same bound below, whatever the
+     * caller passes, so a wider sender set never carries a wider status set.
      */
     statuses: z.array(liveTodoStatusSchema).min(1).optional(),
   })
-  .refine((data) => !(data.senderEmail && data.target), {
-    message: "Pass either senderEmail or target, never both.",
+  .refine((data) => !(data.target && (data.senderEmail || data.accountId)), {
+    message: "Pass target alone — never beside senderEmail or accountId.",
   });
 
 export type ResolveTodosForGmailSourceArgs = z.infer<typeof resolveTodosForGmailSourceArgsSchema>;
 
 /** Both live statuses; the default when a caller does not narrow. */
 const DEFAULT_RETRACTABLE_STATUSES = ["open", "suggested"] as const satisfies ReadonlyArray<
+  z.infer<typeof liveTodoStatusSchema>
+>;
+
+/**
+ * The only status a `target` sweep may retract. A domain target widens the
+ * sender set, so it must not widen the status set with it: an automatic
+ * retraction may drop an unpromoted `suggested` proposal, never an `open`
+ * commitment the user promoted (same rule `close-loop-todos` follows at
+ * `workflow-operations.ts:962-968`).
+ */
+const TARGET_SWEEP_STATUSES = ["suggested"] as const satisfies ReadonlyArray<
   z.infer<typeof liveTodoStatusSchema>
 >;
 
@@ -109,7 +123,8 @@ interface GmailThreadMetadata {
  * The statuses to retract are a caller decision ({@link
  * ResolveTodosForGmailSourceArgs.statuses}), defaulting to both live ones. The
  * automatic retraction narrows to `suggested` so it never buries a todo the
- * user promoted.
+ * user promoted — and a `target` sweep is forced to the same bound below, so
+ * the widened sender set cannot widen the status set with it.
  */
 export async function resolveTodosForGmailSource(
   args: ResolveTodosForGmailSourceArgs,
@@ -120,7 +135,13 @@ export async function resolveTodosForGmailSource(
   const accountId = normalizeOptional(parsed.accountId);
   const target = parsed.target ?? null;
   const auditReason = normalizeOptional(parsed.reason);
-  const statuses = parsed.statuses ?? DEFAULT_RETRACTABLE_STATUSES;
+
+  // A `target` sweep is an automatic retraction over a widened sender set:
+  // `suggested` only, whatever the caller passes. An explicit `statuses`
+  // beside `target` is narrowed to this bound, never honored wider.
+  const statuses = target
+    ? TARGET_SWEEP_STATUSES
+    : (parsed.statuses ?? DEFAULT_RETRACTABLE_STATUSES);
 
   if (!senderEmail && !sourceThreadId && !target) {
     return {
