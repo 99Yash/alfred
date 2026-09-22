@@ -1,5 +1,7 @@
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Check, ChevronDown, Filter } from "lucide-react";
+import { use } from "react";
+import { AppThemeContext } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
 import type { ArtifactType } from "./helpers";
 
@@ -33,6 +35,14 @@ export function TypeFilterPopover({
 
   const label = selectedTypes.size === 0 ? "All types" : `${selectedTypes.size} selected`;
 
+  // The content renders in a portal on `document.body`, outside the `.app`
+  // subtree that declares the theme's custom properties — so it inherits the
+  // LIGHT `:root` values and paints a white sheet on a dark page. Re-apply `app`
+  // and stamp the resolved theme on the content itself; React context still
+  // flows through a portal even though CSS inheritance does not. Same pattern as
+  // `AppSelect` and the chat model picker.
+  const dataTheme = use(AppThemeContext)?.resolved;
+
   return (
     <PopoverPrimitive.Root>
       <PopoverPrimitive.Trigger asChild>
@@ -59,9 +69,9 @@ export function TypeFilterPopover({
           align="start"
           sideOffset={8}
           collisionPadding={16}
+          data-app-theme={dataTheme}
           className={cn(
-            "z-50 w-[250px] rounded-2xl bg-app-bg-1 p-2",
-            "shadow-[0_18px_48px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.06)]",
+            "app app-frost-overlay z-50 w-[250px] rounded-2xl p-2",
             "app-fade-in outline-none",
           )}
         >
@@ -90,8 +100,8 @@ export function TypeFilterPopover({
                     className={cn(
                       "grid size-4 shrink-0 place-items-center rounded text-[10px]",
                       checked
-                        ? "bg-[image:var(--app-cta-bg)] text-[var(--app-accent-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
-                        : "bg-app-bg-2 text-transparent shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)]",
+                        ? "bg-app-purple-4 text-[var(--app-accent-fg)]"
+                        : "bg-app-bg-a2 text-transparent ring-1 ring-app-bg-4 ring-inset",
                     )}
                   >
                     <Check size={11} strokeWidth={2.4} />

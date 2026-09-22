@@ -468,7 +468,7 @@
       //   envelope open and vault classify) branch `unknown` into text
       //   for display, logs, or redaction, which is the boundary;
       // - typed-union discriminators with no helper spelling (toast
-      //   Shorthand, shell and sidebar SetStateAction resolvers, agent
+      //   Shorthand, shell and artifact-pages SetStateAction resolvers, agent
       //   value-or-thunk resolve, gateway RequestInfo, tool-call-round
       //   restore result, tool JSON-schema properties reads,
       //   pipeline PropertyKey symbol arm and scratch-key error
@@ -549,10 +549,10 @@
         "apps/web/src/components/approvals/format.ts",
         "apps/web/src/components/approvals/input-editor.tsx",
         "apps/web/src/components/dimension-chat-thread.tsx",
+        "apps/web/src/components/artifacts/use-artifact-pages.ts",
         "apps/web/src/components/markdown-renderer/markdown-pre.tsx",
         "apps/web/src/components/ui/v2/theme.tsx",
         "apps/web/src/main.tsx",
-        "apps/web/src/routes/-chat/artifact-sidebar.tsx",
         "apps/web/src/routes/-chat/conversation-helpers.ts",
         "apps/web/src/routes/-chat/evidence.ts",
         "apps/web/src/routes/-chat/tool-call-card.tsx",
