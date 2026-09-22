@@ -602,6 +602,9 @@ importers:
       sharp:
         specifier: ^0.35.2
         version: 0.35.3(@types/node@24.13.4)
+      tldts:
+        specifier: 7.4.11
+        version: 7.4.11
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
