@@ -102,7 +102,7 @@ export interface ProjectGmailWorksAtEdgesArgs {
    * belongs to the identity-facts projection, not this contact fold.
    * Same canonical-lowercase membership rule as the kind fold.
    */
-  readonly excludeEmailValues?: readonly string[] | undefined;
+  readonly excludeEmailValues: readonly string[];
 }
 
 export interface ProjectGmailWorksAtEdgesResult {
@@ -326,9 +326,7 @@ export async function projectGmailWorksAtEdges(
       .where(and(...conds))
       .orderBy(asc(observations.occurredAt), asc(observations.id));
 
-    const excludedEmails = new Set(
-      args.excludeEmailValues?.map((value) => value.toLowerCase()) ?? [],
-    );
+    const excludedEmails = new Set(args.excludeEmailValues.map((value) => value.toLowerCase()));
 
     const groups = new Map<string, SenderGroup>();
 
