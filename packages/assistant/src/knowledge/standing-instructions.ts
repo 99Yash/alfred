@@ -88,9 +88,9 @@ export type RememberSenderSuppressionResult =
       factId: string;
       instruction: StandingInstructionValue;
       /**
-       * The address this write resolved, whatever the target kind stores. A
-       * caller that follows up on the sender (todo dismissal) reads this
-       * instead of `instruction.target.email`, which a domain target lacks.
+       * The address this write resolved, whatever the target kind stores.
+       * Reporting echo for the model reply — the todo dismissal sweeps
+       * `instruction.target`, never this field.
        */
       resolvedSenderEmail: string;
       /**
