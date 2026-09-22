@@ -258,7 +258,15 @@ function stringOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function gmailHighWatermarkCondition(watermark: ProjectionCursorValue | undefined): SQL | null {
+/**
+ * Inclusive Gmail replay bound shared by the Gmail projection folds. Exported
+ * (not module-private) so the `works_at` edge fold consumes exactly the same
+ * prefix the kind fold does — a second hand-rolled copy would drift and the two
+ * folds would replay different windows under one `projectionRunId`.
+ */
+export function gmailHighWatermarkCondition(
+  watermark: ProjectionCursorValue | undefined,
+): SQL | null {
   if (!watermark) return null;
   const conds: SQL[] = [];
 
