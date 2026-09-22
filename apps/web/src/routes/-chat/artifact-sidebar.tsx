@@ -3,8 +3,6 @@ import type { SyncedArtifact } from "@alfred/sync";
 import {
   AlertTriangle,
   Check,
-  ChevronLeft,
-  ChevronRight,
   Copy,
   Download,
   ExternalLink,
@@ -23,11 +21,13 @@ import {
   useState,
   type Dispatch,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
   type SetStateAction,
 } from "react";
-import { createPortal } from "react-dom";
-import { ArtifactPageFrame } from "~/components/artifact-page-frame";
+import { ArtifactCenteredState } from "~/components/artifacts/artifact-centered-state";
+import { ArtifactIconButton } from "~/components/artifacts/artifact-icon-button";
+import { ArtifactPagesBody } from "~/components/artifacts/artifact-pages-body";
+import { ArtifactPresentOverlay } from "~/components/artifacts/artifact-present-overlay";
+import { useArtifactPageIndex } from "~/components/artifacts/use-artifact-pages";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { printArtifactPages } from "~/lib/artifacts/export-artifact";
 import type { LiveArtifactStream } from "~/lib/chat/use-artifact-stream";
@@ -141,27 +141,9 @@ export function ArtifactSidebar({
 
   // Which page is in view. Lifted here so it is the single source of truth
   // shared by the thumbnail strip, the header's "present" button, and the
-  // fullscreen viewer — so opening fullscreen starts on the page the user is
-  // actually looking at, not page 1. The index is stored against the artifact it
-  // belongs to, so swapping artifacts derives back to page 0 on its own — no
-  // prop-sync effect (which would briefly show the previous artifact's index).
-  const [pageState, setPageState] = useState<{ forId: string; index: number }>({
-    forId: artifactId,
-    index: 0,
-  });
-
-  const pageIndex = pageState.forId === artifactId ? pageState.index : 0;
-
-  const setPageIndex = useCallback<Dispatch<SetStateAction<number>>>(
-    (action) =>
-      setPageState((s) => {
-        const current = s.forId === artifactId ? s.index : 0;
-        const next = typeof action === "function" ? action(current) : action;
-
-        return { forId: artifactId, index: next };
-      }),
-    [artifactId],
-  );
+  // presentation overlay — so presenting starts on the page the user is actually
+  // looking at, not page 1.
+  const [pageIndex, setPageIndex] = useArtifactPageIndex(artifactId);
 
   // Escape closes the panel (overlay) or exits fullscreen first. The handler
   // reads the latest fullscreen/mode/onClose through an Effect Event so the
@@ -246,8 +228,10 @@ export function ArtifactSidebar({
           {inner}
         </aside>
         {fullscreen && artifact ? (
-          <ArtifactFullscreen
-            artifact={artifact}
+          <ArtifactPresentOverlay
+            title={artifact.title}
+            pages={artifact.content?.kind === "pages" ? artifact.content.pages : []}
+            format={artifact.format ?? "pdf"}
             index={pageIndex}
             onIndexChange={setPageIndex}
             onClose={() => setFullscreen(false)}
@@ -271,8 +255,10 @@ export function ArtifactSidebar({
       <ResizeHandle width={width} onWidthChange={onWidthChange} />
       {inner}
       {fullscreen && artifact ? (
-        <ArtifactFullscreen
-          artifact={artifact}
+        <ArtifactPresentOverlay
+          title={artifact.title}
+          pages={artifact.content?.kind === "pages" ? artifact.content.pages : []}
+          format={artifact.format ?? "pdf"}
           index={pageIndex}
           onIndexChange={setPageIndex}
           onClose={() => setFullscreen(false)}
@@ -348,18 +334,18 @@ function ArtifactHeader({
         </a>
       ) : null}
       {onEdit && artifact && artifact.status !== "generating" && !documentView.generating ? (
-        <IconButton label="Suggest an edit" onClick={onEdit}>
+        <ArtifactIconButton label="Suggest an edit" onClick={onEdit}>
           <Pencil size={13} />
-        </IconButton>
+        </ArtifactIconButton>
       ) : null}
       {canFullscreen && onFullscreen ? (
-        <IconButton label="Present fullscreen" onClick={onFullscreen}>
+        <ArtifactIconButton label="Present fullscreen" onClick={onFullscreen}>
           <Maximize2 size={14} />
-        </IconButton>
+        </ArtifactIconButton>
       ) : null}
-      <IconButton label="Close artifact" onClick={onClose}>
+      <ArtifactIconButton label="Close artifact" onClick={onClose}>
         <X size={14} />
-      </IconButton>
+      </ArtifactIconButton>
     </header>
   );
 }
@@ -460,9 +446,12 @@ function ArtifactBody({
 
     if (markdown.trim().length === 0) {
       return documentView.generating ? (
-        <CenteredState icon={<Loader2 size={20} className="animate-spin" />} text="Writing…" />
+        <ArtifactCenteredState
+          icon={<Loader2 size={20} className="animate-spin" />}
+          text="Writing…"
+        />
       ) : (
-        <CenteredState icon={<FileText size={20} />} text="Empty document." />
+        <ArtifactCenteredState icon={<FileText size={20} />} text="Empty document." />
       );
     }
 
@@ -475,7 +464,7 @@ function ArtifactBody({
 
   if (!artifact)
     return (
-      <CenteredState
+      <ArtifactCenteredState
         icon={<Loader2 size={20} className="animate-spin" />}
         text="Loading artifact…"
       />
@@ -490,11 +479,11 @@ function ArtifactBody({
   const pages: ArtifactPage[] = content?.kind === "pages" ? content.pages : [];
 
   return (
-    <PagesBody
+    <ArtifactPagesBody
       pages={pages}
       format={artifact.format ?? "pdf"}
       generating={artifact.status === "generating"}
-      onFullscreen={onFullscreen}
+      onPresent={onFullscreen}
       pageIndex={pageIndex}
       onPageIndexChange={onPageIndexChange}
     />
@@ -580,226 +569,9 @@ function ExternalFileBody({ content, title }: { content: ExternalFileContent; ti
   );
 }
 
-function PagesBody({
-  pages,
-  format,
-  generating,
-  onFullscreen,
-  pageIndex,
-  onPageIndexChange,
-}: {
-  pages: ArtifactPage[];
-  format: ArtifactFormat;
-  generating: boolean;
-  onFullscreen: (() => void) | null;
-  pageIndex: number;
-  onPageIndexChange: Dispatch<SetStateAction<number>>;
-}) {
-  // Clamp when the page list shrinks (e.g. an `update_artifact` replace).
-  const safeIndex = pages.length === 0 ? 0 : Math.min(pageIndex, pages.length - 1);
-  const current = pages[safeIndex];
-
-  if (pages.length === 0) {
-    return generating ? (
-      <CenteredState icon={<Loader2 size={20} className="animate-spin" />} text="Creating pages…" />
-    ) : (
-      <CenteredState icon={<Layers size={20} />} text="No pages yet." />
-    );
-  }
-
-  return (
-    <>
-      <div className="shrink-0 border-b border-app-bg-3/40 px-3 py-2">
-        <div className="minimal-scrollbar flex gap-2 overflow-x-auto pb-1">
-          {pages.map((page, index) => {
-            const active = index === safeIndex;
-
-            return (
-              <button
-                // `ArtifactPage` carries no id, so key by content (title + body
-                // length): stable when an `update_artifact` replace reorders the
-                // list, unlike the position index.
-                key={`${page.title}:${page.html.length}`}
-                type="button"
-                onClick={() => onPageIndexChange(index)}
-                className={cn(
-                  "w-[84px] shrink-0 rounded-xl border p-1 text-left transition-colors",
-                  active
-                    ? "border-app-fg-3 bg-app-bg-a2"
-                    : "border-app-bg-3/60 bg-app-bg-a2/40 hover:bg-app-bg-a2",
-                )}
-              >
-                <div className="overflow-hidden rounded-lg bg-white">
-                  <ArtifactPageFrame
-                    html={page.html}
-                    title={`${page.title || `Page ${index + 1}`} thumbnail`}
-                    format={format}
-                    className="rounded-lg shadow-none"
-                  />
-                </div>
-                <div className="mt-1 truncate text-[10px] text-app-fg-4">
-                  {page.title || `Page ${index + 1}`}
-                </div>
-              </button>
-            );
-          })}
-          {generating ? (
-            <div className="grid w-[84px] shrink-0 place-items-center rounded-xl border border-dashed border-app-bg-3/60 bg-app-bg-a2/30 p-1">
-              <Loader2 size={14} className="animate-spin text-app-fg-4" />
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="minimal-scrollbar flex-1 overflow-y-auto p-4">
-        <button
-          type="button"
-          onClick={onFullscreen ?? undefined}
-          aria-label="Present fullscreen"
-          className="block w-full cursor-zoom-in"
-        >
-          {current ? (
-            <ArtifactPageFrame
-              html={current.html}
-              title={current.title || `Page ${safeIndex + 1}`}
-              format={format}
-              className="ring-1 ring-app-bg-3/60"
-            />
-          ) : null}
-        </button>
-        <div className="mt-2 flex items-center justify-between text-[12px] text-app-fg-4">
-          <span className="truncate">{current?.title || `Page ${safeIndex + 1}`}</span>
-          <span>
-            {safeIndex + 1} / {pages.length}
-          </span>
-        </div>
-      </div>
-    </>
-  );
-}
-
 /* -------------------------------------------------------------------------- */
 /* Fullscreen presentation                                                     */
 /* -------------------------------------------------------------------------- */
-
-function ArtifactFullscreen({
-  artifact,
-  index,
-  onIndexChange,
-  onClose,
-}: {
-  artifact: SyncedArtifact;
-  /** Current page, shared with the sidebar so entry/exit keep position. */
-  index: number;
-  onIndexChange: Dispatch<SetStateAction<number>>;
-  onClose: () => void;
-}) {
-  const pages: ArtifactPage[] = artifact.content?.kind === "pages" ? artifact.content.pages : [];
-  const format = artifact.format ?? "pdf";
-  const safeIndex = pages.length === 0 ? 0 : Math.min(index, pages.length - 1);
-
-  const go = useCallback(
-    (delta: number) =>
-      onIndexChange((i) => {
-        const next = i + delta;
-
-        if (next < 0) return 0;
-
-        if (next > pages.length - 1) return Math.max(0, pages.length - 1);
-
-        return next;
-      }),
-    [pages.length, onIndexChange],
-  );
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") go(1);
-      else if (e.key === "ArrowLeft" || e.key === "ArrowUp") go(-1);
-    };
-
-    window.addEventListener("keydown", handler);
-
-    return () => window.removeEventListener("keydown", handler);
-  }, [go]);
-
-  // Lock background scroll while presenting.
-  useEffect(() => {
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, []);
-
-  const current = pages[safeIndex];
-
-  // Portal to `document.body`: the inline panel's `<aside>` carries a transform
-  // (`animate-artifact-panel`), which would otherwise make this `fixed inset-0`
-  // overlay resolve against the aside's box instead of the viewport.
-  return createPortal(
-    <div className="animate-artifact-fullscreen fixed inset-0 z-[60] flex flex-col bg-black/90 backdrop-blur-sm">
-      <div className="flex h-12 shrink-0 items-center justify-between px-4 text-white/80">
-        <span className="truncate text-sm">{artifact.title}</span>
-        <div className="flex items-center gap-3">
-          <span className="text-[12px] tabular-nums">
-            {safeIndex + 1} / {pages.length}
-          </span>
-          <IconButton label="Exit fullscreen" onClick={onClose} tone="dark">
-            <X size={16} />
-          </IconButton>
-        </div>
-      </div>
-      <div className="relative flex min-h-0 flex-1 items-center justify-center px-12 pb-8">
-        <NavButton side="left" disabled={safeIndex === 0} onClick={() => go(-1)} />
-        <div
-          className={cn(
-            "animate-artifact-fullscreen-content w-full",
-            format === "slides" ? "max-w-[1100px]" : "max-w-[760px]",
-          )}
-        >
-          {current ? (
-            <ArtifactPageFrame
-              html={current.html}
-              title={current.title || `Page ${safeIndex + 1}`}
-              format={format}
-              className="shadow-2xl"
-            />
-          ) : null}
-        </div>
-        <NavButton side="right" disabled={safeIndex >= pages.length - 1} onClick={() => go(1)} />
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-function NavButton({
-  side,
-  disabled,
-  onClick,
-}: {
-  side: "left" | "right";
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={side === "left" ? "Previous page" : "Next page"}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "absolute top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-full",
-        "bg-white/10 text-white transition-colors hover:bg-white/20",
-        "disabled:cursor-not-allowed disabled:opacity-30",
-        side === "left" ? "left-3" : "right-3",
-      )}
-    >
-      {side === "left" ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
-    </button>
-  );
-}
 
 /* -------------------------------------------------------------------------- */
 /* Resize handle (inline mode)                                                 */
@@ -888,19 +660,6 @@ function ResizeHandle({
 /* Small shared bits                                                           */
 /* -------------------------------------------------------------------------- */
 
-function CenteredState({ icon, text }: { icon: ReactNode; text: string }) {
-  return (
-    <div className="grid flex-1 place-items-center px-8 text-center text-app-fg-4">
-      <div className="flex flex-col items-center gap-3">
-        <span className="grid size-12 place-items-center rounded-2xl bg-app-bg-a2 text-app-fg-3">
-          {icon}
-        </span>
-        <p className="text-sm">{text}</p>
-      </div>
-    </div>
-  );
-}
-
 function DownloadPagesButton({
   pages,
   format,
@@ -922,9 +681,9 @@ function DownloadPagesButton({
   }, [pages, format, title]);
 
   return (
-    <IconButton label="Download PDF" onClick={busy ? undefined : onDownload}>
+    <ArtifactIconButton label="Download PDF" onClick={busy ? undefined : onDownload}>
       {busy ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-    </IconButton>
+    </ArtifactIconButton>
   );
 }
 
@@ -939,41 +698,12 @@ function CopyMarkdownButton({ markdown }: { markdown: string }) {
   }, [markdown]);
 
   return (
-    <IconButton label={copied ? "Copied" : "Copy markdown"} onClick={onCopy}>
+    <ArtifactIconButton label={copied ? "Copied" : "Copy markdown"} onClick={onCopy}>
       {copied ? (
         <Check size={14} className="animate-check-pop text-emerald-500" />
       ) : (
         <Copy size={14} />
       )}
-    </IconButton>
-  );
-}
-
-function IconButton({
-  label,
-  children,
-  onClick,
-  tone = "surface",
-}: {
-  label: string;
-  children: ReactNode;
-  onClick?: (() => void) | undefined;
-  tone?: "surface" | "dark" | undefined;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className={cn(
-        "grid size-7 shrink-0 place-items-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-app-fg-3/40 focus-visible:outline-none",
-        tone === "dark"
-          ? "text-white/70 hover:bg-white/10 hover:text-white"
-          : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
-      )}
-    >
-      {children}
-    </button>
+    </ArtifactIconButton>
   );
 }
