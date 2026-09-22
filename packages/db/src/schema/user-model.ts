@@ -1053,7 +1053,7 @@ export type EntityProfile = typeof entityProfiles.$inferSelect;
 
 export type EntityEdge = typeof entityEdges.$inferSelect;
 
-export type EntityEdgeInsert = typeof entityEdges.$inferInsert;
+export type NewEntityEdge = typeof entityEdges.$inferInsert;
 
 export type EntityCoOccurrence = typeof entityCoOccurrence.$inferSelect;
 

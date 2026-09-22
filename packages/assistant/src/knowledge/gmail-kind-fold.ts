@@ -240,7 +240,14 @@ function ensureAccumulator(
   return created;
 }
 
-function payloadSignalsFromObservation(observation: Observation): GmailPayloadSignals {
+/**
+ * Header list/bulk signals for one observation, in the shape
+ * `classifyEntityKind` consumes as `payloadSignals`. Exported (not
+ * module-private) so the `works_at` edge fold classifies from the SAME
+ * header-signal inputs the kind fold does — a second hand-rolled header
+ * read would drift and the two folds would disagree about one sender.
+ */
+export function payloadSignalsFromObservation(observation: Observation): GmailPayloadSignals {
   const payload = observation.payload;
   const headers = isRecord(payload.headers) ? payload.headers : null;
 
