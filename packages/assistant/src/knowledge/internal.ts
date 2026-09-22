@@ -39,8 +39,6 @@ export { previewStoredContactKinds, type ContactKind } from "./entity-graph";
 // the current kind, never merge two contacts" policy has a single home.
 export { reKindWouldCollide } from "./entity-graph";
 
-export { parsePersonEntityMetadata } from "./entity-metadata";
-
 export {
   gateDocumentFact,
   isServiceSender,
