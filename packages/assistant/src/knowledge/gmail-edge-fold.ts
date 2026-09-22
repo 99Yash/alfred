@@ -5,10 +5,11 @@
  * `From:` header and carries no evidence. This fold mints `works_at` only from
  * STATED evidence: an inbound message whose body holds the sender's OWN
  * signature block naming the sender and stating the org domain, sent by an
- * address the kind classifier reads as `person` over ALL of that sender's
- * observations in the window (a signature-shaped bulk footer states a domain
- * too — the sender-person gate keeps notification mailboxes off the graph).
- * Never from the address.
+ * address the kind classifier reads as `person` from the SAME per-identity
+ * inputs the kind fold classifies from (that identity's display names +
+ * header signals — never the display names of other participants on the
+ * sender's messages, which would fire the person fast path for every
+ * sender). Never from the address.
  *
  * Invariant: after any allowed sequence of Gmail projection runs, refolds, and
  * activation flips, every `works_at` row in `entity_edges` names in its
@@ -71,8 +72,8 @@ import {
 import { and, asc, eq, inArray, isNull, lte, notInArray, sql } from "drizzle-orm";
 import { parse as parseDomainName } from "tldts";
 import { ensureEntityNode } from "./entities";
-import { classifyEntityKind } from "./entity-kind-classifier";
-import { gmailHighWatermarkCondition } from "./gmail-kind-fold";
+import { classifyEntityKind, type GmailPayloadSignals } from "./entity-kind-classifier";
+import { gmailHighWatermarkCondition, payloadSignalsFromObservation } from "./gmail-kind-fold";
 import { liveObservationHeadJoin } from "./observations";
 
 /** The block's stated name + org domain, read out of body prose. */
@@ -140,6 +141,15 @@ interface WorksAtEdgeProvenance extends ProjectionProvenance {
   readonly groundingTier: GroundingTier;
   readonly documentId: string;
 }
+
+/**
+ * Provenance key the supersede predicate matches on, derived from the typed
+ * shape above: renaming the interface key fails the build HERE instead of
+ * silently matching zero rows (`->>` on a missing key is NULL, NULL never
+ * equals, so a stale literal would stop closing with no error — the repo
+ * documents this silent-NULL hazard at `triage/floors/spam.ts:65`).
+ */
+const GROUNDING_TIER_KEY = "groundingTier" satisfies keyof WorksAtEdgeProvenance;
 
 /** A signature delimiter: RFC-3676 `-- ` or its bare `--` structural equivalent. */
 const SIGNATURE_DELIMITER_RE = /^--\s*$/;
@@ -258,7 +268,8 @@ interface SenderMessage {
 interface SenderGroup {
   readonly senderIdentity: IdentityRef;
   readonly displayNames: Set<string>;
-  readonly observations: Observation[];
+  /** Header list/bulk signals from this sender's subject observations (sent included). */
+  readonly payloadSignals: GmailPayloadSignals[];
   readonly messages: SenderMessage[];
 }
 
@@ -324,7 +335,7 @@ export async function projectGmailWorksAtEdges(
     for (const { observation } of rows) {
       const payload = gmailEmailMessagePayloadSchema.safeParse(observation.payload);
 
-      if (!payload.success || payload.data.isSent) continue;
+      if (!payload.success) continue;
 
       const subject = identityRefSchema.safeParse(observation.subjectIdentity);
 
@@ -332,53 +343,79 @@ export async function projectGmailWorksAtEdges(
 
       if (excludedEmails.has(subject.data.value)) continue;
 
+      const key = senderKey(subject.data);
+      let group = groups.get(key);
+
+      if (!group) {
+        group = {
+          senderIdentity: subject.data,
+          displayNames: new Set(),
+          payloadSignals: [],
+          messages: [],
+        };
+        groups.set(key, group);
+      }
+
+      // Subject observations feed classification signals whether or not the
+      // message is inbound — the kind fold pushes signals for every parsed,
+      // non-excluded subject (sent included), so the gate below sees the
+      // same signal list. Only inbound messages can mint (messages).
+      group.payloadSignals.push(payloadSignalsFromObservation(observation));
+
+      if (payload.data.isSent) continue;
+
       const displayName = senderDisplayName(observation, subject.data);
 
       if (!isNonEmptyString(displayName)) continue;
 
-      const key = senderKey(subject.data);
-      const existing = groups.get(key);
-
-      if (existing) {
-        existing.observations.push(observation);
-        existing.displayNames.add(displayName);
-        existing.messages.push({
-          observation,
-          documentId: payload.data.documentId,
-          senderDisplayName: displayName,
-        });
-        continue;
-      }
-
-      groups.set(key, {
-        senderIdentity: subject.data,
-        displayNames: new Set([displayName]),
-        observations: [observation],
-        messages: [
-          {
-            observation,
-            documentId: payload.data.documentId,
-            senderDisplayName: displayName,
-          },
-        ],
+      group.displayNames.add(displayName);
+      group.messages.push({
+        observation,
+        documentId: payload.data.documentId,
+        senderDisplayName: displayName,
       });
+    }
+
+    // Per-identity display names across the whole window (any role),
+    // mirroring `collectIdentities`: a name counts for the identity whose
+    // participant entry carries it, never for the sender of a message it
+    // appears on. Harvesting every participant name onto the sender fires
+    // the classifier's existential person fast path for almost every
+    // sender (the account holder's own person-shaped name sits on the
+    // `to:` line of nearly every inbound message). Observations without a
+    // `from` display name still contribute signals above — dropping them
+    // before classification hides list evidence the kind fold sees.
+    for (const { observation } of rows) {
+      for (const participant of observation.participants.items) {
+        const group = groups.get(senderKey(participant.identity));
+
+        if (!group) continue;
+
+        if (isNonEmptyString(participant.displayName)) {
+          group.displayNames.add(participant.displayName);
+        }
+      }
     }
 
     if (groups.size === 0) return { edgesWritten: 0, checksum: checksumForEdges([]) };
 
-    // Sender-person gate FIRST, over the sender's WHOLE window state: the kind
-    // fold classifies from accumulated signals + every display name, and
-    // `classifyEntityKind` is evidence-monotone toward `group`/`service`, so a
-    // per-message read can answer `person` here while the profile for the same
-    // sender reads `group`. One classification per sender, same inputs.
-    // Bodies load only for surviving senders, after the gate.
+    // Sender-person gate FIRST, over the sender's WHOLE window state: the call
+    // below feeds the classifier the SAME inputs the kind fold feeds it for
+    // this identity (per-identity display names + header payload signals, no
+    // `observations` — passing observations would harvest every OTHER
+    // participant's display name into this sender through
+    // `normalizedDisplayNames`, and `classifyEntityKind` is evidence-monotone
+    // toward `group`/`service`, so a per-message read can answer `person`
+    // here while the profile for the same sender reads `group`). One
+    // classification per sender, same inputs. Bodies load only for surviving
+    // senders, after the gate.
     const personGroups: SenderGroup[] = [];
 
     for (const group of groups.values()) {
       const senderKind = classifyEntityKind({
         identity: group.senderIdentity,
         displayNames: [...group.displayNames],
-        observations: group.observations,
+        payloadSignals: group.payloadSignals,
       });
 
       if (senderKind.kind !== "person") continue;
@@ -540,10 +577,11 @@ export async function projectGmailWorksAtEdges(
             eq(entityEdges.projectionName, USER_MODEL_PROJECTION_NAME),
             eq(entityEdges.projectionVersion, args.projectionVersion),
             eq(entityEdges.fromEntityId, outcome.fromNodeId),
+            eq(entityEdges.relationType, "works_at"),
             isNull(entityEdges.validUntil),
             notInArray(entityEdges.toEntityId, [winner.toNodeId]),
             lte(entityEdges.validFrom, winner.validFrom),
-            sql`${entityEdges.provenance} ->> 'groundingTier' = ${WORKS_AT_GROUNDING_TIER}`,
+            sql`${entityEdges.provenance} ->> ${GROUNDING_TIER_KEY} = ${WORKS_AT_GROUNDING_TIER}`,
           ),
         );
     }

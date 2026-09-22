@@ -31,7 +31,6 @@ import {
   writeProjectionCursor,
 } from "@alfred/assistant/knowledge";
 import { warmPool } from "@alfred/db";
-import { sha256Canonical } from "@alfred/db/hash";
 import { closeScriptResources } from "../script-runtime";
 import {
   USER_MODEL_PROJECTION_NAME,
@@ -344,12 +343,17 @@ async function runAttempt(args: {
         {
           runId: started.run.id,
           userId: args.target.userId,
-          // The run checksum covers the WHOLE run: the kind checksum alone
-          // describes only half of what the run wrote.
-          checksum: sha256Canonical({
-            kind: projected.checksum,
-            edges: edged.checksum,
-          }),
+          // The persisted run checksum keeps its ONE live meaning: the kind
+          // checksum the refold frozen-logic gate recomputes and compares
+          // (`recomputeChecksumAtWatermark` runs only the kind fold). Folding
+          // the edge checksum in here redefines the column the gate reads —
+          // after `--activate` every scheduled refold would answer
+          // `blocked / logic-drift` forever, and `refold.ts` is a second
+          // writer still using the kind-only meaning. Edge-set determinism
+          // is enforced instead by this script's own in-memory comparisons
+          // (dry/dry + dry/commit over `edgeChecksum`), and the persisted
+          // `rowCounts.entity_edges` records how many edges the run wrote.
+          checksum: projected.checksum,
           completedAt: new Date(),
           rowCounts: {
             entity_profiles: projected.profileCount,
