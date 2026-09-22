@@ -3,9 +3,11 @@
  *
  * Replays active Gmail `email_message` observations into the first activated
  * projection-backed read model: stable entity nodes/identities plus
- * `entity_profiles.kind` + classifier provenance. This is the narrow
- * dist-list/kind slice only — no significance components, edges, or
- * co-occurrence are written here.
+ * `entity_profiles.kind` + classifier provenance, AND the first grounded
+ * `works_at` edges on `entity_edges` (signature-stated employment only —
+ * never the sender domain). This is the narrow
+ * dist-list/kind slice plus the signature-grounded edge slice only — no
+ * significance components or co-occurrence are written here.
  *
  * Dry by default. Dry mode runs the real writer path twice inside
  * rollback-only transactions and compares checksums. `--commit` is required to
@@ -23,6 +25,7 @@ import {
   activateProjectionVersion,
   completeProjectionRun,
   projectGmailKindProfiles,
+  projectGmailWorksAtEdges,
   requireEntityIdNamespace,
   startProjectionRun,
   writeProjectionCursor,
@@ -38,6 +41,7 @@ import {
 } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import {
+  entityEdges,
   entityProfiles,
   integrationCredentials,
   observationFamilyHeads,
@@ -94,6 +98,7 @@ interface AttemptResult {
   readonly reusedRun: boolean;
   readonly profileCount: number;
   readonly checksum: string;
+  readonly edgesWritten: number;
   readonly sourceHighWatermark: ProjectionSourceHighWatermark;
 }
 
@@ -247,7 +252,7 @@ async function runAttempt(args: {
   readonly projectionVersion: number;
   readonly sourceHighWatermark: ProjectionSourceHighWatermark;
   readonly commit: boolean;
-  readonly expected?: Pick<AttemptResult, "checksum" | "profileCount">;
+  readonly expected?: Pick<AttemptResult, "checksum" | "profileCount" | "edgesWritten">;
 }): Promise<AttemptResult> {
   const runBody = async (): Promise<AttemptResult> =>
     db().transaction(async (tx) => {
@@ -270,6 +275,14 @@ async function runAttempt(args: {
               eq(entityProfiles.projectionRunId, started.run.id),
             ),
           );
+        await tx
+          .delete(entityEdges)
+          .where(
+            and(
+              eq(entityEdges.userId, args.target.userId),
+              eq(entityEdges.projectionRunId, started.run.id),
+            ),
+          );
       }
 
       const projected = await projectGmailKindProfiles(
@@ -283,15 +296,26 @@ async function runAttempt(args: {
         tx,
       );
 
+      const edged = await projectGmailWorksAtEdges(
+        {
+          userId: args.target.userId,
+          projectionRunId: started.run.id,
+          projectionVersion: args.projectionVersion,
+          gmailHighWatermark: args.sourceHighWatermark.gmail,
+        },
+        tx,
+      );
+
       if (
         args.expected &&
         (projected.checksum !== args.expected.checksum ||
-          projected.profileCount !== args.expected.profileCount)
+          projected.profileCount !== args.expected.profileCount ||
+          edged.edgesWritten !== args.expected.edgesWritten)
       ) {
         throw new Error(
           `committed projection diverged from dry validation for ${args.target.email}: ` +
-            `dry=${args.expected.checksum}/${args.expected.profileCount}, ` +
-            `commit=${projected.checksum}/${projected.profileCount}`,
+            `dry=${args.expected.checksum}/${args.expected.profileCount}/${args.expected.edgesWritten}, ` +
+            `commit=${projected.checksum}/${projected.profileCount}/${edged.edgesWritten}`,
         );
       }
 
@@ -315,7 +339,10 @@ async function runAttempt(args: {
           userId: args.target.userId,
           checksum: projected.checksum,
           completedAt: new Date(),
-          rowCounts: { entity_profiles: projected.profileCount },
+          rowCounts: {
+            entity_profiles: projected.profileCount,
+            entity_edges: edged.edgesWritten,
+          },
           sourceHighWatermark: args.sourceHighWatermark,
         },
         tx,
@@ -326,6 +353,7 @@ async function runAttempt(args: {
         reusedRun: started.reused,
         profileCount: projected.profileCount,
         checksum: projected.checksum,
+        edgesWritten: edged.edgesWritten,
         sourceHighWatermark: args.sourceHighWatermark,
       };
 
@@ -352,11 +380,15 @@ async function validateDeterminism(args: {
   const first = await runAttempt({ ...args, commit: false });
   const second = await runAttempt({ ...args, commit: false });
 
-  if (first.checksum !== second.checksum || first.profileCount !== second.profileCount) {
+  if (
+    first.checksum !== second.checksum ||
+    first.profileCount !== second.profileCount ||
+    first.edgesWritten !== second.edgesWritten
+  ) {
     throw new Error(
       `determinism check failed for ${args.target.email}: ` +
-        `first=${first.checksum}/${first.profileCount}, ` +
-        `second=${second.checksum}/${second.profileCount}`,
+        `first=${first.checksum}/${first.profileCount}/${first.edgesWritten}, ` +
+        `second=${second.checksum}/${second.profileCount}/${second.edgesWritten}`,
     );
   }
 
@@ -390,6 +422,7 @@ async function processTarget(target: TargetUser, projectionVersion: number): Pro
   const dry = await validateDeterminism({ target, projectionVersion, sourceHighWatermark });
   console.log(
     `  DRY validated — profiles=${dry.profileCount} checksum=${dry.checksum} ` +
+      `edges=${dry.edgesWritten} ` +
       `high_watermark=${JSON.stringify(dry.sourceHighWatermark)}`,
   );
 
@@ -405,7 +438,8 @@ async function processTarget(target: TargetUser, projectionVersion: number): Pro
 
   console.log(
     `  COMMITTED — run=${committed.runId} reused=${committed.reusedRun} ` +
-      `profiles=${committed.profileCount} checksum=${committed.checksum}`,
+      `profiles=${committed.profileCount} checksum=${committed.checksum} ` +
+      `edges=${committed.edgesWritten}`,
   );
 
   if (!ACTIVATE) return;
