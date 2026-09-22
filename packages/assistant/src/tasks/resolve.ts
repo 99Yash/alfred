@@ -24,8 +24,9 @@ const resolveTodosForGmailSourceArgsSchema = z
     sourceThreadId: z.string().nullish(),
     accountId: z.string().nullable().optional(),
     /**
-     * A stored standing-instruction target to sweep: dismisses every
-     * `suggested` todo whose thread carries at least one (sender, account)
+     * A stored standing-instruction target to sweep: dismisses the live todos
+     * the sweep may retract (both live statuses for a one-mailbox target,
+     * `suggested` only for a class target — see below) whose thread carries
      * pair the target covers, per {@link targetMatchesSender}. The
      * `system.remember` path passes the instruction it just wrote; the
      * thread-only and single-address callers leave this unset. Never
@@ -82,8 +83,12 @@ const DEFAULT_RETRACTABLE_STATUSES = ["open", "suggested"] as const satisfies Re
  * commitment the user promoted (same rule `close-loop-todos` follows at
  * `workflow-operations.ts:962-968`). A target that names ONE mailbox (see
  * {@link targetNamesOneMailbox}) widens nothing, so its sweep keeps the
- * caller default — both live statuses — exactly as the single-address sweep
- * did before this item.
+ * caller default — both live statuses — preserving the `scope:"sender"`
+ * behavior exactly. This is a deliberate narrowing for `scope:"domain"`:
+ * on main the caller passed the named address on every path, so a domain
+ * mute dismissed that one address's promoted `open` todo; at HEAD the class
+ * bound governs the whole covered set, that address included, and the named
+ * address's `open` todo survives.
  */
 const TARGET_SWEEP_STATUSES = ["suggested"] as const satisfies ReadonlyArray<
   z.infer<typeof liveTodoStatusSchema>
