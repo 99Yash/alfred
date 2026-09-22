@@ -3,6 +3,7 @@ import {
   parseGmailDocumentMetadata,
   standingInstructionTargetSchema,
   targetMatchesSender,
+  targetNamesOneMailbox,
   TODO_RESOLVED_BY,
   todoSourcesSchema,
   type TodoSource,
@@ -28,8 +29,10 @@ const resolveTodosForGmailSourceArgsSchema = z
      * pair the target covers, per {@link targetMatchesSender}. The
      * `system.remember` path passes the instruction it just wrote; the
      * thread-only and single-address callers leave this unset. Never
-     * alongside `senderEmail` or `accountId` — the target already carries
-     * the `accountId` gate, so a second scope riding along is a caller bug.
+     * alongside `senderEmail`, `accountId`, or `statuses` — the target already
+     * carries the `accountId` gate and owns its status bound (one-mailbox
+     * targets keep both live statuses, class targets sweep `suggested` only),
+     * so a second scope riding along is a caller bug.
      */
     target: standingInstructionTargetSchema.nullish(),
     /**
@@ -53,14 +56,17 @@ const resolveTodosForGmailSourceArgsSchema = z
      * passes `["suggested"]` on purpose — it may only drop an **unpromoted**
      * proposal, never a commitment the user explicitly promoted to `open`, where
      * a holding reply ("I'll send it tomorrow") is progress, not closure.
-     * The `target` sweep is forced to the same bound below, whatever the
-     * caller passes, so a wider sender set never carries a wider status set.
+     * Never beside `target`: the sweep owns its own bound (see below), so a
+     * caller-stated scope riding along is a caller bug and the parse refuses it.
      */
     statuses: z.array(liveTodoStatusSchema).min(1).optional(),
   })
-  .refine((data) => !(data.target && (data.senderEmail || data.accountId)), {
-    message: "Pass target alone — never beside senderEmail or accountId.",
-  });
+  .refine(
+    (data) => !(data.target && (data.senderEmail || data.accountId || data.statuses !== undefined)),
+    {
+      message: "Pass target alone — never beside senderEmail, accountId, or statuses.",
+    },
+  );
 
 export type ResolveTodosForGmailSourceArgs = z.infer<typeof resolveTodosForGmailSourceArgsSchema>;
 
@@ -70,11 +76,14 @@ const DEFAULT_RETRACTABLE_STATUSES = ["open", "suggested"] as const satisfies Re
 >;
 
 /**
- * The only status a `target` sweep may retract. A domain target widens the
- * sender set, so it must not widen the status set with it: an automatic
+ * The only status a CLASS-target sweep may retract. A domain target widens
+ * the sender set, so it must not widen the status set with it: an automatic
  * retraction may drop an unpromoted `suggested` proposal, never an `open`
  * commitment the user promoted (same rule `close-loop-todos` follows at
- * `workflow-operations.ts:962-968`).
+ * `workflow-operations.ts:962-968`). A target that names ONE mailbox (see
+ * {@link targetNamesOneMailbox}) widens nothing, so its sweep keeps the
+ * caller default — both live statuses — exactly as the single-address sweep
+ * did before this item.
  */
 const TARGET_SWEEP_STATUSES = ["suggested"] as const satisfies ReadonlyArray<
   z.infer<typeof liveTodoStatusSchema>
@@ -123,8 +132,10 @@ interface GmailThreadMetadata {
  * The statuses to retract are a caller decision ({@link
  * ResolveTodosForGmailSourceArgs.statuses}), defaulting to both live ones. The
  * automatic retraction narrows to `suggested` so it never buries a todo the
- * user promoted — and a `target` sweep is forced to the same bound below, so
- * the widened sender set cannot widen the status set with it.
+ * user promoted — and a CLASS-target sweep is forced to the same bound below,
+ * so the widened sender set cannot widen the status set with it. A
+ * one-mailbox target sweep keeps the caller default (both), preserving the
+ * single-address behavior that predates this item.
  */
 export async function resolveTodosForGmailSource(
   args: ResolveTodosForGmailSourceArgs,
@@ -136,11 +147,15 @@ export async function resolveTodosForGmailSource(
   const target = parsed.target ?? null;
   const auditReason = normalizeOptional(parsed.reason);
 
-  // A `target` sweep is an automatic retraction over a widened sender set:
-  // `suggested` only, whatever the caller passes. An explicit `statuses`
-  // beside `target` is narrowed to this bound, never honored wider.
+  // A CLASS-target sweep is an automatic retraction over a widened sender
+  // set: `suggested` only. A one-mailbox target widens nothing, so its sweep
+  // keeps the caller default (both live statuses). `statuses` beside `target`
+  // never reaches here — the schema refuses it — so there is nothing to
+  // narrow or substitute; the bound turns on the target's width alone.
   const statuses = target
-    ? TARGET_SWEEP_STATUSES
+    ? targetNamesOneMailbox(target)
+      ? DEFAULT_RETRACTABLE_STATUSES
+      : TARGET_SWEEP_STATUSES
     : (parsed.statuses ?? DEFAULT_RETRACTABLE_STATUSES);
 
   if (!senderEmail && !sourceThreadId && !target) {
@@ -184,8 +199,12 @@ export async function resolveTodosForGmailSource(
         if (target) {
           // The sweep covers exactly the set the instruction's own match
           // rule covers: one function answers for the write and the sweep.
-          // Each thread's own accounts feed the matcher, so a scoped
-          // target's `accountId` gate applies and is never forgotten. A
+          // Each thread's senders and accounts both feed the matcher, so a
+          // scoped target's `accountId` gate participates — but only as two
+          // independent sets (some sender matches AND some account passes),
+          // never as a real (sender, account) pair. A thread spanning two
+          // mailboxes can therefore over-match a scoped target; returning
+          // pairs from `loadThreadMetadata` is queued follow-up work. A
           // future target kind the sweep does not know matches nothing
           // rather than mis-matching, per `targetMatchesSender`'s
           // fail-closed arm.
