@@ -1,9 +1,16 @@
 import { db, type DbTransaction } from "@alfred/db";
 import { entities, entityInsertSchema, type Entity, type NewEntity } from "@alfred/db/schemas";
-import { canonicalizeIdentityValue, jsonRecordSchema, type JsonObject } from "@alfred/contracts";
+import {
+  canonicalizeIdentityValue,
+  isNonEmptyString,
+  jsonRecordSchema,
+  parseEmailAddress,
+  type JsonObject,
+} from "@alfred/contracts";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { classifyContactKind } from "./entity-kind-classifier";
+import { parsePersonEntityMetadata } from "./entity-metadata";
 
 /**
  * `entities.kind` values — the 6-member ADR-0012 vocabulary. The text column is
@@ -420,6 +427,34 @@ export async function previewContactKinds(
 }
 
 /**
+ * The primary address of a STORED contact row: the metadata bag first, then
+ * any email alias. Lenient by design — `aliases` is jsonb, so non-string
+ * members are skipped, never strictly parsed: a strict parse would throw and
+ * kill the whole committed run over one malformed row. The address-keyed
+ * preview above already owns the strict stored-read path; this door
+ * classifies rows the caller holds.
+ */
+function storedContactAddress(metadata: unknown, aliasesRaw: unknown): string | null {
+  const fromMetadata = parseEmailAddress(
+    parsePersonEntityMetadata(metadata).primaryAddress ?? null,
+  );
+
+  if (fromMetadata) return fromMetadata;
+
+  if (Array.isArray(aliasesRaw)) {
+    for (const alias of aliasesRaw) {
+      if (!isNonEmptyString(alias)) continue;
+
+      const address = parseEmailAddress(alias);
+
+      if (address) return address;
+    }
+  }
+
+  return null;
+}
+
+/**
  * The row-keyed preview door beside {@link previewContactKinds}: for a caller
  * that already holds the stored rows it is about to re-kind (the committed
  * purge backfill), where a second address-keyed read would be a NEW query over
@@ -429,21 +464,31 @@ export async function previewContactKinds(
  * Each row classifies its OWN stored `canonicalName` — the same input the live
  * writer classifies for that row — so a wrapped alias, a metadata-led address,
  * and an alias-sharing pair each read their own name. Pure: no stored read,
- * no transaction. Keyed by row id, so the caller never derives a key and an
- * absent key (a row never passed in) leaves the row alone by construction.
+ * no transaction. Keyed by row id, so the caller never derives a key and a
+ * row with no derivable address is absent from the map: the caller leaves it
+ * alone rather than defaulting toward a write.
+ *
+ * Takes the stored ROWS, not a derived address: the parameter names the
+ * fields the door reads (`Pick<Entity, "id" | "canonicalName" | "aliases" |
+ * "metadata">`), so this campaign's known wrong caller — a
+ * `ContactAggregate`, which holds neither `aliases` nor `metadata` — fails
+ * `check-types`. Structural residue remains (named, not closed): any object
+ * with those four fields compiles, so the `Stored` in the name asserts a
+ * provenance the type carries nothing of.
  */
 export function previewStoredContactKinds(
-  rows: ReadonlyArray<{ id: string; address: string; canonicalName: string }>,
+  rows: ReadonlyArray<Pick<Entity, "id" | "canonicalName" | "aliases" | "metadata">>,
 ): Map<string, ContactKind> {
   const kinds = new Map<string, ContactKind>();
 
+  // Row ids are unique by primary key out of a single select, so no dedup
+  // guard: one set per row.
   for (const row of rows) {
-    if (!kinds.has(row.id)) {
-      kinds.set(
-        row.id,
-        classifyContactKind({ address: row.address, canonicalName: row.canonicalName }),
-      );
-    }
+    const address = storedContactAddress(row.metadata, row.aliases);
+
+    if (!address) continue;
+
+    kinds.set(row.id, classifyContactKind({ address, canonicalName: row.canonicalName }));
   }
 
   return kinds;

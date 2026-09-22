@@ -47,7 +47,6 @@
  *   node dist/scripts/backfills/backfill-purge-graph-junk-committed.js --emails=a@x.com --commit
  */
 import {
-  parsePersonEntityMetadata,
   previewStoredContactKinds,
   reKindWouldCollide,
   type ContactKind,
@@ -102,22 +101,6 @@ function aliasDomains(raw: unknown): Set<string> {
   }
 
   return domains;
-}
-
-/** The contact's primary address: the metadata bag first, then any email alias. */
-function contactAddress(metadata: unknown, aliasesRaw: unknown): string | null {
-  const stored = parsePersonEntityMetadata(metadata).primaryAddress;
-  const fromMetadata = parseEmailAddress(stored ?? null);
-
-  if (fromMetadata) return fromMetadata;
-
-  for (const alias of readAliases(aliasesRaw)) {
-    const address = parseEmailAddress(alias);
-
-    if (address) return address;
-  }
-
-  return null;
 }
 
 /**
@@ -220,30 +203,21 @@ async function rekindContacts(userId: string): Promise<void> {
     .where(and(eq(entities.userId, userId), eq(entities.kind, "person")));
 
   const demotions: Array<{ id: string; canonicalName: string; kind: ContactKind }> = [];
-  const held: Array<{ id: string; address: string; canonicalName: string }> = [];
   let unclassifiable = 0;
 
-  for (const row of rows) {
-    const address = contactAddress(row.metadata, row.aliases);
-
-    if (!address) {
-      unclassifiable += 1;
-      continue;
-    }
-
-    held.push({ id: row.id, address, canonicalName: row.canonicalName });
-  }
-
   // Each row classifies its OWN stored canonical name — the same input the
-  // live writer classifies for that row — through the row-keyed door, so a
-  // wrapped alias, a metadata-led address, or an alias shared with another
-  // row cannot borrow a sibling's name. Keyed by row id: no caller-side key
-  // derivation, and an absent key leaves the row alone rather than defaulting
-  // toward a write.
-  const kinds = previewStoredContactKinds(held);
+  // live writer classifies for that row — through the row-keyed door, which
+  // derives each row's own address from its metadata/aliases. A wrapped
+  // alias, a metadata-led address, or an alias shared with another row
+  // cannot borrow a sibling's name. Keyed by row id: no caller-side key
+  // derivation, and a row with no derivable address is absent from the map,
+  // so it falls into `unclassifiable` below rather than defaulting toward a
+  // write.
+  const kinds = previewStoredContactKinds(rows);
 
-  for (const row of held) {
-    // Unreachable in practice: every held row keyed the preview.
+  for (const row of rows) {
+    // Absent only when the row yields no address (no metadata address and no
+    // email alias): leave it alone rather than defaulting toward a write.
     const kind = kinds.get(row.id);
 
     if (!kind) {
