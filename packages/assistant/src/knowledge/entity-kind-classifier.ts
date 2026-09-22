@@ -16,7 +16,7 @@ import {
   type ServiceEvidenceCode,
 } from "@alfred/contracts";
 import type { Observation } from "@alfred/db/schemas";
-import type { EntityKind } from "./entity-graph";
+import type { ContactKind, EntityKind } from "./entity-graph";
 
 const AUTHORITATIVE_CONFIDENCE = 0.99;
 
@@ -451,7 +451,9 @@ const NODE_KIND_TO_ENTITY_KIND = {
   unknown: "other",
 } satisfies Record<EntityNodeKind, EntityKind>;
 
-function entityKindForNodeKind(kind: EntityNodeKind): EntityKind {
+type NodeKindEntityKind = (typeof NODE_KIND_TO_ENTITY_KIND)[EntityNodeKind];
+
+function entityKindForNodeKind(kind: EntityNodeKind): NodeKindEntityKind {
   return NODE_KIND_TO_ENTITY_KIND[kind];
 }
 
@@ -600,7 +602,7 @@ const HARD_SERVICE_EVIDENCE = {
  * identity parse is the owning boundary, and a failure answers `other` rather
  * than throwing, so one malformed header never fails a capture run.
  */
-export function classifyContactKind(input: ClassifyContactKindInput): EntityKind {
+export function classifyContactKind(input: ClassifyContactKindInput): ContactKind {
   const address = canonicalizeIdentityValue("email", input.address);
 
   const identity = identityRefSchema.safeParse({ kind: "email", value: address });
@@ -620,7 +622,16 @@ export function classifyContactKind(input: ClassifyContactKindInput): EntityKind
   });
 
   if (isHardNonPersonClaim(classified)) {
-    return entityKindForNodeKind(classified.kind);
+    const mapped = entityKindForNodeKind(classified.kind);
+
+    // Pinned to ContactKind: the writer matches only `person`/`other`, so a
+    // label answer (`organization`/`project`) files as `other` rather than
+    // orphaning a row the next write cannot see. Widening CONTACT_KINDS is the
+    // only way to change this, and the writer's exhaustive match then forces
+    // every reader to handle the new member.
+    if (mapped === "organization" || mapped === "project") return "other";
+
+    return mapped;
   }
 
   // Every other answer keeps `person`, so the value bar still runs over it: a
