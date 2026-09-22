@@ -65,7 +65,9 @@ export interface RememberAndDismissBatchResult {
   ok: boolean;
   status: "batch";
   results: Array<{ senderEmail: string; result: RememberBatchEntryResult }>;
+  /** Distinct `factId`s across ok entries — instruction rows, not senders. */
   rememberedCount: number;
+  /** Per-sender entries that clarified — entry count, never row count. */
   clarificationCount: number;
   failedCount: number;
 }
@@ -182,7 +184,17 @@ export function createRememberSenderSuppressionCoordinator(
       }
     }
 
-    const rememberedCount = results.filter(({ result }) => result.ok).length;
+    // Distinct ROWS, not senders: several entries collapsing onto one domain
+    // instruction (each an ok entry with the same `factId`) report 1. Every
+    // ok entry carries a `factId` — `remembered` and `already_exists` alike —
+    // so a batch that fully collapses onto an existing row still reports
+    // success instead of flipping `ok` to false.
+    const okEntryCount = results.filter(({ result }) => result.ok).length;
+
+    const rememberedCount = new Set(
+      results.flatMap(({ result }) => (result.ok ? [result.factId] : [])),
+    ).size;
+
     const failedCount = results.filter(({ result }) => result.status === "failed").length;
 
     return {
@@ -190,7 +202,8 @@ export function createRememberSenderSuppressionCoordinator(
       status: "batch",
       results,
       rememberedCount,
-      clarificationCount: results.length - rememberedCount - failedCount,
+      // Entry units, never row units: entries minus ok ENTRIES minus failed.
+      clarificationCount: results.length - okEntryCount - failedCount,
       failedCount,
     };
   };
