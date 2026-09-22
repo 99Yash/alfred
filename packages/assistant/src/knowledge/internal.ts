@@ -23,10 +23,12 @@
  */
 export { backfillTeamGraph } from "./team-graph";
 
-// The ONE definition of a mail contact's kind — shared by the live writer
-// (`team-graph.ts`) and the committed cleanup backfill, so "what is a person"
-// cannot drift into a second copy (#1108, the #493 precedent).
-export { classifyContactKind } from "./entity-kind-classifier";
+// The ONE preview door for a mail contact's kind — shared by the dry-run
+// preview (`team-graph.ts`) and the committed cleanup backfill, so "what is a
+// person" cannot drift into a second copy (#1108, the #493 precedent). The
+// classifier behind it stays inside the knowledge module: `entity-graph.ts` is
+// its only importer.
+export { previewContactKinds, type ContactKind } from "./entity-graph";
 
 // The ONE definition of the `entities` unique-index clash a re-kind can hit —
 // shared by the live writer and the committed cleanup backfill, so the "keep

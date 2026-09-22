@@ -14,17 +14,18 @@
  *      AND whose `from` entity holds an email alias whose domain equals the
  *      `to` entity's canonical name. That is "the edge restates the address"
  *      stated in code, so a future GROUNDED `works_at` survives this script.
- *   B. KINDS. Re-run `classifyContactKind` — the SAME function the live writer
- *      uses, so "what is a person" has one definition, per the #493 precedent —
- *      over every `person` row and UPDATE the kind in place when it disagrees.
- *      In place, so the row id, its aliases and its correspondence aggregate
- *      all survive: ADR-0067 types a non-human node, it never drops it.
+ *   B. KINDS. Preview every `person` row through `previewContactKinds` — the
+ *      SAME door the live writer and the dry run share, so "what is a person"
+ *      has one definition, per the #493 precedent — and UPDATE the kind in
+ *      place when it disagrees. In place, so the row id, its aliases and its
+ *      correspondence aggregate all survive: ADR-0067 types a non-human node,
+ *      it never drops it.
  *
  * `entities` is unique on `(user_id, kind, canonical_name)`, so a re-kind can
  * collide with a row already at the target coordinate. Such a row is REPORTED
  * and left alone — this script never merges two contacts. The predicate is
  * `reKindWouldCollide`, the one the live writer applies, imported through the
- * same door as the classifier so the policy has a single home.
+ * same door as the preview so the policy has a single home.
  *
  * Bundled by tsdown (`noExternal: @alfred/*`, registered in `tsdown.config.ts`)
  * so it runs on prod with plain `node dist/...`.
@@ -44,18 +45,21 @@
  *   node dist/scripts/backfills/backfill-purge-graph-junk-committed.js --emails=a@x.com --commit
  */
 import {
-  classifyContactKind,
   parsePersonEntityMetadata,
+  previewContactKinds,
   reKindWouldCollide,
+  type ContactKind,
 } from "@alfred/assistant/knowledge/internal";
-import { isNonEmptyString, parseEmailAddress, toMessage } from "@alfred/contracts";
+import {
+  canonicalizeIdentityValue,
+  isNonEmptyString,
+  parseEmailAddress,
+  toMessage,
+} from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
 import { entities, entityRelations, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { closeScriptResources } from "../script-runtime";
-
-/** The legacy `entities.kind` vocabulary, derived from the one classifier that answers it. */
-type ContactKind = ReturnType<typeof classifyContactKind>;
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -219,6 +223,8 @@ async function rekindContacts(userId: string): Promise<void> {
     .where(and(eq(entities.userId, userId), eq(entities.kind, "person")));
 
   const demotions: Array<{ id: string; canonicalName: string; kind: ContactKind }> = [];
+  const addressById = new Map<string, string>();
+  const candidates = new Map<string, undefined>();
   let unclassifiable = 0;
 
   for (const row of rows) {
@@ -229,10 +235,26 @@ async function rekindContacts(userId: string): Promise<void> {
       continue;
     }
 
-    // The SAME input the live writer classifies: the stored canonical name.
-    // Neither side re-derives a display name, so the script and the next
-    // capture run cannot disagree about this row.
-    const kind = classifyContactKind({ address, canonicalName: row.canonicalName });
+    addressById.set(row.id, address);
+    candidates.set(address, undefined);
+  }
+
+  // One preview for every stored row: the preview reads the stored canonical
+  // name itself — the SAME input the live writer classifies — so the script
+  // and the next capture run cannot disagree about a row. Every row here is
+  // stored, so no candidate carries an about-to-store display name.
+  const kinds = await previewContactKinds(userId, candidates);
+
+  for (const row of rows) {
+    const address = addressById.get(row.id);
+
+    if (!address) continue;
+
+    // Unreachable in practice: every address here keyed the preview through
+    // the same pure normalization. `other` mirrors the classifier's own
+    // answer for malformed input — and a genuine `other` still passes the
+    // re-kind clash guard before anything is written.
+    const kind = kinds.get(canonicalizeIdentityValue("email", address)) ?? "other";
 
     if (kind !== "person") demotions.push({ id: row.id, canonicalName: row.canonicalName, kind });
   }
