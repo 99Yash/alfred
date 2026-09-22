@@ -283,6 +283,192 @@ export function targetMatchesSender(
 }
 
 /**
+ * One active instruction that overlaps a write, reported on the successful
+ * result so the model and the user learn what else already binds this sender.
+ * ADR-0060 §6 asks `system.remember` to report a subset or superset overlap; at
+ * v1 both rows always carry `suppress`, so the overlap contradicts nothing and
+ * ADR-0060 §8 already elects one of them at apply time.
+ *
+ * A minted report: never persisted, never parsed from outside, so it is an
+ * interface and not a schema — the same call {@link StandingInstructionValue}'s
+ * consumers make for `StandingInstructionSummary`.
+ *
+ * `relation` is spelled HERE and nowhere else: `wider` = the EXISTING
+ * instruction contains the one just written (a domain mute above an address
+ * pin), `narrower` = the written one contains the existing one. Only a STRICT
+ * relation is an overlap, so the identity row is never its own overlap. Every
+ * other site reads it as `StandingInstructionOverlap["relation"]`.
+ */
+export interface StandingInstructionOverlap {
+  factId: string;
+  /** The EXISTING instruction, seen from the one just written. */
+  relation: "wider" | "narrower";
+  target: StandingInstructionTarget;
+  directive: string;
+}
+
+/**
+ * One axis of {@link standingInstructionScopeRelation}. Module-private: no
+ * caller decides an axis alone, so no caller learns this name.
+ */
+type StandingInstructionScopeAxis = "wider" | "narrower" | "same" | "disjoint";
+
+/**
+ * The SENDER axis: how the senders `of` covers relate to the senders
+ * `relativeTo` covers. An exact address match, or an exact domain match with
+ * the domain derived from the address through {@link emailDomain} — the same
+ * sender rule {@link targetMatchesSender} applies, minus its `accountId`
+ * gate, which has no meaning between two targets and lives on the account
+ * axis instead. A `sender_domain` covers a `sender_email` at that EXACT
+ * domain, and covers only the identical domain. Never a subdomain, for the
+ * reason {@link targetMatchesSender} states: a correct suffix rule needs a
+ * public-suffix list, and without one `co.in` would cover a whole country.
+ *
+ * Identity is {@link standingInstructionTargetKey} equality — the same
+ * function the duplicate check and the advisory lock compare, and the kind
+ * prefix keeps cross-kind keys apart, so a same-kind arm below only ever
+ * answers `disjoint`. A new target kind gets `same` free and fails the nested
+ * exhaustive guards until it declares what it covers and what covers it.
+ */
+function senderScopeAxis(
+  of: StandingInstructionTarget,
+  relativeTo: StandingInstructionTarget,
+): StandingInstructionScopeAxis {
+  if (
+    of.kind === relativeTo.kind &&
+    standingInstructionTargetKey(of) === standingInstructionTargetKey(relativeTo)
+  ) {
+    return "same";
+  }
+
+  switch (of.kind) {
+    case "sender_email":
+      switch (relativeTo.kind) {
+        case "sender_email":
+          return "disjoint";
+        // One address never covers a whole domain. It can only sit under one.
+        case "sender_domain": {
+          const senderDomain = emailDomain(of.email);
+
+          return senderDomain !== null && relativeTo.domain === senderDomain
+            ? "narrower"
+            : "disjoint";
+        }
+
+        default: {
+          const exhaustive: never = relativeTo;
+          void exhaustive;
+
+          return "disjoint";
+        }
+      }
+
+    case "sender_domain":
+      switch (relativeTo.kind) {
+        case "sender_email": {
+          const senderDomain = emailDomain(relativeTo.email);
+
+          return senderDomain !== null && of.domain === senderDomain ? "wider" : "disjoint";
+        }
+
+        case "sender_domain":
+          return "disjoint";
+        default: {
+          const exhaustive: never = relativeTo;
+          void exhaustive;
+
+          return "disjoint";
+        }
+      }
+
+    default: {
+      const exhaustive: never = of;
+      void exhaustive;
+
+      return "disjoint";
+    }
+  }
+}
+
+/**
+ * The ACCOUNT axis: how the mailboxes `of` binds relate to the mailboxes
+ * `relativeTo` binds. A `null` `accountId` binds every mailbox, so it is
+ * strictly wider than any one of them; two different mailboxes share none.
+ *
+ * `same` here is `===` on `accountId`, which the duplicate check re-spells
+ * rather than calls — the compiler cannot check that agreement, so a change
+ * to what "same mailbox" means must touch both.
+ */
+function accountScopeAxis(
+  of: StandingInstructionTarget,
+  relativeTo: StandingInstructionTarget,
+): StandingInstructionScopeAxis {
+  if (of.accountId === relativeTo.accountId) return "same";
+
+  if (of.accountId === null) return "wider";
+
+  if (relativeTo.accountId === null) return "narrower";
+
+  return "disjoint";
+}
+
+/**
+ * How the scope `of` nests against the scope `relativeTo`, over the full
+ * SCOPE — its senders crossed with its mailboxes. The two-axis relation
+ * ADR-0060 micro-decision 6 names, beside {@link targetMatchesSender}: the
+ * match rule answers whether one ADDRESS is covered, this answers whether one
+ * TARGET is covered. One named pair rather than two positional targets, so a
+ * caller that swaps the two has to write the swap down, and the answer always
+ * describes `of`.
+ *
+ * Null when neither scope contains the other, which covers three cases: one
+ * target twice, two unrelated targets, and the crossing pair the account axis
+ * admits (a domain row in one mailbox against an address row in every
+ * mailbox). The crossing pair intersects without nesting, and this result
+ * reports nesting only.
+ */
+export function standingInstructionScopeRelation(pair: {
+  /** The scope the answer describes. */
+  readonly of: StandingInstructionTarget;
+  /** The scope it is described against. */
+  readonly relativeTo: StandingInstructionTarget;
+}): StandingInstructionOverlap["relation"] | null {
+  const sender = senderScopeAxis(pair.of, pair.relativeTo);
+  const account = accountScopeAxis(pair.of, pair.relativeTo);
+
+  if (sender === "disjoint" || account === "disjoint") return null;
+
+  // An axis that matches exactly defers to the other one. Both matching is the
+  // identity row, which the strict guard refuses.
+  if (sender === "same") return account === "same" ? null : account;
+
+  if (account === "same") return sender;
+
+  // Opposite directions: the two scopes intersect, and neither contains the
+  // other.
+  return sender === account ? sender : null;
+}
+
+/**
+ * Why a write that asked for `scope:"domain"` stored a `sender_email` target
+ * instead. Each member names a branch of the corporate-domain rail that a real
+ * address reaches:
+ *   - `domain_unparseable` — the address has no domain `domainSchema` accepts.
+ *     The sender grammar upstream is zod's email pattern, which is looser than
+ *     the shared hostname one, so `a@ab-.com` and a label over 63 characters
+ *     both arrive here rather than being rejected as addresses.
+ *   - `domain_not_single_organization` — the domain parses, and
+ *     `classifyEmailDomain` answers anything but `corporate_domain`.
+ */
+export const STANDING_INSTRUCTION_SCOPE_NARROWINGS = [
+  "domain_not_single_organization",
+  "domain_unparseable",
+] as const;
+
+export type StandingInstructionScopeNarrowing =
+  (typeof STANDING_INSTRUCTION_SCOPE_NARROWINGS)[number];
+
+/**
  * ADR-0060 §8, most specific first. Position IS the rank. The deferred kinds
  * slot in at their ADR position when they ship — `category` after
  * `sender_domain`, then `topic` — and the insertion renumbers every later kind,

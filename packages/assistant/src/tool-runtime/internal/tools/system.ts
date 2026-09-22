@@ -576,7 +576,8 @@ export const systemTools: readonly RegisteredTool[] = [
       "Set `scope: 'domain'` when the user names a CLASS of senders rather than one mailbox " +
       "('apply this to all investment senders'): the instruction then covers every address at " +
       "that sender's domain, including ones that never wrote before. Tell the user which one " +
-      "you stored.",
+      "you stored. The result names any wider or narrower instruction already stored, and " +
+      "says when a domain scope fell back to one address. Tell the user.",
     inputSchema: rememberInput,
     execute: async (input, ctx) => {
       return await rememberSenderSuppressionAndDismissTodos({
