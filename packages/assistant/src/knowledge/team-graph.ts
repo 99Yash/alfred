@@ -7,9 +7,11 @@
  * read:
  *   - one contact entity per correspondent (email in `aliases`, so
  *     `isKnownContact` matches; correspondence aggregate in `metadata`). The
- *     kind comes from `previewContactKinds`, applied by the writer to the
+ *     kind comes from `classifyContactKind`, applied by the writer to the
  *     row's stored canonical name, so a non-human envelope is filed as
- *     `other` instead of `person` (#1108),
+ *     `other` instead of `person` (#1108). The dry run below previews that
+ *     same bar through `previewContactKinds`, which shares the classifier
+ *     and the alias predicate with the writer,
  *   - one `organization` entity per non-consumer sender domain,
  *   - a first significance pass over the result.
  *
@@ -36,7 +38,6 @@
  * signal (reciprocity + frequency), not by excluding the entity.
  */
 import {
-  canonicalizeIdentityValue,
   isFreeMail,
   isRecord,
   type GmailCorrespondentsObservation,
@@ -419,9 +420,12 @@ export async function backfillTeamGraph(
   );
 
   for (const agg of contacts.values()) {
-    if (kinds.get(canonicalizeIdentityValue("email", agg.address)) !== "person") {
-      nonPersonContacts += 1;
-    }
+    // Keyed by the caller's own address string: a hit by construction. An
+    // absent key (an address that does not normalize) leaves the contact
+    // alone — it is never counted as a non-person.
+    const kind = kinds.get(agg.address);
+
+    if (kind !== undefined && kind !== "person") nonPersonContacts += 1;
   }
 
   return {

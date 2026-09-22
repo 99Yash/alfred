@@ -14,10 +14,12 @@
  *      AND whose `from` entity holds an email alias whose domain equals the
  *      `to` entity's canonical name. That is "the edge restates the address"
  *      stated in code, so a future GROUNDED `works_at` survives this script.
- *   B. KINDS. Preview every `person` row through `previewContactKinds` — the
- *      SAME door the live writer and the dry run share, so "what is a person"
- *      has one definition, per the #493 precedent — and UPDATE the kind in
- *      place when it disagrees. In place, so the row id, its aliases and its
+ *   B. KINDS. Re-kind every `person` row through `previewStoredContactKinds` —
+ *      each row classifies its OWN stored `canonicalName` through the SAME
+ *      `classifyContactKind` bar the live writer applies (and the dry run
+ *      previews through `previewContactKinds`), so "what is a person" has one
+ *      definition, per the #493 precedent — and UPDATE the kind in place when
+ *      it disagrees. In place, so the row id, its aliases and its
  *      correspondence aggregate all survive: ADR-0067 types a non-human node,
  *      it never drops it.
  *
@@ -46,16 +48,11 @@
  */
 import {
   parsePersonEntityMetadata,
-  previewContactKinds,
+  previewStoredContactKinds,
   reKindWouldCollide,
   type ContactKind,
 } from "@alfred/assistant/knowledge/internal";
-import {
-  canonicalizeIdentityValue,
-  isNonEmptyString,
-  parseEmailAddress,
-  toMessage,
-} from "@alfred/contracts";
+import { isNonEmptyString, parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
 import { entities, entityRelations, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -223,8 +220,7 @@ async function rekindContacts(userId: string): Promise<void> {
     .where(and(eq(entities.userId, userId), eq(entities.kind, "person")));
 
   const demotions: Array<{ id: string; canonicalName: string; kind: ContactKind }> = [];
-  const addressById = new Map<string, string>();
-  const candidates = new Map<string, undefined>();
+  const held: Array<{ id: string; address: string; canonicalName: string }> = [];
   let unclassifiable = 0;
 
   for (const row of rows) {
@@ -235,26 +231,25 @@ async function rekindContacts(userId: string): Promise<void> {
       continue;
     }
 
-    addressById.set(row.id, address);
-    candidates.set(address, undefined);
+    held.push({ id: row.id, address, canonicalName: row.canonicalName });
   }
 
-  // One preview for every stored row: the preview reads the stored canonical
-  // name itself — the SAME input the live writer classifies — so the script
-  // and the next capture run cannot disagree about a row. Every row here is
-  // stored, so no candidate carries an about-to-store display name.
-  const kinds = await previewContactKinds(userId, candidates);
+  // Each row classifies its OWN stored canonical name — the same input the
+  // live writer classifies for that row — through the row-keyed door, so a
+  // wrapped alias, a metadata-led address, or an alias shared with another
+  // row cannot borrow a sibling's name. Keyed by row id: no caller-side key
+  // derivation, and an absent key leaves the row alone rather than defaulting
+  // toward a write.
+  const kinds = previewStoredContactKinds(held);
 
-  for (const row of rows) {
-    const address = addressById.get(row.id);
+  for (const row of held) {
+    // Unreachable in practice: every held row keyed the preview.
+    const kind = kinds.get(row.id);
 
-    if (!address) continue;
-
-    // Unreachable in practice: every address here keyed the preview through
-    // the same pure normalization. `other` mirrors the classifier's own
-    // answer for malformed input — and a genuine `other` still passes the
-    // re-kind clash guard before anything is written.
-    const kind = kinds.get(canonicalizeIdentityValue("email", address)) ?? "other";
+    if (!kind) {
+      unclassifiable += 1;
+      continue;
+    }
 
     if (kind !== "person") demotions.push({ id: row.id, canonicalName: row.canonicalName, kind });
   }

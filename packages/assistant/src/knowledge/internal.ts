@@ -23,12 +23,14 @@
  */
 export { backfillTeamGraph } from "./team-graph";
 
-// The ONE preview door for a mail contact's kind — shared by the dry-run
-// preview (`team-graph.ts`) and the committed cleanup backfill, so "what is a
-// person" cannot drift into a second copy (#1108, the #493 precedent). The
-// classifier behind it stays inside the knowledge module: `entity-graph.ts` is
-// its only importer.
-export { previewContactKinds, type ContactKind } from "./entity-graph";
+// The address-keyed preview door for a mail contact's kind — used by the
+// dry-run preview (`team-graph.ts`), so the dry run and the writer cannot
+// disagree about a row. The classifier behind it stays inside the knowledge
+// module: `entity-graph.ts` is its only importer. A caller that already holds
+// the stored rows (the committed cleanup backfill) uses the row-keyed
+// `previewStoredContactKinds` below instead, so an alias shared by two rows
+// cannot borrow a sibling's stored name.
+export { previewContactKinds, previewStoredContactKinds, type ContactKind } from "./entity-graph";
 
 // The ONE definition of the `entities` unique-index clash a re-kind can hit —
 // shared by the live writer and the committed cleanup backfill, so the "keep
