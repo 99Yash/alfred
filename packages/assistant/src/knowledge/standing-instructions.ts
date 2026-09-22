@@ -3,12 +3,11 @@ import {
   classifyBareDomain,
   domainSchema,
   emailDomain,
-  isStandingInstructionOverlapRelation,
   normalizeEmailAddress,
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   standingInstructionTargetKey,
-  standingInstructionTargetRelation,
+  standingInstructionScopeRelation,
   standingInstructionTargetSpecificity,
   memorySourceSchema,
   standingInstructionValueSchema,
@@ -17,9 +16,7 @@ import {
   type MemorySource,
   type ObservationSource,
   type StandingInstructionOverlap,
-  type StandingInstructionOverlapRelation,
   type StandingInstructionScopeNarrowing,
-  type StandingInstructionTargetRelation,
   type StandingInstructionTarget,
   type StandingInstructionTargetKind,
   type StandingInstructionValue,
@@ -395,57 +392,6 @@ function widenToDomain(email: string): DomainWidening {
 const STANDING_INSTRUCTION_OVERLAP_LIMIT = 10;
 
 /**
- * The account axis of the same relation `@alfred/contracts` answers over
- * senders. It lives here for the reason the match rule's account half does:
- * `accountId` is the caller's question, not the target's, and this is the rule
- * `findSenderSuppression` already applies. A `null` `accountId` binds every
- * mailbox, so it is strictly wider than any one of them; two different
- * mailboxes share none.
- */
-function accountScopeRelation(pair: {
-  readonly of: StandingInstructionTarget;
-  readonly relativeTo: StandingInstructionTarget;
-}): StandingInstructionTargetRelation {
-  const { of: subject, relativeTo } = pair;
-
-  if (subject.accountId === relativeTo.accountId) return "same";
-
-  if (subject.accountId === null) return "wider";
-
-  if (relativeTo.accountId === null) return "narrower";
-
-  return "disjoint";
-}
-
-/**
- * How the instruction `of` nests against the write `relativeTo`, over the full
- * SCOPE — its senders crossed with its mailboxes. Null when neither scope
- * contains the other, which covers three cases: one target twice, two
- * unrelated targets, and the crossing pair the account axis admits (a domain
- * row in one mailbox against an address row in every mailbox). The crossing
- * pair intersects without nesting, and this result reports nesting only.
- */
-function scopeOverlapRelation(pair: {
-  readonly of: StandingInstructionTarget;
-  readonly relativeTo: StandingInstructionTarget;
-}): StandingInstructionOverlapRelation | null {
-  const sender = standingInstructionTargetRelation(pair);
-  const account = accountScopeRelation(pair);
-
-  if (sender === "disjoint" || account === "disjoint") return null;
-
-  // An axis that matches exactly defers to the other one. Both matching is the
-  // identity row, which the strict guard refuses.
-  if (sender === "same") return isStandingInstructionOverlapRelation(account) ? account : null;
-
-  if (account === "same") return sender;
-
-  // Opposite directions: the two scopes intersect, and neither contains the
-  // other.
-  return sender === account ? sender : null;
-}
-
-/**
  * The overlap half of a successful write result. Named so the two `already_exists`
  * paths and the insert path spread ONE shape and cannot disagree about it.
  */
@@ -471,11 +417,11 @@ function findTargetOverlaps(
   target: StandingInstructionTarget,
 ): TargetOverlapReport {
   const matched: Array<
-    ActiveSuppressionInstruction & { relation: StandingInstructionOverlapRelation }
+    ActiveSuppressionInstruction & { relation: StandingInstructionOverlap["relation"] }
   > = [];
 
   for (const instruction of instructions) {
-    const relation = scopeOverlapRelation({
+    const relation = standingInstructionScopeRelation({
       of: instruction.value.target,
       relativeTo: target,
     });
