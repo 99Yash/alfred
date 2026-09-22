@@ -626,9 +626,12 @@ export function classifyContactKind(input: ClassifyContactKindInput): ContactKin
 
     // Pinned to ContactKind: the writer matches only `person`/`other`, so a
     // label answer (`organization`/`project`) files as `other` rather than
-    // orphaning a row the next write cannot see. Widening CONTACT_KINDS is the
-    // only way to change this, and the writer's exhaustive match then forces
-    // every reader to handle the new member.
+    // orphaning a row the next write cannot see. Narrowing CONTACT_KINDS
+    // breaks these arms at compile time (tier 1 one way: the narrowing below
+    // no longer covers the return type). Widening it is silent (tier 5) — a
+    // new member compiles, the writer's `inArray` spans it at runtime, and
+    // nothing here is forced to teach it. Widen the tuple deliberately, then
+    // teach this branch.
     if (mapped === "organization" || mapped === "project") return "other";
 
     return mapped;

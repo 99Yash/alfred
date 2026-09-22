@@ -33,7 +33,7 @@ const aliasesSchema = z.array(z.string());
  * restated, so narrowing the writer's match fails the classifier's `other`
  * arms at compile time instead of orphaning a stored row.
  */
-const CONTACT_KINDS = ["person", "other"] as const;
+const CONTACT_KINDS = ["person", "other"] as const satisfies readonly EntityKind[];
 
 export type ContactKind = (typeof CONTACT_KINDS)[number];
 
@@ -346,14 +346,18 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
 }
 
 /**
- * The ONE preview door for a mail contact's kind: the stored canonical name
- * each existing row holds, classified the way the live writer classifies it.
+ * The ONE address-keyed preview door for a mail contact's kind: the stored
+ * canonical name each existing row holds, classified the way the live writer
+ * classifies it.
  *
  * Key = address as written; value = display name for a not-yet-stored contact
  * (`undefined` = bare address). Keys are normalized once, inside, with
  * `canonicalizeIdentityValue` — the same helper the writer matches on — and the
- * stored read runs in the caller's `tx` when one is passed. Keyed by normalized
- * address.
+ * stored read runs in the caller's `tx` when one is passed. The returned map is
+ * keyed by the caller's OWN candidate string, so `kinds.get(address)` is a
+ * hit by construction and no caller re-derives a normalized key. A candidate
+ * that does not normalize is absent from the result: the caller leaves it
+ * alone rather than defaulting toward a write.
  *
  * A DRY backfill persists nothing, so it has no written row to read the kind
  * back from. It still has to report the kind a real write WOULD produce, and
@@ -361,6 +365,11 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
  * existing row keeps and no writer ever updates. Without this read a preview
  * classifies the display name this scan's headers happened to carry, which is
  * exactly the per-run value the kind bar was moved off.
+ *
+ * A caller that already HOLDS the stored row (the committed purge backfill)
+ * does not belong here: an address-keyed second read can return a SIBLING
+ * row's name for a shared alias. That caller uses {@link
+ * previewStoredContactKinds}, which classifies each row's own name.
  */
 export async function previewContactKinds(
   userId: string,
@@ -368,11 +377,14 @@ export async function previewContactKinds(
   tx?: DbTransaction,
 ): Promise<Map<string, ContactKind>> {
   const wanted = new Map<string, string | undefined>();
+  const keyOf = new Map<string, string>();
 
-  for (const [address, displayName] of candidates) {
-    const normalized = canonicalizeIdentityValue("email", address);
+  for (const [key, displayName] of candidates) {
+    const normalized = canonicalizeIdentityValue("email", key);
 
     if (!normalized) continue;
+
+    if (!keyOf.has(key)) keyOf.set(key, normalized);
 
     if (!wanted.has(normalized)) wanted.set(normalized, displayName);
   }
@@ -394,14 +406,44 @@ export async function previewContactKinds(
     }
   }
 
-  for (const [normalized, displayName] of wanted) {
+  for (const [key, normalized] of keyOf) {
     kinds.set(
-      normalized,
+      key,
       classifyContactKind({
         address: normalized,
-        canonicalName: stored.get(normalized) ?? displayName ?? normalized,
+        canonicalName: stored.get(normalized) ?? wanted.get(normalized) ?? normalized,
       }),
     );
+  }
+
+  return kinds;
+}
+
+/**
+ * The row-keyed preview door beside {@link previewContactKinds}: for a caller
+ * that already holds the stored rows it is about to re-kind (the committed
+ * purge backfill), where a second address-keyed read would be a NEW query over
+ * the same rows and could answer with a sibling's stored name wherever two
+ * rows share one alias.
+ *
+ * Each row classifies its OWN stored `canonicalName` — the same input the live
+ * writer classifies for that row — so a wrapped alias, a metadata-led address,
+ * and an alias-sharing pair each read their own name. Pure: no stored read,
+ * no transaction. Keyed by row id, so the caller never derives a key and an
+ * absent key (a row never passed in) leaves the row alone by construction.
+ */
+export function previewStoredContactKinds(
+  rows: ReadonlyArray<{ id: string; address: string; canonicalName: string }>,
+): Map<string, ContactKind> {
+  const kinds = new Map<string, ContactKind>();
+
+  for (const row of rows) {
+    if (!kinds.has(row.id)) {
+      kinds.set(
+        row.id,
+        classifyContactKind({ address: row.address, canonicalName: row.canonicalName }),
+      );
+    }
   }
 
   return kinds;
