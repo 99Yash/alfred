@@ -31,6 +31,7 @@ import {
   writeProjectionCursor,
 } from "@alfred/assistant/knowledge";
 import { warmPool } from "@alfred/db";
+import { sha256Canonical } from "@alfred/db/hash";
 import { closeScriptResources } from "../script-runtime";
 import {
   USER_MODEL_PROJECTION_NAME,
@@ -99,6 +100,7 @@ interface AttemptResult {
   readonly profileCount: number;
   readonly checksum: string;
   readonly edgesWritten: number;
+  readonly edgeChecksum: string;
   readonly sourceHighWatermark: ProjectionSourceHighWatermark;
 }
 
@@ -252,7 +254,10 @@ async function runAttempt(args: {
   readonly projectionVersion: number;
   readonly sourceHighWatermark: ProjectionSourceHighWatermark;
   readonly commit: boolean;
-  readonly expected?: Pick<AttemptResult, "checksum" | "profileCount" | "edgesWritten">;
+  readonly expected?: Pick<
+    AttemptResult,
+    "checksum" | "profileCount" | "edgesWritten" | "edgeChecksum"
+  >;
 }): Promise<AttemptResult> {
   const runBody = async (): Promise<AttemptResult> =>
     db().transaction(async (tx) => {
@@ -302,6 +307,7 @@ async function runAttempt(args: {
           projectionRunId: started.run.id,
           projectionVersion: args.projectionVersion,
           gmailHighWatermark: args.sourceHighWatermark.gmail,
+          excludeEmailValues: args.target.excludeEmailValues,
         },
         tx,
       );
@@ -310,12 +316,13 @@ async function runAttempt(args: {
         args.expected &&
         (projected.checksum !== args.expected.checksum ||
           projected.profileCount !== args.expected.profileCount ||
-          edged.edgesWritten !== args.expected.edgesWritten)
+          edged.edgesWritten !== args.expected.edgesWritten ||
+          edged.checksum !== args.expected.edgeChecksum)
       ) {
         throw new Error(
           `committed projection diverged from dry validation for ${args.target.email}: ` +
-            `dry=${args.expected.checksum}/${args.expected.profileCount}/${args.expected.edgesWritten}, ` +
-            `commit=${projected.checksum}/${projected.profileCount}/${edged.edgesWritten}`,
+            `dry=${args.expected.checksum}/${args.expected.profileCount}/${args.expected.edgesWritten}/${args.expected.edgeChecksum}, ` +
+            `commit=${projected.checksum}/${projected.profileCount}/${edged.edgesWritten}/${edged.checksum}`,
         );
       }
 
@@ -337,7 +344,12 @@ async function runAttempt(args: {
         {
           runId: started.run.id,
           userId: args.target.userId,
-          checksum: projected.checksum,
+          // The run checksum covers the WHOLE run: the kind checksum alone
+          // describes only half of what the run wrote.
+          checksum: sha256Canonical({
+            kind: projected.checksum,
+            edges: edged.checksum,
+          }),
           completedAt: new Date(),
           rowCounts: {
             entity_profiles: projected.profileCount,
@@ -354,6 +366,7 @@ async function runAttempt(args: {
         profileCount: projected.profileCount,
         checksum: projected.checksum,
         edgesWritten: edged.edgesWritten,
+        edgeChecksum: edged.checksum,
         sourceHighWatermark: args.sourceHighWatermark,
       };
 
@@ -383,12 +396,13 @@ async function validateDeterminism(args: {
   if (
     first.checksum !== second.checksum ||
     first.profileCount !== second.profileCount ||
-    first.edgesWritten !== second.edgesWritten
+    first.edgesWritten !== second.edgesWritten ||
+    first.edgeChecksum !== second.edgeChecksum
   ) {
     throw new Error(
       `determinism check failed for ${args.target.email}: ` +
-        `first=${first.checksum}/${first.profileCount}/${first.edgesWritten}, ` +
-        `second=${second.checksum}/${second.profileCount}/${second.edgesWritten}`,
+        `first=${first.checksum}/${first.profileCount}/${first.edgesWritten}/${first.edgeChecksum}, ` +
+        `second=${second.checksum}/${second.profileCount}/${second.edgesWritten}/${second.edgeChecksum}`,
     );
   }
 
@@ -422,7 +436,7 @@ async function processTarget(target: TargetUser, projectionVersion: number): Pro
   const dry = await validateDeterminism({ target, projectionVersion, sourceHighWatermark });
   console.log(
     `  DRY validated — profiles=${dry.profileCount} checksum=${dry.checksum} ` +
-      `edges=${dry.edgesWritten} ` +
+      `edges=${dry.edgesWritten} edge_checksum=${dry.edgeChecksum} ` +
       `high_watermark=${JSON.stringify(dry.sourceHighWatermark)}`,
   );
 
@@ -439,7 +453,7 @@ async function processTarget(target: TargetUser, projectionVersion: number): Pro
   console.log(
     `  COMMITTED — run=${committed.runId} reused=${committed.reusedRun} ` +
       `profiles=${committed.profileCount} checksum=${committed.checksum} ` +
-      `edges=${committed.edgesWritten}`,
+      `edges=${committed.edgesWritten} edge_checksum=${committed.edgeChecksum}`,
   );
 
   if (!ACTIVATE) return;

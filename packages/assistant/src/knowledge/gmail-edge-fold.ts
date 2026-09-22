@@ -3,11 +3,12 @@
  *
  * The legacy graph minted `works_at` from the sender domain, which restates the
  * `From:` header and carries no evidence. This fold mints `works_at` only from
- * STATED evidence: an inbound message whose body holds a signature block naming
- * the sender and stating the org domain, sent by an address the kind classifier
- * reads as `person` (a signature-shaped bulk footer states a domain too — the
- * sender-person gate keeps notification mailboxes off the graph). Never from
- * the address.
+ * STATED evidence: an inbound message whose body holds the sender's OWN
+ * signature block naming the sender and stating the org domain, sent by an
+ * address the kind classifier reads as `person` over ALL of that sender's
+ * observations in the window (a signature-shaped bulk footer states a domain
+ * too — the sender-person gate keeps notification mailboxes off the graph).
+ * Never from the address.
  *
  * Invariant: after any allowed sequence of Gmail projection runs, refolds, and
  * activation flips, every `works_at` row in `entity_edges` names in its
@@ -17,18 +18,22 @@
  * `From:` header.
  *
  * Deterministic core, no LLM anywhere in v1: the signature read is a pure
- * function over body text, the sender-name match is a stated normalization
- * (case-fold + whitespace/punctuation collapse, no fuzzy match), and the domain
- * comes from the `domain.ts` leaf + a `classifyBareDomain` deny-gate. An
- * "introduction" is free prose that needs judgment and has no edge
- * propose-dispose pipeline, so introductions mint NOTHING in v1 (item 70 owns
- * the LLM follow-up). Name-only signatures (company without a stated domain)
- * mint NOTHING — no org-name→domain resolution exists.
+ * function over body text, the sender-name match compares whole name TOKENS
+ * under a stated normalization (case-fold + whitespace/punctuation collapse,
+ * no fuzzy match), and the domain clears the `domain.ts` leaf + a real
+ * public-suffix gate + a `classifyBareDomain` deny-gate. An "introduction" is
+ * free prose that needs judgment and has no edge propose-dispose pipeline, so
+ * introductions mint NOTHING in v1 (item 70 owns the LLM follow-up).
+ * Name-only signatures (company without a stated domain) mint NOTHING — no
+ * org-name→domain resolution exists.
  *
  * Split of the all-must-hold bar: `parseEmploymentSignature` extracts the
  * block's stated name line + org domain from body text alone; the sender-name
- * match lives in `projectGmailWorksAtEdges`, which is the only side that holds
- * the observation's sender display name.
+ * match lives in `projectGmailWorksAtEdges`, which is the only side holding
+ * the observation's sender display name. Both stay module-private to this
+ * file's importers: the barrel fronts ONLY the fold, because the parse result
+ * is not employment evidence until the name match and the person gate clear
+ * (item 70 imports the pieces from this file directly when it needs them).
  *
  * Shadow-only writer: the committed Gmail shadow backfill invokes this under
  * the same `projectionRunId` as the kind fold and records `entity_edges` in
@@ -42,25 +47,29 @@ import {
   classifyBareDomain,
   collapseWhitespace,
   domainSchema,
+  extractGmailDocumentBody,
   gmailEmailMessagePayloadSchema,
   identityRefSchema,
   isNonEmptyString,
+  parseGmailDocumentMetadata,
   type EntityEdgeType,
   type GroundingTier,
   type IdentityRef,
   type ProjectionCursorValue,
   type ProjectionProvenance,
 } from "@alfred/contracts";
+import { sha256Canonical } from "@alfred/db/hash";
 import { db, type DbTransaction } from "@alfred/db";
 import {
   documents,
   entityEdges,
   observationFamilyHeads,
   observations,
-  type EntityEdgeInsert,
+  type NewEntityEdge,
   type Observation,
 } from "@alfred/db/schemas";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, notInArray, sql } from "drizzle-orm";
+import { parse as parseDomainName } from "tldts";
 import { ensureEntityNode } from "./entities";
 import { classifyEntityKind } from "./entity-kind-classifier";
 import { gmailHighWatermarkCondition } from "./gmail-kind-fold";
@@ -85,10 +94,24 @@ export interface ProjectGmailWorksAtEdgesArgs {
    * prefix the kind fold consumes under this run (shared helper, not a copy).
    */
   readonly gmailHighWatermark?: ProjectionCursorValue | undefined;
+  /**
+   * Account-holder email identities to exclude: an inbound message whose
+   * sender is one of the user's own addresses never mints `works_at` on the
+   * user's own node. The resulting edge would be TRUE, but user affiliation
+   * belongs to the identity-facts projection, not this contact fold.
+   * Same canonical-lowercase membership rule as the kind fold.
+   */
+  readonly excludeEmailValues?: readonly string[] | undefined;
 }
 
 export interface ProjectGmailWorksAtEdgesResult {
   readonly edgesWritten: number;
+  /**
+   * Canonical hash of the minted edge set (sender identity, org domain,
+   * `valid_from`), so the backfill compares edge SETS across dry runs, not a
+   * scalar count two different sets can share.
+   */
+  readonly checksum: string;
 }
 
 /**
@@ -106,8 +129,23 @@ const WORKS_AT_CONFIDENCE = 0.8;
 
 const WORKS_AT_WEIGHT = 1;
 
+/**
+ * Provenance this fold writes. `ProjectionProvenance` is a `z.looseObject`
+ * that passes undeclared keys through, so a misspelled literal compiles
+ * against the column type — this local annotation makes the two keys the
+ * headline invariant is about REQUIRED at the writer (the reader half needs
+ * the frozen-contracts PR as closer).
+ */
+interface WorksAtEdgeProvenance extends ProjectionProvenance {
+  readonly groundingTier: GroundingTier;
+  readonly documentId: string;
+}
+
 /** A signature delimiter: RFC-3676 `-- ` or its bare `--` structural equivalent. */
 const SIGNATURE_DELIMITER_RE = /^--\s*$/;
+
+/** A plain-text quote line. Quoted regions are the correspondent's, never the sender's. */
+const QUOTED_LINE_RE = /^\s*>/;
 
 /** Fail-closed bounds: a "signature" bigger than this is a quoted thread, not a footer. */
 const MAX_SIGNATURE_LINES = 30;
@@ -127,11 +165,20 @@ const BARE_DOMAIN_RE =
 /**
  * Pure deterministic signature read. Returns the block's stated name line +
  * org domain only when ALL hold: an RFC-3676 `-- ` (or bare-`--`) delimiter is
- * present; the trailing block is footer-sized; its first content line is
- * name-shaped; and the block states EXACTLY ONE distinct org domain that parses
- * via `domainSchema` and reads `corporate_domain` under `classifyBareDomain`
- * (a signature claiming `gmail.com` is not an employer claim; a block naming
- * two orgs is ambiguous and mints nothing).
+ * present in the SENDER-AUTHORED text (quote lines stripped first, FIRST
+ * delimiter wins — a backwards scan returns the oldest QUOTED footer on a
+ * reply); the trailing block is footer-sized; its first content line is
+ * name-shaped; and the block states EXACTLY ONE distinct org domain that
+ * parses via `domainSchema`, is a registrable domain under a real public
+ * suffix, and reads `corporate_domain` under `classifyBareDomain` (a signature
+ * claiming `gmail.com` is not an employer claim; a block naming two orgs is
+ * ambiguous and mints nothing).
+ *
+ * Quote-awareness covers `>`-quoted plain-text replies. HTML mail arrives
+ * here already flattened (ingest `stripHtml` drops `<blockquote>` with no `>`
+ * substitute), so an HTML reply's quoted footer is indistinguishable from
+ * sender prose at projection time — the sender-name token match below is the
+ * backstop there, and fixing ingest is out of scope.
  */
 export function parseEmploymentSignature(body: string): EmploymentSignature | null {
   const block = signatureBlock(body);
@@ -196,12 +243,33 @@ interface EdgeAccumulator {
   documentId: string;
 }
 
+interface EdgeChecksumRow {
+  readonly from: string;
+  readonly to: string;
+  readonly validFrom: string;
+}
+
+interface SenderMessage {
+  readonly observation: Observation;
+  readonly documentId: string;
+  readonly senderDisplayName: string;
+}
+
+interface SenderGroup {
+  readonly senderIdentity: IdentityRef;
+  readonly displayNames: Set<string>;
+  readonly observations: Observation[];
+  readonly messages: SenderMessage[];
+}
+
 /**
  * Fold live-head inbound `gmail/email_message` observations in the watermark
  * window into grounded `works_at` edges. Envelope (sender identity,
  * `occurredAt`, `documentId`) comes from the observation; prose comes from a
- * `documents` join on `payload.documentId` (the observation log stays
- * prose-free — the payload schema is `.strict()` with no body text).
+ * `documents` join on `payload.documentId`, decoded through
+ * `extractGmailDocumentBody` so the `From:`-header exclusion holds by the
+ * extractor's contract rather than by layout accident (the observation log
+ * stays prose-free — the payload schema is `.strict()` with no body text).
  *
  * One edge per distinct (sender, org-domain) pair: `valid_from` is the earliest
  * grounding observation (replay purity — no wall-clock default), provenance
@@ -211,6 +279,13 @@ interface EdgeAccumulator {
  * are a no-op. Identity links (`recordEntityIdentity`) are deliberately NOT
  * written here — the kind fold already binds the sender email, and domain
  * binding waits on the merge-signal owner.
+ *
+ * Supersede: when a sender gains an edge to a new org, the sender's other
+ * SAME-TIER open `works_at` rows in this (name, version) scope close with
+ * `valid_until` at the newest grounding — a changed employer leaves one open
+ * row, not two. Only this fold's own tier is touched, so a future
+ * LLM-proposed edge (item 70) is never closed from here. Residual: two
+ * genuinely concurrent employers collapse to the latest-grounded one.
  */
 export async function projectGmailWorksAtEdges(
   args: ProjectGmailWorksAtEdgesArgs,
@@ -240,14 +315,11 @@ export async function projectGmailWorksAtEdges(
       .where(and(...conds))
       .orderBy(asc(observations.occurredAt), asc(observations.id));
 
-    const inbound: {
-      observation: Observation;
-      documentId: string;
-      senderIdentity: IdentityRef;
-      senderDisplayName: string;
-    }[] = [];
+    const excludedEmails = new Set(
+      args.excludeEmailValues?.map((value) => value.toLowerCase()) ?? [],
+    );
 
-    const documentIds = new Set<string>();
+    const groups = new Map<string, SenderGroup>();
 
     for (const { observation } of rows) {
       const payload = gmailEmailMessagePayloadSchema.safeParse(observation.payload);
@@ -258,80 +330,122 @@ export async function projectGmailWorksAtEdges(
 
       if (!subject.success || subject.data.kind !== "email") continue;
 
+      if (excludedEmails.has(subject.data.value)) continue;
+
       const displayName = senderDisplayName(observation, subject.data);
 
       if (!isNonEmptyString(displayName)) continue;
 
-      inbound.push({
-        observation,
-        documentId: payload.data.documentId,
+      const key = senderKey(subject.data);
+      const existing = groups.get(key);
+
+      if (existing) {
+        existing.observations.push(observation);
+        existing.displayNames.add(displayName);
+        existing.messages.push({
+          observation,
+          documentId: payload.data.documentId,
+          senderDisplayName: displayName,
+        });
+        continue;
+      }
+
+      groups.set(key, {
         senderIdentity: subject.data,
-        senderDisplayName: displayName,
+        displayNames: new Set([displayName]),
+        observations: [observation],
+        messages: [
+          {
+            observation,
+            documentId: payload.data.documentId,
+            senderDisplayName: displayName,
+          },
+        ],
       });
-      documentIds.add(payload.data.documentId);
     }
 
-    if (inbound.length === 0) return { edgesWritten: 0 };
+    if (groups.size === 0) return { edgesWritten: 0, checksum: checksumForEdges([]) };
+
+    // Sender-person gate FIRST, over the sender's WHOLE window state: the kind
+    // fold classifies from accumulated signals + every display name, and
+    // `classifyEntityKind` is evidence-monotone toward `group`/`service`, so a
+    // per-message read can answer `person` here while the profile for the same
+    // sender reads `group`. One classification per sender, same inputs.
+    // Bodies load only for surviving senders, after the gate.
+    const personGroups: SenderGroup[] = [];
+
+    for (const group of groups.values()) {
+      const senderKind = classifyEntityKind({
+        identity: group.senderIdentity,
+        displayNames: [...group.displayNames],
+        observations: group.observations,
+      });
+
+      if (senderKind.kind !== "person") continue;
+
+      personGroups.push(group);
+    }
+
+    if (personGroups.length === 0) return { edgesWritten: 0, checksum: checksumForEdges([]) };
+
+    const documentIds = new Set<string>();
+
+    for (const group of personGroups) {
+      for (const message of group.messages) documentIds.add(message.documentId);
+    }
 
     const bodies = await readDocumentBodies(ex, args.userId, documentIds);
 
     const edges = new Map<string, EdgeAccumulator>();
 
-    for (const item of inbound) {
-      // Sender-person gate FIRST: a signature-shaped footer on bulk mail
-      // (measured: 53/53 corpus parses are GitHub notification footers) must
-      // not mint `works_at` on the service mailbox behind it — and an
-      // org-named sender ("GitHub") would otherwise clear the name match
-      // against its own footer. Only `person` mints; every other kind
-      // (service/group/unknown/…) skips fail-closed. The classifier reads its
-      // header signals off the observation itself, so no second extractor.
-      const senderKind = classifyEntityKind({
-        identity: item.senderIdentity,
-        displayNames: [item.senderDisplayName],
-        observations: [item.observation],
-      });
+    for (const group of personGroups) {
+      for (const item of group.messages) {
+        const body = bodies.get(item.documentId);
 
-      if (senderKind.kind !== "person") continue;
+        if (!isNonEmptyString(body)) continue;
 
-      const body = bodies.get(item.documentId);
+        const signature = parseEmploymentSignature(body);
 
-      if (!isNonEmptyString(body)) continue;
+        if (!signature) continue;
 
-      const signature = parseEmploymentSignature(body);
+        if (!signatureNamesSender(signature.personName, item.senderDisplayName)) continue;
 
-      if (!signature) continue;
+        const canonicalDomain = canonicalizeIdentityValue("domain", signature.orgDomain);
+        const orgIdentity = identityRefSchema.safeParse({ kind: "domain", value: canonicalDomain });
 
-      if (!signatureNamesSender(signature.personName, item.senderDisplayName)) continue;
+        if (!orgIdentity.success) continue;
 
-      const canonicalDomain = canonicalizeIdentityValue("domain", signature.orgDomain);
-      const orgIdentity = identityRefSchema.safeParse({ kind: "domain", value: canonicalDomain });
+        const key = edgeKey(group.senderIdentity, orgIdentity.data);
+        const existing = edges.get(key);
 
-      if (!orgIdentity.success) continue;
+        if (existing) {
+          if (item.observation.occurredAt < existing.firstSeenAt) {
+            existing.firstSeenAt = item.observation.occurredAt;
+          }
 
-      const key = edgeKey(item.senderIdentity, orgIdentity.data);
-      const existing = edges.get(key);
-
-      if (existing) {
-        if (item.observation.occurredAt < existing.firstSeenAt) {
-          existing.firstSeenAt = item.observation.occurredAt;
+          existing.observationIds.add(item.observation.id);
+          existing.familyKeys.add(item.observation.familyKey);
+          continue;
         }
 
-        existing.observationIds.add(item.observation.id);
-        existing.familyKeys.add(item.observation.familyKey);
-        continue;
+        edges.set(key, {
+          fromIdentity: group.senderIdentity,
+          orgIdentity: orgIdentity.data,
+          firstSeenAt: item.observation.occurredAt,
+          observationIds: new Set([item.observation.id]),
+          familyKeys: new Set([item.observation.familyKey]),
+          documentId: item.documentId,
+        });
       }
-
-      edges.set(key, {
-        fromIdentity: item.senderIdentity,
-        orgIdentity: orgIdentity.data,
-        firstSeenAt: item.observation.occurredAt,
-        observationIds: new Set([item.observation.id]),
-        familyKeys: new Set([item.observation.familyKey]),
-        documentId: item.documentId,
-      });
     }
 
     let edgesWritten = 0;
+    const checksumRows: EdgeChecksumRow[] = [];
+
+    const senderOutcomes = new Map<
+      string,
+      { fromNodeId: string; newEdges: { toNodeId: string; validFrom: Date; orgKey: string }[] }
+    >();
 
     for (const acc of [...edges.values()].sort(compareEdgeAccumulators)) {
       const fromNode = await ensureEntityNode(
@@ -346,7 +460,7 @@ export async function projectGmailWorksAtEdges(
 
       if (fromNode.id === toNode.id) continue;
 
-      const provenance: ProjectionProvenance = {
+      const provenance: WorksAtEdgeProvenance = {
         observationIds: [...acc.observationIds].sort(),
         familyKeys: [...acc.familyKeys].sort(),
         groundingTier: WORKS_AT_GROUNDING_TIER,
@@ -367,7 +481,7 @@ export async function projectGmailWorksAtEdges(
           confidence: WORKS_AT_CONFIDENCE,
           provenance,
           validFrom: acc.firstSeenAt,
-        } satisfies EntityEdgeInsert)
+        } satisfies NewEntityEdge)
         .onConflictDoNothing({
           target: [
             entityEdges.userId,
@@ -381,20 +495,80 @@ export async function projectGmailWorksAtEdges(
         .returning({ id: entityEdges.id });
 
       edgesWritten += inserted.length;
+      checksumRows.push({
+        from: senderKey(acc.fromIdentity),
+        to: senderKey(acc.orgIdentity),
+        validFrom: acc.firstSeenAt.toISOString(),
+      });
+
+      const senderMapKey = senderKey(acc.fromIdentity);
+      const outcome = senderOutcomes.get(senderMapKey);
+
+      const newEdge = {
+        toNodeId: toNode.id,
+        validFrom: acc.firstSeenAt,
+        orgKey: senderKey(acc.orgIdentity),
+      };
+
+      if (outcome) {
+        outcome.newEdges.push(newEdge);
+      } else {
+        senderOutcomes.set(senderMapKey, { fromNodeId: fromNode.id, newEdges: [newEdge] });
+      }
     }
 
-    return { edgesWritten };
+    // One open row per sender: the latest-grounded new edge wins, every other
+    // same-tier open row for that sender in this scope closes — including a
+    // same-run co-mint (a changed employer) and a prior run's row. Winner
+    // election is total (latest validFrom, then greatest org key), so replays
+    // converge. The `validFrom <= winner` floor keeps the
+    // `entity_edges_valid_window` CHECK un-tripped on future-dated rows.
+    for (const outcome of senderOutcomes.values()) {
+      const winner = outcome.newEdges.reduce((a, b) =>
+        b.validFrom > a.validFrom ||
+        (b.validFrom.getTime() === a.validFrom.getTime() && b.orgKey > a.orgKey)
+          ? b
+          : a,
+      );
+
+      await ex
+        .update(entityEdges)
+        .set({ validUntil: winner.validFrom })
+        .where(
+          and(
+            eq(entityEdges.userId, args.userId),
+            eq(entityEdges.projectionName, USER_MODEL_PROJECTION_NAME),
+            eq(entityEdges.projectionVersion, args.projectionVersion),
+            eq(entityEdges.fromEntityId, outcome.fromNodeId),
+            isNull(entityEdges.validUntil),
+            notInArray(entityEdges.toEntityId, [winner.toNodeId]),
+            lte(entityEdges.validFrom, winner.validFrom),
+            sql`${entityEdges.provenance} ->> 'groundingTier' = ${WORKS_AT_GROUNDING_TIER}`,
+          ),
+        );
+    }
+
+    return { edgesWritten, checksum: checksumForEdges(checksumRows) };
   };
 
   return tx ? run(tx) : db().transaction(run);
 }
 
-/** Trailing footer after the last `--` delimiter, or null when footer-shaped rules fail. */
+/**
+ * The sender's own trailing footer: FIRST `--` delimiter in the
+ * sender-authored text (quote lines stripped first). A backwards scan returns
+ * the oldest QUOTED footer on a reply or forward, binding the sender to
+ * another person's org domain.
+ */
 function signatureBlock(body: string): string | null {
-  const lines = body.replace(/\r\n?/g, "\n").split("\n");
+  const lines = body
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .filter((line) => !QUOTED_LINE_RE.test(line));
+
   let delimiter = -1;
 
-  for (let i = lines.length - 1; i >= 0; i--) {
+  for (let i = 0; i < lines.length; i++) {
     if (SIGNATURE_DELIMITER_RE.test(lines[i] ?? "")) {
       delimiter = i;
       break;
@@ -420,9 +594,8 @@ function signatureBlock(body: string): string | null {
 /**
  * Distinct prose-stated org domains in the block, normalized + sorted. Email
  * halves and bare hosts both count — both are prose, never the header — but
- * each must clear `domainSchema` AND read `corporate_domain` under
- * `classifyBareDomain`. The TLD-letter floor rejects version numbers and IPs
- * (`1.2`, `192.168.1.1`) before the grammar runs.
+ * each must clear `domainSchema`, name a REGISTRABLE domain under a real
+ * public suffix, AND read `corporate_domain` under `classifyBareDomain`.
  */
 function signatureOrgDomains(block: string): string[] {
   const candidates = new Set<string>();
@@ -438,11 +611,11 @@ function signatureOrgDomains(block: string): string[] {
   const passing: string[] = [];
 
   for (const candidate of candidates) {
-    if (!hasLetterTld(candidate)) continue;
-
-    const parsed = domainSchema.safeParse(candidate);
+    const parsed = domainSchema.safeParse(stripWwwHost(candidate));
 
     if (!parsed.success) continue;
+
+    if (!isRegistrableDomain(parsed.data)) continue;
 
     if (classifyBareDomain({ domain: parsed.data }) !== "corporate_domain") continue;
 
@@ -452,11 +625,35 @@ function signatureOrgDomains(block: string): string[] {
   return [...new Set(passing)].sort();
 }
 
-function hasLetterTld(domain: string): boolean {
-  const parts = domain.split(".");
-  const tld = parts[parts.length - 1] ?? "";
+/**
+ * One leading `www.` label is the web-host spelling of the org domain, not a
+ * different org — footers state `www.acme.com` far more often than the bare
+ * domain. Stripped by decision (not by accident): exactly one label, only the
+ * literal `www`, before validation runs. `www.com` still fails (single label
+ * is not a hostname); `www2.`/`www2acme.` are left alone.
+ */
+function stripWwwHost(domain: string): string {
+  return domain.toLowerCase().startsWith("www.") ? domain.slice("www.".length) : domain;
+}
 
-  return tld.length >= 2 && /[A-Za-z]/.test(tld);
+/**
+ * Real public-suffix gate (MF3): the candidate must be EXACTLY a registrable
+ * domain — one label above a public suffix the list knows (`isIcann`), not an
+ * IP, not a bare suffix (`co.uk` has no registrable domain), not a subdomain
+ * (`ops.acme.com` states a host, fail-closed). This is what rejects the
+ * invented strings the letter floor admitted: `inc.all` and `acme-logo.png`
+ * are not ICANN-suffixed, so they mint nothing and no permanent node.
+ * The suffix snapshot is pinned with the `tldts` version in package.json.
+ */
+function isRegistrableDomain(domain: string): boolean {
+  const parsed = parseDomainName(domain);
+
+  return (
+    !parsed.isIp &&
+    parsed.isIcann === true &&
+    parsed.domain === domain &&
+    isNonEmptyString(parsed.domainWithoutSuffix)
+  );
 }
 
 /** Stated normalization for the sender-name match: case-fold + whitespace/punctuation collapse. */
@@ -464,18 +661,26 @@ function normalizeSignatureName(value: string): string {
   return collapseWhitespace(value.toLowerCase().replace(/[^a-z0-9]+/g, " "));
 }
 
+function signatureNameTokens(value: string): string[] {
+  return normalizeSignatureName(value)
+    .split(" ")
+    .filter((token) => token.length >= 2);
+}
+
 /**
- * True iff the block's stated name contains the sender display name under the
- * stated normalization — no fuzzy match. A one-character display name never
- * matches: it would read as evidence inside any block.
+ * True iff every sender-display-name token (length ≥ 2) appears as a WHOLE
+ * token in the block's stated name — no fuzzy match, no substring. The raw
+ * `includes` admitted `Ann` inside `Joanna Reed` and `Jo` inside
+ * `John Smith`; whole-token comparison rejects both while still accepting a
+ * first-name-only footer (`Bob` in `Bob Smith`).
  */
 function signatureNamesSender(blockName: string, senderDisplayName: string): boolean {
-  const blockNorm = normalizeSignatureName(blockName);
-  const senderNorm = normalizeSignatureName(senderDisplayName);
+  const blockTokens = new Set(signatureNameTokens(blockName));
+  const senderTokens = signatureNameTokens(senderDisplayName);
 
-  if (senderNorm.length < 2 || blockNorm.length === 0) return false;
+  if (senderTokens.length === 0 || blockTokens.size === 0) return false;
 
-  return blockNorm.includes(senderNorm);
+  return senderTokens.every((token) => blockTokens.has(token));
 }
 
 /** The sender's stated display name: the `from` participant bound to the subject identity. */
@@ -493,6 +698,10 @@ function senderDisplayName(observation: Observation, sender: IdentityRef): strin
   return null;
 }
 
+function senderKey(sender: IdentityRef): string {
+  return JSON.stringify([sender.kind, sender.value]);
+}
+
 function edgeKey(from: IdentityRef, org: IdentityRef): string {
   return `${from.kind}\u0000${from.value}\u0000${org.value}`;
 }
@@ -503,7 +712,22 @@ function compareEdgeAccumulators(a: EdgeAccumulator, b: EdgeAccumulator): number
   );
 }
 
-/** Bodies for the grounding `documentId`s, keyed by `documents.id`. Missing rows read as absent. */
+function checksumForEdges(rows: readonly EdgeChecksumRow[]): string {
+  const stable = [...rows].sort((a, b) =>
+    `${a.from}\u0000${a.to}\u0000${a.validFrom}`.localeCompare(
+      `${b.from}\u0000${b.to}\u0000${b.validFrom}`,
+    ),
+  );
+
+  return sha256Canonical(stable);
+}
+
+/**
+ * Decoded bodies for the grounding `documentId`s, keyed by `documents.id`.
+ * Missing rows read as absent. Decoded through `extractGmailDocumentBody`
+ * against the stored envelope (metadata + title) so the header half of the
+ * stored representation never reaches the signature read.
+ */
 async function readDocumentBodies(
   ex: DbTransaction,
   userId: string,
@@ -516,11 +740,27 @@ async function readDocumentBodies(
     const chunk = ids.slice(i, i + 500);
 
     const rows = await ex
-      .select({ id: documents.id, content: documents.content })
+      .select({
+        id: documents.id,
+        content: documents.content,
+        metadata: documents.metadata,
+        title: documents.title,
+      })
       .from(documents)
       .where(and(eq(documents.userId, userId), inArray(documents.id, chunk)));
 
-    for (const row of rows) bodies.set(row.id, row.content);
+    for (const row of rows) {
+      const meta = parseGmailDocumentMetadata(row.metadata);
+      bodies.set(
+        row.id,
+        extractGmailDocumentBody(row.content, {
+          from: meta.from,
+          to: meta.to,
+          cc: meta.cc,
+          subject: row.title,
+        }),
+      );
+    }
   }
 
   return bodies;
