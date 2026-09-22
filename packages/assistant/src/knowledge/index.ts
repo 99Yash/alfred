@@ -48,6 +48,14 @@ export {
 export { projectGmailKindProfiles, type ProjectGmailKindProfilesResult } from "./gmail-kind-fold";
 
 export {
+  canGroundEdgeType,
+  parseEmploymentSignature,
+  projectGmailWorksAtEdges,
+  type EmploymentSignature,
+  type ProjectGmailWorksAtEdgesResult,
+} from "./gmail-edge-fold";
+
+export {
   globalReferentIdentity,
   referentKeyForEmail,
   senderScopedReferentIdentity,
