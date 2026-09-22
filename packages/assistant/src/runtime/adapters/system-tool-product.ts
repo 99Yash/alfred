@@ -118,11 +118,10 @@ async function rememberOneSender(
 
   const resolvedTodos = await dependencies.dismissTodos({
     userId: context.userId,
-    // The write reports the address it resolved. A domain-scoped instruction
-    // stores no address, and todo dismissal still works on the one sender the
-    // user named — a domain-wide sweep of open todos is separate work.
-    senderEmail: result.resolvedSenderEmail,
-    accountId: result.instruction.target.accountId,
+    // The sweep covers the instruction's whole target — every sender at a
+    // domain-scoped host, not just the one address the user named. The target
+    // already carries the `accountId` gate, so no second scope rides along.
+    target: result.instruction.target,
     reason: SENDER_SUPPRESSION_REASON,
     // A tool call acting for the user: `agent`, not `user` (direct UI) and
     // not `system` (the automatic reply retraction).

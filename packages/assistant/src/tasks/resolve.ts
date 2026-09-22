@@ -1,6 +1,8 @@
 import {
   normalizeEmailAddress,
   parseGmailDocumentMetadata,
+  standingInstructionTargetSchema,
+  targetMatchesSender,
   TODO_RESOLVED_BY,
   todoSourcesSchema,
   type TodoSource,
@@ -14,35 +16,48 @@ import { emitReplicachePokes } from "@alfred/assistant/triggers";
 /** The live (`not-yet-terminal`) statuses a dismissal may target. */
 const liveTodoStatusSchema = z.enum(["open", "suggested"]);
 
-const resolveTodosForGmailSourceArgsSchema = z.object({
-  userId: z.string().min(1),
-  senderEmail: z.string().nullish(),
-  sourceThreadId: z.string().nullish(),
-  accountId: z.string().nullable().optional(),
-  /**
-   * Audit label for why the caller is dismissing. Free text because the
-   * model-authored `system.resolve_todo` path supplies it; bounded like the
-   * tool input. Persisted on the row as `resolved_reason` and echoed back as
-   * {@link ResolveTodosForGmailSourceResult} `auditReason` so callers can log it.
-   */
-  reason: z.string().max(1_000).nullish(),
-  /**
-   * Who is doing the dismissing. Persisted as `resolved_by` and fanned out
-   * into the append-only `todo_events` history by the transition trigger —
-   * this is the answer to "who cleared this?". `agent` for tool calls acting
-   * for the user, `system` for the automatic `close-loop-todos` retraction.
-   */
-  actor: z.enum(TODO_RESOLVED_BY).default("agent"),
-  /**
-   * Which live statuses to retract. Defaults to both: the manual
-   * `system.resolve_todo` / `system.remember` paths dismiss whatever the user
-   * pointed at, promoted or not. The automatic `close-loop-todos` retraction
-   * passes `["suggested"]` on purpose — it may only drop an **unpromoted**
-   * proposal, never a commitment the user explicitly promoted to `open`, where
-   * a holding reply ("I'll send it tomorrow") is progress, not closure.
-   */
-  statuses: z.array(liveTodoStatusSchema).min(1).optional(),
-});
+const resolveTodosForGmailSourceArgsSchema = z
+  .object({
+    userId: z.string().min(1),
+    senderEmail: z.string().nullish(),
+    sourceThreadId: z.string().nullish(),
+    accountId: z.string().nullable().optional(),
+    /**
+     * A stored standing-instruction target to sweep: dismisses every live
+     * todo whose thread carries at least one (sender, account) pair the
+     * target covers, per {@link targetMatchesSender}. The `system.remember`
+     * path passes the instruction it just wrote; the thread-only and
+     * single-address callers leave this unset. Never alongside `senderEmail`
+     * — two sender-scopes is a caller bug.
+     */
+    target: standingInstructionTargetSchema.nullish(),
+    /**
+     * Audit label for why the caller is dismissing. Free text because the
+     * model-authored `system.resolve_todo` path supplies it; bounded like the
+     * tool input. Persisted on the row as `resolved_reason` and echoed back as
+     * {@link ResolveTodosForGmailSourceResult} `auditReason` so callers can log it.
+     */
+    reason: z.string().max(1_000).nullish(),
+    /**
+     * Who is doing the dismissing. Persisted as `resolved_by` and fanned out
+     * into the append-only `todo_events` history by the transition trigger —
+     * this is the answer to "who cleared this?". `agent` for tool calls acting
+     * for the user, `system` for the automatic `close-loop-todos` retraction.
+     */
+    actor: z.enum(TODO_RESOLVED_BY).default("agent"),
+    /**
+     * Which live statuses to retract. Defaults to both: the manual
+     * `system.resolve_todo` / `system.remember` paths dismiss whatever the user
+     * pointed at, promoted or not. The automatic `close-loop-todos` retraction
+     * passes `["suggested"]` on purpose — it may only drop an **unpromoted**
+     * proposal, never a commitment the user explicitly promoted to `open`, where
+     * a holding reply ("I'll send it tomorrow") is progress, not closure.
+     */
+    statuses: z.array(liveTodoStatusSchema).min(1).optional(),
+  })
+  .refine((data) => !(data.senderEmail && data.target), {
+    message: "Pass either senderEmail or target, never both.",
+  });
 
 export type ResolveTodosForGmailSourceArgs = z.infer<typeof resolveTodosForGmailSourceArgsSchema>;
 
@@ -85,9 +100,11 @@ interface GmailThreadMetadata {
  * Dismiss live Gmail-sourced todos by the source they carry, not by sender
  * alone. A caller may scope by `sourceThreadId` (the `close-loop-todos`
  * retraction, which knows only the thread), by `senderEmail`/`accountId` (the
- * `system.remember` and `system.resolve_todo` paths), or both; either mode
- * alone is enough. Named for the source because the thread-only call is a
- * first-class caller, not a misuse of a sender-shaped API.
+ * `system.resolve_todo` path), by `target` (the `system.remember` path, which
+ * sweeps every sender the stored instruction covers), or combine a thread
+ * with one sender-scope; any one mode alone is enough. Named for the source
+ * because the thread-only call is a first-class caller, not a misuse of a
+ * sender-shaped API.
  *
  * The statuses to retract are a caller decision ({@link
  * ResolveTodosForGmailSourceArgs.statuses}), defaulting to both live ones. The
@@ -101,10 +118,11 @@ export async function resolveTodosForGmailSource(
   const senderEmail = normalizeEmailAddress(parsed.senderEmail);
   const sourceThreadId = normalizeOptional(parsed.sourceThreadId);
   const accountId = normalizeOptional(parsed.accountId);
+  const target = parsed.target ?? null;
   const auditReason = normalizeOptional(parsed.reason);
   const statuses = parsed.statuses ?? DEFAULT_RETRACTABLE_STATUSES;
 
-  if (!senderEmail && !sourceThreadId) {
+  if (!senderEmail && !sourceThreadId && !target) {
     return {
       ok: false,
       status: "needs_clarification",
@@ -126,7 +144,7 @@ export async function resolveTodosForGmailSource(
   const allThreadIds = [...new Set(relevant.flatMap((candidate) => candidate.threadIds))];
 
   const threadMetadata =
-    senderEmail || accountId
+    senderEmail || accountId || target
       ? await loadThreadMetadata(parsed.userId, allThreadIds)
       : new Map<string, GmailThreadMetadata>();
 
@@ -137,14 +155,29 @@ export async function resolveTodosForGmailSource(
     for (const threadId of candidate.threadIds) {
       if (sourceThreadId && threadId !== sourceThreadId) continue;
 
-      if (senderEmail || accountId) {
+      if (senderEmail || accountId || target) {
         const meta = threadMetadata.get(threadId);
 
         if (!meta) continue;
 
-        if (accountId && !meta.accountIds.has(accountId)) continue;
+        if (target) {
+          // The sweep covers exactly the set the instruction's own match
+          // rule covers: one function answers for the write and the sweep.
+          // Each thread's own accounts feed the matcher, so a scoped
+          // target's `accountId` gate applies and is never forgotten. A
+          // future target kind the sweep does not know matches nothing
+          // rather than mis-matching, per `targetMatchesSender`'s
+          // fail-closed arm.
+          const covered = [...meta.senderEmails].some((sender) =>
+            [...meta.accountIds].some((account) => targetMatchesSender(target, sender, account)),
+          );
 
-        if (senderEmail && !meta.senderEmails.has(senderEmail)) continue;
+          if (!covered) continue;
+        } else {
+          if (accountId && !meta.accountIds.has(accountId)) continue;
+
+          if (senderEmail && !meta.senderEmails.has(senderEmail)) continue;
+        }
       }
 
       todoIds.add(candidate.id);

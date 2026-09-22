@@ -97,8 +97,7 @@ describe("sender suppression coordinator", () => {
         name: "dismiss",
         args: {
           userId: "user_1",
-          senderEmail: "sender@example.com",
-          accountId: null,
+          target: instruction.target,
           reason: "standing_instruction_sender_suppression",
           actor: "agent",
         },
