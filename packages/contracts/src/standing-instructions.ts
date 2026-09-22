@@ -141,6 +141,11 @@ const senderEmailAddressSchema: z.ZodType<string, string> = z
  *
  * The `sender_email` arm keeps every field rule it had at v1, so a stored row
  * parses unchanged and {@link STANDING_INSTRUCTION_SCHEMA_VERSION} stays 1.
+ * The `sender_domain` arm carries NO personal label: a domain target names a
+ * class (every address at the host), and a label taken from the one sender the
+ * user named would describe that class as one person everywhere the target is
+ * read. Old rows that stored one still parse — `z.object` strips the unknown
+ * key by default — so the version stays 1 here too.
  */
 export const standingInstructionTargetSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -152,7 +157,6 @@ export const standingInstructionTargetSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("sender_domain"),
     domain: domainSchema,
-    label: z.string().nullish(),
     accountId: z.string().nullable(),
   }),
 ]);
@@ -161,7 +165,7 @@ export type StandingInstructionTarget = z.infer<typeof standingInstructionTarget
 
 /**
  * What the mint boundary already decided, before the target is built. The
- * corporate-domain gate (`classifyEmailDomain`) stays at the mint boundary in
+ * corporate-domain gate (`classifyBareDomain`) stays at the mint boundary in
  * the assistant — it lives in `identity-affiliation.ts`, which this module
  * must not import — so the constructor takes the already-gated
  * `domain: string | null` and only picks the arm. `email` is the normalized
@@ -187,7 +191,6 @@ export function buildStandingInstructionTarget(
     return {
       kind: "sender_domain",
       domain: input.domain,
-      label: input.label,
       accountId: input.accountId,
     };
   }
@@ -198,6 +201,67 @@ export function buildStandingInstructionTarget(
     label: input.label,
     accountId: input.accountId,
   };
+}
+
+/**
+ * Does a target name ONE mailbox, or a CLASS of senders?
+ *
+ * Every per-kind rule outside this module turns on that question rather than
+ * on the kind itself: a class target owns its sentence (see
+ * {@link renderStandingInstructionDirective}) and carries no personal label,
+ * while a mailbox target keeps the model's prose and a label. Written as a
+ * `switch` with a `never` default, so a third kind — ADR-0060 micro-decision 8
+ * schedules `category` and `topic`, and both name classes — has to declare its
+ * answer HERE. A hand-written `kind === "sender_domain"` at each reader
+ * compiles unchanged and files the new kind with the mailboxes instead.
+ *
+ * It narrows, so a caller that gets `true` reads `label` without a second
+ * check. Lives beside {@link standingInstructionTargetKey} and
+ * {@link standingInstructionTargetSpecificity} for the same reason they do.
+ */
+export function targetNamesOneMailbox(
+  target: StandingInstructionTarget,
+): target is Extract<StandingInstructionTarget, { kind: "sender_email" }> {
+  switch (target.kind) {
+    case "sender_email":
+      return true;
+    case "sender_domain":
+      return false;
+    default: {
+      const exhaustive: never = target;
+
+      return Boolean(exhaustive);
+    }
+  }
+}
+
+/**
+ * Prompt-ready sentence derived from the target alone. The single home of
+ * the "any sender at <domain>" vs "from <label ?? email>" wording that item
+ * 01r1 built inline at the Alfred-written branch: a domain rule covers
+ * senders no label names, so its sentence names the DOMAIN, while an address
+ * rule names the one sender the label (or address) identifies.
+ *
+ * Every writer stores this for a `sender_domain` target and every reader
+ * renders it for one, so a domain instruction never carries a sentence that
+ * names one address — whatever prose the model supplied, and whatever prose
+ * a pre-fix row still stores. The `sender_email` arm keeps model prose: this
+ * is the capture default for that kind only. Sits beside the union so a
+ * third target kind fails the exhaustive guard until it declares its
+ * sentence.
+ */
+export function renderStandingInstructionDirective(target: StandingInstructionTarget): string {
+  switch (target.kind) {
+    case "sender_domain":
+      return `Stop surfacing reminders and briefing items from any sender at ${target.domain}.`;
+    case "sender_email":
+      return `Stop surfacing reminders and briefing items from ${target.label ?? target.email}.`;
+    default: {
+      const exhaustive: never = target;
+
+      return String(exhaustive);
+    }
+  }
 }
 
 /**
@@ -467,6 +531,18 @@ export const STANDING_INSTRUCTION_SCOPE_NARROWINGS = [
 
 export type StandingInstructionScopeNarrowing =
   (typeof STANDING_INSTRUCTION_SCOPE_NARROWINGS)[number];
+
+/**
+ * An input the caller sent that a write could not store, because the target
+ * names a CLASS of senders rather than one mailbox. A `sender_domain` row
+ * renders its sentence from the domain alone
+ * ({@link renderStandingInstructionDirective}) and its arm carries no personal
+ * label, so a supplied `directive` and a supplied `senderLabel` both stop at
+ * the write boundary. The members use the tool-input spelling, so a caller
+ * reads back the name of the field it sent. An empty list means the write
+ * stored everything it was given.
+ */
+export type StandingInstructionDroppedInput = "directive" | "senderLabel";
 
 /**
  * ADR-0060 §8, most specific first. Position IS the rank. The deferred kinds

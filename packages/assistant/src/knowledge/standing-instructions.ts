@@ -4,6 +4,7 @@ import {
   domainSchema,
   emailDomain,
   normalizeEmailAddress,
+  renderStandingInstructionDirective,
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   standingInstructionTargetKey,
@@ -13,8 +14,10 @@ import {
   standingInstructionValueSchema,
   SUPPRESSION_EFFECTS,
   targetMatchesSender,
+  targetNamesOneMailbox,
   type MemorySource,
   type ObservationSource,
+  type StandingInstructionDroppedInput,
   type StandingInstructionOverlap,
   type StandingInstructionScopeNarrowing,
   type StandingInstructionTarget,
@@ -128,6 +131,14 @@ export type RememberSenderSuppressionResult =
        * it asked for a class and got one address.
        */
       scopeNarrowing: StandingInstructionScopeNarrowing | null;
+      /**
+       * Inputs this call sent that the write could not store, because the
+       * stored target names a class of senders: a `directive` the domain
+       * sentence supersedes, a `senderLabel` the domain arm has no field for.
+       * Empty when the write stored everything it was given. Without it the
+       * caller reads a row that silently disagrees with its own request.
+       */
+      droppedInputs: readonly StandingInstructionDroppedInput[];
     }
   | {
       ok: false;
@@ -157,14 +168,30 @@ export async function rememberSenderSuppression(
   const target = buildStandingInstructionTarget({ email, domain, label, accountId });
 
   // A domain rule covers senders the label does not name, so the stored
-  // sentence names the DOMAIN. Phrasing it from the sender label would read
-  // back as "…from Ben Book" for a rule that also binds everyone else at that
-  // host — and the model reads this sentence, not the target.
+  // sentence is derived from the TARGET alone: a model-supplied `directive`
+  // is ignored for the domain kind, and the target carries no label. Silent
+  // derivation keeps the write flowing (precedent: the 01r1 default branch
+  // below). `renderStandingInstructionDirective` is the single home of both
+  // wordings, so this sentence and every read-back agree by construction.
+  const modelDirective = normalizeOptionalLabel(parsed.directive);
+
   const directive =
-    normalizeOptionalLabel(parsed.directive) ??
-    (domain
-      ? `Stop surfacing reminders and briefing items from any sender at ${domain}.`
-      : `Stop surfacing reminders and briefing items from ${label ?? email}.`);
+    domain || modelDirective === null ? renderStandingInstructionDirective(target) : modelDirective;
+
+  // Say what the write refused. The domain branch above supersedes a supplied
+  // `directive` and the domain arm has no field for a supplied `senderLabel`,
+  // so a caller that sent either reads back a row that disagrees with its own
+  // request. Reported, not thrown: silent derivation keeps the write flowing
+  // (precedent: the 01r1 default branch), and this is the half that keeps it
+  // honest. Read from the NORMALIZED values, so whitespace the write would
+  // have dropped for any target kind is not reported as a class rule's doing.
+  const droppedInputs: StandingInstructionDroppedInput[] = [];
+
+  if (domain) {
+    if (modelDirective !== null) droppedInputs.push("directive");
+
+    if (label !== null) droppedInputs.push("senderLabel");
+  }
 
   const source: MemorySource = parsed.source ?? { kind: "user" };
 
@@ -205,12 +232,16 @@ export async function rememberSenderSuppression(
       ok: true,
       status: "already_exists",
       factId: existing.factId,
-      instruction: existing.value,
+      // Rendered, not raw: this path collapses onto a row it never rewrites,
+      // so a pre-derivation domain row would otherwise echo its stored
+      // personal sentence forever.
+      instruction: readStandingInstruction(existing.value),
       resolvedSenderEmail: email,
       // Reported from the snapshot THIS path decided on — the unlocked outer
       // read. No path may report an overlap set its own write never saw.
       ...findTargetOverlaps(active, instruction.target),
       scopeNarrowing,
+      droppedInputs,
     };
   }
 
@@ -299,10 +330,13 @@ export async function rememberSenderSuppression(
       ok: true,
       status: "already_exists",
       factId: row.id,
-      instruction: row.instruction,
+      // Same reason as the unlocked echo above: the locked re-check found a
+      // rival row and returned it without a write.
+      instruction: readStandingInstruction(row.instruction),
       resolvedSenderEmail: email,
       ...row.overlaps,
       scopeNarrowing,
+      droppedInputs,
     };
   }
 
@@ -316,6 +350,7 @@ export async function rememberSenderSuppression(
     resolvedSenderEmail: email,
     ...row.overlaps,
     scopeNarrowing,
+    droppedInputs,
   };
 }
 
@@ -444,7 +479,7 @@ function findTargetOverlaps(
       factId: instruction.factId,
       relation: instruction.relation,
       target: instruction.value.target,
-      directive: instruction.value.directive,
+      directive: readStandingInstructionDirective(instruction.value),
     })),
     overlapCount: matched.length,
   };
@@ -526,8 +561,22 @@ export type EditStandingInstructionResult =
       factId: string;
       previousFactId: string;
       instruction: StandingInstructionValue;
+      /**
+       * Edits this call asked for that the row could not take, because its
+       * target names a class of senders. Empty on an address row, which takes
+       * both. Without it `edited` and `unchanged` both answer a dropped
+       * request with no reason.
+       */
+      droppedInputs: readonly StandingInstructionDroppedInput[];
     }
-  | { ok: true; status: "unchanged"; factId: string; instruction: StandingInstructionValue }
+  | {
+      ok: true;
+      status: "unchanged";
+      factId: string;
+      instruction: StandingInstructionValue;
+      /** Same reading as the `edited` arm: edits the row could not take. */
+      droppedInputs: readonly StandingInstructionDroppedInput[];
+    }
   | { ok: false; status: "not_found" };
 
 export const editStandingInstructionArgsSchema = z.object({
@@ -563,9 +612,36 @@ function summarizeStandingInstruction(
     action: instruction.value.action,
     target: instruction.value.target,
     effects: instruction.value.effects,
-    directive: instruction.value.directive,
+    directive: readStandingInstructionDirective(instruction.value),
     validFrom: instruction.validFrom,
   };
+}
+
+/**
+ * The sentence the model reads for a stored row. A class row renders from its
+ * target, so a pre-fix row whose stored prose names one address still reads
+ * back as a class rule; a mailbox row keeps its stored (possibly reframed)
+ * prose, which names exactly the one address it binds.
+ */
+function readStandingInstructionDirective(value: StandingInstructionValue): string {
+  return targetNamesOneMailbox(value.target)
+    ? value.directive
+    : renderStandingInstructionDirective(value.target);
+}
+
+/**
+ * The same rule at value level, for a path that hands the model a whole
+ * stored row rather than one field. `already_exists` echoes the row it
+ * collapsed onto, and that row can predate the derivation — it never writes,
+ * so it also never self-heals. Without this the echo carries the personal
+ * sentence while `overlaps[]` in the same result carries the class one.
+ * Returns the input unchanged when nothing renders, so an address row stays
+ * reference-equal.
+ */
+function readStandingInstruction(value: StandingInstructionValue): StandingInstructionValue {
+  const directive = readStandingInstructionDirective(value);
+
+  return directive === value.directive ? value : { ...value, directive };
 }
 
 /**
@@ -672,30 +748,63 @@ export async function editStandingInstruction(
 
   if (!existing) return { ok: false, status: "not_found" };
 
-  const nextDirective = normalizeOptionalLabel(parsed.directive);
+  const target = existing.value.target;
+
+  // Both edits this tool offers turn on ONE question — does the target name a
+  // mailbox or a class — so every site below asks `targetNamesOneMailbox` and
+  // none of them re-spells a kind. A class row's sentence is derived from its
+  // target, so a model-supplied `directive` re-derives to the same sentence
+  // and the edit reads `unchanged` unless the target itself changed. A
+  // `senderLabel` on a class row is a no-op: the arm carries no personal
+  // label. The mailbox arm keeps both edits — reframe prose and relabel —
+  // exactly as before.
+  const requestedDirective = normalizeOptionalLabel(parsed.directive);
+
+  const nextDirective = targetNamesOneMailbox(target)
+    ? requestedDirective
+    : renderStandingInstructionDirective(target);
+
+  // What the caller asked for and the row refused. A class row's sentence is
+  // its target's, so a supplied `directive` reaches nothing; the class arm
+  // has no label field, so a supplied `senderLabel` reaches nothing either.
+  // Both still reach the RESULT, because an edit that answers `edited` or
+  // `unchanged` with no reason reads as if the request went through.
+  const droppedInputs: StandingInstructionDroppedInput[] = [];
+
+  if (!targetNamesOneMailbox(target)) {
+    if (requestedDirective !== null) droppedInputs.push("directive");
+
+    if (parsed.senderLabel !== undefined) droppedInputs.push("senderLabel");
+  }
 
   // `phrasing` is verbatim user provenance — a reframe of the directive never
-  // rewrites it. The label is editable, including clearing it (null).
-  const nextLabel =
-    parsed.senderLabel === undefined
-      ? existing.value.target.label
-      : normalizeOptionalLabel(parsed.senderLabel);
-
+  // rewrites it. The label is editable, including clearing it (null), and only
+  // the mailbox arm has one to edit.
   const nextValue = standingInstructionValueSchema.parse({
     ...existing.value,
     directive: nextDirective ?? existing.value.directive,
-    target: { ...existing.value.target, label: nextLabel },
+    target: targetNamesOneMailbox(target)
+      ? {
+          ...target,
+          label:
+            parsed.senderLabel === undefined
+              ? target.label
+              : normalizeOptionalLabel(parsed.senderLabel),
+        }
+      : target,
   });
 
-  if (
-    nextValue.directive === existing.value.directive &&
-    nextValue.target.label === existing.value.target.label
-  ) {
+  const nextLabelValue = targetNamesOneMailbox(nextValue.target) ? nextValue.target.label : null;
+
+  const existingLabelValue = targetNamesOneMailbox(target) ? target.label : null;
+
+  if (nextValue.directive === existing.value.directive && nextLabelValue === existingLabelValue) {
     return {
       ok: true,
       status: "unchanged",
       factId: parsed.factId,
       instruction: existing.value,
+      droppedInputs,
     };
   }
 
@@ -717,6 +826,7 @@ export async function editStandingInstruction(
     factId: edited.id,
     previousFactId: parsed.factId,
     instruction: nextValue,
+    droppedInputs,
   };
 }
 
@@ -867,8 +977,25 @@ export function findSenderSuppression(
 
   if (!best) return null;
 
+  // Rendered for the same reason every other read site renders, NOT because
+  // the triage prompt shows it. It does not: `triage/classify.ts` renders
+  // `phrasing` only and says why it omits `directive`, and the field's one
+  // reader (`triage/workflow-operations.ts`) puts it where no renderer and no
+  // event column reads it. So this line is unobservable today and cheap, and
+  // it is here so a future reader that DOES render the field gets the class
+  // sentence rather than a pre-fix domain row's stored personal prose. The
+  // sentence a model actually reads today rides the `system.remember`,
+  // `system.edit_instruction`, and `system.list_instructions` results.
+  // An address row keeps its stored prose, which names exactly the one
+  // address it binds. `phrasing` is untouched on both kinds: it is the user's
+  // verbatim words, and a domain capture can still name one person in it.
+  const value = targetNamesOneMailbox(best.value.target)
+    ? best.value
+    : { ...best.value, directive: renderStandingInstructionDirective(best.value.target) };
+
   return {
     ...best,
+    value,
     matchedEmail: email,
     effect: lookup.effect,
     matchedVia: best.value.target.kind,
