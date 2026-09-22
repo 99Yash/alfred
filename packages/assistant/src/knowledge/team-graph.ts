@@ -408,7 +408,11 @@ export async function backfillTeamGraph(
   // Nothing is persisted here, so preview the kind a real write WOULD produce:
   // the stored canonical name for an existing row, the scan's display name for
   // a brand-new row only. One call — the stored read lives inside the preview,
-  // so the dry run and the writer cannot disagree about a row.
+  // which shares the classifier and the alias predicate with the writer. That
+  // is all they share: the writer also applies `resolveKindForUpdate` (keeps
+  // `person` when a re-kind would collide), and neither side orders a
+  // shared-alias match, so the preview's count can differ from what a commit
+  // writes. `nonPersonContacts` is a reported number, never a write.
   const kinds = await previewContactKinds(
     userId,
     new Map<string, string | undefined>(
