@@ -1,11 +1,13 @@
 import {
   buildStandingInstructionTarget,
   classifyBareDomain,
+  domainSchema,
   emailDomain,
   normalizeEmailAddress,
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   standingInstructionTargetKey,
+  standingInstructionScopeRelation,
   standingInstructionTargetSpecificity,
   memorySourceSchema,
   standingInstructionValueSchema,
@@ -13,6 +15,8 @@ import {
   targetMatchesSender,
   type MemorySource,
   type ObservationSource,
+  type StandingInstructionOverlap,
+  type StandingInstructionScopeNarrowing,
   type StandingInstructionTarget,
   type StandingInstructionTargetKind,
   type StandingInstructionValue,
@@ -86,6 +90,44 @@ export type RememberSenderSuppressionResult =
        * instead of `instruction.target.email`, which a domain target lacks.
        */
       resolvedSenderEmail: string;
+      /**
+       * Every active instruction whose sender-and-account scope STRICTLY
+       * contains or is strictly contained by the stored target, drawn from the
+       * same row snapshot that decided `status`. ADR-0060 micro-decision 6 asks
+       * the write to report a subset or superset; at v1 both rows carry
+       * `suppress`, so the overlap contradicts nothing and ADR-0060 §8 already
+       * elects one of them at apply time. Reporting it is what stops a second
+       * row from looking like a bug.
+       *
+       * SNAPSHOT-SCOPED ON BOTH AXES. A concurrent nesting write can be
+       * absent from this list whichever axis it nests on, for three separate
+       * reasons. The advisory lock this write takes is keyed on
+       * `standingInstructionTargetKey`, which reads the sender and NOT
+       * `accountId`, so two writes at different sender kinds — a domain and an
+       * address under it — take different keys and never block each other. Two
+       * writes at the SAME key do serialize, but the lock orders them by the
+       * instant each takes it, while `activeStandingInstructionsWhere` filters
+       * on `now()` — `transaction_timestamp()`, which Postgres freezes at
+       * `BEGIN` and which also defaults the inserted row's `valid_from`. So a
+       * transaction that began later can take the lock first, and the other
+       * one's freshness filter then hides the winner's row. And the
+       * `already_exists` fast path returns before the lock runs at all.
+       * Campaign item 46 owns the timestamp half.
+       *
+       * The promise runs the other way: every instruction named here was in
+       * the snapshot that decided `status`.
+       *
+       * Capped at {@link STANDING_INSTRUCTION_OVERLAP_LIMIT}; `overlapCount`
+       * carries the true total.
+       */
+      overlaps: readonly StandingInstructionOverlap[];
+      overlapCount: number;
+      /**
+       * Non-null when the caller asked for `scope:"domain"` and the rail stored
+       * a `sender_email` target instead. Without it the caller cannot tell that
+       * it asked for a class and got one address.
+       */
+      scopeNarrowing: StandingInstructionScopeNarrowing | null;
     }
   | {
       ok: false;
@@ -105,30 +147,12 @@ export async function rememberSenderSuppression(
   const label = normalizeOptionalLabel(parsed.senderLabel);
   const accountId = normalizeOptionalLabel(parsed.accountId);
 
-  // Two rails keep a domain target from growing too wide, and both make the
-  // bad target unrepresentable rather than merely unlikely:
-  //   1. The caller never supplies a domain. The server derives it from an
-  //      address the caller already resolved, so `co.in` cannot become a
-  //      target — no sender has that address.
-  //   2. Only a `corporate_domain` widens. `classifyBareDomain` is the one
-  //      place that answers "is this domain one organization's". It reads the
-  //      BARE domain, never a connected account: the account form demands a
-  //      verified hosted domain the sender side never has, so it would answer
-  //      `ambiguous_domain` for every real sender and no instruction would
-  //      ever widen.
-  //
-  //      Read rail 2 as a DENY-LIST, not a closed rule. `classifyBareDomain`
-  //      answers from five enumerated tables — consumer mailboxes, school and
-  //      alumni domains, shared hosting, disposable hosts, and mail
-  //      infrastructure. A consumer host that no table lists reads as
-  //      `corporate_domain` and still widens. The rail narrows the class of
-  //      bad targets; it does not close it.
-  const candidateDomain = parsed.scope === "domain" ? emailDomain(email) : null;
-
-  const domain =
-    candidateDomain && classifyBareDomain({ domain: candidateDomain }) === "corporate_domain"
-      ? candidateDomain
-      : null;
+  // A caller that did not ask to widen gets no narrowing reason, because it
+  // was never narrowed: `scopeNarrowing` answers "you asked for a class and
+  // got one address", and an unasked question has no answer.
+  const widening = parsed.scope === "domain" ? widenToDomain(email) : null;
+  const domain = widening?.domain ?? null;
+  const scopeNarrowing = widening?.narrowing ?? null;
 
   const target = buildStandingInstructionTarget({ email, domain, label, accountId });
 
@@ -173,10 +197,8 @@ export async function rememberSenderSuppression(
   // key from `standingInstructionTargetKey` AND `accountId`, because that key
   // reads the sender and never the account. Two instructions for one sender
   // scoped to two mailboxes are two distinct rows, not a duplicate.
-  const existing = findInstructionByTarget(
-    await listActiveSuppressionInstructions(parsed.userId),
-    instruction.target,
-  );
+  const active = await listActiveSuppressionInstructions(parsed.userId);
+  const existing = findInstructionByTarget(active, instruction.target);
 
   if (existing) {
     return {
@@ -185,6 +207,10 @@ export async function rememberSenderSuppression(
       factId: existing.factId,
       instruction: existing.value,
       resolvedSenderEmail: email,
+      // Reported from the snapshot THIS path decided on — the unlocked outer
+      // read. No path may report an overlap set its own write never saw.
+      ...findTargetOverlaps(active, instruction.target),
+      scopeNarrowing,
     };
   }
 
@@ -213,17 +239,29 @@ export async function rememberSenderSuppression(
       .where(activeStandingInstructionsWhere(parsed.userId))
       .orderBy(desc(userFacts.validFrom));
 
-    const rival = findInstructionByTarget(
-      rivals
-        .map(instructionFromFact)
-        .filter(
-          (candidate): candidate is ActiveSuppressionInstruction =>
-            candidate !== null && candidate.value.action === "suppress",
-        ),
-      instruction.target,
-    );
+    const locked = rivals
+      .map(instructionFromFact)
+      .filter(
+        (candidate): candidate is ActiveSuppressionInstruction =>
+          candidate !== null && candidate.value.action === "suppress",
+      );
 
-    if (rival) return { id: rival.factId, instruction: rival.value, duplicate: true as const };
+    // The locked read is the snapshot both remaining paths report from, so it
+    // travels out of the transaction beside the row they decided. The lock
+    // orders the duplicate check on one sender key. It does NOT make this
+    // overlap report complete, on either axis. A write at another sender kind
+    // takes a different key and never blocks. A write at the SAME key does
+    // serialize, but the lock orders the two by the instant each takes it,
+    // while the filter below reads `now()` — `transaction_timestamp()`, frozen
+    // at BEGIN, and the same default the inserted row's `valid_from` takes. So
+    // a transaction that began later can take the lock first, and this read
+    // then drops the winner's row as not yet valid. That timestamp is why the
+    // duplicate check below can miss as well; campaign item 46 owns it.
+    const overlaps = findTargetOverlaps(locked, instruction.target);
+    const rival = findInstructionByTarget(locked, instruction.target);
+
+    if (rival)
+      return { id: rival.factId, instruction: rival.value, duplicate: true as const, overlaps };
 
     const [inserted] = await tx
       .insert(userFacts)
@@ -251,7 +289,7 @@ export async function rememberSenderSuppression(
       tx,
     );
 
-    return { id: inserted.id, instruction, duplicate: false as const };
+    return { id: inserted.id, instruction, duplicate: false as const, overlaps };
   });
 
   if (!row) throw new Error("[memory.standing-instructions] insert returned no row");
@@ -263,6 +301,8 @@ export async function rememberSenderSuppression(
       factId: row.id,
       instruction: row.instruction,
       resolvedSenderEmail: email,
+      ...row.overlaps,
+      scopeNarrowing,
     };
   }
 
@@ -274,6 +314,8 @@ export async function rememberSenderSuppression(
     factId: row.id,
     instruction,
     resolvedSenderEmail: email,
+    ...row.overlaps,
+    scopeNarrowing,
   };
 }
 
@@ -297,6 +339,115 @@ function findInstructionByTarget(
   }
 
   return null;
+}
+
+/**
+ * Two rails keep a domain target from growing too wide, and both make the bad
+ * target unrepresentable rather than merely unlikely:
+ *   1. The caller never supplies a domain. The server derives it from an
+ *      address the caller already resolved, so `co.in` cannot become a
+ *      target — no sender has that address.
+ *   2. Only a `corporate_domain` widens. `classifyBareDomain` is the one
+ *      place that answers "is this domain one organization's", and it also
+ *      rejects consumer mailboxes, school and alumni domains, shared-hosting
+ *      and disposable hosts, and mail-infrastructure hosts — every class
+ *      where one domain carries unrelated senders. It reads the BARE domain,
+ *      never a connected account: the account form demands a verified hosted
+ *      domain the sender side never has, so it would answer `ambiguous_domain`
+ *      for every real sender and no instruction would ever widen.
+ *
+ * Rail 2 reads a domain the SHARED grammar accepts, which is the stricter of
+ * the two grammars this path crosses: the sender was normalized by zod's email
+ * pattern, which admits hosts `domainSchema` rejects. So the grammar is tested
+ * here, before the class question — `classifyBareDomain` answers `null` for
+ * both an invalid domain and an unclassifiable one, and a caller told that
+ * `ab-.com` "is not a single organization" has been told something false.
+ *
+ * Either rail refusing is a NARROWED write, not a plain address write, and the
+ * caller has to be told which one refused. The return is a discriminated pair,
+ * so a fall back to the address cannot be built without a reason.
+ */
+type DomainWidening =
+  | { domain: string; narrowing: null }
+  | { domain: null; narrowing: StandingInstructionScopeNarrowing };
+
+function widenToDomain(email: string): DomainWidening {
+  const candidateDomain = domainSchema.safeParse(emailDomain(email));
+
+  if (!candidateDomain.success) return { domain: null, narrowing: "domain_unparseable" };
+
+  if (classifyBareDomain({ domain: candidateDomain.data }) !== "corporate_domain") {
+    return { domain: null, narrowing: "domain_not_single_organization" };
+  }
+
+  return { domain: candidateDomain.data, narrowing: null };
+}
+
+/**
+ * How many overlaps one result carries. A prompt-budget bound, not a
+ * correctness one: a domain remember in a mailbox with fifty address rows
+ * would otherwise put fifty directives of up to 1,000 characters into the
+ * model's context. `overlapCount` still reports the true total.
+ */
+const STANDING_INSTRUCTION_OVERLAP_LIMIT = 10;
+
+/**
+ * The overlap half of a successful write result. Named so the two `already_exists`
+ * paths and the insert path spread ONE shape and cannot disagree about it.
+ */
+interface TargetOverlapReport {
+  overlaps: StandingInstructionOverlap[];
+  overlapCount: number;
+}
+
+/**
+ * The active instructions whose scope strictly contains, or is strictly
+ * contained by, `target`. STRICT on purpose: two targets that cover each other
+ * are the same target, so the identity row this write collapsed onto never
+ * appears in its own overlap list.
+ *
+ * The cut is total — `validFrom` descending, then `factId` descending — so it
+ * never depends on Postgres's ordering of two rows written in the same
+ * millisecond. `validFrom` is compared at `Date` millisecond resolution
+ * because `Date.getTime()` drops the microseconds Postgres stores, which is
+ * why `factId` sits below it.
+ */
+function findTargetOverlaps(
+  instructions: readonly ActiveSuppressionInstruction[],
+  target: StandingInstructionTarget,
+): TargetOverlapReport {
+  const matched: Array<
+    ActiveSuppressionInstruction & { relation: StandingInstructionOverlap["relation"] }
+  > = [];
+
+  for (const instruction of instructions) {
+    const relation = standingInstructionScopeRelation({
+      of: instruction.value.target,
+      relativeTo: target,
+    });
+
+    if (relation === null) continue;
+
+    matched.push({ ...instruction, relation });
+  }
+
+  matched.sort((a, b) => {
+    const byValidFrom = b.validFrom.getTime() - a.validFrom.getTime();
+
+    if (byValidFrom !== 0) return byValidFrom;
+
+    return a.factId < b.factId ? 1 : a.factId > b.factId ? -1 : 0;
+  });
+
+  return {
+    overlaps: matched.slice(0, STANDING_INSTRUCTION_OVERLAP_LIMIT).map((instruction) => ({
+      factId: instruction.factId,
+      relation: instruction.relation,
+      target: instruction.value.target,
+      directive: instruction.value.directive,
+    })),
+    overlapCount: matched.length,
+  };
 }
 
 /**

@@ -46,6 +46,9 @@ describe("sender suppression coordinator", () => {
       factId: "fact_1",
       instruction,
       resolvedSenderEmail: "sender@example.com",
+      overlaps: [],
+      overlapCount: 0,
+      scopeNarrowing: null,
     };
 
     const dismissed: ResolveTodosForGmailSourceResult = {

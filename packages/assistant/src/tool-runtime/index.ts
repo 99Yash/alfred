@@ -11,6 +11,8 @@ import {
   type IntegrationAvailabilitySnapshot,
   type PersistedWorkflowReadinessProblem,
   type ScratchEntry,
+  type StandingInstructionOverlap,
+  type StandingInstructionScopeNarrowing,
   type StandingInstructionValue,
   type TOOL_INPUT_SCHEMAS,
   type ToolName,
@@ -674,6 +676,20 @@ export type RememberSenderSuppressionAndDismissResult =
       readonly factId: string;
       readonly instruction: StandingInstructionValue;
       readonly resolvedSenderEmail: string;
+      /**
+       * Active instructions that strictly contain, or are strictly contained
+       * by, the stored target — drawn from the same row snapshot that decided
+       * `status`. A concurrent nesting write can be absent on either axis: the
+       * write lock reads the sender alone, the snapshot filter reads the
+       * transaction timestamp rather than the lock order, and the
+       * `already_exists` path returns before the lock. The field on
+       * `RememberSenderSuppressionResult` states the three limits. Capped;
+       * `overlapCount` carries the true total.
+       */
+      readonly overlaps: readonly StandingInstructionOverlap[];
+      readonly overlapCount: number;
+      /** Set when the caller asked for `scope:"domain"` and got one address. */
+      readonly scopeNarrowing: StandingInstructionScopeNarrowing | null;
       readonly resolvedTodos: ResolveTodoResult;
     }
   | {
