@@ -35,7 +35,7 @@
  * `gmailSpam` was one day old, not that Gmail filed no spam. So read a zero here
  * as "no answer", never as "dead". Telling those apart needs a presence count
  * (`t.trace ? '<key>'`, i.e. how many rows carry the key at all) beside each
- * numerator; this file does not have one yet.
+ * numerator; every section below prints one (#1187).
  *
  * NOT bundled by tsdown: it makes no model call — it reads
  * `agent_decision_traces` — so a local `tsx` over the documented prod tunnel
@@ -211,18 +211,31 @@ async function watchSpamFloor(total: number): Promise<void> {
     withLatest(sql`
       SELECT
         coalesce(${traceText("spamFloorOutcome")}, ${SPAM_FLOOR_INERT}) AS outcome,
-        count(*)::int AS n
+        count(*)::int AS n,
+        count(*) FILTER (WHERE t.trace ? ${traceKey("spamFloorOutcome")})::int AS outcome_present
       FROM t
       WHERE ${traceText("gmailSpam")} = 'true'
       GROUP BY 1
     `),
-    z.object({ outcome: z.string(), n: z.number() }),
+    z.object({ outcome: z.string(), n: z.number(), outcome_present: z.number() }),
   );
 
   const counts = new Map(rows.map((row) => [row.outcome, row.n]));
   const spamTotal = rows.reduce((sum, row) => sum + row.n, 0);
+  const outcomePresent = rows.reduce((sum, row) => sum + row.outcome_present, 0);
+
+  // Window-level presence for the filter key itself (#1187): when the window
+  // predates the key, `spamTotal` is 0 AND this is 0 — "no answer", not "dead".
+  const [spamKey] = await query(
+    withLatest(
+      sql`SELECT count(*) FILTER (WHERE t.trace ? ${traceKey("gmailSpam")})::int AS n FROM t`,
+    ),
+    countRow,
+  );
 
   console.log(`   spam-filed mail in window: ${share(spamTotal, total)} of all classifications`);
+  console.log(`   …gmailSpam key present (window): ${share(spamKey?.n ?? 0, total)}`);
+  console.log(`   …spamFloorOutcome key present: ${share(outcomePresent, spamTotal)}`);
 
   for (const [outcome, label] of Object.entries(SPAM_FLOOR_OUTCOMES)) {
     console.log(`   ${outcome} — ${label}: ${share(counts.get(outcome) ?? 0, spamTotal)}`);
@@ -284,7 +297,10 @@ async function watchOverClassification(total: number): Promise<void> {
           WHERE ${traceText("conflict")} = ${OVER_CLASSIFICATION}
             AND ${traceText("effectiveAuthor")} <> ${PERSON_AUTHOR}
             AND ${traceText("secondPassFailure")} IS NOT NULL
-        )::int AS non_person_author_failures
+        )::int AS non_person_author_failures,
+        count(*) FILTER (WHERE t.trace ? ${traceKey("conflict")})::int AS conflict_present,
+        count(*) FILTER (WHERE t.trace ? ${traceKey("effectiveAuthor")})::int AS effective_author_present,
+        count(*) FILTER (WHERE t.trace ? ${traceKey("secondPassFailure")})::int AS second_pass_failure_present
       FROM t
     `),
     z.object({
@@ -292,6 +308,9 @@ async function watchOverClassification(total: number): Promise<void> {
       over_classification: z.number(),
       non_person_authors: z.number(),
       non_person_author_failures: z.number(),
+      conflict_present: z.number(),
+      effective_author_present: z.number(),
+      second_pass_failure_present: z.number(),
     }),
   );
 
@@ -300,6 +319,9 @@ async function watchOverClassification(total: number): Promise<void> {
     over_classification: 0,
     non_person_authors: 0,
     non_person_author_failures: 0,
+    conflict_present: 0,
+    effective_author_present: 0,
+    second_pass_failure_present: 0,
   };
 
   console.log(`   second pass attempted (any conflict): ${share(row.any_conflict, total)}`);
@@ -309,6 +331,15 @@ async function watchOverClassification(total: number): Promise<void> {
   );
   console.log(
     `   …and the second pass threw: ${share(row.non_person_author_failures, row.non_person_authors)}`,
+  );
+  // Presence beside each numerator (#1187): a zero with a zero presence is "no
+  // answer" (key younger than the window, or stopped being written), not "dead".
+  console.log(`   …conflict key present (window): ${share(row.conflict_present, total)}`);
+  console.log(
+    `   …effectiveAuthor key present (window): ${share(row.effective_author_present, total)}`,
+  );
+  console.log(
+    `   …secondPassFailure key present (window): ${share(row.second_pass_failure_present, total)}`,
   );
 }
 
@@ -332,7 +363,10 @@ async function watchAwaitingReplySenders(total: number): Promise<void> {
         coalesce(${traceText("effectiveAuthor")}, '(none)') AS effective_author,
         coalesce(${traceText("fromKind")}, '(none)') AS from_kind,
         coalesce(${traceText("senderKind")}, '-') AS sender_kind,
-        count(*)::int AS n
+        count(*)::int AS n,
+        count(*) FILTER (WHERE t.trace ? ${traceKey("effectiveAuthor")})::int AS effective_author_present,
+        count(*) FILTER (WHERE t.trace ? ${traceKey("fromKind")})::int AS from_kind_present,
+        count(*) FILTER (WHERE t.trace ? ${traceKey("senderKind")})::int AS sender_kind_present
       FROM t
       WHERE ${traceText("finalCategory")} = ${AWAITING_REPLY}
       GROUP BY 1, 2, 3, 4, 5
@@ -345,6 +379,9 @@ async function watchAwaitingReplySenders(total: number): Promise<void> {
       from_kind: z.string(),
       sender_kind: z.string(),
       n: z.number(),
+      effective_author_present: z.number(),
+      from_kind_present: z.number(),
+      sender_kind_present: z.number(),
     }),
   );
 
@@ -354,21 +391,52 @@ async function watchAwaitingReplySenders(total: number): Promise<void> {
     .filter((row) => row.effective_author !== PERSON_AUTHOR)
     .reduce((sum, row) => sum + row.n, 0);
 
+  // Presence beside the numerator (#1187): a '-' senderKind is an absent key,
+  // not a quiet parser. Rows carrying the key at all, over rows in the lane.
+  const keyPresent = rows.reduce((sum, row) => sum + row.sender_kind_present, 0);
+  const authorPresent = rows.reduce((sum, row) => sum + row.effective_author_present, 0);
+  const fromKindPresent = rows.reduce((sum, row) => sum + row.from_kind_present, 0);
+
+  // Window-level presence for the lane filter key itself: every lane row
+  // carries `finalCategory` by construction, so its presence is only meaningful
+  // over the whole window.
+  const [laneKey] = await query(
+    withLatest(
+      sql`SELECT count(*) FILTER (WHERE t.trace ? ${traceKey("finalCategory")})::int AS n FROM t`,
+    ),
+    countRow,
+  );
+
   console.log(`   rows in lane: ${share(inLane, total)}`);
   console.log(
     `   …authored by something other than '${PERSON_AUTHOR}': ${share(nonPerson, inLane)}`,
   );
+  console.log(`   …finalCategory key present (window): ${share(laneKey?.n ?? 0, total)}`);
+  console.log(`   …effectiveAuthor key present: ${share(authorPresent, inLane)}`);
+  console.log(`   …fromKind key present: ${share(fromKindPresent, inLane)}`);
+  console.log(`   …senderKind key present: ${share(keyPresent, inLane)}`);
 
   if (rows.length === 0) return;
 
   console.log(`   n  author/fromKind/senderKind          sender`);
+  console.log(
+    `   ('-'/'(none)' = coalesced null; trailing [key absent] marks a group carrying no key)`,
+  );
 
   for (const row of rows) {
     const mark = row.effective_author === PERSON_AUTHOR ? "   " : " * ";
     const senderIdentity = `${row.effective_author}/${row.from_kind}/${row.sender_kind}`;
 
+    const absent = [
+      row.effective_author_present === 0 ? "effectiveAuthor" : null,
+      row.from_kind_present === 0 ? "fromKind" : null,
+      row.sender_kind_present === 0 ? "senderKind" : null,
+    ].filter((key) => key !== null);
+
+    const presence = absent.length > 0 ? ` [key absent: ${absent.join(", ")}]` : "";
+
     console.log(
-      `  ${mark}${String(row.n).padStart(3)}  ${senderIdentity.padEnd(34)} ${row.sender_address} (${row.sender_domain})`,
+      `  ${mark}${String(row.n).padStart(3)}  ${senderIdentity.padEnd(34)} ${row.sender_address} (${row.sender_domain})${presence}`,
     );
   }
 

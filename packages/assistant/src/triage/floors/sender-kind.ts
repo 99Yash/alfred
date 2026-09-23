@@ -1,10 +1,13 @@
 import {
+  extractEmailAddress,
   isOwnershipCollabActivity,
   isPassiveCollabActivity,
   isServiceEvidenceCode,
+  splitEmail,
   type CollabActivityKind,
   type ServiceEvidenceCode,
 } from "@alfred/contracts";
+import { isExactGroupLocal } from "../../knowledge";
 import type { TriageClassification } from "../classify";
 import type { Observations } from "../observations";
 import { canonicalizeEmailForMatch, recipientAddresses } from "../sender-context";
@@ -16,7 +19,8 @@ export type SenderKindDemotionReason =
   | "collab_passive_activity"
   | "github_passive_pr_or_ci"
   | "broadcast_auth_signin_confirmation"
-  | "monitoring_alarm";
+  | "monitoring_alarm"
+  | "group_envelope_reply_lane";
 
 /**
  * Sender-kind demotion floor (#210, on the #218 activated projection). A
@@ -41,6 +45,24 @@ export type SenderKindDemotionReason =
  * precision gate here: role mailboxes like support@/billing@ can legitimately
  * ask for a reply, while strong no-reply/notification or auto-submitted
  * evidence cannot. PURE.
+ *
+ * Envelope bar (#1187): an EXACT whole-local `GROUP_LOCALS` sender (`team@`,
+ * `all@`, …) holds no reply lane even with no projection signal — the parser
+ * types bare locals `unknown`, so the path above never fires for them. Same
+ * demotion, same floor, no new burying. Exact on purpose: infix shapes
+ * (`dev.patel@`, `hr.priya@`, `sam.all@`, `jane.team@`, `ops-lead@`) read
+ * `person` in the parser and stay model-decided here.
+ *
+ * `unknown` contract (#1187): the signal path above needs a CONFIDENT kind, so
+ * `unknown` — bare single-token locals (`arjun@`), staffed role boxes
+ * (`hello@`, `contact@`, `info@`, `support@`, `billing@`) — keeps the model's
+ * category there. The envelope bar below is the ONLY `unknown`-demoting path,
+ * and only for exact group envelopes. The other floors never branch on the
+ * sender kind (`override` escalates on secret claims, `spam` on the Gmail-filed
+ * flag, `meeting` on subject/content shape), and rule 8a's
+ * deterministic-service second pass (`classify.ts`) is gated on
+ * `effectiveAuthor='service'`, so `unknown` stays model-decided in all of
+ * them. The full contract lives in `docs/reference/triage.md`.
  */
 export type SenderKindDemotionFloorContext = {
   signalText?: string;
@@ -85,6 +107,35 @@ export function applySenderKindDemotionFloor(
   }
 
   const reason = senderKind ? senderKindDemotionReason(context, senderKind) : null;
+
+  // Group-envelope bar (#1187): an exact `GROUP_LOCALS` address holds no reply
+  // lane, with or without a confident projection. The parser types these
+  // `unknown` (a bare local cannot prove a name), so the signal path above
+  // never fires for them — this envelope read is the floor that does. Scoped
+  // to the single-homed {@link isExactGroupLocal} set: role mailboxes outside
+  // it (`support@`, `billing@`, `hello@`, `contact@`, `info@`) can legitimately
+  // ask for a reply and stay model-decided. That narrows AC2 to the measured
+  // set on purpose: the 16-lane prod sample shows zero rows from those
+  // senders, so demoting them would trade a measured miss for unmeasured false
+  // demotions. Runs after the ownership veto above: an explicit model read
+  // that the mail is directed at the user beats the envelope. Residue: bare
+  // `dev@` exact-matches (a person named Dev is possible) — the measured
+  // evidence does not answer it, and the set membership stands.
+  if (
+    (classification.category === "awaiting_reply" || classification.category === "follow_up") &&
+    isGroupEnvelopeSender(context.sender)
+  ) {
+    return {
+      verdict: {
+        kind: "demote",
+        key: "sender_kind_floor",
+        note: "group-envelope sender holds no reply lane",
+        reason:
+          "Sender-kind floor: group-envelope sender (team@-class address) is not owed a reply",
+      },
+      reason: "group_envelope_reply_lane",
+    };
+  }
 
   if (
     !senderKind ||
@@ -165,6 +216,21 @@ function senderKindFloorShouldDemoteCategory(
   if (category !== "action_needed") return false;
 
   return reason !== null;
+}
+
+/**
+ * Envelope half of the group bar (#1187): true when the sender parses to an
+ * address whose whole local part is a group envelope (`team@`, `all@`, …). The
+ * set is single-homed as {@link isExactGroupLocal} — no infix pattern, so
+ * `dev.patel@` and `sam.all@` do not match; address extraction and the split
+ * reuse the contracts helpers so this floor states no email grammar of its
+ * own. A bare `From` with no parseable address is a conservative no.
+ */
+function isGroupEnvelopeSender(sender: string | null | undefined): boolean {
+  const address = extractEmailAddress(sender);
+  const split = address ? splitEmail(address) : null;
+
+  return split ? isExactGroupLocal(split.localPart) : false;
 }
 
 const COLLAB_STATE_TRANSITION_RE =

@@ -200,6 +200,10 @@ export {
 // Entity-kind vocabulary owned by the entity graph store.
 export { ENTITY_KINDS, entityKindSchema, type EntityKind } from "./entity-graph";
 
+// Group-envelope local-part tests, single-homed in entity-kind-classifier and
+// read by the triage parser and the sender-kind floor (#1187).
+export { isExactGroupLocal, isGroupLocal } from "./entity-kind-classifier";
+
 // contextFor.
 export { readUserContext, type UserContext } from "./user-context";
 
