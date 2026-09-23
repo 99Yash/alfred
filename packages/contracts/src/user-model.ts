@@ -59,12 +59,21 @@ interface ObservationReducerEntry {
    * meeting.
    */
   readonly kinds: readonly [string, ...string[]];
+  /**
+   * The identity kinds this reducer's projection mints on `entity_identities`
+   * (D2/D3). This list is the `(kind, source)` rail for that table, the way
+   * `kinds` is the rail for `observations`. A kind may register under more than
+   * one source, as `USER_AUTHORED_KINDS` does above. An empty list means the
+   * source writes no identity row.
+   */
+  readonly identityKinds: readonly string[];
 }
 
 /**
  * Every observation reducer in the tree, keyed by the source it writes under
  * (#987). The record keys ARE the source space, so a reducer states its source,
- * its rank, and its kinds ONCE and the four tables below derive from it.
+ * its rank, its kinds, and its identity kinds ONCE and the tables below derive
+ * from it (the identity-kind half lives under "Identities" further down).
  * `OBSERVATION_SOURCES`, `OBSERVATION_SOURCE_RANK`, `OBSERVATION_KINDS`, and
  * `OBSERVATION_KINDS_BY_SOURCE` are projections of this record and hold no
  * vocabulary of their own.
@@ -82,18 +91,24 @@ interface ObservationReducerEntry {
  */
 export const OBSERVATION_REDUCERS = {
   /** A `/settings` edit or another explicit user statement. */
-  user: { rank: 0, kinds: USER_AUTHORED_KINDS },
+  user: { rank: 0, kinds: USER_AUTHORED_KINDS, identityKinds: [] },
   /** The standing-instruction writer, capturing the same set from a thread. */
-  alfred_chat: { rank: 1, kinds: USER_AUTHORED_KINDS },
-  /** The Gmail message reducer. First-party integrations share rank 2. */
-  gmail: { rank: 2, kinds: ["email_message"] },
+  alfred_chat: { rank: 1, kinds: USER_AUTHORED_KINDS, identityKinds: [] },
+  /**
+   * The Gmail message reducer. First-party integrations share rank 2. Its
+   * projection mints `email` identity rows from message participants
+   * (`gmail-kind-fold`). The `domain` org nodes it mints from employment
+   * signatures (`gmail-edge-fold`) are nodes only, not identity rows, so
+   * `domain` stays forward.
+   */
+  gmail: { rank: 2, kinds: ["email_message"], identityKinds: ["email"] },
   /**
    * The connect-time org-affiliation emitter (ADR-0080 §4a): the connected
    * Google account asserts the user's org domain. This is account-level
    * provenance, not a Gmail message reducer event; keeping it on its own source
    * stops the emitter pretending a generic Google credential came from Gmail.
    */
-  google_account: { rank: 2, kinds: ["user_org_affiliation"] },
+  google_account: { rank: 2, kinds: ["user_org_affiliation"], identityKinds: [] },
 } as const satisfies Record<string, ObservationReducerEntry>;
 
 /** Where an observation came from — the reducer keys, in record order. */
@@ -199,24 +214,94 @@ export type ObservationSourceKind = z.infer<typeof observationSourceKindSchema>;
  *   - `integration_object_key`      — generic provider object key for `project`
  *                                     nodes from other sources (ClickUp/Notion/
  *                                     Railway/Vercel), the ADR-0062 object-key shape.
+ *
+ * The vocabulary has two disjoint halves (#1028). A REGISTERED kind is one that
+ * a reducer in `OBSERVATION_REDUCERS` lists in `identityKinds`, so a live source
+ * can write it to `entity_identities`. A FORWARD kind is listed in
+ * `FORWARD_IDENTITY_KINDS` below: it is legal inside an `IdentityRef` (an
+ * observation may name it, and the format, case-fold, and anchor tables already
+ * cover it), but no source may write it as an identity row yet.
  */
-export const IDENTITY_KINDS = [
-  "email",
+export type EntityIdentityKind =
+  (typeof OBSERVATION_REDUCERS)[ObservationSource]["identityKinds"][number];
+
+/** The registered half: every identity kind some reducer mints, deduplicated. */
+const ENTITY_IDENTITY_KINDS: readonly EntityIdentityKind[] = [
+  ...new Set(OBSERVATION_SOURCES.flatMap((source) => OBSERVATION_REDUCERS[source].identityKinds)),
+];
+
+const entityIdentityKindSchema = z.enum(ENTITY_IDENTITY_KINDS);
+
+/**
+ * Forward vocabulary: identity kinds whose source has no reducer yet. A reducer
+ * that starts to write one moves it from this list to its own `identityKinds`
+ * in the change that lands the first write (P2 GitHub for the `github_*` kinds,
+ * P3 Directory for `google_directory_id`, ADR-0092 S2 for
+ * `integration_object_key`, the merge-signal owner for `domain`, which today is
+ * only a node anchor). `UNREGISTERED_FORWARD_IDENTITY_KINDS` below fails
+ * the type check while a kind sits in both halves.
+ */
+const FORWARD_IDENTITY_KINDS = [
+  "domain",
   "github_login",
   "github_user_id",
   "slack_id",
   "notion_user_id",
   "google_directory_id",
-  "domain",
   "phone",
   "github_repository_id",
   "github_repository_full_name",
   "integration_object_key",
 ] as const;
 
+type ForwardIdentityKind = (typeof FORWARD_IDENTITY_KINDS)[number];
+
+export type IdentityKind = EntityIdentityKind | ForwardIdentityKind;
+
+// The element type drops every registered kind, so the assignment fails to
+// compile while a kind sits in both halves.
+const UNREGISTERED_FORWARD_IDENTITY_KINDS: readonly Exclude<
+  ForwardIdentityKind,
+  EntityIdentityKind
+>[] = FORWARD_IDENTITY_KINDS;
+
+export const IDENTITY_KINDS: readonly IdentityKind[] = [
+  ...ENTITY_IDENTITY_KINDS,
+  ...UNREGISTERED_FORWARD_IDENTITY_KINDS,
+];
+
 export const identityKindSchema = z.enum(IDENTITY_KINDS);
 
-export type IdentityKind = (typeof IDENTITY_KINDS)[number];
+/** True iff some reducer registers `kind`, so an identity row may carry it. */
+export function isEntityIdentityKind(kind: IdentityKind): kind is EntityIdentityKind {
+  const kinds: readonly IdentityKind[] = ENTITY_IDENTITY_KINDS;
+
+  return kinds.includes(kind);
+}
+
+/** True iff the reducer for `source` mints `kind` on `entity_identities`. */
+function isEntityIdentityKindForSource(source: ObservationSource, kind: IdentityKind): boolean {
+  const kinds: readonly IdentityKind[] = OBSERVATION_REDUCERS[source].identityKinds;
+
+  return kinds.includes(kind);
+}
+
+/**
+ * The `(source, kind)` pair an `entity_identities` write must satisfy (#1028).
+ * `source` parses against the reducer keys and `kind` against the registered
+ * half, so a forward kind or a kind from another source's reducer is rejected
+ * before the row reaches the database. `recordEntityIdentity` is the writer
+ * that parses it.
+ */
+export const entityIdentitySourceKindSchema = z
+  .object({
+    source: observationSourceSchema,
+    kind: entityIdentityKindSchema,
+  })
+  .refine(({ source, kind }) => isEntityIdentityKindForSource(source, kind), {
+    error: "identity kind is not minted by its source",
+    path: ["kind"],
+  });
 
 export const MAX_IDENTITY_VALUE_BYTES = 1024;
 
