@@ -8,8 +8,9 @@
  *   - one contact entity per correspondent (email in `aliases`, so
  *     `isKnownContact` matches; correspondence aggregate in `metadata`). The
  *     kind comes from `classifyContactKind`, applied by the writer to the
- *     row's stored canonical name, so a non-human envelope is filed as
- *     `other` instead of `person` (#1108). The dry run below previews that
+ *     row's stored canonical name and stored list-header evidence
+ *     (`metadata.listEvidence`, #1198), so a non-human envelope or a bulk
+ *     sender is filed as `other` instead of `person` (#1108). The dry run below previews that
  *     same bar through `previewContactKinds`, which shares the classifier
  *     and the alias predicate with the writer,
  *   - one `organization` entity per non-consumer sender domain,
@@ -45,10 +46,22 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
-import { and, desc, eq } from "drizzle-orm";
-import { previewContactKinds, upsertContactByAlias, upsertEntity } from "./entity-graph";
+import { and, desc, eq, sql } from "drizzle-orm";
+import {
+  previewContactKinds,
+  upsertContactByAlias,
+  upsertEntity,
+  type ContactPreviewCandidate,
+  type UpsertContactByAliasArgs,
+} from "./entity-graph";
 import type { DbTransaction } from "@alfred/db";
+import {
+  listEvidenceCodes,
+  type GmailPayloadSignals,
+  type ListEvidenceCode,
+} from "./entity-kind-classifier";
 import { type CorrespondenceStats, parsePersonEntityMetadata } from "./entity-metadata";
+import { gmailPayloadSignalsFromHeaders } from "./gmail-reducer";
 import { computeSignificance, loadUserDomains, runSignificancePass } from "./significance";
 
 /** Per-contact accumulator built during the scan, keyed by lowercased address. */
@@ -62,13 +75,27 @@ export interface ContactAggregate {
   coRecipient: number;
   firstSeenAt: Date | null;
   lastSeenAt: Date | null;
+  /**
+   * List-header evidence codes carried by mail this contact SENT the user
+   * (#1198). Only the `From:` of a received message earns it: the headers
+   * describe the sender's message, not its recipients.
+   */
+  listEvidence: Set<ListEvidenceCode>;
 }
+
+/**
+ * The raw Gmail `payload.headers` array of a `documents` row, selected alone so
+ * a scan never loads message bodies. `unknown`: persisted provider data, read
+ * by {@link gmailPayloadSignalsFromHeaders}.
+ */
+export const gmailRawHeadersColumn = sql<unknown>`${documents.raw} -> 'payload' -> 'headers'`;
 
 function touch(
   map: Map<string, ContactAggregate>,
   person: PersonToken,
   field: "inbound" | "outbound" | "coRecipient",
   authoredAt: Date | null,
+  listEvidence: readonly ListEvidenceCode[] = [],
 ): void {
   let agg = map.get(person.address);
 
@@ -82,11 +109,14 @@ function touch(
       coRecipient: 0,
       firstSeenAt: null,
       lastSeenAt: null,
+      listEvidence: new Set(),
     };
     map.set(person.address, agg);
   }
 
   agg[field] += 1;
+
+  for (const code of listEvidence) agg.listEvidence.add(code);
 
   // Keep the richest display name (longest non-empty).
   if (
@@ -124,12 +154,17 @@ function toStats(agg: ContactAggregate): CorrespondenceStats {
  *
  * `observation.isSent` is `meta.isSent === true` only (labelIds ignored) — the
  * deliberate divergence from fact-policy's authorship signal.
+ *
+ * `signals` are the document's list/bulk headers
+ * ({@link gmailPayloadSignalsFromHeaders}). They land on the `From:` contact of
+ * a received message only (#1198); an omitted argument records none.
  */
 export function accumulateDoc(
   contacts: Map<string, ContactAggregate>,
   observation: GmailCorrespondentsObservation,
   authoredAt: Date | null,
   self: string,
+  signals: GmailPayloadSignals = {},
 ): void {
   const { isSent, from, recipients } = observation;
 
@@ -139,7 +174,7 @@ export function accumulateDoc(
     }
   } else {
     if (from && from.address !== self) {
-      touch(contacts, from, "inbound", authoredAt);
+      touch(contacts, from, "inbound", authoredAt, listEvidenceCodes([signals]));
     }
 
     for (const p of recipients) {
@@ -177,6 +212,46 @@ function mergeStats(
     coRecipient: (prior?.coRecipient ?? 0) + d.coRecipient,
     firstSeenAt: minIso(prior?.firstSeenAt ?? null, d.firstSeenAt),
     lastSeenAt: maxIso(prior?.lastSeenAt ?? null, d.lastSeenAt),
+  };
+}
+
+/**
+ * The `buildMetadata` a contact write applies, shared by the committing writer
+ * and the dry preview so the preview classifies the bag a commit would store.
+ *
+ * The correspondence aggregate follows `mode` (see {@link persistContacts}).
+ * The list-header evidence does NOT: both modes UNION the scan's codes onto the
+ * stored set and never drop one (#1198). An overwrite scan is capped to the
+ * newest `maxDocs` documents, and an incremental run sees only new ones, so a
+ * run that happens to miss the sender's bulk mail must not erase the evidence
+ * and flip the kind back. Grow-only keeps the stored set a stable input.
+ * `userHasWrittenTo` is sticky for the same reason: an overwrite resets
+ * `outbound` to the capped window, and the withhold must not lift with it.
+ */
+function contactMetadataBuilder(
+  agg: ContactAggregate,
+  mode: "merge" | "overwrite",
+): UpsertContactByAliasArgs["buildMetadata"] {
+  return (prior) => {
+    const priorMeta = parsePersonEntityMetadata(prior);
+    const stats = mode === "merge" ? mergeStats(priorMeta.correspondence, agg) : toStats(agg);
+
+    const listEvidence = [
+      ...new Set([...(priorMeta.listEvidence ?? []), ...agg.listEvidence]),
+    ].sort();
+
+    const userHasWrittenTo =
+      priorMeta.userHasWrittenTo === true ||
+      (priorMeta.correspondence?.outbound ?? 0) > 0 ||
+      stats.outbound > 0;
+
+    return {
+      primaryAddress: agg.address,
+      domain: agg.domain,
+      correspondence: stats,
+      ...(listEvidence.length > 0 ? { listEvidence } : {}),
+      ...(userHasWrittenTo ? { userHasWrittenTo } : {}),
+    };
   };
 }
 
@@ -264,18 +339,7 @@ async function persistContacts(
         // Only a brand-new contact takes the freshly-parsed display name;
         // an existing row keeps its established canonical name.
         canonicalNameIfNew: agg.displayName ?? agg.address,
-        buildMetadata: (prior) => {
-          const priorStats =
-            mode === "merge" ? parsePersonEntityMetadata(prior).correspondence : undefined;
-
-          const stats = mode === "merge" ? mergeStats(priorStats, agg) : toStats(agg);
-
-          return {
-            primaryAddress: agg.address,
-            domain: agg.domain,
-            correspondence: stats,
-          };
-        },
+        buildMetadata: contactMetadataBuilder(agg, mode),
       },
       tx,
     );
@@ -366,6 +430,7 @@ export async function aggregateCorrespondence(
     .select({
       authoredAt: documents.authoredAt,
       metadata: documents.metadata,
+      headers: gmailRawHeadersColumn,
     })
     .from(documents)
     .where(and(eq(documents.userId, userId), eq(documents.source, "gmail")))
@@ -376,7 +441,13 @@ export async function aggregateCorrespondence(
 
   for (const row of rows) {
     if (!isRecord(row.metadata)) continue;
-    accumulateDoc(contacts, parse(row.metadata), row.authoredAt ?? null, self);
+    accumulateDoc(
+      contacts,
+      parse(row.metadata),
+      row.authoredAt ?? null,
+      self,
+      gmailPayloadSignalsFromHeaders(row.headers),
+    );
   }
 
   return { contacts, docsScanned: rows.length };
@@ -451,10 +522,13 @@ export async function backfillTeamGraph(
     blockedEstimate: reKindBlocked,
   } = await previewContactKinds(
     userId,
-    new Map<string, string | undefined>(
-      [...contacts.values()].map((agg): [string, string | undefined] => [
+    new Map<string, ContactPreviewCandidate>(
+      [...contacts.values()].map((agg): [string, ContactPreviewCandidate] => [
         agg.address,
-        agg.displayName ?? undefined,
+        {
+          displayName: agg.displayName ?? undefined,
+          buildMetadata: contactMetadataBuilder(agg, "overwrite"),
+        },
       ]),
     ),
   );

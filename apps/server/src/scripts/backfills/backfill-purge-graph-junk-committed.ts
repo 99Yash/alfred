@@ -23,6 +23,15 @@
  *      correspondence aggregate all survive: ADR-0067 types a non-human node,
  *      it never drops it.
  *
+ * The bar also reads each row's stored list-header evidence
+ * (`metadata.listEvidence`, #1198) and outbound count, from the same row this
+ * script already selects, so it never scans `documents`. Only the team-graph
+ * writer stamps that evidence. A row captured before #1198 carries none until
+ * a writer run sees its mail: run the team-graph backfill
+ * (`backfill-team-graph-committed.js --commit`) first, which stamps the
+ * evidence and re-kinds the row in place, then run this script — its
+ * re-derive agrees with that writer and reports zero for those rows.
+ *
  * `entities` is unique on `(user_id, kind, canonical_name)`, so a re-kind can
  * collide with a row already at the target coordinate. Such a row is REPORTED
  * and left alone — this script never merges two contacts. The predicate is

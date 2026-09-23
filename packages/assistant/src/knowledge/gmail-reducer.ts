@@ -16,6 +16,7 @@ import {
   type ObservationParticipantRole,
 } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
+import type { GmailPayloadSignals } from "./entity-kind-classifier";
 
 const GMAIL_REDUCER_VERSION = 1;
 
@@ -159,8 +160,29 @@ function skip(documentId: string, code: string, message: string): GmailReduction
 }
 
 function headersFromRaw(raw: unknown): HeaderLookup {
+  return headersFromList(getPath(raw, "payload", "headers"));
+}
+
+/**
+ * The list/bulk header signals of ONE Gmail message, from its raw
+ * `payload.headers` array (persisted data, so `unknown`). The team-graph
+ * writer reads it to stamp a contact's list-header evidence (#1198); taking
+ * the array rather than the whole raw message lets a scan select only
+ * `raw->'payload'->'headers'` instead of every message body.
+ */
+export function gmailPayloadSignalsFromHeaders(headers: unknown): GmailPayloadSignals {
+  const lookup = headersFromList(headers);
+
+  return {
+    listId: lookup.get("list-id"),
+    listUnsubscribe: lookup.get("list-unsubscribe"),
+    precedence: lookup.get("precedence"),
+    autoSubmitted: lookup.get("auto-submitted"),
+  };
+}
+
+function headersFromList(headers: unknown): HeaderLookup {
   const out = new Map<string, string>();
-  const headers = getPath(raw, "payload", "headers");
 
   if (!Array.isArray(headers)) {
     return { get: () => null };

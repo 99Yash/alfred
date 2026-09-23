@@ -10,6 +10,7 @@
  * to `theirDesignation: null` until then.
  */
 import { z } from "zod";
+import { listEvidenceCodeSchema } from "./entity-kind-classifier";
 
 /**
  * Correspondence aggregate per `person` entity, accumulated over the user's
@@ -66,6 +67,21 @@ export const personEntityMetadataSchema = z.object({
   domain: z.string().nullable().optional(),
   correspondence: correspondenceStatsSchema.optional(),
   significance: significanceSchema.optional(),
+  /**
+   * List-header evidence codes seen on mail FROM this contact (#1198), sorted
+   * and deduplicated. Grow-only: the writer unions each run's codes onto the
+   * stored set and never removes one, so the legacy kind bar reads one stable
+   * value from the row alone. A malformed stored value reads as absent rather
+   * than failing the whole bag, so `primaryAddress` and the aggregates survive.
+   */
+  listEvidence: z.array(listEvidenceCodeSchema).optional().catch(undefined),
+  /**
+   * Sticky: true once any writer run has seen the user send mail TO this
+   * contact (#1198). An overwrite scan resets `correspondence.outbound` to its
+   * capped window, so the kind bar's list-evidence withhold reads this flag,
+   * which the writer never clears, instead of the per-run count alone.
+   */
+  userHasWrittenTo: z.boolean().optional().catch(undefined),
 });
 
 export type PersonEntityMetadata = z.infer<typeof personEntityMetadataSchema>;
