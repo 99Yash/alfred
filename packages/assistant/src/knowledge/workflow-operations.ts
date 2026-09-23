@@ -335,7 +335,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
       await ctx.log(
         `team-graph capture: ${capturedThisRun.length} new doc(s) → ` +
           `${applied.contacts} contact(s), ${applied.organizations} org(s), ` +
-          `${applied.nonPersonContacts} non-person`,
+          `${applied.nonPersonContacts} non-person (re-kind blocked ${applied.reKindBlocked})`,
       );
     } catch (err) {
       await ctx.log(

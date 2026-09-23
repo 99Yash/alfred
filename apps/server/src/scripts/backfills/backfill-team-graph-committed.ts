@@ -50,7 +50,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
   console.log(
     `  scanned ${result.docsScanned} docs → ${result.contacts} contacts ` +
-      `(${result.nonPersonContacts} non-person), ${result.organizations} orgs ` +
+      `(${result.nonPersonContacts} non-person, re-kind blocked ${result.reKindBlocked}), ${result.organizations} orgs ` +
       `(${result.persisted ? "PERSISTED" : "dry — no writes"})`,
   );
   console.log("  top contacts by significance:");
