@@ -229,8 +229,8 @@ export interface UpsertContactByAliasArgs {
  * same row in place (#1108 round 1).
  *
  * A re-kind the `entities` unique index would refuse keeps the current kind
- * and is reported as `reKindBlocked`, so the capture log can count what the
- * purge backfill counts.
+ * and is reported as `reKindBlocked`, so the capture log and the backfill
+ * commit report can count what the purge backfill counts.
  */
 export async function upsertContactByAlias(
   args: UpsertContactByAliasArgs,
@@ -321,21 +321,23 @@ export interface ReKindCollisionArgs {
  * A same-kind question (`from === kind`) answers `false` without touching the
  * database: the row always matches its own coordinate, so asking the index
  * about the kind a row already holds would report every row as blocked. The
- * field is REQUIRED (not a guard each caller repeats by hand) so a future
- * caller that forgets the check still gets the right answer.
+ * field is REQUIRED so the predicate itself answers right; the three callers
+ * keep their own same-kind fast path only to skip the SELECT.
  *
  * The collision is not a re-kinder's to resolve: a merge would pick a winner
- * and silently drop one contact's correspondence aggregate, so all three
- * callers keep the row's current kind and report the refusal — the live
+ * and silently drop one contact's correspondence aggregate, so the two
+ * writers keep the row's current kind and report the refusal, and the dry
+ * door counts it — the live
  * writer (`resolveKindForUpdate`) as `reKindBlocked` summed into the capture
- * log, the backfill dry door (`previewContactKinds`) as `blockedEstimate`
+ * log and the backfill commit report, the backfill dry door (`previewContactKinds`) as `blockedEstimate`
  * counted but never written, the purge backfill as `blocked` in its dry and
  * commit reports. A stale kind is recoverable; a
  * dropped aggregate is not.
  *
  * ONE definition, for the same reason {@link previewContactKinds} is one: the
  * live writer below, the backfill dry door, and the committed purge backfill
- * re-kind the same rows under the same index, and a second copy of this rule
+ * apply the same rule under the same index — the door only counts what the
+ * writers would refuse — and a second copy of this rule
  * would drift (#1108,
  * the #493 precedent).
  */
@@ -366,7 +368,7 @@ export async function reKindWouldCollide(
  * point of the envelope: a caller that ignores `blocked` must say so, because
  * the clash is otherwise invisible. The envelope's one caller,
  * `upsertContactByAlias`, surfaces it as `reKindBlocked` (summed into the
- * capture log via `persistContacts`); the purge backfill never sees this
+ * capture log and the backfill commit report via `persistContacts`); the purge backfill never sees this
  * type — it builds its own `blockedIds` straight from
  * {@link reKindWouldCollide}.
  */
