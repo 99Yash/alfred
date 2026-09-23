@@ -229,8 +229,11 @@ async function rekindContacts(userId: string): Promise<void> {
   // The SAME predicate the live writer applies, through the same door as the
   // classifier: a row already at the target coordinate is a different
   // contact, so leave both alone and say so. Never merge. Counted BEFORE the
-  // commit check — read-only SELECTs, so dry stays dry — and the dry report
-  // prints the same `re-kind N (blocked B)` the commit prints.
+  // commit check — read-only SELECTs, so dry stays dry — and one hoisted
+  // `blockedIds` set feeds BOTH report lines below: the dry line prints
+  // `re-kind N (blocked B)` while the commit line prints
+  // `COMMITTED — re-kinded U/N (blocked B)` with U = N − B, but B is the
+  // same number either way.
   const blockedIds = new Set<string>();
 
   for (const d of demotions) {
