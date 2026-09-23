@@ -186,14 +186,14 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     list_closed_loops: tool({
       description:
-        "List priority-email loops that the deterministic object-state projection positively proved closed. This is the verified-closed presentation tier: represent every returned loop in one compact closed-today recap line, grouping related loops and using their titles/URLs, never as an open ask or work that needs the user. An email absent from this result is not proved closed and stays live unless get_day_shape.shipped identifies the same object as shipped.",
+        "List priority-email loops that the deterministic object-state projection positively proved closed. An email absent from this result is not proved closed by this tool and stays live unless get_day_shape.shipped identifies the same object as shipped.",
       inputSchema: z.object({}),
       execute: async (): Promise<BriefingClosedLoop[]> => args.closedLoops,
     }),
 
     list_loop_relevance: tool({
       description:
-        "List one bounded live-read relevance verdict for every still-live priority-email loop, with provider evidence in source, observedState, objectTitle/objectUrl, and detail. For presentation, still-actionable means checked-still-open: any ask must cite that live evidence (objectUrl when present, otherwise the provider/state in prose). unverifiable means acknowledged-unverifiable (can't-check): say why current state could not be verified, without urgent, actionable, progress, or completion language. stale-but-open only demotes and is neither checked-open nor verified-closed. None of these verdicts grants closure; that authority belongs only to list_closed_loops and the post-compose guard.",
+        "List one bounded live-read relevance verdict for every still-live priority-email loop, with provider evidence in source, observedState, objectTitle/objectUrl, and detail. still-actionable means a trusted live read saw an open or unresolved object; stale-but-open means it saw a resolved, closed, ignored, or draft state and only demotes; unverifiable means no trusted read proved current state and the loop remains live. No relevance verdict grants closure authority.",
       inputSchema: z.object({}),
       execute: async (): Promise<BriefingLoopRelevance[]> => args.loopRelevance,
     }),
