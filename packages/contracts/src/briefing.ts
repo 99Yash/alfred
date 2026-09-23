@@ -304,6 +304,9 @@ export type LoopRelevanceSource = (typeof LOOP_RELEVANCE_SOURCES)[number];
 
 export const loopRelevanceSourceSchema = z.enum(LOOP_RELEVANCE_SOURCES);
 
+/** Provider titles are unbounded at ingestion, so the contract owns this display cap. */
+export const BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX = 300;
+
 export const briefingLoopRelevanceSchema = z.object({
   documentId: z.string().min(1),
   verdict: loopRelevanceVerdictSchema,
@@ -315,7 +318,7 @@ export const briefingLoopRelevanceSchema = z.object({
    * phrasing; only the object-state store asserts closure.
    */
   observedState: z.string().max(80).nullable(),
-  objectTitle: z.string().max(300).nullable(),
+  objectTitle: z.string().max(BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX).nullable(),
   objectUrl: z.url().nullable(),
   /** One-line cited evidence for the composer, e.g. which live read saw what. */
   detail: z.string().min(1).max(300),

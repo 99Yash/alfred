@@ -40,7 +40,6 @@ import {
   listEvents,
   type TriageCategory,
 } from "@alfred/integrations/google";
-import { readLiveSentryIssue } from "@alfred/integrations/sentry";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -62,7 +61,11 @@ import {
   weekdayIndex,
   type LocalDateKey,
 } from "@alfred/assistant/time";
-import { assessLoopRelevance } from "./relevance";
+import {
+  assessLoopRelevance,
+  liveNativeStateReader,
+  type LiveNativeStateReader,
+} from "./relevance";
 import { scorePriorityEmailDemand } from "./read";
 import { shortenFrom } from "./sender";
 
@@ -374,37 +377,6 @@ export async function gatherBriefingDigest(
     totalPriority,
     totalSuppressed,
   };
-}
-
-/**
- * A read of one object's CURRENT provider-native state token, taken at the
- * moment closure would be asserted. It returns the native token and nothing
- * else: the registry's `normalize` and `closesOpenAsk` decide what it means,
- * so no consumer here compares a provider status to a literal.
- *
- * "Native" means the STORED vocabulary the reducer writes, not whatever an API
- * response spells it. A provider whose REST vocabulary differs from its webhook
- * one — Sentry, which says `ignored` where the webhook says `archived` —
- * translates inside its own read, at the boundary that owns the payload, so the
- * two vocabularies never meet in this file.
- */
-type LiveNativeStateReader = (userId: string, externalId: string) => Promise<string>;
-
-/**
- * The live read this gather can take for one object kind, or `null` when it
- * has none.
- *
- * Only a kind the registry declares `closesAskFrom: "live_confirmation"` ever
- * reaches here, and a kind absent from this function keeps its ask — the
- * registry decides WHETHER a live proof is required, and this function only
- * supplies the IO that gets it, so a new pull-confirmed kind is a registry
- * edit plus one arm, never a policy branch.
- */
-function liveNativeStateReader(state: ObjectState): LiveNativeStateReader | null {
-  if (state.provider === "sentry" && state.kind === "issue")
-    return async (userId, issueId) => (await readLiveSentryIssue({ userId, issueId })).nativeState;
-
-  return null;
 }
 
 /**
