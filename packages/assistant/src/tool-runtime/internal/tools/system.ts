@@ -410,14 +410,18 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       `Ask the user ${ASK_USER_LIMITS.questions.min} to ${ASK_USER_LIMITS.questions.max} questions and wait for the answers before you continue. ` +
-      "Use it when the task cannot proceed without a choice only the user can make. " +
-      `Each question offers ${ASK_USER_LIMITS.options.min} to ${ASK_USER_LIMITS.options.max} options; the card always adds a free-text answer. ` +
-      "Ask everything you need in one call. Never fill `answers` yourself.",
+      "Ask only when the request is ambiguous and a wrong guess would waste work; never ask for something you can look up. " +
+      "Ask every question in one call, because each call pauses the turn. " +
+      `Give each question ${ASK_USER_LIMITS.options.min} to ${ASK_USER_LIMITS.options.max} options. Put the option you recommend first and end its label with "(Recommended)". ` +
+      "Never add an 'Other' option; the card always adds a free-text answer. " +
+      "Never put a question for the user in a sub-agent brief; ask here first. Never fill `answers` yourself.",
     // Boss-only and live-chat-only: a question needs a person watching the
     // thread. Background workflows have no browser, and a sub-agent returns a
-    // clarification request to its parent instead. Lazy, not kernel — slice
-    // #1019 owns the prompt guidance that would justify the kernel cost.
-    availability: { requiresLiveChat: true, callers: ["boss"] },
+    // clarification request to its parent instead. Kernel (#1019): the chat
+    // prompt points at this tool for every ambiguous request, and a lazy tool
+    // would cost a search/load bounce and a mid-turn cache bust before the ask.
+    // `callers` and `requiresLiveChat` still hide it outside a live chat boss.
+    availability: { surface: "kernel", requiresLiveChat: true, callers: ["boss"] },
     // ADR-0099: the dispatcher parks the chat turn on a `question` approval.
     // `execute` runs only on resume, with the decided input the decision route
     // validated and wrote `answers` into; a row approved with no edit reaches it
