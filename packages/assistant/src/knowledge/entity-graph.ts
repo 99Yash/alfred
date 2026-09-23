@@ -203,6 +203,50 @@ export interface UpsertContactByAliasArgs {
 }
 
 /**
+ * One candidate for {@link previewContactKinds}: the two writer inputs a dry
+ * run must reproduce, taken from {@link UpsertContactByAliasArgs} so the two
+ * cannot drift. `displayName` stands in for `canonicalNameIfNew` and is
+ * `undefined` for a bare address.
+ */
+export type ContactPreviewCandidate = Pick<UpsertContactByAliasArgs, "buildMetadata"> & {
+  displayName: string | undefined;
+};
+
+/**
+ * The bag a contact write stores: the caller's keys last-writes-wins over the
+ * prior bag, so untouched keys (e.g. `significance`) survive. ONE home, so the
+ * writer and the dry preview classify the same bag.
+ */
+function mergeContactMetadata(
+  prior: JsonObject,
+  build: (priorMetadata: JsonObject) => JsonObject,
+): JsonObject {
+  return { ...prior, ...build(prior) };
+}
+
+/**
+ * The legacy kind of ONE contact from values its row stores: the canonical
+ * name, plus the list-header evidence and outbound count in the metadata bag
+ * (#1198). Every contact-kind reader goes through here — the live writer, the
+ * address-keyed dry preview and the row-keyed purge preview — so the bag is
+ * parsed one way and the three cannot disagree about a row.
+ */
+function classifyStoredContact(
+  address: string,
+  canonicalName: string,
+  metadata: unknown,
+): ContactKind {
+  const parsed = parsePersonEntityMetadata(metadata);
+
+  return classifyContactKind({
+    address,
+    canonicalName,
+    listEvidence: parsed.listEvidence ?? [],
+    userHasWrittenTo: (parsed.correspondence?.outbound ?? 0) > 0,
+  });
+}
+
+/**
  * Upsert ONE mail contact matched by EMAIL ALIAS rather than canonical name.
  *
  * A contact's stable identity is the email; the display name drifts and
@@ -220,8 +264,9 @@ export interface UpsertContactByAliasArgs {
  * domain, and a domain never contains `@`.
  *
  * The kind is DERIVED here, inside the match's transaction, from the canonical
- * name the row carries (or, for a new row, the one it is about to carry) —
- * never from the caller's per-run display name. The caller sees only the
+ * name the row carries (or, for a new row, the one it is about to carry) and
+ * from the metadata bag it is about to store — never from the caller's
+ * per-run display name or headers. The caller sees only the
  * documents of its own run, so a run whose headers carried a bare address used
  * to promote a demoted row straight back to `person`. Classifying the stored
  * value makes the writer, the purge script and a dry run agree by construction,
@@ -249,13 +294,20 @@ export async function upsertContactByAlias(
       .where(storedContactMatch(args.userId, [address]))
       .limit(1);
 
-    // One classification per write, from the value this row stores. Already a
+    const metadata = mergeContactMetadata(
+      existing ? jsonRecordSchema.parse(existing.metadata) : {},
+      args.buildMetadata,
+    );
+
+    // One classification per write, from the values this row stores after the
+    // write: its canonical name and its merged metadata bag. Already a
     // ContactKind at the call site — no boundary parse: the classifier, not a
     // tier-2 guard, owns the range.
-    const kind = classifyContactKind({
+    const kind = classifyStoredContact(
       address,
-      canonicalName: existing?.canonicalName ?? args.canonicalNameIfNew,
-    });
+      existing?.canonicalName ?? args.canonicalNameIfNew,
+      metadata,
+    );
 
     if (!existing) {
       const [row] = await ex
@@ -265,7 +317,7 @@ export async function upsertContactByAlias(
           kind,
           canonicalName: args.canonicalNameIfNew,
           aliases: args.aliases,
-          metadata: args.buildMetadata({}),
+          metadata,
         })
         .returning();
 
@@ -274,13 +326,11 @@ export async function upsertContactByAlias(
       return { row: rowToEntity(row), reKindBlocked: false };
     }
 
-    const priorMeta = jsonRecordSchema.parse(existing.metadata);
-
     const mergedAliases = Array.from(
       new Set([...aliasesSchema.parse(existing.aliases), ...args.aliases]),
     );
 
-    const mergedMetadata = { ...priorMeta, ...args.buildMetadata(priorMeta) };
+    const mergedMetadata = metadata;
 
     const decision = await resolveKindForUpdate(ex, existing, kind);
 
@@ -416,8 +466,11 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
  * canonical name each existing row holds, classified the way the live writer
  * classifies it.
  *
- * Key = address as written; value = display name for a not-yet-stored contact
- * (`undefined` = bare address). Keys are normalized once, inside, with
+ * Key = address as written; value = the writer inputs a dry run reproduces —
+ * the display name for a not-yet-stored contact (`undefined` = bare address)
+ * and the `buildMetadata` the writer would apply, merged over the stored bag
+ * exactly as the writer merges it, so the stored list-header evidence and
+ * outbound count reach the bar (#1198). Keys are normalized once, inside, with
  * `canonicalizeIdentityValue` — the same helper the writer matches on — and the
  * stored read runs in the caller's `tx` when one is passed. `kinds` is
  * keyed by the caller's OWN candidate string, so an answered candidate is
@@ -456,14 +509,14 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
  */
 export async function previewContactKinds(
   userId: string,
-  candidates: ReadonlyMap<string, string | undefined>,
+  candidates: ReadonlyMap<string, ContactPreviewCandidate>,
   tx?: DbTransaction,
 ): Promise<ContactKindPreview & { blockedEstimate: number }> {
-  const wanted = new Map<string, string | undefined>();
+  const wanted = new Map<string, ContactPreviewCandidate>();
   const keyOf = new Map<string, string>();
   const unclassifiable: string[] = [];
 
-  for (const [key, displayName] of candidates) {
+  for (const [key, candidate] of candidates) {
     const normalized = canonicalizeIdentityValue("email", key);
 
     if (!normalized) {
@@ -473,7 +526,7 @@ export async function previewContactKinds(
 
     if (!keyOf.has(key)) keyOf.set(key, normalized);
 
-    if (!wanted.has(normalized)) wanted.set(normalized, displayName);
+    if (!wanted.has(normalized)) wanted.set(normalized, candidate);
   }
 
   const kinds = new Map<string, ContactKind>();
@@ -485,32 +538,43 @@ export async function previewContactKinds(
       canonicalName: entities.canonicalName,
       aliases: entities.aliases,
       kind: entities.kind,
+      metadata: entities.metadata,
     })
     .from(entities)
     .where(storedContactMatch(userId, [...wanted.keys()]));
 
-  const stored = new Map<string, string>();
-  const storedKind = new Map<string, ContactKind>();
+  const stored = new Map<
+    string,
+    { canonicalName: string; kind: ContactKind; metadata: JsonObject }
+  >();
 
   for (const row of rows) {
     const kind = contactKindSchema.parse(row.kind);
+    const metadata = jsonRecordSchema.parse(row.metadata);
 
     for (const alias of aliasesSchema.parse(row.aliases ?? [])) {
       const normalized = canonicalizeIdentityValue("email", alias);
-      stored.set(normalized, row.canonicalName);
-      storedKind.set(normalized, kind);
+      stored.set(normalized, { canonicalName: row.canonicalName, kind, metadata });
     }
   }
 
   let blockedEstimate = 0;
 
   for (const [key, normalized] of keyOf) {
-    const storedName = stored.get(normalized);
-    const canonicalName = storedName ?? wanted.get(normalized) ?? normalized;
-    const kind = classifyContactKind({ address: normalized, canonicalName });
+    const prior = stored.get(normalized);
+    const candidate = wanted.get(normalized);
+    const storedName = prior?.canonicalName;
+    const canonicalName = storedName ?? candidate?.displayName ?? normalized;
+
+    // The bag the writer WOULD store: the same merge over the same prior.
+    const metadata = candidate
+      ? mergeContactMetadata(prior?.metadata ?? {}, candidate.buildMetadata)
+      : (prior?.metadata ?? {});
+
+    const kind = classifyStoredContact(normalized, canonicalName, metadata);
     kinds.set(key, kind);
 
-    const priorKind = storedKind.get(normalized);
+    const priorKind = prior?.kind;
 
     if (storedName !== undefined && priorKind !== undefined && priorKind !== kind) {
       if (
@@ -559,9 +623,12 @@ function storedContactAddress(metadata: unknown, aliasesRaw: unknown): string | 
  * the same rows and could answer with a sibling's stored name wherever two
  * rows share one alias.
  *
- * Each row classifies its OWN stored `canonicalName` — the same input the live
+ * Each row classifies its OWN stored `canonicalName` and its OWN metadata bag
+ * (list-header evidence and outbound count, #1198) — the same inputs the live
  * writer classifies for that row — so a wrapped alias, a metadata-led address,
- * and an alias-sharing pair each read their own name. Pure: no stored read,
+ * and an alias-sharing pair each read their own values. The evidence rides the
+ * row the caller already selected, so no per-row `documents` read is needed.
+ * Pure: no stored read,
  * no transaction. Keyed by row id, so the caller never derives a key and a
  * row with no derivable address is listed in `unclassifiable`: the caller
  * leaves it alone rather than defaulting toward a write.
@@ -590,7 +657,7 @@ export function previewStoredContactKinds(
       continue;
     }
 
-    kinds.set(row.id, classifyContactKind({ address, canonicalName: row.canonicalName }));
+    kinds.set(row.id, classifyStoredContact(address, row.canonicalName, row.metadata));
   }
 
   return { kinds, unclassifiable };
