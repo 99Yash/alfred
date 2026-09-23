@@ -225,6 +225,8 @@ function mergeStats(
  * newest `maxDocs` documents, and an incremental run sees only new ones, so a
  * run that happens to miss the sender's bulk mail must not erase the evidence
  * and flip the kind back. Grow-only keeps the stored set a stable input.
+ * `userHasWrittenTo` is sticky for the same reason: an overwrite resets
+ * `outbound` to the capped window, and the withhold must not lift with it.
  */
 function contactMetadataBuilder(
   agg: ContactAggregate,
@@ -238,11 +240,17 @@ function contactMetadataBuilder(
       ...new Set([...(priorMeta.listEvidence ?? []), ...agg.listEvidence]),
     ].sort();
 
+    const userHasWrittenTo =
+      priorMeta.userHasWrittenTo === true ||
+      (priorMeta.correspondence?.outbound ?? 0) > 0 ||
+      stats.outbound > 0;
+
     return {
       primaryAddress: agg.address,
       domain: agg.domain,
       correspondence: stats,
       ...(listEvidence.length > 0 ? { listEvidence } : {}),
+      ...(userHasWrittenTo ? { userHasWrittenTo } : {}),
     };
   };
 }
