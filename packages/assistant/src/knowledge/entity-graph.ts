@@ -44,6 +44,23 @@ const CONTACT_KINDS = ["person", "other"] as const satisfies readonly EntityKind
 
 export type ContactKind = (typeof CONTACT_KINDS)[number];
 
+/**
+ * What both contact-kind preview doors answer: the inputs they classified,
+ * plus the inputs they could not. `kinds` holds only answered inputs;
+ * `unclassifiable` holds the rest, in the door's own key space, in input
+ * order. Every input appears exactly once across the two. The door names its
+ * unanswered inputs, and a caller reading `kinds.get` must still handle
+ * `undefined`: absence is a named list beside the map, not a replacement for
+ * the guard. The caller leaves an unclassifiable input alone rather than
+ * defaulting toward a write.
+ */
+export interface ContactKindPreview {
+  /** Answered inputs. Key space is per-door (see each door). */
+  kinds: ReadonlyMap<string, ContactKind>;
+  /** Inputs the door did not answer, in the door's own key space. */
+  unclassifiable: readonly string[];
+}
+
 export const upsertEntityArgsSchema = entityInsertSchema
   .pick({ userId: true, kind: true, canonicalName: true, aliases: true, metadata: true })
   .extend({
@@ -360,11 +377,13 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
  * Key = address as written; value = display name for a not-yet-stored contact
  * (`undefined` = bare address). Keys are normalized once, inside, with
  * `canonicalizeIdentityValue` — the same helper the writer matches on — and the
- * stored read runs in the caller's `tx` when one is passed. The returned map is
- * keyed by the caller's OWN candidate string, so `kinds.get(address)` is a
- * hit by construction and no caller re-derives a normalized key. A candidate
- * that does not normalize is absent from the result: the caller leaves it
- * alone rather than defaulting toward a write.
+ * stored read runs in the caller's `tx` when one is passed. `kinds` is
+ * keyed by the caller's OWN candidate string, so an answered candidate is
+ * a hit under the caller's own key and no caller re-derives a normalized
+ * key. A candidate
+ * key that is empty after trim normalizes to an empty string and is listed
+ * in `unclassifiable`: the caller leaves
+ * it alone rather than defaulting toward a write.
  *
  * A DRY backfill persists nothing, so it has no written row to read the kind
  * back from. It still has to report the kind a real write WOULD produce, and
@@ -382,14 +401,18 @@ export async function previewContactKinds(
   userId: string,
   candidates: ReadonlyMap<string, string | undefined>,
   tx?: DbTransaction,
-): Promise<Map<string, ContactKind>> {
+): Promise<ContactKindPreview> {
   const wanted = new Map<string, string | undefined>();
   const keyOf = new Map<string, string>();
+  const unclassifiable: string[] = [];
 
   for (const [key, displayName] of candidates) {
     const normalized = canonicalizeIdentityValue("email", key);
 
-    if (!normalized) continue;
+    if (!normalized) {
+      unclassifiable.push(key);
+      continue;
+    }
 
     if (!keyOf.has(key)) keyOf.set(key, normalized);
 
@@ -398,7 +421,7 @@ export async function previewContactKinds(
 
   const kinds = new Map<string, ContactKind>();
 
-  if (wanted.size === 0) return kinds;
+  if (wanted.size === 0) return { kinds, unclassifiable };
 
   const rows = await (tx ?? db())
     .select({ canonicalName: entities.canonicalName, aliases: entities.aliases })
@@ -423,7 +446,7 @@ export async function previewContactKinds(
     );
   }
 
-  return kinds;
+  return { kinds, unclassifiable };
 }
 
 /**
@@ -465,8 +488,8 @@ function storedContactAddress(metadata: unknown, aliasesRaw: unknown): string | 
  * writer classifies for that row — so a wrapped alias, a metadata-led address,
  * and an alias-sharing pair each read their own name. Pure: no stored read,
  * no transaction. Keyed by row id, so the caller never derives a key and a
- * row with no derivable address is absent from the map: the caller leaves it
- * alone rather than defaulting toward a write.
+ * row with no derivable address is listed in `unclassifiable`: the caller
+ * leaves it alone rather than defaulting toward a write.
  *
  * Takes the stored ROWS, not a derived address: the parameter names the
  * fields the door reads (`Pick<Entity, "id" | "canonicalName" | "aliases" |
@@ -478,18 +501,22 @@ function storedContactAddress(metadata: unknown, aliasesRaw: unknown): string | 
  */
 export function previewStoredContactKinds(
   rows: ReadonlyArray<Pick<Entity, "id" | "canonicalName" | "aliases" | "metadata">>,
-): Map<string, ContactKind> {
+): ContactKindPreview {
   const kinds = new Map<string, ContactKind>();
+  const unclassifiable: string[] = [];
 
   // Row ids are unique by primary key out of a single select, so no dedup
   // guard: one set per row.
   for (const row of rows) {
     const address = storedContactAddress(row.metadata, row.aliases);
 
-    if (!address) continue;
+    if (!address) {
+      unclassifiable.push(row.id);
+      continue;
+    }
 
     kinds.set(row.id, classifyContactKind({ address, canonicalName: row.canonicalName }));
   }
 
-  return kinds;
+  return { kinds, unclassifiable };
 }
