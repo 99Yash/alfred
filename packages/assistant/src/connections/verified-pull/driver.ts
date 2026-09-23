@@ -124,6 +124,44 @@ export interface VerifiedPullProvider<Target, Session, Names> {
   toActivityItem(result: VerifiedPullResult<Target, Names>): IntegrationActivityItem;
 }
 
+/**
+ * The verdict half of an activity line, owned here because the driver defines
+ * the three states and `unverified`. A provider adds only its own `where`
+ * text, id prefix, provider, and provider kind.
+ */
+export interface VerifiedPullVerdict extends Pick<
+  IntegrationActivityItem,
+  "status" | "severity" | "occurredAt" | "url"
+> {
+  /** The verb the title prints: `succeeded`, `failed`, `building`, or `unverified`. */
+  word: string;
+}
+
+const VERDICT_BY_STATUS = {
+  success: { word: "succeeded", status: "succeeded", severity: "info" },
+  failure: { word: "failed", status: "failed", severity: "warning" },
+  pending: { word: "building", status: "open", severity: "info" },
+} as const satisfies Record<
+  VerifiedPullStatus,
+  Pick<VerifiedPullVerdict, "word" | "status" | "severity">
+>;
+
+const UNVERIFIED_VERDICT = {
+  word: "unverified",
+  status: "needs_attention",
+  severity: "info",
+} as const satisfies Pick<VerifiedPullVerdict, "word" | "status" | "severity">;
+
+export function verifiedPullVerdict<Target, Names>(
+  result: VerifiedPullResult<Target, Names>,
+): VerifiedPullVerdict {
+  return {
+    ...(result.status ? VERDICT_BY_STATUS[result.status] : UNVERIFIED_VERDICT),
+    occurredAt: result.occurredAt ?? new Date().toISOString(),
+    ...(result.url && result.url.startsWith("https://") ? { url: result.url } : {}),
+  };
+}
+
 /** A provider bound to the driver, with its type parameters closed over. */
 export interface VerifiedPull {
   provider: ObjectStateProvider;

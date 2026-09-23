@@ -72,7 +72,12 @@ export {
   type BuiltInProvider,
 } from "./built-ins";
 
-export { RAILWAY_MCP_ENDPOINT_HREF, RAILWAY_MCP_STORED_ISSUER } from "./constants";
+export {
+  RAILWAY_MCP_ENDPOINT_HREF,
+  RAILWAY_MCP_STORED_ISSUER,
+  VERCEL_MCP_ENDPOINT_HREF,
+  VERCEL_MCP_STORED_ISSUER,
+} from "./constants";
 
 export { mcpConsentAsk, type McpConsentAsk, type McpConsentConnection } from "./consent";
 
