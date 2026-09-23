@@ -7,6 +7,7 @@ import {
   type EntityNode,
 } from "@alfred/db/schemas";
 import {
+  entityIdentitySourceKindSchema,
   identityRefSchema,
   type IdentityKind,
   type IdentityRef,
@@ -127,7 +128,9 @@ export interface RecordEntityIdentityArgs {
  * `identity` is runtime-PARSED here (not just trusted by its TS type): a reducer
  * reading a provider payload through an `any` could otherwise persist a kind
  * outside `IDENTITY_KINDS` or a non-canonical/malformed value as the live dedup
- * key. RE-ANCHORING (closing an old row + binding a freed handle to a different
+ * key. The `(source, kind)` pair is parsed too (`entityIdentitySourceKindSchema`,
+ * #1028): a kind registers with the reducer that mints it, so a forward kind or a
+ * kind that `source` does not mint is refused before the insert. RE-ANCHORING (closing an old row + binding a freed handle to a different
  * entity) and cross-entity MERGE are reducer-owned (P1/P2) — this is the
  * validated link primitive they build on.
  *
@@ -142,15 +145,20 @@ export async function recordEntityIdentity(
 ): Promise<EntityIdentity> {
   const identity = identityRefSchema.parse(args.identity);
 
+  const { source, kind } = entityIdentitySourceKindSchema.parse({
+    source: args.source,
+    kind: identity.kind,
+  });
+
   const run = async (ex: DbTransaction): Promise<EntityIdentity> => {
     await ex
       .insert(entityIdentities)
       .values({
         userId: args.userId,
         entityId: args.entityId,
-        kind: identity.kind,
+        kind,
         value: identity.value,
-        source: args.source,
+        source,
         validFrom: args.validFrom,
         verified: args.verified ?? false,
         userPinned: args.userPinned ?? false,
@@ -167,7 +175,7 @@ export async function recordEntityIdentity(
       .where(
         and(
           eq(entityIdentities.userId, args.userId),
-          eq(entityIdentities.kind, identity.kind),
+          eq(entityIdentities.kind, kind),
           eq(entityIdentities.value, identity.value),
           isNull(entityIdentities.validUntil),
         ),

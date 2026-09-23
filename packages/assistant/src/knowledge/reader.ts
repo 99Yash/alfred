@@ -13,6 +13,7 @@ import {
 import {
   USER_MODEL_PROJECTION_NAME,
   identityRefSchema,
+  isEntityIdentityKind,
   type EntityEdgeType,
   type EntityNodeKind,
   type IdentityKind,
@@ -170,6 +171,9 @@ export function userModelReader(
     value: string;
   }): Promise<ActiveEntityProfile | null> {
     const identity = identityRefSchema.parse(args);
+
+    // A forward kind has no writer, so no identity row can hold it (#1028).
+    if (!isEntityIdentityKind(identity.kind)) return null;
 
     const rows = await db()
       .select({ profile: entityProfiles })

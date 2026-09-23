@@ -1,7 +1,7 @@
 import type {
   EntityEdgeType,
+  EntityIdentityKind,
   EntityNodeKind,
-  IdentityKind,
   IdentityRef,
   ObservationParticipants,
   ObservationSubject,
@@ -332,7 +332,12 @@ export const entityIdentities = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     /** The stable node this identity belongs to — bound to the same user by the composite FK below. */
     entityId: text("entity_id").notNull(),
-    kind: text("kind").$type<IdentityKind>().notNull(),
+    /**
+     * A kind some reducer registers in `OBSERVATION_REDUCERS[source].identityKinds`
+     * — never a forward kind. The `(kind, source)` pair is validated at the write
+     * boundary by `entityIdentitySourceKindSchema` (#1028), not by a CHECK.
+     */
+    kind: text("kind").$type<EntityIdentityKind>().notNull(),
     /** Normalized identity value (lowercased email, canonical login, …). */
     value: text("value").notNull(),
     confidence: real("confidence").notNull().default(1),
