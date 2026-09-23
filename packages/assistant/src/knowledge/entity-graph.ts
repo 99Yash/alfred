@@ -48,14 +48,15 @@ export type ContactKind = (typeof CONTACT_KINDS)[number];
  * What both contact-kind preview doors answer: the inputs they classified,
  * plus the inputs they could not. `kinds` holds only answered inputs;
  * `unclassifiable` holds the rest, in the door's own key space, in input
- * order. Every input appears exactly once across the two — absence is a
- * value in the result, never a missing key the caller must remember to
- * check. The caller leaves an unclassifiable input alone rather than
+ * order. Every input appears exactly once across the two. The door names its
+ * unanswered inputs, and a caller reading `kinds.get` must still handle
+ * `undefined`: absence is a named list beside the map, not a replacement for
+ * the guard. The caller leaves an unclassifiable input alone rather than
  * defaulting toward a write.
  */
 export interface ContactKindPreview {
   /** Answered inputs. Key space is per-door (see each door). */
-  kinds: Map<string, ContactKind>;
+  kinds: ReadonlyMap<string, ContactKind>;
   /** Inputs the door did not answer, in the door's own key space. */
   unclassifiable: readonly string[];
 }
@@ -379,7 +380,8 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
  * stored read runs in the caller's `tx` when one is passed. The returned map is
  * keyed by the caller's OWN candidate string, so `kinds.get(address)` is a
  * hit by construction and no caller re-derives a normalized key. A candidate
- * that does not normalize is listed in `unclassifiable`: the caller leaves
+ * key that is empty after trim normalizes to an empty string and is listed
+ * in `unclassifiable`: the caller leaves
  * it alone rather than defaulting toward a write.
  *
  * A DRY backfill persists nothing, so it has no written row to read the kind
