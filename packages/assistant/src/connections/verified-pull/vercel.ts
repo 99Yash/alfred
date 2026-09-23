@@ -23,6 +23,7 @@ import {
   type VerifiedPullReading,
   type VerifiedPullReceipt,
   type VerifiedPullStatus,
+  verifiedPullVerdict,
 } from "./driver";
 
 /**
@@ -506,14 +507,7 @@ export const vercelVerifiedPullProvider: VerifiedPullProvider<
   toActivityItem(result) {
     const where = `${result.target.repoFullName} ${result.target.branch} (${result.target.environment})`;
 
-    const word =
-      result.status === "success"
-        ? "succeeded"
-        : result.status === "failure"
-          ? "failed"
-          : result.status === "pending"
-            ? "building"
-            : "unverified";
+    const { word, ...verdict } = verifiedPullVerdict(result);
 
     return {
       id: `vercel-pull:${result.targetId || "unknown"}:${result.attemptId ?? "unverified"}`,
@@ -522,17 +516,7 @@ export const vercelVerifiedPullProvider: VerifiedPullProvider<
       activityCategory: "deploy",
       providerKind: "vercel.deployment_status",
       title: `Vercel deployment ${word}: ${where}`,
-      status:
-        result.status === "success"
-          ? "succeeded"
-          : result.status === "failure"
-            ? "failed"
-            : result.status === "pending"
-              ? "open"
-              : "needs_attention",
-      severity: result.status === "failure" ? "warning" : "info",
-      occurredAt: result.occurredAt ?? new Date().toISOString(),
-      ...(result.url && result.url.startsWith("https://") ? { url: result.url } : {}),
+      ...verdict,
     };
   },
 };
