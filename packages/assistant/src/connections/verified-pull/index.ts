@@ -8,6 +8,7 @@
 import type { IntegrationActivityItem, ObjectStateProvider } from "@alfred/contracts";
 import { defineVerifiedPull, type VerifiedPull, type VerifiedPullTriggerItem } from "./driver";
 import { railwayVerifiedPullProvider } from "./railway";
+import { vercelVerifiedPullProvider } from "./vercel";
 
 export {
   MAX_VERIFIED_PULL_TARGETS,
@@ -25,6 +26,8 @@ export {
   type RailwayPullTarget,
 } from "./railway";
 
+export { discoverVercelTargets, readVercelDeploymentStatus, type VercelPullTarget } from "./vercel";
+
 /**
  * Which verified pull each object-state provider runs at gather time. `null`
  * is the arm for a provider with a push source (or none yet), so a provider
@@ -35,7 +38,7 @@ const VERIFIED_PULLS = {
   github: null,
   sentry: null,
   railway: defineVerifiedPull(railwayVerifiedPullProvider),
-  vercel: null,
+  vercel: defineVerifiedPull(vercelVerifiedPullProvider),
 } as const satisfies Record<ObjectStateProvider, VerifiedPull | null>;
 
 /**
