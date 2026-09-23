@@ -226,8 +226,23 @@ async function rekindContacts(userId: string): Promise<void> {
     }
   }
 
+  // The SAME predicate the live writer applies, through the same door as the
+  // classifier: a row already at the target coordinate is a different
+  // contact, so leave both alone and say so. Never merge. Counted BEFORE the
+  // commit check — read-only SELECTs, so dry stays dry — and the dry report
+  // prints the same `re-kind N (blocked B)` the commit prints.
+  const blockedIds = new Set<string>();
+
+  for (const d of demotions) {
+    if (await reKindWouldCollide({ userId, kind: d.kind, canonicalName: d.canonicalName })) {
+      blockedIds.add(d.id);
+    }
+  }
+
+  const blocked = blockedIds.size;
+
   console.log(
-    `  person rows: ${rows.length} | re-kind ${demotions.length} | keep ${rows.length - demotions.length - unclassifiable} | no address ${unclassifiable}`,
+    `  person rows: ${rows.length} | re-kind ${demotions.length} (blocked ${blocked}) | keep ${rows.length - demotions.length - unclassifiable} | no address ${unclassifiable}`,
   );
 
   for (const d of demotions.slice(0, SAMPLE_LIMIT)) {
@@ -241,14 +256,9 @@ async function rekindContacts(userId: string): Promise<void> {
   if (!COMMIT) return;
 
   let updated = 0;
-  let blocked = 0;
 
   for (const d of demotions) {
-    // The SAME predicate the live writer applies, through the same door as the
-    // classifier: a row already at the target coordinate is a different
-    // contact, so leave both alone and say so. Never merge.
-    if (await reKindWouldCollide({ userId, kind: d.kind, canonicalName: d.canonicalName })) {
-      blocked += 1;
+    if (blockedIds.has(d.id)) {
       console.log(`    ! name clash, left as person: ${maskName(d.canonicalName)}`);
       continue;
     }

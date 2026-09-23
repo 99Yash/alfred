@@ -44,6 +44,9 @@ const CONTACT_KINDS = ["person", "other"] as const satisfies readonly EntityKind
 
 export type ContactKind = (typeof CONTACT_KINDS)[number];
 
+/** Parses the stored kind of a contact row — the range `storedContactMatch` selects. */
+const contactKindSchema = z.enum(CONTACT_KINDS);
+
 /**
  * What both contact-kind preview doors answer: the inputs they classified,
  * plus the inputs they could not. `kinds` holds only answered inputs;
@@ -224,18 +227,22 @@ export interface UpsertContactByAliasArgs {
  * value makes the writer, the purge script and a dry run agree by construction,
  * and keeps the bar self-healing: change the bar and the next run re-kinds the
  * same row in place (#1108 round 1).
+ *
+ * A re-kind the `entities` unique index would refuse keeps the current kind
+ * and is reported as `reKindBlocked`, so the capture log can count what the
+ * purge backfill counts.
  */
 export async function upsertContactByAlias(
   args: UpsertContactByAliasArgs,
   tx?: DbTransaction,
-): Promise<EntityRow> {
+): Promise<{ row: EntityRow; reKindBlocked: boolean }> {
   const address = canonicalizeIdentityValue("email", args.address);
 
   if (!address) {
     throw new Error("[memory.entities] upsertContactByAlias requires a non-empty address");
   }
 
-  const run = async (ex: DbTransaction): Promise<EntityRow> => {
+  const run = async (ex: DbTransaction): Promise<{ row: EntityRow; reKindBlocked: boolean }> => {
     const [existing] = await ex
       .select()
       .from(entities)
@@ -264,7 +271,7 @@ export async function upsertContactByAlias(
 
       if (!row) throw new Error("[memory.entities] upsertContactByAlias insert returned no row");
 
-      return rowToEntity(row);
+      return { row: rowToEntity(row), reKindBlocked: false };
     }
 
     const priorMeta = jsonRecordSchema.parse(existing.metadata);
@@ -275,10 +282,12 @@ export async function upsertContactByAlias(
 
     const mergedMetadata = { ...priorMeta, ...args.buildMetadata(priorMeta) };
 
+    const decision = await resolveKindForUpdate(ex, existing, kind);
+
     const [row] = await ex
       .update(entities)
       .set({
-        kind: await resolveKindForUpdate(ex, existing, kind),
+        kind: decision.kind,
         aliases: mergedAliases,
         metadata: mergedMetadata,
         rowVersion: sql`${entities.rowVersion} + 1`,
@@ -288,7 +297,7 @@ export async function upsertContactByAlias(
 
     if (!row) throw new Error("[memory.entities] upsertContactByAlias update returned no row");
 
-    return rowToEntity(row);
+    return { row: rowToEntity(row), reKindBlocked: decision.blocked };
   };
 
   return tx ? run(tx) : db().transaction(run);
@@ -309,7 +318,9 @@ export interface ReKindCollisionArgs {
  *
  * The collision is not a re-kinder's to resolve: a merge would pick a winner
  * and silently drop one contact's correspondence aggregate, so both callers
- * keep the row's current kind and report it. A stale kind is recoverable; a
+ * keep the row's current kind and report the refusal — the live writer as
+ * `reKindBlocked` (summed into the capture log), the purge backfill as
+ * `blocked` in its dry and commit reports. A stale kind is recoverable; a
  * dropped aggregate is not.
  *
  * ONE definition, for the same reason {@link previewContactKinds} is one: the
@@ -336,20 +347,33 @@ export async function reKindWouldCollide(
   return Boolean(clash);
 }
 
-/** The kind to write on an EXISTING contact row — see {@link reKindWouldCollide}. */
+/**
+ * What to write on an EXISTING contact row: the kind, plus whether a wanted
+ * move was refused — see {@link reKindWouldCollide}. The flag is the whole
+ * point of the envelope: a caller that ignores `blocked` must say so, because
+ * the clash is otherwise invisible. The live writer's one caller sums it into
+ * the capture log; the purge backfill prints it in dry and commit alike.
+ */
+interface ReKindDecision {
+  kind: EntityKind;
+  blocked: boolean;
+}
+
 async function resolveKindForUpdate(
   ex: DbTransaction,
   existing: Entity,
   kind: EntityKind,
-): Promise<string> {
-  if (existing.kind === kind) return existing.kind;
+): Promise<ReKindDecision> {
+  const storedKind = entityKindSchema.parse(existing.kind);
+
+  if (storedKind === kind) return { kind: storedKind, blocked: false };
 
   const collides = await reKindWouldCollide(
     { userId: existing.userId, kind, canonicalName: existing.canonicalName },
     ex,
   );
 
-  return collides ? existing.kind : kind;
+  return collides ? { kind: storedKind, blocked: true } : { kind, blocked: false };
 }
 
 /**
@@ -396,12 +420,18 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
  * does not belong here: an address-keyed second read can return a SIBLING
  * row's name for a shared alias. That caller uses {@link
  * previewStoredContactKinds}, which classifies each row's own name.
+ *
+ * Besides the shared preview, this door counts `blocked`: the would-be
+ * demotions (classified kind ≠ stored kind) the committer would refuse via
+ * {@link reKindWouldCollide}. Counted here, from the stored name just
+ * classified — never a second call-site read — so the dry report prints the
+ * same `re-kind N (blocked B)` the commit prints.
  */
 export async function previewContactKinds(
   userId: string,
   candidates: ReadonlyMap<string, string | undefined>,
   tx?: DbTransaction,
-): Promise<ContactKindPreview> {
+): Promise<ContactKindPreview & { blocked: number }> {
   const wanted = new Map<string, string | undefined>();
   const keyOf = new Map<string, string>();
   const unclassifiable: string[] = [];
@@ -421,32 +451,48 @@ export async function previewContactKinds(
 
   const kinds = new Map<string, ContactKind>();
 
-  if (wanted.size === 0) return { kinds, unclassifiable };
+  if (wanted.size === 0) return { kinds, unclassifiable, blocked: 0 };
 
   const rows = await (tx ?? db())
-    .select({ canonicalName: entities.canonicalName, aliases: entities.aliases })
+    .select({
+      canonicalName: entities.canonicalName,
+      aliases: entities.aliases,
+      kind: entities.kind,
+    })
     .from(entities)
     .where(storedContactMatch(userId, [...wanted.keys()]));
 
   const stored = new Map<string, string>();
+  const storedKind = new Map<string, ContactKind>();
 
   for (const row of rows) {
+    const kind = contactKindSchema.parse(row.kind);
+
     for (const alias of aliasesSchema.parse(row.aliases ?? [])) {
-      stored.set(canonicalizeIdentityValue("email", alias), row.canonicalName);
+      const normalized = canonicalizeIdentityValue("email", alias);
+      stored.set(normalized, row.canonicalName);
+      storedKind.set(normalized, kind);
     }
   }
 
+  let blocked = 0;
+
   for (const [key, normalized] of keyOf) {
-    kinds.set(
-      key,
-      classifyContactKind({
-        address: normalized,
-        canonicalName: stored.get(normalized) ?? wanted.get(normalized) ?? normalized,
-      }),
-    );
+    const storedName = stored.get(normalized);
+    const canonicalName = storedName ?? wanted.get(normalized) ?? normalized;
+    const kind = classifyContactKind({ address: normalized, canonicalName });
+    kinds.set(key, kind);
+
+    const priorKind = storedKind.get(normalized);
+
+    if (storedName !== undefined && priorKind !== undefined && priorKind !== kind) {
+      if (await reKindWouldCollide({ userId, kind, canonicalName: storedName }, tx)) {
+        blocked += 1;
+      }
+    }
   }
 
-  return { kinds, unclassifiable };
+  return { kinds, unclassifiable, blocked };
 }
 
 /**

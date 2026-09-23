@@ -185,6 +185,8 @@ export interface ApplyIncrementsResult {
   organizations: number;
   /** Contacts the kind bar filed as something other than `person` (#1108). */
   nonPersonContacts: number;
+  /** Wanted re-kinds the unique index refused — kept the current kind (#1108). */
+  reKindBlocked: number;
 }
 
 /** Non-consumer sender domains worth an organization node (≥1 contact). */
@@ -224,7 +226,8 @@ async function persistContacts(
   mode: "merge" | "overwrite",
   tx?: DbTransaction,
 ): Promise<ApplyIncrementsResult> {
-  if (contacts.size === 0) return { contacts: 0, organizations: 0, nonPersonContacts: 0 };
+  if (contacts.size === 0)
+    return { contacts: 0, organizations: 0, nonPersonContacts: 0, reKindBlocked: 0 };
 
   const orgDomains = collectOrgDomains(contacts);
 
@@ -242,6 +245,7 @@ async function persistContacts(
   }
 
   let nonPersonContacts = 0;
+  let reKindBlocked = 0;
 
   for (const agg of contacts.values()) {
     // Match the existing contact by EMAIL ALIAS so the write lands on the same
@@ -249,7 +253,7 @@ async function persistContacts(
     // different contact who happens to share a canonical name). The writer
     // derives the kind from the row's stored canonical name, so the count below
     // reads the kind that was actually written.
-    const row = await upsertContactByAlias(
+    const { row, reKindBlocked: blocked } = await upsertContactByAlias(
       {
         userId,
         address: agg.address,
@@ -273,10 +277,17 @@ async function persistContacts(
       tx,
     );
 
+    if (blocked) reKindBlocked += 1;
+
     if (row.kind !== "person") nonPersonContacts += 1;
   }
 
-  return { contacts: contacts.size, organizations: orgDomains.size, nonPersonContacts };
+  return {
+    contacts: contacts.size,
+    organizations: orgDomains.size,
+    nonPersonContacts,
+    reKindBlocked,
+  };
 }
 
 /**
@@ -317,6 +328,8 @@ export interface BackfillTeamGraphResult {
   organizations: number;
   /** Contacts the kind bar filed as something other than `person` (#1108). */
   nonPersonContacts: number;
+  /** Wanted re-kinds the unique index refused — kept the current kind (#1108). */
+  reKindBlocked: number;
   persisted: boolean;
   /** Top contacts by significance, for logging. */
   top: Array<{
@@ -396,6 +409,7 @@ export async function backfillTeamGraph(
       contacts: contacts.size,
       organizations: applied.organizations,
       nonPersonContacts: applied.nonPersonContacts,
+      reKindBlocked: applied.reKindBlocked,
       persisted: true,
       top: rankTop(contacts, (addr) => scoreByAddr.get(addr) ?? null, now, userDomains),
     };
@@ -408,12 +422,15 @@ export async function backfillTeamGraph(
   // Nothing is persisted here, so preview the kind a real write WOULD produce:
   // the stored canonical name for an existing row, the scan's display name for
   // a brand-new row only. One call — the stored read lives inside the preview,
-  // which shares the classifier and the alias predicate with the writer. That
-  // is all they share: the writer also applies `resolveKindForUpdate` (keeps
-  // `person` when a re-kind would collide), and neither side orders a
-  // shared-alias match, so the preview's count can differ from what a commit
-  // writes. `nonPersonContacts` is a reported number, never a write.
-  const { kinds, unclassifiable } = await previewContactKinds(
+  // which shares the classifier and the alias predicate with the writer, and
+  // the preview counts the clash the committer would refuse from the same
+  // stored name, so dry `re-kind N (blocked B)` equals commit over the same
+  // data. `nonPersonContacts` is a reported number, never a write.
+  const {
+    kinds,
+    unclassifiable,
+    blocked: reKindBlocked,
+  } = await previewContactKinds(
     userId,
     new Map<string, string | undefined>(
       [...contacts.values()].map((agg): [string, string | undefined] => [
@@ -441,6 +458,7 @@ export async function backfillTeamGraph(
     contacts: contacts.size,
     organizations: orgDomains.size,
     nonPersonContacts,
+    reKindBlocked,
     persisted: false,
     top: rankTop(contacts, () => null, now, userDomains),
   };
