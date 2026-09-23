@@ -43,6 +43,7 @@ import {
   POLYLANE_MCP_ENDPOINT_HREF,
   RAILWAY_MCP_ENDPOINT_HREF,
   SENTRY_MCP_ENDPOINT_HREF,
+  VERCEL_MCP_ENDPOINT_HREF,
 } from "./constants";
 
 export type BuiltInOAuthConfig = {
@@ -299,6 +300,25 @@ export const BUILT_IN_REGISTRY = {
     // read-only pin: the verified pull never invokes a write tool — it reads
     // deployment state over GraphQL behind the same trust property until the
     // live catalog grows a status tool.
+    readOnlyCatalog: false,
+    pinLegacyProtocol: false,
+    initialState: BUILT_IN_INITIAL_STATE,
+  },
+  vercel: {
+    instanceKey: "default",
+    canonicalResource: VERCEL_MCP_ENDPOINT_HREF,
+    endpointHref: VERCEL_MCP_ENDPOINT_HREF,
+    // No `staticClient`: the authorization server publishes a
+    // `registration_endpoint`, so this is the normal dynamic path. The pinned
+    // issuer is `VERCEL_MCP_STORED_ISSUER`, and the verified-pull seam enforces
+    // it, the same way it does for Railway.
+    //
+    // `openid` is the one scope the resource declares. `offline_access` buys the
+    // refresh token that keeps the connection `ready`.
+    scopes: ["openid", "offline_access"],
+    // The remote catalog carries writes and purchases, so no read-only pin.
+    // ADR-0088 keeps every agent call behind an approval, and the verified pull
+    // calls only the three list tools.
     readOnlyCatalog: false,
     pinLegacyProtocol: false,
     initialState: BUILT_IN_INITIAL_STATE,

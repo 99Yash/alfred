@@ -1,8 +1,10 @@
 import {
   canonicalizeVercelTargetId,
+  enumGuard,
   getStringPath,
   isRecord,
   parseGitBranchRef,
+  VERCEL_DEPLOYMENT_OUTCOMES,
   vercelDeploymentOutcome,
   type EventTypeForSource,
 } from "@alfred/contracts";
@@ -10,7 +12,8 @@ import type { ObjectStateDelta } from "./store";
 
 /**
  * Vercel reducer (#1167). Pure, idempotent: maps a single verified-push
- * receipt to the projection deltas the store applies. The irreducibly
+ * receipt, or a verified-pull receipt (#1193, `reduceVercelPull` below), to the
+ * projection deltas the store applies. The irreducibly
  * per-provider half, mirroring `reduceCheckSuite` and `reduceRailwayEvent` —
  * a deployment target closes by SUCCESSION (`owner/repo#branch#environment`),
  * so one dispatch folds its attempt delta plus its target delta, and the
@@ -40,11 +43,20 @@ import type { ObjectStateDelta } from "./store";
  */
 export const VERCEL_DISPATCH_EVENT_TYPE: EventTypeForSource<"github"> = "repository_dispatch";
 
+/**
+ * The verified-pull receipt type (#1193). The receipt is SYNTHETIC:
+ * `mintVercelPullReceipt` (`verified-pull/vercel.ts`) is its only minter, so the
+ * gate is a bare comparison, as Railway's is.
+ */
+export const VERCEL_PULL_EVENT_TYPE = "deployment_status" as const;
+
 export function reduceVercelEvent(
   eventType: string,
   action: string | null,
   payload: unknown,
 ): ObjectStateDelta[] {
+  if (eventType === VERCEL_PULL_EVENT_TYPE) return reduceVercelPull(payload);
+
   if (eventType !== VERCEL_DISPATCH_EVENT_TYPE) return [];
 
   if (!isRecord(payload)) return [];
@@ -129,6 +141,84 @@ export function reduceVercelEvent(
     // timestamp. So the store falls back to the receipt clock, which is what
     // `deliveredAt` is for. Ingress already dedups a true redelivery on
     // `(provider, provider_delivery_id)` before the fold sees it twice.
+  };
+
+  return [attempt, targetDelta];
+}
+
+const isVercelDeploymentOutcome = enumGuard(VERCEL_DEPLOYMENT_OUTCOMES);
+
+/**
+ * Fold one verified-pull receipt (#1193) into the SAME two identities the
+ * dispatch writes: the attempt `deployment:<id>` and the succession target
+ * `owner/repo#branch#environment`. Push and pull therefore share one target
+ * row, and the store's recency rule orders them. A pull carries the
+ * deployment's provider instant, which a dispatch does not.
+ *
+ * The reducer trusts no caller, not even the mint: the token is re-validated
+ * against the registry vocabulary, and the target id is re-derived through
+ * `canonicalizeVercelTargetId`.
+ */
+function reduceVercelPull(payload: unknown): ObjectStateDelta[] {
+  if (!isRecord(payload)) return [];
+
+  const target = isRecord(payload.target) ? payload.target : null;
+  const deployment = isRecord(payload.deployment) ? payload.deployment : null;
+
+  if (!target || !deployment) return [];
+
+  const token = getStringPath(deployment, "status");
+
+  if (!isVercelDeploymentOutcome(token)) return [];
+
+  const deploymentId = getStringPath(deployment, "id");
+
+  if (!deploymentId) return [];
+
+  const repoFullName = getStringPath(target, "repoFullName");
+  const branch = getStringPath(target, "branch");
+  const environment = getStringPath(target, "environment");
+  const url = getStringPath(deployment, "url");
+  const createdAt = getStringPath(deployment, "createdAt");
+  const eventTime = createdAt ? new Date(createdAt) : null;
+  const providerEventTime = eventTime && !Number.isNaN(eventTime.getTime()) ? eventTime : null;
+
+  const attempt: ObjectStateDelta = {
+    kind: "deployment_attempt",
+    externalId: `deployment:${deploymentId}`,
+    nativeState: token,
+    closureSource: "verified_pull",
+    ...(url ? { url } : {}),
+    ...(repoFullName ? { repo: repoFullName } : {}),
+    attributes: {
+      deployment_id: deploymentId,
+      status: token,
+      ...(environment ? { environment } : {}),
+    },
+    keys: [{ keyKind: "deployment_id", keyValue: deploymentId }],
+  };
+
+  if (!repoFullName || !branch || !environment) return [attempt];
+
+  const targetId = canonicalizeVercelTargetId({ repoFullName, branch, environment });
+
+  if (!targetId) return [attempt];
+
+  const targetDelta: ObjectStateDelta = {
+    kind: "deployment_target",
+    externalId: targetId,
+    nativeState: token,
+    closureSource: "verified_pull",
+    ...(url ? { url } : {}),
+    repo: repoFullName,
+    attributes: {
+      deployment_id: deploymentId,
+      status: token,
+      branch,
+      environment,
+    },
+    keys: [{ keyKind: "deployment_target", keyValue: targetId }],
+    ...(providerEventTime ? { providerEventTime } : {}),
   };
 
   return [attempt, targetDelta];
