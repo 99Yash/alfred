@@ -51,6 +51,17 @@ trigger rows — it does not drop email loops through `reconcileEvidence` (the
 Railway adapter proposes no keys until the deployment-URL grammar lands), so
 `deployment_target` declares `closesAskOn: []` until then.
 
+**Amended 2026-09-23 (#1192).** The verified pull is now a provider-agnostic
+driver in the connections layer (`connections/verified-pull/driver.ts`). The
+driver owns the trigger order, the target cap, the dedup by attempt key, the
+fold through `applyEvent`, and the re-read of the target row. A
+`VerifiedPullProvider` owns target discovery, the authenticated read, the
+receipt mint, and the verdict line. Its session is opaque to the driver, so an
+MCP read and a REST read plug in the same way. Railway is the first provider,
+with no behavior change. Gather runs every provider in the `VERIFIED_PULLS`
+registry, which is keyed by `ObjectStateProvider`. A new provider adds one row
+there and one implementation file, and does not change gather.
+
 **Open.** Backfill horizon over `webhook_events` (how far back to replay). Whether `check_suite` is its own object kind or an attribute of the PR. Cross-source dedup convergence policy (when a ClickUp task and a PR are "the same loop" — the binding constraint ADR-0052(B) named). v1 loop-opener scope = GitHub Actions CI-failure emails; Railway build-failure added if it recurs.
 
 **Amended 2026-09-06 (#975).** The reducer's input log is `event_receipts` (`provider = 'github'`, `event_type = 'github.<type>'`), not `webhook_events`, which ADR-0097 item 8 retired. The real-time fold is the `github-activity-fold` trigger consumer, and the committed backfill replays `event_receipts`. Idempotency now comes from the receipt's `(provider, provider_delivery_id)` dedup index plus the same monotonic `delivered_at` guard.
