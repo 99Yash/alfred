@@ -1,11 +1,17 @@
 import {
+  BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX,
   briefingLoopRelevanceSchema,
-  isRecord,
+  getObjectDef,
+  INTEGRATION_OBJECT_DEFS,
   parseGithubPullRequestUrl,
   redactSecrets,
+  sanitizeErrorMessage,
   toMessage,
   type BriefingLoopRelevance,
   type LoopRelevanceSource,
+  type LoopRelevanceVerdict,
+  type ObjectStateProvider,
+  type StateCategory,
 } from "@alfred/contracts";
 import { githubClientForUser } from "@alfred/integrations/github";
 import { readLiveSentryIssue } from "@alfred/integrations/sentry";
@@ -46,6 +52,88 @@ export interface RelevanceLoop {
 /** A live read's outcome for one object, before it is fanned out to loops. */
 type ObjectVerdict = Omit<BriefingLoopRelevance, "documentId">;
 
+/** The closure path's live-native read shape, now registered beside relevance's readers. */
+export type LiveNativeStateReader = (userId: string, externalId: string) => Promise<string>;
+
+interface LiveStateReaderRegistration {
+  readonly source: Exclude<LoopRelevanceSource, "none">;
+  readonly accepts: (state: ObjectState) => boolean;
+  readonly readTargets: (
+    userId: string,
+    targets: readonly ObjectState[],
+    verdictByObject: Map<string, ObjectVerdict>,
+    source: Exclude<LoopRelevanceSource, "none">,
+  ) => Promise<void>;
+  readonly readNativeState?: LiveNativeStateReader;
+}
+
+type RegisteredObjectKinds<Provider extends ObjectStateProvider> =
+  keyof (typeof INTEGRATION_OBJECT_DEFS)[Provider]["kinds"];
+
+type LiveStateReaderTable = {
+  readonly [Provider in ObjectStateProvider]: {
+    readonly [Kind in RegisteredObjectKinds<Provider>]: LiveStateReaderRegistration | null;
+  };
+};
+
+/**
+ * Every object kind's live-read registration. The mapped type is derived from
+ * `INTEGRATION_OBJECT_DEFS`, so adding a kind to the object-state registry
+ * without making its relevance/closure reader choice here fails to compile.
+ * Sentry and GitHub are the only current registrations; every other row is an
+ * explicit `null`, never an inherited arm.
+ */
+const LIVE_STATE_READERS = {
+  github: {
+    pull_request: {
+      source: "live_github_read",
+      accepts: (state) => parseGithubPullRequestUrl(state.url ?? "") !== null,
+      readTargets: readGithubTargets,
+    },
+    ci_attempt: null,
+    ci_target: null,
+  },
+  sentry: {
+    issue: {
+      source: "live_sentry_read",
+      accepts: () => true,
+      readTargets: readSentryTargets,
+      readNativeState: async (userId, issueId) =>
+        (await readLiveSentryIssue({ userId, issueId })).nativeState,
+    },
+  },
+  railway: {
+    deployment_attempt: null,
+    deployment_target: null,
+  },
+  vercel: {
+    deployment_attempt: null,
+    deployment_target: null,
+  },
+} as const satisfies LiveStateReaderTable;
+
+function liveStateReaderRegistration(state: ObjectState): LiveStateReaderRegistration | null {
+  const registrations = LIVE_STATE_READERS[state.provider];
+
+  for (const [kind, registration] of Object.entries(registrations)) {
+    if (kind === state.kind && registration?.accepts(state)) return registration;
+  }
+
+  return null;
+}
+
+/** The same registry-backed reader used by relevance, for a closure live confirmation. */
+export function liveNativeStateReader(state: ObjectState): LiveNativeStateReader | null {
+  return liveStateReaderRegistration(state)?.readNativeState ?? null;
+}
+
+const VERDICT_BY_STATE_CATEGORY = {
+  active: "still-actionable",
+  failed: "still-actionable",
+  resolved: "stale-but-open",
+  abandoned: "stale-but-open",
+} as const satisfies Record<StateCategory, LoopRelevanceVerdict>;
+
 function httpsUrlOrNull(value: string | null): string | null {
   return value && value.startsWith("https://") ? value : null;
 }
@@ -62,6 +150,33 @@ function unverified(
     objectTitle: state?.title ?? null,
     objectUrl: httpsUrlOrNull(state?.url ?? null),
     detail,
+  };
+}
+
+function verdictFromNativeState(args: {
+  state: ObjectState;
+  nativeState: string;
+  observedState?: string;
+  detail: string;
+  source: Exclude<LoopRelevanceSource, "none">;
+  stale?: boolean;
+}): ObjectVerdict {
+  const stateCategory = getObjectDef(args.state.provider).normalize(
+    args.state.kind,
+    args.nativeState,
+  );
+
+  if (!stateCategory) {
+    return unverified(args.state, args.detail, args.source);
+  }
+
+  return {
+    verdict: args.stale ? "stale-but-open" : VERDICT_BY_STATE_CATEGORY[stateCategory],
+    source: args.source,
+    observedState: args.observedState ?? args.nativeState,
+    objectTitle: args.state.title,
+    objectUrl: httpsUrlOrNull(args.state.url),
+    detail: args.detail,
   };
 }
 
@@ -104,18 +219,25 @@ async function assessLoopRelevanceInner(args: {
 
   const objects = [...objectByLoop.values()].filter((state) => state !== null);
   const verdictByObject = new Map<string, ObjectVerdict>();
-  const readable = selectRelevanceReadTargets(objects);
+  const targetsByReader = new Map<LiveStateReaderRegistration, ObjectState[]>();
 
-  const sentryTargets = readable.filter((state) => state.provider === "sentry");
+  for (const state of selectRelevanceReadTargets(objects)) {
+    const reader = liveStateReaderRegistration(state);
 
-  const githubTargets = readable.filter(
-    (state) => state.provider === "github" && state.kind === "pull_request",
+    // Selection used this same registration, so the non-null reader is a
+    // deterministic consequence rather than a second policy branch.
+    if (!reader) continue;
+
+    const targets = targetsByReader.get(reader) ?? [];
+    targets.push(state);
+    targetsByReader.set(reader, targets);
+  }
+
+  await Promise.all(
+    [...targetsByReader].map(([reader, targets]) =>
+      reader.readTargets(args.userId, targets, verdictByObject, reader.source),
+    ),
   );
-
-  await Promise.all([
-    readSentryTargets(args.userId, sentryTargets, verdictByObject),
-    readGithubTargets(args.userId, githubTargets, verdictByObject),
-  ]);
 
   return finalizeLoopRelevanceVerdicts({
     loops: args.loops,
@@ -130,14 +252,14 @@ async function assessLoopRelevanceInner(args: {
  * The object read is kept separate from the per-loop fan-out so the never-close
  * invariant is structural at both points: readers construct only the three
  * non-closing verdicts, and every value crosses {@link briefingLoopRelevanceSchema}
- * before it can reach the composer. A malformed value (including a forged
- * `closed` token) therefore degrades to `unverifiable`; it cannot become a
- * closure claim or make a loop disappear.
+ * before it can reach the composer. The schema is now the boundary check for
+ * bounded text and URL fields; the verdict vocabulary itself is compile-enforced
+ * by `ObjectVerdict`. Any runtime boundary rejection degrades to `unverifiable`.
  */
 export function finalizeLoopRelevanceVerdicts(args: {
   loops: readonly RelevanceLoop[];
   objectByLoop: ReadonlyMap<string, ObjectState | null>;
-  verdictByObject: ReadonlyMap<string, unknown>;
+  verdictByObject: ReadonlyMap<string, ObjectVerdict>;
 }): BriefingLoopRelevance[] {
   return args.loops.map((loop) => {
     const state = args.objectByLoop.get(loop.documentId) ?? null;
@@ -151,11 +273,13 @@ export function finalizeLoopRelevanceVerdicts(args: {
 
     const ref = objectRef(state);
 
-    if (args.verdictByObject.has(ref)) {
-      return toVerdict(loop.documentId, args.verdictByObject.get(ref));
+    const verdict = args.verdictByObject.get(ref);
+
+    if (verdict !== undefined) {
+      return toVerdict(loop.documentId, verdict);
     }
 
-    if (!hasLiveReader(state)) {
+    if (!liveStateReaderRegistration(state)) {
       return toVerdict(
         loop.documentId,
         unverified(state, "No live reader for this loop's object kind; loop stays live."),
@@ -176,7 +300,7 @@ export function selectRelevanceReadTargets(
   const distinct = new Map<string, ObjectState>();
 
   for (const state of objects) {
-    if (!hasLiveReader(state)) continue;
+    if (!liveStateReaderRegistration(state)) continue;
 
     const ref = objectRef(state);
 
@@ -184,26 +308,6 @@ export function selectRelevanceReadTargets(
   }
 
   return [...distinct.values()].slice(0, MAX_RELEVANCE_OBJECTS);
-}
-
-/**
- * Whether this build can live-read the object's current state. Sentry issues
- * read over the stored org credential; GitHub PRs read over the App
- * installation token from the stored canonical PR URL. Every other
- * provider/kind has no reader, so its loops read as `unverifiable`.
- */
-function hasLiveReader(state: ObjectState): boolean {
-  if (state.provider === "sentry" && state.kind === "issue") return true;
-
-  if (
-    state.provider === "github" &&
-    state.kind === "pull_request" &&
-    parseGithubPullRequestUrl(state.url ?? "") !== null
-  ) {
-    return true;
-  }
-
-  return false;
 }
 
 function objectRef(state: ObjectState): string {
@@ -214,6 +318,7 @@ async function readSentryTargets(
   userId: string,
   targets: readonly ObjectState[],
   verdictByObject: Map<string, ObjectVerdict>,
+  source: Exclude<LoopRelevanceSource, "none">,
 ): Promise<void> {
   await Promise.all(
     targets.map(async (state) => {
@@ -222,58 +327,22 @@ async function readSentryTargets(
       try {
         const live = await readLiveSentryIssue({ userId, issueId: state.externalId });
 
-        // `readLiveSentryIssue` translates Sentry's REST vocabulary to the
-        // stored one at its own boundary, so this switch reads stored tokens.
-        // Every named state is classified explicitly. A future/unknown token
-        // degrades instead of inheriting the archived branch (#1193).
-        switch (live.nativeState) {
-          case "unresolved":
-            verdictByObject.set(ref, {
-              verdict: "still-actionable",
-              source: "live_sentry_read",
-              observedState: live.nativeState,
-              objectTitle: state.title,
-              objectUrl: httpsUrlOrNull(state.url),
-              detail: `Sentry live read still reports issue ${state.externalId} as unresolved.`,
-            });
-            break;
-          case "resolved":
-            verdictByObject.set(ref, {
-              verdict: "stale-but-open",
-              source: "live_sentry_read",
-              observedState: live.nativeState,
-              objectTitle: state.title,
-              objectUrl: httpsUrlOrNull(state.url),
-              detail: `Sentry live read reports issue ${state.externalId} resolved.`,
-            });
-            break;
-          case "archived":
-            verdictByObject.set(ref, {
-              verdict: "stale-but-open",
-              source: "live_sentry_read",
-              observedState: live.nativeState,
-              objectTitle: state.title,
-              objectUrl: httpsUrlOrNull(state.url),
-              detail: `Sentry live read reports issue ${state.externalId} archived.`,
-            });
-            break;
-          default:
-            verdictByObject.set(
-              ref,
-              unverified(
-                state,
-                "Sentry reported an unknown issue state; loop stays live.",
-                "live_sentry_read",
-              ),
-            );
-        }
+        verdictByObject.set(
+          ref,
+          verdictFromNativeState({
+            state,
+            nativeState: live.nativeState,
+            detail: `Sentry live read reports issue ${state.externalId} as ${live.nativeState}.`,
+            source,
+          }),
+        );
       } catch (err) {
         console.warn(
           `[briefing.relevance] sentry live read failed object=${ref} :: ${redactSecrets(toMessage(err))}`,
         );
         verdictByObject.set(
           ref,
-          unverified(state, "Sentry live read failed; loop stays live.", "live_sentry_read"),
+          unverified(state, "Sentry live read failed; loop stays live.", source),
         );
       }
     }),
@@ -284,6 +353,7 @@ async function readGithubTargets(
   userId: string,
   targets: readonly ObjectState[],
   verdictByObject: Map<string, ObjectVerdict>,
+  source: Exclude<LoopRelevanceSource, "none">,
 ): Promise<void> {
   if (targets.length === 0) return;
 
@@ -292,7 +362,7 @@ async function readGithubTargets(
   for (const state of targets) {
     const parsed = parseGithubPullRequestUrl(state.url ?? "");
 
-    // `hasLiveReader` admitted this target, so the URL parsed; the guard is
+    // `LIVE_STATE_READERS` admitted this target, so the URL parsed; the guard is
     // the deterministic-input floor, not a second opinion.
     if (parsed) {
       const slash = parsed.repoFullName.indexOf("/");
@@ -322,7 +392,7 @@ async function readGithubTargets(
     for (const state of targets) {
       verdictByObject.set(
         objectRef(state),
-        unverified(state, "GitHub live read failed; loop stays live.", "live_github_read"),
+        unverified(state, "GitHub live read failed; loop stays live.", source),
       );
     }
 
@@ -334,12 +404,13 @@ async function readGithubTargets(
   );
 
   for (const state of targets) {
-    const coord = coords.get(objectRef(state));
+    const ref = objectRef(state);
+    const coord = coords.get(ref);
 
     if (!coord) {
       verdictByObject.set(
-        objectRef(state),
-        unverified(state, "GitHub live read failed; loop stays live.", "live_github_read"),
+        ref,
+        unverified(state, "GitHub live read failed; loop stays live.", source),
       );
       continue;
     }
@@ -356,69 +427,53 @@ async function readGithubTargets(
 
     if (!item || matches.length !== 1 || failedRefs.has(providerRef)) {
       verdictByObject.set(
-        objectRef(state),
-        unverified(state, "GitHub live read proved nothing; loop stays live.", "live_github_read"),
+        ref,
+        unverified(state, "GitHub live read proved nothing; loop stays live.", source),
       );
       continue;
     }
 
-    // A merged or closed PR demotes to stale-but-open, NEVER closes: the
-    // reducer-owned projection may lag this live read, and only a verified
-    // store fold carries closure authority. Byte-exact on the provider enum:
-    // any other `state` token reads as unknown, and absence never closes.
-    if (item.merged || item.state === "closed") {
-      verdictByObject.set(objectRef(state), {
-        verdict: "stale-but-open",
-        source: "live_github_read",
-        observedState: item.merged ? "merged" : item.state,
-        objectTitle: state.title,
-        objectUrl: httpsUrlOrNull(state.url),
-        detail: item.merged
-          ? `GitHub live read reports ${providerRef} merged.`
-          : `GitHub live read reports ${providerRef} closed without a merge.`,
-      });
-    } else if (item.state === "open" && !item.draft) {
-      verdictByObject.set(objectRef(state), {
-        verdict: "still-actionable",
-        source: "live_github_read",
-        observedState: item.state,
-        objectTitle: state.title,
-        objectUrl: httpsUrlOrNull(state.url),
-        detail: `GitHub live read still reports ${providerRef} open.`,
-      });
-    } else if (item.state === "open" && item.draft) {
-      verdictByObject.set(objectRef(state), {
-        verdict: "stale-but-open",
-        source: "live_github_read",
-        observedState: "draft",
-        objectTitle: state.title,
-        objectUrl: httpsUrlOrNull(state.url),
-        detail: `GitHub live read reports ${providerRef} open as a draft.`,
-      });
-    } else {
-      verdictByObject.set(
-        objectRef(state),
-        unverified(
-          state,
-          "GitHub reported an unknown PR state; loop stays live.",
-          "live_github_read",
-        ),
-      );
-    }
+    // `merged` is the reducer-owned token when GitHub's booleans say a PR
+    // merged; otherwise its state string is already the reducer vocabulary.
+    // The shared registry, not this reader, decides what either token means.
+    const nativeState = item.merged ? "merged" : item.state;
+    const draft = !item.merged && item.state === "open" && item.draft;
+    const observedState = draft ? "draft" : nativeState;
+
+    verdictByObject.set(
+      ref,
+      verdictFromNativeState({
+        state,
+        nativeState,
+        observedState,
+        stale: draft,
+        detail: draft
+          ? `GitHub live read reports ${providerRef} open as a draft.`
+          : `GitHub live read reports ${providerRef} ${observedState}.`,
+        source,
+      }),
+    );
   }
 }
 
 /**
- * Validate each verdict against the contract at the owning boundary, so a
- * malformed construction degrades to an honest `unverifiable` instead of
- * reaching the composer. The `detail` floor keeps the schema's `min(1)`.
+ * Validate the bounded evidence fields at the composer boundary. The verdict
+ * vocabulary and source are already compile-enforced; a runtime shape that the
+ * contract still rejects degrades to an honest `unverifiable` and is reported.
  */
-function toVerdict(documentId: string, verdict: unknown): BriefingLoopRelevance {
-  const parsed = isRecord(verdict)
-    ? briefingLoopRelevanceSchema.safeParse({ documentId, ...verdict })
-    : null;
+function toVerdict(documentId: string, verdict: ObjectVerdict): BriefingLoopRelevance {
+  const parsed = briefingLoopRelevanceSchema.safeParse({
+    documentId,
+    ...verdict,
+    objectTitle:
+      verdict.objectTitle === null
+        ? null
+        : sanitizeErrorMessage(verdict.objectTitle, BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX),
+  });
 
-  if (parsed?.success) return parsed.data;
+  if (parsed.success) return parsed.data;
+
+  console.warn("[briefing.relevance] contract rejected a verdict; loop stays unverified");
 
   return {
     documentId,
