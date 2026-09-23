@@ -377,9 +377,10 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
  * Key = address as written; value = display name for a not-yet-stored contact
  * (`undefined` = bare address). Keys are normalized once, inside, with
  * `canonicalizeIdentityValue` — the same helper the writer matches on — and the
- * stored read runs in the caller's `tx` when one is passed. The returned map is
- * keyed by the caller's OWN candidate string, so `kinds.get(address)` is a
- * hit by construction and no caller re-derives a normalized key. A candidate
+ * stored read runs in the caller's `tx` when one is passed. `kinds` is
+ * keyed by the caller's OWN candidate string, so an answered candidate is
+ * a hit under the caller's own key and no caller re-derives a normalized
+ * key. A candidate
  * key that is empty after trim normalizes to an empty string and is listed
  * in `unclassifiable`: the caller leaves
  * it alone rather than defaulting toward a write.
