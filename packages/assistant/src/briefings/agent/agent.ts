@@ -164,7 +164,7 @@ function openAskCorrection(violations: readonly OpenAskViolation[]): string {
   return (
     `\n\nYour previous draft was rejected. The object-state projection proves each object below is closed, ` +
     `and your draft still framed it as work the user owes:\n${lines}\n` +
-    `Rewrite the briefing. Drop each closed object, or mention it only as completed work. ` +
+    `Rewrite the briefing. Keep each closed object only in the past-tense closed-today recap that the loop-state tiers require. ` +
     `Never ask the user to review, approve, merge, or follow up on it.`
   );
 }
