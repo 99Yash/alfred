@@ -9,7 +9,9 @@
  *     `isKnownContact` matches; correspondence aggregate in `metadata`). The
  *     kind comes from `classifyContactKind`, applied by the writer to the
  *     row's stored canonical name, so a non-human envelope is filed as
- *     `other` instead of `person` (#1108),
+ *     `other` instead of `person` (#1108). The dry run below previews that
+ *     same bar through `previewContactKinds`, which shares the classifier
+ *     and the alias predicate with the writer,
  *   - one `organization` entity per non-consumer sender domain,
  *   - a first significance pass over the result.
  *
@@ -44,8 +46,7 @@ import {
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
-import { readStoredContactNames, upsertContactByAlias, upsertEntity } from "./entity-graph";
-import { classifyContactKind } from "./entity-kind-classifier";
+import { previewContactKinds, upsertContactByAlias, upsertEntity } from "./entity-graph";
 import type { DbTransaction } from "@alfred/db";
 import { type CorrespondenceStats, parsePersonEntityMetadata } from "./entity-metadata";
 import { computeSignificance, loadUserDomains, runSignificancePass } from "./significance";
@@ -404,23 +405,31 @@ export async function backfillTeamGraph(
   const orgDomains = collectOrgDomains(contacts);
   let nonPersonContacts = 0;
 
-  // Nothing is persisted here, so read the canonical name each EXISTING row
-  // already stores. That is the value a real write classifies, and it is the
-  // only one a later run also sees; the scan's own display name is per-run
-  // evidence and belongs to a brand-new row only.
-  const storedNames = await readStoredContactNames(
+  // Nothing is persisted here, so preview the kind a real write WOULD produce:
+  // the stored canonical name for an existing row, the scan's display name for
+  // a brand-new row only. One call — the stored read lives inside the preview,
+  // which shares the classifier and the alias predicate with the writer. That
+  // is all they share: the writer also applies `resolveKindForUpdate` (keeps
+  // `person` when a re-kind would collide), and neither side orders a
+  // shared-alias match, so the preview's count can differ from what a commit
+  // writes. `nonPersonContacts` is a reported number, never a write.
+  const kinds = await previewContactKinds(
     userId,
-    [...contacts.values()].map((agg) => agg.address),
+    new Map<string, string | undefined>(
+      [...contacts.values()].map((agg): [string, string | undefined] => [
+        agg.address,
+        agg.displayName ?? undefined,
+      ]),
+    ),
   );
 
   for (const agg of contacts.values()) {
-    const kind = classifyContactKind({
-      address: agg.address,
-      canonicalName:
-        storedNames.get(agg.address.trim().toLowerCase()) ?? agg.displayName ?? agg.address,
-    });
+    // Keyed by the caller's own address string: a hit by construction. An
+    // absent key (an address that does not normalize) leaves the contact
+    // alone — it is never counted as a non-person.
+    const kind = kinds.get(agg.address);
 
-    if (kind !== "person") nonPersonContacts += 1;
+    if (kind !== undefined && kind !== "person") nonPersonContacts += 1;
   }
 
   return {

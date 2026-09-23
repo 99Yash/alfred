@@ -116,7 +116,7 @@ export * from "./extractor";
  * caller reaches them *through here*.
  *
  * `internal.ts` is the privileged tooling door, published as the explicit
- * `@alfred/assistant/knowledge/internal` subpath: nine named re-exports that
+ * `@alfred/assistant/knowledge/internal` subpath: the named re-exports that
  * `apps/server` backfills and smokes need and that do not belong in a general
  * contract. A `no-restricted-imports` rule in `.oxlintrc.json` fences WHO may
  * import that subpath; it matches the specifier as text, with no module
