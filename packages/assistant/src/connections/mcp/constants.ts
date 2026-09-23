@@ -103,6 +103,32 @@ export const RAILWAY_MCP_ENDPOINT_HREF = "https://mcp.railway.com/mcp" as const;
 export const RAILWAY_MCP_STORED_ISSUER = "https://backboard.railway.com/" as const;
 
 /**
+ * Vercel's remote MCP server. Measured on 2026-09-23 without credentials: an
+ * `initialize` POST to the root answers `401` with
+ * `resource_metadata="https://mcp.vercel.com/.well-known/oauth-protected-resource"`,
+ * and that document names the resource `https://mcp.vercel.com/` and the
+ * authorization server `https://vercel.com`. The `/mcp` path answers `404`, so
+ * the root is the endpoint. The authorization server publishes a
+ * `registration_endpoint`, so Alfred registers its own client (RFC 7591), and
+ * `scopes_supported` is `openid`, `email`, `profile`, `offline_access`.
+ *
+ * The catalog carries writes (`deploy_to_vercel`) and purchases (`buy_*`), so
+ * the resource cannot be pinned read-only. The verified pull calls only
+ * `list_teams`, `list_projects`, and `list_deployments`.
+ */
+export const VERCEL_MCP_ENDPOINT_HREF = "https://mcp.vercel.com/" as const;
+
+/**
+ * Vercel's STORED authorization-server identity. Discovery publishes the issuer
+ * as `https://vercel.com`, and the OAuth connection stores the URL form with a
+ * trailing `/` (the same rule `RAILWAY_MCP_STORED_ISSUER` records). No live
+ * Vercel connection existed on 2026-09-23 to confirm the stored bytes, so this
+ * is derived from that rule, not measured. A mismatch makes every verified pull
+ * read unverified, which leaves the loop live.
+ */
+export const VERCEL_MCP_STORED_ISSUER = "https://vercel.com/" as const;
+
+/**
  * The `auth_server_identity` a connection row carries before any authorization
  * server is known.
  *

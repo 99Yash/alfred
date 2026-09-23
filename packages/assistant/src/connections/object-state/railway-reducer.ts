@@ -9,8 +9,9 @@ import type { ObjectStateDelta } from "./store";
  * folds its attempt delta plus its target delta, and the store's
  * `(providerEventTime, deliveredAt)` ordering keeps the latest read.
  *
- * The pull receipt is SYNTHETIC: `mintRailwayPullReceipt` (beside gather) is
- * its only minter, and there is no webhook, no descriptor, and no external
+ * The pull receipt is SYNTHETIC: `mintRailwayPullReceipt`
+ * (`verified-pull/railway.ts`) is its only minter, and there is no webhook, no
+ * descriptor, and no external
  * producer that could add a second type. So the type gate below is a bare
  * comparison, not the `isEventTypeForSource` + `_exhaustive: never` device the
  * delivery vocabularies need (ADR-0097): there is no ninth type to force.

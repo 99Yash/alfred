@@ -300,7 +300,7 @@ Live backends today:
 - GitHub App: install + user-to-server OAuth, installation tokens for REST, prod-only webhooks.
 - Notion OAuth.
 - Railway MCP OAuth: dynamic client registration, live deployment reads, and MCP tools.
-- Vercel OAuth.
+- Vercel OAuth (the curated grant, which #1008 retires), and the Vercel MCP server: dynamic client registration and verified-pull deployment reads.
 - Sentry internal-integration token connect, prod-only webhooks.
 
 Catalog/design-only today: Slack and Linear. The web catalog can render those providers, but there are no backend routes or tools for them yet.

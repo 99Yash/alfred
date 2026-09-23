@@ -55,7 +55,7 @@ const FOLD_SOURCES = {
   // Railway is pull-only: no webhook, no poller, no inbound source. The null
   // arm states that absence instead of inheriting a wrong source, so no
   // `railway-activity-fold` consumer is registered and the verified-pull seam
-  // (beside gather) calls the store directly with a minted receipt.
+  // (`connections/verified-pull`) calls the store directly with a minted receipt.
   railway: null,
   // Vercel rides GitHub's webhook: every Vercel deployment state change
   // arrives as a `repository_dispatch` delivery on the github source, so this
