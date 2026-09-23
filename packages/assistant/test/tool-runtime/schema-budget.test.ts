@@ -63,9 +63,16 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 // domain classes that fall back to `sender`. NO ceiling bump: 94,488 B still sits under
 // 95,000 B, and the ~512 B of margin left is the intended tightness — the next tool addition
 // trips the ceiling and records its own line.
-const KERNEL_SCHEMA_BYTES_CEILING = 10_500;
+// Measured 2026-09-23: kernel 9,817 → 11,868 B / ~2,455 → ~2,968 tok across 10 tools —
+// `system.ask_user` (#1019) moves into the kernel because the chat prompt now points at it for
+// every ambiguous request; lazy, it would cost a search/load bounce and a mid-turn cache bust
+// before each ask. The tool is ~2 KB because its description carries the when-to-ask rubric and
+// its schema nests questions and options. `callers` + `requiresLiveChat` keep it off sub-agent
+// and background surfaces. Kernel ceilings raised 10,500 → 13,000 B and 2,600 → 3,300 tok,
+// about 10% above the new measurement.
+const KERNEL_SCHEMA_BYTES_CEILING = 13_000;
 
-const KERNEL_SCHEMA_TOKENS_CEILING = 2_600;
+const KERNEL_SCHEMA_TOKENS_CEILING = 3_300;
 
 const FULL_SCHEMA_BYTES_CEILING = 95_000;
 
