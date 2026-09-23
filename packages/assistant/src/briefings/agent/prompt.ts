@@ -24,7 +24,7 @@ const LOOP_RELEVANCE_TIER_RULES = {
 } as const satisfies Record<LoopRelevanceVerdict, string>;
 
 const STALE_PR_POLICY =
-  "If a PR number appears in a recent prior briefing AND no fresh signal arrived for it since (no new email about it in list_emails_since), don't mention it again. Apply the loop-state tiers above only to genuinely fresh activity; otherwise skip.";
+  "If a PR number appears in a recent prior briefing AND no fresh signal arrived for it since (no new email about it in list_emails_since), don't mention it again. This rule does not suppress a verified-closed recap or a can't-check note; the loop-state tiers above decide those.";
 
 const BASE_PROMPT = `You are Alfred, a personal assistant writing the user's daily briefing.
 
