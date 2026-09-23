@@ -48,16 +48,18 @@ export type SenderKindDemotionReason =
  *
  * Envelope bar (#1187): an EXACT whole-local `GROUP_LOCALS` sender (`team@`,
  * `all@`, …) holds no reply lane even with no projection signal — the parser
- * types bare locals `unknown`, so the path above never fires for them. Same
- * demotion, same floor, no new burying. Exact on purpose: infix shapes
- * (`dev.patel@`, `hr.priya@`, `sam.all@`, `jane.team@`, `ops-lead@`) read
- * `person` in the parser and stay model-decided here.
+ * types exact members `unknown` (an exact group envelope beats a display name
+ * there too), so the signal path above never fires for them. Same demotion,
+ * same floor, no new burying. Exact on purpose: infix shapes (`dev.patel@`,
+ * `hr.priya@`, `sam.all@`, `jane.team@`, `ops-lead@`) read `person` in the
+ * parser and stay model-decided here.
  *
  * `unknown` contract (#1187): the signal path above needs a CONFIDENT kind, so
  * `unknown` — bare single-token locals (`arjun@`), staffed role boxes
  * (`hello@`, `contact@`, `info@`, `support@`, `billing@`) — keeps the model's
- * category there. The envelope bar below is the ONLY `unknown`-demoting path,
- * and only for exact group envelopes. The other floors never branch on the
+ * category there. The envelope bar below is address-based, not kind-based: it
+ * reads only the local part, so it demotes a `person`-typed sender too when
+ * the address is an exact group envelope. The other floors never branch on the
  * sender kind (`override` escalates on secret claims, `spam` on the Gmail-filed
  * flag, `meeting` on subject/content shape), and rule 8a's
  * deterministic-service second pass (`classify.ts`) is gated on
@@ -109,18 +111,23 @@ export function applySenderKindDemotionFloor(
   const reason = senderKind ? senderKindDemotionReason(context, senderKind) : null;
 
   // Group-envelope bar (#1187): an exact `GROUP_LOCALS` address holds no reply
-  // lane, with or without a confident projection. The parser types these
-  // `unknown` (a bare local cannot prove a name), so the signal path above
-  // never fires for them — this envelope read is the floor that does. Scoped
+  // lane, with or without a confident projection. The parser types exact
+  // members `unknown` — an exact group envelope beats a display name there
+  // too — so the signal path above never fires for them; this envelope read
+  // is the floor that does, and it demotes by address alone (a `person`-typed
+  // sender on an exact group address demotes just the same). Scoped
   // to the single-homed {@link isExactGroupLocal} set: role mailboxes outside
   // it (`support@`, `billing@`, `hello@`, `contact@`, `info@`) can legitimately
   // ask for a reply and stay model-decided. That narrows AC2 to the measured
   // set on purpose: the 16-lane prod sample shows zero rows from those
   // senders, so demoting them would trade a measured miss for unmeasured false
   // demotions. Runs after the ownership veto above: an explicit model read
-  // that the mail is directed at the user beats the envelope. Residue: bare
-  // `dev@` exact-matches (a person named Dev is possible) — the measured
-  // evidence does not answer it, and the set membership stands.
+  // that the mail is directed at the user beats the envelope. Known exposure:
+  // the staffed exact members (`sales@`, `hr@`, `finance@`, `people@`, `ops@`,
+  // `dev@`) demote here too, display-named or bare — a vendor's staffed
+  // `sales@` reply that asks a question loses the reply lane. The measured
+  // evidence does not answer whether that cost is acceptable, and the set
+  // membership stands.
   if (
     (classification.category === "awaiting_reply" || classification.category === "follow_up") &&
     isGroupEnvelopeSender(context.sender)
