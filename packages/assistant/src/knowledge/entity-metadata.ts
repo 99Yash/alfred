@@ -75,6 +75,13 @@ export const personEntityMetadataSchema = z.object({
    * than failing the whole bag, so `primaryAddress` and the aggregates survive.
    */
   listEvidence: z.array(listEvidenceCodeSchema).optional().catch(undefined),
+  /**
+   * Sticky: true once any writer run has seen the user send mail TO this
+   * contact (#1198). An overwrite scan resets `correspondence.outbound` to its
+   * capped window, so the kind bar's list-evidence withhold reads this flag,
+   * which the writer never clears, instead of the per-run count alone.
+   */
+  userHasWrittenTo: z.boolean().optional().catch(undefined),
 });
 
 export type PersonEntityMetadata = z.infer<typeof personEntityMetadataSchema>;

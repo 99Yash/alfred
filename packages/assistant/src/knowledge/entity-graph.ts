@@ -226,7 +226,8 @@ function mergeContactMetadata(
 
 /**
  * The legacy kind of ONE contact from values its row stores: the canonical
- * name, plus the list-header evidence and outbound count in the metadata bag
+ * name, plus the list-header evidence and sticky written-to flag (or outbound
+ * count, for a row written before the flag) in the metadata bag
  * (#1198). Every contact-kind reader goes through here — the live writer, the
  * address-keyed dry preview and the row-keyed purge preview — so the bag is
  * parsed one way and the three cannot disagree about a row.
@@ -242,7 +243,8 @@ function classifyStoredContact(
     address,
     canonicalName,
     listEvidence: parsed.listEvidence ?? [],
-    userHasWrittenTo: (parsed.correspondence?.outbound ?? 0) > 0,
+    userHasWrittenTo:
+      parsed.userHasWrittenTo === true || (parsed.correspondence?.outbound ?? 0) > 0,
   });
 }
 
