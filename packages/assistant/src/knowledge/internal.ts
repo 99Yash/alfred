@@ -23,17 +23,21 @@
  */
 export { backfillTeamGraph } from "./team-graph";
 
-// The ONE definition of a mail contact's kind — shared by the live writer
-// (`team-graph.ts`) and the committed cleanup backfill, so "what is a person"
-// cannot drift into a second copy (#1108, the #493 precedent).
-export { classifyContactKind } from "./entity-kind-classifier";
+// The row-keyed preview door for a mail contact's kind — used by the
+// committed cleanup backfill, which already holds the stored rows it is about
+// to re-kind, so an alias shared by two rows cannot borrow a sibling's stored
+// name. The address-keyed `previewContactKinds` is NOT published here: its one
+// caller (`team-graph.ts`) imports it relatively and no script needs it, so
+// publishing it would leave the next tooling script choosing between two
+// doors where the wrong choice is the exact bug round 0 probed. The
+// classifier behind both stays inside the knowledge module: `entity-graph.ts`
+// is its only importer.
+export { previewStoredContactKinds, type ContactKind } from "./entity-graph";
 
 // The ONE definition of the `entities` unique-index clash a re-kind can hit —
 // shared by the live writer and the committed cleanup backfill, so the "keep
 // the current kind, never merge two contacts" policy has a single home.
 export { reKindWouldCollide } from "./entity-graph";
-
-export { parsePersonEntityMetadata } from "./entity-metadata";
 
 export {
   gateDocumentFact,

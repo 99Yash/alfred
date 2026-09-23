@@ -1,9 +1,16 @@
 import { db, type DbTransaction } from "@alfred/db";
 import { entities, entityInsertSchema, type Entity, type NewEntity } from "@alfred/db/schemas";
-import { jsonRecordSchema, type JsonObject } from "@alfred/contracts";
+import {
+  canonicalizeIdentityValue,
+  isNonEmptyString,
+  jsonRecordSchema,
+  parseEmailAddress,
+  type JsonObject,
+} from "@alfred/contracts";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { classifyContactKind } from "./entity-kind-classifier";
+import { parsePersonEntityMetadata } from "./entity-metadata";
 
 /**
  * `entities.kind` values — the 6-member ADR-0012 vocabulary. The text column is
@@ -28,8 +35,14 @@ const aliasesSchema = z.array(z.string());
 /**
  * The two kinds the mail-contact writer owns. The alias match spans both so a
  * re-classified contact is UPDATED in place rather than duplicated (#1108).
+ *
+ * The SINGLE definition: the kind union derives from this tuple, never
+ * restated, so narrowing the writer's match fails the classifier's `other`
+ * arms at compile time instead of orphaning a stored row.
  */
-const CONTACT_KINDS: readonly EntityKind[] = ["person", "other"];
+const CONTACT_KINDS = ["person", "other"] as const satisfies readonly EntityKind[];
+
+export type ContactKind = (typeof CONTACT_KINDS)[number];
 
 export const upsertEntityArgsSchema = entityInsertSchema
   .pick({ userId: true, kind: true, canonicalName: true, aliases: true, metadata: true })
@@ -154,7 +167,7 @@ export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): 
 
 export interface UpsertContactByAliasArgs {
   userId: string;
-  /** The email alias the row is matched on (lowercased before matching). */
+  /** The email alias the row is matched on (normalized with `canonicalizeIdentityValue` before matching). */
   address: string;
   /** Aliases to union onto the row — typically just `[address]`. */
   aliases: string[];
@@ -199,7 +212,7 @@ export async function upsertContactByAlias(
   args: UpsertContactByAliasArgs,
   tx?: DbTransaction,
 ): Promise<EntityRow> {
-  const address = args.address.trim().toLowerCase();
+  const address = canonicalizeIdentityValue("email", args.address);
 
   if (!address) {
     throw new Error("[memory.entities] upsertContactByAlias requires a non-empty address");
@@ -209,25 +222,16 @@ export async function upsertContactByAlias(
     const [existing] = await ex
       .select()
       .from(entities)
-      .where(
-        and(
-          eq(entities.userId, args.userId),
-          inArray(entities.kind, CONTACT_KINDS),
-          sql`EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
-            WHERE lower(alias) = ${address}
-          )`,
-        ),
-      )
+      .where(storedContactMatch(args.userId, [address]))
       .limit(1);
 
-    // One classification per write, from the value this row stores.
-    const kind = entityKindSchema.parse(
-      classifyContactKind({
-        address,
-        canonicalName: existing?.canonicalName ?? args.canonicalNameIfNew,
-      }),
-    );
+    // One classification per write, from the value this row stores. Already a
+    // ContactKind at the call site — no boundary parse: the classifier, not a
+    // tier-2 guard, owns the range.
+    const kind = classifyContactKind({
+      address,
+      canonicalName: existing?.canonicalName ?? args.canonicalNameIfNew,
+    });
 
     if (!existing) {
       const [row] = await ex
@@ -291,7 +295,7 @@ export interface ReKindCollisionArgs {
  * keep the row's current kind and report it. A stale kind is recoverable; a
  * dropped aggregate is not.
  *
- * ONE definition, for the same reason {@link classifyContactKind} is one: the
+ * ONE definition, for the same reason {@link previewContactKinds} is one: the
  * live writer below and the committed purge backfill re-kind the same rows
  * under the same index, and a second copy of this rule would drift (#1108,
  * the #493 precedent).
@@ -332,45 +336,160 @@ async function resolveKindForUpdate(
 }
 
 /**
- * The canonical name every stored contact row holds, keyed by its lowercased
- * email alias.
+ * The alias-`EXISTS` predicate every contact read shares — the live writer's
+ * match and the preview's stored read below. ONE home: a second copy drifted
+ * in beside the writer's, so the writer, the purge backfill and a dry run now
+ * meet the same stored rows by construction.
+ */
+function storedContactMatch(userId: string, normalizedAddresses: readonly string[]) {
+  return and(
+    eq(entities.userId, userId),
+    inArray(entities.kind, [...CONTACT_KINDS]),
+    sql`EXISTS (
+      SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
+      WHERE ${inArray(sql`lower(alias)`, [...normalizedAddresses])}
+    )`,
+  );
+}
+
+/**
+ * The ONE address-keyed preview door for a mail contact's kind: the stored
+ * canonical name each existing row holds, classified the way the live writer
+ * classifies it.
+ *
+ * Key = address as written; value = display name for a not-yet-stored contact
+ * (`undefined` = bare address). Keys are normalized once, inside, with
+ * `canonicalizeIdentityValue` — the same helper the writer matches on — and the
+ * stored read runs in the caller's `tx` when one is passed. The returned map is
+ * keyed by the caller's OWN candidate string, so `kinds.get(address)` is a
+ * hit by construction and no caller re-derives a normalized key. A candidate
+ * that does not normalize is absent from the result: the caller leaves it
+ * alone rather than defaulting toward a write.
  *
  * A DRY backfill persists nothing, so it has no written row to read the kind
  * back from. It still has to report the kind a real write WOULD produce, and
- * {@link classifyContactKind} is defined over the STORED canonical name — the
- * value an existing row keeps and no writer ever updates. Without this read a
- * preview classifies the display name this scan's headers happened to carry,
- * which is exactly the per-run value the kind bar was moved off.
+ * the kind bar is defined over the STORED canonical name — the value an
+ * existing row keeps and no writer ever updates. Without this read a preview
+ * classifies the display name this scan's headers happened to carry, which is
+ * exactly the per-run value the kind bar was moved off.
+ *
+ * A caller that already HOLDS the stored row (the committed purge backfill)
+ * does not belong here: an address-keyed second read can return a SIBLING
+ * row's name for a shared alias. That caller uses {@link
+ * previewStoredContactKinds}, which classifies each row's own name.
  */
-export async function readStoredContactNames(
+export async function previewContactKinds(
   userId: string,
-  addresses: readonly string[],
-): Promise<Map<string, string>> {
-  const wanted = [...new Set(addresses.map((a) => a.trim().toLowerCase()).filter(Boolean))];
+  candidates: ReadonlyMap<string, string | undefined>,
+  tx?: DbTransaction,
+): Promise<Map<string, ContactKind>> {
+  const wanted = new Map<string, string | undefined>();
+  const keyOf = new Map<string, string>();
 
-  const names = new Map<string, string>();
+  for (const [key, displayName] of candidates) {
+    const normalized = canonicalizeIdentityValue("email", key);
 
-  if (wanted.length === 0) return names;
+    if (!normalized) continue;
 
-  const rows = await db()
+    if (!keyOf.has(key)) keyOf.set(key, normalized);
+
+    if (!wanted.has(normalized)) wanted.set(normalized, displayName);
+  }
+
+  const kinds = new Map<string, ContactKind>();
+
+  if (wanted.size === 0) return kinds;
+
+  const rows = await (tx ?? db())
     .select({ canonicalName: entities.canonicalName, aliases: entities.aliases })
     .from(entities)
-    .where(
-      and(
-        eq(entities.userId, userId),
-        inArray(entities.kind, CONTACT_KINDS),
-        sql`EXISTS (
-          SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
-          WHERE ${inArray(sql`lower(alias)`, wanted)}
-        )`,
-      ),
-    );
+    .where(storedContactMatch(userId, [...wanted.keys()]));
+
+  const stored = new Map<string, string>();
 
   for (const row of rows) {
     for (const alias of aliasesSchema.parse(row.aliases ?? [])) {
-      names.set(alias.trim().toLowerCase(), row.canonicalName);
+      stored.set(canonicalizeIdentityValue("email", alias), row.canonicalName);
     }
   }
 
-  return names;
+  for (const [key, normalized] of keyOf) {
+    kinds.set(
+      key,
+      classifyContactKind({
+        address: normalized,
+        canonicalName: stored.get(normalized) ?? wanted.get(normalized) ?? normalized,
+      }),
+    );
+  }
+
+  return kinds;
+}
+
+/**
+ * The primary address of a STORED contact row: the metadata bag first, then
+ * any email alias. Lenient by design — `aliases` is jsonb, so non-string
+ * members are skipped, never strictly parsed: a strict parse would throw and
+ * kill the whole committed run over one malformed row. The address-keyed
+ * preview above already owns the strict stored-read path; this door
+ * classifies rows the caller holds.
+ */
+function storedContactAddress(metadata: unknown, aliasesRaw: unknown): string | null {
+  const fromMetadata = parseEmailAddress(
+    parsePersonEntityMetadata(metadata).primaryAddress ?? null,
+  );
+
+  if (fromMetadata) return fromMetadata;
+
+  if (Array.isArray(aliasesRaw)) {
+    for (const alias of aliasesRaw) {
+      if (!isNonEmptyString(alias)) continue;
+
+      const address = parseEmailAddress(alias);
+
+      if (address) return address;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * The row-keyed preview door beside {@link previewContactKinds}: for a caller
+ * that already holds the stored rows it is about to re-kind (the committed
+ * purge backfill), where a second address-keyed read would be a NEW query over
+ * the same rows and could answer with a sibling's stored name wherever two
+ * rows share one alias.
+ *
+ * Each row classifies its OWN stored `canonicalName` — the same input the live
+ * writer classifies for that row — so a wrapped alias, a metadata-led address,
+ * and an alias-sharing pair each read their own name. Pure: no stored read,
+ * no transaction. Keyed by row id, so the caller never derives a key and a
+ * row with no derivable address is absent from the map: the caller leaves it
+ * alone rather than defaulting toward a write.
+ *
+ * Takes the stored ROWS, not a derived address: the parameter names the
+ * fields the door reads (`Pick<Entity, "id" | "canonicalName" | "aliases" |
+ * "metadata">`), so this campaign's known wrong caller — a
+ * `ContactAggregate`, which holds neither `aliases` nor `metadata` — fails
+ * `check-types`. Structural residue remains (named, not closed): any object
+ * with those four fields compiles, so the `Stored` in the name asserts a
+ * provenance the type carries nothing of.
+ */
+export function previewStoredContactKinds(
+  rows: ReadonlyArray<Pick<Entity, "id" | "canonicalName" | "aliases" | "metadata">>,
+): Map<string, ContactKind> {
+  const kinds = new Map<string, ContactKind>();
+
+  // Row ids are unique by primary key out of a single select, so no dedup
+  // guard: one set per row.
+  for (const row of rows) {
+    const address = storedContactAddress(row.metadata, row.aliases);
+
+    if (!address) continue;
+
+    kinds.set(row.id, classifyContactKind({ address, canonicalName: row.canonicalName }));
+  }
+
+  return kinds;
 }

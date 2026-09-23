@@ -14,17 +14,20 @@
  *      AND whose `from` entity holds an email alias whose domain equals the
  *      `to` entity's canonical name. That is "the edge restates the address"
  *      stated in code, so a future GROUNDED `works_at` survives this script.
- *   B. KINDS. Re-run `classifyContactKind` — the SAME function the live writer
- *      uses, so "what is a person" has one definition, per the #493 precedent —
- *      over every `person` row and UPDATE the kind in place when it disagrees.
- *      In place, so the row id, its aliases and its correspondence aggregate
- *      all survive: ADR-0067 types a non-human node, it never drops it.
+ *   B. KINDS. Re-kind every `person` row through `previewStoredContactKinds` —
+ *      each row classifies its OWN stored `canonicalName` through the SAME
+ *      `classifyContactKind` bar the live writer applies (and the dry run
+ *      previews through `previewContactKinds`), so "what is a person" has one
+ *      definition, per the #493 precedent — and UPDATE the kind in place when
+ *      it disagrees. In place, so the row id, its aliases and its
+ *      correspondence aggregate all survive: ADR-0067 types a non-human node,
+ *      it never drops it.
  *
  * `entities` is unique on `(user_id, kind, canonical_name)`, so a re-kind can
  * collide with a row already at the target coordinate. Such a row is REPORTED
  * and left alone — this script never merges two contacts. The predicate is
  * `reKindWouldCollide`, the one the live writer applies, imported through the
- * same door as the classifier so the policy has a single home.
+ * same door as the preview so the policy has a single home.
  *
  * Bundled by tsdown (`noExternal: @alfred/*`, registered in `tsdown.config.ts`)
  * so it runs on prod with plain `node dist/...`.
@@ -44,18 +47,15 @@
  *   node dist/scripts/backfills/backfill-purge-graph-junk-committed.js --emails=a@x.com --commit
  */
 import {
-  classifyContactKind,
-  parsePersonEntityMetadata,
+  previewStoredContactKinds,
   reKindWouldCollide,
+  type ContactKind,
 } from "@alfred/assistant/knowledge/internal";
 import { isNonEmptyString, parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
 import { entities, entityRelations, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { closeScriptResources } from "../script-runtime";
-
-/** The legacy `entities.kind` vocabulary, derived from the one classifier that answers it. */
-type ContactKind = ReturnType<typeof classifyContactKind>;
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -101,22 +101,6 @@ function aliasDomains(raw: unknown): Set<string> {
   }
 
   return domains;
-}
-
-/** The contact's primary address: the metadata bag first, then any email alias. */
-function contactAddress(metadata: unknown, aliasesRaw: unknown): string | null {
-  const stored = parsePersonEntityMetadata(metadata).primaryAddress;
-  const fromMetadata = parseEmailAddress(stored ?? null);
-
-  if (fromMetadata) return fromMetadata;
-
-  for (const alias of readAliases(aliasesRaw)) {
-    const address = parseEmailAddress(alias);
-
-    if (address) return address;
-  }
-
-  return null;
 }
 
 /**
@@ -221,18 +205,25 @@ async function rekindContacts(userId: string): Promise<void> {
   const demotions: Array<{ id: string; canonicalName: string; kind: ContactKind }> = [];
   let unclassifiable = 0;
 
-  for (const row of rows) {
-    const address = contactAddress(row.metadata, row.aliases);
+  // Each row classifies its OWN stored canonical name — the same input the
+  // live writer classifies for that row — through the row-keyed door, which
+  // derives each row's own address from its metadata/aliases. A wrapped
+  // alias, a metadata-led address, or an alias shared with another row
+  // cannot borrow a sibling's name. Keyed by row id: no caller-side key
+  // derivation, and a row with no derivable address is absent from the map,
+  // so it falls into `unclassifiable` below rather than defaulting toward a
+  // write.
+  const kinds = previewStoredContactKinds(rows);
 
-    if (!address) {
+  for (const row of rows) {
+    // Absent only when the row yields no address (no metadata address and no
+    // email alias): leave it alone rather than defaulting toward a write.
+    const kind = kinds.get(row.id);
+
+    if (!kind) {
       unclassifiable += 1;
       continue;
     }
-
-    // The SAME input the live writer classifies: the stored canonical name.
-    // Neither side re-derives a display name, so the script and the next
-    // capture run cannot disagree about this row.
-    const kind = classifyContactKind({ address, canonicalName: row.canonicalName });
 
     if (kind !== "person") demotions.push({ id: row.id, canonicalName: row.canonicalName, kind });
   }
