@@ -70,7 +70,9 @@ connection, not the curated Vercel grant. The pull folds into the same
 by the store's recency rule. A deployment belongs to a target only when its own
 Git metadata names the repo, the branch, and the environment. The MCP output
 shapes follow Vercel's REST objects and are not yet measured on the live wire.
-An unmeasured shape reads as unverified and leaves the loop live.
+An unmeasured shape reads as unverified and leaves the loop live. A push row
+carries no provider event time, so any pull that carries a time supersedes it,
+no matter how old the pull is.
 
 **Open.** Backfill horizon over `webhook_events` (how far back to replay). Whether `check_suite` is its own object kind or an attribute of the PR. Cross-source dedup convergence policy (when a ClickUp task and a PR are "the same loop" — the binding constraint ADR-0052(B) named). v1 loop-opener scope = GitHub Actions CI-failure emails; Railway build-failure added if it recurs.
 

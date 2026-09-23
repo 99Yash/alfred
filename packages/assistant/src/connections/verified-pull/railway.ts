@@ -14,6 +14,7 @@ import {
   type VerifiedPullReading,
   type VerifiedPullReceipt,
   type VerifiedPullStatus,
+  verifiedPullVerdict,
 } from "./driver";
 
 /**
@@ -454,14 +455,7 @@ export const railwayVerifiedPullProvider: VerifiedPullProvider<
       ? `${result.names.service} (${result.names.environment})`
       : result.targetId || "unknown target";
 
-    const word =
-      result.status === "success"
-        ? "succeeded"
-        : result.status === "failure"
-          ? "failed"
-          : result.status === "pending"
-            ? "building"
-            : "unverified";
+    const { word, ...verdict } = verifiedPullVerdict(result);
 
     return {
       id: `railway-pull:${result.targetId || "unknown"}:${result.attemptId ?? "unverified"}`,
@@ -470,17 +464,7 @@ export const railwayVerifiedPullProvider: VerifiedPullProvider<
       activityCategory: "deploy",
       providerKind: "railway.deployment_status",
       title: `Railway deployment ${word}: ${where}`,
-      status:
-        result.status === "success"
-          ? "succeeded"
-          : result.status === "failure"
-            ? "failed"
-            : result.status === "pending"
-              ? "open"
-              : "needs_attention",
-      severity: result.status === "failure" ? "warning" : "info",
-      occurredAt: result.occurredAt ?? new Date().toISOString(),
-      ...(result.url && result.url.startsWith("https://") ? { url: result.url } : {}),
+      ...verdict,
     };
   },
 };
