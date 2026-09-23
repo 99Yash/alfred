@@ -229,9 +229,11 @@ const STRONG_SERVICE_LOCAL = new Set<string>([
 /** Locals that *might* be services but aren't on the unknown domain. */
 const WEAK_SERVICE_LOCAL = new Set<string>([
   "info",
-  // `team` is NOT here: its home is GROUP_LOCALS (see isExactGroupLocal), so a
-  // bare `team@` falls through to the group step below instead of stopping
-  // here. Same `unknown` verdict either way; one home, not two (#1187).
+  // `team` is NOT here: its home is GROUP_LOCALS (see isExactGroupLocal). An
+  // exact group envelope beats a display name in both readers — the
+  // `classifyFromKind` exact test below and the sender-kind floor's address
+  // bar — so `Matt Pocock <team@…>` reads `unknown` in the parser and demotes
+  // in the floor. One home, not two (#1187).
   "hello",
   "support",
   "billing",
@@ -328,19 +330,23 @@ function classifyFromKind(parsed: ParsedFrom | null): SenderKind {
   // `unknown` contract and `docs/reference/triage.md` (#1187).
   if (WEAK_SERVICE_LOCAL.has(localPart)) return "unknown";
 
-  // A person-like display name rescues the address BEFORE the group test — the
-  // same precedence as `classifyEntityKind`, which reads `display:person_like`
-  // first. Triage must not be stricter than the set's owner: `Dev Patel
-  // <dev.patel@acme.io>` is a person, not an envelope.
-  if (isLikelyPersonDisplayName(displayName)) return "person";
-
-  // Group envelopes: an EXACT whole-local GROUP_LOCALS member (`team@`,
-  // `all@`, …) is never a person. Exact on purpose — the infix form demoted
-  // real human shapes (`dev.patel@`, `dev.7@`, `hr.priya@`, `sam.all@`,
-  // `jane.team@`, `ops-lead@`), which read `person` here via the display name
-  // or the `first.last` shape. The set is single-homed as
+  // Group envelopes first: an EXACT whole-local GROUP_LOCALS member
+  // (`team@`, `all@`, …) is never a person, even behind a person-like display
+  // name — `Matt Pocock <team@acme.io>` is still the team envelope. An exact
+  // group envelope beats a display name in both readers: here in the parser
+  // and in the sender-kind floor, which demotes by address alone. Exact on
+  // purpose — the infix form below keeps the display-first order, because it
+  // demoted real human shapes (`dev.patel@`, `dev.7@`, `hr.priya@`, `sam.all@`,
+  // `jane.team@`, `ops-lead@`). The set is single-homed as
   // {@link isExactGroupLocal}; the sender-kind floor demotes their reply lanes.
   if (isExactGroupLocal(localPart)) return "unknown";
+
+  // A person-like display name rescues the address — but only past the exact
+  // group test above. The same precedence as `classifyEntityKind`, which reads
+  // `display:person_like` first: `Dev Patel <dev.patel@acme.io>` is a person,
+  // not an envelope. Triage must not be stricter than the set's owner on these
+  // infix shapes.
+  if (isLikelyPersonDisplayName(displayName)) return "person";
 
   if (FIRST_LAST_LOCAL_RE.test(localPart)) return "person";
 

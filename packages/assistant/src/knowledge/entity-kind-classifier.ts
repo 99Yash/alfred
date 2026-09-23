@@ -379,9 +379,11 @@ function isServiceLocal(localPart: string): boolean {
  * `dev.patel@`, `hr.priya@`, `sam.all@`, `jane.team@`). The classifier answers
  * `unknown` at `WEAK_CONFIDENCE` with evidence `email:local:group_weak` and
  * best-guess `"group"` — it never answers `group` here — and it reads a
- * person-like display name BEFORE this test, which the triage parser mirrors.
- * The triage reply-lane bar does NOT use this infix form; it uses
- * {@link isExactGroupLocal}. Pure: a lowercased local part in, a boolean out.
+ * person-like display name BEFORE this test. The triage parser mirrors that
+ * display-first order for infix shapes only; an EXACT whole-local member beats
+ * a display name there (see `classifyFromKind`). The triage reply-lane bar
+ * does NOT use this infix form; it uses {@link isExactGroupLocal}. Pure: a
+ * lowercased local part in, a boolean out.
  */
 export function isGroupLocal(localPart: string): boolean {
   return GROUP_LOCALS.has(localPart) || GROUP_LOCAL_RE.test(localPart);
