@@ -413,7 +413,7 @@ export async function backfillTeamGraph(
   // `person` when a re-kind would collide), and neither side orders a
   // shared-alias match, so the preview's count can differ from what a commit
   // writes. `nonPersonContacts` is a reported number, never a write.
-  const kinds = await previewContactKinds(
+  const { kinds, unclassifiable } = await previewContactKinds(
     userId,
     new Map<string, string | undefined>(
       [...contacts.values()].map((agg): [string, string | undefined] => [
@@ -422,6 +422,10 @@ export async function backfillTeamGraph(
       ]),
     ),
   );
+
+  // The dry report has no unclassifiable count: absence is never counted as
+  // a non-person, so the list is named here and left uncounted.
+  void unclassifiable;
 
   for (const agg of contacts.values()) {
     // Keyed by the caller's own address string: a hit by construction. An
