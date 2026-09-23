@@ -17,7 +17,7 @@ import {
   readRailwayDeploymentStatus,
   readRailwayMcpReadiness,
   type RailwayPullTarget,
-} from "@alfred/assistant/briefings/railway-pull";
+} from "@alfred/assistant/connections/verified-pull";
 import {
   builtInProviderForEndpoint,
   getMcpConnectionManager,
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
       console.log("parsed status: null (read failed, timed out, or unknown state)");
     } else {
       console.log(
-        `parsed status: status=${parsed.status} deployment=${parsed.deploymentId} providerEventTime=${parsed.providerEventTime?.toISOString() ?? "null"} url=${parsed.url ?? "null"}`,
+        `parsed status: status=${parsed.status} deployment=${parsed.attemptId} providerEventTime=${parsed.providerEventTime?.toISOString() ?? "null"} url=${parsed.url ?? "null"}`,
       );
     }
   }

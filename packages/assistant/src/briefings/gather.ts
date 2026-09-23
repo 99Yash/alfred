@@ -50,6 +50,7 @@ import {
   type ObjectState,
   type ReconcileCandidates,
 } from "@alfred/assistant/connections";
+import { gatherVerifiedPulls } from "@alfred/assistant/connections/verified-pull";
 import { getPreference } from "@alfred/assistant/settings";
 import { findSenderSuppression, listActiveSuppressionInstructions } from "../knowledge";
 import {
@@ -60,7 +61,6 @@ import {
   type LocalDateKey,
 } from "@alfred/assistant/time";
 import { scorePriorityEmailDemand } from "./read";
-import { gatherRailwayVerifiedPull } from "./railway-pull";
 import { shortenFrom } from "./sender";
 
 /**
@@ -128,7 +128,7 @@ export interface BriefingDigest {
   suppressedCounts: Record<SuppressedCategory, number>;
   /**
    * Minimal trigger fields for every triaged row in the window, including
-   * `fyi`-suppressed status noise. The Railway verified-pull trigger reads
+   * `fyi`-suppressed status noise. Every verified-pull trigger reads
    * this — never `buckets` — so a failure notice triaged as `fyi` still
    * triggers a live read.
    */
@@ -558,13 +558,14 @@ export async function gatherBriefingWithSuppressionAudit(
     }));
   }
 
-  // Verified pull (#1094): a triaged deployment failure from a connected
-  // provider triggers a live status read at gather time. Runs after the
+  // Verified pull (#1094, #1192): a triaged deployment failure from a
+  // connected provider triggers a live status read at gather time, once per
+  // registered pull provider (`connections/verified-pull`). Runs after the
   // digest resolves (the failure-mail trigger reads every triaged row,
   // including `fyi`-suppressed status noise) and appends deployment verdict
   // lines beside the receipt-sourced activity — never through the email
   // slice, which only carries triage buckets.
-  const railwayPull = await gatherRailwayVerifiedPull({
+  const verifiedPull = await gatherVerifiedPulls({
     userId: args.userId,
     digestItems: digest.triggerItems,
   });
@@ -578,7 +579,7 @@ export async function gatherBriefingWithSuppressionAudit(
     userId: args.userId,
     windowStart: activityStart,
     windowEnd,
-    activityCount: integrationActivity.length + railwayPull.length,
+    activityCount: integrationActivity.length + verifiedPull.length,
   });
 
   // Attention-aware email demand over the FINALIZED priority buckets (#259 /
@@ -608,7 +609,7 @@ export async function gatherBriefingWithSuppressionAudit(
         categories,
       },
       calendar,
-      integration_activity: { items: [...integrationActivity, ...railwayPull] },
+      integration_activity: { items: [...integrationActivity, ...verifiedPull] },
       weather,
       day_of_week: dayContribution(args.briefingDate),
       day_shape: {

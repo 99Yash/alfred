@@ -118,8 +118,9 @@ export function deliveryInstantOf(column: SQLWrapper): SQL<DeliveryInstant | nul
 /**
  * Now, from this process's clock, so the instant has only milliseconds.
  *
- * `railway-pull.ts` mints a receipt that has no row, so its delivery instant is
- * honestly millisecond-true with `000` in the microsecond digits. Anything that
+ * The verified-pull driver (`verified-pull/driver.ts`) mints a receipt that has
+ * no row, so its delivery instant is honestly millisecond-true with `000` in
+ * the microsecond digits. Anything that
  * HAS a receipt row reads {@link receiptDeliveryInstant} or
  * {@link deliveryInstantOf} instead, and keeps all six.
  *
