@@ -429,7 +429,7 @@ export async function backfillTeamGraph(
 
   for (const agg of contacts.values()) {
     // Keyed by the caller's own address string: a hit by construction. An
-    // absent key (an address that does not normalize) leaves the contact
+    // absent key (a key empty after trim) leaves the contact
     // alone — it is never counted as a non-person.
     const kind = kinds.get(agg.address);
 
