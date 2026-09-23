@@ -101,15 +101,15 @@ describe("buildSdkToolSet caller/interaction projection", () => {
   // could never climb to a tool it needs.
   const kernelNames = () => listKernelTools().map((t) => t.name);
 
-  test("live chat boss projects all nine kernel tools", () => {
+  test("live chat boss projects all ten kernel tools", () => {
     const chat = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "live_chat" }),
     );
 
-    assert.equal(chat.length, 9, `[${[...chat].sort().join(", ")}]`);
+    assert.equal(chat.length, 10, `[${[...chat].sort().join(", ")}]`);
   });
 
-  test("a background brief drops read_chat_history (requiresLiveChat) → eight", () => {
+  test("a background brief drops read_chat_history and ask_user (requiresLiveChat) → eight", () => {
     const brief = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "background" }),
     );

@@ -1890,8 +1890,8 @@ export const updateArtifactInput = coerceJsonArrayFields(
 export const ASK_USER_LIMITS = {
   /** Questions per call. */
   questions: { min: 1, max: 4 },
-  /** Options per question. */
-  options: { min: 2, max: 6 },
+  /** Options per question. Past four, the choice is too open for a card (#1019). */
+  options: { min: 2, max: 4 },
   /**
    * Characters of free text per answer. The card reads it too: it caps the
    * textarea at this number, because the draft is re-parsed against
@@ -1940,7 +1940,7 @@ export const askUserQuestionSchema = z
       .min(ASK_USER_LIMITS.options.min)
       .max(ASK_USER_LIMITS.options.max)
       .describe(
-        `${ASK_USER_LIMITS.options.min} to ${ASK_USER_LIMITS.options.max} distinct choices. The card always adds a free-text answer, so never add an 'Other' option.`,
+        `${ASK_USER_LIMITS.options.min} to ${ASK_USER_LIMITS.options.max} distinct choices, the recommended one first.`,
       ),
     multiSelect: z
       .boolean()
@@ -2001,7 +2001,7 @@ const askUserFields = z.object({
     .min(ASK_USER_LIMITS.questions.min)
     .max(ASK_USER_LIMITS.questions.max)
     .describe(
-      `${ASK_USER_LIMITS.questions.min} to ${ASK_USER_LIMITS.questions.max} questions the user answers before the turn continues. Ask everything you need in ONE call.`,
+      `${ASK_USER_LIMITS.questions.min} to ${ASK_USER_LIMITS.questions.max} questions the user answers before the turn continues.`,
     ),
 });
 
