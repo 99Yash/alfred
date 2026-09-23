@@ -57,23 +57,26 @@ node apps/server/dist/scripts/backfills/backfill-gmail-observations-committed.js
 ## Provider webhook subscriptions
 
 The raw receipt tier (ADR-0097 item 9) keeps every verified delivery that an
-active credential owns. It can keep only what the provider sends, so each
-provider console is set to send every event resource it offers. A future gap
-is a configuration change, not a code change. Check this list first.
+active credential owns. It can keep only what the provider sends, so check
+this list first when a kind stops arriving. GitHub is the exception to
+send-everything: the App is subscribed only to the events Alfred consumes
+(#1210), so a gap there is a subscription choice, not a code change. A future
+gap on any other provider is a configuration change, not a code change.
 
 Rules for the GitHub App page: do not change the callback URLs, and keep
 "Redirect on update" on. A callback URL swap saves silently as a no-op.
 
-### GitHub App `alfred-99yash` (set 2026-09-06)
+### GitHub App `alfred-99yash` (pruned 2026-09-23, was all 29 on 2026-09-06)
 
-Subscribed to all 29 events that the current repository permissions offer:
+Subscribed only to the five events the `github` entry names
+(`packages/contracts/src/event-triggers.ts`):
 
-`commit_comment`, `create`, `delete`, `fork`, `gollum`, `installation_target`,
-`issue_comment`, `issue_dependencies`, `issues`, `label`, `merge_queue_entry`,
-`meta`, `milestone`, `public`, `pull_request`, `pull_request_review`,
-`pull_request_review_comment`, `pull_request_review_thread`, `push`, `release`,
-`repository`, `repository_dispatch`, `security_advisory`, `star`, `sub_issues`,
-`watch`, `workflow_dispatch`, `workflow_job`, `workflow_run`.
+`issues`, `pull_request`, `pull_request_review`, `push`, `repository_dispatch`.
+
+`check_suite` is typed but not subscribable: it needs the Checks permission
+the App does not hold, so no `check_suite` deliveries arrive (#1167 notes the
+empty lane). `meta` and `installation_target` are deliberately unsubscribed;
+ownerless GitHub deliveries drop silently since #1209.
 
 An event that needs a permission the App does not hold is not offered on the
 page. Adding a permission asks the installation to approve it again.
