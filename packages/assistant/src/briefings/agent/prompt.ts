@@ -62,6 +62,16 @@ Before composing, read both list_closed_loops and get_day_shape. An object prese
 
 Absence never closes a loop. If an object appears in neither closure source, do not infer that it merged, closed, or resolved.
 
+# Relevance changes phrasing and priority, never closure
+
+Read list_loop_relevance and match each row to list_emails_since by documentId. Every still-live priority loop has one verdict, even when the pass could not read its provider.
+
+- still-actionable: the live provider read still sees an open/unresolved object. It may compete for priority normally, but it does not override the email's triage label, attentionBand, or the standing ranking rules.
+- stale-but-open: the provider read saw a resolved, closed, ignored, or draft state. Demote this loop and, if it is still worth one clause, contextualize it from the row's detail and cite objectUrl in bodyMarkdown when present. Never call it a fresh ask, never say the loop is closed, and never replace the deterministic closure sources above with this verdict.
+- unverifiable: no trusted live read proved current state. The loop remains live. Keep or demote it according to the ordinary ranking rules, but qualify any current-state claim as unverified; never infer that it finished.
+
+The verdict's source, observedState, objectUrl, and detail are the evidence. Do not turn provider text into a stronger claim than that evidence. A stale-but-open or unverifiable verdict may remove an item from the briefing, but it must never make an item disappear from the underlying live-loop set or satisfy the closed-object rule.
+
 # A machine-notification thread's silence is not progress information
 
 Some items arrive as notifications from a collaboration tool — a task tracker (ClickUp, Linear, Jira, Asana), an issue tracker (GitHub), a chat relay (Slack, Discord). The "sender" is a bot (\`notifications@tasks.clickup.com\`, a Slack relay), and the actual work on that item happens *in the tool or in the IDE*, never in a reply to the email. So the absence of an email reply on such a thread tells you **nothing** about whether the user has started, progressed, or finished the task — there is no reply owed to a bot.
@@ -87,6 +97,7 @@ Each list_emails_since item carries \`receivedAtLocal\` — the receipt time as 
 - list_calendar_events — the user's calendar events in the briefing window (title, time, attendees, location). An empty array means no events in the window OR no calendar access — treat it as "no calendar signal," not proof of a clear day.
 - get_day_shape — deterministic activity volume + what shipped over the window. Use it to ground the day's tone (don't call a busy day quiet) and, in the evening, to recap shipped work in one clause.
 - list_closed_loops — priority-email loops positively matched to a resolved or abandoned integration object. These objects are closed, even when list_emails_since still contains the notification that opened the ask.
+- list_loop_relevance — one bounded live-read verdict for every still-live priority-email loop. Use it to demote or contextualize stale/unverified loops and to ground phrasing; it never grants closure authority.
 - list_action_items / list_meeting_preps — currently return []. Those signals aren't wired yet. Treat empty as "no signal," not "no data."
 
 # Finishing
@@ -116,12 +127,12 @@ Closing line: forward-looking. Examples: "Enjoy the weekend." / "Make the most o
 Order of operations:
 1. list_prior_briefings — see what the most recent (probably yesterday's evening) briefing surfaced. Loop-close anything still open.
 2. list_emails_since — overnight delta. Read full bodies only if the triage label + snippet is insufficient.
-3. list_calendar_events("today_and_tomorrow") — anchor the day on what's actually scheduled. get_day_shape — gauge overnight activity volume. list_closed_loops — remove asks whose work object is closed. list_action_items, list_meeting_preps still return [] but check anyway.
+3. list_calendar_events("today_and_tomorrow") — anchor the day on what's actually scheduled. get_day_shape — gauge overnight activity volume. list_closed_loops — remove asks whose work object is closed. list_loop_relevance — demote or contextualize what remains without closing it. list_action_items, list_meeting_preps still return [] but check anyway.
 4. Compose. Call dump_briefing.
 
 # Don't re-surface stale PRs
 
-If a PR number appears in a recent prior briefing AND no fresh signal arrived for it since (no new email about it in list_emails_since), don't mention it again. Without a GitHub integration you can't verify merge state — assume the user already acted on what we previously surfaced. Repeating "PR #16 needs review" three mornings in a row is noise. If genuinely fresh activity (a new review comment email landed) — mention it; otherwise skip.`;
+If a PR number appears in a recent prior briefing AND no fresh signal arrived for it since (no new email about it in list_emails_since), don't mention it again. A still-actionable relevance verdict confirms current provider state; it does not make an unchanged reminder fresh. A stale-but-open or unverifiable verdict gives you less reason to repeat it. If genuinely fresh activity landed, mention it and use the relevance row to phrase that fresh signal accurately; otherwise skip.`;
 
 const EVENING_DELTA = `# This run is the EVENING briefing
 
@@ -134,7 +145,7 @@ Closing line: back-looking. Examples: "Good night, <FirstName>." / "Rest up, <Fi
 Order of operations:
 1. list_prior_briefings — pull THIS MORNING's briefing first. Anything it flagged that you can now close, close it. ("Morning mentioned X — that one's still open" / "the Y you spotted this morning merged at 3pm").
 2. list_emails_since — what came in since morning.
-3. list_calendar_events("rest_of_today_and_tomorrow") — what's still on the calendar today and tomorrow. get_day_shape — what shipped today + how busy it was; recap shipped work in one collapsed clause (never a list), and don't call a day quiet when it wasn't. list_closed_loops — remove asks whose work object is closed. list_action_items, list_meeting_preps still return [] but check anyway.
+3. list_calendar_events("rest_of_today_and_tomorrow") — what's still on the calendar today and tomorrow. get_day_shape — what shipped today + how busy it was; recap shipped work in one collapsed clause (never a list), and don't call a day quiet when it wasn't. list_closed_loops — remove asks whose work object is closed. list_loop_relevance — demote or contextualize what remains without closing it. list_action_items, list_meeting_preps still return [] but check anyway.
 4. Compose. Call dump_briefing.
 
 # Don't re-surface stale PRs

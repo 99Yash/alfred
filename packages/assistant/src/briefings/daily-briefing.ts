@@ -1,4 +1,4 @@
-import { briefingClosedLoopSchema } from "@alfred/contracts";
+import { briefingClosedLoopSchema, briefingLoopRelevanceSchema } from "@alfred/contracts";
 import { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
 import { DAILY_BRIEFING_WORKFLOW_SLUG, dailyBriefingWorkflowInputSchema } from "./workflow-input";
@@ -20,6 +20,7 @@ const stateSchema = z.object({
   briefingId: z.string().optional(),
   quietDay: z.boolean().optional(),
   closedLoops: z.array(briefingClosedLoopSchema).default([]),
+  loopRelevance: z.array(briefingLoopRelevanceSchema).default([]),
   composed: z
     .object({
       subject: z.string(),
@@ -51,6 +52,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
       dryRun: parsed.dryRun,
       briefingDate: parsed.briefingDate,
       closedLoops: [],
+      loopRelevance: [],
     };
   },
   steps: {
