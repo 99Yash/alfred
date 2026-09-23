@@ -203,29 +203,27 @@ async function rekindContacts(userId: string): Promise<void> {
     .where(and(eq(entities.userId, userId), eq(entities.kind, "person")));
 
   const demotions: Array<{ id: string; canonicalName: string; kind: ContactKind }> = [];
-  let unclassifiable = 0;
 
   // Each row classifies its OWN stored canonical name — the same input the
   // live writer classifies for that row — through the row-keyed door, which
   // derives each row's own address from its metadata/aliases. A wrapped
   // alias, a metadata-led address, or an alias shared with another row
   // cannot borrow a sibling's name. Keyed by row id: no caller-side key
-  // derivation, and a row with no derivable address is absent from the map,
-  // so it falls into `unclassifiable` below rather than defaulting toward a
-  // write.
-  const kinds = previewStoredContactKinds(rows);
+  // derivation, and a row with no derivable address is listed in the door's
+  // `unclassifiable` — the single source of truth below — rather than
+  // defaulting toward a write.
+  const { kinds, unclassifiable: unanswered } = previewStoredContactKinds(rows);
+  const unclassifiable = unanswered.length;
 
   for (const row of rows) {
-    // Absent only when the row yields no address (no metadata address and no
-    // email alias): leave it alone rather than defaulting toward a write.
+    // Absent from `kinds` only when the row yields no address (no metadata
+    // address and no email alias — exactly the door's `unclassifiable` list):
+    // leave it alone rather than defaulting toward a write.
     const kind = kinds.get(row.id);
 
-    if (!kind) {
-      unclassifiable += 1;
-      continue;
+    if (kind !== undefined && kind !== "person") {
+      demotions.push({ id: row.id, canonicalName: row.canonicalName, kind });
     }
-
-    if (kind !== "person") demotions.push({ id: row.id, canonicalName: row.canonicalName, kind });
   }
 
   console.log(
