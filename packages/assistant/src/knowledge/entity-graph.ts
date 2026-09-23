@@ -431,21 +431,26 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
  * row's name for a shared alias. That caller uses {@link
  * previewStoredContactKinds}, which classifies each row's own name.
  *
- * Besides the shared preview, this door counts `blockedAtLeast`: a LOWER
- * BOUND on the would-be moves (classified kind different from stored kind)
+ * Besides the shared preview, this door counts `blockedEstimate`: an ESTIMATE
+ * of the would-be moves (classified kind different from stored kind)
  * the committer would refuse via {@link reKindWouldCollide}. Counted here,
  * from the stored name just classified — never a second call-site read —
- * but still a bound, never an equality: the committer INSERTS new rows as
- * it loops, and a new row can occupy the coordinate a later stored row
- * wants, which this pre-run snapshot cannot see. A dry report prints
- * `re-kind N (blocked ≥ B)`; a commit over the same data refuses AT
- * LEAST B.
+ * but still an estimate, never an equality, and it can differ in EITHER
+ * direction: the committer INSERTS new rows as it loops, and a new row can
+ * occupy the coordinate a later stored row wants, which this pre-run
+ * snapshot cannot see (item 95, under-count); and wherever two contact rows
+ * share one email alias the two sides can resolve it to different rows —
+ * the preview is last-write-wins over an unordered SELECT while the writer
+ * takes `.limit(1)` with no `ORDER BY` (item 98, either direction). A dry
+ * report prints `re-kind N (blocked ~B estimate)`; a commit over the same
+ * data can refuse more, fewer, or the same. The purge script needs no
+ * marker: its dry number is exact by the unique index.
  */
 export async function previewContactKinds(
   userId: string,
   candidates: ReadonlyMap<string, string | undefined>,
   tx?: DbTransaction,
-): Promise<ContactKindPreview & { blockedAtLeast: number }> {
+): Promise<ContactKindPreview & { blockedEstimate: number }> {
   const wanted = new Map<string, string | undefined>();
   const keyOf = new Map<string, string>();
   const unclassifiable: string[] = [];
@@ -465,7 +470,7 @@ export async function previewContactKinds(
 
   const kinds = new Map<string, ContactKind>();
 
-  if (wanted.size === 0) return { kinds, unclassifiable, blockedAtLeast: 0 };
+  if (wanted.size === 0) return { kinds, unclassifiable, blockedEstimate: 0 };
 
   const rows = await (tx ?? db())
     .select({
@@ -489,7 +494,7 @@ export async function previewContactKinds(
     }
   }
 
-  let blockedAtLeast = 0;
+  let blockedEstimate = 0;
 
   for (const [key, normalized] of keyOf) {
     const storedName = stored.get(normalized);
@@ -503,12 +508,12 @@ export async function previewContactKinds(
       if (
         await reKindWouldCollide({ userId, from: priorKind, kind, canonicalName: storedName }, tx)
       ) {
-        blockedAtLeast += 1;
+        blockedEstimate += 1;
       }
     }
   }
 
-  return { kinds, unclassifiable, blockedAtLeast };
+  return { kinds, unclassifiable, blockedEstimate };
 }
 
 /**

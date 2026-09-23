@@ -185,7 +185,10 @@ export interface ApplyIncrementsResult {
   organizations: number;
   /** Contacts the kind bar filed as something other than `person` (#1108). */
   nonPersonContacts: number;
-  /** Wanted re-kinds the unique index refused — kept the current kind (#1108). */
+  /**
+   * Wanted re-kinds the unique index refused — kept the current kind (#1108).
+   * EXACT: counted from the rows the committer actually wrote.
+   */
   reKindBlocked: number;
 }
 
@@ -328,7 +331,13 @@ export interface BackfillTeamGraphResult {
   organizations: number;
   /** Contacts the kind bar filed as something other than `person` (#1108). */
   nonPersonContacts: number;
-  /** Wanted re-kinds the unique index refused — kept the current kind (#1108). */
+  /**
+   * Wanted re-kinds the unique index refused — kept the current kind (#1108).
+   * `persisted` is the discriminant: EXACT when true, a pre-run ESTIMATE
+   * (`~B`) when false — it can differ in either direction wherever two
+   * contact rows share one email alias (item 98), and a mid-loop insert can
+   * occupy a later row's target (item 95).
+   */
   reKindBlocked: number;
   persisted: boolean;
   /** Top contacts by significance, for logging. */
@@ -423,14 +432,15 @@ export async function backfillTeamGraph(
   // the stored canonical name for an existing row, the scan's display name for
   // a brand-new row only. One call — the stored read lives inside the preview,
   // which shares the classifier and the alias predicate with the writer. The
-  // preview's `blockedAtLeast` is a LOWER BOUND on what a commit would
+  // preview's `blockedEstimate` is a two-sided ESTIMATE of what a commit would
   // refuse, never an equality, for two reasons neither side can close here:
   // the committer INSERTS new contact rows as it loops, and a new row can
   // occupy the coordinate a later stored row wants, which the pre-run
-  // snapshot never models (item 95); and neither side orders a shared-alias
-  // match — the preview is last-write-wins over an unordered SELECT while the
-  // writer takes `.limit(1)` with no `ORDER BY` — so the two can resolve one
-  // alias to different rows. `nonPersonContacts` is a reported number, never
+  // snapshot never models (item 95, under-count); and wherever two contact
+  // rows share one email alias the two sides can resolve it to different
+  // rows — the preview is last-write-wins over an unordered SELECT while the
+  // writer takes `.limit(1)` with no `ORDER BY` (item 98, either direction).
+  // `nonPersonContacts` is a reported number, never
   // a write, and its dry-vs-commit delta is unsigned: dry counts the
   // would-be kind while commit counts the written kind, so a blocked
   // `other → person` promotion moves it the other way from a blocked
@@ -438,7 +448,7 @@ export async function backfillTeamGraph(
   const {
     kinds,
     unclassifiable,
-    blockedAtLeast: reKindBlocked,
+    blockedEstimate: reKindBlocked,
   } = await previewContactKinds(
     userId,
     new Map<string, string | undefined>(
