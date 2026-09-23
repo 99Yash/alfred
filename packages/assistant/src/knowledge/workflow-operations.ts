@@ -8,7 +8,13 @@ import {
 } from "./memory-extraction-outcome";
 import { loadSelfIdentity } from "./self-identity";
 import { runSignificancePass } from "./significance";
-import { accumulateDoc, applyCorrespondenceIncrements, type ContactAggregate } from "./team-graph";
+import { gmailPayloadSignalsFromHeaders } from "./gmail-reducer";
+import {
+  accumulateDoc,
+  applyCorrespondenceIncrements,
+  gmailRawHeadersColumn,
+  type ContactAggregate,
+} from "./team-graph";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import { isRecord, toMessage, type GmailSenderParser, type JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -299,6 +305,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
         sender.correspondents(doc.metadata),
         doc.authoredAt ?? null,
         selfEmail,
+        gmailPayloadSignalsFromHeaders(doc.gmailHeaders),
       );
       capturedThisRun.push(doc.id);
     }
@@ -438,6 +445,7 @@ async function loadDocument(docId: string, userId: string) {
       authoredAt: documents.authoredAt,
       metadata: documents.metadata,
       accountId: documents.accountId,
+      gmailHeaders: gmailRawHeadersColumn,
     })
     .from(documents)
     .where(and(eq(documents.id, docId), eq(documents.userId, userId)))

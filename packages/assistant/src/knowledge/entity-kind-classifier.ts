@@ -16,6 +16,7 @@ import {
   type ServiceEvidenceCode,
 } from "@alfred/contracts";
 import type { Observation } from "@alfred/db/schemas";
+import { z } from "zod";
 import type { ContactKind, EntityKind } from "./entity-graph";
 
 const AUTHORITATIVE_CONFIDENCE = 0.99;
@@ -26,7 +27,28 @@ const PERSON_CONFIDENCE = 0.82;
 
 const WEAK_CONFIDENCE = 0.58;
 
-const BULK_PRECEDENCE_VALUES = new Set(["bulk", "list"]);
+/**
+ * The evidence codes the list-header branch emits. A closed vocabulary, not
+ * free text, because the legacy bar persists them per contact
+ * (`entities.metadata.listEvidence`) and reads them back: a stored code that
+ * the branch no longer emits must fail the parse, not demote a row.
+ */
+export const LIST_EVIDENCE_CODES = [
+  "gmail:list_id",
+  "gmail:list_unsubscribe",
+  "gmail:precedence:bulk",
+  "gmail:precedence:list",
+] as const;
+
+export const listEvidenceCodeSchema = z.enum(LIST_EVIDENCE_CODES);
+
+export type ListEvidenceCode = z.infer<typeof listEvidenceCodeSchema>;
+
+/** Exact `Precedence:` values, lowercased and trimmed. No infix match. */
+const BULK_PRECEDENCE_CODES: ReadonlyMap<string, ListEvidenceCode> = new Map([
+  ["bulk", "gmail:precedence:bulk"],
+  ["list", "gmail:precedence:list"],
+]);
 
 const STRONG_SERVICE_LOCALS = new Set([
   "noreply",
@@ -161,6 +183,13 @@ export interface ClassifyEntityKindInput {
   readonly displayNames?: readonly string[];
   readonly observations?: readonly Observation[];
   readonly payloadSignals?: readonly GmailPayloadSignals[];
+  /**
+   * List-header evidence already reduced to codes — the persisted form the
+   * legacy `entities.kind` bar reads back from a stored row. It joins the
+   * codes derived from `payloadSignals`/`observations` before the list branch,
+   * so both forms reach the SAME branch.
+   */
+  readonly listEvidence?: readonly ListEvidenceCode[];
 }
 
 export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindClassification {
@@ -171,7 +200,9 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
 
   const evidenceCodes: string[] = [];
 
-  const listEvidence = listEvidenceCodes(signals);
+  const listEvidence = [
+    ...new Set([...listEvidenceCodes(signals), ...(input.listEvidence ?? [])]),
+  ].sort();
 
   if (listEvidence.length > 0) {
     return classification("group", AUTHORITATIVE_CONFIDENCE, listEvidence);
@@ -288,18 +319,22 @@ function signalsFromObservations(observations: readonly Observation[]): GmailPay
   return signals;
 }
 
-function listEvidenceCodes(signals: readonly GmailPayloadSignals[]): string[] {
-  const evidenceCodes = new Set<string>();
+/**
+ * The list/bulk evidence codes a set of header signals carries, sorted and
+ * deduplicated. Exported so the team-graph writer reduces a message's headers
+ * to the SAME codes this file's list branch reads, and persists those.
+ */
+export function listEvidenceCodes(signals: readonly GmailPayloadSignals[]): ListEvidenceCode[] {
+  const evidenceCodes = new Set<ListEvidenceCode>();
 
   for (const signal of signals) {
     if (isNonEmpty(signal.listId)) evidenceCodes.add("gmail:list_id");
 
     if (isNonEmpty(signal.listUnsubscribe)) evidenceCodes.add("gmail:list_unsubscribe");
     const precedence = signal.precedence?.trim().toLowerCase();
+    const precedenceCode = precedence ? BULK_PRECEDENCE_CODES.get(precedence) : undefined;
 
-    if (precedence && BULK_PRECEDENCE_VALUES.has(precedence)) {
-      evidenceCodes.add(`gmail:precedence:${precedence}`);
-    }
+    if (precedenceCode) evidenceCodes.add(precedenceCode);
   }
 
   return [...evidenceCodes].sort();
@@ -538,6 +573,20 @@ export interface ClassifyContactKindInput {
    * `person` on a row the bar had just demoted (#1108 round 1).
    */
   readonly canonicalName: string;
+  /**
+   * The list-header evidence the row stores — or is about to store — in
+   * `entities.metadata.listEvidence` (#1198). NOT this run's headers, for the
+   * same reason as {@link canonicalName}: the writer unions the codes it sees
+   * onto the stored set and never removes one, so the stored set is the only
+   * header evidence the live writer and the purge script both read.
+   */
+  readonly listEvidence: readonly ListEvidenceCode[];
+  /**
+   * True when the row's stored correspondence shows the user has sent mail TO
+   * this address (`metadata.correspondence.outbound > 0`). It withholds the
+   * list-header evidence, and only that: see {@link classifyContactKind}.
+   */
+  readonly userHasWrittenTo: boolean;
 }
 
 /**
@@ -569,7 +618,8 @@ export interface ClassifyContactKindInput {
  *     `bounces@`, and the separated `…-noreply`/`…_alerts` suffix);
  *   - a STRONG service DOMAIN label (`…@noreply.github.com`,
  *     `…@newsletter.shoppersstop.com`);
- *   - a bulk-list header.
+ *   - a bulk-list header, read from the row's stored `listEvidence` and
+ *     withheld once the user has written to the address (#1198).
  *
  * `gmail:auto_submitted` is `service` at the same confidence and is NOT one of
  * them: a human's out-of-office auto-reply must not lose `person`.
@@ -622,6 +672,17 @@ const HARD_SERVICE_EVIDENCE = {
  * writer stores `displayName ?? address` — so the value side is skipped there
  * and the address side decides alone.
  *
+ * The address side also reads the row's stored list-header evidence (#1198),
+ * which reaches the SAME `group` branch of {@link classifyEntityKind} a raw
+ * `List-Id`/`List-Unsubscribe`/`Precedence: bulk` header reaches. That branch
+ * runs before the name-shape tests, so `Y Combinator` and a `first.last` bulk
+ * local cannot keep `person` through them. The evidence is withheld when the
+ * user has written to the address: a human who posts through a mailing list
+ * carries the list's headers, and demoting somebody the user has already
+ * emailed is exactly the costly mistake {@link isHardNonPersonClaim} exists to
+ * avoid. The other hard claims (a strong service local or domain label) are
+ * not withheld — no human reads `noreply@`.
+ *
  * An address that is not a well-formed email is not a person either — the
  * identity parse is the owning boundary, and a failure answers `other` rather
  * than throwing, so one malformed header never fails a capture run.
@@ -643,6 +704,7 @@ export function classifyContactKind(input: ClassifyContactKindInput): ContactKin
   const classified = classifyEntityKind({
     identity: identity.data,
     displayNames: displayName ? [displayName] : [],
+    listEvidence: input.userHasWrittenTo ? [] : input.listEvidence,
   });
 
   if (isHardNonPersonClaim(classified)) {
