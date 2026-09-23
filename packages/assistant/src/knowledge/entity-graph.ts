@@ -305,6 +305,8 @@ export async function upsertContactByAlias(
 
 export interface ReKindCollisionArgs {
   readonly userId: string;
+  /** The kind the row holds now. REQUIRED so the same-kind question answers itself. */
+  readonly from: EntityKind;
   /** The kind the caller wants to move the row TO. */
   readonly kind: EntityKind;
   /** The canonical name of the row being moved. */
@@ -312,9 +314,15 @@ export interface ReKindCollisionArgs {
 }
 
 /**
- * True when moving a contact row to `kind` would land on a row that already
- * holds that `(user_id, kind, canonical_name)` coordinate — the columns of the
- * `entities` unique index.
+ * True when moving a contact row from `from` to `kind` would land on a row
+ * that already holds that `(user_id, kind, canonical_name)` coordinate — the
+ * columns of the `entities` unique index.
+ *
+ * A same-kind question (`from === kind`) answers `false` without touching the
+ * database: the row always matches its own coordinate, so asking the index
+ * about the kind a row already holds would report every row as blocked. The
+ * field is REQUIRED (not a guard each caller repeats by hand) so a fourth
+ * caller that forgets the check still gets the right answer.
  *
  * The collision is not a re-kinder's to resolve: a merge would pick a winner
  * and silently drop one contact's correspondence aggregate, so both callers
@@ -332,6 +340,8 @@ export async function reKindWouldCollide(
   args: ReKindCollisionArgs,
   tx?: DbTransaction,
 ): Promise<boolean> {
+  if (args.from === args.kind) return false;
+
   const [clash] = await (tx ?? db())
     .select({ id: entities.id })
     .from(entities)
@@ -369,7 +379,7 @@ async function resolveKindForUpdate(
   if (storedKind === kind) return { kind: storedKind, blocked: false };
 
   const collides = await reKindWouldCollide(
-    { userId: existing.userId, kind, canonicalName: existing.canonicalName },
+    { userId: existing.userId, from: storedKind, kind, canonicalName: existing.canonicalName },
     ex,
   );
 
@@ -421,17 +431,21 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
  * row's name for a shared alias. That caller uses {@link
  * previewStoredContactKinds}, which classifies each row's own name.
  *
- * Besides the shared preview, this door counts `blocked`: the would-be
- * demotions (classified kind ≠ stored kind) the committer would refuse via
- * {@link reKindWouldCollide}. Counted here, from the stored name just
- * classified — never a second call-site read — so the dry report prints the
- * same `re-kind N (blocked B)` the commit prints.
+ * Besides the shared preview, this door counts `blockedAtLeast`: a LOWER
+ * BOUND on the would-be moves (classified kind different from stored kind)
+ * the committer would refuse via {@link reKindWouldCollide}. Counted here,
+ * from the stored name just classified — never a second call-site read —
+ * but still a bound, never an equality: the committer INSERTS new rows as
+ * it loops, and a new row can occupy the coordinate a later stored row
+ * wants, which this pre-run snapshot cannot see. A dry report prints
+ * `re-kind N (blocked ≥ B)`; a commit over the same data refuses AT
+ * LEAST B.
  */
 export async function previewContactKinds(
   userId: string,
   candidates: ReadonlyMap<string, string | undefined>,
   tx?: DbTransaction,
-): Promise<ContactKindPreview & { blocked: number }> {
+): Promise<ContactKindPreview & { blockedAtLeast: number }> {
   const wanted = new Map<string, string | undefined>();
   const keyOf = new Map<string, string>();
   const unclassifiable: string[] = [];
@@ -451,7 +465,7 @@ export async function previewContactKinds(
 
   const kinds = new Map<string, ContactKind>();
 
-  if (wanted.size === 0) return { kinds, unclassifiable, blocked: 0 };
+  if (wanted.size === 0) return { kinds, unclassifiable, blockedAtLeast: 0 };
 
   const rows = await (tx ?? db())
     .select({
@@ -475,7 +489,7 @@ export async function previewContactKinds(
     }
   }
 
-  let blocked = 0;
+  let blockedAtLeast = 0;
 
   for (const [key, normalized] of keyOf) {
     const storedName = stored.get(normalized);
@@ -486,13 +500,15 @@ export async function previewContactKinds(
     const priorKind = storedKind.get(normalized);
 
     if (storedName !== undefined && priorKind !== undefined && priorKind !== kind) {
-      if (await reKindWouldCollide({ userId, kind, canonicalName: storedName }, tx)) {
-        blocked += 1;
+      if (
+        await reKindWouldCollide({ userId, from: priorKind, kind, canonicalName: storedName }, tx)
+      ) {
+        blockedAtLeast += 1;
       }
     }
   }
 
-  return { kinds, unclassifiable, blocked };
+  return { kinds, unclassifiable, blockedAtLeast };
 }
 
 /**

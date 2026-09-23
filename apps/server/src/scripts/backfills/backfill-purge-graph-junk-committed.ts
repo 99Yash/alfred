@@ -234,7 +234,14 @@ async function rekindContacts(userId: string): Promise<void> {
   const blockedIds = new Set<string>();
 
   for (const d of demotions) {
-    if (await reKindWouldCollide({ userId, kind: d.kind, canonicalName: d.canonicalName })) {
+    if (
+      await reKindWouldCollide({
+        userId,
+        from: "person",
+        kind: d.kind,
+        canonicalName: d.canonicalName,
+      })
+    ) {
       blockedIds.add(d.id);
     }
   }

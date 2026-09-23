@@ -422,14 +422,23 @@ export async function backfillTeamGraph(
   // Nothing is persisted here, so preview the kind a real write WOULD produce:
   // the stored canonical name for an existing row, the scan's display name for
   // a brand-new row only. One call — the stored read lives inside the preview,
-  // which shares the classifier and the alias predicate with the writer, and
-  // the preview counts the clash the committer would refuse from the same
-  // stored name, so dry `re-kind N (blocked B)` equals commit over the same
-  // data. `nonPersonContacts` is a reported number, never a write.
+  // which shares the classifier and the alias predicate with the writer. The
+  // preview's `blockedAtLeast` is a LOWER BOUND on what a commit would
+  // refuse, never an equality, for two reasons neither side can close here:
+  // the committer INSERTS new contact rows as it loops, and a new row can
+  // occupy the coordinate a later stored row wants, which the pre-run
+  // snapshot never models (item 95); and neither side orders a shared-alias
+  // match — the preview is last-write-wins over an unordered SELECT while the
+  // writer takes `.limit(1)` with no `ORDER BY` — so the two can resolve one
+  // alias to different rows. `nonPersonContacts` is a reported number, never
+  // a write, and its dry-vs-commit delta is unsigned: dry counts the
+  // would-be kind while commit counts the written kind, so a blocked
+  // `other → person` promotion moves it the other way from a blocked
+  // demotion.
   const {
     kinds,
     unclassifiable,
-    blocked: reKindBlocked,
+    blockedAtLeast: reKindBlocked,
   } = await previewContactKinds(
     userId,
     new Map<string, string | undefined>(
