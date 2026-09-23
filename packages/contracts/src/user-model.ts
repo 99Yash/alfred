@@ -96,11 +96,12 @@ export const OBSERVATION_REDUCERS = {
   alfred_chat: { rank: 1, kinds: USER_AUTHORED_KINDS, identityKinds: [] },
   /**
    * The Gmail message reducer. First-party integrations share rank 2. Its
-   * projection mints `email` nodes and identity rows from message participants
-   * (`gmail-kind-fold`) and `domain` org nodes from employment signatures
-   * (`gmail-edge-fold`).
+   * projection mints `email` identity rows from message participants
+   * (`gmail-kind-fold`). The `domain` org nodes it mints from employment
+   * signatures (`gmail-edge-fold`) are nodes only, not identity rows, so
+   * `domain` stays forward.
    */
-  gmail: { rank: 2, kinds: ["email_message"], identityKinds: ["email", "domain"] },
+  gmail: { rank: 2, kinds: ["email_message"], identityKinds: ["email"] },
   /**
    * The connect-time org-affiliation emitter (ADR-0080 §4a): the connected
    * Google account asserts the user's org domain. This is account-level
@@ -236,10 +237,12 @@ const entityIdentityKindSchema = z.enum(ENTITY_IDENTITY_KINDS);
  * that starts to write one moves it from this list to its own `identityKinds`
  * in the change that lands the first write (P2 GitHub for the `github_*` kinds,
  * P3 Directory for `google_directory_id`, ADR-0092 S2 for
- * `integration_object_key`). `UNREGISTERED_FORWARD_IDENTITY_KINDS` below fails
+ * `integration_object_key`, the merge-signal owner for `domain`, which today is
+ * only a node anchor). `UNREGISTERED_FORWARD_IDENTITY_KINDS` below fails
  * the type check while a kind sits in both halves.
  */
 const FORWARD_IDENTITY_KINDS = [
+  "domain",
   "github_login",
   "github_user_id",
   "slack_id",
