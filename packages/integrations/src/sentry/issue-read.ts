@@ -95,5 +95,13 @@ export async function readLiveSentryIssue(args: {
 
   const issue = liveSentryIssueSchema.parse(raw);
 
+  // A syntactically valid response for a different issue is ambiguous, not a
+  // reading of the requested one. Keep the identity check at the provider
+  // boundary so every caller fails closed instead of borrowing another issue's
+  // lifecycle state.
+  if (issue.id !== args.issueId) {
+    throw new Error("[sentry.issue-read] response issue id did not match the requested issue");
+  }
+
   return { id: issue.id, nativeState: NATIVE_STATE_BY_REST_STATUS[issue.status] };
 }

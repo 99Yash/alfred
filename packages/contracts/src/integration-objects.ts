@@ -192,6 +192,31 @@ export function canonicalizeGithubPullRequestUrl(
 }
 
 /**
+ * The inverse of {@link canonicalizeGithubPullRequestUrl} for readers that
+ * need the API coordinates, not the key: `{ repoFullName, number }` for a
+ * canonical PR URL, or null. It parses the CANONICAL form (after validation),
+ * never the raw input, so the grammar stays in {@link GITHUB_PULL_REQUEST_URL_RE}.
+ */
+export function parseGithubPullRequestUrl(url: string): {
+  repoFullName: string;
+  number: number;
+} | null {
+  const canonical = canonicalizeGithubPullRequestUrl({ url });
+
+  if (!canonical) return null;
+
+  const match = canonical.match(GITHUB_PULL_REQUEST_URL_RE);
+
+  if (!match?.[1] || !match[2]) return null;
+
+  const number = Number(match[2]);
+
+  if (!Number.isSafeInteger(number) || number < 1) return null;
+
+  return { repoFullName: match[1], number };
+}
+
+/**
  * Canonical external id for a GitHub CI target — the thing a check suite
  * closes by succession (`#1093`). The reconciled identity is not the attempt
  * (a suite run never transitions) but the target: `owner/repo` (folded to

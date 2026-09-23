@@ -1,6 +1,7 @@
 import type {
   BriefingClosedLoop,
   BriefingGather,
+  BriefingLoopRelevance,
   BriefingSlot,
   CalendarContribution,
   DayShape,
@@ -49,6 +50,7 @@ import {
   reconcileEvidence,
   type ObjectState,
   type ReconcileCandidates,
+  type ReconcileResult,
 } from "@alfred/assistant/connections";
 import { gatherVerifiedPulls } from "@alfred/assistant/connections/verified-pull";
 import { getPreference } from "@alfred/assistant/settings";
@@ -60,6 +62,7 @@ import {
   weekdayIndex,
   type LocalDateKey,
 } from "@alfred/assistant/time";
+import { assessLoopRelevance } from "./relevance";
 import { scorePriorityEmailDemand } from "./read";
 import { shortenFrom } from "./sender";
 
@@ -141,6 +144,8 @@ export interface BriefingDigest {
    * has since merged. These feed the evening "closed today" recap (ADR-0048 #5).
    */
   closedLoops: BriefingClosedLoop[];
+  /** One bounded, non-closing relevance verdict for every still-live priority loop. */
+  loopRelevance: BriefingLoopRelevance[];
   totalPriority: number;
   totalSuppressed: number;
 }
@@ -178,6 +183,8 @@ export interface GatherBriefingWithSuppressionAuditResult {
   suppressedByInstruction: BriefingInstructionSuppression[];
   /** Loops dropped because their work object reached a terminal state (ADR-0062). */
   closedLoops: BriefingClosedLoop[];
+  /** Check-before-remind verdicts over every still-live priority loop (#1194). */
+  loopRelevance: BriefingLoopRelevance[];
 }
 
 const DEFAULT_WINDOW_HOURS = 24;
@@ -334,8 +341,16 @@ export async function gatherBriefingDigest(
 
   // Loop reconciliation (ADR-0062): drop any priority item whose underlying
   // GitHub PR has reached a loop-closing state. State unknown ⇒ the loop stays
-  // live (absence never closes — ADR-0048-D).
-  const closedLoops = await dropClosedLoops(args.userId, buckets, keyCandidates);
+  // live (absence never closes — ADR-0048-D). The bounded relevance pass then
+  // runs over exactly what survived reconciliation and before presentation
+  // capping, so every still-live priority loop carries one verdict (#1194).
+  const reconciliation = await dropClosedLoops(args.userId, buckets, keyCandidates);
+
+  const loopRelevance = await assessLoopRelevance({
+    userId: args.userId,
+    loops: PRIORITY_CATEGORIES.flatMap((category) => buckets[category]),
+    reconciled: reconciliation.reconciled,
+  });
 
   for (const category of PRIORITY_CATEGORIES) {
     buckets[category] = buckets[category].slice(0, maxPerBucket);
@@ -354,7 +369,8 @@ export async function gatherBriefingDigest(
     suppressedCounts,
     triggerItems,
     suppressedByInstruction,
-    closedLoops,
+    closedLoops: reconciliation.closedLoops,
+    loopRelevance,
     totalPriority,
     totalSuppressed,
   };
@@ -414,8 +430,11 @@ async function dropClosedLoops(
   userId: string,
   buckets: Record<PriorityCategory, BriefingItem[]>,
   candidates: readonly ReconcileCandidates<"about">[],
-): Promise<BriefingClosedLoop[]> {
-  if (candidates.length === 0) return [];
+): Promise<{
+  closedLoops: BriefingClosedLoop[];
+  reconciled: ReconcileResult<"about">;
+}> {
+  if (candidates.length === 0) return { closedLoops: [], reconciled: new Map() };
 
   const reconciled = await reconcileEvidence({ userId, subjects: candidates });
 
@@ -506,7 +525,7 @@ async function dropClosedLoops(
     buckets[category] = kept;
   }
 
-  return closedLoops;
+  return { closedLoops, reconciled };
 }
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
@@ -620,6 +639,7 @@ export async function gatherBriefingWithSuppressionAudit(
     },
     suppressedByInstruction: digest.suppressedByInstruction,
     closedLoops: digest.closedLoops,
+    loopRelevance: digest.loopRelevance,
   };
 }
 
