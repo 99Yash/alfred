@@ -22,6 +22,7 @@ import {
   type SenderContext,
   type SenderKind,
 } from "@alfred/contracts";
+import { isExactGroupLocal } from "../knowledge";
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -204,8 +205,8 @@ export function canonicalizeEmailForMatch(raw: string | null | undefined): strin
 
 /**
  * Local parts that unambiguously identify the address as a service envelope.
- * The set is intentionally conservative — soft markers like `info`, `team`,
- * `hello`, `billing`, `security` fall through to the WEAK set below because
+ * The set is intentionally conservative — soft markers like `info`, `hello`,
+ * `billing`, `security` fall through to the WEAK set below because
  * those can be staffed mailboxes at small companies.
  */
 const STRONG_SERVICE_LOCAL = new Set<string>([
@@ -228,7 +229,9 @@ const STRONG_SERVICE_LOCAL = new Set<string>([
 /** Locals that *might* be services but aren't on the unknown domain. */
 const WEAK_SERVICE_LOCAL = new Set<string>([
   "info",
-  "team",
+  // `team` is NOT here: its home is GROUP_LOCALS (see isExactGroupLocal), so a
+  // bare `team@` falls through to the group step below instead of stopping
+  // here. Same `unknown` verdict either way; one home, not two (#1187).
   "hello",
   "support",
   "billing",
@@ -309,13 +312,35 @@ function classifyFromKind(parsed: ParsedFrom | null): SenderKind {
 
   if (KNOWN_SERVICE_DOMAINS.has(domain) || domain.endsWith(".linkedin.com")) return "service";
 
-  // Weak service markers (`info`, `team`, `support`) on an *unknown* domain
-  // are genuinely ambiguous — could be a small-company staffed mailbox or a
+  // Weak service markers (`info`, `support`) on an *unknown* domain are
+  // genuinely ambiguous — could be a small-company staffed mailbox or a
   // service envelope. Default to 'unknown' so the deepen gate's low-confidence
-  // path catches it instead of an over-eager service classification.
+  // path catches it instead of an over-eager service classification. Bare
+  // single-token locals stay `unknown` for the same reason even when they read
+  // name-like (`arjun@`): the parser cannot tell a name from a role word
+  // (`careers@`, `payroll@`) without a name dictionary, so `unknown` is the
+  // honest verdict. The sibling `classifyEntityKind` types that same address
+  // `person` via its `email:mailbox:individual` fallthrough — different costs,
+  // different defaults: the entity graph's answer is a re-kindable guess at
+  // weak confidence (and the legacy `entities.kind` bar keeps `person` on every
+  // soft claim), while a triage `person` grants reply-lane standing. What
+  // `unknown` does downstream is written down once, in the sender-kind floor's
+  // `unknown` contract and `docs/reference/triage.md` (#1187).
   if (WEAK_SERVICE_LOCAL.has(localPart)) return "unknown";
 
+  // A person-like display name rescues the address BEFORE the group test — the
+  // same precedence as `classifyEntityKind`, which reads `display:person_like`
+  // first. Triage must not be stricter than the set's owner: `Dev Patel
+  // <dev.patel@acme.io>` is a person, not an envelope.
   if (isLikelyPersonDisplayName(displayName)) return "person";
+
+  // Group envelopes: an EXACT whole-local GROUP_LOCALS member (`team@`,
+  // `all@`, …) is never a person. Exact on purpose — the infix form demoted
+  // real human shapes (`dev.patel@`, `dev.7@`, `hr.priya@`, `sam.all@`,
+  // `jane.team@`, `ops-lead@`), which read `person` here via the display name
+  // or the `first.last` shape. The set is single-homed as
+  // {@link isExactGroupLocal}; the sender-kind floor demotes their reply lanes.
+  if (isExactGroupLocal(localPart)) return "unknown";
 
   if (FIRST_LAST_LOCAL_RE.test(localPart)) return "person";
 
