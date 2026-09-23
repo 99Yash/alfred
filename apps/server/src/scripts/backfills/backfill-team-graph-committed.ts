@@ -48,9 +48,15 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     maxDocs: Number.isFinite(MAX_DOCS) ? MAX_DOCS : 5000,
   });
 
+  // `persisted` discriminates the blocked count: EXACT after a commit, a
+  // two-sided pre-run ESTIMATE (`~B`) on a dry run — see BackfillTeamGraphResult.
+  const blockedLabel = result.persisted
+    ? `re-kind blocked ${result.reKindBlocked}`
+    : `re-kind blocked ~${result.reKindBlocked} (estimate)`;
+
   console.log(
     `  scanned ${result.docsScanned} docs → ${result.contacts} contacts ` +
-      `(${result.nonPersonContacts} non-person, re-kind blocked ${result.reKindBlocked}), ${result.organizations} orgs ` +
+      `(${result.nonPersonContacts} non-person, ${blockedLabel}), ${result.organizations} orgs ` +
       `(${result.persisted ? "PERSISTED" : "dry — no writes"})`,
   );
   console.log("  top contacts by significance:");
