@@ -94,7 +94,7 @@ export async function runBriefingAgent(
       content:
         `Compose the ${args.slot} briefing for ${args.recipientFirstName ?? "the user"}. ` +
         `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
-        `End with dump_briefing.` +
+        `Apply the three honest loop-state tiers, then end with dump_briefing.` +
         openAskCorrection(args.openAskViolations ?? []),
     },
   ];
