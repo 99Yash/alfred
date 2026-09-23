@@ -33,7 +33,8 @@ import { prepareReceiptProjection, writeReceiptDocument } from "./receipt-docume
  *   not a JSON object, a subscribed delivery whose payload lacks the identity
  *   its key reads (logged at error level: a payload path moved, which is a
  *   descriptor bug), or a delivery no credential owns (reported, see
- *   {@link reportOwnerlessDelivery}). Acknowledged with 200 so the provider
+ *   {@link reportOwnerlessDelivery}, except `github`, whose ownerless kinds
+ *   drop silently per #1209). Acknowledged with 200 so the provider
  *   does not retry what cannot change.
  * - `duplicate`: a receipt for this dedup key already exists (either tier).
  * - `accepted`: a new typed receipt row exists and the delivery job is enqueued.
@@ -115,7 +116,11 @@ export async function receiveInboundDelivery(
   const attribution = await descriptor.resolveOwner(payload, args.headers);
 
   if (attribution.kind === "unowned") {
-    reportOwnerlessDelivery(source, projection, attribution);
+    // #1209: GitHub delivers kinds no installation owns (security_advisory),
+    // and each one filed an `ingress.no_owner` warning that flooded Sentry.
+    // Those drop silently. Other sources keep reporting: an unowned delivery
+    // there is still a descriptor or credential bug worth saying aloud.
+    if (source !== "github") reportOwnerlessDelivery(source, projection, attribution);
 
     return { kind: "ignored", source, reason: "no-owner" };
   }
@@ -181,6 +186,10 @@ export async function receiveInboundDelivery(
 
 /**
  * The one place an unattributable delivery is reported (#1033).
+ *
+ * `github` never reaches here: its ownerless kinds (security_advisory) drop
+ * silently per #1209, because each one filed an `ingress.no_owner` warning
+ * that flooded Sentry.
  *
  * ADR-0097 alternative (e) keeps the drop: `event_receipts.credential_id` is
  * `NOT NULL`, a row nobody owns has no consumer, and a retry cannot change the
