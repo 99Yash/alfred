@@ -321,19 +321,22 @@ export interface ReKindCollisionArgs {
  * A same-kind question (`from === kind`) answers `false` without touching the
  * database: the row always matches its own coordinate, so asking the index
  * about the kind a row already holds would report every row as blocked. The
- * field is REQUIRED (not a guard each caller repeats by hand) so a fourth
+ * field is REQUIRED (not a guard each caller repeats by hand) so a future
  * caller that forgets the check still gets the right answer.
  *
  * The collision is not a re-kinder's to resolve: a merge would pick a winner
- * and silently drop one contact's correspondence aggregate, so both callers
- * keep the row's current kind and report the refusal — the live writer as
- * `reKindBlocked` (summed into the capture log), the purge backfill as
- * `blocked` in its dry and commit reports. A stale kind is recoverable; a
+ * and silently drop one contact's correspondence aggregate, so all three
+ * callers keep the row's current kind and report the refusal — the live
+ * writer (`resolveKindForUpdate`) as `reKindBlocked` summed into the capture
+ * log, the backfill dry door (`previewContactKinds`) as `blockedEstimate`
+ * counted but never written, the purge backfill as `blocked` in its dry and
+ * commit reports. A stale kind is recoverable; a
  * dropped aggregate is not.
  *
  * ONE definition, for the same reason {@link previewContactKinds} is one: the
- * live writer below and the committed purge backfill re-kind the same rows
- * under the same index, and a second copy of this rule would drift (#1108,
+ * live writer below, the backfill dry door, and the committed purge backfill
+ * re-kind the same rows under the same index, and a second copy of this rule
+ * would drift (#1108,
  * the #493 precedent).
  */
 export async function reKindWouldCollide(
@@ -361,8 +364,11 @@ export async function reKindWouldCollide(
  * What to write on an EXISTING contact row: the kind, plus whether a wanted
  * move was refused — see {@link reKindWouldCollide}. The flag is the whole
  * point of the envelope: a caller that ignores `blocked` must say so, because
- * the clash is otherwise invisible. The live writer's one caller sums it into
- * the capture log; the purge backfill prints it in dry and commit alike.
+ * the clash is otherwise invisible. The envelope's one caller,
+ * `upsertContactByAlias`, surfaces it as `reKindBlocked` (summed into the
+ * capture log via `persistContacts`); the purge backfill never sees this
+ * type — it builds its own `blockedIds` straight from
+ * {@link reKindWouldCollide}.
  */
 interface ReKindDecision {
   kind: EntityKind;
@@ -442,8 +448,8 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
  * share one email alias the two sides can resolve it to different rows —
  * the preview is last-write-wins over an unordered SELECT while the writer
  * takes `.limit(1)` with no `ORDER BY` (item 98, either direction). A dry
- * report prints `re-kind N (blocked ~B estimate)`; a commit over the same
- * data can refuse more, fewer, or the same. The purge script needs no
+ * report prints `re-kind blocked ~B (estimate)`; a commit over the same
+ * data prints `re-kind blocked B` and can refuse more, fewer, or the same. The purge script needs no
  * marker: its dry number is exact by the unique index.
  */
 export async function previewContactKinds(
