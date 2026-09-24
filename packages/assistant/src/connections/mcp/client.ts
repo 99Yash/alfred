@@ -18,8 +18,9 @@ import type {
   Tool,
 } from "@modelcontextprotocol/client";
 import { InsufficientScopeError } from "@modelcontextprotocol/client";
-import { addFormats, AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { Ajv } from "ajv";
+import addFormats from "ajv-formats";
 import { Ajv2019 } from "ajv/dist/2019.js";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { McpClientError } from "./errors";
@@ -200,10 +201,9 @@ const encoder = new TextEncoder();
 /**
  * MCP JSON Schema patterns are ECMA-262 regular expressions, but the server is
  * not required to spell their bracket classes in Unicode-mode-safe form. Ajv's
- * 2020-12 engine defaults to `/u`, which rejects valid legacy spellings such as
- * Vercel's `buy_domain` email pattern before Alfred can publish the catalog.
- * Keep the 2020-12 dialect and all Ajv validation, but compile the pattern
- * keyword in the historical non-Unicode mode that those schemas use.
+ * 2020-12 engine defaults to `/u`, which accepts Unicode-aware patterns. Keep
+ * the dialect and all Ajv validation, but fall back to the historical
+ * non-Unicode mode only when a pattern cannot compile with the requested flags.
  */
 const MCP_SCHEMA_2020_12_URIS = new Set([
   "https://json-schema.org/draft/2020-12/schema",
@@ -230,9 +230,22 @@ interface McpSchemaValidator {
 }
 
 function createSchemaValidator(): McpSchemaValidator {
-  const legacyRegExp = Object.assign((pattern: string) => new RegExp(pattern), {
-    code: "new RegExp" as const,
-  });
+  const unicodeFirstRegExp = Object.assign(
+    (pattern: string, flags: string) => {
+      try {
+        return new RegExp(pattern, flags);
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          return new RegExp(pattern);
+        }
+
+        throw error;
+      }
+    },
+    {
+      code: "new RegExp" as const,
+    },
+  );
 
   const options = {
     strict: false,
@@ -240,7 +253,7 @@ function createSchemaValidator(): McpSchemaValidator {
     validateSchema: false,
     allErrors: true,
     code: {
-      regExp: legacyRegExp,
+      regExp: unicodeFirstRegExp,
     },
   } as const;
 

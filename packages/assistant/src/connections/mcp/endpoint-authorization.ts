@@ -1,4 +1,4 @@
-import type { McpApiKeyPlacement, Redacted } from "@alfred/contracts";
+import { isNonEmptyString, type McpApiKeyPlacement, type Redacted } from "@alfred/contracts";
 import type { McpServer } from "@alfred/db/schemas";
 import type { FetchLike } from "@modelcontextprotocol/client";
 import {
@@ -32,7 +32,7 @@ export interface McpEndpointNetworkPolicy {
 
 /** Provider-owned OAuth endpoint policy injected by the built-in registry. */
 export interface McpEndpointOAuthPolicy {
-  readonly authorizationServerIssuer?: string;
+  readonly authorizationServerIssuer: string;
   readonly oauthEndpointOrigins: readonly string[];
 }
 
@@ -166,8 +166,9 @@ function createAuthorizedOAuth(
     const server = validatePublicHttpsEndpoint(input);
 
     if (
-      oauthPolicy?.authorizationServerIssuer &&
-      server.href !== oauthPolicy.authorizationServerIssuer
+      oauthPolicy !== undefined &&
+      (!isNonEmptyString(oauthPolicy.authorizationServerIssuer) ||
+        server.href !== oauthPolicy.authorizationServerIssuer)
     ) {
       throw new HostedEndpointError(
         "origin_mismatch",
