@@ -10,3 +10,5 @@ export {
   type ResolveTodosForGmailSourceArgs,
   type ResolveTodosForGmailSourceResult,
 } from "./resolve";
+
+export { resolvePaymentTodoFromReceipt, type PaymentReconcilerResult } from "./payment-reconciler";
