@@ -82,13 +82,47 @@ interface BuildArgs {
 /** Fallback day-shape window when this slot has no prior watermark (first run). */
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const dumpInputSchema = z.object({
-  subject: z.string().min(1).max(200),
-  bodyText: z.string().min(1),
-  bodyMarkdown: z.string().min(1),
-  citedDocumentIds: z.array(z.string()).default([]),
-  rationale: z.string().nullable().default(null),
-});
+const dumpInputSchema = z
+  .object({
+    subject: z.string().min(1).max(200),
+    bodyText: z.string().min(1),
+    bodyMarkdown: z.string().min(1),
+    citedDocumentIds: z.array(z.string()).default([]),
+    rationale: z.string().nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    const internalTerms = [
+      "unverifiable",
+      "work-object",
+      "work object",
+      "object key",
+      "deterministic",
+      "state category",
+      "object state",
+      "provider read",
+      "relevance verdict",
+      "event receipt",
+      "native state",
+      "payment loop",
+      "open loop",
+      "live loop",
+    ] as const;
+
+    for (const field of ["subject", "bodyText", "bodyMarkdown"] as const) {
+      const haystack = value[field].toLowerCase();
+      const term = internalTerms.find((candidate) => haystack.includes(candidate));
+
+      if (term) {
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message:
+            `Briefing copy must not expose internal verification terminology (${term}). ` +
+            "Rewrite in plain user-facing language or omit the item.",
+        });
+      }
+    }
+  });
 
 export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
   let dumped: DumpedBriefing | null = null;
@@ -193,7 +227,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     list_loop_relevance: tool({
       description:
-        "List one bounded live-read relevance verdict for every still-live priority-email loop, with provider evidence in source, observedState, objectTitle/objectUrl, and detail. still-actionable means a trusted live read saw an open or unresolved object; stale-but-open means it saw a resolved, closed, ignored, or draft state and only demotes; unverifiable means no trusted read proved current state and the loop remains live. No relevance verdict grants closure authority.",
+        "List one bounded live-read relevance verdict for every still-live priority-email loop, with provider evidence in source, observedState, objectTitle/objectUrl, and detail. Use these rows to calibrate priority and avoid overclaiming, not as a list of items to mention. still-actionable means a trusted live read saw an open or unresolved object; stale-but-open means it saw a resolved, closed, ignored, or draft state and only demotes; unverifiable means no trusted read proved current state and the loop remains live. The verdict names and detail are internal diagnostics: never copy them into user-facing prose, and never turn unverifiable into an ask. No relevance verdict grants closure authority.",
       inputSchema: z.object({}),
       execute: async (): Promise<BriefingLoopRelevance[]> => args.loopRelevance,
     }),
@@ -222,7 +256,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     dump_briefing: tool({
       description:
-        "Terminal write. Submit the final composed briefing. Call this exactly once when you're done — calling it ends the loop. subject, bodyText, and bodyMarkdown are all required; cite documentIds for items you referenced inline. The body should be conversational prose (no bullets) and read naturally on its own.",
+        "Terminal write. Submit the final composed briefing. Call this exactly once when you're done — calling it ends the loop. subject, bodyText, and bodyMarkdown are all required; cite documentIds for items you referenced inline. The body should be conversational prose (no bullets), read naturally on its own, and contain no internal verification terminology such as 'unverifiable', 'work-object', 'object key', or 'provider read'.",
       inputSchema: dumpInputSchema,
       execute: async (input): Promise<{ ok: true }> => {
         // Strip em-dashes the model won't drop from the prompt alone. This is the
