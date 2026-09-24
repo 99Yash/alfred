@@ -3,6 +3,7 @@ import {
   briefingLoopRelevanceSchema,
   getObjectDef,
   INTEGRATION_OBJECT_DEFS,
+  isBuiltInObjectStateProvider,
   parseGithubPullRequestUrl,
   redactSecrets,
   sanitizeErrorMessage,
@@ -223,13 +224,25 @@ async function assessLoopRelevanceInner(args: {
   approvedStates?: ReadonlyMap<string, ApprovedLoopState> | undefined;
   unverifiedDetails?: ReadonlyMap<string, string> | undefined;
 }): Promise<BriefingLoopRelevance[]> {
-  // The FIRST resolved object is the loop's primary identity — the same
-  // precedence `reconcileEvidence` reports in. Selection below dedupes those
-  // identities and applies one cross-provider read budget.
+  // A built-in resolved object is the loop's primary identity when one exists;
+  // otherwise the first resolved object keeps the existing reconciliation
+  // precedence. Selection below dedupes those identities and applies one
+  // cross-provider read budget.
   const objectByLoop = new Map<string, ObjectState | null>();
 
   for (const loop of args.loops) {
-    objectByLoop.set(loop.documentId, args.reconciled.get(loop.documentId)?.[0]?.state ?? null);
+    const resolved = args.reconciled.get(loop.documentId) ?? [];
+
+    // A loop can carry both the generic MCP candidate and a built-in object
+    // candidate. The built-in reader is authoritative, so choose it before the
+    // first-result precedence used by the rest of reconciliation; otherwise an
+    // approved MCP state could shadow a GitHub/Sentry/etc. verdict here.
+    const state =
+      resolved.find((candidate) => isBuiltInObjectStateProvider(candidate.state.provider))?.state ??
+      resolved[0]?.state ??
+      null;
+
+    objectByLoop.set(loop.documentId, state);
   }
 
   const objects = [...objectByLoop.values()].filter((state) => state !== null);
@@ -281,6 +294,33 @@ export function finalizeLoopRelevanceVerdicts(args: {
   unverifiedDetails?: ReadonlyMap<string, string> | undefined;
 }): BriefingLoopRelevance[] {
   return args.loops.map((loop) => {
+    const state = args.objectByLoop.get(loop.documentId) ?? null;
+
+    // A built-in provider's own reader/verdict is authoritative. An approved
+    // MCP result may add evidence for a loop with no built-in object, but it
+    // must never replace a GitHub/Sentry/etc. verdict — including that
+    // provider's honest `unverifiable` answer.
+    if (state && isBuiltInObjectStateProvider(state.provider)) {
+      const ref = objectRef(state);
+      const verdict = args.verdictByObject.get(ref);
+
+      if (verdict !== undefined) {
+        return toVerdict(loop.documentId, verdict);
+      }
+
+      if (!liveStateReaderRegistration(state)) {
+        return toVerdict(
+          loop.documentId,
+          unverified(state, "No live reader for this loop's object kind; loop stays live."),
+        );
+      }
+
+      return toVerdict(
+        loop.documentId,
+        unverified(state, "Live-read budget exhausted; loop stays live unverified."),
+      );
+    }
+
     const approved = args.approvedStates?.get(loop.documentId);
 
     if (approved) {
@@ -294,8 +334,6 @@ export function finalizeLoopRelevanceVerdicts(args: {
       });
     }
 
-    const state = args.objectByLoop.get(loop.documentId) ?? null;
-
     if (!state) {
       const detail =
         args.unverifiedDetails?.get(loop.documentId) ??
@@ -305,7 +343,6 @@ export function finalizeLoopRelevanceVerdicts(args: {
     }
 
     const ref = objectRef(state);
-
     const verdict = args.verdictByObject.get(ref);
 
     if (verdict !== undefined) {

@@ -42,7 +42,6 @@ export { _setMcpExecutionBrokerForTests } from "./runtime";
 
 type TestInvocationReservation = Pick<
   NewMcpInvocation,
-  | "stagingId"
   | "userId"
   | "connectionId"
   | "remoteName"
@@ -51,7 +50,7 @@ type TestInvocationReservation = Pick<
   | "descriptorHash"
   | "policyRevision"
   | "effectClass"
->;
+> & { stagingId: string };
 
 /**
  * The one insert both fixtures share: copy correlation from the staging row,
@@ -60,7 +59,7 @@ type TestInvocationReservation = Pick<
  * load-bearing: `persistence.test.ts` drives it with a hand-built runner.
  */
 async function insertMcpInvocationFixture(
-  values: NewMcpInvocation,
+  values: NewMcpInvocation & { stagingId: string },
   runner: DbRunner,
   label: string,
 ): Promise<McpInvocation> {
@@ -112,7 +111,7 @@ export async function reserveMcpInvocationForTests(
 
 /** Seed an exact ledger state for persistence and crash-recovery tests only. */
 export async function seedMcpInvocationForTests(
-  values: NewMcpInvocation,
+  values: NewMcpInvocation & { stagingId: string },
   runner: DbRunner = db(),
 ): Promise<McpInvocation> {
   return insertMcpInvocationFixture(values, runner, "seedMcpInvocationForTests");

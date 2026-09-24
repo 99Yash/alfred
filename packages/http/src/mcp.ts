@@ -16,7 +16,7 @@ import {
   mcpToolPolicyStateSchema,
   mcpToolSearchInputSchema,
   type ExternalToolRef,
-  type McpHealthMappingState,
+  type McpHealthMappingState as McpHealthMappingWireState,
   type McpToolPolicy,
   type McpToolPolicyState,
 } from "@alfred/contracts";
@@ -230,7 +230,7 @@ function mcpToolPolicyStateResult(
 function mcpHealthMappingStateResult(
   state: Awaited<ReturnType<typeof readMcpHealthMappingState>>,
   ref: ExternalToolRef,
-): McpHealthMappingState {
+): McpHealthMappingWireState {
   switch (state.status) {
     case "reviewed":
       return mcpHealthMappingStateSchema.parse({ status: "reviewed", ref, mapping: state.mapping });
@@ -248,6 +248,8 @@ function mcpHealthMappingStateResult(
       return mcpHealthMappingStateSchema.parse({ status: "catalog_stale", ref });
     case "not_found":
       return mcpHealthMappingStateSchema.parse({ status: "not_found", ref });
+    case "not_read_only":
+      return mcpHealthMappingStateSchema.parse({ status: "not_read_only", ref });
     case "connection_missing":
       throw Errors.NotFoundError("MCP connection not found");
   }
@@ -812,6 +814,10 @@ export const mcpIntegrationRoutes = new Elysia({
 
           if (state.status === "not_found") {
             throw Errors.NotFoundError("MCP tool not found in the current catalog");
+          }
+
+          if (state.status === "not_read_only") {
+            throw Errors.BadRequestError("MCP health mappings require a read-only descriptor");
           }
 
           return mcpHealthMappingStateResult(state, body.ref);

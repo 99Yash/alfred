@@ -28,6 +28,15 @@ export {
 
 export { discoverVercelTargets, readVercelDeploymentStatus, type VercelPullTarget } from "./vercel";
 
+export {
+  verifyApprovedMcpHealth,
+  type ApprovedMcpHealthCallInput,
+  type ApprovedMcpHealthDependencies,
+  type ApprovedMcpHealthLoop,
+  type ApprovedMcpHealthLoopResult,
+  type CurrentMcpHealthMapping,
+} from "./health";
+
 /**
  * Which verified pull each object-state provider runs at gather time. `null`
  * is the arm for a provider with a push source (or none yet), so a provider

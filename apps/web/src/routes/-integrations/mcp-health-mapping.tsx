@@ -6,21 +6,32 @@ import {
   OBJECT_STATE_CATEGORIES,
   safeJsonParse,
   toMessage,
+  isBuiltInObjectStateProvider,
+  LOOP_ENTITY_PROVIDERS,
   type ExternalToolRef,
+  type LoopEntityProvider,
   type McpHealthMappingDefinition,
   type StateCategory,
 } from "@alfred/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { AppButton, AppField, AppInput, AppTextarea } from "~/components/ui/v2";
+import {
+  AppButton,
+  AppField,
+  AppInput,
+  AppSelect,
+  AppTextarea,
+  type AppSelectOption,
+} from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
-import { MCP_HEALTH_MAPPING_QUERY_KEY, type McpHealthMappingState } from "./helpers";
+import { MCP_HEALTH_MAPPING_QUERY_KEY, type McpHealthMappingWireState } from "./helpers";
 
 type TokenDrafts = Record<StateCategory, string>;
 
 interface MappingDraft {
   itemsPath: string;
+  identityProvider: LoopEntityProvider | "";
   identityPath: string;
   statePath: string;
   titlePath: string;
@@ -39,6 +50,7 @@ const EMPTY_TOKENS = {
 
 const DEFAULT_DRAFT: MappingDraft = {
   itemsPath: "items",
+  identityProvider: "",
   identityPath: "id",
   statePath: "state",
   titlePath: "",
@@ -52,6 +64,10 @@ const STATE_INPUTS = OBJECT_STATE_CATEGORIES.map((state) => ({
   state,
   label: humanizeSlug(state),
 }));
+
+const IDENTITY_PROVIDER_OPTIONS: ReadonlyArray<AppSelectOption> = LOOP_ENTITY_PROVIDERS.filter(
+  (provider) => !isBuiltInObjectStateProvider(provider),
+).map((provider) => ({ value: provider, label: humanizeSlug(provider) }));
 
 function tokensFromDefinition(definition: McpHealthMappingDefinition) {
   const tokens = { ...EMPTY_TOKENS } satisfies TokenDrafts;
@@ -67,6 +83,7 @@ function tokensFromDefinition(definition: McpHealthMappingDefinition) {
 function draftFromMapping(mapping: McpHealthMappingDefinition, note: string | null): MappingDraft {
   return {
     itemsPath: mapping.itemsPath,
+    identityProvider: mapping.identityProvider,
     identityPath: mapping.fields.identity,
     statePath: mapping.fields.state,
     titlePath: mapping.fields.title,
@@ -88,7 +105,7 @@ function stateMappings(tokens: TokenDrafts) {
 }
 
 export interface McpHealthMappingController {
-  readonly state: McpHealthMappingState | undefined;
+  readonly state: McpHealthMappingWireState | undefined;
   readonly loading: boolean;
   readonly readError: boolean;
   readonly pending: boolean;
@@ -206,6 +223,7 @@ function MappingForm({
   onClear?: (() => void) | undefined;
 }) {
   const [itemsPath, setItemsPath] = useState(initial.itemsPath);
+  const [identityProvider, setIdentityProvider] = useState(initial.identityProvider);
   const [identityPath, setIdentityPath] = useState(initial.identityPath);
   const [statePath, setStatePath] = useState(initial.statePath);
   const [titlePath, setTitlePath] = useState(initial.titlePath);
@@ -241,6 +259,7 @@ function MappingForm({
 
         const definition = mcpHealthMappingDefinitionSchema.safeParse({
           itemsPath: itemsPath.trim(),
+          identityProvider,
           fields: {
             identity: identityPath.trim(),
             state: statePath.trim(),
@@ -264,7 +283,9 @@ function MappingForm({
       <p className="text-xs text-app-fg-3">
         Paths are dot-separated object keys. State tokens are exact and case-sensitive. Active and
         failed stay open; resolved and abandoned are eligible for normal store-backed closure.
-        Arguments are stored with this review; never put credentials in them.
+        Identity provider must be one of:{" "}
+        {IDENTITY_PROVIDER_OPTIONS.map(({ value }) => value).join(", ")}. Arguments are stored with
+        this review; never put credentials in them.
       </p>
 
       <div className="grid grid-cols-2 gap-2">
@@ -277,6 +298,19 @@ function MappingForm({
             onChange={(event) => setItemsPath(event.target.value)}
           />
         </AppField>
+        <AppSelect
+          id="mcp-health-identity-provider"
+          label="Identity provider"
+          placeholder="Select a provider"
+          value={identityProvider || undefined}
+          options={IDENTITY_PROVIDER_OPTIONS}
+          disabled={pending}
+          onChange={(value) => {
+            const provider = LOOP_ENTITY_PROVIDERS.find((candidate) => candidate === value);
+
+            setIdentityProvider(provider ?? "");
+          }}
+        />
         <AppField label="Arguments JSON" optional htmlFor="mcp-health-arguments">
           <AppTextarea
             id="mcp-health-arguments"
@@ -420,6 +454,10 @@ export function McpHealthMappingView({
         </p>
       ) : state.status === "not_found" ? (
         <p className="text-xs text-app-fg-3">This tool is not in the current catalog.</p>
+      ) : state.status === "not_read_only" ? (
+        <p className="text-xs text-app-red-4" role="alert">
+          This descriptor is not marked read-only, so Alfred will not run a health mapping for it.
+        </p>
       ) : state.status === "invalid" ? (
         <div className="space-y-2">
           <p className="text-xs text-app-red-4" role="alert">

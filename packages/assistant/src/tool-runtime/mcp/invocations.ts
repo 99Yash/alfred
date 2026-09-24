@@ -136,6 +136,16 @@ export type McpToolIdentityUnresolvedReason =
   | "revision_stale"
   | "descriptor_missing";
 
+type ResolvedMcpToolIdentity = Extract<McpToolIdentityResolution, { status: "resolved" }>;
+
+/** The exact descriptor/policy pair that may authorize a fixed read. */
+export function isReadOnlyMcpToolIdentity(identity: ResolvedMcpToolIdentity): boolean {
+  return (
+    identity.readOnly === true &&
+    (identity.policy === undefined || identity.policy.effectClass === "read")
+  );
+}
+
 /**
  * Resolve the durable identity of one selected MCP tool in ONE query.
  *

@@ -87,25 +87,40 @@ and bounded static arguments are data validated by
 are not an expression language and model or provider prose never chooses a
 match.
 
-At gather, a current row may call that exact read-only descriptor over the
-owner's connection. An output item folds only when its bounded identity exactly
-matches the deterministic loop key derived from the notification; malformed
-output, an unmapped token, no match, multiple matching connections, or a
-cross-owner row mints nothing. The unique match becomes a `verified_pull` delta
-for the fixed `mcp.connection_health` kind and enters through
-`objectStateStore.applyEvent` — the same unknown-kind/token, per-kind policy,
-absorption, lock, and recency guards as every built-in pull. `resolved` and
-`abandoned` are eligible for closure; `active` and `failed` remain live. The
-briefing relevance pass receives only the store row as non-closing presentation
-evidence, so `LoopRelevanceVerdict` remains exactly its three members and an
-unmapped connection renders `unverifiable` / can't-check.
+At gather, a current row may call that exact descriptor over the owner's
+connection only when the published descriptor asserts
+`annotations.readOnlyHint === true` at approval time and again at the live
+broker boundary. The gather call goes through the MCP execution broker's
+owner/catalog identity check and `mcp_invocation` ledger; a health read has no
+model staging row, but it is still recorded as a read and can never enter the
+effectful write path. The descriptor claim is a protocol assertion, not an
+inference from the owner's checkbox.
+
+An output item folds only when its bounded identity is byte-for-byte equal to
+the deterministic loop key derived from the notification **and** the mapping's
+explicit identity provider equals that loop's provider. There is no substring
+containment, result-side regex, prose match, or cross-provider resolution. A
+provider already owned by a built-in object-state registry entry (for example
+GitHub) is refused here so its native reader remains authoritative. Malformed
+output, an unmapped token, no exact same-provider match, multiple matching
+connections, or a cross-owner row mints nothing. The unique match becomes a
+`verified_pull` delta for the fixed `mcp.connection_health` kind and enters
+through `objectStateStore.applyEvent` — the same unknown-kind/token, per-kind
+policy, absorption, lock, and recency guards as every built-in pull. `resolved`
+and `abandoned` are eligible for closure; `active` and `failed` remain live. If
+a loop has both a built-in object and an approved MCP candidate, the built-in
+reader's verdict wins before the MCP evidence is considered. The briefing
+relevance pass receives only the store row as non-closing presentation evidence,
+so `LoopRelevanceVerdict` remains exactly its three members and an unmapped
+connection renders `unverifiable` / can't-check.
 
 A future service therefore adds a connection and its reviewed mapping row, not
 an object-state provider slot, reducer, adapter, live-reader arm, verified-pull
 registration, or gather branch. Its notification must still carry one of the
-deterministic loop-key forms; this lane does not make arbitrary free text an
-identity or use model output as state. The static arguments are persisted as
-reviewed configuration and must contain no credentials.
+deterministic loop-key forms and the mapping must name the matching provider
+from that finite identity vocabulary; this lane does not make arbitrary free
+text an identity or use model output as state. The static arguments are
+persisted as reviewed configuration and must contain no credentials.
 
 **Open.** Backfill horizon over `webhook_events` (how far back to replay). Whether `check_suite` is its own object kind or an attribute of the PR. Cross-source dedup convergence policy (when a ClickUp task and a PR are "the same loop" — the binding constraint ADR-0052(B) named). v1 loop-opener scope = GitHub Actions CI-failure emails; Railway build-failure added if it recurs.
 

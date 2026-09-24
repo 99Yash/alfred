@@ -458,9 +458,11 @@ export const mcpHealthMapping = pgTable(
 );
 
 /**
- * The operation ledger. A companion row 1:1 with an `action_stagings` row for an
- * effectful (`write`/`unknown`) MCP call, minted BEFORE network dispatch so a
+ * The operation ledger. Effectful (`write`/`unknown`) MCP calls have a
+ * companion `action_stagings` row and are minted BEFORE network dispatch so a
  * crash mid-flight still leaves durable evidence the write is ambiguous.
+ * Owner-approved gather-time health reads are also ledgered here, with a null
+ * staging id, and are constrained to the `read` effect class.
  *
  * Three distinct axes (docs/research/mcp-ambiguous-write-outcomes.md):
  *  - `attemptLifecycle`: what Alfred locally did (`delivery_possible` is written
@@ -479,10 +481,13 @@ export const mcpInvocation = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => createId("mcpi")),
-    /** 1:1 with the staging row that carries this call's approval/idempotency. */
-    stagingId: text("staging_id")
-      .notNull()
-      .references(() => actionStagings.id, { onDelete: "cascade" }),
+    /**
+     * 1:1 with the staging row for a model-dispatched call. Owner-approved
+     * gather-time health reads have no model staging row and leave this null;
+     * they are still ledgered here, but only after the broker has proved the
+     * descriptor is read-only.
+     */
+    stagingId: text("staging_id").references(() => actionStagings.id, { onDelete: "cascade" }),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -544,9 +549,11 @@ export const mcpInvocation = pgTable(
      * minter sources these from the staging row at insert (`stagingCorrelation` in
      * `persistence.ts`), never from a separately-threaded ctx that could drift.
      *
-     * Nullable only to tolerate rows minted before these columns existed; every row
-     * minted since carries them (its `staging_id` is `notNull`). A completed
-     * reviewed read now persists a resolved audit row with this correlation.
+     * Nullable for rows predating these columns and for owner-approved health
+     * reads, which have no model staging row. Model-dispatched calls still carry
+     * these copies, and the staging relationship remains the authority for those
+     * rows. A completed reviewed read persists a resolved audit row with this
+     * correlation when one exists.
      */
     /** Copy of the staging row's `run_id` — the agent-run / Langfuse trace this call groups under. */
     traceId: text("trace_id"),
@@ -580,6 +587,10 @@ export const mcpInvocation = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
+    check(
+      "mcp_invocation_staging_or_read_chk",
+      sql`${t.stagingId} IS NOT NULL OR ${t.effectClass} = 'read'`,
+    ),
     uniqueIndex("mcp_invocation_staging_idx").on(t.stagingId),
     index("mcp_invocation_barrier_lookup_idx").on(t.connectionId, t.remoteName, t.argsHash),
     // The partial-barrier invariant: at most one UNRESOLVED operation may match a

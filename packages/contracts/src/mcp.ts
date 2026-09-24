@@ -14,6 +14,7 @@
 import { z } from "zod";
 import { enumGuard } from "./guards";
 import type { CatalogSlug } from "./integrations";
+import { LOOP_ENTITY_PROVIDERS } from "./loop-key";
 import { OBJECT_STATE_CATEGORIES } from "./integration-objects";
 import { TOOL_RISK_TIERS } from "./tools";
 import { jsonObjectSchema, jsonValueSchema } from "./user-model";
@@ -861,6 +862,23 @@ export const MCP_HEALTH_MAPPING_ARGUMENT_MAX_BYTES = 16_384;
 
 export const MCP_HEALTH_MAPPING_RESULT_ITEM_MAX = 50;
 
+export const MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX = 300;
+
+export const MCP_HEALTH_MAPPING_OBJECT_URL_MAX = 2_048;
+
+/** The one bounded title shape shared by the result parser and reducer. */
+export const mcpHealthObjectTitleSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX);
+
+/** Object links are display evidence, so only bounded HTTPS URLs cross the fold. */
+export const mcpHealthObjectUrlSchema = z
+  .url()
+  .max(MCP_HEALTH_MAPPING_OBJECT_URL_MAX)
+  .refine((value) => value.startsWith("https://"), "Object URL must use HTTPS");
+
 /**
  * Dot-separated object keys only. This is intentionally not JSONPath: there is
  * no expression language for the owner to smuggle into a gather-time reader.
@@ -898,13 +916,21 @@ const mcpHealthStateMappingSchema = z
 
 /**
  * A declarative projection from one MCP result to bounded work-object rows.
- * `itemsPath` locates an array; each field path is read from one array item;
- * and `stateMappings` translates provider tokens through EXACT, case-sensitive
+ * `identityProvider` is the exact finite loop-provider vocabulary this mapping
+ * may answer; the server compares it with the notification's provider before
+ * comparing the canonical key byte-for-byte. `itemsPath` locates an array; each
+ * field path is read from one array item; and `stateMappings` translates
+ * provider tokens through EXACT, case-sensitive
  * matches into the registry vocabulary. An unmapped token produces no delta.
  */
 export const mcpHealthMappingDefinitionSchema = z
   .object({
     itemsPath: mcpHealthMappingPathSchema,
+    /**
+     * The provider whose deterministic loop-key vocabulary this mapping may
+     * answer. It is explicit server data, not a hint parsed from the result.
+     */
+    identityProvider: z.enum(LOOP_ENTITY_PROVIDERS),
     fields: z
       .object({
         identity: mcpHealthMappingFieldPathSchema,
@@ -974,8 +1000,9 @@ export type McpHealthMapping = z.infer<typeof mcpHealthMappingSchema>;
 
 /**
  * Exact current descriptor, no current review, a review under a drifted
- * descriptor, an unreadable persisted mapping, stale caller revision, or a
- * missing descriptor. A drifted or invalid row grants no runtime authority.
+ * descriptor, an unreadable persisted mapping, stale caller revision, a
+ * missing descriptor, or a descriptor that is not read-only. A drifted,
+ * invalid, or non-read-only row grants no runtime authority.
  */
 export const mcpHealthMappingStateSchema = z.union([
   z
@@ -996,6 +1023,7 @@ export const mcpHealthMappingStateSchema = z.union([
   z.object({ status: z.literal("invalid"), ref: mcpExternalToolRefSchema }).strict(),
   z.object({ status: z.literal("catalog_stale"), ref: mcpExternalToolRefSchema }).strict(),
   z.object({ status: z.literal("not_found"), ref: mcpExternalToolRefSchema }).strict(),
+  z.object({ status: z.literal("not_read_only"), ref: mcpExternalToolRefSchema }).strict(),
 ]);
 
 export type McpHealthMappingState = z.infer<typeof mcpHealthMappingStateSchema>;
