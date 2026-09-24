@@ -12,7 +12,6 @@ import {
   type DnsLookupAll,
   type GuardedFetchRequester,
 } from "../hosted-endpoint";
-import { VERCEL_MCP_OAUTH_ENDPOINT_ORIGINS } from "./constants";
 
 /**
  * The two columns an authorization reads, typed as the server-definition row
@@ -29,6 +28,12 @@ export type McpEndpointConnection = Pick<McpServer, "endpointUrl" | "endpointOri
  */
 export interface McpEndpointNetworkPolicy {
   requestTimeoutMs: number;
+}
+
+/** Provider-owned OAuth endpoint policy injected by the built-in registry. */
+export interface McpEndpointOAuthPolicy {
+  readonly authorizationServerIssuer?: string;
+  readonly tokenEndpointOrigins: readonly string[];
 }
 
 export interface McpAuthorizedOAuthServer {
@@ -98,6 +103,7 @@ export interface McpEndpointAuthorizer {
     connection: McpEndpointConnection,
     network: McpEndpointNetworkPolicy,
     apiKey?: McpApiKeyCredentialReader,
+    oauthPolicy?: McpEndpointOAuthPolicy,
   ): Promise<McpAuthorizedEndpoint>;
 }
 
@@ -149,6 +155,7 @@ function createAuthorizedOAuth(
   resource: URL,
   guardedFetch: FetchLike,
   network: McpEndpointNetworkPolicy,
+  oauthPolicy?: McpEndpointOAuthPolicy,
 ): McpAuthorizedOAuth {
   let serverIssuer: string | null = null;
   let serverOrigin: string | null = null;
@@ -156,6 +163,16 @@ function createAuthorizedOAuth(
 
   const authorizeServer = (input: unknown): McpAuthorizedOAuthServer => {
     const server = validatePublicHttpsEndpoint(input);
+
+    if (
+      oauthPolicy?.authorizationServerIssuer &&
+      server.href !== oauthPolicy.authorizationServerIssuer
+    ) {
+      throw new HostedEndpointError(
+        "origin_mismatch",
+        "OAuth authorization server does not match the configured issuer.",
+      );
+    }
 
     if (serverIssuer !== null && serverIssuer !== server.href) {
       throw new HostedEndpointError(
@@ -171,8 +188,7 @@ function createAuthorizedOAuth(
       const endpoint = validatePinnedHttpsEndpoint(candidate, null);
 
       const vercelSiblings =
-        server.origin === "https://vercel.com" &&
-        VERCEL_MCP_OAUTH_ENDPOINT_ORIGINS.some((origin) => origin === endpoint.origin);
+        oauthPolicy?.tokenEndpointOrigins.some((origin) => origin === endpoint.origin) === true;
 
       if (endpoint.origin !== server.origin && !vercelSiblings) {
         throw new HostedEndpointError(
@@ -287,6 +303,7 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
     connection: McpEndpointConnection,
     network: McpEndpointNetworkPolicy,
     apiKey?: McpApiKeyCredentialReader,
+    oauthPolicy?: McpEndpointOAuthPolicy,
   ): Promise<McpAuthorizedEndpoint> {
     const endpoint = validatePinnedHttpsEndpoint(connection.endpointUrl, connection.endpointOrigin);
 
@@ -316,7 +333,12 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
     let closeFlight: Promise<void> | null = null;
 
     return Object.freeze({
-      oauth: createAuthorizedOAuth(endpoint, createGuardedFetch({ requester }), network),
+      oauth: createAuthorizedOAuth(
+        endpoint,
+        createGuardedFetch({ requester }),
+        network,
+        oauthPolicy,
+      ),
       protocol: Object.freeze({
         endpoint: new URL(endpoint.href),
         fetch: createGuardedFetch({
