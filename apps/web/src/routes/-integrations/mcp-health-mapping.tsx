@@ -7,7 +7,6 @@ import {
   safeJsonParse,
   toMessage,
   isBuiltInObjectStateProvider,
-  LOOP_ENTITY_PROVIDERS,
   type ExternalToolRef,
   type McpHealthMappingDefinition,
   type StateCategory,
@@ -64,10 +63,10 @@ const STATE_INPUTS = OBJECT_STATE_CATEGORIES.map((state) => ({
   label: humanizeSlug(state),
 }));
 
-const MAPPING_IDENTITY_PROVIDERS = LOOP_ENTITY_PROVIDERS.filter(
-  (provider): provider is McpHealthMappingDefinition["identityProvider"] =>
-    provider !== "issue" && !isBuiltInObjectStateProvider(provider),
-);
+const MAPPING_IDENTITY_PROVIDERS =
+  mcpHealthMappingDefinitionSchema.shape.identityProvider.options.filter(
+    (provider) => !isBuiltInObjectStateProvider(provider),
+  );
 
 const IDENTITY_PROVIDER_OPTIONS: ReadonlyArray<AppSelectOption> = MAPPING_IDENTITY_PROVIDERS.map(
   (provider) => ({ value: provider, label: humanizeSlug(provider) }),

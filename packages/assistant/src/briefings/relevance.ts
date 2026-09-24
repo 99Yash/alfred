@@ -229,7 +229,7 @@ async function assessLoopRelevanceInner(args: {
   unverifiedDetails?: ReadonlyMap<string, string> | undefined;
 }): Promise<BriefingLoopRelevance[]> {
   // A built-in resolved object is the loop's primary identity when one exists;
-  // otherwise the first resolved object keeps the existing reconciliation
+  // otherwise the first resolved MCP object keeps the class-level reconciliation
   // precedence. Selection below dedupes those identities and applies one
   // cross-provider read budget.
   const objectByLoop = new Map<string, ObjectState | null>();

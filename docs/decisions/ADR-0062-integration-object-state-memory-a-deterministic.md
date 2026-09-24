@@ -107,12 +107,14 @@ it is still recorded as a read and can never enter the effectful write path.
 An output item folds only when its bounded identity is byte-for-byte equal to
 the deterministic loop key derived from the notification **and** the mapping's
 explicit identity provider equals that loop's provider. A mapping may name only
-a sender-gated provider in the finite loop vocabulary. It may not name `issue`,
-which is precisely the fallback for tracker-shaped text without a trusted
-sender. There is no substring containment, result-side regex, prose match, or
-cross-provider resolution. A provider already owned by a built-in object-state
-registry entry (for example GitHub) is refused here so its native reader
-remains authoritative. Malformed output, an unmapped token, no exact
+a provider selected by the notification's sender-heuristic classification in the
+finite loop vocabulary. It may not name `issue`, which is precisely the fallback
+for tracker-shaped text without a trusted sender. `trackerSenderKey` reads both
+the display name and the address, so this is a heuristic rather than
+authentication. There is no substring containment, result-side regex, prose
+match, or cross-provider resolution. A provider already owned by a built-in
+object-state registry entry (for example GitHub) is refused here so its native
+reader remains authoritative. Malformed output, an unmapped token, no exact
 same-provider match, multiple matching connections, or a cross-owner row mints
 nothing. The unique match becomes a `verified_pull` delta for the fixed
 `mcp.connection_health` kind and enters through `objectStateStore.applyEvent` —
@@ -120,23 +122,29 @@ the same unknown-kind/token, per-kind policy, absorption, lock, and recency
 guards as every built-in pull. `resolved` and `abandoned` are eligible for
 closure; `active` and `failed` remain live.
 
-One precedence rule covers both relevance and closure: if a subject resolves
-any built-in object, that object is the sole authoritative object for the
-subject. An approved MCP object cannot shadow its verdict and cannot close the
-loop while the built-in object is open. Only a subject with no resolved
-built-in object may use MCP state. The briefing relevance pass receives the
-MCP store row as non-closing presentation evidence, so `LoopRelevanceVerdict`
-remains exactly its three members and an unmapped connection renders
-`unverifiable` / can't-check.
+One class-level precedence rule covers both relevance and closure: use the
+resolved built-in objects if any exist; otherwise use the resolved MCP objects.
+Relevance takes the first object in the selected class, while closure takes the
+first closing object in that class. The old implementation selected the first
+closing object across all providers; #1196 now selects the class first, then scans
+it. This preserves built-in-only closure ordering (an open first built-in object
+no longer blocks a later closing built-in object) while ensuring an approved MCP
+object cannot shadow a built-in verdict or close a subject that has any built-in
+object. Only a subject with no resolved built-in object may use MCP state. The
+briefing relevance pass receives the MCP store row as non-closing presentation
+evidence, so `LoopRelevanceVerdict` remains exactly its three members and an
+unmapped connection renders `unverifiable` / can't-check.
 
 **There is no live adopter yet.** Known services return their own raw
 identities — for example Linear returns `ENG-123` — while byte equality here
 compares that output with Alfred's internal `issue:eng-123` loop key. This
 change deliberately does not guess a conversion. A service becomes reachable
 only after one fixed, documented raw-identity-to-loop-key conversion is added
-at this boundary (with whole-string validation); a connection and mapping row
-alone are not enough. The static arguments are persisted as reviewed
-configuration and must contain no credentials.
+at this boundary (with whole-string validation); that conversion must also add a
+sender-domain gate before it can authorize a fold, because display-name matching
+alone is not authentication. A connection and mapping row alone are not enough.
+The static arguments are persisted as reviewed configuration and must contain no
+credentials.
 
 **Open.** Backfill horizon over `webhook_events` (how far back to replay). Whether `check_suite` is its own object kind or an attribute of the PR. Cross-source dedup convergence policy (when a ClickUp task and a PR are "the same loop" — the binding constraint ADR-0052(B) named). v1 loop-opener scope = GitHub Actions CI-failure emails; Railway build-failure added if it recurs.
 
