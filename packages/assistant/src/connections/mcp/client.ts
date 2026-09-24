@@ -205,6 +205,26 @@ const encoder = new TextEncoder();
  * Keep the 2020-12 dialect and all Ajv validation, but compile the pattern
  * keyword in the historical non-Unicode mode that those schemas use.
  */
+const MCP_SCHEMA_2020_12_URIS = new Set([
+  "https://json-schema.org/draft/2020-12/schema",
+  "http://json-schema.org/draft/2020-12/schema",
+]);
+
+const MCP_SCHEMA_2019_09_URIS = new Set([
+  "https://json-schema.org/draft/2019-09/schema",
+  "http://json-schema.org/draft/2019-09/schema",
+]);
+
+const MCP_SCHEMA_DRAFT_07_URIS = new Set([
+  "https://json-schema.org/draft-07/schema",
+  "http://json-schema.org/draft-07/schema",
+]);
+
+const MCP_SCHEMA_DRAFT_06_URIS = new Set([
+  "https://json-schema.org/draft-06/schema",
+  "http://json-schema.org/draft-06/schema",
+]);
+
 interface McpSchemaValidator {
   getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
 }
@@ -240,15 +260,22 @@ function createSchemaValidator(): McpSchemaValidator {
   return {
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
       const declaredSchema = "$schema" in schema ? schema.$schema : undefined;
-      const dialect = typeof declaredSchema === "string" ? declaredSchema : "";
 
-      if (dialect === "" || dialect.includes("2020-12")) {
+      if (typeof declaredSchema !== "string") {
         return validators.draft2020.getValidator<T>(schema);
       }
 
-      if (dialect.includes("2019-09")) return validators.draft2019.getValidator<T>(schema);
+      const dialect = declaredSchema.replace(/#$/, "");
 
-      if (dialect.includes("draft-07") || dialect.includes("draft-06")) {
+      if (MCP_SCHEMA_2020_12_URIS.has(dialect)) {
+        return validators.draft2020.getValidator<T>(schema);
+      }
+
+      if (MCP_SCHEMA_2019_09_URIS.has(dialect)) {
+        return validators.draft2019.getValidator<T>(schema);
+      }
+
+      if (MCP_SCHEMA_DRAFT_07_URIS.has(dialect) || MCP_SCHEMA_DRAFT_06_URIS.has(dialect)) {
         return validators.draft7.getValidator<T>(schema);
       }
 
