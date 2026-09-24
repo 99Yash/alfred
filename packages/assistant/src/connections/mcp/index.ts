@@ -89,6 +89,8 @@ export { inspectMcpToolLocal, listMcpToolsLocal, searchMcpToolsLocal } from "./l
 
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
 
+export { parseMcpToolResult } from "./result";
+
 export {
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,

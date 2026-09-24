@@ -14,6 +14,7 @@
 import { z } from "zod";
 import { enumGuard } from "./guards";
 import type { CatalogSlug } from "./integrations";
+import { OBJECT_STATE_CATEGORIES } from "./integration-objects";
 import { TOOL_RISK_TIERS } from "./tools";
 import { jsonObjectSchema, jsonValueSchema } from "./user-model";
 
@@ -838,3 +839,163 @@ export const mcpToolPolicyStateSchema = z.union([
 ]);
 
 export type McpToolPolicyState = z.infer<typeof mcpToolPolicyStateSchema>;
+
+// ---------------------------------------------------------------------------
+// Owner-reviewed connection health mapping (#1196). This is deliberately NOT a
+// second policy review: the row names the SAME exact descriptor identity, but
+// its payload says how one bounded read-only MCP result projects into the
+// generic object-state store. The browser and server must agree on the bounded
+// selector/token vocabulary because the owner authors it and the gatherer
+// executes it.
+// ---------------------------------------------------------------------------
+
+export const MCP_HEALTH_MAPPING_NOTE_MAX = 500;
+
+export const MCP_HEALTH_MAPPING_PATH_MAX = 200;
+
+export const MCP_HEALTH_MAPPING_TOKEN_MAX = 80;
+
+export const MCP_HEALTH_MAPPING_STATE_TOKEN_MAX = 32;
+
+export const MCP_HEALTH_MAPPING_ARGUMENT_MAX_BYTES = 16_384;
+
+export const MCP_HEALTH_MAPPING_RESULT_ITEM_MAX = 50;
+
+/**
+ * Dot-separated object keys only. This is intentionally not JSONPath: there is
+ * no expression language for the owner to smuggle into a gather-time reader.
+ * The empty string means the response root and is meaningful only for
+ * `itemsPath`; every field path must name at least one key.
+ */
+const mcpHealthMappingPathSchema = z
+  .string()
+  .trim()
+  .max(MCP_HEALTH_MAPPING_PATH_MAX)
+  .refine(
+    (value) =>
+      value === "" ||
+      value
+        .split(".")
+        .every(
+          (segment) =>
+            /^[A-Za-z0-9_-]{1,64}$/.test(segment) &&
+            !["__proto__", "prototype", "constructor"].includes(segment),
+        ),
+    "Use dot-separated object keys, for example data.items",
+  );
+
+const mcpHealthMappingFieldPathSchema = mcpHealthMappingPathSchema.refine(
+  (value) => value.length > 0,
+  "A field path must name at least one object key",
+);
+
+const mcpHealthStateMappingSchema = z
+  .object({
+    token: z.string().trim().min(1).max(MCP_HEALTH_MAPPING_TOKEN_MAX),
+    state: z.enum(OBJECT_STATE_CATEGORIES),
+  })
+  .strict();
+
+/**
+ * A declarative projection from one MCP result to bounded work-object rows.
+ * `itemsPath` locates an array; each field path is read from one array item;
+ * and `stateMappings` translates provider tokens through EXACT, case-sensitive
+ * matches into the registry vocabulary. An unmapped token produces no delta.
+ */
+export const mcpHealthMappingDefinitionSchema = z
+  .object({
+    itemsPath: mcpHealthMappingPathSchema,
+    fields: z
+      .object({
+        identity: mcpHealthMappingFieldPathSchema,
+        state: mcpHealthMappingFieldPathSchema,
+        title: mcpHealthMappingPathSchema,
+        url: mcpHealthMappingPathSchema,
+      })
+      .strict(),
+    stateMappings: z
+      .array(mcpHealthStateMappingSchema)
+      .min(1)
+      .max(MCP_HEALTH_MAPPING_STATE_TOKEN_MAX)
+      .superRefine((mappings, ctx) => {
+        const seen = new Set<string>();
+
+        mappings.forEach((mapping, index) => {
+          if (seen.has(mapping.token)) {
+            ctx.addIssue({
+              code: "custom",
+              message: `State token '${mapping.token}' is mapped more than once`,
+              path: [index, "token"],
+            });
+          }
+
+          seen.add(mapping.token);
+        });
+      }),
+    /** Exact arguments for the approved descriptor; the MCP client validates them again. */
+    arguments: jsonObjectSchema.refine(
+      (value) =>
+        new TextEncoder().encode(JSON.stringify(value)).length <=
+        MCP_HEALTH_MAPPING_ARGUMENT_MAX_BYTES,
+      `Health mapping arguments must be at most ${MCP_HEALTH_MAPPING_ARGUMENT_MAX_BYTES} bytes`,
+    ),
+  })
+  .strict();
+
+export type McpHealthMappingDefinition = z.infer<typeof mcpHealthMappingDefinitionSchema>;
+
+/**
+ * Approval request for one exact descriptor. `readOnly: true` is the owner's
+ * explicit attestation that the inspected descriptor is a read. The server
+ * never infers that claim from model text or fuzzy output.
+ */
+export const mcpHealthMappingReviewInputSchema = z
+  .object({
+    ref: mcpExternalToolRefSchema,
+    readOnly: z.literal(true),
+    definition: mcpHealthMappingDefinitionSchema,
+    note: z.string().trim().max(MCP_HEALTH_MAPPING_NOTE_MAX).nullable(),
+  })
+  .strict();
+
+export type McpHealthMappingReviewInput = z.infer<typeof mcpHealthMappingReviewInputSchema>;
+
+/** Browser projection of the owner-reviewed row; descriptor identity stays server-owned. */
+export const mcpHealthMappingSchema = z
+  .object({
+    definition: mcpHealthMappingDefinitionSchema,
+    note: z.string().nullable(),
+    mappingRevision: z.number().int().positive(),
+    reviewedAt: z.string().nullable(),
+  })
+  .strict();
+
+export type McpHealthMapping = z.infer<typeof mcpHealthMappingSchema>;
+
+/**
+ * Exact current descriptor, no current review, a review under a drifted
+ * descriptor, an unreadable persisted mapping, stale caller revision, or a
+ * missing descriptor. A drifted or invalid row grants no runtime authority.
+ */
+export const mcpHealthMappingStateSchema = z.union([
+  z
+    .object({
+      status: z.literal("reviewed"),
+      ref: mcpExternalToolRefSchema,
+      mapping: mcpHealthMappingSchema,
+    })
+    .strict(),
+  z.object({ status: z.literal("unreviewed"), ref: mcpExternalToolRefSchema }).strict(),
+  z
+    .object({
+      status: z.literal("drifted"),
+      ref: mcpExternalToolRefSchema,
+      previous: mcpHealthMappingSchema,
+    })
+    .strict(),
+  z.object({ status: z.literal("invalid"), ref: mcpExternalToolRefSchema }).strict(),
+  z.object({ status: z.literal("catalog_stale"), ref: mcpExternalToolRefSchema }).strict(),
+  z.object({ status: z.literal("not_found"), ref: mcpExternalToolRefSchema }).strict(),
+]);
+
+export type McpHealthMappingState = z.infer<typeof mcpHealthMappingStateSchema>;

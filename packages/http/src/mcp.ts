@@ -4,6 +4,8 @@ import {
   isBuiltInMCPProvider,
   mcpAddServerBodySchema,
   mcpExternalToolRefSchema,
+  mcpHealthMappingReviewInputSchema,
+  mcpHealthMappingStateSchema,
   mcpRecoveryDecisionBodySchema,
   mcpRecoveryOperationsPageQuerySchema,
   mcpRenameConnectionBodySchema,
@@ -14,6 +16,7 @@ import {
   mcpToolPolicyStateSchema,
   mcpToolSearchInputSchema,
   type ExternalToolRef,
+  type McpHealthMappingState,
   type McpToolPolicy,
   type McpToolPolicyState,
 } from "@alfred/contracts";
@@ -50,12 +53,15 @@ import {
   type McpOAuthProviderForConnectionInput,
 } from "@alfred/assistant/connections/mcp";
 import {
+  clearMcpHealthMapping,
   clearMcpToolPolicy,
   listMcpRecoveryOperations,
   mcpUnresolvedInvocationGate,
+  readMcpHealthMappingState,
   readMcpToolPolicyState,
   resolveMcpRecoveryOperation,
   retryMcpRecoveryOperation,
+  reviewMcpHealthMapping,
   reviewMcpToolPolicy,
 } from "@alfred/assistant/tool-runtime/mcp";
 import { authMacro } from "./middleware/auth";
@@ -215,6 +221,33 @@ function mcpToolPolicyStateResult(
       return mcpToolPolicyStateSchema.parse({ status: "catalog_stale", ref });
     case "not_found":
       return mcpToolPolicyStateSchema.parse({ status: "not_found", ref });
+    case "connection_missing":
+      throw Errors.NotFoundError("MCP connection not found");
+  }
+}
+
+/** Map the owner-reviewed health state onto the same exact-ref wire vocabulary. */
+function mcpHealthMappingStateResult(
+  state: Awaited<ReturnType<typeof readMcpHealthMappingState>>,
+  ref: ExternalToolRef,
+): McpHealthMappingState {
+  switch (state.status) {
+    case "reviewed":
+      return mcpHealthMappingStateSchema.parse({ status: "reviewed", ref, mapping: state.mapping });
+    case "drifted":
+      return mcpHealthMappingStateSchema.parse({
+        status: "drifted",
+        ref,
+        previous: state.previous,
+      });
+    case "invalid":
+      return mcpHealthMappingStateSchema.parse({ status: "invalid", ref });
+    case "unreviewed":
+      return mcpHealthMappingStateSchema.parse({ status: "unreviewed", ref });
+    case "catalog_stale":
+      return mcpHealthMappingStateSchema.parse({ status: "catalog_stale", ref });
+    case "not_found":
+      return mcpHealthMappingStateSchema.parse({ status: "not_found", ref });
     case "connection_missing":
       throw Errors.NotFoundError("MCP connection not found");
   }
@@ -727,6 +760,87 @@ export const mcpIntegrationRoutes = new Elysia({
           }
 
           return mcpToolPolicyStateResult(state, body.ref);
+        },
+        {
+          params: t.Object({ id: t.String({ minLength: 1 }) }),
+          body: mcpToolInspectInputSchema,
+        },
+      )
+      // Owner-reviewed health projection for the exact descriptor just inspected.
+      // The server derives the descriptor hash and holds the same current-revision
+      // lock as policy review, so this row carries the same drift-void trust shape.
+      .get(
+        "/connections/:id/tools/health-mapping",
+        async ({ params, query, user }) => {
+          const ref: ExternalToolRef = {
+            kind: "mcp",
+            connectionId: params.id,
+            remoteName: query.remoteName,
+            catalogRevision: query.catalogRevision,
+          };
+
+          return mcpHealthMappingStateResult(
+            await readMcpHealthMappingState({ userId: user.id, ref }),
+            ref,
+          );
+        },
+        {
+          params: t.Object({ id: t.String({ minLength: 1 }) }),
+          query: mcpExternalToolRefSchema.pick({ remoteName: true, catalogRevision: true }),
+        },
+      )
+      .put(
+        "/connections/:id/tools/health-mapping",
+        async ({ body, params, user }) => {
+          if (body.ref.connectionId !== params.id) {
+            throw Errors.BadRequestError("MCP tool reference must name the path connection");
+          }
+
+          const state = await reviewMcpHealthMapping({
+            userId: user.id,
+            ref: body.ref,
+            readOnly: body.readOnly,
+            definition: body.definition,
+            note: body.note,
+          });
+
+          if (state.status === "catalog_stale") {
+            throw Errors.ConflictError(
+              "The MCP catalog changed; refresh and review the health mapping again",
+            );
+          }
+
+          if (state.status === "not_found") {
+            throw Errors.NotFoundError("MCP tool not found in the current catalog");
+          }
+
+          return mcpHealthMappingStateResult(state, body.ref);
+        },
+        {
+          params: t.Object({ id: t.String({ minLength: 1 }) }),
+          body: mcpHealthMappingReviewInputSchema,
+        },
+      )
+      .delete(
+        "/connections/:id/tools/health-mapping",
+        async ({ body, params, user }) => {
+          if (body.ref.connectionId !== params.id) {
+            throw Errors.BadRequestError("MCP tool reference must name the path connection");
+          }
+
+          const state = await clearMcpHealthMapping({ userId: user.id, ref: body.ref });
+
+          if (state.status === "catalog_stale") {
+            throw Errors.ConflictError(
+              "The MCP catalog changed; refresh and clear the health mapping again",
+            );
+          }
+
+          if (state.status === "not_found") {
+            throw Errors.NotFoundError("MCP tool not found in the current catalog");
+          }
+
+          return mcpHealthMappingStateResult(state, body.ref);
         },
         {
           params: t.Object({ id: t.String({ minLength: 1 }) }),

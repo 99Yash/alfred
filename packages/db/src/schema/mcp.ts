@@ -286,6 +286,10 @@ export const mcpConnections = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
+    // The health-mapping owner FK references (id, user_id); keep the exact
+    // composite unique target on the connection table so the database enforces
+    // ownership as well as the application-side lock/query.
+    uniqueIndex("mcp_connections_id_user_idx").on(t.id, t.userId),
     uniqueIndex("mcp_connections_user_server_instance_idx").on(t.userId, t.serverId, t.instanceKey),
     index("mcp_connections_user_status_idx").on(t.userId, t.status),
     foreignKey({
@@ -400,6 +404,56 @@ export const mcpToolPolicy = pgTable(
       t.remoteName,
       t.descriptorHash,
     ),
+  ],
+);
+
+/**
+ * One owner-reviewed projection from a read-only MCP result into the generic
+ * object-state store (#1196). The row has the same authority shape as
+ * `mcp_tool_policy`: owner + connection + remote name + exact descriptor hash.
+ * The JSON payload stays UNKNOWN in the schema and is parsed with
+ * `mcpHealthMappingDefinitionSchema` at every read boundary; a corrupt mapping
+ * is inert rather than trusted because a column annotation says so.
+ *
+ * Catalog drift does not rewrite or delete this row. The current revision's
+ * descriptor hash simply stops matching, so the approval is VOID until the
+ * owner reviews the new descriptor. Historic hashes remain as an audit trail.
+ */
+export const mcpHealthMapping = pgTable(
+  "mcp_health_mapping",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("mcph")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => mcpConnections.id, { onDelete: "cascade" }),
+    remoteName: text("remote_name").notNull(),
+    /** Server-derived from the exact descriptor the owner inspected. */
+    descriptorHash: text("descriptor_hash").notNull(),
+    /** Bumped only when the same exact descriptor is reviewed again. */
+    mappingRevision: integer("mapping_revision").notNull().default(1),
+    /** Bounded declarative projection; validated at the assistant boundary. */
+    definition: jsonb("definition").notNull(),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedNote: text("reviewed_note"),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("mcp_health_mapping_conn_remote_desc_idx").on(
+      t.connectionId,
+      t.remoteName,
+      t.descriptorHash,
+    ),
+    index("mcp_health_mapping_owner_pair_idx").on(t.userId, t.connectionId, t.remoteName),
+    foreignKey({
+      columns: [t.connectionId, t.userId],
+      foreignColumns: [mcpConnections.id, mcpConnections.userId],
+      name: "mcp_health_mapping_connection_owner_fk",
+    }).onDelete("cascade"),
   ],
 );
 
@@ -576,6 +630,10 @@ export type NewMcpCatalogRevision = typeof mcpCatalogRevisions.$inferInsert;
 export type McpToolPolicyRow = typeof mcpToolPolicy.$inferSelect;
 
 export type NewMcpToolPolicyRow = typeof mcpToolPolicy.$inferInsert;
+
+export type McpHealthMappingRow = typeof mcpHealthMapping.$inferSelect;
+
+export type NewMcpHealthMappingRow = typeof mcpHealthMapping.$inferInsert;
 
 export type McpInvocation = typeof mcpInvocation.$inferSelect;
 

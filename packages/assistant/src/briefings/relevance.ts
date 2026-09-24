@@ -49,6 +49,12 @@ export interface RelevanceLoop {
   documentId: string;
 }
 
+/** Store-backed evidence from the owner-approved generic MCP health verifier. */
+export interface ApprovedLoopState {
+  state: ObjectState;
+  detail: string;
+}
+
 /** A live read's outcome for one object, before it is fanned out to loops. */
 type ObjectVerdict = Omit<BriefingLoopRelevance, "documentId">;
 
@@ -109,6 +115,11 @@ const LIVE_STATE_READERS = {
   vercel: {
     deployment_attempt: null,
     deployment_target: null,
+  },
+  mcp: {
+    // Owner-approved MCP health reads are data-driven per connection and arrive
+    // as already-folded state. This table owns only fixed provider readers.
+    connection_health: null,
   },
 } as const satisfies LiveStateReaderTable;
 
@@ -189,6 +200,8 @@ export async function assessLoopRelevance(args: {
   userId: string;
   loops: readonly RelevanceLoop[];
   reconciled: ReconcileResult<"about">;
+  approvedStates?: ReadonlyMap<string, ApprovedLoopState> | undefined;
+  unverifiedDetails?: ReadonlyMap<string, string> | undefined;
 }): Promise<BriefingLoopRelevance[]> {
   try {
     return await assessLoopRelevanceInner(args);
@@ -207,6 +220,8 @@ async function assessLoopRelevanceInner(args: {
   userId: string;
   loops: readonly RelevanceLoop[];
   reconciled: ReconcileResult<"about">;
+  approvedStates?: ReadonlyMap<string, ApprovedLoopState> | undefined;
+  unverifiedDetails?: ReadonlyMap<string, string> | undefined;
 }): Promise<BriefingLoopRelevance[]> {
   // The FIRST resolved object is the loop's primary identity — the same
   // precedence `reconcileEvidence` reports in. Selection below dedupes those
@@ -243,6 +258,8 @@ async function assessLoopRelevanceInner(args: {
     loops: args.loops,
     objectByLoop,
     verdictByObject,
+    approvedStates: args.approvedStates,
+    unverifiedDetails: args.unverifiedDetails,
   });
 }
 
@@ -260,15 +277,31 @@ export function finalizeLoopRelevanceVerdicts(args: {
   loops: readonly RelevanceLoop[];
   objectByLoop: ReadonlyMap<string, ObjectState | null>;
   verdictByObject: ReadonlyMap<string, ObjectVerdict>;
+  approvedStates?: ReadonlyMap<string, ApprovedLoopState> | undefined;
+  unverifiedDetails?: ReadonlyMap<string, string> | undefined;
 }): BriefingLoopRelevance[] {
   return args.loops.map((loop) => {
+    const approved = args.approvedStates?.get(loop.documentId);
+
+    if (approved) {
+      return toVerdict(loop.documentId, {
+        verdict: VERDICT_BY_STATE_CATEGORY[approved.state.stateCategory],
+        source: "live_mcp_read",
+        observedState: approved.state.nativeState,
+        objectTitle: approved.state.title,
+        objectUrl: httpsUrlOrNull(approved.state.url),
+        detail: approved.detail,
+      });
+    }
+
     const state = args.objectByLoop.get(loop.documentId) ?? null;
 
     if (!state) {
-      return toVerdict(
-        loop.documentId,
-        unverified(null, "No linked work object; nothing to re-check, loop stays live."),
-      );
+      const detail =
+        args.unverifiedDetails?.get(loop.documentId) ??
+        "No linked work object; nothing to re-check, loop stays live.";
+
+      return toVerdict(loop.documentId, unverified(null, detail));
     }
 
     const ref = objectRef(state);

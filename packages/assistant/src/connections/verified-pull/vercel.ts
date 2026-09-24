@@ -1,17 +1,15 @@
 import {
   canonicalizeVercelTargetId,
   emailDomain,
-  getPath,
-  getStringPath,
   INTEGRATIONS,
   parseEmailAddress,
   parseGitBranchRef,
-  safeJsonParse,
 } from "@alfred/contracts";
 import {
   builtInProviderForEndpoint,
   getMcpConnectionManager,
   listOwnedConnections,
+  parseMcpToolResult,
   VERCEL_MCP_STORED_ISSUER,
   type McpPreparedToolCall,
 } from "../mcp";
@@ -130,26 +128,6 @@ const vercelDeploymentsSchema = listSchema(
   }),
 );
 
-/**
- * Parse a tool result against `schema`: the structured content when present,
- * else the one text block parsed as JSON. Any other result shape is null.
- */
-function parseToolPayload<Schema extends z.ZodType>(
-  result: unknown,
-  schema: Schema,
-): z.infer<Schema> | null {
-  const structured = getPath(result, "structuredContent");
-  const content = getPath(result, "content");
-  const [block] = Array.isArray(content) && content.length === 1 ? content : [];
-  const text = getStringPath(block, "type") === "text" ? getStringPath(block, "text") : undefined;
-
-  const parsed = schema.safeParse(
-    structured !== undefined ? structured : text !== undefined ? safeJsonParse(text) : undefined,
-  );
-
-  return parsed.success ? parsed.data : null;
-}
-
 async function readVercelTool<Schema extends z.ZodType>(
   connectionId: string,
   prepared: McpPreparedToolCall,
@@ -166,7 +144,7 @@ async function readVercelTool<Schema extends z.ZodType>(
   // nothing about current state.
   if (envelope.outcome !== "completed" || envelope.truncation) return null;
 
-  return parseToolPayload(envelope.result, schema);
+  return parseMcpToolResult(envelope.result, schema);
 }
 
 /**

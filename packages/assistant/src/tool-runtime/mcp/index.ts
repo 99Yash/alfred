@@ -55,6 +55,23 @@ export {
   type McpToolPolicyState,
 } from "./policy";
 
+export {
+  clearMcpHealthMapping,
+  readMcpHealthMappingState,
+  reviewMcpHealthMapping,
+  type McpHealthMappingClearState,
+  type McpHealthMappingReviewState,
+  type McpHealthMappingState,
+} from "./health-mapping";
+
+export {
+  verifyApprovedMcpHealth,
+  type ApprovedMcpHealthDependencies,
+  type ApprovedMcpHealthLoop,
+  type ApprovedMcpHealthLoopResult,
+  type CurrentMcpHealthMapping,
+} from "./health-read";
+
 export { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "./risk";
 
 export { getMcpExecutionBroker } from "./runtime";
