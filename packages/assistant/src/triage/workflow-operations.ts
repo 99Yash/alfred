@@ -11,7 +11,11 @@ import {
   listActiveSuppressionInstructions,
   readUserContextLine,
 } from "../knowledge";
-import { resolveTodosForGmailSource, suggestTodo } from "@alfred/assistant/tasks";
+import {
+  resolvePaymentTodoFromReceipt,
+  resolveTodosForGmailSource,
+  suggestTodo,
+} from "@alfred/assistant/tasks";
 import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,
@@ -917,15 +921,14 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
     summary: summarize(summaryTail),
   });
 
-  if (ctx.state.reason !== "reply") return done();
+  // Two independent closure authorities can run after the label has landed:
+  // the user's outbound reply retracts the same-thread todo, while a later
+  // positive payment receipt retracts the matching payment todo. The receipt
+  // path is not a reply path — Stripe commonly gives the receipt a fresh Gmail
+  // thread — so it must not be hidden behind the old reason gate.
+  const isPaymentTriage = ctx.state.category === "payment";
 
-  if (!ctx.state.userAlreadyReplied) {
-    await ctx.log(
-      `close-loop-todos: thread=${sourceThreadId} — no retraction (classify read no user reply)`,
-    );
-
-    return done("reply re-eval, no open suggestion to close");
-  }
+  if (ctx.state.reason !== "reply" && !isPaymentTriage) return done();
 
   // Everything past this point touches the todo rail, so it is best-effort:
   // the flag read is inside the try with the dismissal, so a DB blip here
@@ -948,37 +951,72 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
       return done("retraction skipped (action-items disabled)");
     }
 
-    const resolved = await resolveTodosForGmailSource({
-      userId: ctx.userId,
-      sourceThreadId,
-      // The state's own reason union, not an invented literal — the helper
-      // persists it as `resolved_reason` and echoes it back as `auditReason`
-      // for this log.
-      reason: ctx.state.reason,
-      // The automatic retraction has no user in the loop: attribute `system`
-      // so it stays distinguishable from a chat-agent dismissal (`agent`)
-      // and a direct UI clear (`user`).
-      actor: "system",
-      // Only Alfred's unpromoted proposals. An `open` row is one the user
-      // explicitly accepted (promoted with `+`); a holding reply ("I'll send
-      // it tomorrow") is progress, not closure, so auto-dismissing it would
-      // bury the user's own commitment rather than demote a suggestion
-      // (ADR-0050's parked wording: "auto-dismiss an unpromoted suggestion").
-      statuses: ["suggested"],
-    });
+    let dismissed = 0;
+    const summaryParts: string[] = [];
 
-    await ctx.log(
-      `close-loop-todos: thread=${sourceThreadId} newest=sent reason=${resolved.auditReason ?? "unknown"} ` +
-        `status=${resolved.status} dismissed=${resolved.ok ? resolved.dismissedCount : 0}`,
-    );
+    if (ctx.state.reason === "reply") {
+      if (!ctx.state.userAlreadyReplied) {
+        await ctx.log(
+          `close-loop-todos: thread=${sourceThreadId} — no retraction (classify read no user reply)`,
+        );
 
-    const dismissed = resolved.ok ? resolved.dismissedCount : 0;
+        summaryParts.push("reply re-eval, no open suggestion to close");
+      } else {
+        const resolved = await resolveTodosForGmailSource({
+          userId: ctx.userId,
+          sourceThreadId,
+          // The state's own reason union, not an invented literal — the helper
+          // persists it as `resolved_reason` and echoes it back as `auditReason`
+          // for this log.
+          reason: ctx.state.reason,
+          // The automatic retraction has no user in the loop: attribute `system`
+          // so it stays distinguishable from a chat-agent dismissal (`agent`)
+          // and a direct UI clear (`user`).
+          actor: "system",
+          // Only Alfred's unpromoted proposals. An `open` row is one the user
+          // explicitly accepted (promoted with `+`); a holding reply ("I'll send
+          // it tomorrow") is progress, not closure, so auto-dismissing it would
+          // bury the user's own commitment rather than demote a suggestion
+          // (ADR-0050's parked wording: "auto-dismiss an unpromoted suggestion").
+          statuses: ["suggested"],
+        });
 
-    return done(
-      dismissed > 0
-        ? `reply re-eval, closed ${dismissed} suggestion${dismissed === 1 ? "" : "s"}`
-        : "reply re-eval, no open suggestion to close",
-    );
+        await ctx.log(
+          `close-loop-todos: thread=${sourceThreadId} newest=sent reason=${resolved.auditReason ?? "unknown"} ` +
+            `status=${resolved.status} dismissed=${resolved.ok ? resolved.dismissedCount : 0}`,
+        );
+
+        dismissed += resolved.ok ? resolved.dismissedCount : 0;
+        summaryParts.push(
+          dismissed > 0
+            ? `reply re-eval, closed ${dismissed} suggestion${dismissed === 1 ? "" : "s"}`
+            : "reply re-eval, no open suggestion to close",
+        );
+      }
+    }
+
+    if (isPaymentTriage) {
+      const payment = await resolvePaymentTodoFromReceipt({
+        userId: ctx.userId,
+        receiptDocumentId: ctx.state.documentId,
+      });
+
+      await ctx.log(
+        `close-loop-todos: payment receipt=${ctx.state.documentId} ` +
+          `status=${payment.status}${payment.status === "dismissed" ? ` dismissed=${payment.todoIds.length}` : ""}`,
+      );
+
+      if (payment.status === "dismissed") {
+        dismissed += payment.todoIds.length;
+        summaryParts.push(
+          `payment receipt, closed ${payment.todoIds.length} todo${payment.todoIds.length === 1 ? "" : "s"}`,
+        );
+      } else if (payment.status === "ambiguous") {
+        summaryParts.push("payment receipt, matching payment is ambiguous; kept todo live");
+      }
+    }
+
+    return done(summaryParts.join("; "));
   } catch (err) {
     await ctx.log(`close-loop-todos failed (non-fatal): ${toMessage(err)}`);
 
