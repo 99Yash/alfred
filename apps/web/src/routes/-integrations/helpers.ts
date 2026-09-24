@@ -99,7 +99,9 @@ export const MCP_HEALTH_MAPPING_QUERY_KEY = [
   "health-mapping",
 ] as const;
 
-export type McpHealthMappingState = EdenData<McpConnectionRoute["tools"]["health-mapping"]["get"]>;
+export type McpHealthMappingWireState = EdenData<
+  McpConnectionRoute["tools"]["health-mapping"]["get"]
+>;
 
 /**
  * The consent door for a STORED connection, and the creation door for a

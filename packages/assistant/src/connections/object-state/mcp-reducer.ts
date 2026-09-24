@@ -1,4 +1,8 @@
-import { OBJECT_STATE_CATEGORIES } from "@alfred/contracts";
+import {
+  mcpHealthObjectTitleSchema,
+  mcpHealthObjectUrlSchema,
+  OBJECT_STATE_CATEGORIES,
+} from "@alfred/contracts";
 import { z } from "zod";
 import type { ObjectStateDelta } from "./store";
 
@@ -15,19 +19,13 @@ const MAX_CONNECTION_ID_LENGTH = 128;
 
 const MAX_LOOP_KEY_LENGTH = 512;
 
-const MAX_OBJECT_URL_LENGTH = 2_048;
-
 const mcpApprovedHealthPayloadSchema = z
   .object({
     connectionId: z.string().min(1).max(MAX_CONNECTION_ID_LENGTH),
     loopKey: z.string().min(1).max(MAX_LOOP_KEY_LENGTH),
     state: z.enum(OBJECT_STATE_CATEGORIES),
-    title: z.string().trim().min(1).max(300).nullable(),
-    url: z
-      .url()
-      .max(MAX_OBJECT_URL_LENGTH)
-      .refine((value) => value.startsWith("https://"), "Object URL must use HTTPS")
-      .nullable(),
+    title: mcpHealthObjectTitleSchema.nullable(),
+    url: mcpHealthObjectUrlSchema.nullable(),
   })
   .strict();
 

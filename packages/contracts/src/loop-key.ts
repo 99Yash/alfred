@@ -78,6 +78,27 @@ const GENERIC_SUBJECTS = new Set([
   "updates",
 ]);
 
+/**
+ * The finite identity vocabulary a deterministic loop can carry. A generic
+ * MCP health mapping names one of these providers explicitly; it never gets to
+ * infer a provider from a result string or from prose. Keep this list next to
+ * the grammar that mints the keys: a new spelling cannot become a new provider
+ * by appearing only in a health-mapping response.
+ */
+export const LOOP_ENTITY_PROVIDERS = [
+  "clickup",
+  "linear",
+  "jira",
+  "github",
+  "asana",
+  "trello",
+  "notion",
+  "issue",
+  "monitoring",
+] as const;
+
+export type LoopEntityProvider = (typeof LOOP_ENTITY_PROVIDERS)[number];
+
 const TRACKER_SENDER_PATTERNS = [
   { key: "clickup", re: /\bclickup\b|tasks\.clickup\.com/i },
   { key: "linear", re: /\blinear\b|linear\.app/i },
@@ -86,10 +107,13 @@ const TRACKER_SENDER_PATTERNS = [
   { key: "asana", re: /\basana\b|asana\.com/i },
   { key: "trello", re: /\btrello\b|trello\.com/i },
   { key: "notion", re: /\bnotion\b|notion\.so/i },
-] as const satisfies ReadonlyArray<{ key: string; re: RegExp }>;
+] as const satisfies ReadonlyArray<{
+  key: Exclude<LoopEntityProvider, "issue" | "monitoring">;
+  re: RegExp;
+}>;
 
 /** The vendors {@link trackerSenderKey} recognizes. */
-export type TrackerSenderKey = (typeof TRACKER_SENDER_PATTERNS)[number]["key"];
+export type TrackerSenderKey = Exclude<LoopEntityProvider, "issue" | "monitoring">;
 
 const MONITORING_SENDER_RE = /sns\.amazonaws\.com|pagerduty|opsgenie|grafana|datadog/i;
 
@@ -120,8 +144,6 @@ export type LoopEntityKind = "pull_request" | "issue" | "subject" | "alarm";
  * Who the ref came from. A tracker vendor, `monitoring` for an alarm, or the
  * generic `issue` when an issue key appears without a trusted tracker sender.
  */
-export type LoopEntityProvider = TrackerSenderKey | "issue" | "monitoring";
-
 export interface LoopEntityRef {
   key: string;
   provider: LoopEntityProvider;

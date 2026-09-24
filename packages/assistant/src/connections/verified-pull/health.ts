@@ -1,31 +1,35 @@
 /**
  * Owner-reviewed MCP health reads for briefing loops (#1196).
  *
- * This is a verified pull, not model-selected relevance. For each bounded set of
- * current owner reviews, it calls the exact read-only descriptor over the user's
- * MCP connection, parses the result through the reviewed selector/token map,
- * and matches the returned identity to a deterministic notification loop key.
- * Only a unique exact match is minted into the generic `mcp` object provider;
- * that delta goes through `objectStateStore.applyEvent`, so unknown kinds and
- * tokens, per-kind closure policy, absorption, locking, and recency remain the
- * store's existing guards rather than a second fold implementation.
+ * This is a verified pull, not model-selected relevance. The gather-time
+ * caller supplies the governed broker seam; this module owns only the current
+ * owner-scoped mapping query, bounded result parsing, exact identity matching,
+ * and the existing object-state fold. A result cannot reach the store until
+ * the broker has re-read the mapping, checked ownership/catalog identity, and
+ * sent it through the MCP invocation ledger.
  *
- * Unmapped, drifted, malformed, unknown-token, non-matching, and ambiguous reads
- * mint nothing. The caller receives only presentation evidence for its still-open
- * loops; no result shape can grant closure directly.
+ * Unmapped, drifted, malformed, unknown-token, non-matching, cross-provider,
+ * and ambiguous reads mint nothing. The caller receives only presentation
+ * evidence for its still-open loops; no result shape can grant closure
+ * directly.
  */
 
 import {
   deriveLoopEntityRef,
+  isBuiltInObjectStateProvider,
+  mcpHealthMappingDefinitionSchema,
+  mcpHealthObjectTitleSchema,
+  mcpHealthObjectUrlSchema,
   getPath,
   getStringPath,
   jsonValueSchema,
+  MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX,
+  MCP_HEALTH_MAPPING_OBJECT_URL_MAX,
   MCP_HEALTH_MAPPING_RESULT_ITEM_MAX,
   MCP_HEALTH_MAPPING_TOKEN_MAX,
-  mcpHealthMappingDefinitionSchema,
   redactSecrets,
   toMessage,
-  type ExternalToolRef,
+  type LoopEntityProvider,
   type LoopEntityRef,
   type McpHealthMappingDefinition,
   type StateCategory,
@@ -37,12 +41,7 @@ import {
   mcpHealthMapping,
   type McpHealthMappingRow,
 } from "@alfred/db/schemas";
-import {
-  descriptorHash,
-  getMcpConnectionManager,
-  parseMcpToolResult,
-  type McpPreparedToolCall,
-} from "@alfred/assistant/connections/mcp";
+import { parseMcpToolResult, type McpCallEnvelope } from "@alfred/assistant/connections/mcp";
 import {
   approvedMcpHealthExternalId,
   deliveryInstantNow,
@@ -75,20 +74,28 @@ export interface ApprovedMcpHealthLoopResult {
 
 export type CurrentMcpHealthMapping = Pick<
   McpHealthMappingRow,
-  "connectionId" | "remoteName" | "descriptorHash" | "definition"
-> & { definition: McpHealthMappingDefinition };
+  "connectionId" | "remoteName" | "descriptorHash" | "mappingRevision" | "definition"
+> & {
+  catalogRevision: string;
+  definition: McpHealthMappingDefinition;
+};
+
+/**
+ * The broker owns the live connection, descriptor, and ledger. This module
+ * intentionally has no `prepareToolCall` or raw `call` seam: an omitted broker
+ * degrades to can't-check instead of reopening the old ungated path.
+ */
+export interface ApprovedMcpHealthCallInput {
+  userId: string;
+  connectionId: string;
+  remoteName: string;
+  catalogRevision: string;
+  descriptorHash: string;
+  mappingRevision: number;
+}
 
 export interface ApprovedMcpHealthDependencies {
-  listCurrentMappings(userId: string): Promise<readonly CurrentMcpHealthMapping[]>;
-  prepareToolCall(connectionId: string): Promise<McpPreparedToolCall>;
-  foldAndRead(input: {
-    userId: string;
-    connectionId: string;
-    loopKey: string;
-    state: StateCategory;
-    title: string | null;
-    url: string | null;
-  }): Promise<ObjectState | null>;
+  callApprovedHealthRead(input: ApprovedMcpHealthCallInput): Promise<McpCallEnvelope | null>;
 }
 
 const MAX_APPROVED_HEALTH_MAPPINGS = 5;
@@ -96,17 +103,6 @@ const MAX_APPROVED_HEALTH_MAPPINGS = 5;
 const MAX_APPROVED_LOOP_KEY_LENGTH = 512;
 
 const MAX_APPROVED_IDENTITY_LENGTH = 512;
-
-const MAX_APPROVED_OBJECT_TITLE_LENGTH = 300;
-
-const MAX_APPROVED_OBJECT_URL_LENGTH = 2_048;
-
-const objectTitleSchema = z.string().trim().min(1).max(MAX_APPROVED_OBJECT_TITLE_LENGTH);
-
-const objectUrlSchema = z
-  .url()
-  .max(MAX_APPROVED_OBJECT_URL_LENGTH)
-  .refine((value) => value.startsWith("https://"), "Object URL must use HTTPS");
 
 interface ParsedHealthItem {
   identity: string;
@@ -117,24 +113,32 @@ interface ParsedHealthItem {
 
 interface MappingRead {
   connectionId: string;
+  identityProvider: LoopEntityProvider;
   items: ParsedHealthItem[];
 }
 
 /**
  * Current, owner-scoped reviews only. The SQL descriptor-hash equality is the
- * first half of catalog-drift invalidation; the live descriptor hash check in
- * {@link readMapping} is the second, closing the refresh-to-call race.
+ * first half of catalog-drift invalidation; the broker's re-read of the exact
+ * mapping and live descriptor is the second, closing the refresh-to-call race.
  */
 async function listCurrentMappings(userId: string): Promise<readonly CurrentMcpHealthMapping[]> {
   const descriptorHashExpr = sql<
     string | null
   >`${mcpCatalogRevisions.descriptorHashes} ->> ${mcpHealthMapping.remoteName}`;
 
+  const readOnlyExpr = sql<boolean>`coalesce(
+    ${mcpCatalogRevisions.readOnlyHints} -> ${mcpHealthMapping.remoteName} = 'true'::jsonb,
+    false
+  )`;
+
   const rows = await db()
     .select({
       connectionId: mcpHealthMapping.connectionId,
       remoteName: mcpHealthMapping.remoteName,
       descriptorHash: mcpHealthMapping.descriptorHash,
+      mappingRevision: mcpHealthMapping.mappingRevision,
+      catalogRevision: mcpCatalogRevisions.revisionHash,
       definition: mcpHealthMapping.definition,
     })
     .from(mcpHealthMapping)
@@ -154,6 +158,7 @@ async function listCurrentMappings(userId: string): Promise<readonly CurrentMcpH
       and(
         eq(mcpHealthMapping.userId, userId),
         eq(mcpHealthMapping.descriptorHash, descriptorHashExpr),
+        readOnlyExpr,
       ),
     )
     .orderBy(desc(mcpHealthMapping.updatedAt), desc(mcpHealthMapping.id))
@@ -164,13 +169,22 @@ async function listCurrentMappings(userId: string): Promise<readonly CurrentMcpH
   for (const row of rows) {
     const parsed = mcpHealthMappingDefinitionSchema.safeParse(row.definition);
 
-    if (parsed.success) mappings.push({ ...row, definition: parsed.data });
+    if (!parsed.success || isBuiltInObjectStateProvider(parsed.data.identityProvider)) continue;
+
+    mappings.push({ ...row, definition: parsed.data });
   }
 
   return mappings;
 }
 
-async function foldAndRead(input: Parameters<ApprovedMcpHealthDependencies["foldAndRead"]>[0]) {
+async function foldAndRead(input: {
+  userId: string;
+  connectionId: string;
+  loopKey: string;
+  state: StateCategory;
+  title: string | null;
+  url: string | null;
+}): Promise<ObjectState | null> {
   const externalId = approvedMcpHealthExternalId(input);
 
   if (!externalId) return null;
@@ -197,10 +211,10 @@ async function foldAndRead(input: Parameters<ApprovedMcpHealthDependencies["fold
   });
 }
 
-const DEFAULT_DEPENDENCIES: ApprovedMcpHealthDependencies = {
-  listCurrentMappings,
-  prepareToolCall: (connectionId) => getMcpConnectionManager().prepareToolCall(connectionId),
-  foldAndRead,
+const UNGOVERNED_DEPENDENCIES: ApprovedMcpHealthDependencies = {
+  async callApprovedHealthRead() {
+    return null;
+  },
 };
 
 function pathKeys(path: string): string[] {
@@ -211,6 +225,21 @@ function optionalString(value: unknown, schema: z.ZodType<string>): string | nul
   const parsed = schema.safeParse(value);
 
   return parsed.success ? parsed.data : null;
+}
+
+function getBoundedString(
+  value: unknown,
+  path: readonly string[],
+  maxLength: number,
+  options: { trim?: boolean } = {},
+): string | null {
+  const result = getStringPath(value, ...path);
+
+  if (result === undefined) return null;
+
+  const bounded = options.trim === false ? result : result.trim();
+
+  return bounded.length > 0 && bounded.length <= maxLength ? bounded : null;
 }
 
 function parseItems(
@@ -233,23 +262,31 @@ function parseItems(
   const parsed: ParsedHealthItem[] = [];
 
   for (const rawItem of rawItems) {
-    const identity = getBoundedString(rawItem, identityPath, MAX_APPROVED_IDENTITY_LENGTH);
-    const token = getBoundedString(rawItem, statePath, MCP_HEALTH_MAPPING_TOKEN_MAX);
+    // Identity and state tokens are compared as bytes. Do not trim either
+    // provider value before the exact key/token lookup.
+    const identity = getBoundedString(rawItem, identityPath, MAX_APPROVED_IDENTITY_LENGTH, {
+      trim: false,
+    });
+
+    const token = getBoundedString(rawItem, statePath, MCP_HEALTH_MAPPING_TOKEN_MAX, {
+      trim: false,
+    });
+
     const state = token === null ? undefined : stateByToken.get(token);
 
     if (!identity || !state) continue;
 
     const title = definition.fields.title
       ? optionalString(
-          getBoundedString(rawItem, titlePath, MAX_APPROVED_OBJECT_TITLE_LENGTH),
-          objectTitleSchema,
+          getBoundedString(rawItem, titlePath, MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX),
+          mcpHealthObjectTitleSchema,
         )
       : null;
 
     const url = definition.fields.url
       ? optionalString(
-          getBoundedString(rawItem, urlPath, MAX_APPROVED_OBJECT_URL_LENGTH),
-          objectUrlSchema,
+          getBoundedString(rawItem, urlPath, MCP_HEALTH_MAPPING_OBJECT_URL_MAX),
+          mcpHealthObjectUrlSchema,
         )
       : null;
 
@@ -259,53 +296,21 @@ function parseItems(
   return parsed;
 }
 
-function getBoundedString(
-  value: unknown,
-  path: readonly string[],
-  maxLength: number,
-): string | null {
-  const result = getStringPath(value, ...path);
-
-  if (result === undefined) return null;
-
-  const trimmed = result.trim();
-
-  return trimmed.length > 0 && trimmed.length <= maxLength ? trimmed : null;
-}
-
-function liveDescriptor(
-  prepared: McpPreparedToolCall,
-  remoteName: string,
-): { descriptorHash: string; ref: ExternalToolRef } | null {
-  const tool = prepared.catalog.tools.find((candidate) => candidate.name === remoteName);
-
-  if (!tool) return null;
-
-  return {
-    descriptorHash: descriptorHash(tool),
-    ref: {
-      kind: "mcp",
-      connectionId: prepared.catalog.connectionId,
-      remoteName,
-      catalogRevision: prepared.catalog.revision,
-    },
-  };
-}
-
 async function readMapping(
+  userId: string,
   mapping: CurrentMcpHealthMapping,
   dependencies: ApprovedMcpHealthDependencies,
 ): Promise<MappingRead | null> {
-  const prepared = await dependencies.prepareToolCall(mapping.connectionId);
-  const live = liveDescriptor(prepared, mapping.remoteName);
+  const envelope = await dependencies.callApprovedHealthRead({
+    userId,
+    connectionId: mapping.connectionId,
+    remoteName: mapping.remoteName,
+    catalogRevision: mapping.catalogRevision,
+    descriptorHash: mapping.descriptorHash,
+    mappingRevision: mapping.mappingRevision,
+  });
 
-  // The row was selected under the current persisted hash; compare the LIVE
-  // descriptor again so a refresh between list and call voids the old review.
-  if (!live || live.descriptorHash !== mapping.descriptorHash) return null;
-
-  const envelope = await prepared.call(live.ref, mapping.definition.arguments);
-
-  if (envelope.outcome !== "completed" || envelope.truncation) return null;
+  if (!envelope || envelope.outcome !== "completed" || envelope.truncation) return null;
 
   const payload = parseMcpToolResult(envelope.result, jsonValueSchema);
 
@@ -313,18 +318,36 @@ async function readMapping(
 
   const items = parseItems(payload, mapping.definition);
 
-  return items ? { connectionId: mapping.connectionId, items } : null;
+  return items
+    ? {
+        connectionId: mapping.connectionId,
+        identityProvider: mapping.definition.identityProvider,
+        items,
+      }
+    : null;
 }
 
-function exactIdentityMatch(loopRef: LoopEntityRef, outputIdentity: string, sender: string | null) {
-  if (outputIdentity === loopRef.key) return true;
-
-  const outputRef = deriveLoopEntityRef(outputIdentity, { sender });
-
-  return outputRef?.key === loopRef.key && outputRef.provider === loopRef.provider;
+/**
+ * Exact identity, scoped to the provider named by the owner mapping. The
+ * registry guard refuses built-in providers (their own readers remain
+ * authoritative); no result parser, substring search, or notification sender is
+ * allowed to reinterpret an output identity here.
+ */
+function exactIdentityMatch(
+  loopRef: LoopEntityRef,
+  outputIdentity: string,
+  identityProvider: LoopEntityProvider,
+): boolean {
+  return (
+    !isBuiltInObjectStateProvider(loopRef.provider) &&
+    loopRef.provider === identityProvider &&
+    outputIdentity === loopRef.key
+  );
 }
 
 function loopReference(loop: ApprovedMcpHealthLoop): LoopEntityRef | null {
+  // The notification's deterministic key is the only identity this lane reads.
+  // This is the loop-key module's existing vocabulary, not an output parser.
   const reference = deriveLoopEntityRef(loop.subject, { sender: loop.from });
 
   return reference && reference.key.length <= MAX_APPROVED_LOOP_KEY_LENGTH ? reference : null;
@@ -333,13 +356,12 @@ function loopReference(loop: ApprovedMcpHealthLoop): LoopEntityRef | null {
 function uniqueMatch(args: {
   reads: readonly MappingRead[];
   loopRef: LoopEntityRef;
-  sender: string | null;
 }): { connectionId: string; item: ParsedHealthItem } | "ambiguous" | null {
   const byConnection = new Map<string, ParsedHealthItem>();
 
   for (const read of args.reads) {
     for (const item of read.items) {
-      if (!exactIdentityMatch(args.loopRef, item.identity, args.sender)) continue;
+      if (!exactIdentityMatch(args.loopRef, item.identity, read.identityProvider)) continue;
 
       const previous = byConnection.get(read.connectionId);
 
@@ -364,7 +386,6 @@ async function verifyLoop(args: {
   reads: readonly MappingRead[];
   availableMappings: number;
   attemptedMappings: number;
-  dependencies: ApprovedMcpHealthDependencies;
 }): Promise<ApprovedMcpHealthLoopResult> {
   const loopRef = loopReference(args.loop);
 
@@ -377,7 +398,7 @@ async function verifyLoop(args: {
     };
   }
 
-  const match = uniqueMatch({ reads: args.reads, loopRef, sender: args.loop.from });
+  const match = uniqueMatch({ reads: args.reads, loopRef });
 
   if (match === "ambiguous") {
     return {
@@ -419,7 +440,7 @@ async function verifyLoop(args: {
   let state: ObjectState | null;
 
   try {
-    state = await args.dependencies.foldAndRead({
+    state = await foldAndRead({
       userId: args.userId,
       connectionId: match.connectionId,
       loopKey: loopRef.key,
@@ -467,14 +488,14 @@ export async function verifyApprovedMcpHealth(
     userId: string;
     loops: readonly ApprovedMcpHealthLoop[];
   },
-  dependencies: ApprovedMcpHealthDependencies = DEFAULT_DEPENDENCIES,
+  dependencies: ApprovedMcpHealthDependencies = UNGOVERNED_DEPENDENCIES,
 ): Promise<ApprovedMcpHealthLoopResult[]> {
   if (args.loops.length === 0) return [];
 
   let mappings: readonly CurrentMcpHealthMapping[];
 
   try {
-    mappings = await dependencies.listCurrentMappings(args.userId);
+    mappings = await listCurrentMappings(args.userId);
   } catch (error) {
     console.warn(`[mcp.health] mapping read failed :: ${redactSecrets(toMessage(error))}`);
     mappings = [];
@@ -483,7 +504,7 @@ export async function verifyApprovedMcpHealth(
   const reads = await Promise.all(
     mappings.map(async (mapping) => {
       try {
-        return await readMapping(mapping, dependencies);
+        return await readMapping(args.userId, mapping, dependencies);
       } catch (error) {
         console.warn(
           `[mcp.health] mapped read failed connection=${mapping.connectionId} :: ${redactSecrets(toMessage(error))}`,
@@ -504,7 +525,6 @@ export async function verifyApprovedMcpHealth(
         reads: successfulReads,
         availableMappings: mappings.length,
         attemptedMappings: successfulReads.length,
-        dependencies,
       }),
     ),
   );

@@ -408,6 +408,19 @@ export function vercelDeploymentOutcome(action: string | null): VercelDeployment
 export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
 
 /**
+ * True only for a provider whose live object state is owned by a built-in
+ * reducer/reader. The generic `mcp` provider is deliberately excluded: it is
+ * the owner-approved lane, not a built-in authority. Consumers that must not
+ * let an MCP result shadow a provider's own verdict read this guard instead of
+ * maintaining a second provider-name list.
+ */
+export function isBuiltInObjectStateProvider(
+  provider: string,
+): provider is Exclude<ObjectStateProvider, "mcp"> {
+  return provider !== "mcp" && isObjectStateProvider(provider);
+}
+
+/**
  * A Sentry issue's stored native token — the vocabulary the webhook reducer
  * writes and `INTEGRATION_OBJECT_DEFS.sentry.normalize` reads.
  *

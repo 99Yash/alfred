@@ -51,9 +51,12 @@ import {
   type ReconcileCandidates,
   type ReconcileResult,
 } from "@alfred/assistant/connections";
-import { gatherVerifiedPulls } from "@alfred/assistant/connections/verified-pull";
+import {
+  gatherVerifiedPulls,
+  verifyApprovedMcpHealth,
+} from "@alfred/assistant/connections/verified-pull";
 import { getPreference } from "@alfred/assistant/settings";
-import { verifyApprovedMcpHealth } from "@alfred/assistant/tool-runtime/mcp";
+import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
 import { findSenderSuppression, listActiveSuppressionInstructions } from "../knowledge";
 import {
   addDays,
@@ -349,10 +352,26 @@ export async function gatherBriefingDigest(
   // contributes only exact, data-backed candidates; it never returns closure.
   const priorityLoops = PRIORITY_CATEGORIES.flatMap((category) => buckets[category]);
 
-  const approvedHealth = await verifyApprovedMcpHealth({
-    userId: args.userId,
-    loops: priorityLoops,
-  });
+  const approvedHealth = await verifyApprovedMcpHealth(
+    {
+      userId: args.userId,
+      loops: priorityLoops,
+    },
+    {
+      callApprovedHealthRead: (input) =>
+        getMcpExecutionBroker().callHealthRead({
+          userId: input.userId,
+          ref: {
+            kind: "mcp",
+            connectionId: input.connectionId,
+            remoteName: input.remoteName,
+            catalogRevision: input.catalogRevision,
+          },
+          descriptorHash: input.descriptorHash,
+          mappingRevision: input.mappingRevision,
+        }),
+    },
+  );
 
   const candidatesByLoop = new Map(
     keyCandidates.map((candidate) => [candidate.id, [...candidate.keys]]),
