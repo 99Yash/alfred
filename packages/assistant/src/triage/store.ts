@@ -8,9 +8,14 @@ import {
   user,
   type EmailTriage,
 } from "@alfred/db/schemas";
-import { parseGmailDocumentMetadata, sanitizeToolResult } from "@alfred/contracts";
+import {
+  documentAskProposalSchema,
+  parseGmailDocumentMetadata,
+  sanitizeToolResult,
+} from "@alfred/contracts";
 import type {
   AccountPersona,
+  DocumentAskProposal,
   GmailDocumentMetadata,
   SignificanceBand,
   TriageCategory,
@@ -102,6 +107,8 @@ export interface UpsertTriageArgs {
   category: TriageCategory;
   confidence: number;
   rationale: string | null;
+  /** Validated semantic-kind proposal; never the durable ask lifecycle. */
+  documentAsk?: DocumentAskProposal | null;
   model: string;
   runId: string | null;
   appliedLabelId?: string | null;
@@ -177,6 +184,8 @@ export interface UpsertTriageResult {
  * across a category/document change.
  */
 export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriageResult> {
+  const documentAsk = args.documentAsk ? documentAskProposalSchema.parse(args.documentAsk) : null;
+
   return withTriageThreadLock(args.userId, args.sourceThreadId, async (tx) => {
     const existingRows = await tx
       .select()
@@ -231,6 +240,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       category: args.category,
       confidence: args.confidence,
       rationale: args.rationale,
+      documentAsk,
       model: args.model,
       documentId: args.documentId,
       classifiedAt: now,
@@ -255,6 +265,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         category: args.category,
         confidence: args.confidence,
         rationale: args.rationale,
+        documentAsk,
         model: args.model,
         classifiedAt: now,
         runId: args.runId,
@@ -561,6 +572,8 @@ export async function markGmailDocumentSent(args: {
 }
 
 function rowToTriage(row: EmailTriage): TriageRow {
+  const documentAsk = documentAskProposalSchema.safeParse(row.documentAsk);
+
   return {
     userId: row.userId,
     sourceThreadId: row.sourceThreadId,
@@ -570,6 +583,7 @@ function rowToTriage(row: EmailTriage): TriageRow {
     category: row.category as TriageCategory,
     confidence: row.confidence,
     rationale: row.rationale,
+    documentAsk: documentAsk.success ? documentAsk.data : null,
     model: row.model,
     appliedLabelId: row.appliedLabelId,
     classifiedAt: row.classifiedAt,
