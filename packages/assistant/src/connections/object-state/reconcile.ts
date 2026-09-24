@@ -333,6 +333,25 @@ function closesAskAsFor<Reading extends KeyProposalReading>(
 }
 
 /**
+ * Select the authoritative object class for a subject.
+ *
+ * Built-in objects keep precedence whenever the subject resolved one. Only a
+ * subject with no resolved built-in object may use MCP state. Keeping the class
+ * as a whole (rather than only its first object) preserves the existing
+ * built-in-only closure order while preventing an MCP object from shadowing a
+ * built-in one.
+ */
+function selectReconciledObjectClass<Reading extends KeyProposalReading>(
+  resolved: readonly ReconciledObject<Reading>[] | undefined,
+): readonly ReconciledObject<Reading>[] {
+  const builtIn = resolved?.filter((object) => isBuiltInObjectStateProvider(object.state.provider));
+
+  if (builtIn && builtIn.length > 0) return builtIn;
+
+  return resolved?.filter((object) => object.state.provider === "mcp") ?? [];
+}
+
+/**
  * The one authoritative resolved object for a subject.
  *
  * A built-in provider keeps precedence whenever the subject resolved one,
@@ -343,32 +362,28 @@ function closesAskAsFor<Reading extends KeyProposalReading>(
 export function selectPrimaryReconciledObject<Reading extends KeyProposalReading>(
   resolved: readonly ReconciledObject<Reading>[] | undefined,
 ): ReconciledObject<Reading> | undefined {
-  return (
-    resolved?.find((object) => isBuiltInObjectStateProvider(object.state.provider)) ?? resolved?.[0]
-  );
+  return selectReconciledObjectClass(resolved)[0];
 }
 
 /**
- * The closure candidate from the authoritative resolved object, if any.
+ * The closure candidate from the authoritative object class, if any.
  *
  * A candidate is not a closure: a consumer that suppresses on it must first
  * assert it through `closesOpenAsk` with the proof that consumer holds (see
- * `closesAskAsFor`). Selecting the primary object first is load-bearing: when a
- * built-in object is open, a resolved MCP object on the same subject cannot
- * shadow it and close the loop.
+ * `closesAskAsFor`). Closure scans the selected class in its existing order,
+ * rather than requiring its first object to close. Thus a later resolved
+ * built-in object can still close a built-in-only subject, while a resolved
+ * MCP object cannot close when any built-in object exists.
  */
 export function firstClosingObject(
   resolved: readonly ReconciledObject<ClosureReading>[] | undefined,
 ): (ReconciledObject<ClosureReading> & { closesAskAs: LoopClosingStateCategory }) | undefined {
-  const primary = selectPrimaryReconciledObject(resolved);
-
-  if (!primary || primary.closesAskAs === null) return undefined;
-
-  return {
-    key: primary.key,
-    state: primary.state,
-    closesAskAs: primary.closesAskAs,
-  };
+  return selectReconciledObjectClass(resolved).find(
+    (
+      object,
+    ): object is ReconciledObject<ClosureReading> & { closesAskAs: LoopClosingStateCategory } =>
+      object.closesAskAs !== null,
+  );
 }
 
 /**

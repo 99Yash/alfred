@@ -1126,7 +1126,7 @@ export class McpExecutionBroker {
 
       // An explicit reviewed `high` policy is the owner asking for approval on
       // every ordinary MCP call. This fixed health read has no staging surface
-      // on which to ask, so it stops before network dispatch rather than
+      // on which to ask, so it stops before `tools/call` rather than
       // silently overriding that decision. A missing policy is different: the
       // health mapping is its own owner review of this exact descriptor and
       // fixed argument object.
