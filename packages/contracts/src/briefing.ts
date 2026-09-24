@@ -277,6 +277,56 @@ export const briefingClosedLoopSchema = z.object({
 export type BriefingClosedLoop = z.infer<typeof briefingClosedLoopSchema>;
 
 /**
+ * Check-before-remind relevance verdicts (#1194) — one per still-live loop,
+ * computed after deterministic loop reconciliation and before the composer.
+ *
+ * A verdict shapes phrasing and priority ONLY. It carries no closure authority:
+ * there is no closing category on this shape, so no consumer — composer,
+ * guard, or future reader — can derive "closed" from it. Closure stays
+ * exclusively with verified push/pull state folded through the object-state
+ * store (ADR-0048-D, ADR-0103). Anything the pass cannot verify stays live as
+ * `unverifiable`, so the brief never goes silent without a reason.
+ */
+export const LOOP_RELEVANCE_VERDICTS = [
+  "still-actionable",
+  "stale-but-open",
+  "unverifiable",
+] as const;
+
+export type LoopRelevanceVerdict = (typeof LOOP_RELEVANCE_VERDICTS)[number];
+
+export const loopRelevanceVerdictSchema = z.enum(LOOP_RELEVANCE_VERDICTS);
+
+/** Which live read backed or attempted the verdict. `none` means no live read was available. */
+export const LOOP_RELEVANCE_SOURCES = ["live_sentry_read", "live_github_read", "none"] as const;
+
+export type LoopRelevanceSource = (typeof LOOP_RELEVANCE_SOURCES)[number];
+
+export const loopRelevanceSourceSchema = z.enum(LOOP_RELEVANCE_SOURCES);
+
+/** Provider titles are unbounded at ingestion, so the contract owns this display cap. */
+export const BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX = 300;
+
+export const briefingLoopRelevanceSchema = z.object({
+  documentId: z.string().min(1),
+  verdict: loopRelevanceVerdictSchema,
+  source: loopRelevanceSourceSchema,
+  /**
+   * The validated live token the verdict was read off (`unresolved`,
+   * `resolved`, `open`, `merged`, …), or null when no read proved one. A
+   * provider token, never a closure claim — `merged` here contextualizes the
+   * phrasing; only the object-state store asserts closure.
+   */
+  observedState: z.string().max(80).nullable(),
+  objectTitle: z.string().max(BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX).nullable(),
+  objectUrl: z.url().nullable(),
+  /** One-line cited evidence for the composer, e.g. which live read saw what. */
+  detail: z.string().min(1).max(300),
+});
+
+export type BriefingLoopRelevance = z.infer<typeof briefingLoopRelevanceSchema>;
+
+/**
  * Output of the gather step. Sources split into guaranteed vs optional:
  *   - `email` is always present — triage is a built-in pipeline; an empty
  *     inbox is represented as `categories: {}`, not `null`.

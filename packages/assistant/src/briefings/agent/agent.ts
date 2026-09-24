@@ -5,7 +5,7 @@ import {
   isStepCount,
   type ModelMessage,
 } from "@alfred/ai";
-import type { BriefingClosedLoop, IanaTimezone } from "@alfred/contracts";
+import type { BriefingClosedLoop, BriefingLoopRelevance, IanaTimezone } from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { buildSystemPrompt } from "./prompt";
@@ -44,6 +44,8 @@ export interface RunBriefingAgentArgs {
   stepId: string;
   /** Positive object-state closure facts from this run's deterministic gather. */
   closedLoops: BriefingClosedLoop[];
+  /** One bounded relevance verdict for every still-live loop from the same gather. */
+  loopRelevance: BriefingLoopRelevance[];
   /**
    * Open-ask violations the pre-send guard found in an earlier draft of this
    * same run. Present only on a re-prompt; each one is named back to the model
@@ -83,6 +85,7 @@ export async function runBriefingAgent(
     briefingDate: args.briefingDate,
     timezone: args.timezone,
     closedLoops: args.closedLoops,
+    loopRelevance: args.loopRelevance,
   });
 
   const seed: ModelMessage[] = [
@@ -90,7 +93,7 @@ export async function runBriefingAgent(
       role: "user",
       content:
         `Compose the ${args.slot} briefing for ${args.recipientFirstName ?? "the user"}. ` +
-        `Start by reading list_prior_briefings, then list_emails_since and list_closed_loops. ` +
+        `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
         `End with dump_briefing.` +
         openAskCorrection(args.openAskViolations ?? []),
     },

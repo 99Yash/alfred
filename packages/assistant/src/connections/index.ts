@@ -77,6 +77,7 @@ export {
   type ObjectState,
   type ObjectStateStore,
   type ReconcileCandidates,
+  type ReconcileResult,
   type ReconciledObject,
 } from "./object-state";
 
