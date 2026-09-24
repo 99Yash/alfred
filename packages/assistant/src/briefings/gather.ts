@@ -1,6 +1,7 @@
 import type {
   BriefingClosedLoop,
   BriefingGather,
+  BriefingLoopRelevance,
   BriefingSlot,
   CalendarContribution,
   DayShape,
@@ -39,7 +40,6 @@ import {
   listEvents,
   type TriageCategory,
 } from "@alfred/integrations/google";
-import { readLiveSentryIssue } from "@alfred/integrations/sentry";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -49,6 +49,7 @@ import {
   reconcileEvidence,
   type ObjectState,
   type ReconcileCandidates,
+  type ReconcileResult,
 } from "@alfred/assistant/connections";
 import { gatherVerifiedPulls } from "@alfred/assistant/connections/verified-pull";
 import { getPreference } from "@alfred/assistant/settings";
@@ -60,6 +61,11 @@ import {
   weekdayIndex,
   type LocalDateKey,
 } from "@alfred/assistant/time";
+import {
+  assessLoopRelevance,
+  liveNativeStateReader,
+  type LiveNativeStateReader,
+} from "./relevance";
 import { scorePriorityEmailDemand } from "./read";
 import { shortenFrom } from "./sender";
 
@@ -141,6 +147,8 @@ export interface BriefingDigest {
    * has since merged. These feed the evening "closed today" recap (ADR-0048 #5).
    */
   closedLoops: BriefingClosedLoop[];
+  /** One bounded, non-closing relevance verdict for every still-live priority loop. */
+  loopRelevance: BriefingLoopRelevance[];
   totalPriority: number;
   totalSuppressed: number;
 }
@@ -178,6 +186,8 @@ export interface GatherBriefingWithSuppressionAuditResult {
   suppressedByInstruction: BriefingInstructionSuppression[];
   /** Loops dropped because their work object reached a terminal state (ADR-0062). */
   closedLoops: BriefingClosedLoop[];
+  /** Check-before-remind verdicts over every still-live priority loop (#1194). */
+  loopRelevance: BriefingLoopRelevance[];
 }
 
 const DEFAULT_WINDOW_HOURS = 24;
@@ -334,8 +344,16 @@ export async function gatherBriefingDigest(
 
   // Loop reconciliation (ADR-0062): drop any priority item whose underlying
   // GitHub PR has reached a loop-closing state. State unknown ⇒ the loop stays
-  // live (absence never closes — ADR-0048-D).
-  const closedLoops = await dropClosedLoops(args.userId, buckets, keyCandidates);
+  // live (absence never closes — ADR-0048-D). The bounded relevance pass then
+  // runs over exactly what survived reconciliation and before presentation
+  // capping, so every still-live priority loop carries one verdict (#1194).
+  const reconciliation = await dropClosedLoops(args.userId, buckets, keyCandidates);
+
+  const loopRelevance = await assessLoopRelevance({
+    userId: args.userId,
+    loops: PRIORITY_CATEGORIES.flatMap((category) => buckets[category]),
+    reconciled: reconciliation.reconciled,
+  });
 
   for (const category of PRIORITY_CATEGORIES) {
     buckets[category] = buckets[category].slice(0, maxPerBucket);
@@ -354,41 +372,11 @@ export async function gatherBriefingDigest(
     suppressedCounts,
     triggerItems,
     suppressedByInstruction,
-    closedLoops,
+    closedLoops: reconciliation.closedLoops,
+    loopRelevance,
     totalPriority,
     totalSuppressed,
   };
-}
-
-/**
- * A read of one object's CURRENT provider-native state token, taken at the
- * moment closure would be asserted. It returns the native token and nothing
- * else: the registry's `normalize` and `closesOpenAsk` decide what it means,
- * so no consumer here compares a provider status to a literal.
- *
- * "Native" means the STORED vocabulary the reducer writes, not whatever an API
- * response spells it. A provider whose REST vocabulary differs from its webhook
- * one — Sentry, which says `ignored` where the webhook says `archived` —
- * translates inside its own read, at the boundary that owns the payload, so the
- * two vocabularies never meet in this file.
- */
-type LiveNativeStateReader = (userId: string, externalId: string) => Promise<string>;
-
-/**
- * The live read this gather can take for one object kind, or `null` when it
- * has none.
- *
- * Only a kind the registry declares `closesAskFrom: "live_confirmation"` ever
- * reaches here, and a kind absent from this function keeps its ask — the
- * registry decides WHETHER a live proof is required, and this function only
- * supplies the IO that gets it, so a new pull-confirmed kind is a registry
- * edit plus one arm, never a policy branch.
- */
-function liveNativeStateReader(state: ObjectState): LiveNativeStateReader | null {
-  if (state.provider === "sentry" && state.kind === "issue")
-    return async (userId, issueId) => (await readLiveSentryIssue({ userId, issueId })).nativeState;
-
-  return null;
 }
 
 /**
@@ -414,8 +402,11 @@ async function dropClosedLoops(
   userId: string,
   buckets: Record<PriorityCategory, BriefingItem[]>,
   candidates: readonly ReconcileCandidates<"about">[],
-): Promise<BriefingClosedLoop[]> {
-  if (candidates.length === 0) return [];
+): Promise<{
+  closedLoops: BriefingClosedLoop[];
+  reconciled: ReconcileResult<"about">;
+}> {
+  if (candidates.length === 0) return { closedLoops: [], reconciled: new Map() };
 
   const reconciled = await reconcileEvidence({ userId, subjects: candidates });
 
@@ -506,7 +497,7 @@ async function dropClosedLoops(
     buckets[category] = kept;
   }
 
-  return closedLoops;
+  return { closedLoops, reconciled };
 }
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
@@ -620,6 +611,7 @@ export async function gatherBriefingWithSuppressionAudit(
     },
     suppressedByInstruction: digest.suppressedByInstruction,
     closedLoops: digest.closedLoops,
+    loopRelevance: digest.loopRelevance,
   };
 }
 

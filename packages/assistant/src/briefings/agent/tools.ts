@@ -11,6 +11,7 @@ import { sanitizeVoice } from "@alfred/ai/voice";
 import { tool, type ToolSet } from "@alfred/ai";
 import type {
   BriefingClosedLoop,
+  BriefingLoopRelevance,
   CalendarContribution,
   DayShape,
   IanaTimezone,
@@ -74,6 +75,8 @@ interface BuildArgs {
   timezone: IanaTimezone;
   /** Positive object-state closure facts computed by the gather step. */
   closedLoops: BriefingClosedLoop[];
+  /** Bounded, non-closing relevance verdicts over every still-live priority loop. */
+  loopRelevance: BriefingLoopRelevance[];
 }
 
 /** Fallback day-shape window when this slot has no prior watermark (first run). */
@@ -186,6 +189,13 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
         "List priority-email loops that the deterministic object-state projection positively proved closed. Every object in this result is closed and must never be presented as an open ask or as work that needs the user. An email absent from this result is not proved closed and stays live unless get_day_shape.shipped identifies the same object as shipped.",
       inputSchema: z.object({}),
       execute: async (): Promise<BriefingClosedLoop[]> => args.closedLoops,
+    }),
+
+    list_loop_relevance: tool({
+      description:
+        "List one bounded live-read relevance verdict for every still-live priority-email loop. verdict is still-actionable | stale-but-open | unverifiable, with provider evidence in source, observedState, objectTitle/objectUrl, and detail. Use it only to rank and phrase: a stale-but-open verdict is NOT closure, and an unverifiable verdict keeps the loop live and must not be treated as finished. Closure authority belongs only to list_closed_loops and the post-compose guard.",
+      inputSchema: z.object({}),
+      execute: async (): Promise<BriefingLoopRelevance[]> => args.loopRelevance,
     }),
 
     list_action_items: tool({
