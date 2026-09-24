@@ -27,7 +27,11 @@ function w3cTraceId(traceId: string): string {
 export function startMcpTraceSpan(input: {
   traceId?: string;
   parent?: McpTraceContext;
-  name: "runtime.mcp.connect" | "runtime.mcp.catalog_refresh" | "runtime.mcp.broker_invoke";
+  name:
+    | "runtime.mcp.connect"
+    | "runtime.mcp.catalog_refresh"
+    | "runtime.mcp.broker_invoke"
+    | "runtime.mcp.health_read";
   metadata?: Record<string, RuntimeMetaValue>;
 }): McpTraceSpan {
   const runId = input.traceId ?? input.parent?.runId ?? `mcp:${randomUUID()}`;

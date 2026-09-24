@@ -298,7 +298,12 @@ export type LoopRelevanceVerdict = (typeof LOOP_RELEVANCE_VERDICTS)[number];
 export const loopRelevanceVerdictSchema = z.enum(LOOP_RELEVANCE_VERDICTS);
 
 /** Which live read backed or attempted the verdict. `none` means no live read was available. */
-export const LOOP_RELEVANCE_SOURCES = ["live_sentry_read", "live_github_read", "none"] as const;
+export const LOOP_RELEVANCE_SOURCES = [
+  "live_sentry_read",
+  "live_github_read",
+  "live_mcp_read",
+  "none",
+] as const;
 
 export type LoopRelevanceSource = (typeof LOOP_RELEVANCE_SOURCES)[number];
 

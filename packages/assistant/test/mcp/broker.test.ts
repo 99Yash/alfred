@@ -1075,6 +1075,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .where(eq(mcpInvocation.successorOf, seeded.invocationId));
 
       assert.ok(successor);
+      const stagingId = successor.stagingId;
+      assert.ok(stagingId);
       const now = new Date();
       await db().transaction(async (tx) => {
         await tx
@@ -1090,7 +1092,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         await tx
           .update(actionStagings)
           .set({ status: "executed", outcome: "succeeded", executedAt: now })
-          .where(eq(actionStagings.id, successor.stagingId));
+          .where(eq(actionStagings.id, stagingId));
       });
     };
 
@@ -1128,6 +1130,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .where(eq(mcpInvocation.successorOf, seeded.invocationId));
 
       assert.ok(successor);
+      assert.ok(successor.stagingId);
       // Force the first settlement transaction's staging guard to fail after
       // the provider has returned. The broker's local fallback must align this
       // split state without calling the provider again.
@@ -1237,6 +1240,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .where(eq(mcpInvocation.successorOf, seeded.invocationId));
 
       assert.ok(successor);
+      assert.ok(successor.stagingId);
       await db()
         .update(actionStagings)
         .set({ outcome: "planned" })
@@ -1280,6 +1284,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .where(eq(mcpInvocation.successorOf, seeded.invocationId));
 
       assert.ok(successor);
+      assert.ok(successor.stagingId);
       successorStagingId = successor.stagingId;
       // `refused` is not a value the aggregate settle or the incomplete mark
       // accepts, so the first repair genuinely fails and the row stays queued.

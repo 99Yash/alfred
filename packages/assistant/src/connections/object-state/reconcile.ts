@@ -1,5 +1,6 @@
 import {
   closureCandidate,
+  isBuiltInObjectStateProvider,
   type LoopClosingStateCategory,
   type ObjectStateProvider,
 } from "@alfred/contracts";
@@ -15,6 +16,7 @@ import {
   type ReconcileSubject,
 } from "./adapter";
 import { githubObjectStateAdapter } from "./github-adapter";
+import { mcpObjectStateAdapter } from "./mcp-adapter";
 import { railwayObjectStateAdapter } from "./railway-adapter";
 import { vercelObjectStateAdapter } from "./vercel-adapter";
 import { sentryObjectStateAdapter } from "./sentry-adapter";
@@ -105,6 +107,9 @@ const OBJECT_STATE_ADAPTERS = {
   // no Vercel deployment notification exists in the corpus to ground a
   // grammar on (#1167). Same completeness-proof row, same follow-up.
   vercel: vercelObjectStateAdapter,
+  // Generic MCP identities are proposed only by an owner-approved live read
+  // after they match a deterministic loop key. No free-text MCP adapter exists.
+  mcp: mcpObjectStateAdapter,
 } satisfies Record<ObjectStateProvider, ObjectStateAdapter>;
 
 /**
@@ -328,16 +333,52 @@ function closesAskAsFor<Reading extends KeyProposalReading>(
 }
 
 /**
- * The first resolved object whose state is a closure CANDIDATE, if any.
+ * Select the authoritative object class for a subject.
+ *
+ * Built-in objects keep precedence whenever the subject resolved one. Only a
+ * subject with no resolved built-in object may use MCP state. Keeping the class
+ * as a whole (rather than only its first object) preserves the existing
+ * built-in-only closure order while preventing an MCP object from shadowing a
+ * built-in one.
+ */
+function selectReconciledObjectClass<Reading extends KeyProposalReading>(
+  resolved: readonly ReconciledObject<Reading>[] | undefined,
+): readonly ReconciledObject<Reading>[] {
+  const builtIn = resolved?.filter((object) => isBuiltInObjectStateProvider(object.state.provider));
+
+  if (builtIn && builtIn.length > 0) return builtIn;
+
+  return resolved?.filter((object) => object.state.provider === "mcp") ?? [];
+}
+
+/**
+ * The one authoritative resolved object for a subject.
+ *
+ * A built-in provider keeps precedence whenever the subject resolved one,
+ * regardless of candidate order. An approved MCP result is authoritative only
+ * when no built-in object exists. Relevance and closure both consume this rule;
+ * neither gets a second provider-specific precedence check.
+ */
+export function selectPrimaryReconciledObject<Reading extends KeyProposalReading>(
+  resolved: readonly ReconciledObject<Reading>[] | undefined,
+): ReconciledObject<Reading> | undefined {
+  return selectReconciledObjectClass(resolved)[0];
+}
+
+/**
+ * The closure candidate from the authoritative object class, if any.
  *
  * A candidate is not a closure: a consumer that suppresses on it must first
  * assert it through `closesOpenAsk` with the proof that consumer holds (see
- * `closesAskAsFor`).
+ * `closesAskAsFor`). Closure scans the selected class in its existing order,
+ * rather than requiring its first object to close. Thus a later resolved
+ * built-in object can still close a built-in-only subject, while a resolved
+ * MCP object cannot close when any built-in object exists.
  */
 export function firstClosingObject(
   resolved: readonly ReconciledObject<ClosureReading>[] | undefined,
 ): (ReconciledObject<ClosureReading> & { closesAskAs: LoopClosingStateCategory }) | undefined {
-  return resolved?.find(
+  return selectReconciledObjectClass(resolved).find(
     (
       object,
     ): object is ReconciledObject<ClosureReading> & { closesAskAs: LoopClosingStateCategory } =>

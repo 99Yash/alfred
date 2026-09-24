@@ -27,9 +27,17 @@ export {
   firstClosingObject,
   proposeObjectKeys,
   reconcileEvidence,
+  selectPrimaryReconciledObject,
   type ReconcileCandidates,
   type ReconcileResult,
   type ReconciledObject,
 } from "./reconcile";
 
 export { objectStateFoldConsumers } from "./activity-consumer";
+
+export {
+  approvedMcpHealthExternalId,
+  MCP_APPROVED_HEALTH_EVENT_TYPE,
+  MCP_APPROVED_HEALTH_KEY_KIND,
+  MCP_APPROVED_HEALTH_KIND,
+} from "./mcp-reducer";
