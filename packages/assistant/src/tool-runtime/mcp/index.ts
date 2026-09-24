@@ -32,6 +32,7 @@ export {
   McpExecutionBroker,
   type McpBrokerBlockReason,
   type McpBrokerCallInput,
+  type McpHealthReadInput,
   type McpBrokerOutcome,
   type McpReservedSuccessorInput,
 } from "./broker";
@@ -54,6 +55,15 @@ export {
   type McpToolPolicyReviewState,
   type McpToolPolicyState,
 } from "./policy";
+
+export {
+  clearMcpHealthMapping,
+  readMcpHealthMappingState,
+  reviewMcpHealthMapping,
+  type McpHealthMappingClearState,
+  type McpHealthMappingReviewState,
+  type McpHealthMappingResolution,
+} from "./health-mapping";
 
 export { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "./risk";
 

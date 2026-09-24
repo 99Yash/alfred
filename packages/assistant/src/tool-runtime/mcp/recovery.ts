@@ -232,6 +232,10 @@ export async function resolveMcpRecoveryOperation(
       throw Errors.ConflictError("MCP recovery operation is not awaiting a decision");
     }
 
+    if (!invocation.stagingId) {
+      throw Errors.NotFoundError("MCP recovery operation not found");
+    }
+
     const [staging] = await tx
       .select({ id: actionStagings.id, outcome: actionStagings.outcome })
       .from(actionStagings)
@@ -366,6 +370,10 @@ async function reserveMcpRecoverySuccessor(
 
     if (prior.effectOutcome !== "unknown" || prior.retryDisposition !== "blocked") {
       throw Errors.ConflictError("MCP recovery operation is not retryable");
+    }
+
+    if (!prior.stagingId) {
+      throw Errors.NotFoundError("MCP recovery operation not found");
     }
 
     const [staging] = await tx

@@ -28,6 +28,15 @@ export {
 
 export { discoverVercelTargets, readVercelDeploymentStatus, type VercelPullTarget } from "./vercel";
 
+export {
+  verifyApprovedMcpHealth,
+  type ApprovedMcpHealthCallInput,
+  type ApprovedMcpHealthDependencies,
+  type ApprovedMcpHealthLoop,
+  type ApprovedMcpHealthLoopResult,
+  type CurrentMcpHealthMapping,
+} from "./health";
+
 /**
  * Which verified pull each object-state provider runs at gather time. `null`
  * is the arm for a provider with a push source (or none yet), so a provider
@@ -39,6 +48,9 @@ const VERIFIED_PULLS = {
   sentry: null,
   railway: defineVerifiedPull(railwayVerifiedPullProvider),
   vercel: defineVerifiedPull(vercelVerifiedPullProvider),
+  // Generic MCP health reads are data-driven by owner-approved descriptors, so
+  // they run through the briefing loop verifier rather than target discovery.
+  mcp: null,
 } as const satisfies Record<ObjectStateProvider, VerifiedPull | null>;
 
 /**

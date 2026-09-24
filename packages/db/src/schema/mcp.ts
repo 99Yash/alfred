@@ -286,6 +286,10 @@ export const mcpConnections = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
+    // The health-mapping owner FK references (id, user_id); keep the exact
+    // composite unique target on the connection table so the database enforces
+    // ownership as well as the application-side lock/query.
+    uniqueIndex("mcp_connections_id_user_idx").on(t.id, t.userId),
     uniqueIndex("mcp_connections_user_server_instance_idx").on(t.userId, t.serverId, t.instanceKey),
     index("mcp_connections_user_status_idx").on(t.userId, t.status),
     foreignKey({
@@ -404,9 +408,61 @@ export const mcpToolPolicy = pgTable(
 );
 
 /**
- * The operation ledger. A companion row 1:1 with an `action_stagings` row for an
- * effectful (`write`/`unknown`) MCP call, minted BEFORE network dispatch so a
+ * One owner-reviewed projection from a read-only MCP result into the generic
+ * object-state store (#1196). The row has the same authority shape as
+ * `mcp_tool_policy`: owner + connection + remote name + exact descriptor hash.
+ * The JSON payload stays UNKNOWN in the schema and is parsed with
+ * `mcpHealthMappingDefinitionSchema` at every read boundary; a corrupt mapping
+ * is inert rather than trusted because a column annotation says so.
+ *
+ * Catalog drift does not rewrite or delete this row. The current revision's
+ * descriptor hash simply stops matching, so the approval is VOID until the
+ * owner reviews the new descriptor. Historic hashes remain as an audit trail.
+ */
+export const mcpHealthMapping = pgTable(
+  "mcp_health_mapping",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("mcph")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => mcpConnections.id, { onDelete: "cascade" }),
+    remoteName: text("remote_name").notNull(),
+    /** Server-derived from the exact descriptor the owner inspected. */
+    descriptorHash: text("descriptor_hash").notNull(),
+    /** Bumped only when the same exact descriptor is reviewed again. */
+    mappingRevision: integer("mapping_revision").notNull().default(1),
+    /** Bounded declarative projection; validated at the assistant boundary. */
+    definition: jsonb("definition").notNull(),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedNote: text("reviewed_note"),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("mcp_health_mapping_conn_remote_desc_idx").on(
+      t.connectionId,
+      t.remoteName,
+      t.descriptorHash,
+    ),
+    index("mcp_health_mapping_owner_pair_idx").on(t.userId, t.connectionId, t.remoteName),
+    foreignKey({
+      columns: [t.connectionId, t.userId],
+      foreignColumns: [mcpConnections.id, mcpConnections.userId],
+      name: "mcp_health_mapping_connection_owner_fk",
+    }).onDelete("cascade"),
+  ],
+);
+
+/**
+ * The operation ledger. Effectful (`write`/`unknown`) MCP calls have a
+ * companion `action_stagings` row and are minted BEFORE network dispatch so a
  * crash mid-flight still leaves durable evidence the write is ambiguous.
+ * Owner-approved gather-time health reads are also ledgered here, with a null
+ * staging id, and are constrained to the `read` effect class.
  *
  * Three distinct axes (docs/research/mcp-ambiguous-write-outcomes.md):
  *  - `attemptLifecycle`: what Alfred locally did (`delivery_possible` is written
@@ -425,10 +481,13 @@ export const mcpInvocation = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => createId("mcpi")),
-    /** 1:1 with the staging row that carries this call's approval/idempotency. */
-    stagingId: text("staging_id")
-      .notNull()
-      .references(() => actionStagings.id, { onDelete: "cascade" }),
+    /**
+     * 1:1 with the staging row for a model-dispatched call. Owner-approved
+     * gather-time health reads have no model staging row and leave this null;
+     * they are still ledgered here, but only after the broker has proved the
+     * descriptor is read-only.
+     */
+    stagingId: text("staging_id").references(() => actionStagings.id, { onDelete: "cascade" }),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -490,9 +549,11 @@ export const mcpInvocation = pgTable(
      * minter sources these from the staging row at insert (`stagingCorrelation` in
      * `persistence.ts`), never from a separately-threaded ctx that could drift.
      *
-     * Nullable only to tolerate rows minted before these columns existed; every row
-     * minted since carries them (its `staging_id` is `notNull`). A completed
-     * reviewed read now persists a resolved audit row with this correlation.
+     * Nullable for rows predating these columns and for owner-approved health
+     * reads, which have no model staging row. Model-dispatched calls still carry
+     * these copies, and the staging relationship remains the authority for those
+     * rows. A completed reviewed read persists a resolved audit row with this
+     * correlation when one exists.
      */
     /** Copy of the staging row's `run_id` — the agent-run / Langfuse trace this call groups under. */
     traceId: text("trace_id"),
@@ -526,6 +587,10 @@ export const mcpInvocation = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
+    check(
+      "mcp_invocation_staging_or_read_chk",
+      sql`${t.stagingId} IS NOT NULL OR ${t.effectClass} = 'read'`,
+    ),
     uniqueIndex("mcp_invocation_staging_idx").on(t.stagingId),
     index("mcp_invocation_barrier_lookup_idx").on(t.connectionId, t.remoteName, t.argsHash),
     // The partial-barrier invariant: at most one UNRESOLVED operation may match a
@@ -576,6 +641,10 @@ export type NewMcpCatalogRevision = typeof mcpCatalogRevisions.$inferInsert;
 export type McpToolPolicyRow = typeof mcpToolPolicy.$inferSelect;
 
 export type NewMcpToolPolicyRow = typeof mcpToolPolicy.$inferInsert;
+
+export type McpHealthMappingRow = typeof mcpHealthMapping.$inferSelect;
+
+export type NewMcpHealthMappingRow = typeof mcpHealthMapping.$inferInsert;
 
 export type McpInvocation = typeof mcpInvocation.$inferSelect;
 

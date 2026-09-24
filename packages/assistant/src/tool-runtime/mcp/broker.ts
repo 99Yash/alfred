@@ -22,7 +22,9 @@
  */
 
 import {
+  isBuiltInObjectStateProvider,
   mcpCallInput,
+  mcpHealthMappingDefinitionSchema,
   type McpCallInput,
   type McpEffectClass,
   type McpResultProvenance,
@@ -33,6 +35,7 @@ import { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-erro
 import {
   actionStagings,
   mcpConnections,
+  mcpHealthMapping,
   mcpInvocation,
   type McpInvocation,
   type McpToolPolicyRow,
@@ -54,10 +57,13 @@ import {
 } from "@alfred/assistant/connections/mcp";
 import {
   findUnresolvedBarrier,
+  isReadOnlyMcpToolIdentity,
   readInvocationByStagingId,
   resolveMcpToolIdentity,
+  type McpToolIdentityResolution,
   type OwnedMcpConnectionRef,
 } from "./invocations";
+import { effectiveMcpRiskTier } from "./risk";
 import {
   hasMcpBrokerAdmissionCapacity,
   MCP_SETTLEMENT_REPAIR_BATCH_SIZE,
@@ -87,6 +93,21 @@ export interface McpBrokerCallInput {
   /** Opaque MCP arguments — validated against the exact tool schema by the raw client. */
   arguments: unknown;
   /** Run trace id. Observability only; ledger correlation still copies the staging row. */
+  traceId?: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * A fixed, owner-reviewed gather-time read. The mapping row is re-read by the
+ * broker and supplies the arguments; a caller cannot smuggle a different call
+ * through this narrower entry point. The descriptor's persisted read-only
+ * claim is checked again before the live client is allowed to send anything.
+ */
+export interface McpHealthReadInput {
+  userId: string;
+  ref: ExternalToolRef;
+  descriptorHash: string;
+  mappingRevision: number;
   traceId?: string;
   signal?: AbortSignal;
 }
@@ -135,18 +156,21 @@ function isProvenNotDelivered(err: unknown): boolean {
   return err instanceof McpClientError && isPreDeliveryErrorCode(err.code);
 }
 
-type NormalMcpInvocationReservation = Pick<
-  NewMcpInvocation,
-  | "stagingId"
-  | "userId"
-  | "connectionId"
-  | "remoteName"
-  | "argsHash"
-  | "catalogRevisionId"
-  | "descriptorHash"
-  | "policyRevision"
-  | "effectClass"
->;
+type NormalMcpInvocationReservation = Omit<
+  Pick<
+    NewMcpInvocation,
+    | "stagingId"
+    | "userId"
+    | "connectionId"
+    | "remoteName"
+    | "argsHash"
+    | "catalogRevisionId"
+    | "descriptorHash"
+    | "policyRevision"
+    | "effectClass"
+  >,
+  "stagingId"
+> & { stagingId: string };
 
 type NormalMcpInvocationReservationResult =
   | { ok: true; invocation: McpInvocation }
@@ -160,6 +184,13 @@ type McpInvocationSettlement =
       lastError: string;
       resultProvenance?: McpResultProvenance;
     };
+
+interface PreparedMcpCall {
+  identity: McpToolIdentityResolution;
+  connection: OwnedMcpConnectionRef;
+  prepared: McpPreparedToolCall;
+  descriptorHash: string | undefined;
+}
 
 interface PendingMcpSettlementRepair {
   userId: string;
@@ -314,6 +345,127 @@ async function recordCompletedMcpRead(input: {
 }
 
 /**
+ * Re-read the exact owner mapping at the broker boundary. The gather query is
+ * deliberately not treated as authority: a clear or replacement review observed
+ * at either broker read makes the call disappear rather than turn a stale
+ * in-memory mapping into authority.
+ */
+async function readHealthMapping(input: McpHealthReadInput) {
+  const [row] = await db()
+    .select({ definition: mcpHealthMapping.definition })
+    .from(mcpHealthMapping)
+    .where(
+      and(
+        eq(mcpHealthMapping.userId, input.userId),
+        eq(mcpHealthMapping.connectionId, input.ref.connectionId),
+        eq(mcpHealthMapping.remoteName, input.ref.remoteName),
+        eq(mcpHealthMapping.descriptorHash, input.descriptorHash),
+        eq(mcpHealthMapping.mappingRevision, input.mappingRevision),
+      ),
+    )
+    .limit(1);
+
+  if (!row) return null;
+
+  const definition = mcpHealthMappingDefinitionSchema.safeParse(row.definition);
+
+  if (!definition.success || isBuiltInObjectStateProvider(definition.data.identityProvider)) {
+    return null;
+  }
+
+  return definition.data;
+}
+
+/** Reserve a health read in the same invocation ledger as every other MCP call. */
+async function reserveHealthMcpRead(input: {
+  userId: string;
+  connectionId: string;
+  remoteName: string;
+  catalogRevisionId: string | null;
+  descriptorHash: string;
+  policyRevision: number | undefined;
+  arguments: unknown;
+  traceId: string | undefined;
+}): Promise<string | null> {
+  try {
+    const now = new Date();
+
+    const [row] = await db()
+      .insert(mcpInvocation)
+      .values({
+        // A deterministic health read has no model staging row. The nullable
+        // column is still a ledger row, and the CHECK constraint permits null
+        // only for the read class.
+        stagingId: null,
+        userId: input.userId,
+        connectionId: input.connectionId,
+        remoteName: input.remoteName,
+        ...(input.catalogRevisionId ? { catalogRevisionId: input.catalogRevisionId } : {}),
+        descriptorHash: input.descriptorHash,
+        ...(input.policyRevision !== undefined ? { policyRevision: input.policyRevision } : {}),
+        argsHash: canonicalArgsHash(input.arguments),
+        effectClass: "read",
+        attemptLifecycle: "delivery_possible",
+        deliveryPossibleAt: now,
+        ...(input.traceId ? { traceId: input.traceId } : {}),
+      })
+      .returning({ id: mcpInvocation.id });
+
+    return row?.id ?? null;
+  } catch (error) {
+    // A concurrent identical health read is already in flight. It is safe to
+    // decline this second briefing read; the next gather can try again.
+    if (isUniqueViolation(error)) return null;
+    throw error;
+  }
+}
+
+type HealthReadSettlement =
+  | { kind: "succeeded"; resultProvenance: McpResultProvenance }
+  | { kind: "failed"; lastError: string; resultProvenance?: McpResultProvenance };
+
+async function settleHealthMcpRead(input: {
+  userId: string;
+  invocationId: string;
+  settlement: HealthReadSettlement;
+}): Promise<void> {
+  const now = new Date();
+  const settlement = input.settlement;
+  const provenance = settlement.resultProvenance;
+
+  // A health call is a read, not an effectful operation. Even a transport
+  // failure may have crossed the wire, but repeating an idempotent read is
+  // safe; leave no staging-less row permanently blocked for a recovery UI that
+  // cannot address it. The provenance/error still records what was observed.
+  await db()
+    .update(mcpInvocation)
+    .set({
+      ...(provenance
+        ? {
+            attemptLifecycle: "response_received" as const,
+            responseReceivedAt: now,
+            resultProvenance: provenance,
+          }
+        : {}),
+      effectOutcome: settlement.kind === "succeeded" ? "succeeded" : "failed",
+      retryDisposition: "safe",
+      resolvedAt: now,
+      resolutionReason: `health_read_${settlement.kind}`,
+      ...(settlement.kind !== "succeeded" ? { lastError: settlement.lastError } : {}),
+    })
+    .where(
+      and(
+        eq(mcpInvocation.id, input.invocationId),
+        eq(mcpInvocation.userId, input.userId),
+        eq(mcpInvocation.attemptLifecycle, "delivery_possible"),
+        isNull(mcpInvocation.effectOutcome),
+        isNull(mcpInvocation.retryDisposition),
+        isNull(mcpInvocation.resolvedAt),
+      ),
+    );
+}
+
+/**
  * Settle the invocation and its authorizing staging row as one aggregate. The
  * mode closes the only domain distinction: ordinary calls have no predecessor;
  * recovery successors must have one.
@@ -371,6 +523,10 @@ async function settleMcpInvocationAggregate(input: {
 
     const row = requireRow(updated, "settleMcpInvocationAggregate guarded invocation");
 
+    if (!row.stagingId) {
+      throw new Error("settleMcpInvocationAggregate received a health-read invocation");
+    }
+
     const [staging] = await tx
       .update(actionStagings)
       .set({
@@ -410,6 +566,8 @@ async function markMcpSettlementIncomplete(input: PendingMcpSettlementRepair): P
     .limit(1);
 
   if (!row) return true;
+
+  if (!row.stagingId) return true;
 
   const [marked] = await db()
     .update(actionStagings)
@@ -524,7 +682,8 @@ async function claimReservedMcpSuccessorDelivery(input: {
       !invocation ||
       invocation.attemptLifecycle !== "prepared" ||
       invocation.resolvedAt ||
-      !invocation.successorOf
+      !invocation.successorOf ||
+      !invocation.stagingId
     ) {
       return undefined;
     }
@@ -656,6 +815,8 @@ async function normalizeMarkedMcpSettlementFailure(
       .for("update");
 
     if (!row) return true;
+
+    if (!row.stagingId) return true;
 
     const [staging] = await tx
       .select({ outcome: actionStagings.outcome })
@@ -822,6 +983,239 @@ export class McpExecutionBroker {
 
     // The drain retries this local-only repair; boot reconciliation covers a crash.
     this.#scheduleRepairDrain();
+  }
+
+  /**
+   * Resolve ownership, hydrate the live catalog, and compare the live
+   * descriptor with the durable identity. Both the model-selected call and the
+   * fixed health-read door use this preparation seam; neither is allowed to
+   * reach `prepared.call` with an unowned connection or a stale revision.
+   */
+  async #prepareCall(input: {
+    userId: string;
+    ref: ExternalToolRef;
+    signal?: AbortSignal;
+    trace: McpTraceContext;
+  }): Promise<PreparedMcpCall> {
+    let identity = await resolveMcpToolIdentity({
+      userId: input.userId,
+      connectionId: input.ref.connectionId,
+      remoteName: input.ref.remoteName,
+      catalogRevision: input.ref.catalogRevision,
+    });
+
+    if (!identity.connection) {
+      throw new McpClientError(
+        "not_connected",
+        `No connected MCP server '${input.ref.connectionId}'.`,
+      );
+    }
+
+    const prepared = await this.#manager.prepareToolCall(
+      input.ref.connectionId,
+      input.signal,
+      input.trace,
+    );
+
+    if (prepared.catalog.revision !== input.ref.catalogRevision) {
+      throw new McpClientError(
+        "catalog_stale",
+        "The MCP catalog changed after this tool was selected; refresh and reselect it",
+      );
+    }
+
+    // A catalog publication can race the first identity read. Re-resolve after
+    // hydration, exactly as the ordinary broker path does, before honoring any
+    // persisted claim.
+    if (identity.status === "unresolved") {
+      identity = await resolveMcpToolIdentity({
+        userId: input.userId,
+        connectionId: input.ref.connectionId,
+        remoteName: input.ref.remoteName,
+        catalogRevision: input.ref.catalogRevision,
+      });
+    }
+
+    const connection = identity.connection;
+
+    if (!connection) {
+      throw new McpClientError(
+        "not_connected",
+        `No connected MCP server '${input.ref.connectionId}'.`,
+      );
+    }
+
+    const liveTool = prepared.catalog.tools.find((tool) => tool.name === input.ref.remoteName);
+
+    return {
+      identity,
+      connection,
+      prepared,
+      descriptorHash: liveTool ? descriptorHash(liveTool) : undefined,
+    };
+  }
+
+  /**
+   * Execute one owner-approved health read through the same broker seam as a
+   * model-selected MCP call. There is no caller-supplied argument object: the
+   * exact owner mapping is re-read here, and the broker supplies its persisted
+   * arguments. The persisted descriptor claim and the live descriptor must
+   * both say read-only before a single tools/call is sent.
+   */
+  async callHealthRead(input: McpHealthReadInput): Promise<McpCallEnvelope | null> {
+    const span = startMcpTraceSpan({
+      name: "runtime.mcp.health_read",
+      ...(input.traceId ? { traceId: input.traceId } : {}),
+      metadata: {
+        connectionId: input.ref.connectionId,
+        remoteName: input.ref.remoteName,
+        mappingRevision: input.mappingRevision,
+      },
+    });
+
+    try {
+      let definition = await readHealthMapping(input);
+
+      if (!definition) {
+        span.end({ status: "unavailable" });
+
+        return null;
+      }
+
+      const resolved = await this.#prepareCall({
+        userId: input.userId,
+        ref: input.ref,
+        ...(input.signal ? { signal: input.signal } : {}),
+        trace: span.context,
+      });
+
+      // Catalog hydration can take long enough for an owner to clear or replace
+      // the row. Re-read the same revision after that seam so the arguments sent
+      // below are the current persisted definition, not the pre-hydration copy.
+      definition = await readHealthMapping(input);
+
+      if (!definition) {
+        span.end({ status: "unavailable" });
+
+        return null;
+      }
+
+      if (resolved.identity.status !== "resolved") {
+        throw new McpClientError(
+          "catalog_stale",
+          "The MCP health mapping no longer resolves to a current descriptor",
+        );
+      }
+
+      const liveTool = resolved.prepared.catalog.tools.find(
+        (tool) => tool.name === input.ref.remoteName,
+      );
+
+      const readOnly =
+        isReadOnlyMcpToolIdentity(resolved.identity) &&
+        resolved.identity.descriptorHash === input.descriptorHash &&
+        resolved.descriptorHash === input.descriptorHash &&
+        liveTool?.annotations?.readOnlyHint === true;
+
+      if (!readOnly) {
+        throw new McpClientError(
+          "write_tool",
+          "MCP health reads require an exact descriptor that asserts readOnlyHint=true",
+        );
+      }
+
+      // An explicit reviewed `high` policy is the owner asking for approval on
+      // every ordinary MCP call. This fixed health read has no staging surface
+      // on which to ask, so it stops before `tools/call` rather than
+      // silently overriding that decision. A missing policy is different: the
+      // health mapping is its own owner review of this exact descriptor and
+      // fixed argument object.
+      if (resolved.identity.policy?.riskTier === "high") {
+        span.end({ status: "blocked", metadata: { riskTier: "high" } });
+
+        return null;
+      }
+
+      // Record the ordinary MCP risk decision for tracing. It does not grant
+      // this path authority; the exact mapping, read-only checks, explicit-high
+      // stop above, and broker ledger do.
+      const riskTier = effectiveMcpRiskTier(resolved.identity);
+
+      const invocationId = await reserveHealthMcpRead({
+        userId: input.userId,
+        connectionId: input.ref.connectionId,
+        remoteName: input.ref.remoteName,
+        catalogRevisionId: resolved.connection.currentCatalogRevisionId,
+        descriptorHash: input.descriptorHash,
+        policyRevision: resolved.identity.policy?.policyRevision,
+        arguments: definition.arguments,
+        traceId: input.traceId,
+      });
+
+      if (!invocationId) {
+        span.end({ status: "blocked", metadata: { riskTier } });
+
+        return null;
+      }
+
+      let envelope: McpCallEnvelope;
+
+      try {
+        envelope = await resolved.prepared.call(input.ref, definition.arguments, {
+          ...(input.signal ? { signal: input.signal } : {}),
+          trace: span.context,
+        });
+      } catch (error) {
+        const provenance = error instanceof McpClientError ? error.provenance : undefined;
+
+        const settlement: HealthReadSettlement = {
+          kind: "failed",
+          lastError: boundedMcpErrorText(error),
+          ...(provenance ? { resultProvenance: provenance } : {}),
+        };
+
+        await settleHealthMcpRead({
+          userId: input.userId,
+          invocationId,
+          settlement,
+        });
+
+        if (isProvenNotDelivered(error)) throw error;
+
+        span.end({ status: "failed", metadata: { riskTier } });
+
+        return null;
+      }
+
+      if (envelope.outcome !== "completed") {
+        await settleHealthMcpRead({
+          userId: input.userId,
+          invocationId,
+          settlement: {
+            kind: "failed",
+            lastError: "MCP health read returned a tool error",
+            resultProvenance: envelope.provenance,
+          },
+        });
+
+        span.end({ status: "tool_error", metadata: { riskTier } });
+
+        return null;
+      }
+
+      await settleHealthMcpRead({
+        userId: input.userId,
+        invocationId,
+        settlement: { kind: "succeeded", resultProvenance: envelope.provenance },
+      });
+
+      span.end({ status: "completed", metadata: { riskTier } });
+
+      return envelope;
+    } catch (error) {
+      span.end({ status: "error", level: "ERROR" });
+      throw error;
+    }
   }
 
   /**
@@ -1082,62 +1476,22 @@ export class McpExecutionBroker {
   async #callTool(input: McpBrokerCallInput, trace: McpTraceContext): Promise<McpBrokerOutcome> {
     const { ref } = input;
 
-    // Ownership is Alfred's trust boundary: an outbound effect must land only on a
-    // connection the CALLING user owns. A model-proposed `connectionId` that is
-    // absent — or owned by another user — is indistinguishable from "not
-    // connected", the same scope `listMcpToolsLocal` enforces on the read half.
-    // This runs BEFORE any client connect or ledger row: an ownership miss provably
-    // predates any `tools/call`, so it throws a deterministic pre-delivery error
-    // (no barrier minted) and the dispatch seam records an ordinary failure. It is
-    // enforced here, at the read, rather than left as a convention for multi-user.
-    let identity = await resolveMcpToolIdentity({
+    // Ownership, catalog hydration, and the live descriptor comparison are the
+    // shared preparation seam. The health-read door below enters here too, so
+    // it cannot accidentally grow a second connection path.
+    const preparedCall = await this.#prepareCall({
       userId: input.userId,
-      connectionId: ref.connectionId,
-      remoteName: ref.remoteName,
-      catalogRevision: ref.catalogRevision,
+      ref,
+      ...(input.signal ? { signal: input.signal } : {}),
+      trace,
     });
 
-    if (!identity.connection) {
-      throw new McpClientError("not_connected", `No connected MCP server '${ref.connectionId}'.`);
-    }
-
-    // Connecting/refreshing the catalog is a prerequisite, not the tool-call
-    // delivery boundary: a failure here provably predates any `tools/call`, so it
-    // throws (deterministic failure) with no ledger row minted. The manager reads
-    // the mutable connection row again before first-use hydration: the identity
-    // resolver proves ownership and policy, but its endpoint/credential snapshot
-    // must not outlive a concurrent connection update.
-    const prepared = await this.#manager.prepareToolCall(ref.connectionId, input.signal, trace);
-
-    if (prepared.catalog.revision !== ref.catalogRevision) {
-      throw new McpClientError(
-        "catalog_stale",
-        "The MCP catalog changed after this tool was selected; refresh and reselect it",
-      );
-    }
-
-    if (identity.status === "unresolved") {
-      identity = await resolveMcpToolIdentity({
-        userId: input.userId,
-        connectionId: ref.connectionId,
-        remoteName: ref.remoteName,
-        catalogRevision: ref.catalogRevision,
-      });
-    }
-
-    const connection = identity.connection;
-
-    if (!connection) {
-      throw new McpClientError("not_connected", `No connected MCP server '${ref.connectionId}'.`);
-    }
+    const { identity, connection, prepared, descriptorHash: hash } = preparedCall;
 
     // The durable identity and reviewed policy were resolved together above.
     // Honor that policy only if the exact live descriptor has the same hash. A
     // stale selection, missing live tool, or persisted/live drift therefore has
     // no policy and defaults to conservative `unknown`.
-    const liveTool = prepared.catalog.tools.find((tool) => tool.name === ref.remoteName);
-    const hash = liveTool ? descriptorHash(liveTool) : undefined;
-
     const policy =
       identity.status === "resolved" && hash === identity.descriptorHash
         ? identity.policy

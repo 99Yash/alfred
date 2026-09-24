@@ -1,0 +1,2 @@
+ALTER TABLE "mcp_invocation" ALTER COLUMN "staging_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "mcp_invocation" ADD CONSTRAINT "mcp_invocation_staging_or_read_chk" CHECK ("mcp_invocation"."staging_id" IS NOT NULL OR "mcp_invocation"."effect_class" = 'read');
