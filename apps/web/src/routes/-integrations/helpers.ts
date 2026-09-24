@@ -93,6 +93,16 @@ export type McpToolPolicyState = EdenData<McpConnectionRoute["tools"]["policy"][
 
 export type McpToolPolicy = Extract<McpToolPolicyState, { status: "reviewed" }>["policy"];
 
+/** Exact-descriptor health mappings share the catalog review cache family. */
+export const MCP_HEALTH_MAPPING_QUERY_KEY = [
+  ...MCP_CONNECTION_TOOLS_QUERY_KEY,
+  "health-mapping",
+] as const;
+
+export type McpHealthMappingWireState = EdenData<
+  McpConnectionRoute["tools"]["health-mapping"]["get"]
+>;
+
 /**
  * The consent door for a STORED connection, and the creation door for a
  * built-in that may have no row yet.

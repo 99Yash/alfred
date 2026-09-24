@@ -10,6 +10,7 @@ import {
   type McpConnectionToolInspection,
 } from "./helpers";
 import { mcpConnectionStatusText } from "./mcp-server-status";
+import { McpHealthMappingReview } from "./mcp-health-mapping";
 import { McpToolPolicyReview } from "./mcp-tool-policy";
 
 type SelectedToolRef = { readonly remoteName: string; readonly catalogRevision: string };
@@ -79,6 +80,8 @@ export interface McpCatalogViewProps {
    * stays hook-free and the container owns the review's read and writes.
    */
   policyReview: ReactNode;
+  /** Owner-reviewed exact-descriptor projection into object-state. */
+  healthMappingReview: ReactNode;
   onSelect: (tool: McpConnectionTool) => void;
   onDismissInspection: () => void;
 }
@@ -106,6 +109,7 @@ export function McpCatalogView({
   inspection,
   inspectionLoading,
   policyReview,
+  healthMappingReview,
   onSelect,
   onDismissInspection,
 }: McpCatalogViewProps) {
@@ -132,6 +136,7 @@ export function McpCatalogView({
       ) : null}
 
       {policyReview}
+      {healthMappingReview}
 
       {loading ? (
         <p className="text-xs text-app-fg-3" role="status">
@@ -261,6 +266,15 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
       />
     ) : null;
 
+  const healthMappingReview =
+    inspection?.status === "tool" ? (
+      <McpHealthMappingReview
+        key={`${inspection.ref.remoteName}:${inspection.ref.catalogRevision}`}
+        connectionId={connectionId}
+        toolRef={inspection.ref}
+      />
+    ) : null;
+
   return (
     <McpCatalogView
       connectionStatus={connection.status}
@@ -280,6 +294,7 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
       inspection={inspection}
       inspectionLoading={inspectQuery.isFetching}
       policyReview={policyReview}
+      healthMappingReview={healthMappingReview}
       onSelect={(tool) =>
         setSelected({
           remoteName: tool.ref.remoteName,

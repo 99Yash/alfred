@@ -74,6 +74,78 @@ An unmeasured shape reads as unverified and leaves the loop live. A push row
 carries no provider event time, so any pull that carries a time supersedes it,
 no matter how old the pull is.
 
+**Amended 2026-09-24 (#1196).** One generic `mcp` provider now carries
+owner-reviewed connection health without reopening the per-provider registry.
+The owner approves a bounded projection under one exact MCP descriptor: the
+server derives `(connection, remoteName, descriptorHash)` through the same
+current-revision identity and connection-row lock as `mcp_tool_policy`, and
+persists it in `mcp_health_mapping`. Descriptor drift misses the current hash
+and voids the approval; the historic row is not transplanted to the new shape.
+The mapping's dot-separated field paths, exact case-sensitive state-token map,
+and bounded static arguments are data validated by
+`mcpHealthMappingDefinitionSchema` at every persisted/protocol boundary. They
+are not an expression language and model or provider prose never chooses a
+match.
+
+At gather, a current row may call that exact descriptor over the owner's
+connection only when the published descriptor asserts
+`annotations.readOnlyHint === true` at approval time and again at the live
+broker boundary. The MCP server sends that hint; the catalog records the
+assertion but does not enforce that the call has no effect. A lying server can
+claim `readOnlyHint: true` on a write tool. The authority is the owner's review
+of one exact descriptor hash with one fixed argument object: no model chooses
+the tool or arguments, and descriptor drift voids the review. The hint only
+ever refuses a call. If the exact descriptor also has an explicit reviewed
+policy with `riskTier: "high"`, the health read stops before dispatch because
+this unattended lane has no per-call approval surface and may not override the
+owner's request to confirm every call.
+
+The gather call goes through the MCP execution broker's owner/catalog identity
+check and `mcp_invocation` ledger; a health read has no model staging row, but
+it is still recorded as a read and can never enter the effectful write path.
+
+An output item folds only when its bounded identity is byte-for-byte equal to
+the deterministic loop key derived from the notification **and** the mapping's
+explicit identity provider equals that loop's provider. A mapping may name only
+a provider selected by the notification's sender-heuristic classification in the
+finite loop vocabulary. It may not name `issue`, which is precisely the fallback
+for tracker-shaped text without a trusted sender. `trackerSenderKey` reads both
+the display name and the address, so this is a heuristic rather than
+authentication. There is no substring containment, result-side regex, prose
+match, or cross-provider resolution. A provider already owned by a built-in
+object-state registry entry (for example GitHub) is refused here so its native
+reader remains authoritative. Malformed output, an unmapped token, no exact
+same-provider match, multiple matching connections, or a cross-owner row mints
+nothing. The unique match becomes a `verified_pull` delta for the fixed
+`mcp.connection_health` kind and enters through `objectStateStore.applyEvent` —
+the same unknown-kind/token, per-kind policy, absorption, lock, and recency
+guards as every built-in pull. `resolved` and `abandoned` are eligible for
+closure; `active` and `failed` remain live.
+
+One class-level precedence rule covers both relevance and closure: use the
+resolved built-in objects if any exist; otherwise use the resolved MCP objects.
+Relevance takes the first object in the selected class, while closure takes the
+first closing object in that class. The old implementation selected the first
+closing object across all providers; #1196 now selects the class first, then scans
+it. This preserves built-in-only closure ordering (an open first built-in object
+no longer blocks a later closing built-in object) while ensuring an approved MCP
+object cannot shadow a built-in verdict or close a subject that has any built-in
+object. Only a subject with no resolved built-in object may use MCP state. The
+briefing relevance pass receives the MCP store row as non-closing presentation
+evidence, so `LoopRelevanceVerdict` remains exactly its three members and an
+unmapped connection renders `unverifiable` / can't-check.
+
+**There is no live adopter yet.** Known services return their own raw
+identities — for example Linear returns `ENG-123` — while byte equality here
+compares that output with Alfred's internal `issue:eng-123` loop key. This
+change deliberately does not guess a conversion. A service becomes reachable
+only after one fixed, documented raw-identity-to-loop-key conversion is added
+at this boundary (with whole-string validation); that conversion must also add a
+sender-domain gate before it can authorize a fold, because display-name matching
+alone is not authentication. A connection and mapping row alone are not enough.
+The static arguments are persisted as reviewed configuration and must contain no
+credentials.
+
 **Open.** Backfill horizon over `webhook_events` (how far back to replay). Whether `check_suite` is its own object kind or an attribute of the PR. Cross-source dedup convergence policy (when a ClickUp task and a PR are "the same loop" — the binding constraint ADR-0052(B) named). v1 loop-opener scope = GitHub Actions CI-failure emails; Railway build-failure added if it recurs.
 
 **Amended 2026-09-06 (#975).** The reducer's input log is `event_receipts` (`provider = 'github'`, `event_type = 'github.<type>'`), not `webhook_events`, which ADR-0097 item 8 retired. The real-time fold is the `github-activity-fold` trigger consumer, and the committed backfill replays `event_receipts`. Idempotency now comes from the receipt's `(provider, provider_delivery_id)` dedup index plus the same monotonic `delivered_at` guard.

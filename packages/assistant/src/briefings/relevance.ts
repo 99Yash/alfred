@@ -3,6 +3,7 @@ import {
   briefingLoopRelevanceSchema,
   getObjectDef,
   INTEGRATION_OBJECT_DEFS,
+  isBuiltInObjectStateProvider,
   parseGithubPullRequestUrl,
   redactSecrets,
   sanitizeErrorMessage,
@@ -15,7 +16,11 @@ import {
 } from "@alfred/contracts";
 import { githubClientForUser } from "@alfred/integrations/github";
 import { readLiveSentryIssue } from "@alfred/integrations/sentry";
-import { type ObjectState, type ReconcileResult } from "@alfred/assistant/connections";
+import {
+  selectPrimaryReconciledObject,
+  type ObjectState,
+  type ReconcileResult,
+} from "@alfred/assistant/connections";
 
 /**
  * Check-before-remind relevance (#1194) — the bounded pass between
@@ -47,6 +52,12 @@ export const MAX_RELEVANCE_OBJECTS = 5;
 /** One still-live priority loop, in deterministic gather order before presentation capping. */
 export interface RelevanceLoop {
   documentId: string;
+}
+
+/** Store-backed evidence from the owner-approved generic MCP health verifier. */
+export interface ApprovedLoopState {
+  state: ObjectState;
+  detail: string;
 }
 
 /** A live read's outcome for one object, before it is fanned out to loops. */
@@ -109,6 +120,11 @@ const LIVE_STATE_READERS = {
   vercel: {
     deployment_attempt: null,
     deployment_target: null,
+  },
+  mcp: {
+    // Owner-approved MCP health reads are data-driven per connection and arrive
+    // as already-folded state. This table owns only fixed provider readers.
+    connection_health: null,
   },
 } as const satisfies LiveStateReaderTable;
 
@@ -189,6 +205,8 @@ export async function assessLoopRelevance(args: {
   userId: string;
   loops: readonly RelevanceLoop[];
   reconciled: ReconcileResult<"about">;
+  approvedStates?: ReadonlyMap<string, ApprovedLoopState> | undefined;
+  unverifiedDetails?: ReadonlyMap<string, string> | undefined;
 }): Promise<BriefingLoopRelevance[]> {
   try {
     return await assessLoopRelevanceInner(args);
@@ -207,14 +225,24 @@ async function assessLoopRelevanceInner(args: {
   userId: string;
   loops: readonly RelevanceLoop[];
   reconciled: ReconcileResult<"about">;
+  approvedStates?: ReadonlyMap<string, ApprovedLoopState> | undefined;
+  unverifiedDetails?: ReadonlyMap<string, string> | undefined;
 }): Promise<BriefingLoopRelevance[]> {
-  // The FIRST resolved object is the loop's primary identity — the same
-  // precedence `reconcileEvidence` reports in. Selection below dedupes those
-  // identities and applies one cross-provider read budget.
+  // A built-in resolved object is the loop's primary identity when one exists;
+  // otherwise the first resolved MCP object keeps the class-level reconciliation
+  // precedence. Selection below dedupes those identities and applies one
+  // cross-provider read budget.
   const objectByLoop = new Map<string, ObjectState | null>();
 
   for (const loop of args.loops) {
-    objectByLoop.set(loop.documentId, args.reconciled.get(loop.documentId)?.[0]?.state ?? null);
+    const resolved = args.reconciled.get(loop.documentId) ?? [];
+
+    // Relevance and closure share the reconciliation module's one precedence
+    // rule. A built-in reader is authoritative; MCP evidence is authoritative
+    // only when the subject resolved no built-in object.
+    const state = selectPrimaryReconciledObject(resolved)?.state ?? null;
+
+    objectByLoop.set(loop.documentId, state);
   }
 
   const objects = [...objectByLoop.values()].filter((state) => state !== null);
@@ -243,6 +271,8 @@ async function assessLoopRelevanceInner(args: {
     loops: args.loops,
     objectByLoop,
     verdictByObject,
+    approvedStates: args.approvedStates,
+    unverifiedDetails: args.unverifiedDetails,
   });
 }
 
@@ -260,19 +290,59 @@ export function finalizeLoopRelevanceVerdicts(args: {
   loops: readonly RelevanceLoop[];
   objectByLoop: ReadonlyMap<string, ObjectState | null>;
   verdictByObject: ReadonlyMap<string, ObjectVerdict>;
+  approvedStates?: ReadonlyMap<string, ApprovedLoopState> | undefined;
+  unverifiedDetails?: ReadonlyMap<string, string> | undefined;
 }): BriefingLoopRelevance[] {
   return args.loops.map((loop) => {
     const state = args.objectByLoop.get(loop.documentId) ?? null;
 
-    if (!state) {
+    // A built-in provider's own reader/verdict is authoritative. An approved
+    // MCP result may add evidence for a loop with no built-in object, but it
+    // must never replace a GitHub/Sentry/etc. verdict — including that
+    // provider's honest `unverifiable` answer.
+    if (state && isBuiltInObjectStateProvider(state.provider)) {
+      const ref = objectRef(state);
+      const verdict = args.verdictByObject.get(ref);
+
+      if (verdict !== undefined) {
+        return toVerdict(loop.documentId, verdict);
+      }
+
+      if (!liveStateReaderRegistration(state)) {
+        return toVerdict(
+          loop.documentId,
+          unverified(state, "No live reader for this loop's object kind; loop stays live."),
+        );
+      }
+
       return toVerdict(
         loop.documentId,
-        unverified(null, "No linked work object; nothing to re-check, loop stays live."),
+        unverified(state, "Live-read budget exhausted; loop stays live unverified."),
       );
     }
 
-    const ref = objectRef(state);
+    const approved = args.approvedStates?.get(loop.documentId);
 
+    if (approved) {
+      return toVerdict(loop.documentId, {
+        verdict: VERDICT_BY_STATE_CATEGORY[approved.state.stateCategory],
+        source: "live_mcp_read",
+        observedState: approved.state.nativeState,
+        objectTitle: approved.state.title,
+        objectUrl: httpsUrlOrNull(approved.state.url),
+        detail: approved.detail,
+      });
+    }
+
+    if (!state) {
+      const detail =
+        args.unverifiedDetails?.get(loop.documentId) ??
+        "No linked work object; nothing to re-check, loop stays live.";
+
+      return toVerdict(loop.documentId, unverified(null, detail));
+    }
+
+    const ref = objectRef(state);
     const verdict = args.verdictByObject.get(ref);
 
     if (verdict !== undefined) {

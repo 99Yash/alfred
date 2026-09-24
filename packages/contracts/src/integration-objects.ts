@@ -147,7 +147,7 @@ export interface IntegrationObjectDef {
   normalize(kind: string, nativeState: string): StateCategory | null;
 }
 
-export const OBJECT_STATE_PROVIDERS = ["github", "sentry", "railway", "vercel"] as const;
+export const OBJECT_STATE_PROVIDERS = ["github", "sentry", "railway", "vercel", "mcp"] as const;
 
 export type ObjectStateProvider = (typeof OBJECT_STATE_PROVIDERS)[number];
 
@@ -406,6 +406,19 @@ export function vercelDeploymentOutcome(action: string | null): VercelDeployment
  * miss rather than index the registry with an unchecked string.
  */
 export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
+
+/**
+ * True only for a provider whose live object state is owned by a built-in
+ * reducer/reader. The generic `mcp` provider is deliberately excluded: it is
+ * the owner-approved lane, not a built-in authority. Consumers that must not
+ * let an MCP result shadow a provider's own verdict read this guard instead of
+ * maintaining a second provider-name list.
+ */
+export function isBuiltInObjectStateProvider(
+  provider: string,
+): provider is Exclude<ObjectStateProvider, "mcp"> {
+  return provider !== "mcp" && isObjectStateProvider(provider);
+}
 
 /**
  * A Sentry issue's stored native token — the vocabulary the webhook reducer
@@ -681,6 +694,44 @@ export const INTEGRATION_OBJECT_DEFS = {
       }
 
       return null;
+    },
+  },
+  /**
+   * Owner-reviewed MCP connections (#1196). This is ONE generic provider/kind,
+   * not a registry slot per future integration: the durable connection id lives
+   * in the object identity, while the exact reviewed descriptor and output
+   * projection live in `mcp_health_mapping`. Adding another MCP-backed service
+   * therefore adds data, not a reducer/adapter/gather arm.
+   *
+   * The owner mapping translates provider tokens into the canonical state
+   * vocabulary before the reducer runs. This entry still owns the lifecycle
+   * policy: a mapped `resolved` or `abandoned` may close, `failed` may not, and
+   * nothing absorbs because a later current read may legitimately reopen work.
+   */
+  mcp: {
+    kinds: {
+      connection_health: {
+        closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
+        // Every fold is a live authenticated read, so its stored projection is
+        // the latest proof. The gatherer reads and folds before reconciliation;
+        // the row itself needs no second provider-specific live reader.
+        closesAskFrom: "stored_projection",
+        absorbing: [],
+      },
+    },
+    prefixableKeys: {},
+    normalize(kind, nativeState) {
+      if (kind !== "connection_health") return null;
+
+      switch (nativeState) {
+        case "active":
+        case "resolved":
+        case "failed":
+        case "abandoned":
+          return nativeState;
+        default:
+          return null;
+      }
     },
   },
 } as const satisfies Record<ObjectStateProvider, IntegrationObjectDef>;

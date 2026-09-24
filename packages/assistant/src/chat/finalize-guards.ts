@@ -425,11 +425,12 @@ export async function guardFalseProvenance(
     .map((call) => call.toolCallId);
 
   // Authority keys on the authorizing staging row, never the invocation's
-  // denormalized copies: `stagingId` is notNull with a unique index and an FK
-  // to `action_stagings.id`, and `(runId, toolCallId)` carries its own unique
-  // index — while `traceId`/`toolCallId` on the invocation are declared
-  // observability-only (unindexed, no FK) in the schema. The join means a
-  // drifted copy cannot grant authority the staging row denies.
+  // denormalized copies: model-dispatched invocations have a unique staging FK,
+  // and `(runId, toolCallId)` carries its own unique index — while
+  // `traceId`/`toolCallId` on the invocation are observability-only (unindexed,
+  // no FK) in the schema. Owner-approved health reads have no staging row and
+  // are excluded by the inner join. A drifted copy cannot grant authority the
+  // staging row denies.
   const completedInvocation =
     claimsMcpUse && successfulMcpCallIds.length > 0
       ? await db()

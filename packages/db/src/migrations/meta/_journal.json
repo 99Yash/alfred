@@ -953,6 +953,20 @@
       "when": 1789870106749,
       "tag": "0135_wide_proudstar",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1790208605611,
+      "tag": "0136_brainy_steel_serpent",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1790211286673,
+      "tag": "0137_sharp_gravity",
+      "breakpoints": true
     }
   ]
 }
