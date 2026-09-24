@@ -27,6 +27,7 @@ import type {
   McpAuthorizedProtocol,
   McpEndpointAuthorizer,
   McpEndpointConnection,
+  McpEndpointOAuthPolicy,
 } from "./endpoint-authorization";
 import { compareMcpToolNames, sha256Canonical } from "./hash";
 import {
@@ -122,6 +123,8 @@ export interface McpRawClientOptions extends McpClientLimits {
   /** The persisted endpoint row projection; the authorizer validates it on every connect. */
   endpoint: McpEndpointConnection;
   endpointAuthorizer: McpEndpointAuthorizer;
+  /** Built-in OAuth endpoint policy; absent for user-added servers. */
+  oauthPolicy?: McpEndpointOAuthPolicy | undefined;
   /**
    * The connection's single authentication mode. In the `api_key` arm the key
    * rides the protocol requester and NO OAuth provider is built; the `oauth` arm
@@ -315,6 +318,7 @@ export class McpRawClient {
           requestTimeoutMs: this.#limits.requestTimeoutMs,
         },
         auth.mode === "api_key" ? auth.reader : undefined,
+        this.#options.oauthPolicy,
       );
 
       switch (auth.mode) {
