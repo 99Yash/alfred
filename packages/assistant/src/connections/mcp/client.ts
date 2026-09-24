@@ -419,6 +419,7 @@ export class McpRawClient {
         : new SdkMcpProtocolClient({
             authorization: authorized.protocol,
             requestTimeoutMs: this.#limits.requestTimeoutMs,
+            schemaValidator: this.#schemaValidator,
             pinLegacyProtocol: this.#options.pinLegacyProtocol === true,
             ...(boundOAuth
               ? {
