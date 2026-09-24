@@ -1,7 +1,7 @@
 import { parseEmailAddress, parseGmailDocumentMetadata } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { documents } from "@alfred/db/schemas";
-import { and, eq, gte, lt } from "drizzle-orm";
+import { documents, emailTriage, todos, type Document } from "@alfred/db/schemas";
+import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { resolveTodosForGmailSource } from "./resolve";
 
 /**
@@ -33,6 +33,20 @@ type PaymentFingerprint = {
   amountMinor: number;
   currency: string;
   polarity: PaymentPolarity;
+};
+
+type PaymentDocumentRow = Pick<
+  Document,
+  "id" | "authoredAt" | "sourceThreadId" | "title" | "content" | "metadata"
+>;
+
+const paymentDocumentSelection = {
+  id: documents.id,
+  authoredAt: documents.authoredAt,
+  sourceThreadId: documents.sourceThreadId,
+  title: documents.title,
+  content: documents.content,
+  metadata: documents.metadata,
 };
 
 export type PaymentReconcilerResult =
@@ -67,12 +81,10 @@ export type PaymentReconcilerResult =
       sourceThreadId: string;
     };
 
-interface StoredPaymentDocument {
-  id: string;
-  authoredAt: Date;
-  sourceThreadId: string | null;
+type StoredPaymentDocument = Pick<Document, "id" | "sourceThreadId"> & {
+  authoredAt: NonNullable<Document["authoredAt"]>;
   fingerprint: PaymentFingerprint;
-}
+};
 
 /**
  * Resolve a live payment todo from a positive receipt document.
@@ -87,14 +99,7 @@ export async function resolvePaymentTodoFromReceipt(args: {
   receiptDocumentId: string;
 }): Promise<PaymentReconcilerResult> {
   const [receiptRow] = await db()
-    .select({
-      id: documents.id,
-      authoredAt: documents.authoredAt,
-      sourceThreadId: documents.sourceThreadId,
-      title: documents.title,
-      content: documents.content,
-      metadata: documents.metadata,
-    })
+    .select(paymentDocumentSelection)
     .from(documents)
     .where(
       and(
@@ -107,14 +112,7 @@ export async function resolvePaymentTodoFromReceipt(args: {
 
   if (!receiptRow || !receiptRow.authoredAt) return { status: "not_payment" };
 
-  const receipt = fingerprintStoredPayment({
-    id: receiptRow.id,
-    authoredAt: receiptRow.authoredAt,
-    sourceThreadId: receiptRow.sourceThreadId,
-    title: receiptRow.title,
-    content: receiptRow.content,
-    metadata: receiptRow.metadata,
-  });
+  const receipt = fingerprintStoredPayment(receiptRow);
 
   if (!receipt || receipt.fingerprint.polarity !== "receipt") return { status: "not_payment" };
 
@@ -122,14 +120,7 @@ export async function resolvePaymentTodoFromReceipt(args: {
   const windowEnd = receipt.authoredAt;
 
   const rows = await db()
-    .select({
-      id: documents.id,
-      authoredAt: documents.authoredAt,
-      sourceThreadId: documents.sourceThreadId,
-      title: documents.title,
-      content: documents.content,
-      metadata: documents.metadata,
-    })
+    .select(paymentDocumentSelection)
     .from(documents)
     .where(
       and(
@@ -139,19 +130,13 @@ export async function resolvePaymentTodoFromReceipt(args: {
         lt(documents.authoredAt, windowEnd),
       ),
     )
+    .orderBy(desc(documents.authoredAt))
     .limit(MAX_CANDIDATES);
 
   const candidates = rows.flatMap((row) => {
     if (!row.authoredAt) return [];
 
-    const candidate = fingerprintStoredPayment({
-      id: row.id,
-      authoredAt: row.authoredAt,
-      sourceThreadId: row.sourceThreadId,
-      title: row.title,
-      content: row.content,
-      metadata: row.metadata,
-    });
+    const candidate = fingerprintStoredPayment(row);
 
     if (!candidate || candidate.fingerprint.polarity === "receipt") return [];
 
@@ -165,6 +150,12 @@ export async function resolvePaymentTodoFromReceipt(args: {
     amountMinor: receipt.fingerprint.amountMinor,
     currency: receipt.fingerprint.currency,
   };
+
+  // A full page means the database may have omitted an older matching candidate.
+  // The cap is a read bound, never evidence of uniqueness.
+  if (rows.length === MAX_CANDIDATES) {
+    return { status: "ambiguous", ...base, candidateCount: MAX_CANDIDATES };
+  }
 
   // More than one plausible preceding payment is not enough evidence. The
   // failure→receipt emails do not share a hard invoice key, so silently picking
@@ -180,12 +171,48 @@ export async function resolvePaymentTodoFromReceipt(args: {
 
   if (!candidate || !candidate.sourceThreadId) return { status: "no_match", ...base };
 
+  // The todo table has no payment discriminator. Exact candidate provenance is
+  // the narrowest existing durable boundary: the run that classified this very
+  // document proposed an agent-created, still-unpromoted todo. A merged todo
+  // whose original run differs fails closed instead of being dismissed by an
+  // unrelated todo on the same Gmail thread.
+  const todoRows = await db()
+    .select({ id: todos.id })
+    .from(todos)
+    .innerJoin(
+      emailTriage,
+      and(
+        eq(emailTriage.userId, todos.userId),
+        eq(emailTriage.sourceThreadId, candidate.sourceThreadId),
+        eq(emailTriage.documentId, candidate.id),
+        eq(emailTriage.runId, todos.agentRunId),
+      ),
+    )
+    .where(
+      and(
+        eq(todos.userId, args.userId),
+        eq(todos.createdBy, "agent"),
+        eq(todos.status, "suggested"),
+      ),
+    );
+
+  const todoIds = todoRows.map((row) => row.id);
+
+  if (todoIds.length === 0) {
+    return {
+      status: "no_todo",
+      ...base,
+      sourceThreadId: candidate.sourceThreadId,
+    };
+  }
+
   const resolved = await resolveTodosForGmailSource({
     userId: args.userId,
     sourceThreadId: candidate.sourceThreadId,
+    todoIds,
     reason: `payment-reconciler: receipt ${receipt.id} matched ${candidate.id}`,
     actor: "system",
-    statuses: ["suggested", "open"],
+    statuses: ["suggested"],
   });
 
   if (resolved.ok && resolved.dismissedCount > 0) {
@@ -203,14 +230,11 @@ export async function resolvePaymentTodoFromReceipt(args: {
   };
 }
 
-function fingerprintStoredPayment(row: {
-  id: string;
-  authoredAt: Date;
-  sourceThreadId: string | null;
-  title: string | null;
-  content: string;
-  metadata: unknown;
-}): StoredPaymentDocument | null {
+function fingerprintStoredPayment(row: PaymentDocumentRow): StoredPaymentDocument | null {
+  const { authoredAt } = row;
+
+  if (!authoredAt) return null;
+
   const metadata = parseGmailDocumentMetadata(row.metadata);
 
   const text = [row.title, row.content]
@@ -235,7 +259,7 @@ function fingerprintStoredPayment(row: {
 
   return {
     id: row.id,
-    authoredAt: row.authoredAt,
+    authoredAt,
     sourceThreadId: row.sourceThreadId,
     fingerprint: {
       account,
@@ -276,11 +300,14 @@ function paymentPolarity(text: string): PaymentPolarity | null {
     return "failed";
   }
 
+  // Confirmation and action-required mail often mentions the receipt that will
+  // follow. Classify that required action before positive receipt wording so a
+  // failed payment can never be closed by its own future-looking confirmation.
+  if (/\b(?:confirm (?:your )?payment|requires?[ -]action)\b/.test(normalized)) return "confirm";
+
   if (/\b(?:receipt|paid|payment (?:received|successful|succeeded|complete))\b/.test(normalized)) {
     return "receipt";
   }
-
-  if (/\bconfirm (?:your )?payment\b/.test(normalized)) return "confirm";
 
   return null;
 }
