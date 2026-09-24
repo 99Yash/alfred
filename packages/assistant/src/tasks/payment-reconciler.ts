@@ -305,7 +305,13 @@ function paymentPolarity(text: string): PaymentPolarity | null {
   // failed payment can never be closed by its own future-looking confirmation.
   if (/\b(?:confirm (?:your )?payment|requires?[ -]action)\b/.test(normalized)) return "confirm";
 
-  if (/\b(?:receipt|paid|payment (?:received|successful|succeeded|complete))\b/.test(normalized)) {
+  // Require explicit positive wording. A bare `receipt` or `paid` also matches
+  // dunning mail such as "has not been paid yet", which is not proof of payment.
+  if (
+    /\b(?:payment (?:received|successful|succeeded|complete(?:d)?)|receipt for your payment|amount paid)\b/.test(
+      normalized,
+    )
+  ) {
     return "receipt";
   }
 
