@@ -129,6 +129,14 @@ export const VERCEL_MCP_ENDPOINT_HREF = "https://mcp.vercel.com/" as const;
 export const VERCEL_MCP_STORED_ISSUER = "https://vercel.com/" as const;
 
 /**
+ * OAuth metadata endpoints that Vercel publishes on its API host rather than
+ * on the authorization-server origin. This is an explicit, provider-scoped
+ * exception: the issuer must be Vercel and the endpoint origin must be this
+ * exact host. The authorization endpoint remains pinned to the issuer origin.
+ */
+export const VERCEL_MCP_OAUTH_ENDPOINT_ORIGINS = ["https://api.vercel.com"] as const;
+
+/**
  * The `auth_server_identity` a connection row carries before any authorization
  * server is known.
  *

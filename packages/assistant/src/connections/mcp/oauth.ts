@@ -364,10 +364,10 @@ function parseAuthorizationServerMetadata(
   }
 
   const authorizationEndpoint = server.validateEndpoint(parsed.authorization_endpoint);
-  const tokenEndpoint = server.validateEndpoint(parsed.token_endpoint);
+  const tokenEndpoint = server.validateTokenEndpoint(parsed.token_endpoint);
 
   const registrationEndpoint = parsed.registration_endpoint
-    ? server.validateEndpoint(parsed.registration_endpoint)
+    ? server.validateRegistrationEndpoint(parsed.registration_endpoint)
     : undefined;
 
   return {

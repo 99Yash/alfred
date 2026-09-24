@@ -52,6 +52,10 @@ export function permissiveMcpOAuthAuthorizationForTests(
         origin: server.origin,
         validateEndpoint: (candidate) =>
           new URL(candidate instanceof URL ? candidate.href : String(candidate)),
+        validateTokenEndpoint: (candidate) =>
+          new URL(candidate instanceof URL ? candidate.href : String(candidate)),
+        validateRegistrationEndpoint: (candidate) =>
+          new URL(candidate instanceof URL ? candidate.href : String(candidate)),
       };
     },
     validateDiscoveryEndpoint: (input) =>

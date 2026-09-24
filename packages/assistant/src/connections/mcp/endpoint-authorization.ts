@@ -12,6 +12,7 @@ import {
   type DnsLookupAll,
   type GuardedFetchRequester,
 } from "../hosted-endpoint";
+import { VERCEL_MCP_OAUTH_ENDPOINT_ORIGINS } from "./constants";
 
 /**
  * The two columns an authorization reads, typed as the server-definition row
@@ -33,7 +34,12 @@ export interface McpEndpointNetworkPolicy {
 export interface McpAuthorizedOAuthServer {
   readonly issuer: string;
   readonly origin: string;
+  /** Validate issuer and authorization URLs against this server's origin. */
   validateEndpoint(input: unknown): URL;
+  /** Validate the token endpoint and remember its exact URL for the fetch guard. */
+  validateTokenEndpoint(input: unknown): URL;
+  /** Validate the registration endpoint and remember its exact URL for the fetch guard. */
+  validateRegistrationEndpoint(input: unknown): URL;
 }
 
 /** OAuth authority derived from one live endpoint authorization generation. */
@@ -146,6 +152,7 @@ function createAuthorizedOAuth(
 ): McpAuthorizedOAuth {
   let serverIssuer: string | null = null;
   let serverOrigin: string | null = null;
+  const oauthEndpointHrefs = new Set<string>();
 
   const authorizeServer = (input: unknown): McpAuthorizedOAuthServer => {
     const server = validatePublicHttpsEndpoint(input);
@@ -160,11 +167,32 @@ function createAuthorizedOAuth(
     serverIssuer = server.href;
     serverOrigin = server.origin;
 
+    const validateOAuthEndpoint = (candidate: unknown): URL => {
+      const endpoint = validatePinnedHttpsEndpoint(candidate, null);
+
+      const vercelSiblings =
+        server.origin === "https://vercel.com" &&
+        VERCEL_MCP_OAUTH_ENDPOINT_ORIGINS.some((origin) => origin === endpoint.origin);
+
+      if (endpoint.origin !== server.origin && !vercelSiblings) {
+        throw new HostedEndpointError(
+          "origin_mismatch",
+          "OAuth token and registration endpoints are not authorized for this server.",
+        );
+      }
+
+      oauthEndpointHrefs.add(endpoint.href);
+
+      return endpoint;
+    };
+
     return Object.freeze({
       issuer: server.href,
       origin: server.origin,
       validateEndpoint: (candidate: unknown) =>
         validatePinnedHttpsEndpoint(candidate, server.origin),
+      validateTokenEndpoint: validateOAuthEndpoint,
+      validateRegistrationEndpoint: validateOAuthEndpoint,
     });
   };
 
@@ -177,7 +205,14 @@ function createAuthorizedOAuth(
       request.body == null &&
       [...request.headers.keys()].every((name) => !isHostedEndpointSensitiveHeader(name));
 
-    if (url.origin !== resource.origin && url.origin !== serverOrigin && !credentialFreeDiscovery) {
+    const oauthEndpoint = oauthEndpointHrefs.has(url.href);
+
+    if (
+      url.origin !== resource.origin &&
+      url.origin !== serverOrigin &&
+      !oauthEndpoint &&
+      !credentialFreeDiscovery
+    ) {
       throw new HostedEndpointError(
         "origin_mismatch",
         `OAuth request origin ${url.origin} is not authorized.`,
