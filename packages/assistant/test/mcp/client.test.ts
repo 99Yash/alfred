@@ -652,6 +652,50 @@ describe("McpRawClient catalog", () => {
     await assertMcpError(headerClient.refreshCatalog(), "invalid_schema");
   });
 
+  test("accepts a legacy ECMA pattern spelling from a hosted schema", async () => {
+    const legacyEmailPattern = String.raw`^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$`;
+
+    const protocol = new FakeProtocol([
+      {
+        tools: [
+          tool("buy_domain", {
+            type: "object",
+            properties: { email: { type: "string", pattern: legacyEmailPattern } },
+            required: ["email"],
+            additionalProperties: false,
+          }),
+        ],
+      },
+    ]);
+
+    const client = makeClient(protocol);
+
+    await client.connect();
+    const catalog = await client.refreshCatalog();
+
+    await client.callTool(
+      {
+        kind: "mcp",
+        connectionId: "conn_1",
+        remoteName: "buy_domain",
+        catalogRevision: catalog.revision,
+      },
+      { email: "owner@example.com" },
+    );
+    await assert.rejects(
+      client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "buy_domain",
+          catalogRevision: catalog.revision,
+        },
+        { email: "not-an-email" },
+      ),
+      /failed its imported schema/,
+    );
+  });
+
   test("supports local $ref within schema bounds and rejects over-deep local schemas", async () => {
     const localRefTool = tool(
       "local_ref",

@@ -106,6 +106,7 @@
     "@alfred/sync": "workspace:*",
     "@modelcontextprotocol/client": "2.0.0",
     "ai": "catalog:",
+    "ajv": "8.20.0",
     "bullmq": "catalog:",
     "cron-parser": "^5.5.0",
     "drizzle-orm": "^0.45.2",
