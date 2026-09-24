@@ -74,6 +74,39 @@ An unmeasured shape reads as unverified and leaves the loop live. A push row
 carries no provider event time, so any pull that carries a time supersedes it,
 no matter how old the pull is.
 
+**Amended 2026-09-24 (#1196).** One generic `mcp` provider now carries
+owner-reviewed connection health without reopening the per-provider registry.
+The owner approves a bounded projection under one exact MCP descriptor: the
+server derives `(connection, remoteName, descriptorHash)` through the same
+current-revision identity and connection-row lock as `mcp_tool_policy`, and
+persists it in `mcp_health_mapping`. Descriptor drift misses the current hash
+and voids the approval; the historic row is not transplanted to the new shape.
+The mapping's dot-separated field paths, exact case-sensitive state-token map,
+and bounded static arguments are data validated by
+`mcpHealthMappingDefinitionSchema` at every persisted/protocol boundary. They
+are not an expression language and model or provider prose never chooses a
+match.
+
+At gather, a current row may call that exact read-only descriptor over the
+owner's connection. An output item folds only when its bounded identity exactly
+matches the deterministic loop key derived from the notification; malformed
+output, an unmapped token, no match, multiple matching connections, or a
+cross-owner row mints nothing. The unique match becomes a `verified_pull` delta
+for the fixed `mcp.connection_health` kind and enters through
+`objectStateStore.applyEvent` — the same unknown-kind/token, per-kind policy,
+absorption, lock, and recency guards as every built-in pull. `resolved` and
+`abandoned` are eligible for closure; `active` and `failed` remain live. The
+briefing relevance pass receives only the store row as non-closing presentation
+evidence, so `LoopRelevanceVerdict` remains exactly its three members and an
+unmapped connection renders `unverifiable` / can't-check.
+
+A future service therefore adds a connection and its reviewed mapping row, not
+an object-state provider slot, reducer, adapter, live-reader arm, verified-pull
+registration, or gather branch. Its notification must still carry one of the
+deterministic loop-key forms; this lane does not make arbitrary free text an
+identity or use model output as state. The static arguments are persisted as
+reviewed configuration and must contain no credentials.
+
 **Open.** Backfill horizon over `webhook_events` (how far back to replay). Whether `check_suite` is its own object kind or an attribute of the PR. Cross-source dedup convergence policy (when a ClickUp task and a PR are "the same loop" — the binding constraint ADR-0052(B) named). v1 loop-opener scope = GitHub Actions CI-failure emails; Railway build-failure added if it recurs.
 
 **Amended 2026-09-06 (#975).** The reducer's input log is `event_receipts` (`provider = 'github'`, `event_type = 'github.<type>'`), not `webhook_events`, which ADR-0097 item 8 retired. The real-time fold is the `github-activity-fold` trigger consumer, and the committed backfill replays `event_receipts`. Idempotency now comes from the receipt's `(provider, provider_delivery_id)` dedup index plus the same monotonic `delivered_at` guard.

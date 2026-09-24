@@ -25,6 +25,7 @@ import {
   deliveryInstantValue,
 } from "./delivery-instant";
 import { reduceGithubEvent } from "./github-reducer";
+import { reduceMcpEvent } from "./mcp-reducer";
 import { reduceRailwayEvent } from "./railway-reducer";
 import { reduceVercelEvent } from "./vercel-reducer";
 import { reduceSentryEvent } from "./sentry-reducer";
@@ -213,6 +214,7 @@ const REDUCERS = {
   sentry: reduceSentryEvent,
   railway: reduceRailwayEvent,
   vercel: reduceVercelEvent,
+  mcp: reduceMcpEvent,
 } satisfies Record<ObjectStateProvider, ReduceFn>;
 
 const DEFAULT_OBJECT_LIST_LIMIT = 100;

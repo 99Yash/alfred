@@ -67,6 +67,9 @@ const FOLD_SOURCES = {
   // consumer already doing database work — cheaper than a per-provider
   // event-type filter that every provider would have to declare.
   vercel: "github",
+  // MCP health mappings are pull-only and descriptor-reviewed; no inbound
+  // source may feed this provider's generic reducer.
+  mcp: null,
 } as const satisfies Record<ObjectStateProvider, InboundEventSource | null>;
 
 /** One fold consumer per provider that has an inbound source. */

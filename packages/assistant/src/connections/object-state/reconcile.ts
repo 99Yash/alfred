@@ -15,6 +15,7 @@ import {
   type ReconcileSubject,
 } from "./adapter";
 import { githubObjectStateAdapter } from "./github-adapter";
+import { mcpObjectStateAdapter } from "./mcp-adapter";
 import { railwayObjectStateAdapter } from "./railway-adapter";
 import { vercelObjectStateAdapter } from "./vercel-adapter";
 import { sentryObjectStateAdapter } from "./sentry-adapter";
@@ -105,6 +106,9 @@ const OBJECT_STATE_ADAPTERS = {
   // no Vercel deployment notification exists in the corpus to ground a
   // grammar on (#1167). Same completeness-proof row, same follow-up.
   vercel: vercelObjectStateAdapter,
+  // Generic MCP identities are proposed only by an owner-approved live read
+  // after they match a deterministic loop key. No free-text MCP adapter exists.
+  mcp: mcpObjectStateAdapter,
 } satisfies Record<ObjectStateProvider, ObjectStateAdapter>;
 
 /**

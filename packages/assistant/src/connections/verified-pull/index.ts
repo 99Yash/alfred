@@ -39,6 +39,9 @@ const VERIFIED_PULLS = {
   sentry: null,
   railway: defineVerifiedPull(railwayVerifiedPullProvider),
   vercel: defineVerifiedPull(vercelVerifiedPullProvider),
+  // Generic MCP health reads are data-driven by owner-approved descriptors, so
+  // they run through the briefing loop verifier rather than target discovery.
+  mcp: null,
 } as const satisfies Record<ObjectStateProvider, VerifiedPull | null>;
 
 /**
