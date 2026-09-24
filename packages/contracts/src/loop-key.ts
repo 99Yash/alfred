@@ -80,10 +80,11 @@ const GENERIC_SUBJECTS = new Set([
 
 /**
  * The finite identity vocabulary a deterministic loop can carry. A generic
- * MCP health mapping names one of these providers explicitly; it never gets to
- * infer a provider from a result string or from prose. Keep this list next to
- * the grammar that mints the keys: a new spelling cannot become a new provider
- * by appearing only in a health-mapping response.
+ * MCP health mapping names a sender-gated provider here explicitly; the
+ * senderless `issue` fallback is not mapping-eligible. It never infers a
+ * provider from a result string or from prose. Keep this list next to the
+ * grammar that mints the keys: a new spelling cannot become a new provider by
+ * appearing only in a health-mapping response.
  */
 export const LOOP_ENTITY_PROVIDERS = [
   "clickup",

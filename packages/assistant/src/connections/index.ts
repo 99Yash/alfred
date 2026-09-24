@@ -75,6 +75,7 @@ export {
   objectStateStore,
   proposeObjectKeys,
   reconcileEvidence,
+  selectPrimaryReconciledObject,
   receiptDeliveryInstant,
   type CandidateKey,
   type ClosureReading,
