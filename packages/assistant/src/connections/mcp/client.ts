@@ -19,6 +19,8 @@ import type {
 } from "@modelcontextprotocol/client";
 import { InsufficientScopeError } from "@modelcontextprotocol/client";
 import { addFormats, AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
+import { Ajv } from "ajv";
+import { Ajv2019 } from "ajv/dist/2019.js";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { McpClientError } from "./errors";
 import type {
@@ -203,12 +205,16 @@ const encoder = new TextEncoder();
  * Keep the 2020-12 dialect and all Ajv validation, but compile the pattern
  * keyword in the historical non-Unicode mode that those schemas use.
  */
-function createSchemaValidator(): AjvJsonSchemaValidator {
+interface McpSchemaValidator {
+  getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
+}
+
+function createSchemaValidator(): McpSchemaValidator {
   const legacyRegExp = Object.assign((pattern: string) => new RegExp(pattern), {
     code: "new RegExp" as const,
   });
 
-  const ajv = new Ajv2020({
+  const options = {
     strict: false,
     validateFormats: true,
     validateSchema: false,
@@ -216,11 +222,33 @@ function createSchemaValidator(): AjvJsonSchemaValidator {
     code: {
       regExp: legacyRegExp,
     },
-  });
+  } as const;
 
-  addFormats(ajv);
+  const draft7 = new Ajv(options);
+  const draft2019 = new Ajv2019(options);
+  const draft2020 = new Ajv2020(options);
+  addFormats(draft7);
+  addFormats(draft2019);
+  addFormats(draft2020);
 
-  return new AjvJsonSchemaValidator(ajv);
+  const validators = {
+    draft7: new AjvJsonSchemaValidator(draft7),
+    draft2019: new AjvJsonSchemaValidator(draft2019),
+    draft2020: new AjvJsonSchemaValidator(draft2020),
+  };
+
+  return {
+    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
+      const declaredSchema = "$schema" in schema ? schema.$schema : undefined;
+      const dialect = typeof declaredSchema === "string" ? declaredSchema : "";
+
+      if (dialect.includes("2020-12")) return validators.draft2020.getValidator<T>(schema);
+
+      if (dialect.includes("2019-09")) return validators.draft2019.getValidator<T>(schema);
+
+      return validators.draft7.getValidator<T>(schema);
+    },
+  };
 }
 
 interface McpClientGeneration {

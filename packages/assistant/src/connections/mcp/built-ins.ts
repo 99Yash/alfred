@@ -188,7 +188,7 @@ type BuiltInDefinition = {
    * the measured matrix.
    */
   readonly pinLegacyProtocol: boolean;
-  /** Provider-owned OAuth issuer and token-origin policy, when discovery needs one. */
+  /** Provider-owned OAuth issuer and endpoint-origin policy, when discovery needs one. */
   readonly oauthPolicy?: McpEndpointOAuthPolicy | undefined;
   readonly initialState: {
     readonly authServerIdentity: string;
@@ -328,7 +328,7 @@ export const BUILT_IN_REGISTRY = {
     pinLegacyProtocol: false,
     oauthPolicy: {
       authorizationServerIssuer: VERCEL_MCP_STORED_ISSUER,
-      tokenEndpointOrigins: VERCEL_MCP_OAUTH_ENDPOINT_ORIGINS,
+      oauthEndpointOrigins: VERCEL_MCP_OAUTH_ENDPOINT_ORIGINS,
     },
     initialState: BUILT_IN_INITIAL_STATE,
   },
@@ -413,6 +413,13 @@ export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
     pinLegacyProtocol: definition?.pinLegacyProtocol ?? false,
     oauthPolicy: definition?.oauthPolicy,
   };
+}
+
+/** OAuth wire policy for a built-in endpoint, absent for user-added servers. */
+export function builtInOAuthPolicyForEndpoint(
+  endpointUrl: string,
+): McpEndpointOAuthPolicy | undefined {
+  return lookupBuiltInHref(endpointUrl)?.oauthPolicy;
 }
 
 /**
