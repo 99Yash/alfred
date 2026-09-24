@@ -67,6 +67,7 @@ export {
 export { persistApiKeyCredential, readApiKeyAuthForConnection } from "./api-key";
 
 export {
+  builtInOAuthPolicyForEndpoint,
   builtInProviderForEndpoint,
   builtInReadOnlyResource,
   type BuiltInProvider,

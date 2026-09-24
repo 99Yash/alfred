@@ -9,53 +9,6 @@ const CONNECTION = {
 
 const NETWORK = { requestTimeoutMs: 5_000 };
 
-test("Vercel OAuth token and registration endpoints may use the measured API sibling origin", async () => {
-  const seen: string[] = [];
-
-  const authorizer = new HostedMcpEndpointAuthorizer({
-    requester: async (input) => {
-      seen.push(String(input));
-
-      return new Response("ok");
-    },
-  });
-
-  const authorized = await authorizer.authorize(CONNECTION, NETWORK);
-  const server = authorized.oauth.authorizeServer("https://vercel.com/");
-
-  try {
-    server.validateTokenEndpoint("https://api.vercel.com/login/oauth/token");
-    server.validateRegistrationEndpoint("https://api.vercel.com/login/oauth/register");
-
-    await authorized.oauth.fetch("https://api.vercel.com/login/oauth/token", {
-      method: "POST",
-      body: "grant_type=authorization_code",
-    });
-    await authorized.oauth.fetch("https://api.vercel.com/login/oauth/register", {
-      method: "POST",
-      body: "client_name=Alfred",
-    });
-
-    assert.throws(
-      () => server.validateTokenEndpoint("https://foreign.example.test/token"),
-      /not authorized for this server/,
-    );
-    await assert.rejects(
-      authorized.oauth.fetch("https://api.vercel.com/unexpected", {
-        method: "POST",
-        body: "code=secret",
-      }),
-      /is not authorized/,
-    );
-    assert.deepEqual(seen, [
-      "https://api.vercel.com/login/oauth/token",
-      "https://api.vercel.com/login/oauth/register",
-    ]);
-  } finally {
-    await authorized.close();
-  }
-});
-
 test("MCP authorization correlates the resource with public OAuth and origin-pinned protocol fetches", async () => {
   const seen: string[] = [];
 

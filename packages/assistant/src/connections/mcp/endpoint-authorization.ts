@@ -33,7 +33,7 @@ export interface McpEndpointNetworkPolicy {
 /** Provider-owned OAuth endpoint policy injected by the built-in registry. */
 export interface McpEndpointOAuthPolicy {
   readonly authorizationServerIssuer?: string;
-  readonly tokenEndpointOrigins: readonly string[];
+  readonly oauthEndpointOrigins: readonly string[];
 }
 
 export interface McpAuthorizedOAuthServer {
@@ -112,9 +112,10 @@ export async function withMcpEndpointAuthorization<T>(
   authorizer: McpEndpointAuthorizer,
   connection: McpEndpointConnection,
   network: McpEndpointNetworkPolicy,
+  oauthPolicy: McpEndpointOAuthPolicy | undefined,
   operation: (authorization: McpAuthorizedEndpoint) => Promise<T>,
 ): Promise<T> {
-  const authorization = await authorizer.authorize(connection, network);
+  const authorization = await authorizer.authorize(connection, network, undefined, oauthPolicy);
 
   try {
     return await operation(authorization);
@@ -188,7 +189,7 @@ function createAuthorizedOAuth(
       const endpoint = validatePinnedHttpsEndpoint(candidate, null);
 
       const vercelSiblings =
-        oauthPolicy?.tokenEndpointOrigins.some((origin) => origin === endpoint.origin) === true;
+        oauthPolicy?.oauthEndpointOrigins.some((origin) => origin === endpoint.origin) === true;
 
       if (endpoint.origin !== server.origin && !vercelSiblings) {
         throw new HostedEndpointError(
