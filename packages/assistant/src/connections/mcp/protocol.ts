@@ -9,6 +9,7 @@ import {
   type AuthProvider,
   type CacheScope,
   type ClientCapabilities,
+  type ClientOptions,
   type ProtocolEra,
   type Tool,
   type Transport,
@@ -112,6 +113,7 @@ export interface SdkMcpProtocolClientOptions {
   authorization: McpAuthorizedProtocol;
   authProvider?: AuthProvider;
   requestTimeoutMs: number;
+  schemaValidator: NonNullable<ClientOptions["jsonSchemaValidator"]>;
   /**
    * Refuse the modern era for this connection and negotiate `2025-11-25`.
    *
@@ -149,6 +151,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       { name: "alfred", version: "1" },
       {
         capabilities: MCP_CLIENT_CAPABILITIES,
+        jsonSchemaValidator: options.schemaValidator,
         enforceStrictCapabilities: true,
         versionNegotiation: { mode: options.pinLegacyProtocol === true ? "legacy" : "auto" },
         inputRequired: MCP_INPUT_REQUIRED_PROFILE,
