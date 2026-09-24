@@ -5,6 +5,10 @@ packages:
 # Keep pnpm settings here, not in package.json#pnpm. pnpm 11 ignores the
 # package.json location, so Corepack/global pnpm must see the same overrides.
 overrides:
+  # AI SDK 7.0.99 and OpenAI 4.0.74 ship several releases apart but use adjacent
+  # provider type identities. Keep the V4 contract on one copy so Alfred can
+  # pass model handles between ai, ai-retry, and provider adapters.
+  "@ai-sdk/provider": 4.0.18
   "@types/pg": ^8.23.1
   exact-mirror: 1.0.0
 
@@ -23,8 +27,8 @@ allowBuilds:
 catalog:
   "@ai-sdk/anthropic": ^4.0.53
   "@ai-sdk/google": ^4.0.69
-  "@ai-sdk/openai": ^4.0.66
-  "@ai-sdk/provider": ^4.0.14
+  "@ai-sdk/openai": ^4.0.74
+  "@ai-sdk/provider": ^4.0.18
   # Elysia + its sibling packages are pinned to exact versions, and
   # exact-mirror is pinned via the workspace `overrides` block above.
   # The workspace ships a `normalize: 'typebox'` workaround on every Elysia
@@ -99,8 +103,9 @@ minimumReleaseAgeExclude:
   - "@ai-sdk/anthropic@4.0.53"
   - "@ai-sdk/gateway@4.0.80"
   - "@ai-sdk/google@4.0.69"
-  - "@ai-sdk/openai@4.0.66"
+  - "@ai-sdk/openai@4.0.74"
   - "@ai-sdk/provider-utils@5.0.40"
-  - "@ai-sdk/provider@4.0.14"
+  - "@ai-sdk/provider-utils@5.0.47"
+  - "@ai-sdk/provider@4.0.18"
   - ai@7.0.99
   - zod@4.6.5

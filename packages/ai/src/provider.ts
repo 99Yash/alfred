@@ -62,24 +62,19 @@ interface ModelRoute {
  * object, not a second registry entry, supplies provider and model id.
  */
 const MODEL_ROUTES = {
-  // Background boss runs `gpt-5.6-luna` for cost (2026-09-18): briefings,
-  // triage deepen, cold start, and skill compose are non-interactive, so
-  // Luna's turn bloat hurts less than on chat while the 13.3x blended
-  // discount lands. Same legs as `standard`; rollback restores
-  // `anthropicLeg("claude-sonnet-4-6")` as the primary.
+  // Background boss runs `gpt-6-luna` for cost and capability (2026-09-24):
+  // briefings, triage deepen, cold start, and skill compose resolve this route.
+  // Same legs as `standard`; rollback restores `gpt-5.6-luna` as the primary.
   boss: {
-    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
+    legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
     providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
-  // Sub-agents follow the chat tiers onto Luna (ADR-0077 amendment
-  // 2026-09-03d) so a delegating chat turn is one vendor end to end. The July
-  // bake-off measured the mixed pairing — Luna boss + Sonnet worker — as the
-  // worst shape at 10 calls / 97s / $0.241, and a Sonnet worker still costs
-  // 13× a Luna one; the background boss is on Luna too now, so no route
+  // Sub-agents follow the chat tiers onto Luna so a delegating chat turn stays
+  // one vendor end to end. The background boss is on Luna too, so no route
   // mixes vendors.
   subAgent: {
-    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
+    legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
     providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
@@ -99,19 +94,13 @@ const MODEL_ROUTES = {
     legs: [() => googleLeg("gemini-3.8-flash")],
     reasoning: "none",
   },
-  // Both chat tiers run `gpt-5.6-luna` and differ only in effort (ADR-0077
-  // amendment 2026-09-03d). The 2026-09-02 `db:sync-prices` run cut Luna 5×
-  // on every token class (1.00/6.00 → 0.20/1.20 per MTok), taking its blended
-  // rate at Alfred's 7:2:1 cache/input/output mix to $0.174 against Sonnet's
-  // $2.31 and Opus's $3.85. Anthropic leaves the chat tiers entirely: keeping
-  // Sonnet as the Auto fallback made a degrade leg cost 13× the primary and
-  // kept the Anthropic cache warm for nothing. `gemini-3.8-flash` is the
-  // cross-provider degrade leg on both tiers, as it already is on boss, deep,
-  // and cheap. Latency is the open risk pricing cannot fix: Luna ran 13 calls
-  // / 63s against Sonnet's 4 / 28s, and the first live Auto turn took 16 legs
-  // / 86s.
+  // Both chat tiers run `gpt-6-luna` and differ only in effort. It keeps the
+  // 1.05M-token context window and full reasoning-effort vocabulary Alfred
+  // already uses, while OpenAI's standard rates fall to $0.10 input, $0.01
+  // cached input, and $0.50 output per MTok. `gemini-3.8-flash` remains the
+  // cross-provider degrade leg on both tiers.
   standard: {
-    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
+    legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
     providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
@@ -119,7 +108,7 @@ const MODEL_ROUTES = {
   // SDK ceiling; the OpenAI leg pins the provider-only `max` value and the
   // Gemini leg maps `xhigh` to its own `high`.
   deep: {
-    legs: [() => openAiLeg("gpt-5.6-luna"), () => googleLeg("gemini-3.8-flash")],
+    legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "xhigh",
     providerOptions: { ...GOOGLE_THOUGHT_SUMMARIES, openai: { reasoningEffort: "max" } },
   },

@@ -66,7 +66,7 @@ import { withFallback } from "../provider";
 
 const ANTHROPIC_MODEL_ID = "claude-sonnet-4-6";
 
-const OPENAI_MODEL_ID = "gpt-5.6-luna";
+const OPENAI_MODEL_ID = "gpt-6-luna";
 
 const GEMINI_MODEL_ID = "gemini-3.8-flash";
 
