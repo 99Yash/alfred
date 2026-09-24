@@ -400,11 +400,13 @@ describe("route legs", () => {
   test("preserve the provider and model identity the factory supplied", () => {
     const standard = identifyLanguageModel(route("standard").model());
     assert.equal(standard.provider, "openai");
-    assert.equal(standard.modelId, "gpt-5.6-luna");
+    // why: ADR-0077 — Auto's primary is GPT-6 Luna after the 2026-09-24 swap.
+    assert.equal(standard.modelId, "gpt-6-luna");
 
     const boss = identifyLanguageModel(route("boss").model());
     assert.equal(boss.provider, "openai");
-    assert.equal(boss.modelId, "gpt-5.6-luna");
+    // why: ADR-0077 — background work shares Auto's GPT-6 Luna primary.
+    assert.equal(boss.modelId, "gpt-6-luna");
   });
 
   test("select the generic AI SDK reasoning ceiling", () => {

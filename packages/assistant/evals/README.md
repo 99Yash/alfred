@@ -21,7 +21,7 @@ Env (loaded from `apps/server/.env`):
   `triage-classify` and `voice-ai-tells` take the cheap default, and
   `passthrough-honesty` pins a `route("standard")` judge (see the next bullet).
   The other six suites score deterministically and need no judge.
-- Whatever `route("standard")` needs (`gpt-5.6-luna`, so `OPENAI_API_KEY`) — eight
+- Whatever `route("standard")` needs (`gpt-6-luna`, so `OPENAI_API_KEY`) — eight
   of the nine suites GENERATE on that route, because the system under test there is
   the chat agent itself: `boss-judgment`, `calendar-grounding`, `date-grounding`,
   `github-grounding`, `passthrough-honesty`, `sender-suppression-grounding`,
