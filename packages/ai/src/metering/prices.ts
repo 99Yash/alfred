@@ -142,10 +142,9 @@ const FALLBACK_CONTEXT_WINDOWS = {
   "google/gemini-2.5-flash-lite": 1_048_576,
   "google/gemini-3.5-flash": 1_048_576,
   "google/gemini-3.8-flash": 1_048_576,
-  // models.dev `limit.context` for gpt-5.6-luna (see the 2026-09-02
-  // `model_prices` backup in references/scratch). Like the rest of this map: a
-  // boot safety net, not source of truth.
-  "openai/gpt-5.6-luna": 1_050_000,
+  // OpenAI's published 1.05M context window for gpt-6-luna. Like the rest of
+  // this map: a boot safety net, not source of truth.
+  "openai/gpt-6-luna": 1_050_000,
 } as const satisfies Readonly<Record<string, number>>;
 
 /**
