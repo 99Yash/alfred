@@ -19,6 +19,10 @@ import type {
 } from "@modelcontextprotocol/client";
 import { InsufficientScopeError } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
+import { Ajv } from "ajv";
+import addFormats from "ajv-formats";
+import { Ajv2019 } from "ajv/dist/2019.js";
+import { Ajv2020 } from "ajv/dist/2020.js";
 import { McpClientError } from "./errors";
 import type {
   McpApiKeyCredentialReader,
@@ -26,6 +30,7 @@ import type {
   McpAuthorizedProtocol,
   McpEndpointAuthorizer,
   McpEndpointConnection,
+  McpEndpointOAuthPolicy,
 } from "./endpoint-authorization";
 import { compareMcpToolNames, sha256Canonical } from "./hash";
 import {
@@ -121,6 +126,8 @@ export interface McpRawClientOptions extends McpClientLimits {
   /** The persisted endpoint row projection; the authorizer validates it on every connect. */
   endpoint: McpEndpointConnection;
   endpointAuthorizer: McpEndpointAuthorizer;
+  /** Built-in OAuth endpoint policy; absent for user-added servers. */
+  oauthPolicy?: McpEndpointOAuthPolicy | undefined;
   /**
    * The connection's single authentication mode. In the `api_key` arm the key
    * rides the protocol requester and NO OAuth provider is built; the `oauth` arm
@@ -191,6 +198,105 @@ const MAX_SCHEMA_REGEX_CHARS = 2_048;
 
 const encoder = new TextEncoder();
 
+/**
+ * MCP JSON Schema patterns are ECMA-262 regular expressions, but the server is
+ * not required to spell their bracket classes in Unicode-mode-safe form. Ajv's
+ * 2020-12 engine defaults to `/u`, which accepts Unicode-aware patterns. Keep
+ * the dialect and all Ajv validation, but fall back to the historical
+ * non-Unicode mode only when a pattern cannot compile with the requested flags.
+ */
+const MCP_SCHEMA_2020_12_URIS = new Set([
+  "https://json-schema.org/draft/2020-12/schema",
+  "http://json-schema.org/draft/2020-12/schema",
+]);
+
+const MCP_SCHEMA_2019_09_URIS = new Set([
+  "https://json-schema.org/draft/2019-09/schema",
+  "http://json-schema.org/draft/2019-09/schema",
+]);
+
+const MCP_SCHEMA_DRAFT_07_URIS = new Set([
+  "https://json-schema.org/draft-07/schema",
+  "http://json-schema.org/draft-07/schema",
+]);
+
+const MCP_SCHEMA_DRAFT_06_URIS = new Set([
+  "https://json-schema.org/draft-06/schema",
+  "http://json-schema.org/draft-06/schema",
+]);
+
+interface McpSchemaValidator {
+  getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
+}
+
+function createSchemaValidator(): McpSchemaValidator {
+  const unicodeFirstRegExp = Object.assign(
+    (pattern: string, flags: string) => {
+      try {
+        return new RegExp(pattern, flags);
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          return new RegExp(pattern);
+        }
+
+        throw error;
+      }
+    },
+    {
+      code: "new RegExp" as const,
+    },
+  );
+
+  const options = {
+    strict: false,
+    validateFormats: true,
+    validateSchema: false,
+    allErrors: true,
+    code: {
+      regExp: unicodeFirstRegExp,
+    },
+  } as const;
+
+  const draft7 = new Ajv(options);
+  const draft2019 = new Ajv2019(options);
+  const draft2020 = new Ajv2020(options);
+  addFormats(draft7);
+  addFormats(draft2019);
+  addFormats(draft2020);
+
+  const validators = {
+    draft7: new AjvJsonSchemaValidator(draft7),
+    draft2019: new AjvJsonSchemaValidator(draft2019),
+    draft2020: new AjvJsonSchemaValidator(draft2020),
+  };
+
+  return {
+    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
+      const declaredSchema = "$schema" in schema ? schema.$schema : undefined;
+
+      if (typeof declaredSchema !== "string") {
+        return validators.draft2020.getValidator<T>(schema);
+      }
+
+      const dialect = declaredSchema.replace(/#$/, "");
+
+      if (MCP_SCHEMA_2020_12_URIS.has(dialect)) {
+        return validators.draft2020.getValidator<T>(schema);
+      }
+
+      if (MCP_SCHEMA_2019_09_URIS.has(dialect)) {
+        return validators.draft2019.getValidator<T>(schema);
+      }
+
+      if (MCP_SCHEMA_DRAFT_07_URIS.has(dialect) || MCP_SCHEMA_DRAFT_06_URIS.has(dialect)) {
+        return validators.draft7.getValidator<T>(schema);
+      }
+
+      throw new Error(`Unsupported MCP JSON Schema dialect: ${dialect}`);
+    },
+  };
+}
+
 interface McpClientGeneration {
   readonly authorization: McpAuthorizedEndpoint;
   readonly protocol: McpProtocolClient;
@@ -212,7 +318,7 @@ export class McpRawClient {
   };
   /** The same bounds with every default already applied — no `??` at the use site. */
   readonly #limits: Required<McpClientLimits>;
-  readonly #schemaValidator = new AjvJsonSchemaValidator();
+  readonly #schemaValidator = createSchemaValidator();
   #generation: McpClientGeneration | null = null;
   #catalog: McpCatalogSnapshot | null = null;
   #catalogExpiresAt = 0;
@@ -286,6 +392,7 @@ export class McpRawClient {
           requestTimeoutMs: this.#limits.requestTimeoutMs,
         },
         auth.mode === "api_key" ? auth.reader : undefined,
+        this.#options.oauthPolicy,
       );
 
       switch (auth.mode) {
@@ -312,6 +419,7 @@ export class McpRawClient {
         : new SdkMcpProtocolClient({
             authorization: authorized.protocol,
             requestTimeoutMs: this.#limits.requestTimeoutMs,
+            schemaValidator: this.#schemaValidator,
             pinLegacyProtocol: this.#options.pinLegacyProtocol === true,
             ...(boundOAuth
               ? {

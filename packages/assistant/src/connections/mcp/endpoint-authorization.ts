@@ -1,4 +1,4 @@
-import type { McpApiKeyPlacement, Redacted } from "@alfred/contracts";
+import { isNonEmptyString, type McpApiKeyPlacement, type Redacted } from "@alfred/contracts";
 import type { McpServer } from "@alfred/db/schemas";
 import type { FetchLike } from "@modelcontextprotocol/client";
 import {
@@ -30,10 +30,21 @@ export interface McpEndpointNetworkPolicy {
   requestTimeoutMs: number;
 }
 
+/** Provider-owned OAuth endpoint policy injected by the built-in registry. */
+export interface McpEndpointOAuthPolicy {
+  readonly authorizationServerIssuer: string;
+  readonly oauthEndpointOrigins: readonly string[];
+}
+
 export interface McpAuthorizedOAuthServer {
   readonly issuer: string;
   readonly origin: string;
+  /** Validate issuer and authorization URLs against this server's origin. */
   validateEndpoint(input: unknown): URL;
+  /** Validate the token endpoint and remember its exact URL for the fetch guard. */
+  validateTokenEndpoint(input: unknown): URL;
+  /** Validate the registration endpoint and remember its exact URL for the fetch guard. */
+  validateRegistrationEndpoint(input: unknown): URL;
 }
 
 /** OAuth authority derived from one live endpoint authorization generation. */
@@ -92,6 +103,7 @@ export interface McpEndpointAuthorizer {
     connection: McpEndpointConnection,
     network: McpEndpointNetworkPolicy,
     apiKey?: McpApiKeyCredentialReader,
+    oauthPolicy?: McpEndpointOAuthPolicy,
   ): Promise<McpAuthorizedEndpoint>;
 }
 
@@ -100,9 +112,10 @@ export async function withMcpEndpointAuthorization<T>(
   authorizer: McpEndpointAuthorizer,
   connection: McpEndpointConnection,
   network: McpEndpointNetworkPolicy,
+  oauthPolicy: McpEndpointOAuthPolicy | undefined,
   operation: (authorization: McpAuthorizedEndpoint) => Promise<T>,
 ): Promise<T> {
-  const authorization = await authorizer.authorize(connection, network);
+  const authorization = await authorizer.authorize(connection, network, undefined, oauthPolicy);
 
   try {
     return await operation(authorization);
@@ -143,12 +156,25 @@ function createAuthorizedOAuth(
   resource: URL,
   guardedFetch: FetchLike,
   network: McpEndpointNetworkPolicy,
+  oauthPolicy?: McpEndpointOAuthPolicy,
 ): McpAuthorizedOAuth {
   let serverIssuer: string | null = null;
   let serverOrigin: string | null = null;
+  const oauthEndpointHrefs = new Set<string>();
 
   const authorizeServer = (input: unknown): McpAuthorizedOAuthServer => {
     const server = validatePublicHttpsEndpoint(input);
+
+    if (
+      oauthPolicy !== undefined &&
+      (!isNonEmptyString(oauthPolicy.authorizationServerIssuer) ||
+        server.href !== oauthPolicy.authorizationServerIssuer)
+    ) {
+      throw new HostedEndpointError(
+        "origin_mismatch",
+        "OAuth authorization server does not match the configured issuer.",
+      );
+    }
 
     if (serverIssuer !== null && serverIssuer !== server.href) {
       throw new HostedEndpointError(
@@ -160,11 +186,31 @@ function createAuthorizedOAuth(
     serverIssuer = server.href;
     serverOrigin = server.origin;
 
+    const validateOAuthEndpoint = (candidate: unknown): URL => {
+      const endpoint = validatePinnedHttpsEndpoint(candidate, null);
+
+      const vercelSiblings =
+        oauthPolicy?.oauthEndpointOrigins.some((origin) => origin === endpoint.origin) === true;
+
+      if (endpoint.origin !== server.origin && !vercelSiblings) {
+        throw new HostedEndpointError(
+          "origin_mismatch",
+          "OAuth token and registration endpoints are not authorized for this server.",
+        );
+      }
+
+      oauthEndpointHrefs.add(endpoint.href);
+
+      return endpoint;
+    };
+
     return Object.freeze({
       issuer: server.href,
       origin: server.origin,
       validateEndpoint: (candidate: unknown) =>
         validatePinnedHttpsEndpoint(candidate, server.origin),
+      validateTokenEndpoint: validateOAuthEndpoint,
+      validateRegistrationEndpoint: validateOAuthEndpoint,
     });
   };
 
@@ -177,7 +223,14 @@ function createAuthorizedOAuth(
       request.body == null &&
       [...request.headers.keys()].every((name) => !isHostedEndpointSensitiveHeader(name));
 
-    if (url.origin !== resource.origin && url.origin !== serverOrigin && !credentialFreeDiscovery) {
+    const oauthEndpoint = oauthEndpointHrefs.has(url.href);
+
+    if (
+      url.origin !== resource.origin &&
+      url.origin !== serverOrigin &&
+      !oauthEndpoint &&
+      !credentialFreeDiscovery
+    ) {
       throw new HostedEndpointError(
         "origin_mismatch",
         `OAuth request origin ${url.origin} is not authorized.`,
@@ -252,6 +305,7 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
     connection: McpEndpointConnection,
     network: McpEndpointNetworkPolicy,
     apiKey?: McpApiKeyCredentialReader,
+    oauthPolicy?: McpEndpointOAuthPolicy,
   ): Promise<McpAuthorizedEndpoint> {
     const endpoint = validatePinnedHttpsEndpoint(connection.endpointUrl, connection.endpointOrigin);
 
@@ -281,7 +335,12 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
     let closeFlight: Promise<void> | null = null;
 
     return Object.freeze({
-      oauth: createAuthorizedOAuth(endpoint, createGuardedFetch({ requester }), network),
+      oauth: createAuthorizedOAuth(
+        endpoint,
+        createGuardedFetch({ requester }),
+        network,
+        oauthPolicy,
+      ),
       protocol: Object.freeze({
         endpoint: new URL(endpoint.href),
         fetch: createGuardedFetch({

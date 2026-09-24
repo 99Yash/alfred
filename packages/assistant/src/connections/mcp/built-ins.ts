@@ -34,6 +34,7 @@ import type { BuiltInMCPProvider } from "@alfred/contracts";
 import { envFieldValue, type ServerEnv } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
+import type { McpEndpointOAuthPolicy } from "./endpoint-authorization";
 import {
   GITHUB_MCP_ENDPOINT_HREF,
   GITHUB_MCP_ISSUER,
@@ -44,6 +45,8 @@ import {
   RAILWAY_MCP_ENDPOINT_HREF,
   SENTRY_MCP_ENDPOINT_HREF,
   VERCEL_MCP_ENDPOINT_HREF,
+  VERCEL_MCP_OAUTH_ENDPOINT_ORIGINS,
+  VERCEL_MCP_STORED_ISSUER,
 } from "./constants";
 
 export type BuiltInOAuthConfig = {
@@ -185,6 +188,8 @@ type BuiltInDefinition = {
    * the measured matrix.
    */
   readonly pinLegacyProtocol: boolean;
+  /** Provider-owned OAuth issuer and endpoint-origin policy, when discovery needs one. */
+  readonly oauthPolicy?: McpEndpointOAuthPolicy | undefined;
   readonly initialState: {
     readonly authServerIdentity: string;
     readonly status: "disconnected";
@@ -321,6 +326,10 @@ export const BUILT_IN_REGISTRY = {
     // calls only the three list tools.
     readOnlyCatalog: false,
     pinLegacyProtocol: false,
+    oauthPolicy: {
+      authorizationServerIssuer: VERCEL_MCP_STORED_ISSUER,
+      oauthEndpointOrigins: VERCEL_MCP_OAUTH_ENDPOINT_ORIGINS,
+    },
     initialState: BUILT_IN_INITIAL_STATE,
   },
 } as const satisfies Record<BuiltInMCPProvider, BuiltInDefinition>;
@@ -370,11 +379,10 @@ export function builtInAuthorizationScopes(endpointUrl: string): readonly string
 }
 
 /**
- * How `McpRawClient` must be configured for a STORED endpoint — the two facts
- * only the registry knows, in the one shape `liveClientFactory` spreads.
- *
- * Derived from {@link BuiltInDefinition} rather than restated, so a third
- * client-side policy field is one edit in the definition above.
+ * How `McpRawClient` must be configured for a STORED endpoint — the provider-
+ * owned wire policy in the one shape `liveClientFactory` spreads. Derived from
+ * {@link BuiltInDefinition} rather than restated, so a third client-side policy
+ * field is one edit in the definition above.
  *
  * They travel together because they answer one question, "what does Alfred owe
  * this endpoint that it does not owe an arbitrary one", and because keeping
@@ -392,7 +400,10 @@ export function builtInAuthorizationScopes(endpointUrl: string): readonly string
  * outside this directory asks a different, narrower question and gets
  * {@link builtInReadOnlyResource} instead.
  */
-type BuiltInClientPolicy = Pick<BuiltInDefinition, "readOnlyCatalog" | "pinLegacyProtocol">;
+type BuiltInClientPolicy = Pick<
+  BuiltInDefinition,
+  "readOnlyCatalog" | "pinLegacyProtocol" | "oauthPolicy"
+>;
 
 export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
   const definition = lookupBuiltInHref(endpointUrl);
@@ -400,7 +411,15 @@ export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
   return {
     readOnlyCatalog: definition?.readOnlyCatalog ?? false,
     pinLegacyProtocol: definition?.pinLegacyProtocol ?? false,
+    oauthPolicy: definition?.oauthPolicy,
   };
+}
+
+/** OAuth wire policy for a built-in endpoint, absent for user-added servers. */
+export function builtInOAuthPolicyForEndpoint(
+  endpointUrl: string,
+): McpEndpointOAuthPolicy | undefined {
+  return lookupBuiltInHref(endpointUrl)?.oauthPolicy;
 }
 
 /**
