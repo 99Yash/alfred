@@ -242,11 +242,17 @@ function createSchemaValidator(): McpSchemaValidator {
       const declaredSchema = "$schema" in schema ? schema.$schema : undefined;
       const dialect = typeof declaredSchema === "string" ? declaredSchema : "";
 
-      if (dialect.includes("2020-12")) return validators.draft2020.getValidator<T>(schema);
+      if (dialect === "" || dialect.includes("2020-12")) {
+        return validators.draft2020.getValidator<T>(schema);
+      }
 
       if (dialect.includes("2019-09")) return validators.draft2019.getValidator<T>(schema);
 
-      return validators.draft7.getValidator<T>(schema);
+      if (dialect.includes("draft-07") || dialect.includes("draft-06")) {
+        return validators.draft7.getValidator<T>(schema);
+      }
+
+      throw new Error(`Unsupported MCP JSON Schema dialect: ${dialect}`);
     },
   };
 }
