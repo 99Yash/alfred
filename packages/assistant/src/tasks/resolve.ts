@@ -22,6 +22,13 @@ const resolveTodosForGmailSourceArgsSchema = z
     userId: z.string().min(1),
     senderEmail: z.string().nullish(),
     sourceThreadId: z.string().nullish(),
+    /**
+     * Optional exact todo allowlist for callers that have already proved a
+     * narrower provenance boundary. It composes with the Gmail source scope and
+     * is re-applied in the status-guarded UPDATE, so a row outside the list can
+     * never be dismissed.
+     */
+    todoIds: z.array(z.string().min(1)).min(1).optional(),
     accountId: z.string().nullable().optional(),
     /**
      * A stored standing-instruction target to sweep: dismisses the live todos
@@ -29,8 +36,8 @@ const resolveTodosForGmailSourceArgsSchema = z
      * `suggested` only for a class target — see below) whose thread carries
      * pair the target covers, per {@link targetMatchesSender}. The
      * `system.remember` path passes the instruction it just wrote; the
-     * thread-only and single-address callers leave this unset. Never
-     * alongside `senderEmail`, `accountId`, or `statuses` — the target already
+     * thread-only and single-address callers leave this unset. Never alongside
+     * `senderEmail`, `accountId`, `todoIds`, or `statuses` — the target already
      * carries the `accountId` gate and owns its status bound (one-mailbox
      * targets keep both live statuses, class targets sweep `suggested` only),
      * so a second scope riding along is a caller bug.
@@ -62,10 +69,20 @@ const resolveTodosForGmailSourceArgsSchema = z
      */
     statuses: z.array(liveTodoStatusSchema).min(1).optional(),
   })
+  .refine((data) => data.todoIds === undefined || data.sourceThreadId != null, {
+    message: "Pass todoIds only alongside sourceThreadId.",
+  })
   .refine(
-    (data) => !(data.target && (data.senderEmail || data.accountId || data.statuses !== undefined)),
+    (data) =>
+      !(
+        data.target &&
+        (data.senderEmail ||
+          data.accountId ||
+          data.todoIds !== undefined ||
+          data.statuses !== undefined)
+      ),
     {
-      message: "Pass target alone — never beside senderEmail, accountId, or statuses.",
+      message: "Pass target alone — never beside senderEmail, accountId, todoIds, or statuses.",
     },
   );
 
@@ -132,7 +149,9 @@ interface GmailThreadMetadata {
  * sweeps every sender the stored instruction covers), or combine a thread
  * with one sender-scope; any one mode alone is enough. Named for the source
  * because the thread-only call is a first-class caller, not a misuse of a
- * sender-shaped API.
+ * sender-shaped API. A caller with stronger provenance may pass an exact
+ * `todoIds` allowlist alongside `sourceThreadId`; the load and status-guarded
+ * update both retain that boundary.
  *
  * The statuses to retract are a caller decision ({@link
  * ResolveTodosForGmailSourceArgs.statuses}), defaulting to both live ones. The
@@ -148,6 +167,7 @@ export async function resolveTodosForGmailSource(
   const parsed = resolveTodosForGmailSourceArgsSchema.parse(args);
   const senderEmail = normalizeEmailAddress(parsed.senderEmail);
   const sourceThreadId = normalizeOptional(parsed.sourceThreadId);
+  const requestedTodoIds = parsed.todoIds ? new Set(parsed.todoIds) : null;
   const accountId = normalizeOptional(parsed.accountId);
   const target = parsed.target ?? null;
   const auditReason = normalizeOptional(parsed.reason);
@@ -174,7 +194,7 @@ export async function resolveTodosForGmailSource(
     };
   }
 
-  const candidates = await loadLiveGmailTodoCandidates(parsed.userId, statuses);
+  const candidates = await loadLiveGmailTodoCandidates(parsed.userId, statuses, requestedTodoIds);
 
   const relevant = sourceThreadId
     ? candidates.filter((candidate) => candidate.threadIds.includes(sourceThreadId))
@@ -284,11 +304,18 @@ export function gmailThreadIdsFromSources(sources: readonly TodoSource[]): strin
 async function loadLiveGmailTodoCandidates(
   userId: string,
   statuses: ReadonlyArray<z.infer<typeof liveTodoStatusSchema>>,
+  requestedTodoIds: ReadonlySet<string> | null,
 ): Promise<CandidateTodo[]> {
   const rows = await db()
     .select({ id: todos.id, sources: todos.sources })
     .from(todos)
-    .where(and(eq(todos.userId, userId), inArray(todos.status, [...statuses])));
+    .where(
+      and(
+        eq(todos.userId, userId),
+        inArray(todos.status, [...statuses]),
+        requestedTodoIds ? inArray(todos.id, [...requestedTodoIds]) : undefined,
+      ),
+    );
 
   return rows.flatMap((row) => {
     const threadIds = gmailThreadIdsFromTodoSources(row.sources);
