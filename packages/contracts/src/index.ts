@@ -24,6 +24,8 @@ export * from "./document-source";
 
 export * from "./document-pages";
 
+export * from "./document-ask";
+
 export * from "./gmail-document-metadata";
 
 export * from "./gmail-document-content";

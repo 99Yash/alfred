@@ -3,6 +3,7 @@ import {
   publishEvent,
   type EmailTriageClassifiedPayload,
 } from "@alfred/assistant/triggers";
+import { documentAskReducer } from "@alfred/assistant/connections";
 import { resolveFeatureFlags, resolveTimezone } from "@alfred/assistant/settings";
 import {
   findActiveSenderSuppression,
@@ -36,7 +37,7 @@ import {
   senderKeyFor,
   senderPriorWriteKeyFor,
 } from "./sender-priors";
-import { isSentGmailMetadata, mayBeUnflaggedSentMail } from "./sent-mail";
+import { mayBeUnflaggedSentMail } from "./sent-mail";
 import {
   getDocumentAuthoredAt,
   getTriage,
@@ -52,6 +53,7 @@ import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
   gmailTodoSources,
   isHttpError,
+  isSentGmailMetadata,
   senderContextSchema,
   triageCategorySchema,
   type AccountPersona,
@@ -394,6 +396,10 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       // model proposed no todo).
       todoSuggestion: existing.todoSuggestion ?? undefined,
       todoDecision: existing.todoDecision ?? undefined,
+      documentAsk:
+        existing.documentId === ctx.state.documentId
+          ? (existing.documentAsk ?? undefined)
+          : undefined,
     };
     model = existing.model;
     // The row is already owned by this run, so its tag is canonical —
@@ -522,6 +528,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       category: classification.category,
       confidence: classification.confidence,
       rationale: classification.rationale,
+      documentAsk: classification.documentAsk ?? null,
       model,
       runId: ctx.runId,
       // Persist the todo proposal + rubric trace so a same-run retry on
@@ -557,6 +564,30 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // (a stale-lease reclaim that committed the row but died before getting
   // here, #157). All are `written`-gated and either idempotent or
   // self-healing, so re-running them on a reuse re-attempt is safe.
+
+  const documentAskAccountId = ctxData.document.accountId;
+
+  // This is intentionally a post-commit, idempotent side effect: the triage
+  // proposal is the retry record, and a later same-source classify reuse
+  // re-enters this branch. Mailbox work must not be coupled to that retry.
+  if (written && classification.documentAsk && documentAskAccountId) {
+    try {
+      await documentAskReducer.open({
+        userId: ctx.userId,
+        identity: {
+          accountId: documentAskAccountId,
+          messageId: ctxData.document.sourceId,
+          threadId: sourceThreadId,
+          authoredAt: ctxData.document.authoredAt,
+          isSent: isSentGmailMetadata(ctxData.document.metadata),
+        },
+        proposal: classification.documentAsk,
+        observedAt: new Date(),
+      });
+    } catch (err) {
+      await ctx.log(`document_ask: open failed (non-fatal): ${toMessage(err)}`);
+    }
+  }
 
   // Tell the rail to re-fetch: the row's category chip just changed.
   // Best-effort and intentionally outside `upsertTriage`'s implicit
