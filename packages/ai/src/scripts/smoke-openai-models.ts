@@ -14,7 +14,7 @@ import {
 } from "../index";
 import { openAiLeg } from "../provider-adapter";
 
-const MODEL_IDS = ["gpt-5.6-sol", "gpt-5.6-luna"] as const;
+const MODEL_IDS = ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-6-luna"] as const;
 
 async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
   const modelRoute = probeRoute(openAiLeg(modelId), "medium");
@@ -84,7 +84,7 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
       providerOptions,
       prompt: "Return status ok and model equal to the model identifier in this prompt: " + modelId,
       schema: z.object({ status: z.literal("ok"), model: z.literal(modelId) }),
-      schemaName: "gpt_5_6_smoke",
+      schemaName: "openai_model_smoke",
       maxOutputTokens: 64,
     },
     attribution,
@@ -122,7 +122,7 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
     throw new Error(`${modelId} multi-turn transcript replay mismatch: ${replay.text}`);
   }
 
-  console.log(`[smoke-gpt-5.6] ${modelId}: text, stream, tool, object, replay OK`);
+  console.log(`[smoke-openai] ${modelId}: text, stream, tool, object, replay OK`);
 }
 
 async function main(): Promise<void> {
@@ -154,12 +154,12 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(`[smoke-gpt-5.6] metering OK (${rows.length} priced rows)`);
+  console.log(`[smoke-openai] metering OK (${rows.length} priced rows)`);
 }
 
 main()
   .catch((error) => {
-    console.error("[smoke-gpt-5.6] FAIL", toMessage(error));
+    console.error("[smoke-openai] FAIL", toMessage(error));
     process.exitCode = 1;
   })
   .finally(() => closeConnections().catch(() => {}));

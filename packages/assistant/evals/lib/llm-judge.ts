@@ -31,7 +31,7 @@ import { z } from "zod";
  * It is NOT every suite's shape, so the default is a default and not a policy.
  * ONE suite overrides the default today and must keep doing so:
  *
- *  - `passthrough-honesty` pins `route("standard")` (`gpt-5.6-luna`). Its only
+ *  - `passthrough-honesty` pins `route("standard")` (`gpt-6-luna`). Its only
  *    other scorer checks that a tool was called, so the judge alone carries the
  *    ADR-0071 honesty claim — grading "did the assistant report a failed read
  *    honestly" is the judgment a cheap grader is worst at, and there is no

@@ -9,8 +9,9 @@
  * `valid_from` row only if pricing actually changed (we compare the
  * latest row to the incoming numbers and skip equal rows).
  *
- * Voyage isn't in models.dev — those rows come from a static fallback
- * below until they're added or we wire a Voyage-specific source.
+ * A small static fallback covers catalog gaps: Voyage's embedding models and
+ * newly released OpenAI models that models.dev has not published yet. A catalog
+ * row wins when both sources contain the same provider/model.
  */
 import { httpErrorFromResponse, isRecord } from "@alfred/contracts";
 import type { ModelPricingMetadata } from "@alfred/contracts/model-pricing";
@@ -93,7 +94,7 @@ const modelsDevCatalogSchema = z.record(
 
 type ModelsDevCatalog = z.infer<typeof modelsDevCatalogSchema>;
 
-/** Static fallback for providers absent from models.dev. Per-Mtok USD. */
+/** Static fallbacks for catalog gaps. Per-Mtok USD. */
 const STATIC_PRICES: Array<{
   provider: string;
   model: string;
@@ -105,6 +106,33 @@ const STATIC_PRICES: Array<{
   contextWindow: number | null;
   metadata?: Record<string, unknown>;
 }> = [
+  // OpenAI API model page, retrieved 2026-09-24. models.dev has not published
+  // gpt-6-luna yet, but predeploy must be able to price the production route.
+  {
+    provider: "openai",
+    model: "gpt-6-luna",
+    inputPerMtok: 0.1,
+    outputPerMtok: 0.5,
+    cachedInputPerMtok: 0.01,
+    cacheWriteInputPerMtok: 0.125,
+    perCallUsd: null,
+    contextWindow: 1_050_000,
+    metadata: {
+      pricing: {
+        cacheWrite1hPerMtok: null,
+        tiers: [
+          {
+            minInputTokens: 272_000,
+            inputPerMtok: 0.2,
+            cachedInputPerMtok: 0.02,
+            cacheWriteInputPerMtok: 0.25,
+            cacheWrite1hPerMtok: null,
+            outputPerMtok: 0.75,
+          },
+        ],
+      } satisfies ModelPricingMetadata,
+    },
+  },
   // Voyage embeddings (https://www.voyageai.com/pricing/, retrieved 2026-04-30).
   // Voyage charges per input token only; output tokens not applicable.
   {
@@ -316,7 +344,12 @@ async function main() {
   console.log("[sync-prices] fetching models.dev…");
   const catalog = await fetchCatalog();
   const fromCatalog = flattenCatalog(catalog);
-  const fromStatic = STATIC_PRICES.map((r) => ({ ...r, source: "static" }));
+  const catalogPrices = new Set(fromCatalog.map((row) => `${row.provider}/${row.model}`));
+
+  const fromStatic = STATIC_PRICES.filter(
+    (row) => !catalogPrices.has(`${row.provider}/${row.model}`),
+  ).map((row) => ({ ...row, source: "static" }));
+
   const all = [...fromCatalog, ...fromStatic];
   console.log(`[sync-prices] ${fromCatalog.length} from models.dev + ${fromStatic.length} static`);
 
