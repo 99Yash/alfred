@@ -26,6 +26,15 @@ const ACCOUNT_RE = /\bacct_[a-z0-9]+\b/i;
 
 const AMOUNT_RE = /(?<symbol>[$£€₹])\s*(?<amount>(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)/;
 
+const NEGATED_RECEIPT_RE =
+  /\b(?:no|nothing|not|never|haven['’]?t|hasn['’]?t|hadn['’]?t|have\s+not|has\s+not|had\s+not|isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|didn['’]?t|doesn['’]?t|don['’]?t|won['’]?t|can['’]?t|cannot)\s+(?:\w+\s+){0,3}(?:received|paid|successful|succeeded|complete(?:d)?)\b/i;
+
+const CONDITIONAL_RECEIPT_RE =
+  /\b(?:(?:once|when|after|until|by)\b[^.!?;\n]{0,40}\b(?:payment\s+(?:received|successful|succeeded|complete(?:d)?)|receipt\s+for\s+your\s+payment|amount\s+paid)\b|\b(?:payment\s+(?:received|successful|succeeded|complete(?:d)?)|receipt\s+for\s+your\s+payment|amount\s+paid)\b[^.!?;\n]{0,40}\b(?:once|when|after|until|by)\b)\b/i;
+
+const RECEIPT_CONTEXT_DENY_RE =
+  /\b(?:amount\s+due|past\s+due|overdue|unpaid|outstanding|refund(?:ed|s)?|action[ -](?:required|needed)|unable\s+to\s+process)\b|\bamount\s+paid\s*(?:[:=-]\s*)?(?:[$£€₹]\s*)?0+(?:[.,]0+)?(?:\b|$)/i;
+
 type PaymentPolarity = "confirm" | "failed" | "receipt";
 
 type PaymentFingerprint = {
@@ -303,12 +312,26 @@ function paymentPolarity(text: string): PaymentPolarity | null {
   // Confirmation and action-required mail often mentions the receipt that will
   // follow. Classify that required action before positive receipt wording so a
   // failed payment can never be closed by its own future-looking confirmation.
-  if (/\b(?:confirm (?:your )?payment|requires?[ -]action)\b/.test(normalized)) return "confirm";
-
-  // Require explicit positive wording. A bare `receipt` or `paid` also matches
-  // dunning mail such as "has not been paid yet", which is not proof of payment.
   if (
-    /\b(?:payment (?:received|successful|succeeded|complete(?:d)?)|receipt for your payment|amount paid)\b/.test(
+    /\b(?:confirm (?:your )?payment|requires?[ -]action|action[ -](?:required|needed))\b/.test(
+      normalized,
+    )
+  ) {
+    return "confirm";
+  }
+
+  // An allowlist phrase is not proof by itself. Payment mail can be negated,
+  // conditional, overdue, refunded, awaiting action, or report a zero payment.
+  if (
+    NEGATED_RECEIPT_RE.test(normalized) ||
+    CONDITIONAL_RECEIPT_RE.test(normalized) ||
+    RECEIPT_CONTEXT_DENY_RE.test(normalized)
+  ) {
+    return null;
+  }
+
+  if (
+    /\b(?:payment\s+(?:received|successful|succeeded|complete(?:d)?)|receipt\s+for\s+your\s+payment|amount\s+paid)\b/.test(
       normalized,
     )
   ) {
