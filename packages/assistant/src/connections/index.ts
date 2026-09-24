@@ -64,14 +64,20 @@ export {
 } from "./hosted-endpoint";
 
 export {
+  approvedMcpHealthExternalId,
   deliveryInstantNow,
   deliveryInstantOf,
   firstClosingObject,
+  MCP_APPROVED_HEALTH_EVENT_TYPE,
+  MCP_APPROVED_HEALTH_KEY_KIND,
+  MCP_APPROVED_HEALTH_KIND,
   objectStateFoldConsumers,
   objectStateStore,
   proposeObjectKeys,
   reconcileEvidence,
+  selectPrimaryReconciledObject,
   receiptDeliveryInstant,
+  type CandidateKey,
   type ClosureReading,
   type DeliveryInstant,
   type ObjectState,

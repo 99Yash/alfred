@@ -94,7 +94,7 @@ export async function runBriefingAgent(
       content:
         `Compose the ${args.slot} briefing for ${args.recipientFirstName ?? "the user"}. ` +
         `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
-        `End with dump_briefing.` +
+        `Apply the three honest loop-state tiers, then end with dump_briefing.` +
         openAskCorrection(args.openAskViolations ?? []),
     },
   ];
@@ -164,7 +164,7 @@ function openAskCorrection(violations: readonly OpenAskViolation[]): string {
   return (
     `\n\nYour previous draft was rejected. The object-state projection proves each object below is closed, ` +
     `and your draft still framed it as work the user owes:\n${lines}\n` +
-    `Rewrite the briefing. Drop each closed object, or mention it only as completed work. ` +
+    `Rewrite the briefing. Keep each closed object only in the past-tense closed-today recap that the loop-state tiers require. ` +
     `Never ask the user to review, approve, merge, or follow up on it.`
   );
 }

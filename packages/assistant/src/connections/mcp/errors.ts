@@ -51,6 +51,7 @@ const MCP_PRE_DELIVERY_ERROR_CODES: ReadonlySet<McpClientErrorCode> = new Set([
   "catalog_required",
   "catalog_stale",
   "unknown_tool",
+  "write_tool",
   "invalid_arguments",
   "insufficient_scope",
   "admission_full",

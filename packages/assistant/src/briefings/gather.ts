@@ -51,8 +51,12 @@ import {
   type ReconcileCandidates,
   type ReconcileResult,
 } from "@alfred/assistant/connections";
-import { gatherVerifiedPulls } from "@alfred/assistant/connections/verified-pull";
+import {
+  gatherVerifiedPulls,
+  verifyApprovedMcpHealth,
+} from "@alfred/assistant/connections/verified-pull";
 import { getPreference } from "@alfred/assistant/settings";
+import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
 import { findSenderSuppression, listActiveSuppressionInstructions } from "../knowledge";
 import {
   addDays,
@@ -64,6 +68,7 @@ import {
 import {
   assessLoopRelevance,
   liveNativeStateReader,
+  type ApprovedLoopState,
   type LiveNativeStateReader,
 } from "./relevance";
 import { scorePriorityEmailDemand } from "./read";
@@ -342,17 +347,70 @@ export async function gatherBriefingDigest(
     if (keys.length > 0) keyCandidates.push({ id: r.documentId, keys });
   }
 
+  // Owner-reviewed MCP health pulls run BEFORE reconciliation so a matching
+  // read can enter the same object-state store the built-ins use. The verifier
+  // contributes only exact, data-backed candidates; it never returns closure.
+  const priorityLoops = PRIORITY_CATEGORIES.flatMap((category) => buckets[category]);
+
+  const approvedHealth = await verifyApprovedMcpHealth(
+    {
+      userId: args.userId,
+      loops: priorityLoops,
+    },
+    {
+      callApprovedHealthRead: (input) =>
+        getMcpExecutionBroker().callHealthRead({
+          userId: input.userId,
+          ref: {
+            kind: "mcp",
+            connectionId: input.connectionId,
+            remoteName: input.remoteName,
+            catalogRevision: input.catalogRevision,
+          },
+          descriptorHash: input.descriptorHash,
+          mappingRevision: input.mappingRevision,
+        }),
+    },
+  );
+
+  const candidatesByLoop = new Map(
+    keyCandidates.map((candidate) => [candidate.id, [...candidate.keys]]),
+  );
+
+  for (const result of approvedHealth) {
+    if (!result.candidate) continue;
+
+    candidatesByLoop.set(result.documentId, [
+      ...(candidatesByLoop.get(result.documentId) ?? []),
+      result.candidate,
+    ]);
+  }
+
+  const reconciliationCandidates = [...candidatesByLoop].map(([id, keys]) => ({ id, keys }));
+
   // Loop reconciliation (ADR-0062): drop any priority item whose underlying
-  // GitHub PR has reached a loop-closing state. State unknown ⇒ the loop stays
+  // work object has reached a loop-closing state. State unknown ⇒ the loop stays
   // live (absence never closes — ADR-0048-D). The bounded relevance pass then
   // runs over exactly what survived reconciliation and before presentation
   // capping, so every still-live priority loop carries one verdict (#1194).
-  const reconciliation = await dropClosedLoops(args.userId, buckets, keyCandidates);
+  const reconciliation = await dropClosedLoops(args.userId, buckets, reconciliationCandidates);
+  const approvedStates = new Map<string, ApprovedLoopState>();
+  const unverifiedDetails = new Map<string, string>();
+
+  for (const result of approvedHealth) {
+    if (result.state && result.candidate) {
+      approvedStates.set(result.documentId, { state: result.state, detail: result.detail });
+    } else if (!result.state) {
+      unverifiedDetails.set(result.documentId, result.detail);
+    }
+  }
 
   const loopRelevance = await assessLoopRelevance({
     userId: args.userId,
     loops: PRIORITY_CATEGORIES.flatMap((category) => buckets[category]),
     reconciled: reconciliation.reconciled,
+    approvedStates,
+    unverifiedDetails,
   });
 
   for (const category of PRIORITY_CATEGORIES) {

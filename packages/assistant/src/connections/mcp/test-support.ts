@@ -8,9 +8,14 @@
  * The door is tier 1 — an exact `exports` key with no wildcard sibling, so the
  * only names reachable by a package specifier are the ones the door and this file
  * export between them. That fence only points the right way if the names on the
- * DOOR are the ones a caller should be able to make. Both names below fail that
- * test, which is why they are here and not there:
+ * DOOR are the ones a caller should be able to make. All three names below fail
+ * that test, which is why they are here and not there:
  *
+ *  - `ensureConnection` mints or reuses a generic connection row without first
+ *    probing the owner-supplied endpoint. Production enters that lower-level
+ *    persistence seam only after `addUserMcpServer` has run the network probe;
+ *    a hermetic protocol fixture needs the row without pretending the production
+ *    add path ran.
  *  - `publishCatalogRevision` advances a connection's catalog pointer
  *    UNCONDITIONALLY. Production never does that; `McpConnectionManager` advances
  *    the pointer through `compareAndSetCatalogRevision` at six call sites, which
@@ -26,7 +31,7 @@
  * — `packages/assistant`'s own tests reach the leaf files relatively.
  */
 
-export { publishCatalogRevision } from "./persistence";
+export { ensureConnection, publishCatalogRevision } from "./persistence";
 
 export { _setMcpConnectionManagerForTests } from "./runtime";
 
