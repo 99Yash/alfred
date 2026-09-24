@@ -916,21 +916,25 @@ const mcpHealthStateMappingSchema = z
 
 /**
  * A declarative projection from one MCP result to bounded work-object rows.
- * `identityProvider` is the exact finite loop-provider vocabulary this mapping
- * may answer; the server compares it with the notification's provider before
- * comparing the canonical key byte-for-byte. `itemsPath` locates an array; each
- * field path is read from one array item; and `stateMappings` translates
- * provider tokens through EXACT, case-sensitive
- * matches into the registry vocabulary. An unmapped token produces no delta.
+ * `identityProvider` is one sender-gated member of the finite loop-provider
+ * vocabulary; the senderless `issue` fallback is excluded. The server compares
+ * the provider with the notification before comparing the canonical key
+ * byte-for-byte. `itemsPath` locates an array; each field path is read from one
+ * array item; and `stateMappings` translates provider tokens through EXACT,
+ * case-sensitive matches into the registry vocabulary. An unmapped token
+ * produces no delta.
  */
 export const mcpHealthMappingDefinitionSchema = z
   .object({
     itemsPath: mcpHealthMappingPathSchema,
     /**
-     * The provider whose deterministic loop-key vocabulary this mapping may
-     * answer. It is explicit server data, not a hint parsed from the result.
+     * The sender-gated provider whose deterministic loop-key vocabulary this
+     * mapping may answer. `issue` is deliberately excluded: it is the fallback
+     * for tracker-shaped text without a trusted sender, so approving it would
+     * let a human email authorize the fold. This remains explicit server data,
+     * not a hint parsed from the result.
      */
-    identityProvider: z.enum(LOOP_ENTITY_PROVIDERS),
+    identityProvider: z.enum(LOOP_ENTITY_PROVIDERS).exclude(["issue"]),
     fields: z
       .object({
         identity: mcpHealthMappingFieldPathSchema,

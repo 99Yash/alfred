@@ -1,5 +1,6 @@
 import {
   closureCandidate,
+  isBuiltInObjectStateProvider,
   type LoopClosingStateCategory,
   type ObjectStateProvider,
 } from "@alfred/contracts";
@@ -332,21 +333,42 @@ function closesAskAsFor<Reading extends KeyProposalReading>(
 }
 
 /**
- * The first resolved object whose state is a closure CANDIDATE, if any.
+ * The one authoritative resolved object for a subject.
+ *
+ * A built-in provider keeps precedence whenever the subject resolved one,
+ * regardless of candidate order. An approved MCP result is authoritative only
+ * when no built-in object exists. Relevance and closure both consume this rule;
+ * neither gets a second provider-specific precedence check.
+ */
+export function selectPrimaryReconciledObject<Reading extends KeyProposalReading>(
+  resolved: readonly ReconciledObject<Reading>[] | undefined,
+): ReconciledObject<Reading> | undefined {
+  return (
+    resolved?.find((object) => isBuiltInObjectStateProvider(object.state.provider)) ?? resolved?.[0]
+  );
+}
+
+/**
+ * The closure candidate from the authoritative resolved object, if any.
  *
  * A candidate is not a closure: a consumer that suppresses on it must first
  * assert it through `closesOpenAsk` with the proof that consumer holds (see
- * `closesAskAsFor`).
+ * `closesAskAsFor`). Selecting the primary object first is load-bearing: when a
+ * built-in object is open, a resolved MCP object on the same subject cannot
+ * shadow it and close the loop.
  */
 export function firstClosingObject(
   resolved: readonly ReconciledObject<ClosureReading>[] | undefined,
 ): (ReconciledObject<ClosureReading> & { closesAskAs: LoopClosingStateCategory }) | undefined {
-  return resolved?.find(
-    (
-      object,
-    ): object is ReconciledObject<ClosureReading> & { closesAskAs: LoopClosingStateCategory } =>
-      object.closesAskAs !== null,
-  );
+  const primary = selectPrimaryReconciledObject(resolved);
+
+  if (!primary || primary.closesAskAs === null) return undefined;
+
+  return {
+    key: primary.key,
+    state: primary.state,
+    closesAskAs: primary.closesAskAs,
+  };
 }
 
 /**

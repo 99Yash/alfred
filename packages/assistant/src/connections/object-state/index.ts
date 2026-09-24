@@ -27,6 +27,7 @@ export {
   firstClosingObject,
   proposeObjectKeys,
   reconcileEvidence,
+  selectPrimaryReconciledObject,
   type ReconcileCandidates,
   type ReconcileResult,
   type ReconciledObject,

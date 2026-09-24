@@ -9,7 +9,6 @@ import {
   isBuiltInObjectStateProvider,
   LOOP_ENTITY_PROVIDERS,
   type ExternalToolRef,
-  type LoopEntityProvider,
   type McpHealthMappingDefinition,
   type StateCategory,
 } from "@alfred/contracts";
@@ -31,7 +30,7 @@ type TokenDrafts = Record<StateCategory, string>;
 
 interface MappingDraft {
   itemsPath: string;
-  identityProvider: LoopEntityProvider | "";
+  identityProvider: McpHealthMappingDefinition["identityProvider"] | "";
   identityPath: string;
   statePath: string;
   titlePath: string;
@@ -65,9 +64,14 @@ const STATE_INPUTS = OBJECT_STATE_CATEGORIES.map((state) => ({
   label: humanizeSlug(state),
 }));
 
-const IDENTITY_PROVIDER_OPTIONS: ReadonlyArray<AppSelectOption> = LOOP_ENTITY_PROVIDERS.filter(
-  (provider) => !isBuiltInObjectStateProvider(provider),
-).map((provider) => ({ value: provider, label: humanizeSlug(provider) }));
+const MAPPING_IDENTITY_PROVIDERS = LOOP_ENTITY_PROVIDERS.filter(
+  (provider): provider is McpHealthMappingDefinition["identityProvider"] =>
+    provider !== "issue" && !isBuiltInObjectStateProvider(provider),
+);
+
+const IDENTITY_PROVIDER_OPTIONS: ReadonlyArray<AppSelectOption> = MAPPING_IDENTITY_PROVIDERS.map(
+  (provider) => ({ value: provider, label: humanizeSlug(provider) }),
+);
 
 function tokensFromDefinition(definition: McpHealthMappingDefinition) {
   const tokens = { ...EMPTY_TOKENS } satisfies TokenDrafts;
@@ -306,7 +310,7 @@ function MappingForm({
           options={IDENTITY_PROVIDER_OPTIONS}
           disabled={pending}
           onChange={(value) => {
-            const provider = LOOP_ENTITY_PROVIDERS.find((candidate) => candidate === value);
+            const provider = MAPPING_IDENTITY_PROVIDERS.find((candidate) => candidate === value);
 
             setIdentityProvider(provider ?? "");
           }}

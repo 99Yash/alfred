@@ -16,7 +16,11 @@ import {
 } from "@alfred/contracts";
 import { githubClientForUser } from "@alfred/integrations/github";
 import { readLiveSentryIssue } from "@alfred/integrations/sentry";
-import { type ObjectState, type ReconcileResult } from "@alfred/assistant/connections";
+import {
+  selectPrimaryReconciledObject,
+  type ObjectState,
+  type ReconcileResult,
+} from "@alfred/assistant/connections";
 
 /**
  * Check-before-remind relevance (#1194) — the bounded pass between
@@ -233,14 +237,10 @@ async function assessLoopRelevanceInner(args: {
   for (const loop of args.loops) {
     const resolved = args.reconciled.get(loop.documentId) ?? [];
 
-    // A loop can carry both the generic MCP candidate and a built-in object
-    // candidate. The built-in reader is authoritative, so choose it before the
-    // first-result precedence used by the rest of reconciliation; otherwise an
-    // approved MCP state could shadow a GitHub/Sentry/etc. verdict here.
-    const state =
-      resolved.find((candidate) => isBuiltInObjectStateProvider(candidate.state.provider))?.state ??
-      resolved[0]?.state ??
-      null;
+    // Relevance and closure share the reconciliation module's one precedence
+    // rule. A built-in reader is authoritative; MCP evidence is authoritative
+    // only when the subject resolved no built-in object.
+    const state = selectPrimaryReconciledObject(resolved)?.state ?? null;
 
     objectByLoop.set(loop.documentId, state);
   }

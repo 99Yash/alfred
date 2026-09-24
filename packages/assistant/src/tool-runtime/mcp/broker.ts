@@ -1124,11 +1124,21 @@ export class McpExecutionBroker {
         );
       }
 
-      // Resolve the same durable risk decision used by mcp.call. A health
-      // mapping is already an owner-reviewed fixed read, so a high ordinary
-      // tier is recorded for the trace but does not turn this path into a
-      // write or grant a model an approval bypass; the readOnly proof above is
-      // the hard gate.
+      // An explicit reviewed `high` policy is the owner asking for approval on
+      // every ordinary MCP call. This fixed health read has no staging surface
+      // on which to ask, so it stops before network dispatch rather than
+      // silently overriding that decision. A missing policy is different: the
+      // health mapping is its own owner review of this exact descriptor and
+      // fixed argument object.
+      if (resolved.identity.policy?.riskTier === "high") {
+        span.end({ status: "blocked", metadata: { riskTier: "high" } });
+
+        return null;
+      }
+
+      // Record the ordinary MCP risk decision for tracing. It does not grant
+      // this path authority; the exact mapping, read-only checks, explicit-high
+      // stop above, and broker ledger do.
       const riskTier = effectiveMcpRiskTier(resolved.identity);
 
       const invocationId = await reserveHealthMcpRead({
