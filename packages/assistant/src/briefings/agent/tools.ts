@@ -186,14 +186,14 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     list_closed_loops: tool({
       description:
-        "List priority-email loops that the deterministic object-state projection positively proved closed. Every object in this result is closed and must never be presented as an open ask or as work that needs the user. An email absent from this result is not proved closed and stays live unless get_day_shape.shipped identifies the same object as shipped.",
+        "List priority-email loops that the deterministic object-state projection positively proved closed. An email absent from this result is not proved closed by this tool and stays live unless get_day_shape.shipped identifies the same object as shipped.",
       inputSchema: z.object({}),
       execute: async (): Promise<BriefingClosedLoop[]> => args.closedLoops,
     }),
 
     list_loop_relevance: tool({
       description:
-        "List one bounded live-read relevance verdict for every still-live priority-email loop. verdict is still-actionable | stale-but-open | unverifiable, with provider evidence in source, observedState, objectTitle/objectUrl, and detail. Use it only to rank and phrase: a stale-but-open verdict is NOT closure, and an unverifiable verdict keeps the loop live and must not be treated as finished. Closure authority belongs only to list_closed_loops and the post-compose guard.",
+        "List one bounded live-read relevance verdict for every still-live priority-email loop, with provider evidence in source, observedState, objectTitle/objectUrl, and detail. still-actionable means a trusted live read saw an open or unresolved object; stale-but-open means it saw a resolved, closed, ignored, or draft state and only demotes; unverifiable means no trusted read proved current state and the loop remains live. No relevance verdict grants closure authority.",
       inputSchema: z.object({}),
       execute: async (): Promise<BriefingLoopRelevance[]> => args.loopRelevance,
     }),
