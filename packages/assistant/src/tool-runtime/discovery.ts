@@ -1,6 +1,7 @@
 import {
   isToolName,
   isWriteRiskTier,
+  MCP_LIST_TOOLS_MAX_LIMIT,
   type IntegrationAvailabilitySnapshot,
   type ToolName,
   type ToolRunContext,
@@ -130,7 +131,13 @@ export async function searchAvailableTools(args: {
       const page = await searchMcpToolsLocal({
         userId: args.userId,
         detail: "summary",
-        limit: 10,
+        // `limit` counts matching hits, not descriptors scanned, so together with the
+        // 10-page loop bound it sets the reachable set, and the page size sets the
+        // round-trip count. At 10 that set was 100 — half the callee's own
+        // 200-descriptor budget, with matches discarded and a live cursor thrown away.
+        // Widening it only grows recall, but the sort below is over a larger set, so
+        // which candidates make the cut can change.
+        limit: MCP_LIST_TOOLS_MAX_LIMIT,
         ...(cursor ? { cursor } : {}),
       });
 
