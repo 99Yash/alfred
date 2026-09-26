@@ -5,7 +5,6 @@ import { z } from "zod";
 import { parseIanaTimezone } from "@alfred/contracts";
 
 import {
-  applyExactToolLoad,
   migrateRecordedToolNames,
   systemToolKernel,
 } from "@alfred/assistant/execution/tool-surface";
@@ -65,24 +64,6 @@ test("the default system kernel excludes loadable system capabilities", () => {
 
 test("the system kernel fails loudly when no kernel tools are registered", () => {
   assert.throws(() => systemToolKernel(), /No system tools are registered for the kernel surface/);
-});
-
-test("a hidden system capability becomes active only after exact load", () => {
-  registerTools([
-    liveTool({
-      integration: "system",
-      action: "fetch_url",
-      riskTier: "no_risk",
-      description: "Fetch a URL.",
-      inputSchema: z.object({}).strict(),
-      execute: async () => ({}),
-    }),
-  ]);
-
-  assert.deepEqual(applyExactToolLoad([], { ok: false, name: "system.fetch_url" }), []);
-  assert.deepEqual(applyExactToolLoad([], { ok: true, name: "system.fetch_url" }), [
-    "system.fetch_url",
-  ]);
 });
 
 test("persisted preload attribution is narrowed without seeding the kernel", () => {

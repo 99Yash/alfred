@@ -1278,9 +1278,14 @@ export function undeclaredToolMessage(
         ? `Use '${suggestion.toolName}' instead.`
         : `Integration tools use qualified names like '${suggestion.toolName}'.`;
 
+  // The exact-name hint stays a `load_tool` call: the model asked for one
+  // specific tool, which is not what the search fold activates. The
+  // choose-an-exact-tool hint has no such specific name, and for it the search
+  // fold has already activated its best registered hit — naming the second
+  // `load_tool` step there would reinstate the hop this removed.
   const loadHint = suggestion.toolName
     ? `Call system.load_tool with name '${suggestion.toolName}' first,`
-    : `Call system.search_tools for '${suggestion.integration}' to choose an exact tool, then call system.load_tool with its returned name.`;
+    : `Call system.search_tools for '${suggestion.integration}' to choose an exact tool — its best registered hit is already loaded, so retry that one by name.`;
 
   return [
     `Tool '${toolName}' is not declared.`,

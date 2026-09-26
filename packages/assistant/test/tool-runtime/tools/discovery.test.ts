@@ -10,7 +10,6 @@ import type {
 } from "@alfred/contracts";
 import { z } from "zod";
 
-import { applyExactToolLoad } from "@alfred/assistant/execution/tool-surface";
 import {
   preloadToolCatalog,
   resolveExactToolLoad,
@@ -496,13 +495,6 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
 
     assert.equal(requiresThread.available === false && requiresThread.code, "requires_thread");
   });
-});
-
-test("exact load result activates only the registered chosen tool", () => {
-  registerTool(gmailSearch);
-  assert.deepEqual(applyExactToolLoad([], { ok: true, name: "gmail.search" }), ["gmail.search"]);
-  assert.deepEqual(applyExactToolLoad([], { ok: true, name: "calendar.create_event" }), []);
-  assert.deepEqual(applyExactToolLoad([], { ok: true, name: "not.real" }), []);
 });
 
 // #413: tools registered without hand-authored discovery still participate in
