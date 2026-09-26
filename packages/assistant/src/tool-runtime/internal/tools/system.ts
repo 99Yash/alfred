@@ -124,7 +124,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     availability: { surface: "kernel" },
     description:
-      "Search registered tools and connected MCP catalogs by capability. Registered hits return exact names for system.load_tool. Connected catalog hits return name mcp.call with an exact ref (connectionId, remoteName, catalogRevision); load mcp.call and pass that ref's fields to invoke the remote tool.",
+      "Search registered tools and connected MCP catalogs by capability. The best available registered hit is already loaded for you: call it directly on your next turn. Connected catalog hits instead return name mcp.call with an exact ref (connectionId, remoteName, catalogRevision); load mcp.call with system.load_tool and pass that ref's fields to invoke the remote tool.",
     discovery: {
       title: "Search tools",
       summary:
@@ -133,7 +133,6 @@ export const systemTools: readonly RegisteredTool[] = [
       tags: ["tools", "capabilities", "discovery"],
       entities: ["tool", "capability"],
       verbs: ["search", "find", "discover"],
-      relatedTools: ["system.load_tool"],
     },
     inputSchema: searchToolsInput,
     execute: async (input, ctx) => {
@@ -176,7 +175,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     availability: { surface: "kernel" },
     description:
-      "Load one exact available tool by the qualified name returned from system.search_tools. Its schema is available on the next model turn.",
+      "Load one exact available tool by the qualified name returned from system.search_tools. Prefer search_tools, which already loads its best registered hit; use this for a different name, including mcp.call for a connected-catalog ref. Its schema is available on the next model turn.",
     discovery: {
       title: "Load tool",
       summary: "Add one exact available tool to the run-local active surface for the next turn.",

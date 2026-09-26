@@ -1,3 +1,4 @@
+import { getPath, getStringPath, isRecord } from "@alfred/contracts";
 import type { AgentTranscriptMessage, ToolName } from "@alfred/contracts";
 
 import type {
@@ -92,8 +93,14 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
 
       if (result.kind === "inactive_tool") reissue = true;
 
-      if (call.toolName === "system.load_tool" && result.kind === "executed") {
-        activeNames = foldExactLoad(activeNames, result.toolResult, restoreSurface);
+      const activate = SURFACE_ACTIVATIONS.get(call.toolName);
+
+      if (activate !== undefined && result.kind === "executed") {
+        activeNames = foldActivation(
+          activeNames,
+          activate(result.toolResult, input.run),
+          restoreSurface,
+        );
       }
     }
 
@@ -174,21 +181,86 @@ async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
   return results;
 }
 
-function foldExactLoad(
+/**
+ * How one tool's result names a tool to activate, if it does.
+ *
+ * A tool result is `unknown`, so this is a parse at the round's boundary rather
+ * than a type: the name it yields is still filtered by `restoreSurface` against
+ * the live registry, and the dispatcher still refuses anything the run's
+ * envelope forbids. Returns the name as a plain string precisely so nothing
+ * here has to assert a cast to `ToolName` to hand it over.
+ */
+type SurfaceActivator = (result: unknown, run: ToolCallRun) => string | undefined;
+
+/**
+ * The two tools whose *result* changes the next turn's active surface.
+ *
+ * Keyed by plain `string` because that is what a proposed call carries: the
+ * lookup is what proves the name is one of ours, and the name a key yields goes
+ * back out as a plain string for `restoreSurface` to check.
+ *
+ * `system.search_tools` resolves a capability the model cannot call yet, and
+ * resolving it is the expensive part: the model was paying a full sequential
+ * round-trip purely to activate a tool it had just been handed the name of. So
+ * the best curated hit it can already run is activated here, and the model calls
+ * it directly on the next turn. The `mcp.call` hop stays explicit because
+ * `search_tools` is `no_risk` and `mcp.call` is `high` — a search must not be
+ * able to promote a high-risk tool into the surface on its own.
+ */
+const SURFACE_ACTIVATIONS: ReadonlyMap<string, SurfaceActivator> = new Map<
+  string,
+  SurfaceActivator
+>([
+  [
+    "system.load_tool",
+    (result) =>
+      isRecord(result) && result.ok === true ? getStringPath(result, "name") : undefined,
+  ],
+  [
+    "system.search_tools",
+    (result, run) => {
+      const candidates = getPath(result, "candidates");
+
+      if (!Array.isArray(candidates)) return undefined;
+
+      for (const candidate of candidates) {
+        if (!isRecord(candidate)) continue;
+
+        const name = getStringPath(candidate, "name");
+
+        // `name`, not `ref`: the curated `mcp.call` entry exists and carries no
+        // ref, so a ref test would wave the high-risk tool through.
+        if (name === undefined || name === "mcp.call") continue;
+
+        // `searchAvailableTools` ranks unavailable matches in on purpose (so the
+        // model can say "Gmail isn't connected"), so an unfiltered first hit is
+        // routinely a tool this run cannot execute.
+        if (getStringPath(candidate, "availability") !== "available") continue;
+
+        // An absent envelope means unrestricted; a present one is a hard list
+        // (the reply-drafting workflow passes exactly one tool), and folding
+        // past it would grow a surface the dispatcher can only refuse.
+        if (
+          run.allowedTools !== undefined &&
+          !run.allowedTools.some((allowed) => allowed === name)
+        ) {
+          continue;
+        }
+
+        return name;
+      }
+
+      return undefined;
+    },
+  ],
+]);
+
+function foldActivation(
   activeNames: readonly ToolName[],
-  result: unknown,
+  name: string | undefined,
   restoreSurface: RestoreSurface,
 ): ToolName[] {
-  if (
-    typeof result !== "object" ||
-    result === null ||
-    !("ok" in result) ||
-    result.ok !== true ||
-    !("name" in result) ||
-    typeof result.name !== "string"
-  ) {
-    return [...activeNames];
-  }
+  if (name === undefined) return [...activeNames];
 
-  return restoreSurface({ kind: "exact", names: [...activeNames, result.name] });
+  return restoreSurface({ kind: "exact", names: [...activeNames, name] });
 }
