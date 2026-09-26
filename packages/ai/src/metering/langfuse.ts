@@ -13,7 +13,13 @@ import { ROOT_CONTEXT, TraceFlags, context, type SpanContext } from "@openteleme
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import type { CallKind, CallUsage, MeteredMeta } from "./metered";
-import { sanitizeErrorMessage, summarizeBody, toMessage, toStringArray } from "@alfred/contracts";
+import {
+  APPROVAL_EXPIRY_MS,
+  sanitizeErrorMessage,
+  summarizeBody,
+  toMessage,
+  toStringArray,
+} from "@alfred/contracts";
 import type { JsonObject } from "@alfred/contracts";
 
 /**
@@ -33,6 +39,13 @@ import type { JsonObject } from "@alfred/contracts";
  * (the v3 `client.trace({ environment })` and the removed
  * `updateActiveTrace({ release, environment })`); they ride the processor,
  * which reads `LANGFUSE_TRACING_ENVIRONMENT` / `LANGFUSE_RELEASE`.
+ *
+ * **Four functions here open observations, and all four must go through
+ * `startRunAttributedObservation`** so each carries its run's `sessionId` / `userId` /
+ * `tags`: `startLangfuseSpan` (which also publishes that identity), `startToolSpan`,
+ * `recordDispatchRejection`, and `startRuntimeSpan`. A fifth opener added without it
+ * ships unattributed, which is invisible in the UI — filtering a trace by role or by
+ * session then silently drops it.
  */
 type LangfuseRuntime = { readonly provider: BasicTracerProvider };
 
@@ -197,24 +210,40 @@ type RunTraceIdentity = {
  * `meta.runId` for a run, so the generation's payload is keyed by the same string
  * the spans look up.
  *
- * **Process-local.** `AGENT_WORKER_CONCURRENCY` is in-process concurrency, so all
- * workers in one server share this map and a run is covered end to end. A second
- * server replica would leave spans emitted by the process that did not run the
- * generation unattributed — a silent observability gap on scale-up, not an
- * error. A shared store is the fix if that ever happens; it is deliberately not
- * built here.
+ * **Process-local, and the resume path is designed to cross instances.**
+ * `AGENT_WORKER_CONCURRENCY` is in-process concurrency, so every worker in one
+ * server shares this map. But `execution/worker.ts` documents that "anything left
+ * mid-flight by a previous deploy gets picked up", so a run resumed by a different
+ * server instance after a deploy finds no entry and its spans open bare. That is a
+ * silent observability gap on scale-out, not an error. A shared store is the fix; it
+ * is deliberately not built here.
+ *
+ * **The entry is the most recent attribution seen for a run, not a canonical one.**
+ * Calls for the same run do not all carry the same fields: the brief workflow passes
+ * `runId` with no `sessionId` (workflow-scoped, not thread-scoped), so a brief's
+ * entry carries no session by design. Nothing merges a previous entry forward, so a
+ * later call with fewer fields narrows it.
+ *
+ * **Every opener must route through `startRunAttributedObservation`.** There are four
+ * today — `startLangfuseSpan`, `startToolSpan`, `recordDispatchRejection`,
+ * `startRuntimeSpan` — and a fifth added without it ships unattributed, which is the
+ * defect this map exists to remove.
  */
 const runIdentities = new Map<string, { at: number; identity: RunTraceIdentity }>();
 
 /**
- * Long enough to cover a run end to end. A chat turn is seconds, but a run can
- * park on an approval gate or a sub-agent join, so this is sized for the parked
- * case rather than the common one.
+ * Sized by the longest park a run sits through, not by how long a turn usually takes.
+ * A staged tool call opens its span on *resume*, not at decision time
+ * (`tool-runtime/internal/dispatch/pipeline.ts:1455`), and the resume re-enters
+ * `dispatch-tools` with no intervening generation — so the identity has to still be
+ * here when the run wakes. That park is bounded by `APPROVAL_EXPIRY_MS` (24h, ADR-0034);
+ * `AWAIT_SUB_AGENT_CEILING_MS` is 6 minutes and a chat turn is seconds. An earlier
+ * 15-minute value read as reasonable and was 1/96th of the case it claimed to cover.
  */
-const RUN_IDENTITY_TTL_MS = 15 * 60_000;
+const RUN_IDENTITY_TTL_MS = APPROVAL_EXPIRY_MS;
 
-/** Amortises the sweep to once per interval instead of once per generation. */
-const RUN_IDENTITY_SWEEP_MS = 5 * 60_000;
+/** Amortises the sweep to once per interval rather than once per generation. */
+const RUN_IDENTITY_SWEEP_MS = 60 * 60_000;
 
 let lastRunIdentitySweepMs = 0;
 
