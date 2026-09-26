@@ -432,7 +432,8 @@ export async function enqueueGmailMediaIngest(args: {
     { kind: "gmail.media_ingest", ...args },
     {
       deduplication: {
-        id: `gmail.media_ingest.${args.messageId}`,
+        // Gmail message ids are mailbox-scoped; keep linked-account schedules distinct.
+        id: `gmail.media_ingest.${args.credentialId}.${args.messageId}`,
         ttl: GMAIL_MEDIA_INGEST_DEDUP_TTL_MS,
       },
     },

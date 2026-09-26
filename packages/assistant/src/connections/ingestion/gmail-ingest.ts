@@ -2,8 +2,8 @@ import {
   buildGmailDocumentContent,
   gmailDocumentMetadataSchema,
   getPath,
+  isSentGmailMetadata,
   mapConcurrent,
-  parseGmailDocumentMetadata,
   toMessage,
 } from "@alfred/contracts";
 import { indexDocument, sha256 } from "@alfred/corpus";
@@ -33,6 +33,7 @@ import {
   type GmailMediaIngestDeps,
   type GmailMediaIngestResult,
 } from "./gmail-media";
+import { observeGmailDocumentAsk } from "./gmail-document-ask";
 
 /**
  * Gmail ingestion orchestration. Relocated out of `@alfred/integrations`
@@ -518,7 +519,9 @@ export async function runGmailMediaIngest(args: {
   const message = await getMessageFn({ accessToken, id: args.messageId, format: "full" });
   const extracted = extractMessageContent(message);
 
-  if (isSelfAuthored(extracted.from)) return { ...ZERO_MEDIA_TALLY, documentIds: [] };
+  if (isSelfAuthored(extracted.from)) {
+    return { ...ZERO_MEDIA_TALLY, documentIds: [], evidence: [] };
+  }
 
   const result = await ingestGmailMediaAttachments({
     userId: cred.userId,
@@ -529,14 +532,34 @@ export async function runGmailMediaIngest(args: {
     ...(args.deps?.media ? { deps: args.deps.media } : {}),
   });
 
+  // Clear this carrier's completion marker before observation. A sibling media
+  // job can then make the final observation after both carriers have settled;
+  // a reducer failure still rejects this BullMQ attempt and keeps its retry path.
+  await setMediaPending(args.documentId, result.errors > 0);
+
+  try {
+    await observeGmailDocumentAsk({
+      userId: cred.userId,
+      documentId: args.documentId,
+      messageId: message.id,
+      accountId: cred.accountId,
+      threadId: message.threadId ?? "",
+      evidence: result.evidence,
+      observedAt: new Date(),
+    });
+  } catch (err) {
+    // A reducer read/conditional-write fault must remain retryable even though
+    // the media completion marker was cleared before observation.
+    await setMediaPending(args.documentId, true);
+    throw err;
+  }
+
   if (result.errors > 0 || result.embedFailures > 0) {
     console.warn(
       `[gmail.media] job mediaErrors=${result.errors} mediaEmbedFailures=${result.embedFailures} ` +
         `for message=${args.messageId}`,
     );
   }
-
-  await setMediaPending(args.documentId, result.errors > 0);
 
   return result;
 }
@@ -1382,7 +1405,7 @@ async function partitionKnownGmailRefs(
   const knownSentDocs: KnownSentGmailDoc[] = [];
 
   for (const row of existing) {
-    if (isStoredGmailSentMetadata(row.metadata)) {
+    if (isSentGmailMetadata(row.metadata)) {
       knownSentDocs.push({ documentId: row.id, threadId: row.sourceThreadId });
     }
   }
@@ -1397,12 +1420,6 @@ async function partitionKnownGmailRefs(
  */
 function isMediaPending(metadata: unknown): boolean {
   return getPath(metadata, "mediaPending") === true;
-}
-
-function isStoredGmailSentMetadata(metadata: unknown): boolean {
-  const parsed = parseGmailDocumentMetadata(metadata);
-
-  return parsed.isSent === true || parsed.labelIds?.includes("SENT") === true;
 }
 
 /** Return added message ids from a history entry. We dedupe upstream via Set. */

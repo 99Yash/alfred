@@ -11,6 +11,7 @@ import {
   collabActivitySchema,
   collapseWhitespace,
   confidenceSchema,
+  documentAskProposalSchema,
   extractGmailDocumentBody,
   isOwnershipCollabActivity,
   isPassiveCollabActivity,
@@ -90,6 +91,8 @@ export const triageClassificationSchema = z.object({
   confidence: confidenceSchema,
   /** Short rationale grounded in the email — used for audit and debugging. */
   rationale: z.string().min(1).max(MAX_RATIONALE_LEN),
+  /** Explicit inbound document request proposed by the classifier. */
+  documentAsk: documentAskProposalSchema.nullable().optional(),
   /**
    * Real-time todo proposal for the rail (ADR-0050, amended 2026-06-06 to the
    * todo-worthiness rubric). Non-null ONLY when the email clears all five rubric
@@ -262,8 +265,9 @@ How to use the Observations block:
 
 Rules:
 1. Pick exactly one category — the dominant one if multiple apply.
-2. Time-pressure: prefer 'urgent' over 'action_needed' when consequence-of-delay is hours-not-days (account compromise, security breach, billing failure that breaks access today). A login link or code merely expiring is NOT such a consequence — the user just requests a fresh one.
-3. Reply-shape: prefer 'awaiting_reply' over 'action_needed' when the action IS the reply.
+2a. Document ask: emit \`documentAsk: null\` unless this inbound message explicitly asks the user to send or create a resume or portfolio. When it does, emit exactly \`{"requestedKind":"resume"}\` or \`{"requestedKind":"portfolio"}\`. Do not infer an ask from an attachment, filename, link, sender, prior thread, or generic career prose, and never claim a file was sent or the request resolved.
+3. Time-pressure: prefer 'urgent' over 'action_needed' when consequence-of-delay is hours-not-days (account compromise, security breach, billing failure that breaks access today). A login link or code merely expiring is NOT such a consequence — the user just requests a fresh one.
+3a. Reply-shape: prefer 'awaiting_reply' over 'action_needed' when the action IS the reply.
 4. Reply-shape (continued): prefer 'follow_up' over 'awaiting_reply' when the sender is nudging on an existing thread, not opening a new ask. "Any update?" / "Just circling back" → follow_up.
 5. Closure: prefer 'done' over 'fyi' when the message explicitly marks something as finished/shipped/resolved/succeeded. 'fyi' is for informational items that don't close a loop. Closure means the USER'S underlying request/loop is resolved — NOT that an intermediate actor reported finishing a sub-step. Creating, filing, or opening a task/ticket (even one phrased "Done. Created …") OPENS a loop; it is never closure.
 6. Promo split: prefer 'marketing' over 'newsletter' for unsolicited promotional blasts, sales pitches, cold outbound, public product launches, brand events, webinars, and keynotes. 'newsletter' is for subscribed editorial/digest content the user opted into.
@@ -1033,6 +1037,8 @@ export function resolveTodoSuggestion(
 
   if (!suggestion) return null;
 
+  if (classification.documentAsk) return null;
+
   if (classification.todoDecision?.outcome !== "proposed") return null;
 
   // Contradiction backstop: a `proposed` decision whose note carries a
@@ -1475,6 +1481,7 @@ export function normalizeClassifierOutput(object: TriageClassification): TriageC
     // omitted and null are already equivalent downstream — the guarantee the
     // throw tried to enforce has no consumer.
     collabActivity: object.collabActivity ?? null,
+    documentAsk: object.documentAsk ?? null,
   };
 }
 

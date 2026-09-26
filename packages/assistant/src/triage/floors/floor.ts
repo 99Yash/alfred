@@ -87,6 +87,8 @@ export function applyFloorVerdict(
       return {
         ...classification,
         category: "fyi",
+        // Demotion rejects the model proposal before it can open a durable ask.
+        documentAsk: null,
         todoSuggestion: null,
         todoDecision: { outcome: "no_obligation", note: `${verdict.key}: ${verdict.note}` },
         rationale: truncateRationale(
