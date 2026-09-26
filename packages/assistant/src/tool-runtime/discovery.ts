@@ -1,6 +1,7 @@
 import {
   isToolName,
   isWriteRiskTier,
+  MCP_LIST_TOOLS_MAX_LIMIT,
   type IntegrationAvailabilitySnapshot,
   type ToolName,
   type ToolRunContext,
@@ -124,13 +125,21 @@ export async function searchAvailableTools(args: {
     // The local catalog read is bounded and only returns current owned revisions.
     // A full query string rarely occurs verbatim in a descriptor, so scan compact
     // pages and rank individual fields against the same query tokens as curated tools.
+    //
+    // `limit` is MATCHING HITS PER PAGE, not descriptors scanned — searchMcpToolsLocal
+    // scans internally against MCP_DISCOVERY_SCAN_BUDGET and returns a null cursor once
+    // the catalog is exhausted. So the round-trip count is ceil(matches / limit), and a
+    // small limit turns one search into a chain of sequential awaits. Ask for the
+    // contract's own page cap: the candidate multiset reaching the sort below is
+    // unchanged, so recall and ranking are identical — only the number of round-trips
+    // to collect it drops. `detail: "summary"` keeps each hit compact.
     let cursor: string | null = null;
 
     for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
       const page = await searchMcpToolsLocal({
         userId: args.userId,
         detail: "summary",
-        limit: 10,
+        limit: MCP_LIST_TOOLS_MAX_LIMIT,
         ...(cursor ? { cursor } : {}),
       });
 
