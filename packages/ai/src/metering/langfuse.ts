@@ -174,6 +174,76 @@ function withTraceAttributes<T>(params: PropagateAttributesParams, fn: () => T):
   return context.with(ROOT_CONTEXT, () => propagateAttributes(params, fn));
 }
 
+/** One run's trace-level identity, as the generation established it. */
+type RunTraceIdentity = {
+  name: string;
+  userId?: string | undefined;
+  sessionId?: string | undefined;
+  tags?: string[] | undefined;
+};
+
+/**
+ * A run's identity, held between the generation that established it and the spans
+ * that follow.
+ *
+ * `withTraceAttributes` seeds OTel context for the duration of one call and
+ * returns, so it cannot carry `sessionId` / `userId` / `tags` to a span opened
+ * later — which is every tool and runtime span, since those run in the
+ * `dispatch-tools` step after the generation has already returned. Threading the
+ * identity through all four span seams instead would touch `executor.ts` and
+ * `worker.ts`; this keeps the change inside this module.
+ *
+ * Every span input already carries `runId`, and `resolveTraceId` returns
+ * `meta.runId` for a run, so the generation's payload is keyed by the same string
+ * the spans look up.
+ *
+ * **Process-local.** `AGENT_WORKER_CONCURRENCY` is in-process concurrency, so all
+ * workers in one server share this map and a run is covered end to end. A second
+ * server replica would leave spans emitted by the process that did not run the
+ * generation unattributed — a silent observability gap on scale-up, not an
+ * error. A shared store is the fix if that ever happens; it is deliberately not
+ * built here.
+ */
+const runIdentities = new Map<string, { at: number; identity: RunTraceIdentity }>();
+
+/**
+ * Long enough to cover a run end to end. A chat turn is seconds, but a run can
+ * park on an approval gate or a sub-agent join, so this is sized for the parked
+ * case rather than the common one.
+ */
+const RUN_IDENTITY_TTL_MS = 15 * 60_000;
+
+/** Amortises the sweep to once per interval instead of once per generation. */
+const RUN_IDENTITY_SWEEP_MS = 5 * 60_000;
+
+let lastRunIdentitySweepMs = 0;
+
+function rememberRunIdentity(runId: string, identity: RunTraceIdentity): void {
+  const now = Date.now();
+
+  if (now - lastRunIdentitySweepMs >= RUN_IDENTITY_SWEEP_MS) {
+    for (const [key, entry] of runIdentities) {
+      if (now - entry.at >= RUN_IDENTITY_TTL_MS) runIdentities.delete(key);
+    }
+
+    lastRunIdentitySweepMs = now;
+  }
+
+  runIdentities.set(runId, { at: now, identity });
+}
+
+/**
+ * Open an observation carrying its run's trace attributes, or open it bare when
+ * the run never established any. A miss is today's behaviour, not a new one — a
+ * span that opens before its run's first generation, or a run with no LLM call
+ * at all, has no identity to propagate and must not invent one.
+ */
+function startRunAttributedObservation<T>(runId: string, create: () => T): T {
+  const entry = runIdentities.get(runId);
+
+  return entry ? withTraceAttributes(traceAttributeParams(entry.identity), create) : create();
+}
+
 export interface LangfuseSpanInput {
   meta: MeteredMeta;
   startedAt: Date;
@@ -267,6 +337,14 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
     );
   } catch (err) {
     console.warn("[langfuse] span start failed:", toMessage(err));
+  }
+
+  // Publish the run's identity so the tool and runtime spans that follow in the
+  // dispatch step can carry it too. Keyed by `runId` rather than the resolved
+  // trace id so an ad-hoc call, which has no run and no spans to serve, does not
+  // take an entry.
+  if (meta.runId) {
+    rememberRunIdentity(meta.runId, tracePayload);
   }
 
   return {
@@ -375,25 +453,27 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
     // context still carries that trace's id, so a tool that somehow runs before
     // any generation joins the same trace instead of orphaning. The parent span
     // does not exist — by design, only for trace-id inheritance.
-    span = startObservation(
-      `tool:${args.toolName}`,
-      {
-        ...(captureIo && args.input !== undefined ? { input: args.input } : {}),
-        metadata: {
-          kind: "tool",
-          toolName: args.toolName,
-          toolCallId: args.toolCallId,
-          caller: args.caller,
-          userId: args.userId,
-          runId: args.runId,
-          stepId: args.stepId,
+    span = startRunAttributedObservation(args.runId, () =>
+      startObservation(
+        `tool:${args.toolName}`,
+        {
+          ...(captureIo && args.input !== undefined ? { input: args.input } : {}),
+          metadata: {
+            kind: "tool",
+            toolName: args.toolName,
+            toolCallId: args.toolCallId,
+            caller: args.caller,
+            userId: args.userId,
+            runId: args.runId,
+            stepId: args.stepId,
+          },
         },
-      },
-      {
-        asType: "span",
-        startTime: args.startedAt,
-        parentSpanContext: traceSpanContext(args.runId),
-      },
+        {
+          asType: "span",
+          startTime: args.startedAt,
+          parentSpanContext: traceSpanContext(args.runId),
+        },
+      ),
     );
   } catch (err) {
     console.warn("[langfuse] tool span start failed:", toMessage(err));
@@ -557,17 +637,19 @@ export function recordDispatchRejection(args: DispatchRejectionInput): void {
   try {
     const payload = buildDispatchRejectionSpanPayload(args, captureIo);
 
-    const span = startObservation(
-      payload.span.name,
-      {
-        ...(payload.span.input !== undefined ? { input: payload.span.input } : {}),
-        metadata: payload.span.metadata,
-      },
-      {
-        asType: "span",
-        startTime: payload.span.startTime,
-        parentSpanContext: traceSpanContext(args.runId),
-      },
+    const span = startRunAttributedObservation(args.runId, () =>
+      startObservation(
+        payload.span.name,
+        {
+          ...(payload.span.input !== undefined ? { input: payload.span.input } : {}),
+          metadata: payload.span.metadata,
+        },
+        {
+          asType: "span",
+          startTime: payload.span.startTime,
+          parentSpanContext: traceSpanContext(args.runId),
+        },
+      ),
     );
 
     // v5 splits the v3 `span.end(attributes)` into `update` + `end`.
@@ -683,17 +765,19 @@ export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
   try {
     const payload = buildRuntimeSpanPayload(input, captureIo);
 
-    span = startObservation(
-      payload.name,
-      {
-        ...(payload.input !== undefined ? { input: payload.input } : {}),
-        metadata: payload.metadata,
-      },
-      {
-        asType: "span",
-        startTime: payload.startTime,
-        parentSpanContext: traceSpanContext(input.runId),
-      },
+    span = startRunAttributedObservation(input.runId, () =>
+      startObservation(
+        payload.name,
+        {
+          ...(payload.input !== undefined ? { input: payload.input } : {}),
+          metadata: payload.metadata,
+        },
+        {
+          asType: "span",
+          startTime: payload.startTime,
+          parentSpanContext: traceSpanContext(input.runId),
+        },
+      ),
     );
   } catch (err) {
     console.warn("[langfuse] runtime span start failed:", toMessage(err));
