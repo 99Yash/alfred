@@ -5,16 +5,8 @@ import {
   parseEmailAddress,
   parseGitBranchRef,
 } from "@alfred/contracts";
-import {
-  builtInProviderForEndpoint,
-  getMcpConnectionManager,
-  listOwnedConnections,
-  parseMcpToolResult,
-  VERCEL_MCP_STORED_ISSUER,
-  type McpPreparedToolCall,
-} from "../mcp";
+import { vercelClientForUser, type VercelClient } from "@alfred/integrations/vercel";
 import { VERCEL_PULL_EVENT_TYPE } from "../object-state/vercel-reducer";
-import { z } from "zod";
 import {
   MAX_VERIFIED_PULL_TARGETS,
   type VerifiedPullProvider,
@@ -31,18 +23,30 @@ import {
  * Both halves fold into the same `owner/repo#branch#environment` target row,
  * so a pull success after a push failure (or the reverse) is one succession.
  *
- * The read goes over the user's Vercel MCP connection, never the curated
- * Vercel grant (#1008 retires that grant). It uses only `list_teams`,
- * `list_projects`, and `list_deployments`, and it parses the tool output from
- * `unknown`: the structured content when the server sends it, else the one
- * JSON text block. Missing tools, invalid or truncated output, a remote error,
- * and a deployment that does not name its repo, branch, and environment prove
- * nothing and leave the loop live.
+ * The read goes over the user's CURATED Vercel grant — the OAuth app install
+ * that already ships in `@alfred/integrations/vercel` — and not over Vercel's
+ * MCP server. It read over MCP between 2026-09-23 and 2026-09-27 and could
+ * never have worked: Vercel's authorization server accepts only loopback
+ * redirect URIs, so a hosted Alfred cannot register a client with it at all.
+ * `docs/plans/vercel-mcp-retirement.md` carries the measurement and the four
+ * ways around it that do not exist.
  *
- * The output shapes below follow Vercel's REST deployment and project objects.
- * No live Vercel MCP connection existed when this was written (2026-09-23), so
- * they are NOT measured against the MCP wire. A shape the server does not
- * send reads as unverified, never as a guessed state.
+ * The transport swap is the whole change. The grant is not a second door to
+ * Vercel: `@alfred/integrations/vercel` is the ONE door, and this file holds no
+ * token, no base URL, and no response schema. It asks for projects and
+ * deployments and applies the attribution rules, which are unchanged and are
+ * the part that decides what a fold may assert.
+ *
+ * Two things got simpler, both because the grant is team-scoped where the MCP
+ * session was not. There is no `list_teams` step: the credential already
+ * carries the `team_id` the install was made on and the client pins it as
+ * `?teamId=` on every call. And there is no issuer gate to pass — a grant is
+ * either present and scoped, or there is no session.
+ *
+ * What did not change is what a read must prove. No credential, a remote error,
+ * and a deployment that does not name its own repository, branch, and
+ * environment all prove nothing and leave the loop live. The attribution is the
+ * deployment's OWN claim and is never inferred from the project it sits in.
  */
 
 /** A Vercel deployment target: the identity the dispatch and the pull share. */
@@ -54,7 +58,6 @@ export interface VercelPullTarget {
 
 /** A project the read may scan, and the repo its Git link names, when known. */
 interface VercelProjectRef {
-  teamId: string;
   projectId: string;
   name: string;
   linkedRepo: string | null;
@@ -69,139 +72,67 @@ interface VercelDeploymentReading {
 }
 
 interface VercelReadSession {
-  connectionId: string;
-  prepared: McpPreparedToolCall;
+  client: VercelClient;
   projects: readonly VercelProjectRef[];
-  /** One `list_deployments` per project per gather, shared by every target. */
+  /** One deployments read per project per gather, shared by every target. */
   deployments: Map<string, Promise<VercelDeploymentReading[] | null>>;
 }
 
 /**
  * How many projects one read session scans for deployments. Every target read
- * in a session shares the per-project cache, so this caps the
- * `list_deployments` calls of one session. A gather opens at most two sessions
- * (bootstrap discovery, then the reads).
+ * in a session shares the per-project cache, so this caps the deployments
+ * calls of one session. It is passed to Vercel as the list limit rather than
+ * applied afterwards, so the cap bounds the bytes on the wire and not just the
+ * loop. A gather opens at most two sessions (bootstrap discovery, then the
+ * reads).
  */
 const VERCEL_PROJECT_SCAN_LIMIT = 10;
 
-/** A list the server may send bare or under its REST key. */
-function listSchema<Item extends z.ZodType>(key: string, item: Item) {
-  return z
-    .union([z.array(item), z.object({ [key]: z.array(item) })])
-    .transform((value): z.infer<Item>[] => (Array.isArray(value) ? value : value[key]) ?? []);
-}
-
-const vercelTeamsSchema = listSchema("teams", z.object({ id: z.string().min(1) }));
-
-const vercelProjectsSchema = listSchema(
-  "projects",
-  z.object({
-    id: z.string().min(1),
-    name: z.string(),
-    link: z.object({ org: z.string().nullish(), repo: z.string().nullish() }).nullish().catch(null),
-  }),
-);
-
-const vercelDeploymentsSchema = listSchema(
-  "deployments",
-  z.object({
-    uid: z.string().min(1).optional(),
-    id: z.string().min(1).optional(),
-    state: z.string().nullish(),
-    readyState: z.string().nullish(),
-    // `null` is a preview deployment. ABSENT is unknown, and an unknown
-    // environment attributes the deployment to no target.
-    target: z.string().nullable().optional(),
-    created: z.union([z.number(), z.string()]).nullish(),
-    createdAt: z.union([z.number(), z.string()]).nullish(),
-    url: z.string().nullish(),
-    meta: z
-      .object({
-        githubCommitRef: z.string().nullish(),
-        githubOrg: z.string().nullish(),
-        githubRepo: z.string().nullish(),
-        githubCommitOrg: z.string().nullish(),
-        githubCommitRepo: z.string().nullish(),
-      })
-      .nullish()
-      .catch(null),
-  }),
-);
-
-async function readVercelTool<Schema extends z.ZodType>(
-  connectionId: string,
-  prepared: McpPreparedToolCall,
-  remoteName: "list_teams" | "list_projects" | "list_deployments",
-  args: Record<string, string>,
-  schema: Schema,
-): Promise<z.infer<Schema> | null> {
-  const envelope = await prepared.call(
-    { kind: "mcp", connectionId, remoteName, catalogRevision: prepared.catalog.revision },
-    args,
-  );
-
-  // A truncated body may have dropped the newest deployment, so it proves
-  // nothing about current state.
-  if (envelope.outcome !== "completed" || envelope.truncation) return null;
-
-  return parseMcpToolResult(envelope.result, schema);
-}
+/**
+ * How many deployments one project read asks for.
+ *
+ * Vercel answers `/v6/deployments` newest first, so this cap drops the OLDEST
+ * deployments of a busy project and cannot drop the newest one a target is
+ * waiting on — which is the only deployment the read acts on. That ordering is
+ * the load-bearing part: a cap on a newest-last list would silently hide the
+ * deployment this pull exists to find, and the invariant that a truncated read
+ * proves nothing would have to extend to every project over the limit. Stated
+ * here rather than left to the client's own default so the number is a decision
+ * this file can see.
+ */
+const VERCEL_DEPLOYMENT_READ_LIMIT = 100;
 
 /**
- * Open a ready, issuer-pinned Vercel MCP connection and list the projects the
- * read may scan. A connection that is absent, not ready, or pinned to another
- * issuer opens nothing.
+ * Open the user's Vercel grant and list the projects the read may scan.
+ *
+ * `null` means there is no usable session, and the two reasons are deliberately
+ * indistinguishable to the caller because the driver treats them the same: no
+ * connected Vercel grant, and a grant Vercel refused. The client raises on the
+ * first request when the credential is absent, so the whole open is guarded
+ * rather than probing for a grant first — a probe would be a second request
+ * that can fail the same way.
  */
 async function openVercelRead(userId: string): Promise<VercelReadSession | null> {
-  const connections = await listOwnedConnections(userId);
+  try {
+    // One attempt, no retry: a gather waits on this, and a provider that is
+    // already down should cost one timeout rather than several. A failed read
+    // leaves the loop live and the next gather tries again, which is the same
+    // reasoning ADR-0104 records for the Drive source.
+    const client = vercelClientForUser({ userId, retry: "none" });
+    const listed = await client.projects({ limit: VERCEL_PROJECT_SCAN_LIMIT });
 
-  const connection = connections.find(
-    (item) => builtInProviderForEndpoint(item.server.endpointUrl) === "vercel",
-  );
-
-  if (
-    !connection ||
-    connection.status !== "ready" ||
-    connection.authServerIdentity !== VERCEL_MCP_STORED_ISSUER
-  ) {
-    return null;
-  }
-
-  const prepared = await getMcpConnectionManager().prepareToolCall(connection.id);
-
-  const teams = await readVercelTool(connection.id, prepared, "list_teams", {}, vercelTeamsSchema);
-
-  if (!teams) return null;
-
-  const projects: VercelProjectRef[] = [];
-
-  for (const team of teams) {
-    if (projects.length >= VERCEL_PROJECT_SCAN_LIMIT) break;
-
-    const listed = await readVercelTool(
-      connection.id,
-      prepared,
-      "list_projects",
-      { teamId: team.id },
-      vercelProjectsSchema,
-    );
-
-    for (const project of listed ?? []) {
-      if (projects.length >= VERCEL_PROJECT_SCAN_LIMIT) break;
-
-      const org = project.link?.org;
-      const repo = project.link?.repo;
-
-      projects.push({
-        teamId: team.id,
+    return {
+      client,
+      projects: listed.map((project) => ({
         projectId: project.id,
         name: project.name,
-        linkedRepo: org && repo ? `${org}/${repo}` : null,
-      });
-    }
+        linkedRepo: project.linkedRepo,
+      })),
+      deployments: new Map(),
+    };
+  } catch {
+    return null;
   }
-
-  return { connectionId: connection.id, prepared, projects, deployments: new Map() };
 }
 
 /**
@@ -245,66 +176,63 @@ function readProjectDeployments(
 
   if (cached) return cached;
 
-  const pending = readVercelTool(
-    session.connectionId,
-    session.prepared,
-    "list_deployments",
-    { projectId: project.projectId, teamId: project.teamId },
-    vercelDeploymentsSchema,
-  ).then((deployments) => {
-    if (!deployments) return null;
+  const pending = session.client
+    .deployments({ projectId: project.projectId, limit: VERCEL_DEPLOYMENT_READ_LIMIT })
+    .then((deployments) => {
+      const readings: VercelDeploymentReading[] = [];
 
-    const readings: VercelDeploymentReading[] = [];
+      for (const deployment of deployments) {
+        const status = collapseVercelState(deployment.state);
+        const branch = deployment.git?.ref ? parseGitBranchRef(deployment.git.ref) : null;
 
-    for (const deployment of deployments) {
-      const attemptId = deployment.uid ?? deployment.id;
-      const status = collapseVercelState(deployment.state ?? deployment.readyState);
-      const org = deployment.meta?.githubCommitOrg ?? deployment.meta?.githubOrg;
-      const repo = deployment.meta?.githubCommitRepo ?? deployment.meta?.githubRepo;
-      const ref = deployment.meta?.githubCommitRef;
-      const branch = ref ? parseGitBranchRef(ref) : null;
+        // The target is the deployment's OWN claim, never inferred: a deployment
+        // that does not name its repo, branch, and environment belongs to no
+        // target, so it cannot close one. `git` is the client's resolution of
+        // Vercel's two spellings, so org and repo arrive together or not at all.
+        //
+        // `target` is `string | null` here and was `string | null | undefined`
+        // over MCP. REST always sends the key, and `null` already means preview,
+        // so the ABSENT case this guarded is no longer representable and would
+        // not compile if it were left in.
+        if (!status || !branch || !deployment.git || deployment.target === null) continue;
 
-      // The target is the deployment's OWN claim, never inferred: a deployment
-      // that does not name its repo, branch, and environment belongs to no
-      // target, so it cannot close one.
-      if (!attemptId || !status || !org || !repo || !branch || deployment.target === undefined) {
-        continue;
+        const target: VercelPullTarget = {
+          repoFullName: `${deployment.git.org}/${deployment.git.repo}`,
+          branch,
+          environment: deployment.target ?? "preview",
+        };
+
+        const targetId = canonicalizeVercelTargetId(target);
+
+        if (!targetId) continue;
+
+        const url = deployment.url ?? null;
+
+        readings.push({
+          project,
+          targetId,
+          target,
+          reading: {
+            status,
+            attemptId: deployment.uid,
+            providerEventTime: parseProviderInstant(deployment.createdAt),
+            url: url && !url.includes("://") ? `https://${url}` : url,
+          },
+        });
       }
 
-      const target: VercelPullTarget = {
-        repoFullName: `${org}/${repo}`,
-        branch,
-        environment: deployment.target ?? "preview",
-      };
-
-      const targetId = canonicalizeVercelTargetId(target);
-
-      if (!targetId) continue;
-
-      const url = deployment.url ?? null;
-
-      readings.push({
-        project,
-        targetId,
-        target,
-        reading: {
-          status,
-          attemptId,
-          providerEventTime: parseProviderInstant(deployment.createdAt ?? deployment.created),
-          url: url && !url.includes("://") ? `https://${url}` : url,
-        },
-      });
-    }
-
-    // Server order is a claim, not a contract. The newest provider instant
-    // comes first; an absent instant sorts last, and the stable sort keeps
-    // server order among ties.
-    return readings.sort(
-      (a, b) =>
-        (b.reading.providerEventTime?.getTime() ?? Number.NEGATIVE_INFINITY) -
-        (a.reading.providerEventTime?.getTime() ?? Number.NEGATIVE_INFINITY),
-    );
-  });
+      // Server order is a claim, not a contract. The newest provider instant
+      // comes first; an absent instant sorts last, and the stable sort keeps
+      // server order among ties.
+      return readings.sort(
+        (a, b) =>
+          (b.reading.providerEventTime?.getTime() ?? Number.NEGATIVE_INFINITY) -
+          (a.reading.providerEventTime?.getTime() ?? Number.NEGATIVE_INFINITY),
+      );
+    })
+    // A remote error or a malformed body proves nothing about current state, so
+    // it is the same `null` a missing grant is, never a partial reading.
+    .catch(() => null);
 
   session.deployments.set(project.projectId, pending);
 
@@ -358,8 +286,9 @@ async function readVercelDeploymentStatusFromSession(
 }
 
 /**
- * Read current deployment state for one target over the user's Vercel MCP
- * connection. Unknown output or a transport fault is never a guessed state.
+ * Read current deployment state for one target over the user's curated Vercel
+ * grant. No usable grant, unknown output, or a transport fault is never a
+ * guessed state.
  */
 export async function readVercelDeploymentStatus(
   userId: string,
@@ -490,7 +419,7 @@ export const vercelVerifiedPullProvider: VerifiedPullProvider<
     return {
       id: `vercel-pull:${result.targetId || "unknown"}:${result.attemptId ?? "unverified"}`,
       provider: "vercel",
-      source: "mcp",
+      source: "direct_api",
       activityCategory: "deploy",
       providerKind: "vercel.deployment_status",
       title: `Vercel deployment ${word}: ${where}`,

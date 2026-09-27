@@ -115,6 +115,44 @@ export const RAILWAY_MCP_STORED_ISSUER = "https://backboard.railway.com/" as con
  * The catalog carries writes (`deploy_to_vercel`) and purchases (`buy_*`), so
  * the resource cannot be pinned read-only. The verified pull calls only
  * `list_teams`, `list_projects`, and `list_deployments`.
+ *
+ * The `registration_endpoint` above is REAL and Alfred's use of it is still
+ * refused, which is why this entry sets `clientRegistrationRedirects` rather
+ * than leaving the default. Measured on 2026-09-27 by POSTing Alfred's real
+ * registration to every built-in's endpoint: Vercel is the ONLY one of the six
+ * that rejects it, answering `400 invalid_redirect_uri` ("The provided redirect
+ * URIs are not approved for use by this authorization server"). Sentry, Linear,
+ * Notion, Polylane and Railway each returned `201` for the same
+ * `https://…/api/integrations/mcp/callback` URI. Vercel accepts only
+ * `http://localhost[:port]/…`, which is unreachable from a hosted deployment.
+ *
+ * This is a POLICY wall, not a configuration mistake. Pinning a client does not
+ * answer it, and not for want of a client identity: Vercel publishes
+ * `token_endpoint_auth_methods_supported: ["none"]`, so its registered clients
+ * are public — what Alfred's own RFC 7591 registration asks for
+ * (`token_endpoint_auth_method: "none"`, `connections/mcp/oauth.ts`) and what
+ * its `static` arm resolves, since it omits an absent `clientSecret`. The pin
+ * is not consulted either, because `clientRegistrationRedirects` is asked
+ * FIRST, so a hosted callback never reaches it. Whether Vercel would then
+ * honour a hosted callback for a Vercel-issued `client_id` is UNVERIFIED: the
+ * measurement above posted the registration endpoint and nothing else, and such
+ * a `client_id` asked to authorize an `https:` callback would settle it.
+ * Its docs state that
+ * "Vercel MCP only supports AI clients that have been reviewed and approved by
+ * Vercel" and list 14 approved clients — every local one authorizing over
+ * loopback, and the two hosted ones (ChatGPT, Claude) vendor-mediated with
+ * Vercel's own pre-registered `client_id`. That list is evidence of Vercel's
+ * stated intent, not a technical constraint. There is no dashboard screen to
+ * register a client (`…/~/settings/mcp` is a 404) and Vercel Connect, the
+ * sanctioned hosted path, needs the app deployed ON Vercel with a linked
+ * project. Alfred runs on Railway, so none of it applies.
+ *
+ * Two further measurements say do not work around it. The endpoint is
+ * IP-keyed: four different `client_name`/port registrations from one address
+ * all returned the SAME `client_id`, each call OVERWRITING `redirect_uris`, so
+ * two concurrent connects break each other's in-flight authorization. And it is
+ * rate limited to `x-ratelimit-limit: 20` per hour per IP — on a shared
+ * deployment IP, 20 connects an hour for every user combined.
  */
 export const VERCEL_MCP_ENDPOINT_HREF = "https://mcp.vercel.com/" as const;
 
@@ -123,8 +161,12 @@ export const VERCEL_MCP_ENDPOINT_HREF = "https://mcp.vercel.com/" as const;
  * as `https://vercel.com`, and the OAuth connection stores the URL form with a
  * trailing `/` (the same rule `RAILWAY_MCP_STORED_ISSUER` records). No live
  * Vercel connection existed on 2026-09-23 to confirm the stored bytes, so this
- * is derived from that rule, not measured. A mismatch makes every verified pull
- * read unverified, which leaves the loop live.
+ * is derived from that rule, not measured — and the 2026-09-27 measurement on
+ * {@link VERCEL_MCP_ENDPOINT_HREF} is why it can never be: registration is
+ * refused, so no authorized Vercel connection exists to read the bytes off.
+ * Treat this constant as UNVERIFIED, and note the mismatch it would cause is
+ * one-way — `openVercelRead` returns `null` rather than reading a foreign
+ * issuer, so a wrong value suppresses the pull instead of admitting one.
  */
 export const VERCEL_MCP_STORED_ISSUER = "https://vercel.com/" as const;
 
