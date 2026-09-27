@@ -30,7 +30,7 @@
  * not copy hard-coded `GITHUB_MCP_*` names.
  */
 
-import type { BuiltInMCPProvider } from "@alfred/contracts";
+import { integrationDisplayName, type BuiltInMCPProvider } from "@alfred/contracts";
 import { envFieldValue, type ServerEnv } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
@@ -85,6 +85,13 @@ type McpClientSecretEnvKey = Extract<keyof ServerEnv, `${string}_MCP_CLIENT_SECR
  *
  * The union makes the caller answer all three. `unavailable` carries the env
  * key so the connection row can state which line an operator has to set.
+ *
+ * A fourth fact is a REFUSAL that no environment line can undo: an
+ * authorization server that accepts only loopback `redirect_uris` cannot be
+ * reached by a hosted Alfred at all, so pinning a client would not help and
+ * asking for one operator to set would be a lie. That arm carries the PROVIDER
+ * rather than an env key, because there is no line to name and the sentence has
+ * to say which server refused — the one refusal whose remedy is not a setting.
  */
 export type BuiltInClientResolution =
   | { readonly kind: "dynamic" }
@@ -93,6 +100,11 @@ export type BuiltInClientResolution =
       readonly kind: "unavailable";
       readonly reason: "missing_client_id" | "issuer_not_bound";
       readonly envKey: McpClientIdEnvKey;
+    }
+  | {
+      readonly kind: "unavailable";
+      readonly reason: "authorization_server_requires_loopback";
+      readonly provider: BuiltInProvider;
     };
 
 /**
@@ -127,6 +139,42 @@ type BuiltInDefinition = {
     readonly clientIdKey: McpClientIdEnvKey;
     readonly clientSecretKey: McpClientSecretEnvKey;
   };
+  /**
+   * What `redirect_uris` this provider's authorization server accepts from a
+   * client that obtains one by RFC 7591 registration.
+   *
+   * ABSENT is the normal case and means "unrestricted", which is the common
+   * case and what Sentry, Linear, Notion, Polylane and Railway all do —
+   * measured 2026-09-27 by registering Alfred's real production callback
+   * against each. RFC 7591 does not set the default: it specifies the
+   * registration request and leaves `redirect_uris` acceptance to the server,
+   * which is why a server may narrow it.
+   *
+   * `"loopback-only"` names a server that accepts `http://localhost[:port]/…`
+   * and refuses everything else with `400 invalid_redirect_uri`. The
+   * restriction is a fact about the CALLBACK, so it is judged against the
+   * callback this deployment would register rather than decided once for every
+   * caller: a local Alfred, whose `BETTER_AUTH_URL` is `http://localhost:3001`,
+   * is admitted and authorizes normally, and a hosted one, which can only ever
+   * present an `https://` URI, is refused before it can authorize.
+   *
+   * A hosted refusal is not a configuration mistake, and pinning a client does
+   * not answer it — not for want of a client identity. Such a server issues no
+   * secret (`token_endpoint_auth_methods_supported: ["none"]`), so its
+   * registered clients are public, and public is what this module resolves: a
+   * `staticClient` with no `clientSecret` is a public pinned client. The pin is
+   * not consulted anyway, because `resolveBuiltInClient` asks this field FIRST,
+   * so a hosted callback never reaches it. Whether Vercel would then honour a
+   * hosted callback for a Vercel-issued `client_id` is UNVERIFIED — the
+   * measurement posted the registration endpoint and nothing else, and a
+   * Vercel-issued `client_id` asked to authorize an `https://` callback would
+   * settle it.
+   *
+   * A refusal here is the honest outcome, so the registry states it instead of
+   * letting the server answer in a raw protocol error the owner has to
+   * interpret. `VERCEL_MCP_ENDPOINT_HREF` records the measurement.
+   */
+  readonly clientRegistrationRedirects?: "loopback-only" | undefined;
   /**
    * OAuth scopes Alfred asks for on EVERY authorize for this provider, and the
    * one home for WHY a built-in needs a pinned ask at all.
@@ -314,9 +362,26 @@ export const BUILT_IN_REGISTRY = {
     canonicalResource: VERCEL_MCP_ENDPOINT_HREF,
     endpointHref: VERCEL_MCP_ENDPOINT_HREF,
     // No `staticClient`: the authorization server publishes a
-    // `registration_endpoint`, so this is the normal dynamic path. The pinned
-    // issuer is `VERCEL_MCP_STORED_ISSUER`, and the verified-pull seam enforces
-    // it, the same way it does for Railway.
+    // `registration_endpoint`, and pinning one is not a way around a hosted
+    // refusal — not for want of a client identity. Vercel issues no
+    // `client_secret`, so its registered clients are public, which is the shape
+    // this module resolves from a `client_id` alone. The reason is order rather
+    // than credentials: the field below is asked first, so a hosted callback
+    // never reaches the pin. Whether Vercel would then honour a hosted callback
+    // for a Vercel-issued `client_id` is UNVERIFIED: the 2026-09-27 measurement
+    // posted the registration endpoint and nothing else, and a Vercel-issued
+    // `client_id` asked to authorize an `https://` callback would settle it. The
+    // pinned issuer is `VERCEL_MCP_STORED_ISSUER`, and the verified-pull seam
+    // enforces it, the same way it does for Railway.
+    //
+    // The one built-in whose server Alfred cannot register with from a HOSTED
+    // deployment — a local `BETTER_AUTH_URL` authorizes against it as usual, and
+    // this field is what makes the two answers differ. Everything below it — the
+    // scopes, the catalog policy, the verified pull — is real and stays: this
+    // field is what stops the hosted authorize, not what makes the rest of the
+    // entry wrong. See `VERCEL_MCP_ENDPOINT_HREF` for the measurement and
+    // `builtInClientUnavailableMessage` for what the owner is told.
+    clientRegistrationRedirects: "loopback-only",
     //
     // `openid` is the one scope the resource declares. `offline_access` buys the
     // refresh token that keeps the connection `ready`.
@@ -482,7 +547,27 @@ const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
 );
 
 /**
- * How the built-in that owns `endpoint` wants its OAuth client obtained.
+ * What a caller knows about the connection a built-in client is being resolved
+ * for: which ENDPOINT it is, and which CALLBACK this deployment would register.
+ *
+ * `redirectUrl` is required rather than optional because the refusal it gates is
+ * relative to the callback, so the registry cannot answer without being told the
+ * callback. An optional field would have to read an absent callback as "not
+ * loopback" — a second spelling of one rule, and one a call site could omit to
+ * silently restore the hosted regression. A resolve whose answer never depends on
+ * the callback (a GitHub pin) still passes the value it already holds, because
+ * the question is "the client THIS DEPLOYMENT would get" and the deployment is
+ * half the answer.
+ */
+export type BuiltInClientRequest = {
+  readonly endpoint: URL;
+  /** The callback this deployment would register. Judged, never re-derived. */
+  readonly redirectUrl: URL;
+  readonly issuerHint?: string | undefined;
+};
+
+/**
+ * How the built-in that owns `request.endpoint` wants its OAuth client obtained.
  *
  * GitHub's authorization server supports neither RFC 7591 dynamic registration
  * nor URL-based client ids, so without a pinned client the SDK throws at
@@ -503,12 +588,28 @@ const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
  * issuer. The hint must share the pinned issuer's ORIGIN; the returned `issuer`
  * is then the discovered href, so the credential row and the client agree.
  */
-export function resolveBuiltInClient(
-  endpoint: URL,
-  issuerHint?: string | undefined,
-): BuiltInClientResolution {
-  const definition = lookupBuiltIn(endpoint);
+export function resolveBuiltInClient(request: BuiltInClientRequest): BuiltInClientResolution {
+  const definition = lookupBuiltIn(request.endpoint);
   const staticClient = definition?.staticClient;
+  const issuerHint = request.issuerHint;
+
+  // Asked FIRST, and before the pin: a server that accepts only loopback redirect
+  // URIs has no client for a non-loopback callback whatever the pin says, and no
+  // environment line would change the answer. The callback judged here is the one
+  // this provider carries in `clientMetadata.redirect_uris`, so the verdict is
+  // about a URI the authorization server would really have been asked to accept.
+  // Reaching the `dynamic` arm with a hosted callback is what produced the raw
+  // `400 invalid_redirect_uri` the owner used to have to decode.
+  if (
+    definition?.clientRegistrationRedirects === "loopback-only" &&
+    !isLoopbackCallback(request.redirectUrl)
+  ) {
+    return {
+      kind: "unavailable",
+      reason: "authorization_server_requires_loopback",
+      provider: definition.provider,
+    };
+  }
 
   if (!staticClient) return { kind: "dynamic" };
   const envKey = staticClient.clientIdKey;
@@ -533,10 +634,27 @@ export function resolveBuiltInClient(
   };
 }
 
-/** The sentence a refused pin puts on the connection row, for the owner to read. */
+/**
+ * The sentence a refused client puts on the connection row, for the owner to
+ * read.
+ *
+ * Written for the integrations card, which shows it verbatim under "Error
+ * details", so it names the server and says what would have to be true rather
+ * than restating the protocol's own words. The loopback arm in particular must
+ * not read as a setting to change: there is no setting, and an owner who went
+ * looking for one would find nothing.
+ */
 export function builtInClientUnavailableMessage(
   resolution: Extract<BuiltInClientResolution, { kind: "unavailable" }>,
 ): string {
+  if (resolution.reason === "authorization_server_requires_loopback") {
+    return (
+      `${integrationDisplayName(resolution.provider)} only accepts OAuth clients that run on this ` +
+      "computer, so it cannot be connected to Alfred's server. Use Alfred's Vercel integration " +
+      "instead."
+    );
+  }
+
   return resolution.reason === "missing_client_id"
     ? `This server needs a pre-registered OAuth client. Set ${resolution.envKey}.`
     : "The authorization server does not match this server's pinned issuer.";
@@ -552,4 +670,37 @@ function boundIssuer(definition: ResolvedDefinition, issuerHint: string): string
   }
 
   return hint.origin === definition.issuerOrigin ? hint.href : undefined;
+}
+
+/**
+ * True when `url` has the shape of callback a server that accepts only loopback
+ * `redirect_uris` will take: `http:` on `localhost`, on `127.0.0.0/8`, or on
+ * `::1`.
+ *
+ * NOT `isBlockedHost` from `../hosted-endpoint`, which answers the inverse and
+ * the broader question — "must never be fetched" — so read as loopback it also
+ * admits `*.internal`, `*.local`, RFC 1918 and the metadata address, every one
+ * of which such a server refuses, while its complement admits every public host
+ * and un-refuses the hosted deployment outright.
+ *
+ * The matches are EXACT, and that is what the measurement supports. A
+ * `localhost` substring or suffix test would admit `localhost.example.com`;
+ * WHATWG's parser already lowercases `hostname` and canonicalizes the IPv4
+ * spellings (`2130706433` and `0x7f.1` both arrive as `127.0.0.1`, and an
+ * out-of-range octet fails to parse at all), so neither case folding nor a
+ * decimal-form check is needed.
+ *
+ * The exactness refuses in two safe places. `https://localhost:8443` is refused
+ * because the measured set is `http:`, and `http://localhost.:3001` is refused
+ * because an FQDN trailing dot is not an exact `localhost` and `URL` does not
+ * strip it. Both err toward refusing — one developer loses a connect button
+ * rather than an owner decoding a protocol error — and both are recorded here so
+ * a later pass does not "fix" the predicate into an admission bug.
+ */
+function isLoopbackCallback(url: URL): boolean {
+  if (url.protocol !== "http:") return false;
+
+  const host = url.hostname;
+
+  return host === "localhost" || host === "[::1]" || /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(host);
 }

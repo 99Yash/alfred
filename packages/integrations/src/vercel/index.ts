@@ -23,6 +23,7 @@ export type {
   VercelClient,
   VercelClientOptions,
   VercelDeployment,
+  VercelDeploymentGit,
   VercelProject,
   VercelRedeployResult,
 } from "./client";

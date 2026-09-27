@@ -18,9 +18,19 @@ const CLIENT_SECRET = "GITHUB_MCP_CLIENT_SECRET";
 
 const ENDPOINT = new URL(GITHUB_MCP_ENDPOINT_HREF);
 
+/**
+ * The callback every case below would register.
+ *
+ * The GitHub entry pins no `clientRegistrationRedirects`, so the registry never
+ * judges the callback here and no assertion in this suite changes meaning. The
+ * field is required precisely so a call site cannot forget the judgement, not
+ * because these cases exercise it.
+ */
+const CALLBACK = new URL("http://localhost:3001/api/integrations/mcp/callback");
+
 /** The `static` arm's client, for the cases that only assert one of its fields. */
 function staticClient(endpoint: URL, issuerHint?: string): BuiltInOAuthConfig | undefined {
-  const resolution = resolveBuiltInClient(endpoint, issuerHint);
+  const resolution = resolveBuiltInClient({ endpoint, redirectUrl: CALLBACK, issuerHint });
 
   return resolution.kind === "static" ? resolution.client : undefined;
 }
@@ -38,7 +48,7 @@ describe("built-in MCP provider registry (#934)", () => {
 
   test("an unset client id refuses, and names the line to set", () => {
     setEnv(undefined, undefined);
-    assert.deepEqual(resolveBuiltInClient(ENDPOINT), {
+    assert.deepEqual(resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }), {
       kind: "unavailable",
       reason: "missing_client_id",
       envKey: CLIENT_ID,
@@ -47,17 +57,23 @@ describe("built-in MCP provider registry (#934)", () => {
 
   test("a secret without a client id fails closed", () => {
     setEnv(undefined, "orphan-secret");
-    assert.equal(resolveBuiltInClient(ENDPOINT).kind, "unavailable");
+    assert.equal(
+      resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }).kind,
+      "unavailable",
+    );
   });
 
   test("a blank environment line counts as unset", () => {
     setEnv("   ", undefined);
-    assert.equal(resolveBuiltInClient(ENDPOINT).kind, "unavailable");
+    assert.equal(
+      resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }).kind,
+      "unavailable",
+    );
   });
 
   test("a client id alone resolves a public client on the pinned issuer", () => {
     setEnv("public-client", undefined);
-    assert.deepEqual(resolveBuiltInClient(ENDPOINT), {
+    assert.deepEqual(resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }), {
       kind: "static",
       client: { issuer: "https://github.com/", clientId: "public-client" },
     });
@@ -65,7 +81,7 @@ describe("built-in MCP provider registry (#934)", () => {
 
   test("a client id and a secret resolve a confidential client", () => {
     setEnv("confidential-client", "confidential-secret");
-    assert.deepEqual(resolveBuiltInClient(ENDPOINT), {
+    assert.deepEqual(resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }), {
       kind: "static",
       client: {
         issuer: "https://github.com/",
@@ -97,17 +113,35 @@ describe("built-in MCP provider registry (#934)", () => {
   test("a query or a fragment cannot inherit the pre-registered client", () => {
     setEnv("confidential-client", "confidential-secret");
     assert.equal(
-      resolveBuiltInClient(new URL(`${GITHUB_MCP_ENDPOINT_HREF}?foo=1`)).kind,
+      resolveBuiltInClient({
+        endpoint: new URL(`${GITHUB_MCP_ENDPOINT_HREF}?foo=1`),
+        redirectUrl: CALLBACK,
+      }).kind,
       "dynamic",
     );
-    assert.equal(resolveBuiltInClient(new URL(`${GITHUB_MCP_ENDPOINT_HREF}#frag`)).kind, "dynamic");
+    assert.equal(
+      resolveBuiltInClient({
+        endpoint: new URL(`${GITHUB_MCP_ENDPOINT_HREF}#frag`),
+        redirectUrl: CALLBACK,
+      }).kind,
+      "dynamic",
+    );
   });
 
   test("an unrelated endpoint gets no client", () => {
     setEnv("confidential-client", "confidential-secret");
-    assert.equal(resolveBuiltInClient(new URL("https://evil.example.test/mcp")).kind, "dynamic");
     assert.equal(
-      resolveBuiltInClient(new URL("https://api.githubcopilot.com/other")).kind,
+      resolveBuiltInClient({
+        endpoint: new URL("https://evil.example.test/mcp"),
+        redirectUrl: CALLBACK,
+      }).kind,
+      "dynamic",
+    );
+    assert.equal(
+      resolveBuiltInClient({
+        endpoint: new URL("https://api.githubcopilot.com/other"),
+        redirectUrl: CALLBACK,
+      }).kind,
       "dynamic",
     );
   });
@@ -124,11 +158,25 @@ describe("built-in MCP provider registry (#934)", () => {
   // dynamically", or the pin sends the caller to the very origin it refused.
   test("a discovered issuer on another origin refuses the client", () => {
     setEnv("confidential-client", "confidential-secret");
-    assert.deepEqual(resolveBuiltInClient(ENDPOINT, "https://evil.example.test/"), {
-      kind: "unavailable",
-      reason: "issuer_not_bound",
-      envKey: CLIENT_ID,
-    });
-    assert.equal(resolveBuiltInClient(ENDPOINT, "not-a-url").kind, "unavailable");
+    assert.deepEqual(
+      resolveBuiltInClient({
+        endpoint: ENDPOINT,
+        redirectUrl: CALLBACK,
+        issuerHint: "https://evil.example.test/",
+      }),
+      {
+        kind: "unavailable",
+        reason: "issuer_not_bound",
+        envKey: CLIENT_ID,
+      },
+    );
+    assert.equal(
+      resolveBuiltInClient({
+        endpoint: ENDPOINT,
+        redirectUrl: CALLBACK,
+        issuerHint: "not-a-url",
+      }).kind,
+      "unavailable",
+    );
   });
 });

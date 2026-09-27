@@ -906,8 +906,16 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   #staticBuiltInClient(issuerHint?: string): BuiltInClientResolution {
     // The authorized resource IS the connection's endpoint: the authorizer
     // validated it against the stored server definition before this provider
-    // existed, so no second copy of the URL can drift from it.
-    return resolveBuiltInClient(this.#authorization.resource, issuerHint);
+    // existed, so no second copy of the URL can drift from it. `this.redirectUrl`
+    // is the same href `mcpOAuthClientConfiguration` put in
+    // `clientMetadata.redirect_uris`, so a callback-relative refusal is a verdict
+    // about a URI the authorization server would really have been asked to
+    // accept, not about one re-derived from the environment.
+    return resolveBuiltInClient({
+      endpoint: this.#authorization.resource,
+      redirectUrl: this.redirectUrl,
+      issuerHint,
+    });
   }
 }
 
