@@ -160,10 +160,11 @@ type BuiltInDefinition = {
    * clients are public, and public is what this module resolves: a
    * `staticClient` with no `clientSecret` is a public pinned client. The pin is
    * not consulted anyway, because `resolveBuiltInClient` asks this field
-   * FIRST. Whether Vercel would then honour a hosted callback for a pinned
-   * `client_id` is UNVERIFIED — the measurement posted the registration
-   * endpoint and nothing else, and a Vercel-issued `client_id` asked to
-   * authorize an `https:` callback would settle it.
+   * FIRST, so a hosted callback never reaches it. Whether Vercel would then
+   * honour a hosted callback for a Vercel-issued `client_id` is UNVERIFIED —
+   * the measurement posted the registration endpoint and nothing else, and a
+   * Vercel-issued `client_id` asked to authorize an `https:` callback would
+   * settle it.
    *
    * A refusal here is the honest outcome, so the registry states it instead of
    * letting the server answer in a raw protocol error the owner has to
@@ -361,13 +362,13 @@ export const BUILT_IN_REGISTRY = {
     // A missing `client_secret` is not the reason — this module resolves a
     // public pinned client from a `client_id` alone, which is exactly what
     // Vercel publishes. The reason is the field below, which
-    // `resolveBuiltInClient` asks first: a loopback-only server never reaches
-    // the pin. Whether Vercel would then honour a hosted callback for a pinned
-    // `client_id` is UNVERIFIED: the 2026-09-27 measurement posted the
-    // registration endpoint and nothing else, and a Vercel-issued `client_id`
-    // asked to authorize an `https:` callback would settle it. The pinned
-    // issuer is `VERCEL_MCP_STORED_ISSUER`, and the verified-pull seam enforces
-    // it, the same way it does for Railway.
+    // `resolveBuiltInClient` asks first: a hosted callback never reaches the
+    // pin. Whether Vercel would then honour a hosted callback for a
+    // Vercel-issued `client_id` is UNVERIFIED: the 2026-09-27 measurement
+    // posted the registration endpoint and nothing else, and a Vercel-issued
+    // `client_id` asked to authorize an `https:` callback would settle it. The
+    // pinned issuer is `VERCEL_MCP_STORED_ISSUER`, and the verified-pull seam
+    // enforces it, the same way it does for Railway.
     //
     // The one built-in whose server Alfred cannot register with from a hosted
     // deployment. Everything below it — the scopes, the catalog policy, the

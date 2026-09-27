@@ -32,21 +32,26 @@ Vercel is the only one of the six that refuses, and it accepts only
 `BETTER_AUTH_URL` (`mcpOAuthClientConfiguration`, `connections/mcp/oauth.ts`),
 so a hosted deployment can only ever present an `https://` URI.
 
-This is a policy wall. Three of the four ways around it are closed on measured
-or stated grounds; the fourth, pinning, is refused by a rule Alfred consults
-before the pin, and whether Vercel would then honour a hosted callback is
-UNVERIFIED:
+This is a policy wall, and three of the four ways around it are closed on
+measured or stated grounds. The pin is closed for a hosted callback by a rule
+Alfred consults first, and whether Vercel would then honour one is UNVERIFIED:
+a Vercel-issued `client_id` asked to authorize an `https:` callback would settle
+it. The loopback redirect is closed by measurement and by Vercel's stated terms,
+and the dashboard by a measured `404`. The fourth, Vercel Connect, rests on
+Vercel's documentation rather than on anything measured here, so it is neither
+counted closed nor dismissed here:
 
 - **Pin a client.** Nothing Alfred can see blocks one: Vercel publishes
   `token_endpoint_auth_methods_supported: ["none"]`, so its registered clients
-  are public — the ordinary RFC 7591 shape, and the shape Alfred's own `static`
-  arm resolves, since it omits an absent `clientSecret`. The pin is not
-  consulted anyway: `resolveBuiltInClient` asks `clientRegistrationRedirects`
-  first, so a loopback-only server never reaches it. Whether Vercel would then
-  honour a hosted callback for a Vercel-issued `client_id` is UNVERIFIED,
-  because the 2026-09-27 measurement posted the registration endpoint and
-  nothing else. A Vercel-issued `client_id` asked to authorize an `https:`
-  callback would settle it.
+  are public — what Alfred's own RFC 7591 registration asks for
+  (`token_endpoint_auth_method: "none"`, `connections/mcp/oauth.ts`) and what
+  its `static` arm resolves, since it omits an absent `clientSecret`. The pin is
+  not consulted anyway: `resolveBuiltInClient` asks
+  `clientRegistrationRedirects` first, so a hosted callback never reaches it.
+  Whether Vercel would then honour a hosted callback for a Vercel-issued
+  `client_id` is UNVERIFIED, because the 2026-09-27 measurement posted the
+  registration endpoint and nothing else. A Vercel-issued `client_id` asked to
+  authorize an `https:` callback would settle it.
 - **Use a loopback redirect and collect the code out of band.** Technically the
   registration succeeds, which is why it was considered, and it is declined on
   two grounds. One is Vercel's stated intent rather than a protocol
