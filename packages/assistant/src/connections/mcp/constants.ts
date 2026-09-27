@@ -126,16 +126,23 @@ export const RAILWAY_MCP_STORED_ISSUER = "https://backboard.railway.com/" as con
  * `https://…/api/integrations/mcp/callback` URI. Vercel accepts only
  * `http://localhost[:port]/…`, which is unreachable from a hosted deployment.
  *
- * This is a POLICY wall, not a configuration mistake, and it does not lift by
- * pinning a client: Vercel publishes `token_endpoint_auth_methods_supported:
- * ["none"]`, so it never issues a `client_secret` and there is no app identity
- * to approve. Its docs state that "Vercel MCP only supports AI clients that have
- * been reviewed and approved by Vercel" and list 14 approved clients — every
- * local one authorizing over loopback, and the two hosted ones (ChatGPT,
- * Claude) vendor-mediated with Vercel's own pre-registered `client_id`. There is
- * no dashboard screen to register a client (`…/~/settings/mcp` is a 404) and
- * Vercel Connect, the sanctioned hosted path, needs the app deployed ON Vercel
- * with a linked project. Alfred runs on Railway, so none of it applies.
+ * This is a POLICY wall, not a configuration mistake. Pinning a client does not
+ * answer it: Vercel publishes `token_endpoint_auth_methods_supported:
+ * ["none"]`, so its registered clients are public — the ordinary RFC 7591
+ * shape, and no reason on its own that a hosted client cannot exist — and what
+ * is missing is a confidential client, which there is none of to register
+ * through the paths that need one. That a pinned client would then be refused
+ * at `/oauth/authorize` is UNVERIFIED: the measurement above posted the
+ * registration endpoint and nothing else, and a Vercel-issued `client_id`
+ * asked to authorize an `https:` callback would settle it. Its docs state that
+ * "Vercel MCP only supports AI clients that have been reviewed and approved by
+ * Vercel" and list 14 approved clients — every local one authorizing over
+ * loopback, and the two hosted ones (ChatGPT, Claude) vendor-mediated with
+ * Vercel's own pre-registered `client_id`. That list is evidence of Vercel's
+ * stated intent, not a technical constraint. There is no dashboard screen to
+ * register a client (`…/~/settings/mcp` is a 404) and Vercel Connect, the
+ * sanctioned hosted path, needs the app deployed ON Vercel with a linked
+ * project. Alfred runs on Railway, so none of it applies.
  *
  * Two further measurements say do not work around it. The endpoint is
  * IP-keyed: four different `client_name`/port registrations from one address
