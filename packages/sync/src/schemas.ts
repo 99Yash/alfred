@@ -45,6 +45,15 @@ import { z } from "zod";
 // second import path for it only creates a choice with no right answer.
 export { jsonRecordSchema, memorySourceSchema, type MemorySource };
 
+/**
+ * The shape a fact's value may hold ONCE STORED — in the untyped
+ * `user_facts.value` jsonb column, in the `z.unknown()` of
+ * {@link syncedFactSchema}, and in the `factCreate` / `factEdit` mutator args a
+ * browser pushes. It is a persisted protocol contract: narrowing it would
+ * refuse values already in the wild, so it stays recursive.
+ *
+ * It is NOT the shape to hand a model. See {@link modelFactValueSchema}.
+ */
 export const factValueSchema = z.union([
   z.string(),
   z.number(),
@@ -54,6 +63,44 @@ export const factValueSchema = z.union([
 ]);
 
 export type FactValue = z.infer<typeof factValueSchema>;
+
+const factValueScalarSchema = z.union([z.string(), z.number(), z.boolean()]);
+
+/**
+ * The MODEL-FACING bound on {@link factValueSchema}: a scalar, an array of
+ * scalars, or a record whose values are all scalars. Every arm is a member of
+ * `factValueSchema`, so anything this schema accepts can still be stored and
+ * read back — the bound only describes the value to a model, it never changes
+ * what a stored fact may be.
+ *
+ * The bound is not a nicety. `factValueSchema`'s recursive `z.array(jsonValueSchema)`
+ * arm becomes `anyOf[…].items = { $ref }` in JSON Schema, and `generateObject`
+ * sends its `responseSchema` through `@ai-sdk/google`'s converter at a call site
+ * with no `try/catch` (`responseSchema` in `google-language-model`, unlike the
+ * tool-declaration path, which does fall back to `parametersJsonSchema`).
+ * Google cannot express a recursive reference, so every extraction on the Gemini
+ * leg threw before the request was built — silently, because
+ * `workflow-operations.ts` catches per document. `additionalProperties` is
+ * ignored by that converter, which is why the *record* arm degrades harmlessly
+ * and only the *array* arm is fatal.
+ *
+ * Objects are allowed only as the direct value of a top-level key, never nested
+ * inside an array and never deeper than one level. A fact value is "the simplest
+ * correct shape" — an atomic value, or a shallow record like a relationship's
+ * `{ role, since? }` — so the bound drops only shapes extraction does not emit.
+ * `null` is deliberately absent: `factValueSchema` rejects it today, and
+ * accepting it here would widen rather than narrow.
+ *
+ * Sibling precedent for the same constraint: `propositionValueSchema` in
+ * `@alfred/contracts`.
+ */
+export const modelFactValueSchema = z.union([
+  factValueScalarSchema,
+  z.array(factValueScalarSchema),
+  z.record(z.string(), factValueScalarSchema),
+]);
+
+export type ModelFactValue = z.infer<typeof modelFactValueSchema>;
 
 export const preferenceValueSchema = z.union([factValueSchema, z.null()]);
 
