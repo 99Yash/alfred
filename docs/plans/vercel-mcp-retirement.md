@@ -37,11 +37,12 @@ measured or stated grounds. The pin is closed for a hosted callback by a rule
 Alfred consults first, and whether Vercel would then honour one is UNVERIFIED:
 a Vercel-issued `client_id` asked to authorize an `https:` callback would settle
 it. The loopback redirect is closed by measurement and by Vercel's stated terms,
-and the dashboard by a measured `404`. The fourth, Vercel Connect, rests on
-Vercel's documentation rather than on anything measured here, so it is neither
-counted closed nor dismissed here:
+and the dashboard by a measured `404`. The fourth, Vercel Connect, is counted
+neither way here: this plan does not say where its requirements come from, and
+nothing in it measured them:
 
-- **Pin a client.** Nothing Alfred can see blocks one: Vercel publishes
+- **Pin a client.** Nothing Alfred can see blocks one, and not for want of a
+  client identity. Vercel publishes
   `token_endpoint_auth_methods_supported: ["none"]`, so its registered clients
   are public — what Alfred's own RFC 7591 registration asks for
   (`token_endpoint_auth_method: "none"`, `connections/mcp/oauth.ts`) and what
