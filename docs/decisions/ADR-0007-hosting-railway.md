@@ -6,7 +6,7 @@
 
 - Long-lived SSE + BullMQ workers + cron jobs need always-on processes; serverless (Vercel/Cloudflare Workers) doesn't fit.
 - Railway's managed Postgres + Redis with auto-injected `DATABASE_URL` / `REDIS_URL` is one-dashboard ops for a solo dev.
-- Predictable flat-ish pricing (~$10–20/mo total at personal scale).
+- ~~Predictable flat-ish pricing (~$10–20/mo total at personal scale).~~ **Superseded by [ADR-0108](./ADR-0108-infrastructure-cost-is-a-memory-shape-problem-not-a-platform-problem.md) (2026-09-27):** measured spend is **$5.16–$9.01/mo**, because Railway Hobby's $5 included-usage credit absorbs nearly all of it. This prediction was pessimistic by ~2×. The hosting choice itself is reaffirmed — the Cloudflare alternative has the identical $5 floor, so cost is not a reason to move.
 - GitHub-push deploys, multi-environment branches if needed, private networking between services.
 - Already familiar from milkpod.
 
