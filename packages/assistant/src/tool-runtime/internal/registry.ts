@@ -33,8 +33,10 @@ import {
   holdsAnyScope,
   INTEGRATION_ACTIONS,
   INTEGRATION_DISPLAY_NAMES,
+  getPath,
   integrationFromToolName,
   isLoadableIntegrationSlug,
+  isRecord,
   isSupportedPassthroughSlug,
 } from "@alfred/contracts";
 // Type-only, deliberately: importing the `integrations` VALUE here would pull
@@ -607,6 +609,92 @@ export function liveTool<
 
 const REGISTRY = new Map<ToolName, RegisteredTool>();
 
+/** Local `$ref` pointer prefix into a converted schema's own `$defs`. */
+const DEFS_REF_PREFIX = "#/$defs/";
+
+/**
+ * A `$ref` cycle in a converted JSON Schema, as the chain of references that
+ * closes it. `null` when the schema is acyclic.
+ *
+ * `z.toJSONSchema` output is genuinely `unknown` at this boundary — a JSON
+ * Schema is an open document, so `isRecord` narrows a node and `getPath`
+ * resolves a local pointer, rather than either being cast to a record type.
+ */
+function findRefCycle(
+  root: unknown,
+  node: unknown,
+  stack: readonly string[] = [],
+): string[] | null {
+  if (Array.isArray(node)) {
+    for (const entry of node) {
+      const found = findRefCycle(root, entry, stack);
+
+      if (found) return found;
+    }
+
+    return null;
+  }
+
+  if (!isRecord(node)) return null;
+
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "$ref" && typeof value === "string") {
+      if (stack.includes(value)) return [...stack, value];
+
+      // A local `$ref` points into this document's own `$defs`; any other
+      // pointer cannot close a cycle within this schema.
+      const name = value.startsWith(DEFS_REF_PREFIX) ? value.slice(DEFS_REF_PREFIX.length) : "";
+      const target = name === "" ? undefined : getPath(root, "$defs", name);
+
+      if (target !== undefined) {
+        const found = findRefCycle(root, target, [...stack, value]);
+
+        if (found) return found;
+      }
+
+      continue;
+    }
+
+    const found = findRefCycle(root, value, stack);
+
+    if (found) return found;
+  }
+
+  return null;
+}
+
+/**
+ * Refuse a tool whose model-facing schema converts to a recursive JSON Schema.
+ *
+ * The failure this prevents is provider-specific, total, and silent: Google
+ * rejects the whole function-declaration set on a `$ref` cycle, so one cyclic
+ * tool breaks every tool-calling request routed to Gemini while reporting
+ * success at the run level. See the call site for the incident.
+ */
+function assertNoRecursiveModelSchema(tool: RegisteredTool): void {
+  let converted: unknown;
+
+  try {
+    converted = z.toJSONSchema(tool.modelInputSchema, { io: "input" });
+  } catch {
+    // A schema Zod cannot represent is the budget estimator's problem, not this
+    // guard's — it degrades to a name-and-description estimate there.
+    return;
+  }
+
+  const cycle = findRefCycle(converted, converted);
+
+  if (cycle) {
+    throw new Error(
+      `[tools] '${tool.name}' modelInputSchema converts to a recursive JSON Schema ` +
+        `(${cycle.join(" -> ")}) — Google refuses the entire function-declaration set when any ` +
+        "schema in it is recursive, so every tool-calling request to Gemini would fail. Declare a " +
+        "bounded model-facing schema (see modelJsonObjectSchema) and keep the recursive one for " +
+        "server-side parsing",
+    );
+  }
+}
+
 /**
  * Cached sorted snapshot for {@link listRegisteredTools}. The registry is
  * write-once at boot and frozen thereafter, so the sorted copy is stable for
@@ -718,6 +806,27 @@ export function registerTool(tool: RegisteredTool): void {
       );
     }
   }
+
+  // A model-facing schema that converts to a `$ref` cycle is refused at boot.
+  //
+  // Zod cannot inline a true self-reference (`reused: "inline"` leaves it
+  // intact), so a schema reaching `jsonValueSchema` emits a `$defs` entry whose
+  // `items`/`additionalProperties` point back at itself. Google rejects the
+  // ENTIRE function-declaration set when it sees one —
+  // `AI_UnsupportedFunctionalityError: Google schema conversion does not
+  // support recursive JSON Schema references` — so the blast radius is every
+  // tool-calling request on that provider, not the tool that carries the cycle.
+  // Anthropic and OpenAI accept `$ref`, which is why this presented as a
+  // Gemini-only nightly failure: the `process` step of memory extraction ran
+  // 0-of-320 tool-calling requests from 2026-09-11 while every tool-less
+  // `generateObject` call on the same model kept succeeding.
+  //
+  // Declared a model-facing narrowing instead — `modelJsonObjectSchema` — so the
+  // description the model sees is bounded while server-side parsing stays
+  // recursive and strict. Refused at boot, like every other declaration guard
+  // here, because the alternative is a silent provider-specific outage that
+  // reports success.
+  assertNoRecursiveModelSchema(tool);
 
   // `question` is a protocol too (ADR-0099): the dispatcher reads `questions`
   // and `answers` off the call (see `questionToolInput`), forces the approval

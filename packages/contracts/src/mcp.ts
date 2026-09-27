@@ -17,7 +17,7 @@ import type { CatalogSlug } from "./integrations";
 import { LOOP_ENTITY_PROVIDERS } from "./loop-key";
 import { OBJECT_STATE_CATEGORIES } from "./integration-objects";
 import { TOOL_RISK_TIERS } from "./tools";
-import { jsonObjectSchema, jsonValueSchema } from "./user-model";
+import { jsonObjectSchema, jsonValueSchema, modelJsonObjectSchema } from "./user-model";
 
 // ---------------------------------------------------------------------------
 // Connection state machine (durable half). Owned here so the DB column
@@ -557,8 +557,18 @@ export const mcpCallInput = z
      * Opaque MCP arguments — a JSON object, unreshaped. `z.record` keeps all
      * string keys (no stripping) so nothing a JSON-Schema-valid MCP call needs is
      * lost crossing dispatch's envelope re-parse.
+     *
+     * `modelJsonObjectSchema`, not the recursive `jsonObjectSchema`: an MCP
+     * server may legitimately declare a nested object, but describing that
+     * nesting here converts to a `$ref` cycle, which makes Google reject the
+     * whole function-declaration set — so `mcp.call` would be uncallable on
+     * every Gemini leg, not merely imprecise. The bound costs fidelity for a
+     * tool whose arguments nest deeper than two levels, and nothing else:
+     * whatever the model returns is validated by the broker against the
+     * server's real schema (`McpExecutionBroker.callTool`), so a call that fits
+     * still succeeds. Raise the bound here if a connected server needs it.
      */
-    arguments: jsonObjectSchema,
+    arguments: modelJsonObjectSchema,
   })
   .strict();
 

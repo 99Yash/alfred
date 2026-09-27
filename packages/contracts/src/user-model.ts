@@ -516,6 +516,43 @@ export const jsonObjectSchema = z.record(z.string(), jsonValueSchema);
 
 export type JsonObject = z.infer<typeof jsonObjectSchema>;
 
+/**
+ * The model-facing counterpart to {@link jsonValueSchema}, bounded to two levels.
+ *
+ * {@link jsonValueSchema} is a `z.lazy` self-reference, so `z.toJSONSchema`
+ * emits a `$defs` entry whose `anyOf[4].items` and `anyOf[5].additionalProperties`
+ * both `$ref` back at that same entry. Zod cannot inline a true cycle — `reused:
+ * "inline"` leaves it intact — so the reference has to be bounded here instead.
+ *
+ * This is not a cosmetic narrowing. Google rejects the ENTIRE function-declaration
+ * set when any one schema in it carries a recursive `$ref`
+ * (`AI_UnsupportedFunctionalityError: Google schema conversion does not support
+ * recursive JSON Schema references`), so a single recursive tool takes down every
+ * tool-calling request on that provider — including tools that never touch JSON.
+ * Anthropic and OpenAI accept `$ref`, which is why this presented as a
+ * provider-specific nightly failure rather than an outage.
+ *
+ * Validation is unchanged. The model is only ever *shown* this shape; whatever
+ * it returns is re-parsed with the strict recursive schema on the way in (see
+ * `jsonValueSchema.parse` at the dispatch pipeline's persistence boundary), so
+ * this loosens the description, never the contract. Two levels covers every
+ * current use: a `resourceScope` is a flat provider-specific boundary, and MCP
+ * arguments were never nested deeper on a Gemini leg because such a call could
+ * not have succeeded.
+ */
+const jsonScalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
+export const modelJsonValueSchema = z.union([
+  jsonScalarSchema,
+  z.array(jsonScalarSchema),
+  z.record(z.string(), jsonScalarSchema),
+]);
+
+/** Bounded, recursion-free object shape for a tool's model-facing input. */
+export const modelJsonObjectSchema = z.record(z.string(), modelJsonValueSchema);
+
+export type ModelJsonObject = z.infer<typeof modelJsonObjectSchema>;
+
 export const OBSERVATION_PARTICIPANT_ROLES = [
   "from",
   "to",

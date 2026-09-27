@@ -34,8 +34,10 @@ import {
   authorWorkflowInputSchema,
   authorableWorkflowDefinitionSchema,
   workflowCapabilityDisplaySchema,
+  workflowRequestedCapabilitySchema,
   workflowRequiredCapabilitySchema,
 } from "./agent";
+import { modelJsonObjectSchema } from "./user-model";
 import {
   ARTIFACT_SECTION_MAX_CHARS,
   artifactFormatSchema,
@@ -1286,9 +1288,40 @@ export const loadToolInput = z
 
 export const currentTimeInput = z.object({}).strict();
 
+/**
+ * The model-facing `resourceScope`, narrowed off the recursive
+ * `jsonObjectSchema` the domain schema uses.
+ *
+ * The domain/persisted shape stays recursive on purpose — `resourceScope` is
+ * stored, re-read, and compared against real resolved capabilities. What the
+ * model is *shown* does not have to be: a recursive Zod schema converts to a
+ * `$ref` cycle, and Google rejects the whole function-declaration set when it
+ * sees one, so the recursion has to stop at the model boundary. Same
+ * `refine` as the domain field, so an empty scope is still refused identically.
+ * See {@link modelJsonObjectSchema} for why two levels is the bound.
+ */
+const modelResourceScope = modelJsonObjectSchema
+  .refine((value) => Object.keys(value).length > 0, "Resource scope cannot be empty")
+  .optional();
+
 export const authorWorkflowInput = coerceJsonArrayFields(
   ["capabilities", "assumptions", "externalEffects"],
-  authorWorkflowInputSchema,
+  // `safeExtend` on the outer schema: `authorWorkflowInputSchema` carries a
+  // `superRefine` (the workflowId/expectedRowVersion pairing), and Zod v4
+  // refuses a plain `extend` over any key on a schema containing a refinement.
+  // The inner capability is rebuilt from `.shape` for the same reason — it has
+  // a `.refine()` on `resourceScope`.
+  authorWorkflowInputSchema.safeExtend({
+    capabilities: z
+      .array(
+        z.object({
+          ...workflowRequestedCapabilitySchema.shape,
+          resourceScope: modelResourceScope,
+        }),
+      )
+      .min(1)
+      .max(50),
+  }),
 );
 
 export const recoverWorkflowInput = z
@@ -1302,18 +1335,31 @@ export const recoverWorkflowInput = z
 // does not repeat the full tool-name enum for every nested definition field.
 // The model only copies these server-produced names; runtime parsing still uses
 // the narrowed contract schema inside `activateWorkflowDefinition`.
-const copiedWorkflowCapabilitySchema = workflowRequiredCapabilitySchema.extend({
-  tool: z.string().min(1).max(200),
-});
+// Rebuilt from `.shape` rather than `extend`ed: the domain capability schema
+// carries a `.refine()` on `resourceScope`, and Zod v4 refuses both a plain
+// `extend` over a refined key and a `safeExtend` that also re-narrows `tool`
+// (its override type collapses to `never`). Spreading the shape drops the
+// refinement wrapper, so the only rule the model-facing copy adds is the
+// recursion-free `resourceScope` plus the narrower `tool`.
+const copiedWorkflowCapabilitySchema = z
+  .object({
+    ...workflowRequiredCapabilitySchema.shape,
+    // The recursion-free narrowing of `resourceScope`; see `modelResourceScope`.
+    resourceScope: modelResourceScope,
+  })
+  .extend({ tool: z.string().min(1).max(200) });
 
 const copiedWorkflowDefinitionSchema = authorableWorkflowDefinitionSchema.extend({
   allowedTools: z.array(z.string().min(1).max(200)).max(100),
   requiredCapabilities: z.array(copiedWorkflowCapabilitySchema).max(50),
 });
 
-const copiedWorkflowCapabilityDisplaySchema = workflowCapabilityDisplaySchema.extend({
-  tool: z.string().min(1).max(200),
-});
+const copiedWorkflowCapabilityDisplaySchema = z
+  .object({
+    ...workflowCapabilityDisplaySchema.shape,
+    resourceScope: modelResourceScope,
+  })
+  .extend({ tool: z.string().min(1).max(200) });
 
 export const activateWorkflowInput = coerceJsonArrayFields(
   ["resolvedAccounts", "resolvedCapabilities"],
