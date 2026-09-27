@@ -148,11 +148,14 @@ type BuiltInDefinition = {
    * 2026-09-27 by registering Alfred's real production callback against each.
    *
    * `"loopback-only"` names a server that accepts `http://localhost[:port]/…`
-   * and refuses everything else with `400 invalid_redirect_uri`. Alfred's
-   * callback is derived from `BETTER_AUTH_URL`, so a hosted deployment can only
-   * ever present an `https://` URI and is refused before it can authorize. It is
-   * not a configuration mistake and it does not lift by pinning a client: such a
-   * server issues no `client_secret`
+   * and refuses everything else with `400 invalid_redirect_uri`. The
+   * restriction is a fact about the CALLBACK, so it is judged against the
+   * callback this deployment would register rather than decided once for every
+   * caller: a local Alfred, whose `BETTER_AUTH_URL` is `http://localhost:3001`,
+   * is admitted and authorizes normally, and a hosted one, which can only ever
+   * present an `https://` URI, is refused before it can authorize. A hosted
+   * refusal is not a configuration mistake and it does not lift by pinning a
+   * client: such a server issues no `client_secret`
    * (`token_endpoint_auth_methods_supported: ["none"]`), so there is no app
    * identity for an operator to register, and a pinned client would carry the
    * same unreachable redirect URI to `/oauth/authorize` and be refused there.
@@ -350,17 +353,19 @@ export const BUILT_IN_REGISTRY = {
     endpointHref: VERCEL_MCP_ENDPOINT_HREF,
     // No `staticClient`: the authorization server publishes a
     // `registration_endpoint`, and a pin would not help — it issues no client
-    // secret, so there is no app identity to register, and the unreachable
-    // callback would be refused at `/oauth/authorize` instead. The pinned issuer
-    // is `VERCEL_MCP_STORED_ISSUER`, and the verified-pull seam enforces it, the
+    // secret, so there is no app identity to register, and a pinned client would
+    // carry the same callback a hosted deployment cannot register to
+    // `/oauth/authorize`, where it is refused. The pinned issuer is
+    // `VERCEL_MCP_STORED_ISSUER`, and the verified-pull seam enforces it, the
     // same way it does for Railway.
     //
-    // The one built-in whose server Alfred cannot register with from a hosted
-    // deployment. Everything below it — the scopes, the catalog policy, the
-    // verified pull — is real and stays: this field is what stops the authorize,
-    // not what makes the rest of the entry wrong. See `VERCEL_MCP_ENDPOINT_HREF`
-    // for the measurement and `builtInClientUnavailableMessage` for what the
-    // owner is told.
+    // The one built-in whose server Alfred cannot register with from a HOSTED
+    // deployment — a local `BETTER_AUTH_URL` authorizes against it as usual, and
+    // this field is what makes the two answers differ. Everything below it — the
+    // scopes, the catalog policy, the verified pull — is real and stays: this
+    // field is what stops the hosted authorize, not what makes the rest of the
+    // entry wrong. See `VERCEL_MCP_ENDPOINT_HREF` for the measurement and
+    // `builtInClientUnavailableMessage` for what the owner is told.
     clientRegistrationRedirects: "loopback-only",
     //
     // `openid` is the one scope the resource declares. `offline_access` buys the
@@ -527,7 +532,27 @@ const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
 );
 
 /**
- * How the built-in that owns `endpoint` wants its OAuth client obtained.
+ * What a caller knows about the connection a built-in client is being resolved
+ * for: which ENDPOINT it is, and which CALLBACK this deployment would register.
+ *
+ * `redirectUrl` is required rather than optional because the refusal it gates is
+ * relative to the callback, so the registry cannot answer without being told the
+ * callback. An optional field would have to read an absent callback as "not
+ * loopback" — a second spelling of one rule, and one a call site could omit to
+ * silently restore the hosted regression. A resolve whose answer never depends on
+ * the callback (a GitHub pin) still passes the value it already holds, because
+ * the question is "the client THIS DEPLOYMENT would get" and the deployment is
+ * half the answer.
+ */
+export type BuiltInClientRequest = {
+  readonly endpoint: URL;
+  /** The callback this deployment would register. Judged, never re-derived. */
+  readonly redirectUrl: URL;
+  readonly issuerHint?: string | undefined;
+};
+
+/**
+ * How the built-in that owns `request.endpoint` wants its OAuth client obtained.
  *
  * GitHub's authorization server supports neither RFC 7591 dynamic registration
  * nor URL-based client ids, so without a pinned client the SDK throws at
@@ -548,19 +573,22 @@ const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
  * issuer. The hint must share the pinned issuer's ORIGIN; the returned `issuer`
  * is then the discovered href, so the credential row and the client agree.
  */
-export function resolveBuiltInClient(
-  endpoint: URL,
-  issuerHint?: string | undefined,
-): BuiltInClientResolution {
-  const definition = lookupBuiltIn(endpoint);
+export function resolveBuiltInClient(request: BuiltInClientRequest): BuiltInClientResolution {
+  const definition = lookupBuiltIn(request.endpoint);
   const staticClient = definition?.staticClient;
+  const issuerHint = request.issuerHint;
 
-  // Asked FIRST, and before the pin: a server that accepts only loopback
-  // redirect URIs refuses a hosted callback whatever the client is, so there is
-  // no client to resolve and no environment line that would change the answer.
-  // Reaching the `dynamic` arm here is what produced the raw
+  // Asked FIRST, and before the pin: a server that accepts only loopback redirect
+  // URIs has no client for a non-loopback callback whatever the pin says, and no
+  // environment line would change the answer. The callback judged here is the one
+  // this provider carries in `clientMetadata.redirect_uris`, so the verdict is
+  // about a URI the authorization server would really have been asked to accept.
+  // Reaching the `dynamic` arm with a hosted callback is what produced the raw
   // `400 invalid_redirect_uri` the owner used to have to decode.
-  if (definition?.clientRegistrationRedirects === "loopback-only") {
+  if (
+    definition?.clientRegistrationRedirects === "loopback-only" &&
+    !isLoopbackCallback(request.redirectUrl)
+  ) {
     return {
       kind: "unavailable",
       reason: "authorization_server_requires_loopback",
@@ -627,4 +655,37 @@ function boundIssuer(definition: ResolvedDefinition, issuerHint: string): string
   }
 
   return hint.origin === definition.issuerOrigin ? hint.href : undefined;
+}
+
+/**
+ * True when `url` has the shape of callback a server that accepts only loopback
+ * `redirect_uris` will take: `http:` on `localhost`, on `127.0.0.0/8`, or on
+ * `::1`.
+ *
+ * NOT `isBlockedHost` from `../hosted-endpoint`, which answers the inverse and
+ * the broader question — "must never be fetched" — so read as loopback it also
+ * admits `*.internal`, `*.local`, RFC 1918 and the metadata address, every one
+ * of which such a server refuses, while its complement admits every public host
+ * and un-refuses the hosted deployment outright.
+ *
+ * The matches are EXACT, and that is what the measurement supports. A
+ * `localhost` substring or suffix test would admit `localhost.example.com`;
+ * WHATWG's parser already lowercases `hostname` and canonicalizes the IPv4
+ * spellings (`2130706433` and `0x7f.1` both arrive as `127.0.0.1`, and an
+ * out-of-range octet fails to parse at all), so neither case folding nor a
+ * decimal-form check is needed.
+ *
+ * The exactness refuses in two safe places. `https://localhost:8443` is refused
+ * because the measured set is `http:`, and `http://localhost.:3001` is refused
+ * because an FQDN trailing dot is not an exact `localhost` and `URL` does not
+ * strip it. Both err toward refusing — one developer loses a connect button
+ * rather than an owner decoding a protocol error — and both are recorded here so
+ * a later pass does not "fix" the predicate into an admission bug.
+ */
+function isLoopbackCallback(url: URL): boolean {
+  if (url.protocol !== "http:") return false;
+
+  const host = url.hostname;
+
+  return host === "localhost" || host === "[::1]" || /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(host);
 }
