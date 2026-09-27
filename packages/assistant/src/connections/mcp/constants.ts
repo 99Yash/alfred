@@ -127,14 +127,16 @@ export const RAILWAY_MCP_STORED_ISSUER = "https://backboard.railway.com/" as con
  * `http://localhost[:port]/…`, which is unreachable from a hosted deployment.
  *
  * This is a POLICY wall, not a configuration mistake. Pinning a client does not
- * answer it: Vercel publishes `token_endpoint_auth_methods_supported:
- * ["none"]`, so its registered clients are public — the ordinary RFC 7591
- * shape, and no reason on its own that a hosted client cannot exist — and what
- * is missing is a confidential client, which there is none of to register
- * through the paths that need one. That a pinned client would then be refused
- * at `/oauth/authorize` is UNVERIFIED: the measurement above posted the
- * registration endpoint and nothing else, and a Vercel-issued `client_id`
- * asked to authorize an `https:` callback would settle it. Its docs state that
+ * answer it, and not for want of a client identity: Vercel publishes
+ * `token_endpoint_auth_methods_supported: ["none"]`, so its registered clients
+ * are public — the ordinary RFC 7591 shape, and the shape Alfred's own `static`
+ * arm resolves, since it omits an absent `clientSecret`. The pin is not
+ * consulted either, because `clientRegistrationRedirects` is asked FIRST, so a
+ * loopback-only server never reaches it. Whether Vercel would then honour a
+ * hosted callback for a Vercel-issued `client_id` is UNVERIFIED: the
+ * measurement above posted the registration endpoint and nothing else, and
+ * such a `client_id` asked to authorize an `https:` callback would settle it.
+ * Its docs state that
  * "Vercel MCP only supports AI clients that have been reviewed and approved by
  * Vercel" and list 14 approved clients — every local one authorizing over
  * loopback, and the two hosted ones (ChatGPT, Claude) vendor-mediated with
