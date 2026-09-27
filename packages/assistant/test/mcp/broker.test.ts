@@ -40,6 +40,7 @@ import {
 } from "../../src/tool-runtime/mcp/recovery";
 import { _setMcpExecutionBrokerForTests } from "../../src/tool-runtime/mcp/runtime";
 import { dbBackedSkip } from "../support/db-backed";
+import { claimExpectedRejection } from "../support/expected-rejection";
 
 /**
  * DB-backed offline tests for the execution broker (PRD #540). A real
@@ -947,10 +948,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
           .from(mcpConnections)
           .where(eq(mcpConnections.id, seeded.connId))
           .for("update");
-        retryPromise = retryMcpRecoveryOperation({
-          userId: seeded.userId,
-          invocationId: seeded.invocationId,
-        });
+        retryPromise = claimExpectedRejection(
+          retryMcpRecoveryOperation({
+            userId: seeded.userId,
+            invocationId: seeded.invocationId,
+          }),
+        );
         const changedTool = { ...tool("charge_card"), description: "changed authority" };
         await publishCatalogRevision(
           {
@@ -986,10 +989,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
           .from(mcpConnections)
           .where(eq(mcpConnections.id, seeded.connId))
           .for("update");
-        retryPromise = retryMcpRecoveryOperation({
-          userId: seeded.userId,
-          invocationId: seeded.invocationId,
-        });
+        retryPromise = claimExpectedRejection(
+          retryMcpRecoveryOperation({
+            userId: seeded.userId,
+            invocationId: seeded.invocationId,
+          }),
+        );
         await upsertToolPolicy(
           {
             userId: seeded.userId,
@@ -1038,10 +1043,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
           .from(mcpConnections)
           .where(eq(mcpConnections.id, seeded.connId))
           .for("update");
-        retryPromise = retryMcpRecoveryOperation({
-          userId: seeded.userId,
-          invocationId: seeded.invocationId,
-        });
+        retryPromise = claimExpectedRejection(
+          retryMcpRecoveryOperation({
+            userId: seeded.userId,
+            invocationId: seeded.invocationId,
+          }),
+        );
         // The attacker already holds `default` on this server, and
         // `(user_id, server_id, instance_key)` is unique, so the transferred row
         // takes its own instance key.
