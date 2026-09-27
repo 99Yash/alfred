@@ -32,24 +32,43 @@ Vercel is the only one of the six that refuses, and it accepts only
 `BETTER_AUTH_URL` (`mcpOAuthClientConfiguration`, `connections/mcp/oauth.ts`),
 so a hosted deployment can only ever present an `https://` URI.
 
-This is a policy wall, and none of the four ways around it are open:
+This is a policy wall, and three of the four ways around it are closed on
+measured or stated grounds. The pin is closed for a hosted callback by a rule
+Alfred consults first, and whether Vercel would then honour one is UNVERIFIED:
+a Vercel-issued `client_id` asked to authorize an `https:` callback would settle
+it. The loopback redirect is closed by measurement and by Vercel's stated terms,
+and the dashboard by a measured `404`. The fourth, Vercel Connect, is counted
+neither way here: this plan does not say where its requirements come from, and
+nothing in it measured them:
 
-- **Pin a client.** Vercel publishes `token_endpoint_auth_methods_supported:
-  ["none"]`, so it never issues a `client_secret`; there is no app identity for
-  an operator to register. A pinned client would carry the same unreachable
-  redirect URI to `/oauth/authorize` and be refused there instead.
+- **Pin a client.** Nothing Alfred can see blocks one, and not for want of a
+  client identity. Vercel publishes
+  `token_endpoint_auth_methods_supported: ["none"]`, so its registered clients
+  are public — what Alfred's own RFC 7591 registration asks for
+  (`token_endpoint_auth_method: "none"`, `connections/mcp/oauth.ts`) and what
+  its `static` arm resolves, since it omits an absent `clientSecret`. The pin is
+  not consulted anyway: `resolveBuiltInClient` asks
+  `clientRegistrationRedirects` first, so a hosted callback never reaches it.
+  Whether Vercel would then honour a hosted callback for a Vercel-issued
+  `client_id` is UNVERIFIED, because the 2026-09-27 measurement posted the
+  registration endpoint and nothing else. A Vercel-issued `client_id` asked to
+  authorize an `https:` callback would settle it.
 - **Use a loopback redirect and collect the code out of band.** Technically the
   registration succeeds, which is why it was considered, and it is declined on
-  two grounds. Vercel's own documentation states that "Vercel MCP only supports
-  AI clients that have been reviewed and approved by Vercel", and Alfred is not
-  on the list of fourteen; working around the check is using the service outside
-  its stated terms on an endpoint that can be closed at any time. And the
-  endpoint is IP-keyed and fragile for a hosted deployment — four registrations
-  from one address with different `client_name` and port all returned the SAME
-  `client_id`, each overwriting `redirect_uris`, so two concurrent connects
-  break each other's in-flight authorization — and rate limited to
-  `x-ratelimit-limit: 20` per hour, which on a shared deployment IP is twenty
-  connects an hour for every user combined.
+  two grounds. One is Vercel's stated intent rather than a protocol
+  constraint: its documentation says "Vercel MCP only supports AI clients that
+  have been reviewed and approved by Vercel", Alfred is not on the list of
+  fourteen, and the two hosted clients on it — ChatGPT and Claude —
+  authorize with Vercel-issued `client_id`s. Reading a list is an inference
+  from a document, not a measurement. Working around the check would be using
+  the service outside its stated terms on an endpoint that can be closed at
+  any time. The other ground is measured: the endpoint is IP-keyed and
+  fragile for a hosted deployment — four registrations from one address with
+  different `client_name` and port all returned the SAME `client_id`, each
+  overwriting `redirect_uris`, so two concurrent connects break each other's
+  in-flight authorization — and rate limited to `x-ratelimit-limit: 20` per
+  hour, which on a shared deployment IP is twenty connects an hour for every
+  user combined.
 - **Register a client in the dashboard.** There is no such screen;
   `<team>/~/settings/mcp` answers `404`, and the `Agent` navigation item is a
   different product.

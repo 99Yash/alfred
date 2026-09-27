@@ -143,9 +143,12 @@ type BuiltInDefinition = {
    * What `redirect_uris` this provider's authorization server accepts from a
    * client that obtains one by RFC 7591 registration.
    *
-   * ABSENT is the normal case and means "any", which is what the RFC says and
-   * what Sentry, Linear, Notion, Polylane and Railway all do — measured
-   * 2026-09-27 by registering Alfred's real production callback against each.
+   * ABSENT is the normal case and means "unrestricted", which is the common
+   * case and what Sentry, Linear, Notion, Polylane and Railway all do —
+   * measured 2026-09-27 by registering Alfred's real production callback
+   * against each. RFC 7591 does not set the default: it specifies the
+   * registration request and leaves `redirect_uris` acceptance to the server,
+   * which is why a server may narrow it.
    *
    * `"loopback-only"` names a server that accepts `http://localhost[:port]/…`
    * and refuses everything else with `400 invalid_redirect_uri`. The
@@ -153,12 +156,19 @@ type BuiltInDefinition = {
    * callback this deployment would register rather than decided once for every
    * caller: a local Alfred, whose `BETTER_AUTH_URL` is `http://localhost:3001`,
    * is admitted and authorizes normally, and a hosted one, which can only ever
-   * present an `https://` URI, is refused before it can authorize. A hosted
-   * refusal is not a configuration mistake and it does not lift by pinning a
-   * client: such a server issues no `client_secret`
-   * (`token_endpoint_auth_methods_supported: ["none"]`), so there is no app
-   * identity for an operator to register, and a pinned client would carry the
-   * same unreachable redirect URI to `/oauth/authorize` and be refused there.
+   * present an `https://` URI, is refused before it can authorize.
+   *
+   * A hosted refusal is not a configuration mistake, and pinning a client does
+   * not answer it — not for want of a client identity. Such a server issues no
+   * secret (`token_endpoint_auth_methods_supported: ["none"]`), so its
+   * registered clients are public, and public is what this module resolves: a
+   * `staticClient` with no `clientSecret` is a public pinned client. The pin is
+   * not consulted anyway, because `resolveBuiltInClient` asks this field FIRST,
+   * so a hosted callback never reaches it. Whether Vercel would then honour a
+   * hosted callback for a Vercel-issued `client_id` is UNVERIFIED — the
+   * measurement posted the registration endpoint and nothing else, and a
+   * Vercel-issued `client_id` asked to authorize an `https://` callback would
+   * settle it.
    *
    * A refusal here is the honest outcome, so the registry states it instead of
    * letting the server answer in a raw protocol error the owner has to
@@ -352,12 +362,17 @@ export const BUILT_IN_REGISTRY = {
     canonicalResource: VERCEL_MCP_ENDPOINT_HREF,
     endpointHref: VERCEL_MCP_ENDPOINT_HREF,
     // No `staticClient`: the authorization server publishes a
-    // `registration_endpoint`, and a pin would not help — it issues no client
-    // secret, so there is no app identity to register, and a pinned client would
-    // carry the same callback a hosted deployment cannot register to
-    // `/oauth/authorize`, where it is refused. The pinned issuer is
-    // `VERCEL_MCP_STORED_ISSUER`, and the verified-pull seam enforces it, the
-    // same way it does for Railway.
+    // `registration_endpoint`, and pinning one is not a way around a hosted
+    // refusal — not for want of a client identity. Vercel issues no
+    // `client_secret`, so its registered clients are public, which is the shape
+    // this module resolves from a `client_id` alone. The reason is order rather
+    // than credentials: the field below is asked first, so a hosted callback
+    // never reaches the pin. Whether Vercel would then honour a hosted callback
+    // for a Vercel-issued `client_id` is UNVERIFIED: the 2026-09-27 measurement
+    // posted the registration endpoint and nothing else, and a Vercel-issued
+    // `client_id` asked to authorize an `https://` callback would settle it. The
+    // pinned issuer is `VERCEL_MCP_STORED_ISSUER`, and the verified-pull seam
+    // enforces it, the same way it does for Railway.
     //
     // The one built-in whose server Alfred cannot register with from a HOSTED
     // deployment — a local `BETTER_AUTH_URL` authorizes against it as usual, and
