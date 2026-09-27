@@ -30,7 +30,7 @@
  * not copy hard-coded `GITHUB_MCP_*` names.
  */
 
-import type { BuiltInMCPProvider } from "@alfred/contracts";
+import { integrationDisplayName, type BuiltInMCPProvider } from "@alfred/contracts";
 import { envFieldValue, type ServerEnv } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
@@ -85,6 +85,13 @@ type McpClientSecretEnvKey = Extract<keyof ServerEnv, `${string}_MCP_CLIENT_SECR
  *
  * The union makes the caller answer all three. `unavailable` carries the env
  * key so the connection row can state which line an operator has to set.
+ *
+ * A fourth fact is a REFUSAL that no environment line can undo: an
+ * authorization server that accepts only loopback `redirect_uris` cannot be
+ * reached by a hosted Alfred at all, so pinning a client would not help and
+ * asking for one operator to set would be a lie. That arm carries the PROVIDER
+ * rather than an env key, because there is no line to name and the sentence has
+ * to say which server refused — the one refusal whose remedy is not a setting.
  */
 export type BuiltInClientResolution =
   | { readonly kind: "dynamic" }
@@ -93,6 +100,11 @@ export type BuiltInClientResolution =
       readonly kind: "unavailable";
       readonly reason: "missing_client_id" | "issuer_not_bound";
       readonly envKey: McpClientIdEnvKey;
+    }
+  | {
+      readonly kind: "unavailable";
+      readonly reason: "authorization_server_requires_loopback";
+      readonly provider: BuiltInProvider;
     };
 
 /**
@@ -127,6 +139,29 @@ type BuiltInDefinition = {
     readonly clientIdKey: McpClientIdEnvKey;
     readonly clientSecretKey: McpClientSecretEnvKey;
   };
+  /**
+   * What `redirect_uris` this provider's authorization server accepts from a
+   * client that obtains one by RFC 7591 registration.
+   *
+   * ABSENT is the normal case and means "any", which is what the RFC says and
+   * what Sentry, Linear, Notion, Polylane and Railway all do — measured
+   * 2026-09-27 by registering Alfred's real production callback against each.
+   *
+   * `"loopback-only"` names a server that accepts `http://localhost[:port]/…`
+   * and refuses everything else with `400 invalid_redirect_uri`. Alfred's
+   * callback is derived from `BETTER_AUTH_URL`, so a hosted deployment can only
+   * ever present an `https://` URI and is refused before it can authorize. It is
+   * not a configuration mistake and it does not lift by pinning a client: such a
+   * server issues no `client_secret`
+   * (`token_endpoint_auth_methods_supported: ["none"]`), so there is no app
+   * identity for an operator to register, and a pinned client would carry the
+   * same unreachable redirect URI to `/oauth/authorize` and be refused there.
+   *
+   * A refusal here is the honest outcome, so the registry states it instead of
+   * letting the server answer in a raw protocol error the owner has to
+   * interpret. `VERCEL_MCP_ENDPOINT_HREF` records the measurement.
+   */
+  readonly clientRegistrationRedirects?: "loopback-only" | undefined;
   /**
    * OAuth scopes Alfred asks for on EVERY authorize for this provider, and the
    * one home for WHY a built-in needs a pinned ask at all.
@@ -314,9 +349,19 @@ export const BUILT_IN_REGISTRY = {
     canonicalResource: VERCEL_MCP_ENDPOINT_HREF,
     endpointHref: VERCEL_MCP_ENDPOINT_HREF,
     // No `staticClient`: the authorization server publishes a
-    // `registration_endpoint`, so this is the normal dynamic path. The pinned
-    // issuer is `VERCEL_MCP_STORED_ISSUER`, and the verified-pull seam enforces
-    // it, the same way it does for Railway.
+    // `registration_endpoint`, and a pin would not help — it issues no client
+    // secret, so there is no app identity to register, and the unreachable
+    // callback would be refused at `/oauth/authorize` instead. The pinned issuer
+    // is `VERCEL_MCP_STORED_ISSUER`, and the verified-pull seam enforces it, the
+    // same way it does for Railway.
+    //
+    // The one built-in whose server Alfred cannot register with from a hosted
+    // deployment. Everything below it — the scopes, the catalog policy, the
+    // verified pull — is real and stays: this field is what stops the authorize,
+    // not what makes the rest of the entry wrong. See `VERCEL_MCP_ENDPOINT_HREF`
+    // for the measurement and `builtInClientUnavailableMessage` for what the
+    // owner is told.
+    clientRegistrationRedirects: "loopback-only",
     //
     // `openid` is the one scope the resource declares. `offline_access` buys the
     // refresh token that keeps the connection `ready`.
@@ -510,6 +555,19 @@ export function resolveBuiltInClient(
   const definition = lookupBuiltIn(endpoint);
   const staticClient = definition?.staticClient;
 
+  // Asked FIRST, and before the pin: a server that accepts only loopback
+  // redirect URIs refuses a hosted callback whatever the client is, so there is
+  // no client to resolve and no environment line that would change the answer.
+  // Reaching the `dynamic` arm here is what produced the raw
+  // `400 invalid_redirect_uri` the owner used to have to decode.
+  if (definition?.clientRegistrationRedirects === "loopback-only") {
+    return {
+      kind: "unavailable",
+      reason: "authorization_server_requires_loopback",
+      provider: definition.provider,
+    };
+  }
+
   if (!staticClient) return { kind: "dynamic" };
   const envKey = staticClient.clientIdKey;
   const clientId = envFieldValue(envKey);
@@ -533,10 +591,27 @@ export function resolveBuiltInClient(
   };
 }
 
-/** The sentence a refused pin puts on the connection row, for the owner to read. */
+/**
+ * The sentence a refused client puts on the connection row, for the owner to
+ * read.
+ *
+ * Written for the integrations card, which shows it verbatim under "Error
+ * details", so it names the server and says what would have to be true rather
+ * than restating the protocol's own words. The loopback arm in particular must
+ * not read as a setting to change: there is no setting, and an owner who went
+ * looking for one would find nothing.
+ */
 export function builtInClientUnavailableMessage(
   resolution: Extract<BuiltInClientResolution, { kind: "unavailable" }>,
 ): string {
+  if (resolution.reason === "authorization_server_requires_loopback") {
+    return (
+      `${integrationDisplayName(resolution.provider)} only accepts OAuth clients that run on this ` +
+      "computer, so it cannot be connected to Alfred's server. Use Alfred's Vercel integration " +
+      "instead."
+    );
+  }
+
   return resolution.reason === "missing_client_id"
     ? `This server needs a pre-registered OAuth client. Set ${resolution.envKey}.`
     : "The authorization server does not match this server's pinned issuer.";
