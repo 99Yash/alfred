@@ -1,7 +1,7 @@
 import { route, meteredGenerateObject } from "@alfred/ai";
 import { confidenceSchema } from "@alfred/contracts";
 import type { Document } from "@alfred/db/schemas";
-import { factValueSchema } from "@alfred/sync";
+import { modelFactValueSchema } from "@alfred/sync";
 import { z } from "zod";
 
 /**
@@ -24,7 +24,16 @@ export const factProposalSchema = z.object({
    *   `relationship:alice@oliv.ai`, `pref:tone`.
    */
   key: z.string().min(1).max(200),
-  value: factValueSchema,
+  /**
+   * The bounded, model-facing shape — NOT the recursive storage
+   * `factValueSchema`. This schema is the `responseSchema` of a
+   * `generateObject` on the Gemini leg, and a recursive `$ref` there is fatal:
+   * `@ai-sdk/google` throws `AI_UnsupportedFunctionalityError` while building
+   * the request, with no fallback. See `modelFactValueSchema` for the full
+   * account. Every value it accepts is storable, so nothing is lost on the way
+   * into `proposeFact`.
+   */
+  value: modelFactValueSchema,
   confidence: confidenceSchema,
   /** Short justification grounded in the source — used for audit and to debug bad proposals. */
   rationale: z.string().min(1).max(500),
