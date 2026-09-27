@@ -35,6 +35,34 @@ export interface VercelProject {
   name: string;
   framework: string | null;
   latestDeploymentState: string | null;
+  /**
+   * The `owner/repo` this project is Git-linked to, or `null` when it is not
+   * linked or Vercel sent only half the pair.
+   *
+   * `null` is deliberately NOT "no repository": it also covers an unlinked
+   * project, and a caller that treats it as a wildcard (the verified pull does,
+   * because a project it cannot place may still hold the target's deployments)
+   * must not read it as an empty string. A project linked to a DIFFERENT repo is
+   * the case that rules a project out.
+   */
+  linkedRepo: string | null;
+}
+
+/**
+ * A deployment's own claim about which commit it built.
+ *
+ * Resolved from Vercel's two spellings here rather than at the call site:
+ * `githubCommit*` describes the commit that was built and `github*` the
+ * repository the project links to, and for a deployment triggered by a fork or
+ * a manual redeploy the two disagree. Which one to believe is a fact about
+ * Vercel's API, so it belongs beside the API. `ref` is its own field because a
+ * deployment can name a repository without naming a branch, and a caller has to
+ * be able to tell those apart.
+ */
+export interface VercelDeploymentGit {
+  org: string;
+  repo: string;
+  ref: string | null;
 }
 
 const listProjectsResponseSchema = z.object({
@@ -44,6 +72,10 @@ const listProjectsResponseSchema = z.object({
       name: z.string(),
       framework: z.string().nullish(),
       latestDeployments: z.array(z.object({ readyState: z.string().nullish() })).optional(),
+      link: z
+        .object({ org: z.string().nullish(), repo: z.string().nullish() })
+        .nullish()
+        .catch(null),
     }),
   ),
 });
@@ -55,6 +87,8 @@ export interface VercelDeployment {
   state: string | null;
   target: string | null;
   createdAt: number | null;
+  /** The commit this deployment built, or `null` when it names no repository. */
+  git: VercelDeploymentGit | null;
 }
 
 const listDeploymentsResponseSchema = z.object({
@@ -68,6 +102,16 @@ const listDeploymentsResponseSchema = z.object({
       target: z.string().nullish(),
       created: z.number().nullish(),
       createdAt: z.number().nullish(),
+      meta: z
+        .object({
+          githubCommitRef: z.string().nullish(),
+          githubCommitOrg: z.string().nullish(),
+          githubCommitRepo: z.string().nullish(),
+          githubOrg: z.string().nullish(),
+          githubRepo: z.string().nullish(),
+        })
+        .nullish()
+        .catch(null),
     }),
   ),
 });
@@ -166,6 +210,7 @@ export function createVercelClient(options: VercelClientOptions) {
         name: p.name,
         framework: p.framework ?? null,
         latestDeploymentState: p.latestDeployments?.[0]?.readyState ?? null,
+        linkedRepo: p.link?.org && p.link?.repo ? `${p.link.org}/${p.link.repo}` : null,
       }));
     },
 
@@ -174,20 +219,29 @@ export function createVercelClient(options: VercelClientOptions) {
       limit?: number | undefined;
     }): Promise<VercelDeployment[]> {
       const json = listDeploymentsResponseSchema.parse(
-        await client.json("/v6/deployments", {
-          label: "/v6/deployments",
+        await client.json("/v7/deployments", {
+          label: "/v7/deployments",
           query: { limit: args?.limit ?? 20, projectId: args?.projectId },
         }),
       );
 
-      return json.deployments.map((d) => ({
-        uid: d.uid,
-        name: d.name,
-        url: d.url ?? null,
-        state: d.state ?? d.readyState ?? null,
-        target: d.target ?? null,
-        createdAt: d.createdAt ?? d.created ?? null,
-      }));
+      return json.deployments.map((d) => {
+        const org = d.meta?.githubCommitOrg ?? d.meta?.githubOrg;
+        const repo = d.meta?.githubCommitRepo ?? d.meta?.githubRepo;
+
+        return {
+          uid: d.uid,
+          name: d.name,
+          url: d.url ?? null,
+          state: d.state ?? d.readyState ?? null,
+          target: d.target ?? null,
+          createdAt: d.createdAt ?? d.created ?? null,
+          // Half a repository is no repository: `org` without `repo` (or the
+          // reverse) cannot name a target, and reporting it as a partial claim
+          // would let a caller build an `owner/` target out of it.
+          git: org && repo ? { org, repo, ref: d.meta?.githubCommitRef ?? null } : null,
+        };
+      });
     },
 
     /**
