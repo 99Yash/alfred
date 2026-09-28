@@ -206,8 +206,9 @@ export const ingestionState = pgTable(
  * whose kind the source's entry does not name is stored too, with `raw_kind`
  * set to the provider's own kind (`comment.created`, `issue_comment.created`),
  * `event_type = <slug>.raw`, and `provider_delivery_id = raw:<raw_kind>:<payload_hash>`. Such a
- * row is `completed` at insert: no `ingress.deliver` job runs for it and it
- * publishes nothing. `raw_kind IS NULL` is the typed tier; every reader that
+ * row is `pending` at insert, like any other receipt: the same `ingress.deliver`
+ * job runs for it and publishes `<slug>.raw` with its kind (#990).
+ * `raw_kind IS NULL` is the typed tier; every reader that
  * folds, briefs, or triggers on receipts uses `typedEventReceipts`.
  *
  * The full unique index on `(provider, provider_delivery_id)` deduplicates
