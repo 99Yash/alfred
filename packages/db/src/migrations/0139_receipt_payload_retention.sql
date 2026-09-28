@@ -9,7 +9,7 @@ CREATE INDEX "event_receipts_payload_live_idx" ON "event_receipts" USING btree (
 -- the column (a NULL being filled back in, or one body replaced by another).
 --
 -- Why the body and not the row. Everything that later depends on a receipt
--- lives in a small column and is kept forever:
+-- lives in a small column and outlives a release:
 --
 --   (provider, provider_delivery_id)  the UNIQUE index that makes redelivery a
 --                                     no-op via onConflictDoNothing
@@ -20,29 +20,71 @@ CREATE INDEX "event_receipts_payload_live_idx" ON "event_receipts" USING btree (
 --
 -- `payload` is 100 MB of the table's 135 MB at an average 3,770 bytes a row,
 -- so the body is the expensive part and the receipt is the load-bearing part,
--- and only the body expires. One reader does want the body, but only while it
--- is inside the window: `gatherIntegrationActivity`
--- (`packages/assistant/src/briefings/gather.ts`) reads `payload` to build the
--- `get_day_shape` briefing tool's deployments line. Past the window it falls
--- back to the generic activity lines and that one collapse is lost, which is a
--- cosmetic loss on a day-shape summary rather than a wrong fact. A question
--- about an old message is still answered from `documents`/`chunks` (which dedup
--- independently on (user_id, source, source_id) and are not pruned) or from the
--- live Gmail API through the integration tools.
+-- and only the body expires.
 --
--- Deliberately NOT a row delete. Deleting rows would forfeit the dedup index
--- and the gap cursor, and a provider redelivering an event older than the
--- window would then be ingested as new — a second triage email, a second
--- reply. Nulling the body makes that impossible rather than merely unlikely,
--- because the unique key survives.
+-- READERS OF `payload`, because "nothing reads it retroactively" was the claim
+-- this migration exists to replace, and naming only some of them repeats the
+-- error. Enumerated 2026-09-28. What each does when the body is gone is stated
+-- alongside it, because three of the five fail soft and two do not.
+--
+--   1. `writeReceiptDocument` (`connections/ingestion/receipt-document.ts`),
+--      on the INSERT path, copying the body into `documents.raw`. Unaffected: it
+--      runs in the same transaction that inserts the receipt.
+--   2. `backfillReceiptDocuments`
+--      (`connections/ingestion/receipt-corpus-backfill.ts`), on a 10-minute
+--      tick, oldest-first, for a receipt that has no corpus document yet. This
+--      one does NOT fail soft. `describe(kind, payload)` is typed
+--      `(string, unknown) => InboundDescription` and never refuses a null, so a
+--      released receipt still yields a document — a hollow one, with `raw = NULL`
+--      and a body flattened from nothing. The `notExists` filter then stops
+--      selecting it, so the real corpus copy is never recovered. A release must
+--      therefore never outrun this backfill.
+--   3. The object-state fold, `activity-consumer.ts:105`, reading the body at
+--      deliver time for one receipt by id. Unaffected: the row is minutes old.
+--   4. `gatherIntegrationActivity` (`briefings/gather.ts:747`), backing the
+--      `get_day_shape` briefing tool over a `sinceIngestedAt` -> now window.
+--      Past the window it falls back to generic activity lines and the
+--      `seenDeployments` collapse is lost (the #1167 fix for "one machine relay
+--      reads as several units of the user's day"). Cosmetic on a day-shape
+--      summary, not a wrong fact.
+--   5. `backfill-object-state-github-committed.ts:48`, replaying EVERY stored
+--      github `pull_request` body to rebuild `integration_objects`. `safeParse`
+--      fails on a null, so released rows are skipped SILENTLY, and a rebuild
+--      from receipts therefore covers only the retention window — the cost that
+--      matters. Nothing recovers it: the corpus document holds a second copy of
+--      the body, but no reader rebuilds object state from `documents.raw`, and
+--      `objectStateStore.applyEvent` takes a payload as an argument rather than
+--      reading one. `integration_objects` is rebuildable from history only while
+--      that history is still inside the window.
+--
+-- Not readers, checked and excluded: `outbox-relay.ts` and `replay.ts` read
+-- `events_outbox.payload`, a different table; `verified-pull/driver.ts:273`
+-- passes an in-memory minted body, never a stored one.
+--
+-- A question about an old message is still answered from `documents`/`chunks`
+-- (which dedup independently on (user_id, source, source_id) and are not
+-- pruned) or from the live Gmail API through the integration tools. That is not
+-- the same as rebuilding a projection: item 5 is a rebuild, and it is the one
+-- that stops working.
+--
+-- Deliberately NOT a row delete. Receipts are never deleted DIRECTLY: the guard
+-- below refuses that at `pg_trigger_depth() = 1`, and the depth-2 arm is the FK
+-- cascade from a `user` or `integration_credentials` wipe, which is intended.
+-- Deleting rows for retention would forfeit the dedup index and the gap cursor,
+-- and a provider redelivering an event older than the window would then be
+-- ingested as new — a second triage email, a second reply. Nulling the body
+-- makes that impossible rather than merely unlikely, because the unique key
+-- survives.
 --
 -- The age policy is NOT in this trigger. This permits the transition; the
 -- window belongs to the reaper that performs it, so the rule lives in one place
 -- and can be changed without a migration.
 --
 -- The partial index above is the reaper's: it makes expiry an index-driven scan
--- whose size tracks the retention window rather than the age of the table, since
--- a receipt leaves the index as soon as its body is released.
+-- whose size tracks the LIVE BODIES rather than the age of the table, since a
+-- receipt leaves the index as soon as its body is released. Not exactly the
+-- retention window: a non-`completed` receipt keeps its body, and so stays in
+-- the index, until it is released.
 CREATE OR REPLACE FUNCTION event_receipts_guard_evidence() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
