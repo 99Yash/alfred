@@ -36,7 +36,7 @@
 #                   default 15. Below this, a non-progressing phase is treated as
 #                   never having run rather than as stuck. See the guard below.
 #   DRY_RUN         default 0
-#   ENGINE          which CLI runs a phase: `claude` (default) or `opencode`.
+#   ENGINE          which CLI runs a phase: `claude` (default), `opencode`, or `codex`.
 #                   `opencode` is NOT equivalent, and three differences matter:
 #                     1. It has no `--max-budget-usd`. MAX_BUDGET_USD and
 #                        REVIEW_BUDGET_USD are IGNORED, so MAX_ITER is the only
@@ -49,8 +49,35 @@
 #                        subagents. That is a Claude Code construct. Under opencode
 #                        the model runs the three lanes itself, in one context,
 #                        which is what REVIEW.md's cost note says to avoid.
-#   MODEL           model for ENGINE=opencode, as `provider/model`. Default
-#                   `opencode/muse-spark-1.3-contributor-free`. Ignored by `claude`.
+#                   `codex` (`codex exec`) differs on budgets the same way: it takes
+#                   no per-run USD cap, so MAX_ITER is again the only ceiling. It
+#                   loads AGENTS.md, and layers its own ~/.codex/config.toml on top.
+#                   It runs sandboxed — see SANDBOX.
+#   WRITE_ENGINE    engine for the two phases that EDIT code and push — `implement`
+#                   and `revise`. Defaults to `$ENGINE`. Setting it separately is
+#                   how one campaign runs its write phases on a different model from
+#                   its read phases, e.g.
+#                     ENGINE=codex WRITE_ENGINE=opencode MODEL=opencode/space-bunny-free
+#                   runs design/review/land under codex and implement/revise under
+#                   opencode. Rationale: the write phases are the ones that must not
+#                   be cheap, and the read phases are the ones that want the stronger
+#                   reader. Cost: the two engines share no session, so the handoff
+#                   between them is the item file and nothing else.
+#   MODEL           model for ENGINE=opencode / WRITE_ENGINE=opencode, as
+#                   `provider/model`. Default
+#                   `opencode/muse-spark-1.3-contributor-free`. Ignored otherwise.
+#   CODEX_MODEL     model for codex phases. Default `gpt-5.6-sol`.
+#                   NOT `gpt-6-sol`: that id is refused under
+#                   `auth_mode = "chatgpt"` ("not supported when using Codex with a
+#                   ChatGPT account") and is absent from ~/.codex/models_cache.json.
+#                   On an API-key login, override this.
+#   CODEX_EFFORT    codex `model_reasoning_effort`. Default `high`. The key lives
+#                   in ~/.codex/config.toml, which is where it is read from when
+#                   unset here.
+#   SANDBOX         codex sandbox policy: `workspace-write` (default) or
+#                   `danger-full-access`. A push phase needs network for `git push`
+#                   and `gh pr create`; if one fails on a network refusal, that is
+#                   this knob.
 
 set -euo pipefail
 
@@ -62,14 +89,54 @@ DRY_RUN="${DRY_RUN:-0}"
 ITEM="${ITEM:-}"
 ENGINE="${ENGINE:-claude}"
 MODEL="${MODEL:-opencode/muse-spark-1.3-contributor-free}"
+WRITE_ENGINE="${WRITE_ENGINE:-$ENGINE}"
+CODEX_MODEL="${CODEX_MODEL:-gpt-5.6-sol}"
+CODEX_EFFORT="${CODEX_EFFORT:-high}"
+SANDBOX="${SANDBOX:-workspace-write}"
 
-case "$ENGINE" in
-  claude|opencode) ;;
-  *) echo "unknown ENGINE $ENGINE — expected claude or opencode" >&2; exit 1 ;;
+# Validation runs against BOTH engines, not just $ENGINE. WRITE_ENGINE defaults to
+# $ENGINE, so a run that sets only WRITE_ENGINE would otherwise validate a typo and
+# carry it silently until the push phase failed two phases into the item.
+for _eng in "$ENGINE" "$WRITE_ENGINE"; do
+  case "$_eng" in
+    claude|opencode|codex) ;;
+    *) echo "unknown engine $_eng — expected claude, opencode, or codex" >&2; exit 1 ;;
+  esac
+  command -v "$_eng" >/dev/null || { echo "$_eng is not on PATH" >&2; exit 1; }
+done
+
+case "$SANDBOX" in
+  workspace-write|danger-full-access) ;;
+  *) echo "unknown SANDBOX $SANDBOX — expected workspace-write or danger-full-access" >&2; exit 1 ;;
 esac
-command -v "$ENGINE" >/dev/null || { echo "$ENGINE is not on PATH" >&2; exit 1; }
-MODEL_LABEL=""
-[[ "$ENGINE" == "opencode" ]] && MODEL_LABEL=" ($MODEL, no budget cap)"
+
+# Which engine runs one phase. `implement` and `revise` are the write phases —
+# they edit files, commit, push, and open PRs. Every other phase the loop reaches
+# (`cover`, `design`, `review`, `land`) only reads the repo and writes the item
+# file and state.json.
+engine_for_phase() {
+  case "$1" in
+    implement|revise) printf '%s' "$WRITE_ENGINE" ;;
+    *)                printf '%s' "$ENGINE" ;;
+  esac
+}
+
+engine_label() {
+  case "$1" in
+    opencode) printf '%s (%s)' "$1" "$MODEL" ;;
+    codex)    printf '%s (%s, effort %s)' "$1" "$CODEX_MODEL" "$CODEX_EFFORT" ;;
+    *)        printf '%s' "$1" ;;
+  esac
+}
+
+# Name each distinct engine once. When the write phases run elsewhere the header has
+# to say so, or an operator reading a mid-run banner cannot tell which model is
+# about to touch the worktree.
+if [[ "$WRITE_ENGINE" != "$ENGINE" ]]; then
+  MODEL_LABEL="read phases: $(engine_label "$ENGINE") | write phases: $(engine_label "$WRITE_ENGINE")"
+else
+  MODEL_LABEL="$(engine_label "$ENGINE")"
+fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
@@ -234,7 +301,7 @@ build_prompt() {
 
 # --- main loop ------------------------------------------------------------
 
-echo "campaign: $SLUG   base: $BASE_BRANCH   engine: $ENGINE${MODEL_LABEL}   budget: \$$MAX_BUDGET_USD/iter, \$$REVIEW_BUDGET_USD for review"
+echo "campaign: $SLUG   base: $BASE_BRANCH   engines: $MODEL_LABEL   budget: \$$MAX_BUDGET_USD/iter, \$$REVIEW_BUDGET_USD for review"
 [[ -n "$ITEM" ]] && echo "restricted to item $ITEM"
 
 completed=0
@@ -269,8 +336,10 @@ for ((i = 1; i <= MAX_ITER; i++)); do
     *)      iter_budget="$MAX_BUDGET_USD" ;;
   esac
 
+  phase_engine="$(engine_for_phase "$phase")"
+
   echo
-  echo "===== iteration $i/$MAX_ITER · item $id · phase $phase (round $round) · budget \$$iter_budget ====="
+  echo "===== iteration $i/$MAX_ITER · item $id · phase $phase (round $round) · budget \$$iter_budget · engine $(engine_label "$phase_engine") ====="
   echo "$title"
 
   prompt="$(build_prompt "$id" "$title" "$phase" "$round" "$item_file" "$worktree")"
@@ -293,10 +362,19 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   fifo="$(mktemp -u -t campaign-fifo.XXXXXX)"
   mkfifo "$fifo"
 
-  # Two engines, two event schemas. `claude` streams `stream_event`/`assistant`/
-  # `result`; `opencode --format json` streams `text`/`tool_use`/`step_finish` with
-  # the payload under `.part`. One filter reads both so the console looks the same.
-  jq -j --unbuffered '
+  # Three engines, and only two of them share an event schema. `claude` streams
+  # `stream_event`/`assistant`/`result`; `opencode --format json` streams
+  # `text`/`tool_use`/`step_finish` with the payload under `.part`. One jq filter
+  # reads both so the console looks the same.
+  #
+  # `codex` is NOT run through that filter. Its `--json` event schema is not
+  # something this script should be coupled to for cosmetics, so codex runs on its
+  # plain-text stdout, which already narrates its own progress, and `cat` carries
+  # it through. Same FIFO, same liveness property, no guessed jq paths.
+  if [[ "$phase_engine" == "codex" ]]; then
+    cat < "$fifo" &
+  else
+    jq -j --unbuffered '
         if .type == "stream_event" then
           ( .event
             | select(.type == "content_block_delta")
@@ -320,10 +398,11 @@ for ((i = 1; i <= MAX_ITER; i++)); do
                                          | tostring | .[0:100])\n" )
         else empty end
       ' < "$fifo" &
+  fi
   JQ_PID=$!
 
   set +e
-  case "$ENGINE" in
+  case "$phase_engine" in
     claude)
       printf '%s' "$prompt" | claude -p \
           --permission-mode bypassPermissions \
@@ -341,10 +420,33 @@ for ((i = 1; i <= MAX_ITER; i++)); do
           --auto \
           --format json > "$fifo" &
       ;;
+    codex)
+      # Same no-budget-flag caveat as opencode: MAX_ITER is the only ceiling.
+      #
+      # `--add-dir` is the load-bearing flag. A phase's working root is the repo,
+      # but the item file and state.json it MUST write live in .campaign/, and a
+      # workspace-write sandbox refuses writes outside that root without it — so a
+      # phase would fail at its LAST step, after the thinking was already paid for
+      # and the code already written. `-c approval_policy=never` matches the
+      # unattended posture the other two engines take (bypassPermissions / --auto):
+      # the loop has nobody to answer a prompt, and a blocked prompt is
+      # indistinguishable from a hang.
+      #
+      # `--ephemeral` mirrors claude's --no-session-persistence: one phase per
+      # process, nothing carried between iterations.
+      printf '%s' "$prompt" | codex exec \
+          -C "$REPO_ROOT" \
+          --model "$CODEX_MODEL" \
+          -c "model_reasoning_effort=$CODEX_EFFORT" \
+          -c "approval_policy=never" \
+          -s "$SANDBOX" \
+          --add-dir "$CAMPAIGN_DIR" \
+          --ephemeral > "$fifo" &
+      ;;
   esac
   CHILD_PID=$!
   wait "$CHILD_PID"
-  claude_status=$?
+  phase_status=$?
   CHILD_PID=""   # the trap has already reaped it on the interrupt path
   wait "$JQ_PID" 2>/dev/null
   JQ_PID=""
@@ -355,7 +457,7 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   after="$(signature "$id")"
 
   # 130 = SIGINT, 143 = SIGTERM. An operator kill is not a stuck item.
-  if [[ "$INTERRUPTED" == "1" || "$claude_status" == "130" || "$claude_status" == "143" ]]; then
+  if [[ "$INTERRUPTED" == "1" || "$phase_status" == "130" || "$phase_status" == "143" ]]; then
     echo
     echo "item $id interrupted after ${elapsed}s in phase ${before%%:*} — left untouched."
     echo "resume with: scripts/campaign.sh   (or ITEM=$id scripts/campaign.sh)"
@@ -375,7 +477,7 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   # run instead and leave state alone.
   if [[ "$before" == "$after" && "$elapsed" -lt "$MIN_PHASE_SECONDS" ]]; then
     echo
-    echo "item $id exited after only ${elapsed}s (exit $claude_status) — the phase never ran."
+    echo "item $id exited after only ${elapsed}s (exit $phase_status) — the phase never ran."
     echo "Most likely a usage limit; also possible: auth, or a prompt-render failure."
     echo "State left untouched, and the run is stopping so the queue is not parked behind it."
     echo "Resume with: scripts/campaign.sh   (or ITEM=$id scripts/campaign.sh)"
@@ -383,11 +485,11 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   fi
 
   if [[ "$before" == "$after" ]]; then
-    echo "no state movement on item $id ($before) after ${elapsed}s (exit $claude_status) — parking it."
+    echo "no state movement on item $id ($before) after ${elapsed}s (exit $phase_status) — parking it."
     # The work is often DONE and only the bookkeeping died — a phase writes
     # (phase, round) last. Check the worktree for uncommitted edits and reviews/ for
     # lane reports before re-running this item; see NOTES.md, "Campaign hygiene".
-    park_item "$id" "no progress in phase ${before%%:*} (exit $claude_status)"
+    park_item "$id" "no progress in phase ${before%%:*} (exit $phase_status)"
     continue
   fi
 
