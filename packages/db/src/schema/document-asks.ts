@@ -78,6 +78,7 @@ export const documentAsks = pgTable(
         AND ${t.resolvedAttachmentFormat} IS NOT NULL
         AND ${t.resolvedAttachmentFormat} IN (${inList(contentFormatValues)})
         AND ${t.resolvedContentKind} IS NOT NULL
+        AND ${t.resolvedEvidenceSource} IS NOT NULL
         AND ${t.resolvedEvidenceSource} = 'extracted_content'
       )`,
     ),

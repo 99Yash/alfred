@@ -1,11 +1,7 @@
 import {
-  documentAskEvidenceSchema,
-  getContentFormat,
-  parseGmailDocumentMetadata,
+  readGmailAttachmentFirstCarrier,
   toMessage,
   type AttachmentContentReference,
-  type ContentFormat,
-  type DocumentAskEvidence,
 } from "@alfred/contracts";
 import { indexDocument, sha256, type IndexDocumentResult } from "@alfred/corpus";
 import { db } from "@alfred/db";
@@ -19,16 +15,13 @@ import {
 import { extractAttachments, getAttachment, type GmailMessage } from "@alfred/integrations/google";
 import type { ExtractedAttachment } from "@alfred/integrations/google";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
-import { classifyGmailAttachmentContent } from "../document-asks/classifier";
-import {
-  documentAskEvidenceKey,
-  projectDocumentAskEvidence,
-  type DocumentAskOccurrence,
-} from "../document-asks/evidence";
 
 const GMAIL_MEDIA_DOOR: ExtractionDoor = "gmailAttachment";
 
-/** The cheap schedule-time extractor binding; no bytes are held here. */
+/**
+ * Module-level door bind for the cheap schedule-time predicate below. Holds
+ * no bytes; each format extractor is lazily built and memoized inside.
+ */
 const DOOR_MEDIA = extraction({ door: GMAIL_MEDIA_DOOR });
 
 /**
@@ -72,207 +65,140 @@ export function formatMediaTally(tally: GmailMediaTally): string {
 
 export interface GmailMediaIngestResult extends GmailMediaTally {
   documentIds: string[];
-  /** Result-level positive evidence; extracted text never crosses the queue boundary. */
-  evidence: DocumentAskEvidence[];
 }
 
-type ExistingAttachmentRow = Pick<
+export interface GmailMediaIngestDeps {
+  getAttachment?:
+    | ((args: {
+        accessToken: string;
+        messageId: string;
+        attachmentId: string;
+      }) => Promise<{ bytes: Uint8Array; size: number }>)
+    | undefined;
+  /**
+   * Test seam — overrides door-bound extraction. Same composed shape
+   * `fetch-url` injects: tests restrict formats by what this object's
+   * `isSupported`/`extract` accept, not by a separate format list.
+   */
+  media?: Pick<Extraction, "extract" | "isSupported" | "wouldExceed"> | undefined;
+  indexDocument?: ((args: { documentId: string }) => Promise<IndexDocumentResult>) | undefined;
+}
+
+export interface GmailMediaIngestArgs {
+  userId: string;
+  accountId: string;
+  message: GmailMessage;
+  accessToken: string;
+  /**
+   * The mail row's timestamp, resolved by the caller that owns the mail
+   * persist path. Attachment rows share it so a thread reads as one
+   * timeline; null keeps the column null.
+   */
+  authoredAt: Date | null;
+  deps?: GmailMediaIngestDeps | undefined;
+}
+
+/**
+ * One recorded occurrence of the canonical document's content arriving under
+ * a different `messageId:attachmentId`. Lives in `metadata.references` on the
+ * canonical row, so a chat question can trace a document back to every
+ * thread that carried it — including threads whose own ingest never created
+ * a row. The shape is owned by `@alfred/contracts`
+ * (`AttachmentContentReference`) so retrieval parses the persisted jsonb
+ * against the same contract this writer fulfills.
+ */
+
+/** The stored columns ingest reads to place one carrier against an existing row. */
+type StoredAttachmentRow = Pick<
   Document,
-  | "id"
-  | "sourceId"
-  | "content"
-  | "contentHash"
-  | "title"
-  | "accountId"
-  | "sourceThreadId"
-  | "metadata"
+  "id" | "sourceId" | "contentHash" | "accountId" | "sourceThreadId" | "metadata"
 >;
 
-type StoredOccurrence = DocumentAskOccurrence;
-
-type EvidenceAccumulator = {
-  values: DocumentAskEvidence[];
-  keys: Set<string>;
+const storedAttachmentColumns = {
+  id: documents.id,
+  sourceId: documents.sourceId,
+  contentHash: documents.contentHash,
+  accountId: documents.accountId,
+  sourceThreadId: documents.sourceThreadId,
+  metadata: documents.metadata,
 };
 
-function addEvidence(accumulator: EvidenceAccumulator, evidence: DocumentAskEvidence): void {
-  const parsed = documentAskEvidenceSchema.parse(evidence);
-  const key = documentAskEvidenceKey(parsed);
-
-  if (accumulator.keys.has(key)) return;
-  accumulator.keys.add(key);
-  accumulator.values.push(parsed);
-}
-
-function storedOccurrenceForMessage(
-  row: ExistingAttachmentRow,
-  messageId: string,
-  accountId: string,
-  threadId: string | null,
-): StoredOccurrence | null {
-  const metadata = parseGmailDocumentMetadata(row.metadata);
-
-  const matchesFirstCarrier =
-    metadata.messageId === messageId &&
-    (metadata.accountId ?? row.accountId) === accountId &&
-    (metadata.threadId ?? row.sourceThreadId) === threadId;
-
-  if (!matchesFirstCarrier || !metadata.attachmentId) return null;
-
-  return {
-    attachmentId: metadata.attachmentId,
-    filename: metadata.filename ?? row.title,
-    mimeType: metadata.mimeType ?? null,
-  };
-}
-
-function canBackfillFirstCarrier(
-  row: ExistingAttachmentRow,
-  sourceId: string,
-  messageId: string,
-  attachmentId: string,
-  accountId: string,
-  threadId: string | null,
-): boolean {
-  const metadata = parseGmailDocumentMetadata(row.metadata);
-
-  const metadataAccountMatches =
-    metadata.accountId === undefined || metadata.accountId === null
-      ? row.accountId === accountId
-      : metadata.accountId === accountId;
-
-  const metadataThreadMatches =
-    metadata.threadId === undefined || metadata.threadId === null
-      ? row.sourceThreadId === threadId
-      : metadata.threadId === threadId;
-
-  return (
-    row.sourceId === sourceId &&
-    (metadata.messageId === undefined ||
-      metadata.messageId === null ||
-      metadata.messageId === messageId) &&
-    (metadata.attachmentId === undefined ||
-      metadata.attachmentId === null ||
-      metadata.attachmentId === attachmentId) &&
-    metadataAccountMatches &&
-    metadataThreadMatches
-  );
-}
-
-async function backfillFirstCarrierMetadata(args: {
-  row: ExistingAttachmentRow;
+/** The mail this job is ingesting, as the first-carrier identity names it. */
+type Carrier = {
   messageId: string;
   attachmentId: string;
   accountId: string;
   threadId: string | null;
-  filename: string | null;
-  mimeType: string | null;
-  format: ContentFormat;
-  contentKind: "resume" | "portfolio" | null;
-}): Promise<ExistingAttachmentRow | null> {
-  const metadata = parseGmailDocumentMetadata(args.row.metadata);
+};
+
+/**
+ * Where one carrier stands against a stored row that holds its part.
+ *
+ * - `recorded`: the row's first-carrier identity is this exact carrier.
+ * - `backfill`: the row is this carrier's own part, but a legacy insert left
+ *   the carrier ids out of `metadata`; ingest writes them.
+ * - `foreign`: another carrier owns the row. Gmail message ids are
+ *   mailbox-scoped, so a second linked account can carry the same
+ *   `messageId:attachmentId`; that carriage is a `references` entry.
+ *
+ * The document-ask reducer grants evidence only from a `recorded` identity or
+ * a matching `references` entry, and both read `readGmailAttachmentFirstCarrier`.
+ */
+function firstCarrierStanding(
+  row: StoredAttachmentRow,
+  carrier: Carrier,
+): "recorded" | "backfill" | "foreign" {
+  const first = readGmailAttachmentFirstCarrier(row);
 
   if (
-    !canBackfillFirstCarrier(
-      args.row,
-      `${args.messageId}:${args.attachmentId}`,
-      args.messageId,
-      args.attachmentId,
-      args.accountId,
-      args.threadId,
-    )
+    row.sourceId !== `${carrier.messageId}:${carrier.attachmentId}` ||
+    first.accountId !== carrier.accountId ||
+    first.threadId !== carrier.threadId ||
+    (first.messageId !== null && first.messageId !== carrier.messageId) ||
+    (first.attachmentId !== null && first.attachmentId !== carrier.attachmentId)
   ) {
-    return null;
+    return "foreign";
   }
 
-  const nextMetadata = {
-    ...metadata,
-    messageId: args.messageId,
-    attachmentId: args.attachmentId,
-    accountId: args.accountId,
-    threadId: args.threadId,
-    filename: args.filename,
-    mimeType: args.mimeType,
-    format: args.format,
-    documentAskContentKind: args.contentKind,
-  };
-
-  const rows = await db()
-    .update(documents)
-    .set({
-      metadata: sql`${documents.metadata} || ${JSON.stringify(nextMetadata)}::jsonb`,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(documents.id, args.row.id),
-        eq(documents.source, "gmail_attachment"),
-        eq(documents.sourceId, `${args.messageId}:${args.attachmentId}`),
-      ),
-    )
-    .returning();
-
-  return rows[0] ?? null;
+  return first.messageId !== null && first.attachmentId !== null ? "recorded" : "backfill";
 }
 
-function storedOccurrenceForReference(
-  reference: AttachmentContentReference,
-): StoredOccurrence | null {
-  if (!reference.accountId || !reference.threadId) return null;
-
-  return {
-    attachmentId: reference.attachmentId,
-    filename: reference.filename,
-    mimeType: reference.mimeType ?? null,
-  };
-}
-
-function evidenceForStoredAttachment(
-  row: ExistingAttachmentRow,
-  occurrence: StoredOccurrence,
-  formatOverride?: ContentFormat,
-): DocumentAskEvidence | null {
-  const metadata = parseGmailDocumentMetadata(row.metadata);
-
-  return projectDocumentAskEvidence({
-    documentId: row.id,
-    content: row.content,
-    contentHash: row.contentHash,
-    canonicalFormat: metadata.format,
-    canonicalMimeType: metadata.mimeType,
-    occurrence,
-    formatOverride,
-  });
-}
-
-async function refreshDocumentAskProjection(
-  documentId: string,
-  contentKind: "resume" | "portfolio" | null,
+/**
+ * Write the first-carrier ids onto this carrier's own legacy row. The merge
+ * names only the keys this function owns: a sibling job's concurrent
+ * `appendContentReference` rewrites `references` on the same row, and a
+ * spread of the `metadata` this loop read would put the old array back.
+ */
+async function backfillFirstCarrier(
+  row: StoredAttachmentRow,
+  carrier: Carrier,
+  att: ExtractedAttachment,
 ): Promise<void> {
+  const owned = {
+    messageId: carrier.messageId,
+    attachmentId: carrier.attachmentId,
+    accountId: carrier.accountId,
+    threadId: carrier.threadId,
+    filename: att.filename,
+    mimeType: att.mimeType,
+  };
+
   await db()
     .update(documents)
     .set({
-      metadata: sql`${documents.metadata} || jsonb_build_object('documentAskContentKind', ${JSON.stringify(contentKind)}::jsonb)`,
+      metadata: sql`${documents.metadata} || ${JSON.stringify(owned)}::jsonb`,
       updatedAt: new Date(),
     })
-    .where(and(eq(documents.id, documentId), eq(documents.source, "gmail_attachment")));
+    .where(and(eq(documents.id, row.id), eq(documents.source, "gmail_attachment")));
 }
 
+/** The canonical attachment row for this exact extracted content, if one exists. */
 async function findCanonicalByContentHash(
   userId: string,
   contentHash: string,
-): Promise<ExistingAttachmentRow | null> {
+): Promise<StoredAttachmentRow | null> {
   const rows = await db()
-    .select({
-      id: documents.id,
-      sourceId: documents.sourceId,
-      content: documents.content,
-      contentHash: documents.contentHash,
-      title: documents.title,
-      accountId: documents.accountId,
-      sourceThreadId: documents.sourceThreadId,
-      metadata: documents.metadata,
-    })
+    .select(storedAttachmentColumns)
     .from(documents)
     .where(
       and(
@@ -286,7 +212,18 @@ async function findCanonicalByContentHash(
   return rows[0] ?? null;
 }
 
-/** Record a folded occurrence idempotently, including its carrying account. */
+/**
+ * Record an occurrence on the canonical row. Idempotent per
+ * `(messageId, attachmentId)`: the append rewrites `metadata.references`
+ * from the stored array plus only entries it does not already hold, so a
+ * retried job cannot stack duplicates. The predicate uses IS DISTINCT FROM,
+ * not `=`: SQL NULL from an element missing a key must keep the element
+ * (`NOT (NULL AND …)` filters it out and would delete it silently).
+ * `accountId` and `threadId` are part of the identity because Gmail message
+ * ids are mailbox-scoped: two linked accounts can carry the same
+ * `messageId:attachmentId`, and each carriage is its own entry. Legacy entries
+ * written with a null account are exactly the NULL case above, so they stay.
+ */
 export async function appendContentReference(
   documentId: string,
   ref: AttachmentContentReference,
@@ -307,64 +244,70 @@ export async function appendContentReference(
     .where(eq(documents.id, documentId));
 }
 
-export interface GmailMediaIngestDeps {
-  getAttachment?:
-    | ((args: {
-        accessToken: string;
-        messageId: string;
-        attachmentId: string;
-      }) => Promise<{ bytes: Uint8Array; size: number }>)
-    | undefined;
-  media?: Pick<Extraction, "extract" | "isSupported" | "wouldExceed"> | undefined;
-  indexDocument?: ((args: { documentId: string }) => Promise<IndexDocumentResult>) | undefined;
-}
-
-export interface GmailMediaIngestArgs {
-  userId: string;
-  accountId: string;
-  message: GmailMessage;
-  accessToken: string;
-  authoredAt: Date | null;
-  deps?: GmailMediaIngestDeps | undefined;
-}
-
+/**
+ * Cheap predicate for the poll hot path: does this message carry any
+ * attachment whose MIME is extractable under the Gmail door? A message with
+ * none must not pay for a `gmail.media_ingest` job. This checks the same
+ * whitelist the ingest loop will apply, so a scheduled job never no-ops on
+ * support alone (size/limit skips still happen inside the job).
+ */
 export function hasIngestableAttachments(message: GmailMessage): boolean {
   return extractAttachments(message).some((att) => DOOR_MEDIA.isSupported(att.mimeType));
 }
 
 /**
- * Fetch, extract, persist, and embed all supported parts, while building one
- * complete result-level evidence list. Reducer observation belongs to the job
- * runner and is deliberately not called from this loop.
+ * Ingest for any `contentFormat`. The loop owns fetch → extract → persist → embed.
+ * Format logic (bytes → text, page offsets, limits) lives in
+ * `@alfred/extraction` behind `extraction({ door }).extract({ mime, bytes })`.
+ * Add a format with one registry entry, not a new `gmail-*` file.
+ * The caller binds the door once, then extracts each MIME.
+ * Unsupported MIME yields null (skip); supported yields `MediaExtractionResult`.
  */
 export async function ingestGmailMediaAttachments(
   args: GmailMediaIngestArgs,
 ): Promise<GmailMediaIngestResult> {
   const attachments = extractAttachments(args.message);
 
-  if (attachments.length === 0) return { ...ZERO_MEDIA_TALLY, documentIds: [], evidence: [] };
+  if (attachments.length === 0) {
+    return { ...ZERO_MEDIA_TALLY, documentIds: [] };
+  }
 
   const getAttachmentFn = args.deps?.getAttachment ?? getAttachment;
   const indexDocumentFn = args.deps?.indexDocument ?? indexDocument;
+
+  // Door-bound extraction — one bind, memoized per format. The facade hides
+  // `mime → format → gate → limits → factory`. Tests inject the whole
+  // `media` object to avoid the child process; production uses the registry.
   const media = args.deps?.media ?? extraction({ door: GMAIL_MEDIA_DOOR });
+
   const candidates = attachments.filter((a) => media.isSupported(a.mimeType));
 
-  if (candidates.length === 0) return { ...ZERO_MEDIA_TALLY, documentIds: [], evidence: [] };
+  if (candidates.length === 0) {
+    return { ...ZERO_MEDIA_TALLY, documentIds: [] };
+  }
 
+  // Skip-if-exists: one indexed SELECT replaces a full attachment download +
+  // child-process extraction for every already-ingested part. Gmail
+  // attachmentIds are immutable, so an existing `messageId:attachmentId` row
+  // can never gain new content. A failed first attempt never persisted a row,
+  // so the flagged known-message retry in pollGmailRecent still recovers it.
+  // This is the FIRST of two dedup layers: after extraction, a second lookup
+  // on (userId, source, contentHash) folds repeated identical content — the
+  // same unchanged file forwarded under new attachment ids — into one
+  // canonical row plus `metadata.references` entries.
+  // Embed-failure recovery is split by failure class: a transient embed error
+  // is retried by the corpus sweep (`gmail.embed_sweep`, which covers BOTH
+  // `gmail` and `gmail_attachment` sources), while a permanent one
+  // dead-letters the row — dedup then treats it as terminal BY DESIGN, and
+  // only an explicit `indexDocument` call revives it.
+  // The skip applies only to this carrier's own row (`recorded`/`backfill`
+  // below). A `foreign` row with the same source id belongs to another linked
+  // account, so this carriage falls through and lands as a reference.
   const sourceIdOf = (att: { attachmentId: string }): string =>
     `${args.message.id}:${att.attachmentId}`;
 
   const existingRows = await db()
-    .select({
-      id: documents.id,
-      sourceId: documents.sourceId,
-      content: documents.content,
-      contentHash: documents.contentHash,
-      title: documents.title,
-      accountId: documents.accountId,
-      sourceThreadId: documents.sourceThreadId,
-      metadata: documents.metadata,
-    })
+    .select(storedAttachmentColumns)
     .from(documents)
     .where(
       and(
@@ -375,10 +318,18 @@ export async function ingestGmailMediaAttachments(
     );
 
   const existingBySourceId = new Map(existingRows.map((row) => [row.sourceId, row]));
+
+  const carrierOf = (att: ExtractedAttachment): Carrier => ({
+    messageId: args.message.id,
+    attachmentId: att.attachmentId,
+    accountId: args.accountId,
+    threadId: args.message.threadId ?? null,
+  });
+
   const tally: GmailMediaTally = { ...ZERO_MEDIA_TALLY };
   const documentIds: string[] = [];
-  const evidenceAccumulator: EvidenceAccumulator = { values: [], keys: new Set() };
 
+  /** The occurrence record one carrying mail contributes to a canonical doc. */
   const referenceFor = (att: ExtractedAttachment): AttachmentContentReference => ({
     messageId: args.message.id,
     attachmentId: att.attachmentId,
@@ -390,32 +341,7 @@ export async function ingestGmailMediaAttachments(
     authoredAt: args.authoredAt ? args.authoredAt.toISOString() : null,
   });
 
-  const addStoredEvidence = (
-    row: ExistingAttachmentRow,
-    occurrence: StoredOccurrence | null,
-    format?: ContentFormat,
-  ): void => {
-    if (!occurrence) return;
-    const evidence = evidenceForStoredAttachment(row, occurrence, format);
-
-    if (evidence) addEvidence(evidenceAccumulator, evidence);
-  };
-
-  const refreshProjection = async (
-    documentId: string,
-    contentKind: "resume" | "portfolio" | null,
-  ): Promise<void> => {
-    try {
-      await refreshDocumentAskProjection(documentId, contentKind);
-    } catch (err) {
-      // The cache is advisory; the next pass reclassifies stored content.
-      console.warn(
-        `[gmail.media] document-ask projection refresh failed for doc=${documentId}:`,
-        toMessage(err),
-      );
-    }
-  };
-
+  /** Append an occurrence to the canonical row; false on failure (counted). */
   const recordOccurrence = async (
     canonicalId: string,
     ref: AttachmentContentReference,
@@ -439,98 +365,33 @@ export async function ingestGmailMediaAttachments(
 
   for (const att of candidates) {
     tally.attempted++;
-    const sourceId = sourceIdOf(att);
-    const occurrence = referenceFor(att);
 
-    const existing = existingBySourceId.get(sourceId);
+    // Already ingested — the row exists, so fetch/extract/embed would repeat
+    // identical work. See the skip-if-exists note above the loop's query.
+    const existing = existingBySourceId.get(sourceIdOf(att));
+    const standing = existing ? firstCarrierStanding(existing, carrierOf(att)) : null;
 
-    if (
-      existing &&
-      (storedOccurrenceForMessage(
-        existing,
-        args.message.id,
-        args.accountId,
-        args.message.threadId ?? null,
-      ) !== null ||
-        canBackfillFirstCarrier(
-          existing,
-          sourceId,
-          args.message.id,
-          att.attachmentId,
-          args.accountId,
-          args.message.threadId ?? null,
-        ))
-    ) {
+    if (existing && standing !== "foreign") {
       tally.deduped++;
 
-      let storedRow = existing;
-
-      let storedOccurrence = storedOccurrenceForMessage(
-        storedRow,
-        args.message.id,
-        args.accountId,
-        args.message.threadId ?? null,
-      );
-
-      if (!storedOccurrence) {
-        const format =
-          getContentFormat(att.mimeType) ?? parseGmailDocumentMetadata(storedRow.metadata).format;
-
-        if (!format) continue;
-
-        const contentKind = classifyGmailAttachmentContent({
-          content: storedRow.content,
-          filename: att.filename,
-          mimeType: att.mimeType,
-          format,
-        });
-
+      if (standing === "backfill") {
         try {
-          storedRow =
-            (await backfillFirstCarrierMetadata({
-              row: storedRow,
-              messageId: args.message.id,
-              attachmentId: att.attachmentId,
-              accountId: args.accountId,
-              threadId: args.message.threadId ?? null,
-              filename: att.filename,
-              mimeType: att.mimeType,
-              format,
-              contentKind,
-            })) ?? storedRow;
-          storedOccurrence = storedOccurrenceForMessage(
-            storedRow,
-            args.message.id,
-            args.accountId,
-            args.message.threadId ?? null,
-          );
+          await backfillFirstCarrier(existing, carrierOf(att), att);
         } catch (err) {
+          // Counted, so the job keeps `mediaPending` and the next poll retries.
           tally.errors++;
           console.warn(
-            `[gmail.media] first-carrier metadata backfill failed for ${att.filename}:`,
+            `[gmail.media] first-carrier backfill failed for ${att.filename}:`,
             toMessage(err),
           );
-          continue;
         }
-      }
-
-      if (storedOccurrence) {
-        const evidence = evidenceForStoredAttachment(
-          storedRow,
-          storedOccurrence,
-          getContentFormat(att.mimeType) ?? undefined,
-        );
-
-        if (evidence) addEvidence(evidenceAccumulator, evidence);
-
-        // Reclassification is authoritative even when the result is null; do
-        // not leave an old semantic cache looking like current evidence.
-        await refreshProjection(storedRow.id, evidence?.contentKind ?? null);
       }
 
       continue;
     }
 
+    // Pre-fetch hint: avoid the round-trip when Gmail already reports an
+    // over-limit part. No limits leak — the facade owns the policy.
     if (media.wouldExceed(att.mimeType, att.size)) {
       tally.skipped++;
       continue;
@@ -567,7 +428,12 @@ export async function ingestGmailMediaAttachments(
       continue;
     }
 
-    if (!result || result.kind !== "extracted") {
+    if (!result) {
+      tally.skipped++;
+      continue;
+    }
+
+    if (result.kind !== "extracted") {
       tally.skipped++;
       continue;
     }
@@ -579,38 +445,37 @@ export async function ingestGmailMediaAttachments(
       continue;
     }
 
+    const pages = result.pages && result.pages.length > 0 ? result.pages : null;
+
+    const sourceId = sourceIdOf(att);
     const contentHash = sha256(content);
 
-    const contentKind = classifyGmailAttachmentContent({
-      content,
-      filename: att.filename,
-      mimeType: att.mimeType,
-      format: result.format,
-    });
-
-    const pages = result.pages && result.pages.length > 0 ? result.pages : null;
+    // Content-level dedup (cross-message): the same unchanged file arriving
+    // under a different `messageId:attachmentId` — a resume forwarded to ten
+    // recruiters is ONE corpus row. The unique index on
+    // (userId, source, contentHash) is the race backstop; this lookup avoids
+    // the insert-race fallback on the repeat path, at the cost of one extra
+    // indexed SELECT per fresh candidate. The occurrence rides the
+    // canonical row's `metadata.references`, so chat can still trace the
+    // document back to the thread that carried it.
+    // Known, accepted edge: `contentHash` covers normalized extractor text,
+    // not bytes. Upgrading an extractor changes that text and mints a second
+    // canonical row for byte-identical files — dedup decays until a re-index,
+    // deliberately not salted with an extractor version (salting cannot
+    // prevent the duplicate; it only renames the cause).
+    // Format twins (decided in #878): identical extracted text folds across
+    // mimeTypes — one logical document — and each reference entry now carries
+    // the carrier's mimeType, so a folded .txt/.pdf pair stays traceable at
+    // retrieval instead of the second format vanishing without trace.
     const canonical = await findCanonicalByContentHash(args.userId, contentHash);
 
     if (canonical) {
-      const canonicalOccurrence = storedOccurrenceForMessage(
-        canonical,
-        args.message.id,
-        args.accountId,
-        args.message.threadId ?? null,
-      );
-
-      if (canonical.sourceId === sourceId && canonicalOccurrence) {
+      if (firstCarrierStanding(canonical, carrierOf(att)) === "recorded") {
         tally.deduped++;
-        addStoredEvidence(canonical, canonicalOccurrence, result.format);
-        await refreshProjection(canonical.id, contentKind);
         continue;
       }
 
-      if (await recordOccurrence(canonical.id, occurrence, att.filename)) {
-        addStoredEvidence(canonical, storedOccurrenceForReference(occurrence), result.format);
-        await refreshProjection(canonical.id, contentKind);
-      }
-
+      await recordOccurrence(canonical.id, referenceFor(att), att.filename);
       continue;
     }
 
@@ -623,13 +488,17 @@ export async function ingestGmailMediaAttachments(
       mimeType: att.mimeType,
       size: att.size,
       format: result.format,
-      documentAskContentKind: contentKind,
+      // exactOptionalPropertyTypes: omit `pages` entirely rather than set it undefined.
       ...(pages ? { pages } : {}),
     };
 
     let documentId: string | null = null;
 
     try {
+      // `onConflictDoNothing` (not a targeted upsert) so EITHER unique index
+      // can win the concurrent-poll race: an identical part persisted by a
+      // sibling job, or identical content claiming the hash index. The
+      // fallback below resolves which.
       const inserted = await db()
         .insert(documents)
         .values({
@@ -656,17 +525,13 @@ export async function ingestGmailMediaAttachments(
     }
 
     if (!documentId) {
+      // Lost an insert race. Either this exact part now exists (identical
+      // content — nothing to add), or the content's canonical row does
+      // (record the occurrence on it). The two unique indexes cap the
+      // result at two rows — one per index — so both picks below are
+      // deterministic by construction.
       const winners = await db()
-        .select({
-          id: documents.id,
-          sourceId: documents.sourceId,
-          content: documents.content,
-          contentHash: documents.contentHash,
-          title: documents.title,
-          accountId: documents.accountId,
-          sourceThreadId: documents.sourceThreadId,
-          metadata: documents.metadata,
-        })
+        .select(storedAttachmentColumns)
         .from(documents)
         .where(
           and(
@@ -676,77 +541,55 @@ export async function ingestGmailMediaAttachments(
           ),
         );
 
-      const twin = winners.find((row) => row.sourceId === sourceId);
+      // A `foreign` twin is another account's carriage of the same source id;
+      // this carriage then belongs on the content's canonical row instead.
+      const twin = winners.find(
+        (row) =>
+          row.sourceId === sourceId && firstCarrierStanding(row, carrierOf(att)) !== "foreign",
+      );
 
-      const twinOccurrence = twin
-        ? storedOccurrenceForMessage(
-            twin,
-            args.message.id,
-            args.accountId,
-            args.message.threadId ?? null,
-          )
-        : null;
-
-      if (twin && twinOccurrence) {
+      if (twin) {
         tally.deduped++;
-        addStoredEvidence(twin, twinOccurrence, result.format);
-        await refreshProjection(twin.id, contentKind);
         continue;
       }
 
-      const canonicalWinner = winners.find((row) => row.contentHash === contentHash);
+      const canon = winners.find((row) => row.contentHash === contentHash);
 
-      if (!canonicalWinner) {
-        if (twin) {
-          console.warn(
-            `[gmail.media] source identity collision for ${sourceId}; leaving attachment untrusted`,
-          );
-          continue;
-        }
-
+      if (!canon) {
         tally.errors++;
         continue;
       }
 
-      if (await recordOccurrence(canonicalWinner.id, occurrence, att.filename)) {
-        addStoredEvidence(canonicalWinner, storedOccurrenceForReference(occurrence), result.format);
-        await refreshProjection(canonicalWinner.id, contentKind);
-      }
-
+      await recordOccurrence(canon.id, referenceFor(att), att.filename);
       continue;
-    }
-
-    if (contentKind) {
-      const evidence = projectDocumentAskEvidence({
-        documentId,
-        content,
-        contentHash,
-        canonicalFormat: result.format,
-        canonicalMimeType: att.mimeType,
-        occurrence: {
-          attachmentId: att.attachmentId,
-          filename: att.filename,
-          mimeType: att.mimeType,
-        },
-        formatOverride: result.format,
-      });
-
-      if (evidence) addEvidence(evidenceAccumulator, evidence);
     }
 
     try {
       await indexDocumentFn({ documentId });
-      documentIds.push(documentId);
-      tally.ingested++;
     } catch (err) {
       tally.embedFailures++;
       console.warn(`[gmail.media] embed failed for doc=${documentId}:`, toMessage(err));
+      continue;
     }
+
+    documentIds.push(documentId);
+    tally.ingested++;
   }
 
-  return { ...tally, documentIds, evidence: evidenceAccumulator.values };
+  return { ...tally, documentIds };
 }
 
+/**
+ * Mark (or clear) a mail document as having attachment ingest pending. The
+ * realtime poll pre-filter uses this flag to retry only known messages whose
+ * attachments failed — not every known message in the window. Best-effort:
+ * a failed set means the next poll may miss the retry (history catch-up still
+ * covers it); a failed clear costs one extra dedup-only retry.
+ * The document-ask reducer also reads the flag as a completion barrier on a
+ * sent sibling carrier. A failed clear can then hold an older ask live until
+ * the barrier's settle bound passes; a failed set can let a sibling resolve
+ * before this carrier's attachments land. Neither closes an ask on its own.
+ */
 export async function setMediaPending(documentId: string, pending: boolean): Promise<void> {
   try {
     await db()
