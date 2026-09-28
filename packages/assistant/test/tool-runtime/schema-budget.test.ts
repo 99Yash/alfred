@@ -70,6 +70,10 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 // its schema nests questions and options. `callers` + `requiresLiveChat` keep it off sub-agent
 // and background surfaces. Kernel ceilings raised 10,500 → 13,000 B and 2,600 → 3,300 tok,
 // about 10% above the new measurement.
+// Measured 2026-09-28: kernel 11,868 → 12,083 B / ~2,968 → ~3,021 tok across 10 tools — no tool
+// moves. The search fold (#1258) makes `system.search_tools` say its best registered hit is
+// already callable and `system.load_tool` say when to prefer the search; those two longer
+// descriptions are the whole delta. NO ceiling bump: 917 B of kernel headroom remains.
 const KERNEL_SCHEMA_BYTES_CEILING = 13_000;
 
 const KERNEL_SCHEMA_TOKENS_CEILING = 3_300;
