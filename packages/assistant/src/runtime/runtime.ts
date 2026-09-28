@@ -242,10 +242,11 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       if (scheduledJobsEnabled()) {
         startMcpConnectionRecovery();
         // Releases the BODY of an `event_receipts` row past its retention
-        // window. Same gate as the schedules above, for the same reason: a timer
-        // that mutates rows with nobody watching. Unlike the outbox reaper, which
-        // `realtime/bridge.ts` owns because the event bridge starts it, nothing
-        // else owns this one, so `stop()` below stops it too.
+        // window. Same gate as the repeatable schedules it starts beside, for
+        // the same reason: a timer that mutates rows with nobody watching.
+        // Unlike the outbox reaper, which `realtime/bridge.ts` owns because the
+        // event bridge starts it, nothing else owns this one, so `stop()` below
+        // stops it too.
         startReceiptPayloadReaper();
         await scheduleRepeatableIngestionJobs();
         await scheduleRepeatableMemoryJobs();
@@ -264,10 +265,13 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
     async stop(): Promise<void> {
       // Preserve the required stop order, but attempt every step. One unrelated
       // worker failure must not leave ingestion live while its adapters disappear.
-      // The reaper goes first because it is the one timer here holding a pooled
-      // connection mid-statement: its `stop()` is what stops an open UPDATE from
-      // outliving the pool. It is a no-op when the scheduled-jobs gate kept it
-      // from starting.
+      // The reaper goes first because it is a timer, and the timers come before
+      // the workers and queues below: nothing it does needs a worker, and a
+      // timer left running while the rest of the process tears itself down is
+      // the failure this list exists to prevent. It is not about the pool —
+      // that closes after every step, and an autocommit `UPDATE` on a closed
+      // connection rolls back whole. It is a no-op when the scheduled-jobs gate
+      // kept it from starting.
       await runShutdownStep("receipt-payload reaper", stopReceiptPayloadReaper);
       await runShutdownStep("MCP connection recovery", stopMcpConnectionRecovery);
       const agentWorkerStopped = await runShutdownStep("agent worker", stopAgentWorker);
