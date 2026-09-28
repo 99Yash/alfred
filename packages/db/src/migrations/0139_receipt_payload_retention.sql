@@ -8,8 +8,8 @@ CREATE INDEX "event_receipts_payload_live_idx" ON "event_receipts" USING btree (
 -- transition, `payload` non-NULL -> NULL, and refuses every other mutation of
 -- the column (a NULL being filled back in, or one body replaced by another).
 --
--- Why the body and not the row. Everything that later depends on a receipt
--- lives in a small column and outlives a release:
+-- Why the body and not the row. What a receipt is FOR lives in a small column
+-- and outlives a release:
 --
 --   (provider, provider_delivery_id)  the UNIQUE index that makes redelivery a
 --                                     no-op via onConflictDoNothing
@@ -39,20 +39,22 @@ CREATE INDEX "event_receipts_payload_live_idx" ON "event_receipts" USING btree (
 --   3. The object-state fold, `activity-consumer.ts:105`, reading the body at
 --      deliver time for one receipt by id. Unaffected in practice because the
 --      fold runs before the receipt completes and the reaper releases only
---      `completed` ones (item 02) — not because the row is young, since a
---      redelivery can reach a non-`completed` receipt of any age.
---   4. `gatherIntegrationActivity` (`briefings/gather.ts:747`), over a
---      `sinceIngestedAt` -> now window. `action` lives only in the expiring body,
---      and `describeGithubActivity` (`github-description.ts:81`) derives
---      `status` from `action === "closed"`, so with no body a merged PR falls to
---      the `?? "open"` default and reads as open. Two consumers, and they differ:
---      `get_day_shape` uses only the COUNT and returns
+--      `completed` ones — not because the row is young, since a redelivery can
+--      reach a non-`completed` receipt of any age.
+--   4. `gatherIntegrationActivity` (`briefings/gather.ts:747`), over a window
+--      the caller sets: `sinceIngestedAt` -> now from `get_day_shape`, and
+--      `args.windowStart ?? 24h` from `gatherBriefing` (`gather.ts:591`).
+--      `action` lives only in the expiring body, and
+--      `describeGithubActivity` (`github-description.ts:81`) computes
+--      `status` as `action === "closed" ? "resolved" : "open"`, so with no body
+--      a merged PR takes the `"open"` arm and reads as open. Two consumers, and
+--      they differ: `get_day_shape` uses only the COUNT and returns
 --      `{ activityVolume, shipped }` (`dayShapeSchema`, contracts/briefing.ts:232),
 --      which carries no per-activity status — so the wrong status does not reach
 --      the agent. The status does reach `briefings/references.ts:73` on the
---      legacy `composeBriefing` path. The `seenDeployments` collapse is lost
---      either way (#1167), which overstates volume. Behaviour fix queued
---      separately.
+--      legacy `composeBriefing` path. Either way a released row still inflates
+--      the count, and the `seenDeployments` collapse is lost (#1167), so one
+--      relayed machine deployment reads as several units of the day.
 --   5. `backfill-object-state-github-committed.ts:48`, replaying EVERY stored
 --      github `pull_request` body to rebuild `integration_objects`. `safeParse`
 --      fails on a null, so released rows are skipped SILENTLY and a rebuild from
@@ -64,15 +66,17 @@ CREATE INDEX "event_receipts_payload_live_idx" ON "event_receipts" USING btree (
 -- passes an in-memory minted body, never a stored one.
 --
 -- A question about an old MESSAGE is still answered from `documents`/`chunks` or
--- the live Gmail API. That is not the same as rebuilding a projection: item 5 is
--- a rebuild, and it is the one that stops working.
+-- the live Gmail API. That is not the same as rebuilding a projection: reader 5
+-- is a rebuild, and it is the one that stops working.
 --
 -- Deliberately NOT a row delete. Receipts are never deleted DIRECTLY: the guard
 -- below refuses that at `pg_trigger_depth() = 1`, and the `pg_trigger_depth() > 1`
 -- arm is the FK cascade from a `user` or `integration_credentials` wipe, which is
 -- intended. Deleting rows for retention would forfeit the dedup index and the gap
 -- cursor, so a provider redelivering an event older than the window would be
--- ingested as new — a second triage email, a second reply.
+-- ingested as new: a second `ingress.deliver` publish, and therefore a second run
+-- of whatever the user triggered on that event (for Gmail, potentially a second
+-- triage email).
 --
 -- The age policy is NOT in this trigger. This permits the transition; the
 -- window belongs to the reaper that performs it, so the rule lives in one place
@@ -81,10 +85,10 @@ CREATE INDEX "event_receipts_payload_live_idx" ON "event_receipts" USING btree (
 -- The partial index above is the reaper's: it makes expiry an index-driven scan
 -- whose size tracks the LIVE BODIES rather than the age of the table, since a
 -- receipt leaves the index as soon as its body is released. Not exactly the
--- retention window, because the reaper (item 02) is what restricts itself to
--- `completed` receipts — nothing in this migration enforces that, so a reaper
--- written without the predicate would RELEASE a failed receipt's body, which
--- the delivery job may still be retrying, and its index entry with it.
+-- retention window, because the reaper is what restricts itself to `completed`
+-- receipts — nothing in this migration enforces that, so a reaper written
+-- without the predicate would RELEASE a failed receipt's body, which the
+-- delivery job may still be retrying, and its index entry with it.
 CREATE OR REPLACE FUNCTION event_receipts_guard_evidence() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
