@@ -33,7 +33,7 @@ import {
   type GmailMediaIngestDeps,
   type GmailMediaIngestResult,
 } from "./gmail-media";
-import { observeGmailDocumentAsk } from "./gmail-document-ask";
+import { documentAskReducer } from "../document-asks";
 
 /**
  * Gmail ingestion orchestration. Relocated out of `@alfred/integrations`
@@ -519,9 +519,7 @@ export async function runGmailMediaIngest(args: {
   const message = await getMessageFn({ accessToken, id: args.messageId, format: "full" });
   const extracted = extractMessageContent(message);
 
-  if (isSelfAuthored(extracted.from)) {
-    return { ...ZERO_MEDIA_TALLY, documentIds: [], evidence: [] };
-  }
+  if (isSelfAuthored(extracted.from)) return { ...ZERO_MEDIA_TALLY, documentIds: [] };
 
   const result = await ingestGmailMediaAttachments({
     userId: cred.userId,
@@ -538,13 +536,11 @@ export async function runGmailMediaIngest(args: {
   await setMediaPending(args.documentId, result.errors > 0);
 
   try {
-    await observeGmailDocumentAsk({
+    // The locator is the whole hand-off: the reducer reads direction, thread,
+    // time, and attachment evidence from the persisted rows itself.
+    await documentAskReducer.observe({
       userId: cred.userId,
-      documentId: args.documentId,
-      messageId: message.id,
-      accountId: cred.accountId,
-      threadId: message.threadId ?? "",
-      evidence: result.evidence,
+      carrier: { accountId: cred.accountId, messageId: message.id },
       observedAt: new Date(),
     });
   } catch (err) {

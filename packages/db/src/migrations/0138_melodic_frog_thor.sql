@@ -43,6 +43,7 @@ CREATE TABLE "document_asks" (
         AND "document_asks"."resolved_attachment_format" IS NOT NULL
         AND "document_asks"."resolved_attachment_format" IN ('document', 'pdf', 'spreadsheet', 'text')
         AND "document_asks"."resolved_content_kind" IS NOT NULL
+        AND "document_asks"."resolved_evidence_source" IS NOT NULL
         AND "document_asks"."resolved_evidence_source" = 'extracted_content'
       )),
 	CONSTRAINT "document_asks_resolved_kind_matches" CHECK ("document_asks"."resolved_content_kind" IS NULL OR "document_asks"."resolved_content_kind" = "document_asks"."requested_kind")

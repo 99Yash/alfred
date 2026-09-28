@@ -1,9 +1,4 @@
-import {
-  documentAskEvidenceSchema,
-  getContentFormat,
-  type ContentFormat,
-  type DocumentAskEvidence,
-} from "@alfred/contracts";
+import { getContentFormat, type ContentFormat } from "@alfred/contracts";
 import { sha256 } from "@alfred/corpus";
 import { classifyGmailAttachmentContent } from "./classifier";
 
@@ -13,16 +8,11 @@ export interface DocumentAskOccurrence {
   mimeType: string | null;
 }
 
-export function documentAskEvidenceKey(evidence: DocumentAskEvidence): string {
-  return [evidence.attachmentDocumentId, evidence.attachmentId, evidence.contentHash].join(
-    "\u0000",
-  );
-}
-
 /**
- * Project one validated persisted occurrence into the reducer's evidence
- * contract. The producer and verifier share this boundary so format fallback,
- * hash validation, semantic classification, and evidence identity cannot drift.
+ * Project one persisted attachment occurrence into positive document-ask
+ * evidence. The reducer is the only caller: it reads the stored rows and
+ * reclassifies their content, so no queue payload or cache can carry a claim
+ * that this projection did not make.
  */
 export function projectDocumentAskEvidence(input: {
   documentId: string;
@@ -31,8 +21,7 @@ export function projectDocumentAskEvidence(input: {
   canonicalFormat: ContentFormat | null | undefined;
   canonicalMimeType: string | null | undefined;
   occurrence: DocumentAskOccurrence;
-  formatOverride?: ContentFormat | undefined;
-}): DocumentAskEvidence | null {
+}) {
   const occurrenceFormat = input.occurrence.mimeType
     ? getContentFormat(input.occurrence.mimeType)
     : null;
@@ -40,10 +29,7 @@ export function projectDocumentAskEvidence(input: {
   const mimeType = input.occurrence.mimeType ?? input.canonicalMimeType ?? null;
 
   const format =
-    input.formatOverride ??
-    occurrenceFormat ??
-    input.canonicalFormat ??
-    (mimeType ? getContentFormat(mimeType) : null);
+    occurrenceFormat ?? input.canonicalFormat ?? (mimeType ? getContentFormat(mimeType) : null);
 
   if (!format || !input.content.trim() || !input.contentHash) return null;
 
@@ -58,15 +44,19 @@ export function projectDocumentAskEvidence(input: {
 
   if (!contentKind) return null;
 
-  return documentAskEvidenceSchema.parse({
+  return {
     attachmentDocumentId: input.documentId,
     attachmentId: input.occurrence.attachmentId,
-    filename: input.occurrence.filename,
-    mimeType: input.occurrence.mimeType,
     contentHash: input.contentHash,
     format,
-    extraction: "extracted",
     contentKind,
-    evidence: "extracted_content",
-  });
+  };
+}
+
+export type DocumentAskEvidence = NonNullable<ReturnType<typeof projectDocumentAskEvidence>>;
+
+export function documentAskEvidenceKey(evidence: DocumentAskEvidence): string {
+  return [evidence.attachmentDocumentId, evidence.attachmentId, evidence.contentHash].join(
+    "\u0000",
+  );
 }

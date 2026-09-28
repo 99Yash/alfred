@@ -565,28 +565,24 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // here, #157). All are `written`-gated and either idempotent or
   // self-healing, so re-running them on a reuse re-attempt is safe.
 
+  // Open the document ask from THIS message's own validated proposal, not
+  // from `written`: an older inbound ask that loses the thread-row recency
+  // race (or a thread pinned by a user override) is still an ask. A reducer
+  // fault throws so the step retries. A same-run re-entry that committed the
+  // row rebuilds the proposal from it (the reuse path above), and one that did
+  // not re-classifies, so a failed open is never lost. Expected no-ops return
+  // normally. Mailbox work is never coupled to this retry.
   const documentAskAccountId = ctxData.document.accountId;
 
-  // This is intentionally a post-commit, idempotent side effect: the triage
-  // proposal is the retry record, and a later same-source classify reuse
-  // re-enters this branch. Mailbox work must not be coupled to that retry.
-  if (written && classification.documentAsk && documentAskAccountId) {
-    try {
-      await documentAskReducer.open({
-        userId: ctx.userId,
-        identity: {
-          accountId: documentAskAccountId,
-          messageId: ctxData.document.sourceId,
-          threadId: sourceThreadId,
-          authoredAt: ctxData.document.authoredAt,
-          isSent: isSentGmailMetadata(ctxData.document.metadata),
-        },
-        proposal: classification.documentAsk,
-        observedAt: new Date(),
-      });
-    } catch (err) {
-      await ctx.log(`document_ask: open failed (non-fatal): ${toMessage(err)}`);
-    }
+  if (classification.documentAsk && documentAskAccountId) {
+    const opened = await documentAskReducer.open({
+      userId: ctx.userId,
+      source: { accountId: documentAskAccountId, messageId: ctxData.document.sourceId },
+      proposal: classification.documentAsk,
+      observedAt: new Date(),
+    });
+
+    if (opened.kind === "noop") await ctx.log(`document_ask: open noop reason=${opened.reason}`);
   }
 
   // Tell the rail to re-fetch: the row's category chip just changed.

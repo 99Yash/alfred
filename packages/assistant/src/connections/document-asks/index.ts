@@ -5,7 +5,7 @@ export {
   type DocumentAskOpenResult,
   type DocumentAskReducer,
   type DocumentAskResolution,
-  type GmailMessageIdentity,
+  type GmailMessageLocator,
   type ObserveDocumentAskInput,
   type OpenDocumentAskInput,
 } from "./reducer";

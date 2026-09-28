@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { contentFormatSchema } from "./attachments";
-import { documentAskKindSchema } from "./document-ask";
 import { isRecord } from "./guards";
 
 const nullableStringField = z.string().nullable().optional();
@@ -15,8 +14,11 @@ const optionalFormatField = contentFormatSchema.optional();
 
 /**
  * The shared, persisted Gmail projection stored in `documents.metadata`.
- * The column is additive, so this schema preserves keys owned by other Gmail
- * ingestion features while validating the fields this owner relies on.
+ *
+ * The metadata column is an additive JSON bag, so this schema preserves keys
+ * owned by other Gmail ingestion features. Direct schema use is strict so an
+ * invalid writer fails at its owning seam. The parser below is lenient for
+ * legacy rows: it drops an invalid known field without discarding valid peers.
  */
 export const gmailDocumentMetadataSchema = z.looseObject({
   from: nullableStringField,
@@ -35,8 +37,6 @@ export const gmailDocumentMetadataSchema = z.looseObject({
   filename: z.string().min(1).nullable().optional(),
   mimeType: z.string().min(1).nullable().optional(),
   format: optionalFormatField,
-  /** Cached semantic classification; the reducer rechecks stored content. */
-  documentAskContentKind: documentAskKindSchema.nullable().optional(),
 });
 
 export type GmailDocumentMetadata = z.infer<typeof gmailDocumentMetadataSchema>;
@@ -60,7 +60,6 @@ export function parseGmailDocumentMetadata(raw: unknown): GmailDocumentMetadata 
   repairPersistedField(candidate, "filename", z.string().min(1).nullable().optional());
   repairPersistedField(candidate, "mimeType", z.string().min(1).nullable().optional());
   repairPersistedField(candidate, "format", optionalFormatField);
-  repairPersistedField(candidate, "documentAskContentKind", documentAskKindSchema.nullable());
 
   return gmailDocumentMetadataSchema.parse(candidate);
 }
@@ -72,6 +71,29 @@ export function isSentGmailMetadata(metadata: unknown): boolean {
   const parsed = parseGmailDocumentMetadata(metadata);
 
   return parsed.isSent === true || parsed.labelIds?.some((label) => label === SENT_LABEL) === true;
+}
+
+/**
+ * Read the carrier that first persisted a `gmail_attachment` row. A row
+ * written before the metadata carried `accountId`/`threadId` falls back to
+ * the row's own columns, which the same insert wrote. `messageId` and
+ * `attachmentId` stay null on a row older than those keys. Ingest (to decide a
+ * backfill) and the document-ask reducer (to grant evidence) both read the
+ * identity here, so the two cannot disagree about which mail carried a file.
+ */
+export function readGmailAttachmentFirstCarrier(row: {
+  accountId: string | null;
+  sourceThreadId: string | null;
+  metadata: unknown;
+}) {
+  const metadata = parseGmailDocumentMetadata(row.metadata);
+
+  return {
+    messageId: metadata.messageId ?? null,
+    attachmentId: metadata.attachmentId ?? null,
+    accountId: metadata.accountId ?? row.accountId,
+    threadId: metadata.threadId ?? row.sourceThreadId,
+  };
 }
 
 function repairPersistedField(
