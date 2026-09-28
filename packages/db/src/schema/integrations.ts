@@ -215,14 +215,16 @@ export const ingestionState = pgTable(
  * so a duplicate insert is a no-op. Failed deliveries are not retried with a
  * new row — the index prevents duplicate receipts for the same delivery.
  */
-// Receipts are never deleted. The append-only trigger (#1177, migration 0134)
-// refuses a direct DELETE outright, because Gmail push health and gap detection
-// read facts that only this table holds. What expires is the body and only the
-// body: `payload` is released to NULL (migration 0139), while `history_id`,
-// `delivered_at` and the `(provider, provider_delivery_id)` dedup key survive,
-// so those readers keep what they need and no summary table is necessary. The
-// trigger permits that one transition without knowing how old a receipt is; the
-// retention window is the reaper's policy, not the trigger's.
+// Receipts are never deleted directly. The append-only trigger (#1177, migration
+// 0134) refuses a direct DELETE outright, because Gmail push health and gap
+// detection read facts that only this table holds; the one allowed delete path is
+// the FK cascade from a `user` or `integration_credentials` wipe, which both
+// reference this table with `onDelete: "cascade"`. What expires is the body and
+// only the body: `payload` is released to NULL (migration 0139), while
+// `history_id`, `delivered_at` and the `(provider, provider_delivery_id)` dedup
+// key survive, so those readers keep what they need and no summary table is
+// necessary. The trigger permits that one transition without knowing how old a
+// receipt is; the retention window is the reaper's policy, not the trigger's.
 export const eventReceipts = pgTable(
   "event_receipts",
   {
@@ -290,9 +292,9 @@ export const eventReceipts = pgTable(
     uniqueIndex("event_receipts_dedup_idx").on(t.provider, t.providerDeliveryId),
     index("event_receipts_credential_idx").on(t.credentialId, t.deliveredAt),
     index("event_receipts_user_idx").on(t.userId, t.provider, t.deliveredAt),
-    // Partial on a live body so the reaper's index-driven scan costs the
-    // retention window, not the age of the table: a receipt leaves the index as
-    // soon as its payload expires to NULL. `event_receipts_payload_live_idx`
+    // Partial on a live body so the reaper's index-driven scan tracks the live
+    // bodies, not the age of the table: a receipt leaves the index as soon as
+    // its payload expires to NULL. `event_receipts_payload_live_idx`
     // (`packages/db/src/migrations/0139_receipt_payload_retention.sql`).
     index("event_receipts_payload_live_idx")
       .on(t.deliveredAt)
