@@ -37,6 +37,7 @@
 #                   never having run rather than as stuck. See the guard below.
 #   DRY_RUN         default 0
 #   ENGINE          which CLI runs a phase: `claude` (default) or `opencode`.
+#                   This is the FALLBACK; a per-phase override wins.
 #                   `opencode` is NOT equivalent, and three differences matter:
 #                     1. It has no `--max-budget-usd`. MAX_BUDGET_USD and
 #                        REVIEW_BUDGET_USD are IGNORED, so MAX_ITER is the only
@@ -49,8 +50,23 @@
 #                        subagents. That is a Claude Code construct. Under opencode
 #                        the model runs the three lanes itself, in one context,
 #                        which is what REVIEW.md's cost note says to avoid.
-#   MODEL           model for ENGINE=opencode, as `provider/model`. Default
+#   DESIGN_ENGINE   per-phase CLI overrides. Each defaults to $ENGINE, so setting
+#   IMPLEMENT_ENGINE  only one of them is the common case and setting none keeps
+#   REVIEW_ENGINE     the single-engine behavior this script always had. The
+#   REVISE_ENGINE     split that earns its keep is REVIEW on `claude` and the two
+#                     write phases on `opencode`: REVIEW.md's three-lane fan-out is
+#                     only real under `claude` (difference 3 above), and the write
+#                     phases are mechanical edits against a design already on the
+#                     record, which is what a cheap model is for. Routing a
+#                     REVIEW phase to `opencode` is allowed and gives up the
+#                     fan-out — the header says so rather than the operator
+#                     discovering it three rounds in.
+#   MODEL           model for an opencode phase, as `provider/model`. Default
 #                   `opencode/muse-spark-1.3-contributor-free`. Ignored by `claude`.
+#                   `MODEL_DESIGN` / `MODEL_IMPLEMENT` / `MODEL_REVIEW` /
+#                   `MODEL_REVISE` override it per phase, for the same reason the
+#                   engines are per-phase: the review fan-out and the mechanical
+#                   edit want different models, and one global cannot be both.
 
 set -euo pipefail
 
@@ -63,13 +79,87 @@ ITEM="${ITEM:-}"
 ENGINE="${ENGINE:-claude}"
 MODEL="${MODEL:-opencode/muse-spark-1.3-contributor-free}"
 
-case "$ENGINE" in
-  claude|opencode) ;;
-  *) echo "unknown ENGINE $ENGINE — expected claude or opencode" >&2; exit 1 ;;
-esac
+# Phase name (upper-cased) -> the override var that names it, so the resolution
+# below is a table lookup rather than four hand-copied blocks that can drift.
+phase_override() { # phase, "VAR_PREFIX" (ENGINE|MODEL) -> value or empty
+  # An explicit `case`, not `${!name}`. Two bash 3.2 traps live in the indirect
+  # forms and both fail SILENTLY, returning empty so every override is ignored
+  # and the run looks configured while using the default engine:
+  #   - `local var=X; echo "${!var}"` does not resolve, because 3.2 will not
+  #     indirect-expand a name `local` created in the same function.
+  #   - `eval` with the name assembled from a positional parameter needs quoting
+  #     that is easy to get wrong and equally quiet when it is.
+  # The phase set is closed and short, so naming it outright costs six lines and
+  # is the only version whose failure mode is a syntax error, not a wrong run.
+  # `<KIND>_<PHASE>`, matching the names in the header: DESIGN_ENGINE, not
+  # ENGINE_DESIGN. The `$2` argument is the KIND.
+  case "$1" in
+    cover)     [ "$2" = ENGINE ] && printf '%s' "${COVER_ENGINE-}" ;;
+    design)    [ "$2" = ENGINE ] && printf '%s' "${DESIGN_ENGINE-}" ;;
+    implement) [ "$2" = ENGINE ] && printf '%s' "${IMPLEMENT_ENGINE-}" ;;
+    review)    [ "$2" = ENGINE ] && printf '%s' "${REVIEW_ENGINE-}" ;;
+    revise)    [ "$2" = ENGINE ] && printf '%s' "${REVISE_ENGINE-}" ;;
+    land)      [ "$2" = ENGINE ] && printf '%s' "${LAND_ENGINE-}" ;;
+  esac
+  case "$1" in
+    cover)     [ "$2" = MODEL ] && printf '%s' "${COVER_MODEL-}" ;;
+    design)    [ "$2" = MODEL ] && printf '%s' "${DESIGN_MODEL-}" ;;
+    implement) [ "$2" = MODEL ] && printf '%s' "${IMPLEMENT_MODEL-}" ;;
+    review)    [ "$2" = MODEL ] && printf '%s' "${REVIEW_MODEL-}" ;;
+    revise)    [ "$2" = MODEL ] && printf '%s' "${REVISE_MODEL-}" ;;
+    land)      [ "$2" = MODEL ] && printf '%s' "${LAND_MODEL-}" ;;
+  esac
+  return 0
+}
+
+# Resolve, validate, and announce the CLI for one phase. Called per iteration
+# rather than once at startup, because a campaign can route different phases to
+# different engines and only the phase in hand decides which binary must exist.
+# Validating the override here is what turns a typo into one clear line naming
+# the variable, instead of a `case` fallthrough at run time.
+resolve_engine() { # phase -> sets RESOLVED_ENGINE / RESOLVED_MODEL, echoes label
+  local phase="$1" override
+  override="$(phase_override "$phase" ENGINE)"
+  RESOLVED_ENGINE="${override:-$ENGINE}"
+  case "$RESOLVED_ENGINE" in
+    claude|opencode) ;;
+    *)
+      echo "unknown engine '$RESOLVED_ENGINE' for phase '$phase'" \
+        "(from $(printf '%s' "$phase" | tr '[:lower:]' '[:upper:]')_ENGINE / ENGINE)" \
+        "— expected claude or opencode" >&2
+      exit 1
+      ;;
+  esac
+  command -v "$RESOLVED_ENGINE" >/dev/null || {
+    echo "$RESOLVED_ENGINE is not on PATH (required for phase '$phase')" >&2
+    exit 1
+  }
+  RESOLVED_MODEL="$(phase_override "$phase" MODEL)"
+  RESOLVED_MODEL="${RESOLVED_MODEL:-$MODEL}"
+  RESOLVED_LABEL=""
+  # An `if`, not a trailing `[[ ]] &&`. As the function's last statement that
+  # list makes the function return 1 for a `claude` phase, and `set -e` kills the
+  # whole run on a return value that means nothing.
+  if [[ "$RESOLVED_ENGINE" == "opencode" ]]; then
+    RESOLVED_LABEL=" ($RESOLVED_MODEL, no budget cap)"
+  fi
+}
+
 command -v "$ENGINE" >/dev/null || { echo "$ENGINE is not on PATH" >&2; exit 1; }
-MODEL_LABEL=""
-[[ "$ENGINE" == "opencode" ]] && MODEL_LABEL=" ($MODEL, no budget cap)"
+
+# An override naming a binary that is not installed is a routing typo, and it is
+# worth catching before the loop rather than on the iteration that reaches it —
+# otherwise a design phase runs for real and the implement phase is the first to
+# discover the typo. `resolve_engine` re-checks per phase, so this is a fast
+# fail, not the only check.
+for _p in cover design implement review revise land; do
+  _e="$(phase_override "$_p" ENGINE)"
+  [[ -n "$_e" ]] || continue
+  command -v "$_e" >/dev/null || {
+    echo "$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')_ENGINE=$_e is not on PATH" >&2
+    exit 1
+  }
+done
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
@@ -234,7 +324,21 @@ build_prompt() {
 
 # --- main loop ------------------------------------------------------------
 
-echo "campaign: $SLUG   base: $BASE_BRANCH   engine: $ENGINE${MODEL_LABEL}   budget: \$$MAX_BUDGET_USD/iter, \$$REVIEW_BUDGET_USD for review"
+echo "campaign: $SLUG   base: $BASE_BRANCH   budget: \$$MAX_BUDGET_USD/iter, \$$REVIEW_BUDGET_USD for review"
+
+# The routing, printed as a table rather than a single engine name. A run whose
+# review and implement phases are on different CLIs is the case worth seeing at a
+# glance, and printing only $ENGINE would hide exactly the thing an operator
+# needs to confirm before spending the run.
+routing_rows=()
+for _p in cover design implement review revise land; do
+  resolve_engine "$_p"
+  # 10 wide, not 9: `implement` is exactly 9 characters, so %-9s runs the engine
+  # straight into the longest phase name and the column stops being a column.
+  routing_rows+=("  $(printf '%-10s' "$_p")$RESOLVED_ENGINE$RESOLVED_LABEL")
+done
+printf 'engine routing:\n%s\n' "$(printf '%s\n' "${routing_rows[@]}")"
+
 [[ -n "$ITEM" ]] && echo "restricted to item $ITEM"
 
 completed=0
@@ -269,8 +373,20 @@ for ((i = 1; i <= MAX_ITER; i++)); do
     *)      iter_budget="$MAX_BUDGET_USD" ;;
   esac
 
+  # Which CLI runs THIS phase, not the run. Resolved before the prompt is built
+  # so the iteration banner names the engine that will actually execute.
+  resolve_engine "$phase"
+
+  # An opencode phase ignores iter_budget — it has no --max-budget-usd — so
+  # advertising the number next to it would be a claim the run cannot honor.
+  if [[ "$RESOLVED_ENGINE" == "opencode" ]]; then
+    budget_label="no budget cap"
+  else
+    budget_label="\$$iter_budget"
+  fi
+
   echo
-  echo "===== iteration $i/$MAX_ITER · item $id · phase $phase (round $round) · budget \$$iter_budget ====="
+  echo "===== iteration $i/$MAX_ITER · item $id · phase $phase (round $round) · $RESOLVED_ENGINE$RESOLVED_LABEL · $budget_label ====="
   echo "$title"
 
   prompt="$(build_prompt "$id" "$title" "$phase" "$round" "$item_file" "$worktree")"
@@ -323,7 +439,7 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   JQ_PID=$!
 
   set +e
-  case "$ENGINE" in
+  case "$RESOLVED_ENGINE" in
     claude)
       printf '%s' "$prompt" | claude -p \
           --permission-mode bypassPermissions \
@@ -337,7 +453,7 @@ for ((i = 1; i <= MAX_ITER; i++)); do
       # No budget flag exists, so $iter_budget is deliberately unused here. The
       # header documents that MAX_ITER is the only ceiling under this engine.
       printf '%s' "$prompt" | opencode run \
-          --model "$MODEL" \
+          --model "$RESOLVED_MODEL" \
           --auto \
           --format json > "$fifo" &
       ;;
