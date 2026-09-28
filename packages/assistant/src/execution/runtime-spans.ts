@@ -306,8 +306,8 @@ export function startQueueLeaseSpan(args: QueueLeaseSpanArgs): QueueLeaseSpanClo
  * active/kernel/loaded counts + estimated schema payload). The other two
  * lazy-tool spans now live in `tool-runtime`: `runtime.tool_load` (every load
  * path — explicit `system.load_tool`, dispatcher inactive-bounce, and the search
- * fold — must emit an identically shaped span) and `runtime.tool_search` (the model-facing
- * catalog search, whose only caller is `system.search_tools`); see
+ * fold — must emit an identically shaped span) and `runtime.tool_search` (the
+ * model-facing catalog search, whose only caller is `system.search_tools`); see
  * `tool-runtime/internal/runtime-spans.ts`. Together they let an operator judge
  * whether lazy loading is shrinking the payload rather than moving latency
  * around, and where discovery metadata is too weak for search to find the right
