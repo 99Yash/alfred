@@ -5,14 +5,13 @@ import { after, describe, test } from "node:test";
 import { eventTypeName, rawEventTypeName } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
+import type { EventReceipt } from "@alfred/db/schemas";
 import { documents, eventReceipts, integrationCredentials, user } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
 import {
   isReceiptPayloadReaperRunning,
-  MAX_BATCHES_PER_PASS,
   RECEIPT_PAYLOAD_RETENTION_MS,
-  RELEASE_BATCH_SIZE,
   releaseExpiredReceiptPayloadsOnce,
   startReceiptPayloadReaper,
   stopReceiptPayloadReaper,
@@ -31,11 +30,13 @@ import { dbBackedSkip } from "../../support/db-backed";
  * under-reaps.
  *
  * The reaper is not user-scoped, so every case reads back the ids it seeded by
- * name rather than asserting a global count. The one exception is the paging
- * case, which is exact because only these rows can be releasable: a receipt
- * enters the index with `payload` set, a document is written in the same
- * transaction that inserts it, and a test that stores a body without a document
- * is excluded by the `EXISTS` clause.
+ * name rather than asserting a global count. That is also why every case below
+ * passes `CLOCK` rather than the wall clock: see the constant.
+ *
+ * The one exception is `start`/`stop`, which runs the real global pass at the
+ * real clock because the scheduler has no injectable clock. It is the single
+ * case with a side effect on the shared dev database, which is why it asserts
+ * only the task's own running flag and never a count.
  *
  * The seeded rows differ from the one that may be released in EXACTLY ONE
  * dimension each — age, processing status, tier, or the presence of a corpus
@@ -46,6 +47,24 @@ import { dbBackedSkip } from "../../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The clock every case hands the pass, fixed in year 2000.
+ *
+ * Every assertion in this file is an exact count, and it is exact only if no row
+ * this file did not seed is releasable. `deliveredAt` has to be relative to
+ * something, and `new Date()` is the obvious choice and the wrong one: seeding
+ * relative to the wall clock puts THIS file's rows 90+ days in the past while
+ * leaving the reaper free to release every real receipt in the shared dev
+ * database that is also past 90 days. A pass would then take page slots, counts
+ * and abort placement from rows this file never saw, and the suite's verdict
+ * would depend on the order the cases ran in — which is the "check that lies"
+ * this file exists to avoid, reintroduced one level up.
+ *
+ * Anchored in 2000, the cutoff precedes every real row, so each case is exact by
+ * construction rather than by luck.
+ */
+const CLOCK = new Date("2000-01-01T00:00:00.000Z");
 
 const createdUserIds: string[] = [];
 
@@ -91,7 +110,7 @@ async function seedReceipt(args: {
   userId: string;
   credentialId: string;
   deliveredAt: Date;
-  processingStatus: "pending" | "completed" | "failed";
+  processingStatus: EventReceipt["processingStatus"];
   rawKind?: string;
   withDocument?: boolean;
 }): Promise<string> {
@@ -194,7 +213,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("releases an expired completed body, and every column that makes the row valuable", async () => {
-    const now = new Date();
+    const now = CLOCK;
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -225,7 +244,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("keeps a body inside the window, and a failed one, and a pending one, and an unprojected one", async () => {
-    const now = new Date();
+    const now = CLOCK;
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired, inWindow } = ages(now);
@@ -276,7 +295,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("releases a raw receipt's body too, not only the typed tier", async () => {
-    const now = new Date();
+    const now = CLOCK;
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -299,7 +318,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("a second pass over released rows is a no-op, and the cutoff moves with the clock", async () => {
-    const now = new Date();
+    const now = CLOCK;
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired, inWindow } = ages(now);
@@ -351,7 +370,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("a pass stops at maxBatches * batchSize and leaves the rest for the next pass", async () => {
-    const now = new Date();
+    const now = CLOCK;
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -385,16 +404,8 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     assert.equal((await withBody(ids)).size, 0);
   });
 
-  test("the shipped bounds are 1,000 rows over 20 batches", () => {
-    // 20,000 bodies an hour. The batch size is the measured page cliff, not a
-    // round number: the EXISTS clause abandons `event_receipts_payload_live_idx`
-    // past it, which would undo the index item 01 exists for.
-    assert.equal(RELEASE_BATCH_SIZE, 1_000);
-    assert.equal(MAX_BATCHES_PER_PASS, 20);
-  });
-
   test("an aborted signal stops the pass between batches", async () => {
-    const now = new Date();
+    const now = CLOCK;
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -427,24 +438,25 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     // Aborted AFTER the first batch. `releaseExpiredReceiptPayloadsOnce` reads
     // `signal.aborted` once per iteration, so a signal that reports false
     // exactly once proves the check sits BETWEEN batches: a check placed before
-    // the loop releases nothing, and no check at all releases all six. The
-    // bounds are loose because the database is shared and a foreign eligible row
-    // could take a page slot; the placement is what is under test.
+    // the loop releases nothing, and no check at all releases all six. These
+    // bounds are exact rather than ranged because `CLOCK` puts the cutoff ahead
+    // of every row this suite did not seed, so the only releasable rows are
+    // these six.
     const released = await releaseExpiredReceiptPayloadsOnce(now, {
       batchSize: 2,
       signal: signalAbortingAfterReads(1),
     });
 
-    assert.ok(released >= 1, "the first batch runs before the abort is noticed");
-    assert.ok(released <= 2, "no second batch may start after the abort");
-    assert.ok(
-      (await withBody(ids)).size >= 4,
-      "at most one batch of the six seeded bodies may be released",
+    assert.equal(released, 2, "the first batch runs before the abort is noticed");
+    assert.equal(
+      (await withBody(ids)).size,
+      4,
+      "no second batch may start after the abort, so four of the six survive",
     );
   });
 
   test("a second concurrent pass yields instead of racing the first", async () => {
-    const now = new Date();
+    const now = CLOCK;
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -470,7 +482,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("a redelivery of a released receipt is still a no-op", async () => {
-    const now = new Date();
+    const now = CLOCK;
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -486,9 +498,12 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     await releaseExpiredReceiptPayloadsOnce(now);
     assert.equal((await readOne(releasable)).payload, null, "the body is released");
 
-    // The insert the webhook handler performs, verbatim. GitHub's redelivery
-    // button works on months-old deliveries, so this conflict is the whole
-    // reason a release may not delete the row.
+    // The redelivery's conflict target, not the handler's whole insert: what is
+    // under test is that `(provider, provider_delivery_id)` still conflicts after
+    // a release, so the extra columns the handler sets (`payloadHash`, and the
+    // document it writes in the same transaction) are omitted rather than
+    // restated here. GitHub's redelivery button works on months-old deliveries,
+    // so this conflict is the whole reason a release may not delete the row.
     const inserted = await db()
       .insert(eventReceipts)
       .values({
@@ -525,6 +540,14 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("start is idempotent and stop leaves the reaper restartable", async () => {
+    // `runOnStart` fires a real pass at the WALL clock the moment `start()` is
+    // called, because the scheduler holds no injectable clock. That pass reads
+    // the shared dev database and may release any body already past 90 days
+    // there, so this is the one case with a side effect outside this file's own
+    // rows. It is the production behaviour `runOnStart: true` exists for, and
+    // there is no way to observe the start/stop lifecycle without triggering it.
+    // Nothing here asserts a count, so the pass's result cannot change this
+    // case's verdict.
     assert.equal(isReceiptPayloadReaperRunning(), false, "not running before start");
 
     startReceiptPayloadReaper();

@@ -34,12 +34,15 @@
  * reader touches this column" was the claim that had to be replaced:
  *
  *   - `gatherIntegrationActivity` (`packages/assistant/src/briefings/gather.ts`)
- *     renders integration activity for `get_day_shape` and `gatherBriefing`.
- *     With no body, `describeGithubReceipt` parses `{}` and the line degrades to
- *     a generic one, and the `seenDeployments` collapse (#1167) is lost, so one
- *     relayed machine deployment reads as several units of the user's day.
+ *     backs `get_day_shape` and `gatherBriefing`. `gatherDayShape` reads only
+ *     the COUNT, so the loss there is the `seenDeployments` collapse (#1167): one
+ *     relayed machine deployment reads as several units of the user's day, and
+ *     `activityVolume` is computed from the inflated number. The reader that
+ *     consumes the rendered line is `composeBriefing`, and there a released body
+ *     is a wrong fact rather than a missing one — `describeGithubReceipt` parses
+ *     `{}`, so a merged PR reads `PR #? updated` with `status: "open"`.
  *   - The github object-state rebuild
- *     (`packages/assistant/src/connections/object-state/backfill-object-state-github-committed.ts`)
+ *     (`apps/server/src/scripts/backfills/backfill-object-state-github-committed.ts`)
  *     replays stored `pull_request` bodies and skips a released one silently,
  *     so a rebuild from receipts covers only this window. Nothing recovers it.
  *
@@ -65,14 +68,21 @@ import { receiptDocumentJoin } from "./receipt-document";
  * How long a receipt keeps its body.
  *
  * This is a tradeoff, chosen and not deduced, and it is worth being plain about
- * which reader it trades against. The one in-product reader of an OLD body is
- * `gatherIntegrationActivity`, and its window is not all history: `get_day_shape`
- * passes `sinceIngestedAt` (the last briefing) to now, and `gatherBriefing`
- * passes `args.windowStart ?? 24h`. Nothing in the product asks for a body
- * older than that, so 90 days sits comfortably outside anything a reader asks
- * for and buys two things instead: debug visibility on rows whose consumer has
- * stopped asking, and an object-state rebuild that covers 90 days of deliveries
- * rather than none.
+ * which reader it trades against. `gatherIntegrationActivity` is the one reader
+ * that renders an OLD body to a person, and its window is not all history:
+ * `get_day_shape` passes `sinceIngestedAt`, the last briefing's watermark, and
+ * `gatherBriefing` passes `args.windowStart ?? 24h`. That watermark has no age
+ * bound of its own, so no fixed number of days makes this reader stop asking,
+ * and 90 days is a point chosen well past the usual one rather than a value
+ * derived from it. What it buys instead is debug visibility on rows whose
+ * consumer has stopped asking, and an object-state rebuild that covers 90 days
+ * of deliveries rather than none.
+ *
+ * The readers that do bound their own reach are protected by the PREDICATE, not
+ * by this window: the corpus backfill and the redelivery fold read a body at any
+ * age, and a `failed`, `pending` or unprojected receipt keeps one here however
+ * old it is. Shrinking the window would not protect them either, which is why
+ * the predicate is the load-bearing part of this file and the constant is not.
  *
  * A longer window would cost a proportionally larger table and buy no reader. A
  * shorter one would cost the rebuild and the visibility. 90 days is where that
@@ -85,14 +95,28 @@ export const RECEIPT_PAYLOAD_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 /**
  * Rows released per statement.
  *
- * Not the outbox reaper's 5,000, and the number is measured rather than
- * copied. This statement carries an `EXISTS` clause against `documents`, so a
- * page larger than the number of matching rows abandons the partial index for a
- * sort plus a hash join: at `LIMIT 1000` the plan is a nested loop over
- * `event_receipts_payload_live_idx` and `documents_source_id_idx`, and at
- * `LIMIT 5000` the planner abandons `event_receipts_payload_live_idx`
- * entirely. Item 01's index is worth nothing if the page is allowed to grow
- * past the live set, so the bound sits inside the measured cliff.
+ * Not the outbox reaper's 5,000, and 1,000 is a CHOSEN bound, not a derived
+ * one. The four-clause page carries an `EXISTS` against `documents`, and
+ * whichever plan the planner picks depends on how much of `event_receipts` the
+ * page has to walk before it is full — not on the `LIMIT` alone. Measured on a
+ * seeded 20,000-live-body table, local Docker DB, 2026-09-28:
+ *
+ *   20,000 live, 20,000 documented   LIMIT 1000  nested loop over
+ *                                    event_receipts_payload_live_idx, 23ms
+ *                                    LIMIT 5000  seq scan + hash join, 117ms
+ *                                    LIMIT 20000 seq scan + hash join, 400ms
+ *   20,000 live, 1,000 documented    LIMIT 1000  seq scan + hash join, 25ms
+ *
+ * So the index holds whenever the page fills early, and the crossover between
+ * the two plans sits above 1,000 on a table where every body is projected. It
+ * does not hold at all when most live bodies have no document — the walk runs to
+ * the end of the index and a hash join over the table wins. The clause is what
+ * makes that case possible, and it is non-negotiable (see `releaseBatch`), so
+ * the bound is chosen for the dense case and the sparse case is absorbed rather
+ * than designed for. Both shapes stay in the tens of milliseconds at this
+ * bound, once an hour, which is the actual requirement. Re-measure with
+ * `EXPLAIN (ANALYZE, BUFFERS)` on production data before raising it: the 5,000
+ * the sibling reaper uses is measured 5x slower here, and 20,000 is 17x.
  */
 export const RELEASE_BATCH_SIZE = 1_000;
 
@@ -125,15 +149,21 @@ const RELEASE_INTERVAL_MS = 60 * 60 * 1000;
  *
  * The id page is selected in a subquery so the `UPDATE` targets a fixed set
  * rather than re-evaluating the predicate against rows being delivered
- * concurrently. `processing_status` only ever moves pending -> completed|failed
- * (`markProcessed` in `inbound-deliver.ts`), so a row that was `completed` at
- * page time cannot become releasable-in-error between the two statements.
+ * concurrently. `completed` is terminal in the code path that writes it —
+ * `deliverInboundReceipt` returns early on a `completed` receipt
+ * (`inbound-deliver.ts:60`) — so a row that was `completed` at page time does
+ * not become releasable-in-error between the two statements. Terminal in the
+ * CODE PATH, not in the table: `markProcessed` carries no status guard, so
+ * nothing under the database refuses `completed -> failed`.
  *
  * **The predicate has four clauses and each one is load-bearing.**
  *
  *   payload IS NOT NULL              literal, so the planner may use
  *                                    `event_receipts_payload_live_idx`, whose
- *                                    predicate is exactly this
+ *                                    partial predicate is exactly this. It MAY:
+ *                                    whether it does depends on how much of the
+ *                                    table the page has to walk, which
+ *                                    `RELEASE_BATCH_SIZE` documents
  *   delivered_at < cutoff            the index condition; this is what makes
  *                                    expiry track the live bodies rather than
  *                                    the age of the table
@@ -185,11 +215,33 @@ async function releaseBatch(cutoff: Date, batchSize: number): Promise<number> {
 
   const released = await db()
     .update(eventReceipts)
-    // A literal null, never a sql.placeholder: a placeholder encodes JS null as
-    // JSON 'null', which the write-once guard reads as a replacement body and
-    // refuses.
+    // SQL NULL, never a sql.placeholder. A placeholder encodes JS null as the
+    // JSON string 'null', and `'null'::jsonb IS NULL` is false, so the 0139
+    // write-once guard reads it as a REPLACEMENT body and refuses the whole
+    // statement. `.set({ payload: null })` is what binds a real NULL.
     .set({ payload: null })
-    .where(sql`${eventReceipts.id} = any(array(${page}))`)
+    // `payload IS NOT NULL` is repeated in the OUTER where on purpose, and the
+    // subquery keeps its own copy for the index. A second pass — another
+    // process, since `passInFlight` is in-process only — selects the same page,
+    // blocks on the winner's row locks, and under READ COMMITTED Postgres
+    // re-checks the updated row against this `WHERE` through EvalPlanQual. The
+    // page is an InitPlan whose value is fixed before the wait, so the
+    // subquery's clause is not re-run, and without a clause here the loser
+    // rewrites every row the winner released, moves `updated_at` on it, and has
+    // `RETURNING` count each one twice. A `DELETE` has no surviving row version
+    // to re-check, which is why the outbox reaper's form does not transfer to an
+    // `UPDATE`.
+    //
+    // Measured, not assumed: two committed sessions running this statement over
+    // the same 3 released-eligible rows return 3 and 3 without the clause, and
+    // 3 and 0 with it. The `Index Cond: (id = ANY ((InitPlan 1).col1))` survives
+    // either way, and on a seeded 4,000-live-body table the two shapes cost
+    // 31.4ms and 31.2ms — equal, once the table has been ANALYZEd. On the same
+    // table WITHOUT a prior ANALYZE the outer clause cost 2.7x, because the
+    // planner had no statistics and chose a live-index scan for the outer scan;
+    // treat that number as a reminder to re-measure on production data, not as
+    // the clause's cost.
+    .where(and(sql`${eventReceipts.id} = any(array(${page}))`, isNotNull(eventReceipts.payload)))
     .returning({ id: eventReceipts.id });
 
   return released.length;
@@ -201,23 +253,22 @@ let passInFlight = false;
 /**
  * Run one retention pass. Returns the number of bodies released.
  *
- * Two passes must not overlap. They would select the same id page, and the
- * loser's `UPDATE` would match nothing while both held pool connections. The
- * scheduler's own re-entrancy guard is not enough, because this function is
+ * Two passes must not overlap, and this guard is what keeps the two of them from
+ * rewriting each other's pages. `PeriodicTask` has its own re-entrancy guard,
+ * but that one covers the scheduled pass only, because this function is
  * exported: a script or a future admin route calling it directly would run
- * alongside the hourly timer. So the guard lives here, on the entrypoint, and a
- * caller who arrives during a pass gets `0` rather than a redundant scan.
+ * alongside the hourly timer. A caller who arrives during a pass gets `0` rather
+ * than a redundant scan. In-process is the whole of the guarantee — a second
+ * PROCESS is not covered here, which is why the `UPDATE` repeats
+ * `payload IS NOT NULL` in its own `WHERE` rather than trusting the page.
  *
  * `signal` is what makes the pass interruptible — without a check between
  * batches, a shutdown would abandon a pass mid-flight and the pool could close
  * under an open `UPDATE`.
  *
- * `now` stays a positional parameter rather than joining the options object, and
- * that is deliberate: every property of `ReleaseOptions` is optional, so a stray
- * `releaseExpiredReceiptPayloadsOnce(someDate)` would type-check as an options
- * bag with no `now`, silently release against the real clock, and pass. Nothing
- * would catch it — this package's `tsc` covers `src` only, so test files are
- * unchecked.
+ * `now` is the clock the cutoff is measured from, and it defaults to the wall
+ * clock, which is why every caller that needs a deterministic pass passes one
+ * rather than leaning on the default.
  */
 export async function releaseExpiredReceiptPayloadsOnce(
   now: Date = new Date(),
