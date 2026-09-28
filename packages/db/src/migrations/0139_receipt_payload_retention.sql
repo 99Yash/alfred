@@ -25,7 +25,7 @@ CREATE INDEX "event_receipts_payload_live_idx" ON "event_receipts" USING btree (
 -- READERS OF `payload`, because "nothing reads it retroactively" was the claim
 -- this migration exists to replace, and naming only some of them repeats the
 -- error. Enumerated 2026-09-28. What each does when the body is gone is stated
--- alongside it, because three of the five fail soft and two do not.
+-- alongside it, because they do not all fail soft.
 --
 --   1. `writeReceiptDocument` (`connections/ingestion/receipt-document.ts`),
 --      on the INSERT path, copying the body into `documents.raw`. Unaffected: it
@@ -40,13 +40,24 @@ CREATE INDEX "event_receipts_payload_live_idx" ON "event_receipts" USING btree (
 --      selecting it, so the real corpus copy is never recovered. A release must
 --      therefore never outrun this backfill.
 --   3. The object-state fold, `activity-consumer.ts:105`, reading the body at
---      deliver time for one receipt by id. Unaffected: the row is minutes old.
---   4. `gatherIntegrationActivity` (`briefings/gather.ts:747`), backing the
---      `get_day_shape` briefing tool over a `sinceIngestedAt` -> now window.
---      Past the window it falls back to generic activity lines and the
---      `seenDeployments` collapse is lost (the #1167 fix for "one machine relay
---      reads as several units of the user's day"). Cosmetic on a day-shape
---      summary, not a wrong fact.
+--      deliver time for one receipt by id. Unaffected in practice because the
+--      fold runs before the receipt completes and the reaper releases only
+--      `completed` ones (item 02) — not because the row is young, since a
+--      redelivery can reach a non-`completed` receipt of any age.
+--   4. `gatherIntegrationActivity` (`briefings/gather.ts:747`), reached from
+--      BOTH `gatherBriefing` (`gather.ts:591`) and the `get_day_shape` tool, over
+--      a `sinceIngestedAt` -> now window. Past the window this reports a WRONG
+--      FACT, not a cosmetic one: `action` lives only in the expiring body, and
+--      `describeGithubActivity` (`github-description.ts:81`) derives
+--      `status: "resolved"` from `action === "closed"`. With no body a MERGED PR
+--      falls to the `?? "open"` default and reports `PR #? updated`, status
+--      `open` — the opposite of what happened. `get_day_shape` then hands the
+--      briefing agent that status, and its own tool contract says never to call
+--      a day `quiet` when the volume is `busy` or `normal`; a merged PR read as
+--      open is the same class of error. Queued as a behaviour fix in its own
+--      right, not fixed by this comment. The `seenDeployments` collapse is also
+--      lost (the #1167 fix for "one machine relay reads as several units of the
+--      user's day"), which overstates the volume on top of the wrong status.
 --   5. `backfill-object-state-github-committed.ts:48`, replaying EVERY stored
 --      github `pull_request` body to rebuild `integration_objects`. `safeParse`
 --      fails on a null, so released rows are skipped SILENTLY, and a rebuild
@@ -68,8 +79,9 @@ CREATE INDEX "event_receipts_payload_live_idx" ON "event_receipts" USING btree (
 -- that stops working.
 --
 -- Deliberately NOT a row delete. Receipts are never deleted DIRECTLY: the guard
--- below refuses that at `pg_trigger_depth() = 1`, and the depth-2 arm is the FK
--- cascade from a `user` or `integration_credentials` wipe, which is intended.
+-- below refuses that at `pg_trigger_depth() = 1`, and the `pg_trigger_depth() > 1`
+-- arm is the FK cascade from a `user` or `integration_credentials` wipe, which is
+-- intended.
 -- Deleting rows for retention would forfeit the dedup index and the gap cursor,
 -- and a provider redelivering an event older than the window would then be
 -- ingested as new — a second triage email, a second reply. Nulling the body
@@ -83,8 +95,10 @@ CREATE INDEX "event_receipts_payload_live_idx" ON "event_receipts" USING btree (
 -- The partial index above is the reaper's: it makes expiry an index-driven scan
 -- whose size tracks the LIVE BODIES rather than the age of the table, since a
 -- receipt leaves the index as soon as its body is released. Not exactly the
--- retention window: a non-`completed` receipt keeps its body, and so stays in
--- the index, until it is released.
+-- retention window, because the reaper (item 02) is what restricts itself to
+-- `completed` receipts — nothing in this migration enforces that, so a reaper
+-- written without the predicate would keep a failed receipt's body and its
+-- index entry.
 CREATE OR REPLACE FUNCTION event_receipts_guard_evidence() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
