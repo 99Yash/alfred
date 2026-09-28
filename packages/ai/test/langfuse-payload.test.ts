@@ -479,6 +479,58 @@ describe("v5 emission shape (in-memory exporter)", () => {
     });
   });
 
+  test("a tool span carries the run's trace attributes from the generation that preceded it", async () => {
+    // The defect this pins: `withTraceAttributes` seeds OTel context for the
+    // duration of one call, so a span opened later — every tool span, since they
+    // run in the dispatch step after the generation returned — had no way to
+    // learn the run's session. Filter a trace by `role:boss` or by session and
+    // the tool work vanished.
+    const meta: MeteredMeta = {
+      ...baseMeta,
+      role: "boss",
+      runId: "run_attrib",
+      sessionId: "thread_attrib",
+      userId: "user_attrib",
+      name: "agent:chat",
+    };
+
+    startLangfuseSpan({ meta, startedAt: new Date() }).success({ costUsd: 0 });
+
+    const toolCloser = startToolSpan({
+      runId: "run_attrib",
+      toolName: "system.list_instructions",
+      toolCallId: "tc_attrib",
+      startedAt: new Date(),
+    });
+
+    toolCloser.success({ ok: true });
+
+    const span = (await emittedSpans()).find((s) => s.name === "tool:system.list_instructions");
+
+    assert.ok(span, "tool span exported");
+    assert.equal(span.attributes[A.TRACE_USER_ID], "user_attrib");
+    assert.equal(span.attributes[A.TRACE_SESSION_ID], "thread_attrib");
+    assert.deepEqual(span.attributes[A.TRACE_TAGS], ["role:boss", "call_kind:llm"]);
+  });
+
+  test("a span for a run with no generation carries no invented identity", async () => {
+    // A miss must degrade to today's behaviour, not fabricate attributes.
+    const closer = startToolSpan({
+      runId: "run_never_ran",
+      toolName: "system.current_time",
+      toolCallId: "tc_none",
+      startedAt: new Date(),
+    });
+
+    closer.success({ ok: true });
+
+    const span = (await emittedSpans()).find((s) => s.name === "tool:system.current_time");
+
+    assert.ok(span, "tool span exported");
+    assert.equal(span.attributes[A.TRACE_SESSION_ID], undefined);
+    assert.equal(span.attributes[A.TRACE_USER_ID], undefined);
+  });
+
   test("a tool span exports under the run trace with structural metadata", async () => {
     const closer = startToolSpan({
       runId: "run_tools",
