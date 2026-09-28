@@ -24,7 +24,9 @@ import {
   getIngestionQueue,
   scheduleRepeatableIngestionJobs,
   startIngestionWorker,
+  startReceiptPayloadReaper,
   stopIngestionWorker,
+  stopReceiptPayloadReaper,
 } from "@alfred/assistant/connections/ingestion";
 import {
   startMcpConnectionRecovery,
@@ -239,6 +241,12 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       // them would break interactive work while fixing nothing.
       if (scheduledJobsEnabled()) {
         startMcpConnectionRecovery();
+        // Releases the BODY of an `event_receipts` row past its retention
+        // window. Same gate as the schedules above, for the same reason: a timer
+        // that mutates rows with nobody watching. Unlike the outbox reaper, which
+        // `realtime/bridge.ts` owns because the event bridge starts it, nothing
+        // else owns this one, so `stop()` below stops it too.
+        startReceiptPayloadReaper();
         await scheduleRepeatableIngestionJobs();
         await scheduleRepeatableMemoryJobs();
         await scheduleRepeatableBriefingJobs();
@@ -256,6 +264,11 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
     async stop(): Promise<void> {
       // Preserve the required stop order, but attempt every step. One unrelated
       // worker failure must not leave ingestion live while its adapters disappear.
+      // The reaper goes first because it is the one timer here holding a pooled
+      // connection mid-statement: its `stop()` is what stops an open UPDATE from
+      // outliving the pool. It is a no-op when the scheduled-jobs gate kept it
+      // from starting.
+      await runShutdownStep("receipt-payload reaper", stopReceiptPayloadReaper);
       await runShutdownStep("MCP connection recovery", stopMcpConnectionRecovery);
       const agentWorkerStopped = await runShutdownStep("agent worker", stopAgentWorker);
       await runShutdownStep("sub-agent join-wake worker", stopSubAgentJoinWakeWorker);
