@@ -231,12 +231,14 @@ interface SurfaceActivation {
  *
  * Surface membership is not an authority boundary: the dispatcher decides
  * approval for every call from the tool's risk tier, and `system.load_tool` can
- * already activate any registered tool. So a high-risk hit such as
- * `gmail.send_draft` may fold. `mcp.call` is excluded for a different reason: the
- * model must copy the hit's ref fields into that call anyway, so activating it
- * here saves no round-trip.
+ * already activate any available registered tool. So a high-risk hit such as
+ * `gmail.send_draft` may fold. `mcp.call` is excluded by scope, not for safety:
+ * the model copies the hit's ref fields from the search result either way, so
+ * folding it would save the same round-trip, and no safety reason remains for
+ * the exclusion. The fold stays on curated hits on purpose until the curated/MCP
+ * split of real searches is measured.
  */
-const SURFACE_ACTIVATIONS = new Map<string, SurfaceActivation>([
+const SURFACE_ACTIVATIONS: ReadonlyMap<string, SurfaceActivation> = new Map([
   [
     "system.load_tool",
     {

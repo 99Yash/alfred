@@ -168,7 +168,7 @@ describe("startToolCallBatchSpan", () => {
   });
 });
 
-describe("runtime.tool_load (single owner for both load paths)", () => {
+describe("runtime.tool_load (single owner for every load path)", () => {
   const args = {
     runId: "run_load",
     caller: "sub:sub_a",
