@@ -56,20 +56,23 @@ export function startToolCallBatchSpan(run: ToolCallRun, callCount: number): Too
 }
 
 /**
- * Record a lazy tool activation that the dispatcher forced through an
- * inactive-bounce. It closes the load span immediately: the tool is already
- * resolved by the time the dispatcher bounces the schema-blind call, so the load
- * itself has no measurable latency (`latencyMs: 0`, `loaded: true`). It shares
- * `startToolLoadSpan` with the explicit `system.load_tool` path so both load
- * sources emit an identically shaped span and one count covers every lazy
+ * Record a lazy tool activation that the round made on its own, not through a
+ * `system.load_tool` call. It closes the load span immediately: the tool is
+ * already resolved when the round adds it (`latencyMs: 0`, `loaded: true`). It
+ * shares `startToolLoadSpan` with the explicit `system.load_tool` path so every
+ * load source emits an identically shaped span and one count covers every lazy
  * activation (#414).
  */
-export function recordInactiveToolActivation(run: ToolCallRun, toolName: ToolName): void {
+export function recordRoundToolActivation(
+  run: ToolCallRun,
+  toolName: ToolName,
+  source: RoundToolLoadSource,
+): void {
   startToolLoadSpan({
     runId: run.runId,
     caller: run.caller === "boss" ? "boss" : `sub:${run.caller.subId}`,
     toolName,
-    source: "inactive_bounce",
+    source,
     startedAt: new Date(),
   }).end({ outcome: "ok", latencyMs: 0 });
 }
@@ -82,13 +85,17 @@ type ToolLoadOutcome = "ok" | "unknown_tool" | ToolUnavailabilityCode;
 
 /**
  * How a lazy tool reached the active surface. A `runtime.tool_load` span is
- * emitted for both, so a count of the span reflects every lazy activation — not
- * only the explicit half (#414). `model_load`: the model called
+ * emitted for each, so a count of the span reflects every lazy activation — not
+ * only the explicit path (#414). `model_load`: the model called
  * `system.load_tool`. `inactive_bounce`: the model called the tool directly, the
- * dispatcher bounced the schema-blind call, and the workflow auto-activated it
- * for the next turn.
+ * dispatcher bounced the schema-blind call, and the round activated it for the
+ * next turn. `search_fold`: the model called `system.search_tools`, and the
+ * round activated the best available registered hit for the next turn.
  */
-type ToolLoadSource = "model_load" | "inactive_bounce";
+type ToolLoadSource = "model_load" | RoundToolLoadSource;
+
+/** The load sources the tool-call round records itself (`recordRoundToolActivation`). */
+export type RoundToolLoadSource = "inactive_bounce" | "search_fold";
 
 export interface ToolLoadSpanArgs {
   runId: string;
@@ -129,8 +136,9 @@ export interface ToolLoadSpanCloser {
  *
  * This is the single owner of the `runtime.tool_load` span shape. Both load
  * paths route through it: the explicit `system.load_tool` tool (`tools/system.ts`,
- * via the `tool-runtime` public re-export) and the dispatcher inactive-bounce
- * (`recordInactiveToolActivation` above). Neither may hand-copy the shape.
+ * via the `tool-runtime` public re-export) and the round's own activations — the
+ * inactive bounce and the search fold (`recordRoundToolActivation` above). None
+ * may hand-copy the shape.
  */
 export function startToolLoadSpan(args: ToolLoadSpanArgs): ToolLoadSpanCloser {
   const span = runtimeSpanStarter(buildToolLoadSpanInput(args));

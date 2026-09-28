@@ -1279,13 +1279,13 @@ export function undeclaredToolMessage(
         : `Integration tools use qualified names like '${suggestion.toolName}'.`;
 
   // The exact-name hint stays a `load_tool` call: the model asked for one
-  // specific tool, which is not what the search fold activates. The
-  // choose-an-exact-tool hint has no such specific name, and for it the search
-  // fold has already activated its best registered hit — naming the second
-  // `load_tool` step there would reinstate the hop this removed.
+  // specific tool, which is not what the search fold activates. The bare-slug
+  // hint has no specific name, and a slug query has no action intent, so the
+  // search's top hit can be a write the model did not mean. The hint tells the
+  // model to choose by intent, and says which candidates are already callable.
   const loadHint = suggestion.toolName
     ? `Call system.load_tool with name '${suggestion.toolName}' first,`
-    : `Call system.search_tools for '${suggestion.integration}' to choose an exact tool — its best registered hit is already loaded, so retry that one by name.`;
+    : `Call system.search_tools for '${suggestion.integration}', then call the candidate that matches your intent by its exact name. The search loads its top registered hit, and any other candidate loads when you first call it.`;
 
   return [
     `Tool '${toolName}' is not declared.`,

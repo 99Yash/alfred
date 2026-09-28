@@ -9,7 +9,11 @@ import type {
 } from "../index";
 import type { ToolCallDispatchResult, ToolCallRoundAdapter } from "./adapter";
 import { completedToolCall, toolResultMessage } from "./result-routing";
-import { recordInactiveToolActivation, startToolCallBatchSpan } from "./runtime-spans";
+import {
+  recordRoundToolActivation,
+  startToolCallBatchSpan,
+  type RoundToolLoadSource,
+} from "./runtime-spans";
 
 type RestoreSurface = (source: ToolSurfaceSource) => ToolName[];
 
@@ -45,7 +49,7 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
       const result = await adapter.dispatch({ ...input.run, ...call, activeTools: activeNames });
 
       if (result.kind === "inactive_tool") {
-        recordInactiveToolActivation(input.run, result.result.recovery.toolName);
+        recordRoundToolActivation(input.run, result.result.recovery.toolName, "inactive_bounce");
         activeNames = restoreSurface({
           kind: "exact",
           names: [...activeNames, result.result.recovery.toolName],
@@ -93,14 +97,24 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
 
       if (result.kind === "inactive_tool") reissue = true;
 
-      const activate = SURFACE_ACTIVATIONS.get(call.toolName);
+      const activation = SURFACE_ACTIVATIONS.get(call.toolName);
 
-      if (activate !== undefined && result.kind === "executed") {
+      if (activation !== undefined && result.kind === "executed") {
+        const before = activeNames;
+
         activeNames = foldActivation(
           activeNames,
-          activate(result.toolResult, input.run),
+          activation.activate(result.toolResult, input.run),
           restoreSurface,
         );
+
+        if (activation.loadSource !== null) {
+          for (const name of activeNames) {
+            if (!before.includes(name)) {
+              recordRoundToolActivation(input.run, name, activation.loadSource);
+            }
+          }
+        }
       }
     }
 
@@ -193,6 +207,16 @@ async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
 type SurfaceActivator = (result: unknown, run: ToolCallRun) => string | undefined;
 
 /**
+ * One tool whose result activates a tool, and the `runtime.tool_load` source the
+ * round records for a name it adds. `null` when the tool's own handler already
+ * records the load span, so the round does not count one load twice.
+ */
+interface SurfaceActivation {
+  activate: SurfaceActivator;
+  loadSource: RoundToolLoadSource | null;
+}
+
+/**
  * The two tools whose *result* changes the next turn's active surface.
  *
  * Keyed by plain `string` because that is what a proposed call carries: the
@@ -202,55 +226,64 @@ type SurfaceActivator = (result: unknown, run: ToolCallRun) => string | undefine
  * `system.search_tools` resolves a capability the model cannot call yet, and
  * resolving it is the expensive part: the model was paying a full sequential
  * round-trip purely to activate a tool it had just been handed the name of. So
- * the best curated hit it can already run is activated here, and the model calls
- * it directly on the next turn. The `mcp.call` hop stays explicit because
- * `search_tools` is `no_risk` and `mcp.call` is `high` — a search must not be
- * able to promote a high-risk tool into the surface on its own.
+ * the best curated hit it can already run is activated here, and the model can
+ * call it directly on the next turn.
+ *
+ * Surface membership is not an authority boundary: the dispatcher decides
+ * approval for every call from the tool's risk tier, and `system.load_tool` can
+ * already activate any registered tool. So a high-risk hit such as
+ * `gmail.send_draft` may fold. `mcp.call` is excluded for a different reason: the
+ * model must copy the hit's ref fields into that call anyway, so activating it
+ * here saves no round-trip.
  */
-const SURFACE_ACTIVATIONS: ReadonlyMap<string, SurfaceActivator> = new Map<
-  string,
-  SurfaceActivator
->([
+const SURFACE_ACTIVATIONS = new Map<string, SurfaceActivation>([
   [
     "system.load_tool",
-    (result) =>
-      isRecord(result) && result.ok === true ? getStringPath(result, "name") : undefined,
+    {
+      // The `system.load_tool` handler records its own `model_load` span.
+      loadSource: null,
+      activate: (result) =>
+        isRecord(result) && result.ok === true ? getStringPath(result, "name") : undefined,
+    },
   ],
   [
     "system.search_tools",
-    (result, run) => {
-      const candidates = getPath(result, "candidates");
+    {
+      loadSource: "search_fold",
+      activate: (result, run) => {
+        const candidates = getPath(result, "candidates");
 
-      if (!Array.isArray(candidates)) return undefined;
+        if (!Array.isArray(candidates)) return undefined;
 
-      for (const candidate of candidates) {
-        if (!isRecord(candidate)) continue;
+        for (const candidate of candidates) {
+          if (!isRecord(candidate)) continue;
 
-        const name = getStringPath(candidate, "name");
+          const name = getStringPath(candidate, "name");
 
-        // `name`, not `ref`: the curated `mcp.call` entry exists and carries no
-        // ref, so a ref test would wave the high-risk tool through.
-        if (name === undefined || name === "mcp.call") continue;
+          // `name`, not `ref`: the curated `mcp.call` entry exists and carries no
+          // ref, so a ref test would let it fold.
+          if (name === undefined || name === "mcp.call") continue;
 
-        // `searchAvailableTools` ranks unavailable matches in on purpose (so the
-        // model can say "Gmail isn't connected"), so an unfiltered first hit is
-        // routinely a tool this run cannot execute.
-        if (getStringPath(candidate, "availability") !== "available") continue;
+          // `searchAvailableTools` ranks unavailable matches in on purpose (so the
+          // model can say "Gmail isn't connected"), so an unfiltered first hit is
+          // routinely a tool this run cannot execute.
+          if (getStringPath(candidate, "availability") !== "available") continue;
 
-        // An absent envelope means unrestricted; a present one is a hard list
-        // (the reply-drafting workflow passes exactly one tool), and folding
-        // past it would grow a surface the dispatcher can only refuse.
-        if (
-          run.allowedTools !== undefined &&
-          !run.allowedTools.some((allowed) => allowed === name)
-        ) {
-          continue;
+          // An absent envelope means unrestricted; a present one is a hard list,
+          // and folding past it would grow a surface the dispatcher can only
+          // refuse.
+          if (
+            run.allowedTools !== undefined &&
+            !run.allowedTools.some((allowed) => allowed === name)
+          ) {
+            continue;
+          }
+
+          return name;
         }
 
-        return name;
-      }
-
-      return undefined;
+        return undefined;
+      },
     },
   ],
 ]);
