@@ -39,7 +39,8 @@ and they fire for every role including the owner:
 
 - `event_receipts` rejects direct DELETE (FK-cascade from a user/credential
   wipe is allowed) and rejects UPDATEs touching any evidence
-  or identity column. `processing_status` / `processed_at` / `updated_at`
+  or identity column — except that `payload` may be released to NULL
+  (migration 0139). `processing_status` / `processed_at` / `updated_at`
   stay writable: that lifecycle belongs to the `ingress.deliver` job
   (`markProcessed`), and a literal "no UPDATE" rule would break delivery.
   Corrections are new rows, never mutations.
