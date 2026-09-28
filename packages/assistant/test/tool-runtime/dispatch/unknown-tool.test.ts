@@ -42,14 +42,14 @@ describe("undeclaredToolMessage", () => {
   test("recovers a bare integration slug (the boss mistook the integration for a tool)", () => {
     // The boss emitted `calendar {action:"list_events"}` — a bare slug, not a
     // real tool. The recovery must enumerate the integration's qualified tools
-    // and point at exact search, not dead-end at "not declared". It no longer
-    // names `system.load_tool`: the search fold already activates its best
-    // registered hit, so a second hop is the round-trip this removed.
+    // and point at exact search, not dead-end at "not declared". It does not
+    // name `system.load_tool`: the search fold activates its top registered
+    // hit, and any other candidate activates when the model first calls it.
     const message = undeclaredToolMessage("calendar");
 
     assert.match(message, /calendar exposes: `list_events`, `create_event`/);
     assert.match(message, /system\.search_tools for 'calendar'/);
-    assert.match(message, /its best registered hit is already loaded/);
+    assert.doesNotMatch(message, /system\.load_tool/);
     assert.match(message, /Do not ask the user/);
   });
 

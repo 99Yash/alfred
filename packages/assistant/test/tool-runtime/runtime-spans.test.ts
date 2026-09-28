@@ -11,7 +11,7 @@ import {
   _setToolRuntimeSpanStarterForTests,
   buildToolLoadSpanInput,
   buildToolSearchSpanInput,
-  recordInactiveToolActivation,
+  recordRoundToolActivation,
   startToolCallBatchSpan,
   startToolLoadSpan,
   startToolSearchSpan,
@@ -210,7 +210,7 @@ describe("runtime.tool_load (single owner for both load paths)", () => {
     // covers every lazy activation. The inactive bounce differs only in
     // `source` and its zero-latency, already-resolved close.
     const { opened, ended } = capture(() =>
-      recordInactiveToolActivation(bossRun, "calendar.list_events" as never),
+      recordRoundToolActivation(bossRun, "calendar.list_events" as never, "inactive_bounce"),
     );
 
     assert.equal(opened[0]?.name, "runtime.tool_load");
