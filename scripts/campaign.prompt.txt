@@ -31,7 +31,13 @@ Hard constraints:
     at the owning boundary, db:generate + db:migrate never db:push, reach for an
     existing helper first.
   - Do NOT merge anything. Do NOT touch the {{BASE_BRANCH}} branch. Do NOT edit
-    CLAUDE.md or decisions.md.
+    CLAUDE.md, and do NOT edit decisions.md — EXCEPT the row your own item exists
+    to add. An item whose deliverable is one decisions.md row writes exactly that
+    row, appends it, and leaves every other row and the table's formatting
+    byte-identical. Rewriting, reordering, reformatting, or "correcting" any other
+    row is still out of bounds, and so is editing CLAUDE.md under any reading.
+    If your item needs a change to those files that is not its own row, that is
+    a new queue item, not this one.
   - Before you exit you MUST write the phase transition into {{STATE}} (`phase`,
     `updatedAt`, and whatever else the phase section names). If state does not
     move, the driver marks this item stuck and discards the work.
