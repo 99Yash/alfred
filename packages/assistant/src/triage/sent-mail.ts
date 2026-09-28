@@ -1,4 +1,4 @@
-import { parseEmailAddress, parseGmailDocumentMetadata } from "@alfred/contracts";
+import { parseEmailAddress } from "@alfred/contracts";
 import { documents } from "@alfred/db/schemas";
 import { sql, type SQL } from "drizzle-orm";
 
@@ -15,14 +15,7 @@ import { sql, type SQL } from "drizzle-orm";
  * and SQL forms in lockstep: both must check both signals.
  */
 
-const SENT_LABEL = "SENT";
-
-/** JS predicate over a document's `metadata` object. */
-export function isSentGmailMetadata(metadata: unknown): boolean {
-  const meta = parseGmailDocumentMetadata(metadata);
-
-  return meta.isSent === true || meta.labelIds?.some((label) => label === SENT_LABEL) === true;
-}
+export { isSentGmailMetadata } from "@alfred/contracts";
 
 /**
  * Whether a document whose *stored* metadata says "not sent" could nonetheless

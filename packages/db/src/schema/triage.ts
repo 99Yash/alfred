@@ -1,4 +1,5 @@
 import type {
+  DocumentAskProposal,
   SignificanceBand,
   TriageCategory,
   TriageTagSource,
@@ -59,6 +60,8 @@ export const emailTriage = pgTable(
     confidence: real("confidence").notNull(),
     /** Short rationale from the classifier (audit + debugging). */
     rationale: text("rationale"),
+    /** Validated semantic-kind proposal; the durable ask has its own owner. */
+    documentAsk: jsonb("document_ask").$type<DocumentAskProposal>(),
     /**
      * Classifier todo proposal (rule 16), persisted so a same-run `classify`
      * retry that takes the reuse path can reconstruct the full classification
