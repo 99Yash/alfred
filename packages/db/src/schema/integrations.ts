@@ -218,8 +218,9 @@ export const ingestionState = pgTable(
 // Receipts are never deleted directly. The append-only trigger (#1177, migration
 // 0134) refuses a direct DELETE outright, because Gmail push health and gap
 // detection read facts that only this table holds; the one allowed delete path is
-// the FK cascade from a `user` or `integration_credentials` wipe, which both
-// reference this table with `onDelete: "cascade"`. What expires is the body and
+// the FK cascade, which fires when a `user` or `integration_credentials` row goes
+// away — this table holds those `onDelete: "cascade"` references, so it is the
+// referencing side, not the referenced one. What expires is the body and
 // only the body: `payload` is released to NULL (migration 0139), while
 // `history_id`, `delivered_at` and the `(provider, provider_delivery_id)` dedup
 // key survive, so those readers keep what they need and no summary table is
