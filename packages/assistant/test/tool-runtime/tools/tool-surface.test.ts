@@ -4,7 +4,6 @@ import { isToolName, type ToolAvailabilityResult, type ToolName } from "@alfred/
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { toolNamesForIntegrations } from "@alfred/assistant/tool-runtime";
 import {
-  applyExactToolLoad,
   buildSdkToolSet,
   migrateActiveTools,
   systemToolKernel,
@@ -272,28 +271,5 @@ describe("migrateActiveTools", () => {
   test("empty legacy state yields exactly the kernel", () => {
     const migrated = migrateActiveTools(undefined, undefined, []);
     assert.deepEqual([...migrated].sort(), [...systemToolKernel()].sort());
-  });
-});
-
-describe("applyExactToolLoad", () => {
-  const base: ToolName[] = ["gmail.search"];
-
-  test("adds a valid loaded tool", () => {
-    assert.deepEqual(applyExactToolLoad(base, { ok: true, name: "calendar.list_events" }), [
-      "calendar.list_events",
-      "gmail.search",
-    ]);
-  });
-
-  test("ignores a retired tool name that is unknown to the registry", () => {
-    assert.deepEqual(applyExactToolLoad(base, { ok: true, name: RETIRED_TOOL }), ["gmail.search"]);
-  });
-
-  test("ignores a non-ok or malformed effect", () => {
-    assert.deepEqual(applyExactToolLoad(base, { ok: false, name: "calendar.list_events" }), [
-      "gmail.search",
-    ]);
-    assert.deepEqual(applyExactToolLoad(base, "nope"), ["gmail.search"]);
-    assert.deepEqual(applyExactToolLoad(base, null), ["gmail.search"]);
   });
 });

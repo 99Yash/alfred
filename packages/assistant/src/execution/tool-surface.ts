@@ -1,7 +1,4 @@
 import {
-  getStringPath,
-  isRecord,
-  isToolName,
   type IntegrationAvailabilitySnapshot,
   type ToolName,
   type ToolRunContext,
@@ -112,21 +109,6 @@ export function foldToolSurfaceState<T extends ParsedToolSurfaceState>(
 
 export function activateTool(activeTools: readonly ToolName[], toolName: ToolName): ToolName[] {
   return uniqueToolNames([...activeTools, toolName]);
-}
-
-/** Apply the bounded effect returned by `system.load_tool`; all other output is inert. */
-export function applyExactToolLoad(activeTools: readonly ToolName[], result: unknown): ToolName[] {
-  const name = isRecord(result) && result.ok === true ? getStringPath(result, "name") : undefined;
-
-  if (name === undefined || !isRegisteredToolName(name)) {
-    return uniqueToolNames(activeTools);
-  }
-
-  return activateTool(activeTools, name);
-}
-
-function isRegisteredToolName(name: string): name is ToolName {
-  return isToolName(name) && restoreToolSurface({ kind: "exact", names: [name] })[0] === name;
 }
 
 /** The one spelling of a tool-name set: deduplicated and sorted, so two surfaces compare by value. */
