@@ -11,6 +11,7 @@ import {
   collabActivitySchema,
   collapseWhitespace,
   confidenceSchema,
+  documentAskProposalSchema,
   extractGmailDocumentBody,
   isOwnershipCollabActivity,
   isPassiveCollabActivity,
@@ -90,6 +91,8 @@ export const triageClassificationSchema = z.object({
   confidence: confidenceSchema,
   /** Short rationale grounded in the email — used for audit and debugging. */
   rationale: z.string().min(1).max(MAX_RATIONALE_LEN),
+  /** Explicit inbound document request proposed by the classifier. */
+  documentAsk: documentAskProposalSchema.nullable().optional(),
   /**
    * Real-time todo proposal for the rail (ADR-0050, amended 2026-06-06 to the
    * todo-worthiness rubric). Non-null ONLY when the email clears all five rubric
@@ -316,6 +319,7 @@ Rules:
     - \`digest\`: a periodic activity roundup ("N updates in your workspace this week").
     Emit \`null\` for ANY email that is not a collaboration-tool notification (ordinary person-to-person mail, newsletters, marketing, security/auth, payments, calendar invites, social networks, vendor status pages). This is a FACTUAL read of the notification and is independent of the category — set it even when the category is fyi/done. It does not change your category choice; it records the ownership you already judged.
 20. Gmail spam verdict — \`spam=true\` in Observations means Gmail itself filed the message as spam: a THIRD PARTY'S verdict that the mail is unsolicited, so treat it as a strong PRIOR, not as proof. Judge the gist — a promo, a phish, bulk outreach → 'marketing'/'fyi'/'newsletter' — not the literal ask: a spam-filed question is still spam, however direct its phrasing ("Would love your thoughts!", "action required", a question mark). It is NEVER 'awaiting_reply' and NEVER 'follow_up'. Those two lanes claim the SENDER is owed a reply, which is exactly what the spam verdict denies. (A deterministic floor enforces that half; this rule is its prompt half.) EXCEPTION, for 'urgent'/'action_needed' ONLY: keep the demand lane when the body names a concrete obligation the USER ALREADY OWNS and that does not depend on trusting the sender — an application, case or ticket the user opened themselves, a deadline on work the user already agreed to, a credential OF THE USER'S that must be rotated — and name that line in the rationale. A demand that only works if the sender is honest ("click here to secure your account", "verify your billing details or lose access") is phish: stay passive. Gmail's filter is fallible, and burying a real ask the user owns costs more than a dismissible false alarm.
+21. Document ask: emit \`documentAsk: null\` unless this inbound message explicitly asks the user to send or create a resume or portfolio. When it does, emit exactly \`{"requestedKind":"resume"}\` or \`{"requestedKind":"portfolio"}\`. Do not infer an ask from an attachment, filename, link, sender, prior thread, or generic career prose, and never claim a file was sent or the request resolved.
 
 Examples (subject → category):
 - "Sign in to Anthropic" / "Your login code is 123456" / "Verify your email address" the user just requested → fyi (vendor self-echo auth, expires harmlessly, action is moot by the time it surfaces — rule 15a, NOT action_needed, NOT urgent), and no todo (rule 16c memorability — nothing to remember).
@@ -1033,6 +1037,8 @@ export function resolveTodoSuggestion(
 
   if (!suggestion) return null;
 
+  if (classification.documentAsk) return null;
+
   if (classification.todoDecision?.outcome !== "proposed") return null;
 
   // Contradiction backstop: a `proposed` decision whose note carries a
@@ -1475,6 +1481,7 @@ export function normalizeClassifierOutput(object: TriageClassification): TriageC
     // omitted and null are already equivalent downstream — the guarantee the
     // throw tried to enforce has no consumer.
     collabActivity: object.collabActivity ?? null,
+    documentAsk: object.documentAsk ?? null,
   };
 }
 

@@ -1,7 +1,11 @@
-import { toMessage, type AttachmentContentReference } from "@alfred/contracts";
+import {
+  readGmailAttachmentFirstCarrier,
+  toMessage,
+  type AttachmentContentReference,
+} from "@alfred/contracts";
 import { indexDocument, sha256, type IndexDocumentResult } from "@alfred/corpus";
 import { db } from "@alfred/db";
-import { documents } from "@alfred/db/schemas";
+import { documents, type Document } from "@alfred/db/schemas";
 import {
   extraction,
   type Extraction,
@@ -104,13 +108,97 @@ export interface GmailMediaIngestArgs {
  * against the same contract this writer fulfills.
  */
 
+/** The stored columns ingest reads to place one carrier against an existing row. */
+type StoredAttachmentRow = Pick<
+  Document,
+  "id" | "sourceId" | "contentHash" | "accountId" | "sourceThreadId" | "metadata"
+>;
+
+const storedAttachmentColumns = {
+  id: documents.id,
+  sourceId: documents.sourceId,
+  contentHash: documents.contentHash,
+  accountId: documents.accountId,
+  sourceThreadId: documents.sourceThreadId,
+  metadata: documents.metadata,
+};
+
+/** The mail this job is ingesting, as the first-carrier identity names it. */
+type Carrier = {
+  messageId: string;
+  attachmentId: string;
+  accountId: string;
+  threadId: string | null;
+};
+
+/**
+ * Where one carrier stands against a stored row that holds its part.
+ *
+ * - `recorded`: the row's first-carrier identity is this exact carrier.
+ * - `backfill`: the row is this carrier's own part, but a legacy insert left
+ *   the carrier ids out of `metadata`; ingest writes them.
+ * - `foreign`: another carrier owns the row. Gmail message ids are
+ *   mailbox-scoped, so a second linked account can carry the same
+ *   `messageId:attachmentId`; that carriage is a `references` entry.
+ *
+ * The document-ask reducer grants evidence only from a `recorded` identity or
+ * a matching `references` entry, and both read `readGmailAttachmentFirstCarrier`.
+ */
+function firstCarrierStanding(
+  row: StoredAttachmentRow,
+  carrier: Carrier,
+): "recorded" | "backfill" | "foreign" {
+  const first = readGmailAttachmentFirstCarrier(row);
+
+  if (
+    row.sourceId !== `${carrier.messageId}:${carrier.attachmentId}` ||
+    first.accountId !== carrier.accountId ||
+    first.threadId !== carrier.threadId ||
+    (first.messageId !== null && first.messageId !== carrier.messageId) ||
+    (first.attachmentId !== null && first.attachmentId !== carrier.attachmentId)
+  ) {
+    return "foreign";
+  }
+
+  return first.messageId !== null && first.attachmentId !== null ? "recorded" : "backfill";
+}
+
+/**
+ * Write the first-carrier ids onto this carrier's own legacy row. The merge
+ * names only the keys this function owns: a sibling job's concurrent
+ * `appendContentReference` rewrites `references` on the same row, and a
+ * spread of the `metadata` this loop read would put the old array back.
+ */
+async function backfillFirstCarrier(
+  row: StoredAttachmentRow,
+  carrier: Carrier,
+  att: ExtractedAttachment,
+): Promise<void> {
+  const owned = {
+    messageId: carrier.messageId,
+    attachmentId: carrier.attachmentId,
+    accountId: carrier.accountId,
+    threadId: carrier.threadId,
+    filename: att.filename,
+    mimeType: att.mimeType,
+  };
+
+  await db()
+    .update(documents)
+    .set({
+      metadata: sql`${documents.metadata} || ${JSON.stringify(owned)}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(documents.id, row.id), eq(documents.source, "gmail_attachment")));
+}
+
 /** The canonical attachment row for this exact extracted content, if one exists. */
 async function findCanonicalByContentHash(
   userId: string,
   contentHash: string,
-): Promise<{ id: string; sourceId: string } | null> {
+): Promise<StoredAttachmentRow | null> {
   const rows = await db()
-    .select({ id: documents.id, sourceId: documents.sourceId })
+    .select(storedAttachmentColumns)
     .from(documents)
     .where(
       and(
@@ -131,6 +219,10 @@ async function findCanonicalByContentHash(
  * retried job cannot stack duplicates. The predicate uses IS DISTINCT FROM,
  * not `=`: SQL NULL from an element missing a key must keep the element
  * (`NOT (NULL AND …)` filters it out and would delete it silently).
+ * `accountId` and `threadId` are part of the identity because Gmail message
+ * ids are mailbox-scoped: two linked accounts can carry the same
+ * `messageId:attachmentId`, and each carriage is its own entry. Legacy entries
+ * written with a null account are exactly the NULL case above, so they stay.
  */
 export async function appendContentReference(
   documentId: string,
@@ -144,6 +236,8 @@ export async function appendContentReference(
         FROM jsonb_array_elements(coalesce(${documents.metadata}->'references', '[]'::jsonb)) AS elem
         WHERE elem->>'messageId' IS DISTINCT FROM ${ref.messageId}
            OR elem->>'attachmentId' IS DISTINCT FROM ${ref.attachmentId}
+           OR elem->>'accountId' IS DISTINCT FROM ${ref.accountId}
+           OR elem->>'threadId' IS DISTINCT FROM ${ref.threadId}
       ) || ${JSON.stringify([ref])}::jsonb)`,
       updatedAt: new Date(),
     })
@@ -206,11 +300,14 @@ export async function ingestGmailMediaAttachments(
   // `gmail` and `gmail_attachment` sources), while a permanent one
   // dead-letters the row — dedup then treats it as terminal BY DESIGN, and
   // only an explicit `indexDocument` call revives it.
+  // The skip applies only to this carrier's own row (`recorded`/`backfill`
+  // below). A `foreign` row with the same source id belongs to another linked
+  // account, so this carriage falls through and lands as a reference.
   const sourceIdOf = (att: { attachmentId: string }): string =>
     `${args.message.id}:${att.attachmentId}`;
 
   const existingRows = await db()
-    .select({ sourceId: documents.sourceId })
+    .select(storedAttachmentColumns)
     .from(documents)
     .where(
       and(
@@ -220,7 +317,14 @@ export async function ingestGmailMediaAttachments(
       ),
     );
 
-  const existingSourceIds = new Set(existingRows.map((row) => row.sourceId));
+  const existingBySourceId = new Map(existingRows.map((row) => [row.sourceId, row]));
+
+  const carrierOf = (att: ExtractedAttachment): Carrier => ({
+    messageId: args.message.id,
+    attachmentId: att.attachmentId,
+    accountId: args.accountId,
+    threadId: args.message.threadId ?? null,
+  });
 
   const tally: GmailMediaTally = { ...ZERO_MEDIA_TALLY };
   const documentIds: string[] = [];
@@ -230,7 +334,7 @@ export async function ingestGmailMediaAttachments(
     messageId: args.message.id,
     attachmentId: att.attachmentId,
     threadId: args.message.threadId ?? null,
-    accountId: args.accountId ?? null,
+    accountId: args.accountId,
     filename: att.filename,
     mimeType: att.mimeType,
     size: att.size,
@@ -264,8 +368,25 @@ export async function ingestGmailMediaAttachments(
 
     // Already ingested — the row exists, so fetch/extract/embed would repeat
     // identical work. See the skip-if-exists note above the loop's query.
-    if (existingSourceIds.has(sourceIdOf(att))) {
+    const existing = existingBySourceId.get(sourceIdOf(att));
+    const standing = existing ? firstCarrierStanding(existing, carrierOf(att)) : null;
+
+    if (existing && standing !== "foreign") {
       tally.deduped++;
+
+      if (standing === "backfill") {
+        try {
+          await backfillFirstCarrier(existing, carrierOf(att), att);
+        } catch (err) {
+          // Counted, so the job keeps `mediaPending` and the next poll retries.
+          tally.errors++;
+          console.warn(
+            `[gmail.media] first-carrier backfill failed for ${att.filename}:`,
+            toMessage(err),
+          );
+        }
+      }
+
       continue;
     }
 
@@ -349,7 +470,7 @@ export async function ingestGmailMediaAttachments(
     const canonical = await findCanonicalByContentHash(args.userId, contentHash);
 
     if (canonical) {
-      if (canonical.sourceId === sourceId) {
+      if (firstCarrierStanding(canonical, carrierOf(att)) === "recorded") {
         tally.deduped++;
         continue;
       }
@@ -362,6 +483,8 @@ export async function ingestGmailMediaAttachments(
       filename: att.filename,
       messageId: args.message.id,
       attachmentId: att.attachmentId,
+      accountId: args.accountId,
+      threadId: args.message.threadId ?? null,
       mimeType: att.mimeType,
       size: att.size,
       format: result.format,
@@ -408,11 +531,7 @@ export async function ingestGmailMediaAttachments(
       // result at two rows — one per index — so both picks below are
       // deterministic by construction.
       const winners = await db()
-        .select({
-          id: documents.id,
-          sourceId: documents.sourceId,
-          contentHash: documents.contentHash,
-        })
+        .select(storedAttachmentColumns)
         .from(documents)
         .where(
           and(
@@ -422,7 +541,12 @@ export async function ingestGmailMediaAttachments(
           ),
         );
 
-      const twin = winners.find((row) => row.sourceId === sourceId);
+      // A `foreign` twin is another account's carriage of the same source id;
+      // this carriage then belongs on the content's canonical row instead.
+      const twin = winners.find(
+        (row) =>
+          row.sourceId === sourceId && firstCarrierStanding(row, carrierOf(att)) !== "foreign",
+      );
 
       if (twin) {
         tally.deduped++;
@@ -461,6 +585,10 @@ export async function ingestGmailMediaAttachments(
  * attachments failed — not every known message in the window. Best-effort:
  * a failed set means the next poll may miss the retry (history catch-up still
  * covers it); a failed clear costs one extra dedup-only retry.
+ * The document-ask reducer also reads the flag as a completion barrier on a
+ * sent sibling carrier. A failed clear can then hold an older ask live until
+ * the barrier's settle bound passes; a failed set can let a sibling resolve
+ * before this carrier's attachments land. Neither closes an ask on its own.
  */
 export async function setMediaPending(documentId: string, pending: boolean): Promise<void> {
   try {

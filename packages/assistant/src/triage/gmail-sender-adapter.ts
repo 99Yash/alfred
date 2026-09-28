@@ -22,6 +22,7 @@
  */
 
 import {
+  isSentGmailMetadata,
   parseGmailDocumentMetadata,
   type GmailAuthorshipObservation,
   type GmailCorrespondentsObservation,
@@ -29,7 +30,6 @@ import {
   type PersonToken,
 } from "@alfred/contracts";
 import { extractSenderContext, isHumanLikeSender } from "./sender-context";
-import { isSentGmailMetadata } from "./sent-mail";
 
 // ---------------------------------------------------------------------------
 // header splitting / person parsing (relocated from memory/team-graph.ts)

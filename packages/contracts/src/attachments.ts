@@ -59,7 +59,9 @@ export type IngestKind = (typeof ingestKindValues)[number];
  */
 export const contentFormatValues = ["pdf", "document", "spreadsheet", "text"] as const;
 
-export type ContentFormat = (typeof contentFormatValues)[number];
+export const contentFormatSchema = z.enum(contentFormatValues);
+
+export type ContentFormat = z.infer<typeof contentFormatSchema>;
 
 export interface IngestPolicyEntry {
   /** How this MIME type is normalized for the model. */

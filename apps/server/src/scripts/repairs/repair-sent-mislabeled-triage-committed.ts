@@ -45,10 +45,10 @@
  *   node dist/scripts/repairs/repair-sent-mislabeled-triage-committed.js --commit
  */
 import { warmPool } from "@alfred/db";
-import { gmailSentSql, isSentGmailMetadata } from "@alfred/assistant/triage/sent-mail";
+import { gmailSentSql } from "@alfred/assistant/triage/sent-mail";
 import { loadTriageContext, withTriageThreadLock } from "@alfred/assistant/triage/store";
 import type { TriageCategory } from "@alfred/contracts";
-import { isHttpError, isTriageCategory, toMessage } from "@alfred/contracts";
+import { isHttpError, isSentGmailMetadata, isTriageCategory, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   documents,

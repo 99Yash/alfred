@@ -18,6 +18,8 @@ export * from "./schema/integration-objects";
 
 export * from "./schema/documents";
 
+export * from "./schema/document-asks";
+
 export * from "./schema/drift";
 
 export * from "./schema/memory";
