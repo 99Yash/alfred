@@ -73,22 +73,23 @@ import { receiptDocumentJoin } from "./receipt-document";
  * `get_day_shape` passes `sinceIngestedAt`, the last briefing's watermark, and
  * `gatherBriefing` passes `args.windowStart ?? 24h`. That watermark has no age
  * bound of its own, so no fixed number of days makes this reader stop asking,
- * and 90 days is a point chosen well past the usual one rather than a value
- * derived from it. What it buys instead is debug visibility on rows whose
- * consumer has stopped asking, and an object-state rebuild that covers 90 days
- * of deliveries rather than none.
+ * and the degradation named in the file header is what a longer watermark costs.
+ * 90 days is a point chosen well past the usual one rather than a value derived
+ * from it; what it buys is debug visibility on rows whose consumer has stopped
+ * asking, and an object-state rebuild that covers 90 days of deliveries rather
+ * than none.
  *
- * The readers that do bound their own reach are protected by the PREDICATE, not
- * by this window: the corpus backfill and the redelivery fold read a body at any
- * age, and a `failed`, `pending` or unprojected receipt keeps one here however
- * old it is. Shrinking the window would not protect them either, which is why
+ * The window is not what protects the other readers. The corpus backfill and
+ * the redelivery fold read a body at ANY age, and what holds them is the
+ * PREDICATE: a `failed`, `pending` or unprojected receipt keeps its body here at
+ * whatever age, and shrinking the window would not change that. Which is why
  * the predicate is the load-bearing part of this file and the constant is not.
  *
- * A longer window would cost a proportionally larger table and buy no reader. A
- * shorter one would cost the rebuild and the visibility. 90 days is where that
- * balance landed, and the owner chose it deliberately; the argument is recorded
- * in ADR-0109, not here, because a constant's docstring is not where a
- * decision is recorded.
+ * So a longer window costs a proportionally larger table for that visibility
+ * alone, and a shorter one costs the visibility and the object-state rebuild
+ * the header names. 90 days is where that balance landed, and the owner chose
+ * it deliberately; the argument is recorded in ADR-0109, not here, because a
+ * constant's docstring is not where a decision is recorded.
  */
 export const RECEIPT_PAYLOAD_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
@@ -114,14 +115,22 @@ export const RECEIPT_PAYLOAD_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
  * makes that case possible, and it is non-negotiable (see `releaseBatch`), so
  * the bound is chosen for the dense case and the sparse case is absorbed rather
  * than designed for. Both shapes stay in the tens of milliseconds at this
- * bound, once an hour, which is the actual requirement. Re-measure with
- * `EXPLAIN (ANALYZE, BUFFERS)` on production data before raising it: the 5,000
- * the sibling reaper uses is measured 5x slower here, and 20,000 is 17x.
+ * bound, once an hour, which is the actual requirement.
+ *
+ * What that table does NOT show is a per-row price difference: 23ms, 117ms and
+ * 400ms over 1,000, 5,000 and 20,000 rows is roughly 0.02ms a row in all three,
+ * so the sibling reaper's 5,000 is not "5x slower" here — it moves five times
+ * the rows, which is what 135 MB of TOASTed bodies costs. The reasons not to
+ * raise this bound are the plan above and one statement holding more rows at
+ * once. Every number here comes from ONE seeded table of 20,000 rows, so
+ * re-measure with `EXPLAIN (ANALYZE, BUFFERS)` on production data before
+ * changing the bound: the crossover tracks the FRACTION of the live index a page
+ * must walk, not the `LIMIT` itself.
  */
-export const RELEASE_BATCH_SIZE = 1_000;
+const RELEASE_BATCH_SIZE = 1_000;
 
 /** Statements per pass, so a first-run backlog spreads over passes. */
-export const MAX_BATCHES_PER_PASS = 20;
+const MAX_BATCHES_PER_PASS = 20;
 
 /**
  * A pass with both bounds lowered, so a test can engage them without seeding
@@ -132,7 +141,7 @@ export const MAX_BATCHES_PER_PASS = 20;
  * go untested and a mutant that removed either bound would survive. The
  * defaults are the contract; the parameters only make it cheap to watch.
  */
-export interface ReleaseOptions {
+interface ReleaseOptions {
   /** Aborts the pass between batches. */
   signal?: AbortSignal;
   /** Rows per statement. Defaults to `RELEASE_BATCH_SIZE`. */
@@ -147,14 +156,23 @@ const RELEASE_INTERVAL_MS = 60 * 60 * 1000;
 /**
  * Release one bounded page of expired bodies.
  *
- * The id page is selected in a subquery so the `UPDATE` targets a fixed set
- * rather than re-evaluating the predicate against rows being delivered
- * concurrently. `completed` is terminal in the code path that writes it —
- * `deliverInboundReceipt` returns early on a `completed` receipt
- * (`inbound-deliver.ts:60`) — so a row that was `completed` at page time does
- * not become releasable-in-error between the two statements. Terminal in the
- * CODE PATH, not in the table: `markProcessed` carries no status guard, so
- * nothing under the database refuses `completed -> failed`.
+ * The id page is selected in a subquery so the `UPDATE` names a fixed set of
+ * ids rather than re-walking the live index once per row it touches.
+ *
+ * The page and the `UPDATE` are ONE statement, and that is the whole reason the
+ * mutable clauses are repeated in the outer `WHERE` (see the comment on it).
+ * The page is an InitPlan evaluated from this statement's snapshot, before any
+ * row lock is taken, so a concurrent writer that commits first is invisible to
+ * the subquery. What catches it is EvalPlanQual re-checking the updated row
+ * against the outer `WHERE` — and that re-check reads the outer clauses only.
+ *
+ * `processing_status` is the clause with a real writer behind it:
+ * `markProcessed` carries no status guard (`inbound-deliver.ts:112-117`), so a
+ * duplicate or stalled `ingress.deliver` run can mark a `completed` receipt
+ * `failed` at any moment. `deliverInboundReceipt` returns early on a
+ * `completed` receipt (`inbound-deliver.ts:60`), so the status is terminal in
+ * the code path that ADVANCES it and not in the table, where the trigger allows
+ * the transition.
  *
  * **The predicate has four clauses and each one is load-bearing.**
  *
@@ -216,32 +234,50 @@ async function releaseBatch(cutoff: Date, batchSize: number): Promise<number> {
   const released = await db()
     .update(eventReceipts)
     // SQL NULL, never a sql.placeholder. A placeholder encodes JS null as the
-    // JSON string 'null', and `'null'::jsonb IS NULL` is false, so the 0139
+    // JSON value `null`, and `'null'::jsonb IS NULL` is false, so the 0139
     // write-once guard reads it as a REPLACEMENT body and refuses the whole
     // statement. `.set({ payload: null })` is what binds a real NULL.
     .set({ payload: null })
-    // `payload IS NOT NULL` is repeated in the OUTER where on purpose, and the
-    // subquery keeps its own copy for the index. A second pass — another
-    // process, since `passInFlight` is in-process only — selects the same page,
-    // blocks on the winner's row locks, and under READ COMMITTED Postgres
-    // re-checks the updated row against this `WHERE` through EvalPlanQual. The
-    // page is an InitPlan whose value is fixed before the wait, so the
-    // subquery's clause is not re-run, and without a clause here the loser
-    // rewrites every row the winner released, moves `updated_at` on it, and has
-    // `RETURNING` count each one twice. A `DELETE` has no surviving row version
-    // to re-check, which is why the outbox reaper's form does not transfer to an
-    // `UPDATE`.
+    // Two clauses are repeated in the OUTER where on purpose, and the subquery
+    // keeps its own copies of them for the index. Both are mutable, and this
+    // statement can go stale while it waits for a lock: the page is an InitPlan
+    // fixed from this statement's snapshot, so a writer that commits first is
+    // never re-examined by the subquery. Under READ COMMITTED Postgres
+    // re-checks the updated row against this `WHERE` through EvalPlanQual, and
+    // that re-check sees the outer clauses only.
     //
-    // Measured, not assumed: two committed sessions running this statement over
-    // the same 3 released-eligible rows return 3 and 3 without the clause, and
-    // 3 and 0 with it. The `Index Cond: (id = ANY ((InitPlan 1).col1))` survives
-    // either way, and on a seeded 4,000-live-body table the two shapes cost
-    // 31.4ms and 31.2ms — equal, once the table has been ANALYZEd. On the same
-    // table WITHOUT a prior ANALYZE the outer clause cost 2.7x, because the
-    // planner had no statistics and chose a live-index scan for the outer scan;
-    // treat that number as a reminder to re-measure on production data, not as
-    // the clause's cost.
-    .where(and(sql`${eventReceipts.id} = any(array(${page}))`, isNotNull(eventReceipts.payload)))
+    //   - Without `payload IS NOT NULL` here, a second pass — another process,
+    //     since `passInFlight` is in-process only — selects the same page, blocks
+    //     on the winner's row locks, and on waking rewrites every row the winner
+    //     already released, moves `updated_at` on it, and has `RETURNING` count
+    //     each one twice. A `DELETE` has no surviving row version to re-check,
+    //     which is why the outbox reaper's form does not transfer to an
+    //     `UPDATE`.
+    //   - Without `processing_status = 'completed'` here, a `markProcessed(row,
+    //     "failed")` that lands while this statement waits has its receipt
+    //     released anyway — releasing a body the delivery job still owes a
+    //     retry, which is what the invariant above exists to forbid.
+    //
+    // Measured, not assumed, 2026-09-29 on a seeded table of 8,933 rows with
+    // 4,000 live bodies and 4,000 of those documented. Two committed sessions
+    // running this statement over the same 3 released-eligible rows return 3 and
+    // 3 without the `payload` clause, and 3 and 0 with it. `Index Cond: (id =
+    // ANY ((InitPlan 1).col1))` survives all three outer shapes — both clauses,
+    // the `payload` clause alone, and neither. Timing, two runs each after the
+    // table was ANALYZEd: 23.9ms and 24.4ms with both clauses, 26.5ms and 23.6ms
+    // with neither, so the clauses are free here. Without the ANALYZE the same
+    // three shapes are 24.9, 21.7 and 20.6ms — the planner picks a different
+    // plan for the page subquery and the spread is about 1.2x rather than
+    // meaningful. An earlier round recorded 2.7x for the same comparison and it
+    // did not reproduce here; treat every one of these numbers as a reason to
+    // re-measure on production data rather than as a cost to quote.
+    .where(
+      and(
+        sql`${eventReceipts.id} = any(array(${page}))`,
+        isNotNull(eventReceipts.payload),
+        eq(eventReceipts.processingStatus, "completed"),
+      ),
+    )
     .returning({ id: eventReceipts.id });
 
   return released.length;
@@ -253,25 +289,32 @@ let passInFlight = false;
 /**
  * Run one retention pass. Returns the number of bodies released.
  *
- * Two passes must not overlap, and this guard is what keeps the two of them from
- * rewriting each other's pages. `PeriodicTask` has its own re-entrancy guard,
- * but that one covers the scheduled pass only, because this function is
- * exported: a script or a future admin route calling it directly would run
- * alongside the hourly timer. A caller who arrives during a pass gets `0` rather
- * than a redundant scan. In-process is the whole of the guarantee — a second
- * PROCESS is not covered here, which is why the `UPDATE` repeats
- * `payload IS NOT NULL` in its own `WHERE` rather than trusting the page.
+ * `now` is required, and deliberately not a member of `options`. It is the
+ * clock the cutoff is measured from, so a caller that forgets it has no way to
+ * notice: the pass would read the wall clock and release whatever the wall
+ * clock says is expired. Both callers pass one — the scheduler passes
+ * `new Date()` deliberately, and a test passes a fixed date.
  *
- * `signal` is what makes the pass interruptible — without a check between
- * batches, a shutdown would abandon a pass mid-flight and the pool could close
- * under an open `UPDATE`.
+ * Two passes must not overlap in this process. `PeriodicTask` has its own
+ * re-entrancy guard, but that one covers the scheduled pass only, because this
+ * function is exported: a script or a future admin route calling it directly
+ * would run alongside the hourly timer. A caller who arrives during a pass gets
+ * `0` rather than a second scan. That is the whole of the guard's reach: it
+ * saves an in-process duplicate statement and nothing else. A second PROCESS
+ * releases the same pages, and what stops the two from rewriting each other's
+ * rows is the repeated clause in the `UPDATE`'s own `WHERE`, not this flag.
  *
- * `now` is the clock the cutoff is measured from, and it defaults to the wall
- * clock, which is why every caller that needs a deterministic pass passes one
- * rather than leaning on the default.
+ * `signal` is what makes the pass interruptible. Without a check between
+ * batches a shutdown would leave a pass running while the rest of the process
+ * tears itself down, and a timer that outlives its shutdown step is the failure
+ * the stop order in `runtime.ts` exists to prevent. It is not about the pool:
+ * `pg-pool`'s `end()` waits for checked-out clients, so the pool does not close
+ * under a running statement, and the loop below checks between batches rather
+ * than inside one because a half-released page is recoverable (the next pass
+ * finds the rest) and a pass still running during shutdown is not.
  */
 export async function releaseExpiredReceiptPayloadsOnce(
-  now: Date = new Date(),
+  now: Date,
   options: ReleaseOptions = {},
 ): Promise<number> {
   if (passInFlight) return 0;
@@ -285,7 +328,8 @@ export async function releaseExpiredReceiptPayloadsOnce(
 
     for (let batch = 0; batch < maxBatches; batch += 1) {
       // Between batches, never inside one: a half-released page is fine (the
-      // next pass finds the rest) but an abandoned open UPDATE is not.
+      // next pass finds the rest) but a pass still running after the shutdown
+      // signal is not.
       if (signal?.aborted) break;
       const released = await releaseBatch(cutoff, batchSize);
       total += released;
@@ -320,9 +364,4 @@ export function startReceiptPayloadReaper(): void {
 
 export async function stopReceiptPayloadReaper(): Promise<void> {
   await reaper.stop();
-}
-
-/** Exported for tests that need to observe the scheduler rather than one pass. */
-export function isReceiptPayloadReaperRunning(): boolean {
-  return !reaper.stopped;
 }
