@@ -26,13 +26,17 @@ import { dbBackedSkip } from "../../support/db-backed";
  * and CLAUDE.md's bar — "a check that lies" — is met by a retention pass that
  * under-reaps.
  *
- * The reaper is not user-scoped, so every case reads back the ids it seeded by
- * name rather than asserting a global count. That is also why every case below
- * passes `CLOCK` rather than the wall clock: see the constant. There is no case
- * left that runs the scheduled pass, because the scheduler holds no injectable
- * clock — `runOnStart` would read the shared dev database at the real wall
- * clock, and `periodic-task.test.ts` already covers idempotent start and a
- * restartable stop against the scheduler itself.
+ * The reaper is not user-scoped, so a pass releases every eligible row in the
+ * table and not only the rows its caller seeded. A case that asserts the pass's
+ * return value is therefore reading a global count, and two things make that
+ * count a per-case fact: `caseClock` gives each case a cutoff window no other
+ * case's rows fall inside, and `CLOCK` keeps that window in year 2000, ahead of
+ * every real row in the shared dev database. The cases that do not need a count
+ * read their own ids back by name. There is no case left that runs the scheduled
+ * pass, because the scheduler holds no injectable clock — `runOnStart` would
+ * read the shared dev database at the real wall clock, and
+ * `periodic-task.test.ts` already covers idempotent start and a restartable
+ * stop against the scheduler itself.
  *
  * The seeded rows differ from the one that may be released in EXACTLY ONE
  * dimension each — age, processing status, tier, or the presence of a corpus
@@ -44,23 +48,52 @@ const SKIP = dbBackedSkip("database");
 
 const HOUR_MS = 60 * 60 * 1000;
 
+const DAY_MS = 24 * HOUR_MS;
+
 /**
- * The clock every case hands the pass, fixed in year 2000.
+ * The base clock, fixed in year 2000.
  *
- * Every assertion in this file is an exact count, and it is exact only if no row
- * this file did not seed is releasable. `deliveredAt` has to be relative to
- * something, and `new Date()` is the obvious choice and the wrong one: seeding
- * relative to the wall clock puts THIS file's rows 90+ days in the past while
- * leaving the reaper free to release every real receipt in the shared dev
- * database that is also past 90 days. A pass would then take page slots, counts
- * and abort placement from rows this file never saw, and the suite's verdict
- * would depend on the order the cases ran in — which is the "check that lies"
- * this file exists to avoid, reintroduced one level up.
+ * `deliveredAt` has to be relative to something, and `new Date()` is the
+ * obvious choice and the wrong one: seeding relative to the wall clock puts THIS
+ * file's rows 90+ days in the past while leaving the reaper free to release
+ * every real receipt in the shared dev database that is also past 90 days. A
+ * pass would then take page slots, counts and abort placement from rows this
+ * file never saw, and the suite's verdict would depend on the order the cases
+ * ran in — which is the "check that lies" this file exists to avoid,
+ * reintroduced one level up.
  *
- * Anchored in 2000, the cutoff precedes every real row, so each case is exact by
- * construction rather than by luck.
+ * Anchored in 2000, every cutoff in this file precedes every real row, so the
+ * only releasable rows in the database are the ones a case seeded.
  */
 const CLOCK = new Date("2000-01-01T00:00:00.000Z");
+
+/**
+ * The clock for the next case: `CLOCK` stepped back a day per call.
+ *
+ * A pass releases every eligible row older than its cutoff, across the whole
+ * table, not just the rows the case that asked for the pass seeded. Two cases
+ * sharing one cutoff therefore share one page, and a case asserting a return
+ * value reads a count the case before it left behind — which is how the abort
+ * case's four survivors and the race case's `released === 1` were two facts
+ * about file order rather than about the reaper. Stepping each case a day
+ * FURTHER BACK gives every case a cutoff older than the rows of every case
+ * before it, so an earlier case's rows sit above a later pass's cutoff and are
+ * out of its reach, and each count is a per-case fact.
+ *
+ * The step is a day against rows seeded an hour past their own cutoff, so the
+ * windows do not touch. Which offset a case gets depends on how many cases ran
+ * before it, so filtering the file with `--test-name-pattern` moves the offsets
+ * without moving the spacing: the verdict is a function of the spacing, not of
+ * any case's position in a full run.
+ */
+let clockStep = 0;
+
+function caseClock(): Date {
+  const now = new Date(CLOCK.getTime() - clockStep * DAY_MS);
+  clockStep += 1;
+
+  return now;
+}
 
 const createdUserIds: string[] = [];
 
@@ -209,7 +242,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("releases an expired completed body, and every column that makes the row valuable", async () => {
-    const now = CLOCK;
+    const now = caseClock();
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -240,7 +273,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("keeps a body inside the window, and a failed one, and a pending one, and an unprojected one", async () => {
-    const now = CLOCK;
+    const now = caseClock();
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired, inWindow } = ages(now);
@@ -291,7 +324,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("releases a raw receipt's body too, not only the typed tier", async () => {
-    const now = CLOCK;
+    const now = caseClock();
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -314,7 +347,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("a second pass over released rows is a no-op, and the cutoff moves with the clock", async () => {
-    const now = CLOCK;
+    const now = caseClock();
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired, inWindow } = ages(now);
@@ -366,7 +399,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("a pass stops at maxBatches * batchSize and leaves the rest for the next pass", async () => {
-    const now = CLOCK;
+    const now = caseClock();
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -401,7 +434,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("an aborted signal stops the pass between batches", async () => {
-    const now = CLOCK;
+    const now = caseClock();
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -435,9 +468,8 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     // `signal.aborted` once per iteration, so a signal that reports false
     // exactly once proves the check sits BETWEEN batches: a check placed before
     // the loop releases nothing, and no check at all releases all six. These
-    // bounds are exact rather than ranged because `CLOCK` puts the cutoff ahead
-    // of every row this suite did not seed, so the only releasable rows are
-    // these six.
+    // bounds are exact rather than ranged because this case's own cutoff window
+    // (`caseClock`) holds no row another case seeded.
     const released = await releaseExpiredReceiptPayloadsOnce(now, {
       batchSize: 2,
       signal: signalAbortingAfterReads(1),
@@ -452,7 +484,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("a second concurrent pass yields instead of racing the first", async () => {
-    const now = CLOCK;
+    const now = caseClock();
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -472,13 +504,15 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
       releaseExpiredReceiptPayloadsOnce(now),
     ]);
 
+    // Both counts are exact because this case's cutoff window holds only the one
+    // row above: the winner releases it, and the loser releases nothing.
     assert.equal(second, 0, "the second caller must yield — the guard is on the entrypoint");
-    assert.ok(first >= 1, "the first caller still does the work");
+    assert.equal(first, 1, "the first caller still does the work");
     assert.equal((await withBody([releasable])).size, 0);
   });
 
   test("a redelivery of a released receipt is still a no-op", async () => {
-    const now = CLOCK;
+    const now = caseClock();
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -498,8 +532,9 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     // under test is that `(provider, provider_delivery_id)` still conflicts after
     // a release, so the extra columns the handler sets (`payloadHash`, and the
     // document it writes in the same transaction) are omitted rather than
-    // restated here. GitHub's redelivery button works on months-old deliveries,
-    // so this conflict is the whole reason a release may not delete the row.
+    // restated here. A provider chooses the age at which it repeats a delivery,
+    // and this conflict has to hold at whatever age it chooses — which is the
+    // whole reason a release may not delete the row.
     const inserted = await db()
       .insert(eventReceipts)
       .values({
@@ -536,7 +571,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
   });
 
   test("a row that fails delivery while the pass waits for its lock keeps its body", async () => {
-    const now = CLOCK;
+    const now = caseClock();
     const userId = await seedUser();
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
@@ -561,12 +596,14 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     // Reproduces the review's sequence on the real trigger rather than arguing
     // it. A second session holds an open transaction that has marked the row
     // `failed` but not committed, so the reaper's page still sees it as
-    // `completed` and then blocks on the row lock. The commit therefore happens
-    // from a THIRD session — a commit on the blocked session's own connection
-    // could not be sent until its transaction finished, which is the thing under
-    // test. On commit the reaper's `UPDATE` wakes and Postgres re-checks the row
-    // against the OUTER `WHERE` through EvalPlanQual: the page is an InitPlan
-    // fixed before the wait, so only the outer clauses can catch this.
+    // `completed` and then parks on the row lock. On commit the reaper's
+    // `UPDATE` wakes and Postgres re-checks the row against the OUTER `WHERE`
+    // through EvalPlanQual: the page is an InitPlan fixed before the wait, so
+    // only the outer clauses can catch this.
+    //
+    // The commit is sent on the holder's OWN connection, and that is the point:
+    // the holder is not blocked, so its transaction can be committed while the
+    // reaper is still waiting. Nothing needs a third session.
     //
     // It is the control row that proves the pass did work. A pass that released
     // nothing would pass this case for the wrong reason.
@@ -583,8 +620,10 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
         .set({ processingStatus: "failed" })
         .where(eq(eventReceipts.id, racing));
       holdLock();
-      // Held open until the reaper's UPDATE is parked on the row lock.
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      // Observe the reaper parked rather than sleeping for a guessed interval: a
+      // fixed wait that expires early lets the reaper's statement commit after
+      // this one, and the case then passes with the outer clause deleted.
+      await waitUntilBlockedOn(client);
       await client.query("COMMIT");
     });
 
@@ -605,6 +644,39 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     );
   });
 });
+
+/**
+ * Resolve once a backend in this database is waiting on a lock.
+ *
+ * `pg_locks`, and specifically `pg_stat_activity` as the obvious alternative
+ * does NOT work here: both report the waiter correctly from an outside session,
+ * but the holder runs this poll inside its own open transaction, and from there
+ * the waiting backend is absent from `pg_stat_activity` entirely while
+ * `pg_locks` reports it. That was measured on the same blocked `UPDATE` rather
+ * than assumed, and it is why the poll asks about locks and not about backends.
+ *
+ * A server-reported wait beats a guessed interval: a fixed sleep either wastes
+ * time or expires before the pass reaches its statement, and on a slow machine
+ * the expiry lets the commit win, after which the outer `processing_status`
+ * clause is never exercised and the case passes for the wrong reason. A timeout
+ * here fails loudly rather than passing quietly.
+ */
+async function waitUntilBlockedOn(client: {
+  query: (sql: string) => Promise<unknown>;
+}): Promise<void> {
+  const deadline = Date.now() + 10_000;
+
+  while (Date.now() < deadline) {
+    const result = (await client.query(
+      "select exists (select 1 from pg_locks l where not l.granted and pg_backend_pid() = any (pg_blocking_pids(l.pid))) as blocked",
+    )) as { rows: { blocked: boolean }[] };
+
+    if (result.rows[0]?.blocked) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  throw new Error("no backend blocked on the holder's row lock within 10s");
+}
 
 /**
  * A signal that reports "not aborted" for its first `reads` reads and aborted

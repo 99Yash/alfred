@@ -11,11 +11,13 @@
  * and `history_id` is the cursor Gmail gap detection MAXes, so a row delete
  * would forfeit both — a provider redelivering an old event would be ingested
  * as new, producing a second delivery and therefore a second run of whatever
- * the user triggered on it. GitHub's "Redeliver" button works on months-old
- * deliveries, so that window is unbounded. So this module releases `payload` to
- * NULL and leaves the row, its audit columns, and its dedup key alone. The
- * trigger permits that one transition (migration 0139) and this is the module
- * that decides when to make it.
+ * the user triggered on it. The window this module opens is not a claim about
+ * when providers stop retrying: a repeat that arrives the day after the body is
+ * released must still be a no-op, and the age at which it arrives is the
+ * provider's own decision rather than one this repository sets. So this module
+ * releases `payload` to NULL and leaves the row, its audit columns, and its
+ * dedup key alone. The trigger permits that one transition (migration 0139) and
+ * this is the module that decides when to make it.
  *
  * **Release, not reap.** Nothing is deleted, and the codebase already says
  * "released to NULL" for this column. The file keeps the reaper name because
@@ -85,9 +87,10 @@ import { receiptDocumentJoin } from "./receipt-document";
  * whatever age, and shrinking the window would not change that. Which is why
  * the predicate is the load-bearing part of this file and the constant is not.
  *
- * So a longer window costs a proportionally larger table for that visibility
- * alone, and a shorter one costs the visibility and the object-state rebuild
- * the header names. 90 days is where that balance landed, and the owner chose
+ * So the window trades against both of those at once: longer keeps more bodies,
+ * which is a larger table, and buys more of the visibility and more of the
+ * rebuild coverage; shorter does the reverse and eventually leaves the rebuild
+ * nothing to replay. 90 days is where that balance landed, and the owner chose
  * it deliberately; the argument is recorded in ADR-0109, not here, because a
  * constant's docstring is not where a decision is recorded.
  */
@@ -99,33 +102,40 @@ export const RECEIPT_PAYLOAD_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
  * Not the outbox reaper's 5,000, and 1,000 is a CHOSEN bound, not a derived
  * one. The four-clause page carries an `EXISTS` against `documents`, and
  * whichever plan the planner picks depends on how much of `event_receipts` the
- * page has to walk before it is full — not on the `LIMIT` alone. Measured on a
- * seeded 20,000-live-body table, local Docker DB, 2026-09-28:
+ * page has to walk before it is full — not on the `LIMIT` alone. Two seeded
+ * row sets, local Docker DB, 2026-09-28, each 20,000 rows with 20,000 live
+ * bodies and `ANALYZE`d:
  *
- *   20,000 live, 20,000 documented   LIMIT 1000  nested loop over
- *                                    event_receipts_payload_live_idx, 23ms
- *                                    LIMIT 5000  seq scan + hash join, 117ms
- *                                    LIMIT 20000 seq scan + hash join, 400ms
- *   20,000 live, 1,000 documented    LIMIT 1000  seq scan + hash join, 25ms
+ *   20,000 of those documented    LIMIT 1000  nested loop over
+ *                                  event_receipts_payload_live_idx, 23ms
+ *                                  LIMIT 5000  seq scan + hash join, 117ms
+ *                                  LIMIT 20000 seq scan + hash join, 400ms
+ *   1,000 of those documented     LIMIT 1000  seq scan + hash join, 25ms
  *
- * So the index holds whenever the page fills early, and the crossover between
- * the two plans sits above 1,000 on a table where every body is projected. It
- * does not hold at all when most live bodies have no document — the walk runs to
- * the end of the index and a hash join over the table wins. The clause is what
- * makes that case possible, and it is non-negotiable (see `releaseBatch`), so
- * the bound is chosen for the dense case and the sparse case is absorbed rather
- * than designed for. Both shapes stay in the tens of milliseconds at this
- * bound, once an hour, which is the actual requirement.
+ * Read those as what they are: a table, not a law. A page that fills before it
+ * walks far took the index in one run and a hash join in the next — a repeat
+ * EXPLAIN on a seeded 8,933-row / 4,000-live-body set flipped between
+ * `Index Scan using event_receipts_payload_live_idx` and `Seq Scan` +
+ * `Hash Join` with the same seed and the same `LIMIT`, so the plan is not
+ * stable on a fixed input. What the table does show is the direction: the
+ * denser the match set, the more of the index a page must walk, and the more
+ * often a hash join wins. The sparse line is the case that direction produces,
+ * and it is reachable because most live bodies can be unprojected — the `EXISTS`
+ * clause is what makes it possible and it is non-negotiable (see
+ * `releaseBatch`). So the bound is chosen for the dense case and the sparse
+ * case is absorbed rather than designed for. Both shapes stay in the tens of
+ * milliseconds at this bound, once an hour, which is the actual requirement.
  *
  * What that table does NOT show is a per-row price difference: 23ms, 117ms and
  * 400ms over 1,000, 5,000 and 20,000 rows is roughly 0.02ms a row in all three,
  * so the sibling reaper's 5,000 is not "5x slower" here — it moves five times
- * the rows, which is what 135 MB of TOASTed bodies costs. The reasons not to
- * raise this bound are the plan above and one statement holding more rows at
- * once. Every number here comes from ONE seeded table of 20,000 rows, so
- * re-measure with `EXPLAIN (ANALYZE, BUFFERS)` on production data before
- * changing the bound: the crossover tracks the FRACTION of the live index a page
- * must walk, not the `LIMIT` itself.
+ * the rows. The reasons not to raise this bound are the plan above and one
+ * statement holding more rows at once. Every number here comes from a seeded
+ * fixture standing in for production, so re-measure with `EXPLAIN (ANALYZE,
+ * BUFFERS)` on production data before changing the bound, and name the row set
+ * and its live-payload count when you quote one: the plan tracks the FRACTION of
+ * the live index a page must walk, and an empty partial index makes any page
+ * look index-driven.
  */
 const RELEASE_BATCH_SIZE = 1_000;
 
@@ -283,17 +293,22 @@ async function releaseBatch(cutoff: Date, batchSize: number): Promise<number> {
   return released.length;
 }
 
-/** Serializes the exported pass against the scheduled one. See the export. */
+/**
+ * Whether a pass is running in THIS process, so a second caller yields. See the
+ * export below for what that does and does not cover.
+ */
 let passInFlight = false;
 
 /**
  * Run one retention pass. Returns the number of bodies released.
  *
- * `now` is required, and deliberately not a member of `options`. It is the
- * clock the cutoff is measured from, so a caller that forgets it has no way to
- * notice: the pass would read the wall clock and release whatever the wall
- * clock says is expired. Both callers pass one — the scheduler passes
- * `new Date()` deliberately, and a test passes a fixed date.
+ * `now` is required, and deliberately not a member of `options`, which is
+ * all-optional: a wall clock reached through an options bag is a default nobody
+ * reads at the call site, and this cutoff decides what data is destroyed. There
+ * are two callers and both pass one deliberately — the scheduler passes
+ * `new Date()` because reading the wall clock is the whole point of a scheduled
+ * pass, and the suite passes a fixed date because a suite running the real clock
+ * against a shared database releases rows it did not seed.
  *
  * Two passes must not overlap in this process. `PeriodicTask` has its own
  * re-entrancy guard, but that one covers the scheduled pass only, because this
@@ -304,14 +319,15 @@ let passInFlight = false;
  * releases the same pages, and what stops the two from rewriting each other's
  * rows is the repeated clause in the `UPDATE`'s own `WHERE`, not this flag.
  *
- * `signal` is what makes the pass interruptible. Without a check between
- * batches a shutdown would leave a pass running while the rest of the process
- * tears itself down, and a timer that outlives its shutdown step is the failure
- * the stop order in `runtime.ts` exists to prevent. It is not about the pool:
- * `pg-pool`'s `end()` waits for checked-out clients, so the pool does not close
- * under a running statement, and the loop below checks between batches rather
- * than inside one because a half-released page is recoverable (the next pass
- * finds the rest) and a pass still running during shutdown is not.
+ * `signal` is what makes the pass interruptible, and it is checked between
+ * batches because that is the granularity the check has. `PeriodicTask.stop()`
+ * (`periodic-task.ts:146-172`) aborts the signal and then waits at most `drainMs`,
+ * five seconds by default, logging a warning and giving up if the pass is still
+ * running — so a pass that only ends by finishing its work turns a bounded
+ * shutdown wait into an abandoned pass. Checking between batches is what lets
+ * that wait succeed. There is no partial-batch state to protect: one page is one
+ * `UPDATE`, so a batch either committed or did not, and whatever did not is
+ * still non-NULL for the next pass to select.
  */
 export async function releaseExpiredReceiptPayloadsOnce(
   now: Date,
@@ -327,9 +343,10 @@ export async function releaseExpiredReceiptPayloadsOnce(
     let total = 0;
 
     for (let batch = 0; batch < maxBatches; batch += 1) {
-      // Between batches, never inside one: a half-released page is fine (the
-      // next pass finds the rest) but a pass still running after the shutdown
-      // signal is not.
+      // Between batches, never inside one: a page is a single `UPDATE`, so a
+      // batch that ran is finished, and the ones that did not are still
+      // non-NULL for the next pass. What the shutdown signal has to stop is the
+      // NEXT batch, so that is where it is read.
       if (signal?.aborted) break;
       const released = await releaseBatch(cutoff, batchSize);
       total += released;
