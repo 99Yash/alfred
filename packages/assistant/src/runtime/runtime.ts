@@ -268,10 +268,10 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       // The reaper goes first because it is a timer, and the timers come before
       // the workers and queues below: nothing it does needs a worker, and a
       // timer left running while the rest of the process tears itself down is
-      // the failure this list exists to prevent. It is not about the pool —
-      // that closes after every step, and an autocommit `UPDATE` on a closed
-      // connection rolls back whole. It is a no-op when the scheduled-jobs gate
-      // kept it from starting.
+      // the failure this list exists to prevent. The position is not about the
+      // pool — `pg-pool`'s `end()` waits for checked-out clients, so the pool
+      // cannot close under a running statement — and this step is a no-op when
+      // the scheduled-jobs gate kept it from starting.
       await runShutdownStep("receipt-payload reaper", stopReceiptPayloadReaper);
       await runShutdownStep("MCP connection recovery", stopMcpConnectionRecovery);
       const agentWorkerStopped = await runShutdownStep("agent worker", stopAgentWorker);

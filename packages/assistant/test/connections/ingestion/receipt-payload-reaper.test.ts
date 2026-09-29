@@ -3,18 +3,15 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
 import { eventTypeName, rawEventTypeName } from "@alfred/contracts";
-import { closeConnections, db } from "@alfred/db";
+import { closeConnections, db, withDbSession } from "@alfred/db";
 import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
 import type { EventReceipt } from "@alfred/db/schemas";
 import { documents, eventReceipts, integrationCredentials, user } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
 import {
-  isReceiptPayloadReaperRunning,
   RECEIPT_PAYLOAD_RETENTION_MS,
   releaseExpiredReceiptPayloadsOnce,
-  startReceiptPayloadReaper,
-  stopReceiptPayloadReaper,
 } from "../../../src/connections/ingestion/receipt-payload-reaper";
 import { receiptDocumentKey } from "../../../src/connections/ingestion/receipt-document";
 import { dbBackedSkip } from "../../support/db-backed";
@@ -31,12 +28,11 @@ import { dbBackedSkip } from "../../support/db-backed";
  *
  * The reaper is not user-scoped, so every case reads back the ids it seeded by
  * name rather than asserting a global count. That is also why every case below
- * passes `CLOCK` rather than the wall clock: see the constant.
- *
- * The one exception is `start`/`stop`, which runs the real global pass at the
- * real clock because the scheduler has no injectable clock. It is the single
- * case with a side effect on the shared dev database, which is why it asserts
- * only the task's own running flag and never a count.
+ * passes `CLOCK` rather than the wall clock: see the constant. There is no case
+ * left that runs the scheduled pass, because the scheduler holds no injectable
+ * clock — `runOnStart` would read the shared dev database at the real wall
+ * clock, and `periodic-task.test.ts` already covers idempotent start and a
+ * restartable stop against the scheduler itself.
  *
  * The seeded rows differ from the one that may be released in EXACTLY ONE
  * dimension each — age, processing status, tier, or the presence of a corpus
@@ -539,30 +535,74 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     assert.equal(rows.length, 1, "the redelivery did not become a second receipt");
   });
 
-  test("start is idempotent and stop leaves the reaper restartable", async () => {
-    // `runOnStart` fires a real pass at the WALL clock the moment `start()` is
-    // called, because the scheduler holds no injectable clock. That pass reads
-    // the shared dev database and may release any body already past 90 days
-    // there, so this is the one case with a side effect outside this file's own
-    // rows. It is the production behaviour `runOnStart: true` exists for, and
-    // there is no way to observe the start/stop lifecycle without triggering it.
-    // Nothing here asserts a count, so the pass's result cannot change this
-    // case's verdict.
-    assert.equal(isReceiptPayloadReaperRunning(), false, "not running before start");
+  test("a row that fails delivery while the pass waits for its lock keeps its body", async () => {
+    const now = CLOCK;
+    const userId = await seedUser();
+    const credentialId = await seedCredential(userId);
+    const { expired } = ages(now);
 
-    startReceiptPayloadReaper();
-    startReceiptPayloadReaper();
-    assert.equal(isReceiptPayloadReaperRunning(), true);
+    // The row the reaper will select, and the row it must leave alone. Both are
+    // releasable by every other clause; the only difference between them is what
+    // the other session does while the reaper is blocked.
+    const racing = await seedReceipt({
+      userId,
+      credentialId,
+      deliveredAt: expired,
+      processingStatus: "completed",
+    });
 
-    await stopReceiptPayloadReaper();
-    assert.equal(isReceiptPayloadReaperRunning(), false);
+    const control = await seedReceipt({
+      userId,
+      credentialId,
+      deliveredAt: new Date(expired.getTime() + 1000),
+      processingStatus: "completed",
+    });
 
-    // A restart must work: `runtime.ts` starts and stops this on every boot, and
-    // an AbortSignal cannot be un-aborted.
-    startReceiptPayloadReaper();
-    assert.equal(isReceiptPayloadReaperRunning(), true);
-    await stopReceiptPayloadReaper();
-    assert.equal(isReceiptPayloadReaperRunning(), false);
+    // Reproduces the review's sequence on the real trigger rather than arguing
+    // it. A second session holds an open transaction that has marked the row
+    // `failed` but not committed, so the reaper's page still sees it as
+    // `completed` and then blocks on the row lock. The commit therefore happens
+    // from a THIRD session — a commit on the blocked session's own connection
+    // could not be sent until its transaction finished, which is the thing under
+    // test. On commit the reaper's `UPDATE` wakes and Postgres re-checks the row
+    // against the OUTER `WHERE` through EvalPlanQual: the page is an InitPlan
+    // fixed before the wait, so only the outer clauses can catch this.
+    //
+    // It is the control row that proves the pass did work. A pass that released
+    // nothing would pass this case for the wrong reason.
+    let holdLock: () => void;
+
+    const locked = new Promise<void>((resolve) => {
+      holdLock = resolve;
+    });
+
+    const holder = withDbSession(async ({ db: session, client }) => {
+      await client.query("BEGIN");
+      await session
+        .update(eventReceipts)
+        .set({ processingStatus: "failed" })
+        .where(eq(eventReceipts.id, racing));
+      holdLock();
+      // Held open until the reaper's UPDATE is parked on the row lock.
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      await client.query("COMMIT");
+    });
+
+    await locked;
+    const released = await releaseExpiredReceiptPayloadsOnce(now);
+    await holder;
+
+    assert.equal(released, 1, "the control row is released, so the pass ran; the raced row is not");
+    assert.equal(
+      (await withBody([racing])).size,
+      1,
+      "a receipt marked failed while the pass waited keeps its body: its retry still needs it",
+    );
+    assert.equal(
+      (await withBody([control])).size,
+      0,
+      "the other row in the same page was released, so this is the race clause and not an empty page",
+    );
   });
 });
 
