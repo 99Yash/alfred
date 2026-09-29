@@ -265,18 +265,16 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
     async stop(): Promise<void> {
       // Preserve the required stop order, but attempt every step. One unrelated
       // worker failure must not leave ingestion live while its adapters disappear.
-      // The reaper leads the list because it is the one step with no ordering
-      // constraint of its own: nothing below it reads what it writes, and it reads
-      // nothing the workers below produce, so no step here is waiting on it and
-      // its position is not load-bearing for the rest of the sequence. The one
-      // hazard it does carry is a pass still mutating rows after its step has
-      // resolved, which is what its own `signal` check between batches prevents.
-      // This is not a claim that timers stop first — the outbox reaper and relay
-      // are timers too, and they stop at `closeEventBridge()` below, after every
-      // worker and queue. The position is not about the pool either:
-      // `pg-pool`'s `end()` waits for checked-out clients, so the pool cannot
-      // close under a running statement. This step is a no-op when the
-      // scheduled-jobs gate kept the reaper from starting.
+      // The reaper leads the list because no step below waits on it, so its
+      // position is not load-bearing. That is the whole reason. It is NOT a claim
+      // that it reads nothing the workers write — the opposite holds, and the
+      // predicate and row locks are what make it safe: the ingestion worker owns
+      // the `processing_status` and corpus documents this reaper reads, and the
+      // ingestion backfill and the briefing read the `payload` it writes.
+      // `stop()` may return while one `UPDATE` is still running once `drainMs`
+      // elapses, so the reaper's between-batch `signal` check bounds the overrun
+      // to that one statement rather than preventing it. This step is a no-op when
+      // the scheduled-jobs gate kept the reaper from starting.
       await runShutdownStep("receipt-payload reaper", stopReceiptPayloadReaper);
       await runShutdownStep("MCP connection recovery", stopMcpConnectionRecovery);
       const agentWorkerStopped = await runShutdownStep("agent worker", stopAgentWorker);

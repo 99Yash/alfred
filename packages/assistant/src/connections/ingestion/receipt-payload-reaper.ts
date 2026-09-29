@@ -117,14 +117,18 @@ export const RECEIPT_PAYLOAD_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
  * EXPLAIN on a seeded 8,933-row / 4,000-live-body set flipped between
  * `Index Scan using event_receipts_payload_live_idx` and `Seq Scan` +
  * `Hash Join` with the same seed and the same `LIMIT`, so the plan is not
- * stable on a fixed input. What the table does show is the direction: the
- * denser the match set, the more of the index a page must walk, and the more
- * often a hash join wins. The sparse line is the case that direction produces,
- * and it is reachable because most live bodies can be unprojected — the `EXISTS`
- * clause is what makes it possible and it is non-negotiable (see
- * `releaseBatch`). So the bound is chosen for the dense case and the sparse
- * case is absorbed rather than designed for. Both shapes stay in the tens of
- * milliseconds at this bound, once an hour, which is the actual requirement.
+ * stable on a fixed input. What the two lines do show is the direction, and it
+ * is the opposite of the intuitive one: the DENSE line keeps the nested loop
+ * over the partial index, and the SPARSE line is the one that goes to a hash
+ * join. That is what the `EXISTS` implies — when almost every live body is
+ * documented, walking the index in order and checking `documents` per row beats
+ * hashing the whole documents table, and when only 5% are documented the hash
+ * join wins instead. The sparse case is reachable rather than hypothetical
+ * because most live bodies can be unprojected, and the `EXISTS` clause is what
+ * makes it possible and it is non-negotiable (see `releaseBatch`). So the bound
+ * is chosen for the dense case and the sparse case is absorbed rather than
+ * designed for. Both shapes stay in the tens of milliseconds at this bound,
+ * once an hour, which is the actual requirement.
  *
  * What that table does NOT show is a per-row price difference: 23ms, 117ms and
  * 400ms over 1,000, 5,000 and 20,000 rows is roughly 0.02ms a row in all three,
