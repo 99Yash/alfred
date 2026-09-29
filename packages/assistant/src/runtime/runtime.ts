@@ -265,13 +265,18 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
     async stop(): Promise<void> {
       // Preserve the required stop order, but attempt every step. One unrelated
       // worker failure must not leave ingestion live while its adapters disappear.
-      // The reaper goes first because it is a timer, and the timers come before
-      // the workers and queues below: nothing it does needs a worker, and a
-      // timer left running while the rest of the process tears itself down is
-      // the failure this list exists to prevent. The position is not about the
-      // pool — `pg-pool`'s `end()` waits for checked-out clients, so the pool
-      // cannot close under a running statement — and this step is a no-op when
-      // the scheduled-jobs gate kept it from starting.
+      // The reaper leads the list because it is the one step with no ordering
+      // constraint of its own: nothing below it reads what it writes, and it reads
+      // nothing the workers below produce, so no step here is waiting on it and
+      // its position is not load-bearing for the rest of the sequence. The one
+      // hazard it does carry is a pass still mutating rows after its step has
+      // resolved, which is what its own `signal` check between batches prevents.
+      // This is not a claim that timers stop first — the outbox reaper and relay
+      // are timers too, and they stop at `closeEventBridge()` below, after every
+      // worker and queue. The position is not about the pool either:
+      // `pg-pool`'s `end()` waits for checked-out clients, so the pool cannot
+      // close under a running statement. This step is a no-op when the
+      // scheduled-jobs gate kept the reaper from starting.
       await runShutdownStep("receipt-payload reaper", stopReceiptPayloadReaper);
       await runShutdownStep("MCP connection recovery", stopMcpConnectionRecovery);
       const agentWorkerStopped = await runShutdownStep("agent worker", stopAgentWorker);
