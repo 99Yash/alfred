@@ -31,15 +31,6 @@ const awaitingApproval = (userId: string) =>
     eq(actionStagings.requiresApproval, true),
   );
 
-const selectedApprovals = (userId: string, changed: readonly { id: string }[]) =>
-  and(
-    awaitingApproval(userId),
-    inArray(
-      actionStagings.id,
-      changed.map((v) => v.id),
-    ),
-  );
-
 type ActionStagingRow = {
   staging: ActionStaging;
   workflowSlug: string;
@@ -154,7 +145,15 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
         workflows,
         and(eq(workflows.userId, agentRuns.userId), eq(workflows.slug, agentRuns.workflowSlug)),
       )
-      .where(selectedApprovals(userId, changed))
+      .where(
+        and(
+          awaitingApproval(userId),
+          inArray(
+            actionStagings.id,
+            changed.map((v) => v.id),
+          ),
+        ),
+      )
       .orderBy(asc(actionStagings.id));
 
     const recentRejections = await loadRecentRejectionsByTool(tx, userId, rows);

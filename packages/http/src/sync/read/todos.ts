@@ -13,9 +13,7 @@ const TODO_DONE_WINDOW_DAYS = 2;
 // user removed from the rail early — terminal, so excluded like `dismissed`.
 //
 // The window is a function of `readAt`, the one instant this entity read
-// started, so the version stage's membership and the load stage's re-derived
-// membership cannot disagree about the cutoff. The window expires with no
-// database write, so it is the pull that notices a `done` todo aging out.
+// started, so both stages agree on the cutoff.
 const visibleTo = (userId: string, readAt: Date) => {
   const doneCutoff = new Date(readAt.getTime() - TODO_DONE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 

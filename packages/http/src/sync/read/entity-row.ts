@@ -17,16 +17,12 @@ export interface EntityRow<Slug extends IDBKeys = IDBKeys> {
 
 /**
  * The identity plus version a CVR entry describes, with no claim about the row's
- * values. Derived from the model rather than restated, so `unchanged` below
- * cannot disagree with what `SYNC_MODEL[slug].parsePullVersion` produces.
+ * values. Derived from the model, so `unchanged` cannot disagree with what
+ * `SYNC_MODEL[slug].parsePullVersion` produces.
  */
 export type EntityVersion = ReturnType<SyncModelFor<IDBKeys>["parsePullVersion"]>;
 
-/**
- * What a version projection must carry to be usable as a changed-row selector:
- * the model's typed identity plus `rowVersion`. A domain query may add the few
- * extra fields its JS membership filter needs.
- */
+/** What a version projection must carry to select a changed row: identity plus version. */
 export type VersionInputFor<Slug extends IDBKeys> = Parameters<
   SyncModelFor<Slug>["storageKeyForId"]
 >[0] & { rowVersion: number };
@@ -34,11 +30,10 @@ export type VersionInputFor<Slug extends IDBKeys> = Parameters<
 /**
  * One entity read's two outcomes, which the CVR diff needs separately.
  *
- * `unchanged` is membership the client already holds at that version — proven
- * without reading or validating any value. `rows` is only the changed rows that
- * loaded *and* passed the wire schema, each carrying the version of the value
- * just validated. A changed row that failed to load or validate is in neither,
- * so it keeps no acknowledged version and is retried on the next pull.
+ * `unchanged` is membership the client already holds at that version, proven
+ * without reading a value. `rows` is only the changed rows that loaded *and*
+ * passed the wire schema. A changed row that failed either is in neither, so it
+ * keeps no acknowledged version and is retried on the next pull.
  */
 export type EntityReadResult<Slug extends IDBKeys> = {
   unchanged: EntityVersion[];

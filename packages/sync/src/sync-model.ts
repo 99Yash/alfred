@@ -1,3 +1,4 @@
+import { getPath } from "@alfred/contracts";
 import type { ReadonlyJSONValue, ReadTransaction, WriteTransaction } from "replicache";
 import { z } from "zod";
 import {
@@ -59,16 +60,6 @@ export type SyncIdentityPrefix<
   ? Record<TKeys[0], string>
   : never;
 
-/**
- * One light version projection after validation: the CVR id the identity tuple
- * produces, plus the row version that id is at. It says nothing about the row's
- * values, so it can acknowledge membership the client already holds.
- */
-export interface SyncPullVersion {
-  id: string;
-  rowVersion: number;
-}
-
 export interface SyncEntityModel<
   Prefix extends string,
   TSchema extends SyncSchema,
@@ -104,38 +95,27 @@ export interface SyncEntityModel<
   };
   /**
    * Validate one *light* version projection — the ordered identity tuple plus
-   * `rowVersion` — and derive its CVR id from the same tuple.
+   * `rowVersion` — and derive the CVR id from that same tuple.
    *
    * `parsePullValue` is the full wire gate: it needs every schema field, so a
-   * caller must first have read the whole row. This parser is what the server
-   * pull runs over its membership query, where the row's full values were
-   * deliberately never selected. It therefore builds its own narrow schema from
-   * `key` instead of narrowing `schema`, which also keeps it working for a
-   * discriminated-union schema such as `triagetag` without a `.pick()`.
+   * caller must first have read the whole row. This is what the server pull runs
+   * over its membership query instead. It says nothing about the row's values,
+   * so it can acknowledge membership the client already holds, and it does NOT
+   * decide whether a value may reach the client. Every key outside `key` and
+   * `rowVersion` is ignored, so a reader whose membership is decided in JS may
+   * select the few extra columns that test reads.
    *
-   * "Light" describes what it validates, not what a projection may carry. A
-   * reader whose membership is decided in JS selects the few extra columns that
-   * test reads; this parser ignores every key outside `key` and `rowVersion`.
-   *
-   * It does NOT decide whether a value may reach the client — only whether a
-   * projection is a well-formed identity plus a number, so the pull can diff
-   * membership and load the changed rows for full validation. Throws a
-   * `ZodError` for a malformed projection, which the pull treats as one
+   * A malformed projection throws a `ZodError`, which the pull treats as one
    * skippable row.
    */
-  parsePullVersion(input: unknown): SyncPullVersion;
-}
-
-/** The one place a persisted CVR id's parts become a `/`-joined string. */
-function joinIdentity(parts: readonly string[]): string {
-  return parts.join("/");
+  parsePullVersion(input: unknown): { id: string; rowVersion: number };
 }
 
 function identityPart<TKey extends string>(
   value: Record<TKey, string>,
   keys: readonly TKey[],
 ): string {
-  return joinIdentity(keys.map((key) => value[key]));
+  return keys.map((key) => value[key]).join("/");
 }
 
 function model<
@@ -181,19 +161,16 @@ function model<
     return parsed;
   };
 
-  // The narrow version gate. Built from `key` rather than from `schema` so it
-  // stays a two-field contract for every model, union schema included.
-  const versionRecordSchema = z.record(z.string(), z.unknown());
+  // The narrow version gate. Two field shapes, not a schema narrowed from
+  // `schema`: this stays a two-field contract for every model, union schema
+  // included. Both parse once per projection row, so they are built here.
   const identityValueSchema = z.string();
   const rowVersionSchema = z.number();
 
-  const parsePullVersion = (input: unknown): SyncPullVersion => {
-    const record = versionRecordSchema.parse(input);
-    const identity = key.map((name) => identityValueSchema.parse(record[name]));
-
+  const parsePullVersion = (input: unknown) => {
     return {
-      id: joinIdentity(identity),
-      rowVersion: rowVersionSchema.parse(record.rowVersion),
+      id: key.map((name) => identityValueSchema.parse(getPath(input, name))).join("/"),
+      rowVersion: rowVersionSchema.parse(getPath(input, "rowVersion")),
     };
   };
 

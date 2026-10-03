@@ -19,19 +19,16 @@ type MapperHasSchemaKeys<Slug extends IDBKeys, Mapped> =
 
 type SyncEntityConfig<Slug extends IDBKeys, Version, Row, Mapped> = {
   /**
-   * The visible set, projected down to identity plus `rowVersion`. It must use
-   * the same membership as `loadQuery`, because this is what decides which ids
-   * the CVR will describe.
-   *
-   * The narrow `Version` constraint is what the model parser needs, not what the
-   * statement may select. A domain whose membership is decided in JS adds the
-   * few columns that test reads; `parsePullVersion` ignores them.
+   * The visible set, projected down to identity plus `rowVersion`, over the same
+   * membership `loadQuery` uses: this is what decides which ids the CVR
+   * describes. The narrow `Version` constraint is what the model parser needs,
+   * not what the statement may select, so a reader whose membership is decided
+   * in JS adds the few columns that test reads.
    */
   versionQuery: (tx: DbTransaction, userId: string, readAt: Date) => Promise<Version[]>;
   /**
-   * Full values for the changed projections only, in the same order the domain
-   * wants for the client. Membership stays the version query's; this only
-   * narrows which of those rows are read.
+   * Full values for the changed projections only. Membership stays the version
+   * query's; this only narrows which of those rows are read.
    */
   loadQuery: (
     tx: DbTransaction,
@@ -59,8 +56,8 @@ type SyncEntityModelContract<Slug extends IDBKeys> = Pick<
  * runtime.
  *
  * TWO SEPARATE OUTCOMES, AND THAT IS THE POINT. An unchanged version is
- * membership the client already holds, acknowledged without reading a value.
- * A changed version has no acknowledged value yet, so it must load and pass the
+ * membership the client already holds, acknowledged without reading a value. A
+ * changed version has no acknowledged value yet, so it must load and pass the
  * wire schema before this reader reports a row for it. Only the second kind may
  * be cached as client state; the first already was. A changed row that fails to
  * load, to map, or to parse lands in neither list, which leaves it unversioned
@@ -81,7 +78,7 @@ export function syncEntity<
     const changedVersions: Version[] = [];
 
     for (const projection of await config.versionQuery(tx, userId, readAt)) {
-      const [version] = toPullVersion(model, projection);
+      const version = toPullVersion(model, projection);
 
       if (!version) continue;
 
@@ -145,27 +142,20 @@ export function syncEntity<
  * THE VERSION HALF OF THE RECOVERABLE PATH. A projection that is not a
  * well-formed identity plus a `rowVersion` is one skipped row, not a failed
  * pull — the same rule `toEntityRow` applies to a full value, and it shares that
- * predicate rather than sniffing messages.
- *
- * A malformed projection is skipped from membership, so it produces no CVR
- * entry. That is the same outcome the full row had before this split: an id the
- * previous CVR still holds is now absent from `nextMap`, so `pull.ts`'s delete
- * loop sends a delete and the next pull tries the row again.
- *
- * This runs the model's narrow parser only. No mapper and no full wire-schema
- * parse happens here, because no values were selected.
+ * predicate rather than sniffing messages. It gets no CVR entry, so an id the
+ * previous snapshot holds is dropped by `pull.ts`'s delete loop and retried.
  */
 function toPullVersion<Model extends SyncEntityModelContract<IDBKeys>>(
   model: Model,
   projection: unknown,
-): EntityVersion[] {
+): EntityVersion | null {
   try {
-    return [model.parsePullVersion(projection)];
+    return model.parsePullVersion(projection);
   } catch (err) {
     if (!isRecoverableSerializationError(err)) throw err;
     console.warn(`[replicache] skipping invalid ${model.slug} version row: ${toMessage(err)}`);
 
-    return [];
+    return null;
   }
 }
 

@@ -17,11 +17,9 @@ const ownedByUser = (userId: string) => eq(workflows.userId, userId);
 // only mutates `is_builtin = false` rows; built-ins render read-only.
 // Keyed by `slug` so the editor's optimistic write addresses the row
 // without an id lookup, matching the `/workflows/$workflow` route param.
-//
 // The internal-slug filter runs on the version projection, which carries the
-// `slug` anyway, so an internal row is never counted as membership. The
-// current-revision join is the opposite: it is full-value work, so it belongs
-// to the load stage and runs only for changed rows.
+// `slug` anyway. The current-revision join is full-value work, so it belongs to
+// the load stage and runs only for changed rows.
 export const fetchWorkflows = syncEntity(SYNC_MODEL.workflow, {
   versionQuery: async (tx, userId) => {
     const rows = await tx

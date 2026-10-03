@@ -15,11 +15,9 @@ const syncsToClient = (userId: string) =>
 // server-side (intact + queryable) but never sync it to the /memory review
 // queue. Confirmed facts and all non-relationship facts are unaffected.
 //
-// This takes only the three columns it reads, so the version query can carry it
-// and the membership decision never needs the row's other columns. Both query
-// stages run it: the version stage so an unreviewable row is never even counted
-// as membership, the load stage as the guard that stays if a changed row's key or
-// value flipped while the pull ran.
+// It reads three columns only, so both stages can run it: the version stage
+// keeps an unreviewable row out of membership, and the load stage keeps it out
+// if a changed row's key or value flipped while the pull ran.
 const isSyncedFact = (f: Pick<UserFact, "status" | "key" | "value">) =>
   !(f.status === "proposed" && isUninformativeRelationshipFact(f.key, f.value));
 
