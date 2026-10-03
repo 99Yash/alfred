@@ -1,6 +1,6 @@
 import { todos, type Todo } from "@alfred/db/schemas";
 import { SYNC_MODEL } from "@alfred/sync";
-import { and, asc, eq, gte, ne, notInArray, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, ne, notInArray, or } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
 
@@ -11,22 +11,42 @@ const TODO_DONE_WINDOW_DAYS = 2;
 // linger `TODO_DONE_WINDOW_DAYS` then fall out of the pull window (not the
 // DB). `suggested` + `open` always sync. `cleared` (#297) is a `done` the
 // user removed from the rail early — terminal, so excluded like `dismissed`.
-export const fetchTodos = syncEntity(SYNC_MODEL.todo, {
-  query: (tx, userId) => {
-    const doneCutoff = new Date(Date.now() - TODO_DONE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+//
+// The window is a function of `readAt`, the one instant this entity read
+// started, so the version stage's membership and the load stage's re-derived
+// membership cannot disagree about the cutoff. The window expires with no
+// database write, so it is the pull that notices a `done` todo aging out.
+const visibleTo = (userId: string, readAt: Date) => {
+  const doneCutoff = new Date(readAt.getTime() - TODO_DONE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
-    return tx
+  return and(
+    eq(todos.userId, userId),
+    notInArray(todos.status, ["dismissed", "cleared"]),
+    or(ne(todos.status, "done"), gte(todos.completedAt, doneCutoff)),
+  );
+};
+
+export const fetchTodos = syncEntity(SYNC_MODEL.todo, {
+  versionQuery: (tx, userId, readAt) =>
+    tx
+      .select({ id: todos.id, rowVersion: todos.rowVersion })
+      .from(todos)
+      .where(visibleTo(userId, readAt))
+      .orderBy(asc(todos.createdAt), asc(todos.id)),
+  loadQuery: (tx, userId, changed, readAt) =>
+    tx
       .select()
       .from(todos)
       .where(
         and(
-          eq(todos.userId, userId),
-          notInArray(todos.status, ["dismissed", "cleared"]),
-          or(ne(todos.status, "done"), gte(todos.completedAt, doneCutoff)),
+          visibleTo(userId, readAt),
+          inArray(
+            todos.id,
+            changed.map((v) => v.id),
+          ),
         ),
       )
-      .orderBy(asc(todos.createdAt), asc(todos.id));
-  },
+      .orderBy(asc(todos.createdAt), asc(todos.id)),
   map: (t: Todo) => {
     if (t.status === "dismissed") {
       throw new SerializationError("cannot sync a dismissed todo");

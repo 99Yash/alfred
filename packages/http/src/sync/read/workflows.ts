@@ -6,25 +6,49 @@ import {
   type WorkflowRevision,
 } from "@alfred/db/schemas";
 import { SYNC_MODEL } from "@alfred/sync";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
 type WorkflowRow = { workflow: Workflow; currentRevision: WorkflowRevision | null };
+
+const ownedByUser = (userId: string) => eq(workflows.userId, userId);
 
 // Both built-in and user-authored rows sync (m13 Phase 8). The editor
 // only mutates `is_builtin = false` rows; built-ins render read-only.
 // Keyed by `slug` so the editor's optimistic write addresses the row
 // without an id lookup, matching the `/workflows/$workflow` route param.
+//
+// The internal-slug filter runs on the version projection, which carries the
+// `slug` anyway, so an internal row is never counted as membership. The
+// current-revision join is the opposite: it is full-value work, so it belongs
+// to the load stage and runs only for changed rows.
 export const fetchWorkflows = syncEntity(SYNC_MODEL.workflow, {
-  query: async (tx, userId) => {
+  versionQuery: async (tx, userId) => {
+    const rows = await tx
+      .select({ slug: workflows.slug, rowVersion: workflows.rowVersion })
+      .from(workflows)
+      .where(ownedByUser(userId))
+      .orderBy(asc(workflows.slug));
+
+    return rows.filter((r) => !isInternalWorkflowSlug(r.slug));
+  },
+  loadQuery: async (tx, userId, changed) => {
     const rows: WorkflowRow[] = await tx
       .select({ workflow: workflows, currentRevision: workflowRevisions })
       .from(workflows)
       .leftJoin(workflowRevisions, eq(workflows.currentRevisionId, workflowRevisions.id))
-      .where(eq(workflows.userId, userId))
+      .where(
+        and(
+          ownedByUser(userId),
+          inArray(
+            workflows.slug,
+            changed.map((v) => v.slug),
+          ),
+        ),
+      )
       .orderBy(asc(workflows.slug));
 
-    return rows.filter((r) => !isInternalWorkflowSlug(r.workflow.slug));
+    return rows;
   },
   map: ({ workflow: w, currentRevision }: WorkflowRow) => ({
     id: w.id,

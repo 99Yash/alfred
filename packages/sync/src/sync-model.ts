@@ -59,6 +59,16 @@ export type SyncIdentityPrefix<
   ? Record<TKeys[0], string>
   : never;
 
+/**
+ * One light version projection after validation: the CVR id the identity tuple
+ * produces, plus the row version that id is at. It says nothing about the row's
+ * values, so it can acknowledge membership the client already holds.
+ */
+export interface SyncPullVersion {
+  id: string;
+  rowVersion: number;
+}
+
 export interface SyncEntityModel<
   Prefix extends string,
   TSchema extends SyncSchema,
@@ -92,13 +102,36 @@ export interface SyncEntityModel<
     rowVersion: number;
     value: z.output<TSchema>;
   };
+  /**
+   * Validate one *light* version projection — the ordered identity tuple plus
+   * `rowVersion`, nothing else — and derive its CVR id from the same tuple.
+   *
+   * `parsePullValue` is the full wire gate: it needs every schema field, so a
+   * caller must first have read the whole row. This parser is what the server
+   * pull runs over its membership query, where the row's full values were
+   * deliberately never selected. It therefore builds its own narrow schema from
+   * `key` instead of narrowing `schema`, which also keeps it working for a
+   * discriminated-union schema such as `triagetag` without a `.pick()`.
+   *
+   * It does NOT decide whether a value may reach the client — only whether a
+   * projection is a well-formed identity plus a number, so the pull can diff
+   * membership and load the changed rows for full validation. Throws a
+   * `ZodError` for a malformed projection, which the pull treats as one
+   * skippable row.
+   */
+  parsePullVersion(input: unknown): SyncPullVersion;
+}
+
+/** The one place a persisted CVR id's parts become a `/`-joined string. */
+function joinIdentity(parts: readonly string[]): string {
+  return parts.join("/");
 }
 
 function identityPart<TKey extends string>(
   value: Record<TKey, string>,
   keys: readonly TKey[],
 ): string {
-  return keys.map((key) => value[key]).join("/");
+  return joinIdentity(keys.map((key) => value[key]));
 }
 
 function model<
@@ -144,6 +177,22 @@ function model<
     return parsed;
   };
 
+  // The narrow version gate. Built from `key` rather than from `schema` so it
+  // stays a two-field contract for every model, union schema included.
+  const versionRecordSchema = z.record(z.string(), z.unknown());
+  const identityValueSchema = z.string();
+  const rowVersionSchema = z.number();
+
+  const parsePullVersion = (input: unknown): SyncPullVersion => {
+    const record = versionRecordSchema.parse(input);
+    const identity = key.map((name) => identityValueSchema.parse(record[name]));
+
+    return {
+      id: joinIdentity(identity),
+      rowVersion: rowVersionSchema.parse(record.rowVersion),
+    };
+  };
+
   return {
     slug: prefixRaw,
     schema,
@@ -187,6 +236,7 @@ function model<
         value,
       };
     },
+    parsePullVersion,
   };
 }
 
