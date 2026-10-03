@@ -28,10 +28,8 @@ const attachmentOrder = [desc(chatAttachments.createdAt), desc(chatAttachments.i
  *
  * It is a subquery on purpose. It owns the user guard, the order and the cap;
  * both stages join to it and add only their own restriction outside it. The
- * join on the primary key carries the user guard, so no stage repeats it.
- *
  * `CHAT_MESSAGE_PULL_LIMIT` must bound the whole visible set, not the changed
- * rows. Restricting changed ids inside the cap would let those rows pick the
+ * rows: restricting changed ids inside the cap would let those rows pick the
  * membership, and a concurrent commit between the stages could then load a row
  * the cap no longer holds.
  */
@@ -46,13 +44,9 @@ const recentMessages = (tx: DbTransaction, userId: string) =>
 
 /**
  * THE ONE DEFINITION OF THE VISIBLE ATTACHMENT SET. It owns the recent-message
- * join, the attachment user guard, the order and `CHAT_ATTACHMENT_PULL_LIMIT`.
- *
- * Both stages join to it and put the changed-id restriction outside it, so the
- * cap bounds the full visible attachment set. With the restriction applied
- * first, the cap would instead bound the changed attachments, and a concurrent
- * commit between the stages could make the load stage return a set the
- * discovery stage never described.
+ * join, the attachment user guard, the order and `CHAT_ATTACHMENT_PULL_LIMIT`,
+ * so both stages share one set and the cap bounds that set, not the changed
+ * attachments.
  */
 const recentAttachments = (tx: DbTransaction, userId: string) => {
   const messages = recentMessages(tx, userId);

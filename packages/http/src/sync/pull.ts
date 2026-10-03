@@ -95,15 +95,12 @@ export async function handlePull(
       const { unchanged, rows } = await fetchRows(tx, userId, prevMap);
       const nextMap: ClientViewMap = {};
 
-      // Membership the client already holds at that version: acknowledged as-is,
-      // never re-read and never re-validated.
+      // Membership the client already holds, acknowledged as-is. Only loaded
+      // and validated rows enter the map below, each at its loaded version.
       for (const version of unchanged) {
         nextMap[version.id] = { v: version.rowVersion };
       }
 
-      // Only these rows were loaded and passed the wire schema, and each carries
-      // the version of the value just validated — so a row the full schema
-      // rejected leaves no entry and is retried on the next pull.
       for (const r of rows) {
         nextMap[r.id] = { v: r.rowVersion };
         const prevRow: CVRRow | undefined = prevMap[r.id];

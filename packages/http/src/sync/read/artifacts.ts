@@ -12,9 +12,8 @@ const artifactOrder = [desc(artifacts.createdAt), desc(artifacts.id)];
 const ownedByUser = (userId: string) => eq(artifacts.userId, userId);
 
 // THE ONE DEFINITION OF THE VISIBLE ARTIFACT SET. It owns the user guard, the
-// order and `ARTIFACT_PULL_LIMIT`. Both stages join to it and add only their own
-// restriction outside it, so the cap bounds the whole visible set. The join on
-// the primary key carries the user guard, so no stage repeats it.
+// order and `ARTIFACT_PULL_LIMIT`, and both stages join to it, so the cap bounds
+// the visible set rather than the changed rows.
 const recentArtifacts = (tx: DbTransaction, userId: string) =>
   tx
     .select({ id: artifacts.id })

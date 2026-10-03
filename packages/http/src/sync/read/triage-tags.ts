@@ -10,10 +10,8 @@ const TRIAGE_TAG_WINDOW_DAYS = 30;
 
 // rfc-triage-tags.md. `user` overrides always sync; `auto` tags sync within
 // TRIAGE_TAG_WINDOW_DAYS and outside the rail-suppressed categories. Keyed by
-// `source_thread_id` so the client store holds one tag per thread.
-//
-// The window is a function of `readAt`, the one instant this entity read
-// started, so both stages agree on the cutoff.
+// `source_thread_id` so the client store holds one tag per thread. The window
+// is a function of `readAt`, so both stages agree on the cutoff.
 const syncsToClient = (userId: string, readAt: Date) => {
   const cutoff = new Date(readAt.getTime() - TRIAGE_TAG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
@@ -41,9 +39,8 @@ const syncsToClient = (userId: string, readAt: Date) => {
 export const fetchTriageTags = syncEntity(SYNC_MODEL.triagetag, {
   versionQuery: (tx, userId, readAt) =>
     tx
-      // Aliased to the model's identity name: the CVR id and the changed-row
-      // selector both speak `threadId`, and this projection carries no
-      // discriminated-union fields at all.
+      // Aliased to the model's identity name, so the CVR id and the changed-row
+      // selector both speak `threadId`.
       .select({ threadId: emailTriage.sourceThreadId, rowVersion: emailTriage.rowVersion })
       .from(emailTriage)
       .where(syncsToClient(userId, readAt))
