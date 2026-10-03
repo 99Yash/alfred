@@ -20,6 +20,26 @@ const BRIEF_PREVIEW_CHARS = 280;
 // The approvals surface only syncs rows that still require a user
 // decision. Autonomy rows may briefly be `pending` while the dispatcher
 // is executing the tool; those are audit rows, not approval cards.
+//
+// One authored membership, shared by both stages. The inner join to
+// `agentRuns` is part of membership, not of display: a staging with no run is
+// not synced, so the version query must not count it either.
+const awaitingApproval = (userId: string) =>
+  and(
+    eq(actionStagings.userId, userId),
+    eq(actionStagings.status, "pending"),
+    eq(actionStagings.requiresApproval, true),
+  );
+
+const selectedApprovals = (userId: string, changed: readonly { id: string }[]) =>
+  and(
+    awaitingApproval(userId),
+    inArray(
+      actionStagings.id,
+      changed.map((v) => v.id),
+    ),
+  );
+
 type ActionStagingRow = {
   staging: ActionStaging;
   workflowSlug: string;
@@ -109,7 +129,17 @@ function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
 }
 
 export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
-  query: async (tx, userId) => {
+  // The version stage reads the staging row's own columns only. The run,
+  // workflow and recent-rejection joins are display values, so they belong to
+  // the load stage and run for changed rows only.
+  versionQuery: (tx, userId) =>
+    tx
+      .select({ id: actionStagings.id, rowVersion: actionStagings.rowVersion })
+      .from(actionStagings)
+      .innerJoin(agentRuns, eq(actionStagings.runId, agentRuns.id))
+      .where(awaitingApproval(userId))
+      .orderBy(asc(actionStagings.id)),
+  loadQuery: async (tx, userId, changed) => {
     const rows: SelectedActionStagingRow[] = await tx
       .select({
         staging: actionStagings,
@@ -124,13 +154,7 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
         workflows,
         and(eq(workflows.userId, agentRuns.userId), eq(workflows.slug, agentRuns.workflowSlug)),
       )
-      .where(
-        and(
-          eq(actionStagings.userId, userId),
-          eq(actionStagings.status, "pending"),
-          eq(actionStagings.requiresApproval, true),
-        ),
-      )
+      .where(selectedApprovals(userId, changed))
       .orderBy(asc(actionStagings.id));
 
     const recentRejections = await loadRecentRejectionsByTool(tx, userId, rows);

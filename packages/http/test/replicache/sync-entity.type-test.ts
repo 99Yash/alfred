@@ -10,13 +10,15 @@ export const noteFetcher: EntityFetcher<"note"> = fetchNotes;
 export const wrongFetcher: EntityFetcher<"note"> = fetchFacts;
 
 export const incompleteNoteFetcher = syncEntity(SYNC_MODEL.note, {
-  query: async () => [{ id: "note_1", userId: "user_1", text: "hi", rowVersion: 1 }],
+  versionQuery: async () => [{ id: "note_1", rowVersion: 1 }],
+  loadQuery: async () => [{ id: "note_1", userId: "user_1", text: "hi", rowVersion: 1 }],
   // @ts-expect-error — the `note` projection must include createdAt before Date serialization
   map: (row) => row,
 });
 
 export const runtimeValidatedNoteFetcher = syncEntity(SYNC_MODEL.note, {
-  query: async () => [
+  versionQuery: async () => [{ id: "note_1", rowVersion: 1 }],
+  loadQuery: async () => [
     {
       id: "note_1",
       userId: "user_1",

@@ -7,21 +7,53 @@ import {
   type SkillRun,
 } from "@alfred/db/schemas";
 import { SYNC_MODEL } from "@alfred/sync";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
 export const fetchSkills = syncEntity(SYNC_MODEL.skill, {
-  query: (tx, userId) =>
-    tx.select().from(skills).where(eq(skills.userId, userId)).orderBy(asc(skills.id)),
+  versionQuery: (tx, userId) =>
+    tx
+      .select({ id: skills.id, rowVersion: skills.rowVersion })
+      .from(skills)
+      .where(eq(skills.userId, userId))
+      .orderBy(asc(skills.id)),
+  loadQuery: (tx, userId, changed) =>
+    tx
+      .select()
+      .from(skills)
+      .where(
+        and(
+          eq(skills.userId, userId),
+          inArray(
+            skills.id,
+            changed.map((v) => v.id),
+          ),
+        ),
+      )
+      .orderBy(asc(skills.id)),
   map: (s: Skill) => s,
 });
 
 export const fetchSkillRevisions = syncEntity(SYNC_MODEL.skillrev, {
-  query: (tx, userId) =>
+  versionQuery: (tx, userId) =>
+    tx
+      .select({ id: skillRevisions.id, rowVersion: skillRevisions.rowVersion })
+      .from(skillRevisions)
+      .where(eq(skillRevisions.userId, userId))
+      .orderBy(asc(skillRevisions.id)),
+  loadQuery: (tx, userId, changed) =>
     tx
       .select()
       .from(skillRevisions)
-      .where(eq(skillRevisions.userId, userId))
+      .where(
+        and(
+          eq(skillRevisions.userId, userId),
+          inArray(
+            skillRevisions.id,
+            changed.map((v) => v.id),
+          ),
+        ),
+      )
       .orderBy(asc(skillRevisions.id)),
   map: (r: SkillRevision) => ({
     id: r.id,
@@ -37,8 +69,26 @@ export const fetchSkillRevisions = syncEntity(SYNC_MODEL.skillrev, {
 });
 
 export const fetchSkillRuns = syncEntity(SYNC_MODEL.skillrun, {
-  query: (tx, userId) =>
-    tx.select().from(skillRuns).where(eq(skillRuns.userId, userId)).orderBy(asc(skillRuns.id)),
+  versionQuery: (tx, userId) =>
+    tx
+      .select({ id: skillRuns.id, rowVersion: skillRuns.rowVersion })
+      .from(skillRuns)
+      .where(eq(skillRuns.userId, userId))
+      .orderBy(asc(skillRuns.id)),
+  loadQuery: (tx, userId, changed) =>
+    tx
+      .select()
+      .from(skillRuns)
+      .where(
+        and(
+          eq(skillRuns.userId, userId),
+          inArray(
+            skillRuns.id,
+            changed.map((v) => v.id),
+          ),
+        ),
+      )
+      .orderBy(asc(skillRuns.id)),
   map: (r: SkillRun) => ({
     id: r.id,
     skillId: r.skillId,
