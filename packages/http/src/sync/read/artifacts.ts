@@ -1,7 +1,7 @@
 import type { DbTransaction } from "@alfred/db";
 import { artifacts, type Artifact } from "@alfred/db/schemas";
 import { SYNC_MODEL } from "@alfred/sync";
-import { and, desc, eq, getTableColumns, inArray } from "drizzle-orm";
+import { desc, eq, getTableColumns, inArray } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
 /** Most-recent agent-produced artifacts synced per user (ADR-0075). */
@@ -11,8 +11,10 @@ const artifactOrder = [desc(artifacts.createdAt), desc(artifacts.id)];
 
 const ownedByUser = (userId: string) => eq(artifacts.userId, userId);
 
-// One definition of the visible artifact window, so the load stage cannot pick a
-// different 200 than the version stage counted.
+// THE ONE DEFINITION OF THE VISIBLE ARTIFACT SET. It owns the user guard, the
+// order and `ARTIFACT_PULL_LIMIT`. Both stages join to it and add only their own
+// restriction outside it, so the cap bounds the whole visible set. The join on
+// the primary key carries the user guard, so no stage repeats it.
 const recentArtifacts = (tx: DbTransaction, userId: string) =>
   tx
     .select({ id: artifacts.id })
@@ -27,13 +29,15 @@ const recentArtifacts = (tx: DbTransaction, userId: string) =>
 // `generating` row syncs too (content may still be null) so the sidebar can
 // render the placeholder while the boss authors.
 export const fetchArtifacts = syncEntity(SYNC_MODEL.artifact, {
-  versionQuery: (tx, userId) =>
-    tx
+  versionQuery: (tx, userId) => {
+    const visible = recentArtifacts(tx, userId);
+
+    return tx
       .select({ id: artifacts.id, rowVersion: artifacts.rowVersion })
       .from(artifacts)
-      .where(ownedByUser(userId))
-      .orderBy(...artifactOrder)
-      .limit(ARTIFACT_PULL_LIMIT),
+      .innerJoin(visible, eq(artifacts.id, visible.id))
+      .orderBy(...artifactOrder);
+  },
   loadQuery: (tx, userId, changed) => {
     const visible = recentArtifacts(tx, userId);
 
@@ -42,12 +46,9 @@ export const fetchArtifacts = syncEntity(SYNC_MODEL.artifact, {
       .from(artifacts)
       .innerJoin(visible, eq(artifacts.id, visible.id))
       .where(
-        and(
-          ownedByUser(userId),
-          inArray(
-            artifacts.id,
-            changed.map((v) => v.id),
-          ),
+        inArray(
+          artifacts.id,
+          changed.map((v) => v.id),
         ),
       )
       .orderBy(...artifactOrder);
