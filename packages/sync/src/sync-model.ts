@@ -104,7 +104,7 @@ export interface SyncEntityModel<
   };
   /**
    * Validate one *light* version projection — the ordered identity tuple plus
-   * `rowVersion`, nothing else — and derive its CVR id from the same tuple.
+   * `rowVersion` — and derive its CVR id from the same tuple.
    *
    * `parsePullValue` is the full wire gate: it needs every schema field, so a
    * caller must first have read the whole row. This parser is what the server
@@ -112,6 +112,10 @@ export interface SyncEntityModel<
    * deliberately never selected. It therefore builds its own narrow schema from
    * `key` instead of narrowing `schema`, which also keeps it working for a
    * discriminated-union schema such as `triagetag` without a `.pick()`.
+   *
+   * "Light" describes what it validates, not what a projection may carry. A
+   * reader whose membership is decided in JS selects the few extra columns that
+   * test reads; this parser ignores every key outside `key` and `rowVersion`.
    *
    * It does NOT decide whether a value may reach the client — only whether a
    * projection is a well-formed identity plus a number, so the pull can diff

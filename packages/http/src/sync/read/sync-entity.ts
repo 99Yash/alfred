@@ -22,6 +22,10 @@ type SyncEntityConfig<Slug extends IDBKeys, Version, Row, Mapped> = {
    * The visible set, projected down to identity plus `rowVersion`. It must use
    * the same membership as `loadQuery`, because this is what decides which ids
    * the CVR will describe.
+   *
+   * The narrow `Version` constraint is what the model parser needs, not what the
+   * statement may select. A domain whose membership is decided in JS adds the
+   * few columns that test reads; `parsePullVersion` ignores them.
    */
   versionQuery: (tx: DbTransaction, userId: string, readAt: Date) => Promise<Version[]>;
   /**
@@ -141,8 +145,12 @@ export function syncEntity<
  * THE VERSION HALF OF THE RECOVERABLE PATH. A projection that is not a
  * well-formed identity plus a `rowVersion` is one skipped row, not a failed
  * pull — the same rule `toEntityRow` applies to a full value, and it shares that
- * predicate rather than sniffing messages. A malformed projection is also
- * skipped from membership, so it produces no CVR entry and no delete.
+ * predicate rather than sniffing messages.
+ *
+ * A malformed projection is skipped from membership, so it produces no CVR
+ * entry. That is the same outcome the full row had before this split: an id the
+ * previous CVR still holds is now absent from `nextMap`, so `pull.ts`'s delete
+ * loop sends a delete and the next pull tries the row again.
  *
  * This runs the model's narrow parser only. No mapper and no full wire-schema
  * parse happens here, because no values were selected.

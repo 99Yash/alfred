@@ -23,14 +23,17 @@ const messageOrder = [desc(chatMessages.createdAt), desc(chatMessages.id)];
 const attachmentOrder = [desc(chatAttachments.createdAt), desc(chatAttachments.id)];
 
 /**
- * THE ONE DEFINITION OF THE VISIBLE MESSAGE SET, shared by `chatmsg` and by
- * `chatatt`'s attachment join.
+ * THE ONE DEFINITION OF THE VISIBLE MESSAGE SET. Discovery, loading and
+ * `chatatt`'s attachment set all read it, so they cannot drift apart.
  *
- * It is a subquery on purpose. Every per-pull restriction is applied *outside*
- * it, so `CHAT_MESSAGE_PULL_LIMIT` still bounds the whole visible set instead
- * of the changed rows: restricting changed ids inside the limit would let 500
- * changed messages push visible unchanged messages out of the patch, and would
- * hand `chatatt` a different membership than its own version query saw.
+ * It is a subquery on purpose. It owns the user guard, the order and the cap;
+ * both stages join to it and add only their own restriction outside it. The
+ * join on the primary key carries the user guard, so no stage repeats it.
+ *
+ * `CHAT_MESSAGE_PULL_LIMIT` must bound the whole visible set, not the changed
+ * rows. Restricting changed ids inside the cap would let those rows pick the
+ * membership, and a concurrent commit between the stages could then load a row
+ * the cap no longer holds.
  */
 const recentMessages = (tx: DbTransaction, userId: string) =>
   tx
@@ -40,6 +43,29 @@ const recentMessages = (tx: DbTransaction, userId: string) =>
     .orderBy(...messageOrder)
     .limit(CHAT_MESSAGE_PULL_LIMIT)
     .as("recent_messages");
+
+/**
+ * THE ONE DEFINITION OF THE VISIBLE ATTACHMENT SET. It owns the recent-message
+ * join, the attachment user guard, the order and `CHAT_ATTACHMENT_PULL_LIMIT`.
+ *
+ * Both stages join to it and put the changed-id restriction outside it, so the
+ * cap bounds the full visible attachment set. With the restriction applied
+ * first, the cap would instead bound the changed attachments, and a concurrent
+ * commit between the stages could make the load stage return a set the
+ * discovery stage never described.
+ */
+const recentAttachments = (tx: DbTransaction, userId: string) => {
+  const messages = recentMessages(tx, userId);
+
+  return tx
+    .select({ id: chatAttachments.id })
+    .from(chatAttachments)
+    .innerJoin(messages, eq(chatAttachments.messageId, messages.id))
+    .where(eq(chatAttachments.userId, userId))
+    .orderBy(...attachmentOrder)
+    .limit(CHAT_ATTACHMENT_PULL_LIMIT)
+    .as("recent_attachments");
+};
 
 const ownedThread = (userId: string) => eq(chatThreads.userId, userId);
 
@@ -73,13 +99,15 @@ export const fetchChatThreads = syncEntity(SYNC_MODEL.chatthread, {
 });
 
 export const fetchChatMessages = syncEntity(SYNC_MODEL.chatmsg, {
-  versionQuery: (tx, userId) =>
-    tx
+  versionQuery: (tx, userId) => {
+    const visible = recentMessages(tx, userId);
+
+    return tx
       .select({ id: chatMessages.id, rowVersion: chatMessages.rowVersion })
       .from(chatMessages)
-      .where(eq(chatMessages.userId, userId))
-      .orderBy(...messageOrder)
-      .limit(CHAT_MESSAGE_PULL_LIMIT),
+      .innerJoin(visible, eq(chatMessages.id, visible.id))
+      .orderBy(...messageOrder);
+  },
   loadQuery: (tx, userId, changed) => {
     const visible = recentMessages(tx, userId);
 
@@ -88,12 +116,9 @@ export const fetchChatMessages = syncEntity(SYNC_MODEL.chatmsg, {
       .from(chatMessages)
       .innerJoin(visible, eq(chatMessages.id, visible.id))
       .where(
-        and(
-          eq(chatMessages.userId, userId),
-          inArray(
-            chatMessages.id,
-            changed.map((v) => v.id),
-          ),
+        inArray(
+          chatMessages.id,
+          changed.map((v) => v.id),
         ),
       )
       .orderBy(...messageOrder);
@@ -102,40 +127,34 @@ export const fetchChatMessages = syncEntity(SYNC_MODEL.chatmsg, {
 });
 
 // Attachments on user messages (ADR-0065). Bound to the same recent-message
-// window as `chatmsg`, expressed as a join so the pull is one query instead
-// of a message-id select followed by a 500-element `inArray`. A synced message
-// never loses its image metadata. Display metadata only — the bytes load
-// through the auth-gated content proxy.
+// window as `chatmsg`, expressed as `recentAttachments` so one subquery owns the
+// message window, the user guard, the order and the attachment cap, and both
+// stages read the same set. A synced message never loses its image metadata.
+// Display metadata only — the bytes load through the auth-gated content proxy.
 export const fetchChatAttachments = syncEntity(SYNC_MODEL.chatatt, {
   versionQuery: (tx, userId) => {
-    const visible = recentMessages(tx, userId);
+    const visible = recentAttachments(tx, userId);
 
     return tx
       .select({ id: chatAttachments.id, rowVersion: chatAttachments.rowVersion })
       .from(chatAttachments)
-      .innerJoin(visible, eq(chatAttachments.messageId, visible.id))
-      .where(eq(chatAttachments.userId, userId))
-      .orderBy(...attachmentOrder)
-      .limit(CHAT_ATTACHMENT_PULL_LIMIT);
+      .innerJoin(visible, eq(chatAttachments.id, visible.id))
+      .orderBy(...attachmentOrder);
   },
   loadQuery: (tx, userId, changed) => {
-    const visible = recentMessages(tx, userId);
+    const visible = recentAttachments(tx, userId);
 
     return tx
       .select(getTableColumns(chatAttachments))
       .from(chatAttachments)
-      .innerJoin(visible, eq(chatAttachments.messageId, visible.id))
+      .innerJoin(visible, eq(chatAttachments.id, visible.id))
       .where(
-        and(
-          eq(chatAttachments.userId, userId),
-          inArray(
-            chatAttachments.id,
-            changed.map((v) => v.id),
-          ),
+        inArray(
+          chatAttachments.id,
+          changed.map((v) => v.id),
         ),
       )
-      .orderBy(...attachmentOrder)
-      .limit(CHAT_ATTACHMENT_PULL_LIMIT);
+      .orderBy(...attachmentOrder);
   },
   map: (a: ChatAttachment) => a,
 });
