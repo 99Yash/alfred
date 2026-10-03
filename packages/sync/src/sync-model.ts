@@ -108,7 +108,12 @@ export interface SyncEntityModel<
    * A malformed projection throws a `ZodError`, which the pull treats as one
    * skippable row.
    */
-  parsePullVersion(input: unknown): { id: string; rowVersion: number };
+  parsePullVersion(
+    input: unknown,
+  ): Pick<
+    ReturnType<SyncEntityModel<Prefix, TSchema, TKeys>["parsePullValue"]>,
+    "id" | "rowVersion"
+  >;
 }
 
 function identityPart<TKey extends string>(
