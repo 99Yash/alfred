@@ -4,7 +4,6 @@ import { userActionPolicies } from "@alfred/db/schemas";
 import type { PolicySetDefaultModeArgs, PolicySetIntegrationModeArgs } from "@alfred/sync";
 import { sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
-import type { ServerMutatorCtx } from "./mutator";
 
 /**
  * Baseline rules for a row that doesn't exist yet (legacy user predating the
@@ -21,7 +20,7 @@ const DEFAULT_INTEGRATION_RULES: IntegrationRules = {
 export async function policySetIntegrationMode(
   tx: DbTransaction,
   args: PolicySetIntegrationModeArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   const insertedRules: IntegrationRules = {
     ...DEFAULT_INTEGRATION_RULES,
@@ -31,7 +30,7 @@ export async function policySetIntegrationMode(
   await tx
     .insert(userActionPolicies)
     .values({
-      userId: ctx.userId,
+      userId,
       defaultMode: "gated",
       integrationRules: insertedRules,
       approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
@@ -68,12 +67,12 @@ export async function policySetIntegrationMode(
 export async function policySetDefaultMode(
   tx: DbTransaction,
   args: PolicySetDefaultModeArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .insert(userActionPolicies)
     .values({
-      userId: ctx.userId,
+      userId,
       defaultMode: args.mode,
       integrationRules: DEFAULT_INTEGRATION_RULES,
       approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,

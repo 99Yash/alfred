@@ -12,12 +12,7 @@ import {
 import { toMessage } from "@alfred/contracts";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
-import {
-  serverMutators,
-  type MutatorFollowUp,
-  type MutatorResult,
-  type ServerMutatorCtx,
-} from "./write";
+import { serverMutators, type MutatorFollowUp, type MutatorResult } from "./write";
 import type { DbTransaction } from "@alfred/db";
 
 export type PushRequestBody = ReplicacheModel.Push;
@@ -54,7 +49,7 @@ async function applyMutation<K extends MutatorName>(
   tx: DbTransaction,
   mutatorName: K,
   rawArgs: unknown,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<MutationOutcome> {
   const outcome: MutationOutcome = { applied: false, followUps: [] };
   const entry = serverMutators[mutatorName];
@@ -72,7 +67,7 @@ async function applyMutation<K extends MutatorName>(
     // Savepoint isolates mutator failures so one bad mutation doesn't
     // poison the whole batch.
     await runAtomic(tx, async (subTx: DbTransaction) => {
-      mutatorResult = await entry.run(subTx, parsed.data, ctx);
+      mutatorResult = await entry.run(subTx, parsed.data, userId);
     });
   } catch (err) {
     if (err instanceof MutatorForbiddenError) {
@@ -88,7 +83,7 @@ async function applyMutation<K extends MutatorName>(
 
   outcome.applied = true;
 
-  if (entry.followUp) outcome.followUps = entry.followUp(ctx.userId, parsed.data);
+  if (entry.followUp) outcome.followUps = entry.followUp(userId, parsed.data);
 
   return outcome;
 }
@@ -145,22 +140,26 @@ export async function handlePush(
       // Race: a concurrent first-push may have already inserted this clientGroup
       // under a different user. onConflictDoNothing silently succeeds, so re-read
       // and verify ownership before proceeding.
-      await tx
+      const [insertedGroup] = await tx
         .insert(replicacheClientGroup)
         .values({ id: clientGroupID, userId, cvrVersion: 0 })
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .returning();
 
-      const [storedGroup] = await tx
-        .select()
-        .from(replicacheClientGroup)
-        .where(eq(replicacheClientGroup.id, clientGroupID));
+      const storedGroup =
+        insertedGroup ??
+        (
+          await tx
+            .select()
+            .from(replicacheClientGroup)
+            .where(eq(replicacheClientGroup.id, clientGroupID))
+        )[0];
 
       if (!storedGroup || storedGroup.userId !== userId) return { forbidden: true };
     }
 
     let needsPoke = false;
     let followUps: MutatorFollowUp[] = [];
-    const ctx: ServerMutatorCtx = { userId };
 
     for (const mutation of mutations) {
       if (!isKnownMutator(mutation.name)) {
@@ -180,7 +179,7 @@ export async function handlePush(
         continue;
       }
 
-      const result = await applyMutation(tx, mutation.name, mutation.args, ctx);
+      const result = await applyMutation(tx, mutation.name, mutation.args, userId);
 
       // Advance LMID regardless of success so the client doesn't re-queue forever.
       await advanceLMID(tx, clientGroupID, mutation.clientID, mutation.id);
