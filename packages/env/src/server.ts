@@ -247,6 +247,29 @@ const serverEnvSchema = z
      * release to a specific value on both build and runtime.
      */
     SENTRY_RELEASE: z.string().optional(),
+    /**
+     * Fraction of transactions Sentry traces. Unset means `0` in production
+     * and `1` everywhere else, so a dev box that opts in through
+     * `SENTRY_ENABLE_DEV` still gets every span.
+     *
+     * Production tracing is off by default because it is the one observability
+     * lane that turned out not to be free. ADR-0023 priced all three tools at
+     * "$0 at personal scale", which held only as long as nobody counted the
+     * bill on the other side of the envelope: at a tenth of all transactions
+     * the server shipped roughly 1 GB/day to Sentry's ingest endpoint, about
+     * $1.50/mo of Railway egress and ~33 GB/mo of Sentry quota, to trace an app
+     * that reported no errors at all.
+     *
+     * Error reporting does not read this number. `captureException`, the
+     * `beforeSend` redaction hook and `report()` all fire whatever the sample
+     * rate is, so tracing off costs the latency view and nothing else. Set this
+     * non-zero and redeploy to chase a performance question on purpose, then
+     * unset it.
+     */
+    SENTRY_TRACES_SAMPLE_RATE: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.coerce.number().min(0).max(1).optional(),
+    ),
     LANGFUSE_PUBLIC_KEY: z.string().optional(),
     LANGFUSE_SECRET_KEY: z.string().optional(),
     LANGFUSE_HOST: z.url().optional(),
