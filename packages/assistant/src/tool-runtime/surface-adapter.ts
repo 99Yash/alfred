@@ -1,4 +1,4 @@
-import { tool, type Tool, type ToolSet } from "@alfred/ai";
+import { tool, type Tool } from "@alfred/ai";
 import { isIntegrationSlug, isToolName, type ToolName } from "@alfred/contracts";
 
 import {
@@ -85,9 +85,7 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
       .map((definition) => definition.name);
 
     const resolved: ResolvedToolSurface = {
-      // SAFETY: the SDK ToolSet is an index-signature record of tools; the
-      // resolved tool map satisfies it by construction.
-      tools: tools as ToolSet,
+      tools,
       surfacedNames,
       loadedNames,
       kernelCount: surfacedNames.length - loadedNames.length,

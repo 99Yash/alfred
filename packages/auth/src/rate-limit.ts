@@ -1,5 +1,5 @@
 import { toMessage } from "@alfred/contracts";
-import { createRedisConnection, incrementExpiringCounter, type EvalRedis } from "@alfred/db/redis";
+import { createRedisConnection, incrementExpiringCounter } from "@alfred/db/redis";
 import type { ServerEnv } from "@alfred/env/server";
 import type { BetterAuthOptions } from "better-auth";
 
@@ -183,10 +183,7 @@ export function createAuthRateLimitStorage(
       let count: number;
 
       try {
-        // SAFETY: RateLimitRedis carries eval (the drift-guard comment in
-        // @alfred/db/redis pins it); EvalRedis names that single-command
-        // subset incrementExpiringCounter uses.
-        count = await incrementExpiringCounter(redis() as EvalRedis, bucket.key, 1, rule.window);
+        count = await incrementExpiringCounter(redis(), bucket.key, 1, rule.window);
       } catch (err) {
         degrade(err);
         count = fallback.increment(bucket.key, bucket.endsAtMs, nowMs);

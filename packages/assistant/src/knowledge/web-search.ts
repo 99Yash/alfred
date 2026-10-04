@@ -176,12 +176,7 @@ export async function runWebSearch(args: WebSearchArgs): Promise<WebSearchResult
     },
   );
 
-  const citations = extractCitations(
-    // SAFETY: result.sources is the SDK's loosely-typed source list; the
-    // reader below tolerates absent url/title on every entry.
-    result.sources as ReadonlyArray<{ url?: string; title?: string }> | undefined,
-    result.finalStep.providerMetadata,
-  );
+  const citations = extractCitations(result.sources, result.finalStep.providerMetadata);
 
   return {
     answer: result.text.trim(),

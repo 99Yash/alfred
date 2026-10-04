@@ -12,7 +12,7 @@ import { z } from "zod";
 import { attentionBandSchema } from "./attention";
 import { LOOP_CLOSING_STATE_CATEGORIES } from "./integration-objects";
 import { triageCategorySchema } from "./triage";
-import { isIntegrationSlug, type IntegrationSlug } from "./integrations";
+import { isIntegrationSlug } from "./integrations";
 
 // ─── Sources + reference kinds ────────────────────────────────────────────
 
@@ -108,13 +108,7 @@ export function isIanaTimezone(value: unknown): value is IanaTimezone {
 
 export const ianaTimezoneSchema = z
   .string()
-  .refine(isIanaTimezone, { message: "Expected an IANA timezone identifier" })
-  .transform((value) => {
-    // SAFETY: the refine above ran isIanaTimezone, which is exactly what the
-    // IanaTimezone brand certifies; this mints the branded alias of a proven
-    // string (the standard parse-then-brand idiom).
-    return value as IanaTimezone;
-  });
+  .refine(isIanaTimezone, { message: "Expected an IANA timezone identifier" });
 
 // ─── Per-source contribution shapes ───────────────────────────────────────
 
@@ -362,17 +356,9 @@ export type FullBriefing = z.infer<typeof fullBriefingSchema>;
  * Bounds prevent runaway output; `sections` capped at 12 to match the closed
  * source enum + small slop for future expansion.
  */
-export const integrationSlugSchema = z
-  .string()
-  .refine(isIntegrationSlug, {
-    message: "Expected a known integration slug",
-  })
-  .transform((value) => {
-    // SAFETY: the refine above ran isIntegrationSlug, which is exactly what
-    // the IntegrationSlug union certifies; this mints the branded alias of a
-    // proven string.
-    return value as IntegrationSlug;
-  });
+export const integrationSlugSchema = z.string().refine(isIntegrationSlug, {
+  message: "Expected a known integration slug",
+});
 
 export const integrationActivityRollupSchema = z.object({
   eventCount: z.number().int().nonnegative(),
