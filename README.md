@@ -85,7 +85,7 @@ LLM provider keys — one of the following must be set (boot validates):
 | `ANTHROPIC_API_KEY` + `GOOGLE_GENERATIVE_AI_API_KEY` | Direct provider keys (primary + fallback/cheap) |
 | `CLOUDFLARE_AI_GATEWAY_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_GATEWAY_ID` (or `AI_GATEWAY_API_KEY=cfut_...` alias + ids) | Cloudflare AI Gateway Unified Billing — replaces direct keys |
 
-Feature-gated or optional locally: `OPENAI_API_KEY`, `VOYAGE_API_KEY` (embeddings), `PERPLEXITY_API_KEY` (legacy/research smokes), `GOOGLE_PUBSUB_*` (Gmail push), `NOTION_*`, `VERCEL_*`, `CHAT_S3_*`, `ENTITY_ID_NAMESPACE`, and observability keys (`SENTRY_DSN`, `LANGFUSE_*`, `POSTHOG_API_KEY`, `VITE_SENTRY_DSN`, `VITE_POSTHOG_*`).
+Feature-gated or optional locally: `OPENAI_API_KEY`, `VOYAGE_API_KEY` (embeddings), `PERPLEXITY_API_KEY` (legacy/research smokes), `GOOGLE_PUBSUB_*` (Gmail push), `NOTION_*`, `VERCEL_*`, `CHAT_S3_*`, `ENTITY_ID_NAMESPACE`, and observability keys (`SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE`, `LANGFUSE_*`, `POSTHOG_API_KEY`, `VITE_SENTRY_DSN`, `VITE_POSTHOG_*`).
 
 `ENTITY_ID_NAMESPACE` (ADR-0067, user-model substrate) is the HMAC namespace for content-addressed stable entity IDs. It is optional today (no projection writes IDs yet) but **once the P1 projection lands it must be set and backed up like an auth secret — changing it remints every entity ID on replay.**
 
