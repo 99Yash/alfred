@@ -64,3 +64,40 @@ Langfuse and without `gen_ai.*` attributes can stop exporting. Every observation
 here is created through the Langfuse SDK, so it is exported, but a future
 non-Langfuse OTel span would not be. Set `LANGFUSE_DEBUG=true` and compare a
 trace tree when changing this module.
+
+## Amendment — production perf tracing off by default (2026-10-04)
+
+**Decision.** The Sentry lane narrows to exceptions in production.
+`tracesSampleRate` was `0.1` there and is now `0`, and the number moves to
+`SENTRY_TRACES_SAMPLE_RATE` so a performance question can still be chased on
+purpose. A non-production box that opts in through `SENTRY_ENABLE_DEV` keeps
+`tracesSampleRate: 1`.
+
+**Why now.** The decision above priced all three tools at "Combined free-tier
+cost: $0 at personal scale". That was right about the vendor invoices and silent
+about ours. Measured on the running production service, the server was shipping
+roughly 1 GB/day of envelopes to Sentry's Frankfurt ingest endpoint — about
+$1.50/mo of Railway egress and ~33 GB/mo against the Sentry quota — while
+reporting no errors at all. Nothing in the app was looping to cause it:
+`tracesSampleRate: 0.1` samples a tenth of every transaction forever, and a
+service that is merely idle still has transactions. The spend therefore scaled
+with uptime rather than with usefulness, which is the opposite of what this ADR
+is for, and it was the single largest billable egress line in the project.
+
+**What did not change.** Everything the exceptions lane carries.
+`SENTRY_DSN` is still read; `captureException` still fires on an uncaught error
+and on the graceful-shutdown path (`apps/server/src/index.ts`); and the
+`beforeSend` / `beforeBreadcrumb` hooks that ADR-0038 hangs on the shared
+`SENSITIVE_LOG_PATHS` table still run on every event and breadcrumb.
+`packages/logging/src/report.ts` still writes both sinks. Tracing was a sibling
+of the exceptions lane, never a precondition for it, so switching it off removes
+the latency view and nothing else — no error stops being reported and no alert
+stops firing.
+
+**Residual risk.** Production now emits no transactions, so a latency
+regression will not surface in Sentry until someone sets
+`SENTRY_TRACES_SAMPLE_RATE` and redeploys. Langfuse still carries the agent
+run-trees, which is the trace surface this repo actually debugs against.
+`autoSessionTracking` is left at the SDK default (on): its envelopes are orders
+of magnitude smaller than transactions and were not measured as a cost driver,
+so it stays until someone measures otherwise.
