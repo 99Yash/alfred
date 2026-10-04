@@ -9,7 +9,6 @@ import type { WorkflowUpdateArgs } from "@alfred/sync";
 import { and, eq } from "drizzle-orm";
 import { MutatorForbiddenError } from "../authz";
 import type { DbTransaction } from "@alfred/db";
-import type { ServerMutatorCtx } from "./mutator";
 
 /**
  * Turn a revision-service failure into the one error `push.ts` understands.
@@ -62,12 +61,12 @@ function workflowMutatorError(failure: WorkflowServiceFailure): MutatorForbidden
 export async function workflowUpdate(
   tx: DbTransaction,
   args: WorkflowUpdateArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   const [existing] = await tx
     .select()
     .from(workflows)
-    .where(and(eq(workflows.userId, ctx.userId), eq(workflows.slug, args.slug)))
+    .where(and(eq(workflows.userId, userId), eq(workflows.slug, args.slug)))
     .limit(1);
 
   // Unknown slug → drop silently (Replicache at-least-once; a deleted row
@@ -96,7 +95,7 @@ export async function workflowUpdate(
 
   if (hasDefinitionPatch) {
     const revised = await reviseWorkflowFromPatch({
-      userId: ctx.userId,
+      userId,
       workflowId: existing.id,
       patch,
       expectedRowVersion: args.expectedRowVersion,
@@ -109,7 +108,7 @@ export async function workflowUpdate(
   if (args.status === undefined) return;
 
   const applied = await setWorkflowStatus({
-    userId: ctx.userId,
+    userId,
     workflowId: existing.id,
     status: args.status,
     ...(hasDefinitionPatch ? {} : { expectedRowVersion: args.expectedRowVersion }),

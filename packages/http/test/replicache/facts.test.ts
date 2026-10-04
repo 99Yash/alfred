@@ -75,7 +75,7 @@ describe("serverMutators fact invariants (DB-backed, #330)", { skip: SKIP }, () 
       ]);
 
     await db().transaction((tx) =>
-      serverMutators.factConfirm.run(tx, { factId: proposedId }, { userId }),
+      serverMutators.factConfirm.run(tx, { factId: proposedId }, userId),
     );
 
     const rows = await rowsForKey(userId, "employer");
@@ -106,7 +106,7 @@ describe("serverMutators fact invariants (DB-backed, #330)", { skip: SKIP }, () 
       serverMutators.factCreate.run(
         tx,
         { id: newId, userId, key: "company", value: "NewCo" },
-        { userId },
+        userId,
       ),
     );
 

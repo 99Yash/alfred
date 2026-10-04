@@ -9,7 +9,6 @@ import type {
 } from "@alfred/sync";
 import { and, eq, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
-import type { ServerMutatorCtx } from "./mutator";
 
 // Chat (streaming-chat plan). Only the user side mutates via Replicache:
 // opening a thread and appending the user's message. The assistant reply is
@@ -20,13 +19,13 @@ import type { ServerMutatorCtx } from "./mutator";
 export async function chatThreadCreate(
   tx: DbTransaction,
   args: ChatThreadCreateArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .insert(chatThreads)
     .values({
       id: args.id,
-      userId: ctx.userId,
+      userId,
       lastMessageAt: new Date(args.createdAt),
       createdAt: new Date(args.createdAt),
     })
@@ -37,13 +36,13 @@ export async function chatThreadCreate(
 export async function chatMessageCreate(
   tx: DbTransaction,
   args: ChatMessageCreateArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .insert(chatMessages)
     .values({
       id: args.id,
-      userId: ctx.userId,
+      userId,
       threadId: args.threadId,
       role: "user",
       content: args.content,
@@ -58,7 +57,7 @@ export async function chatMessageCreate(
       lastMessageAt: new Date(args.createdAt),
       rowVersion: sql`${chatThreads.rowVersion} + 1`,
     })
-    .where(and(eq(chatThreads.id, args.threadId), eq(chatThreads.userId, ctx.userId)));
+    .where(and(eq(chatThreads.id, args.threadId), eq(chatThreads.userId, userId)));
 }
 
 /**
@@ -73,7 +72,7 @@ export async function chatMessageCreate(
 export async function chatAttachmentCreate(
   _tx: DbTransaction,
   _args: ChatAttachmentCreateArgs,
-  _ctx: ServerMutatorCtx,
+  _userId: string,
 ): Promise<void> {
   return;
 }
@@ -82,24 +81,24 @@ export async function chatAttachmentCreate(
 export async function chatThreadRename(
   tx: DbTransaction,
   args: ChatThreadRenameArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .update(chatThreads)
     .set({ title: args.title, rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, ctx.userId)));
+    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
 }
 
 /** Pin / unpin a thread. No-op on a thread this user doesn't own. */
 export async function chatThreadSetPinned(
   tx: DbTransaction,
   args: ChatThreadSetPinnedArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .update(chatThreads)
     .set({ pinned: args.pinned, rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, ctx.userId)));
+    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
 }
 
 /**
@@ -110,9 +109,9 @@ export async function chatThreadSetPinned(
 export async function chatThreadDelete(
   tx: DbTransaction,
   args: ChatThreadDeleteArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .delete(chatThreads)
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, ctx.userId)));
+    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
 }

@@ -10,7 +10,6 @@ import type {
 } from "@alfred/sync";
 import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
-import type { ServerMutatorCtx } from "./mutator";
 
 /**
  * Server-side mutators run inside the push handler's outer transaction
@@ -117,7 +116,7 @@ async function supersedeConflictingConfirmedFacts(
 export async function factConfirm(
   tx: DbTransaction,
   args: FactConfirmArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   const [candidate] = await tx
     .select()
@@ -125,7 +124,7 @@ export async function factConfirm(
     .where(
       and(
         eq(userFacts.id, args.factId),
-        eq(userFacts.userId, ctx.userId),
+        eq(userFacts.userId, userId),
         eq(userFacts.status, "proposed"),
       ),
     )
@@ -135,12 +134,12 @@ export async function factConfirm(
 
   const key = canonicalFactKey(candidate.key);
   const source = canonicalSource(candidate.key, candidate.source);
-  await lockFactKey(tx, ctx.userId, key);
+  await lockFactKey(tx, userId, key);
   const now = new Date();
 
   const conflicts = await supersedeConflictingConfirmedFacts(
     tx,
-    ctx.userId,
+    userId,
     key,
     candidate.value,
     now,
@@ -159,7 +158,7 @@ export async function factConfirm(
     .where(
       and(
         eq(userFacts.id, args.factId),
-        eq(userFacts.userId, ctx.userId),
+        eq(userFacts.userId, userId),
         eq(userFacts.status, "proposed"),
       ),
     );
@@ -177,25 +176,25 @@ export async function factConfirm(
 export async function factCreate(
   tx: DbTransaction,
   args: FactCreateArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   const key = canonicalFactKey(args.key);
   const source = canonicalSource(args.key, args.source ?? { kind: "user" });
-  await lockFactKey(tx, ctx.userId, key);
+  await lockFactKey(tx, userId, key);
 
   const sig = valueSignature(args.value);
-  const active = await activeFactsForKey(tx, ctx.userId, key);
+  const active = await activeFactsForKey(tx, userId, key);
 
   if (active.some((row) => valueSignature(row.value) === sig)) return;
 
   const now = new Date();
-  const conflicts = await supersedeConflictingConfirmedFacts(tx, ctx.userId, key, args.value, now);
+  const conflicts = await supersedeConflictingConfirmedFacts(tx, userId, key, args.value, now);
 
   await tx
     .insert(userFacts)
     .values({
       id: args.id,
-      userId: ctx.userId,
+      userId,
       key,
       value: args.value,
       confidence: 1,
@@ -215,12 +214,12 @@ export async function factCreate(
 export async function factReject(
   tx: DbTransaction,
   args: FactRejectArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   const [old] = await tx
     .select()
     .from(userFacts)
-    .where(and(eq(userFacts.id, args.factId), eq(userFacts.userId, ctx.userId)))
+    .where(and(eq(userFacts.id, args.factId), eq(userFacts.userId, userId)))
     .limit(1);
 
   if (!old) return;
@@ -237,7 +236,7 @@ export async function factReject(
   await tx
     .insert(rejectedInferences)
     .values({
-      userId: ctx.userId,
+      userId,
       key: old.key,
       valueSignature: valueSignature(old.value),
       proposedFactId: old.id,
@@ -254,12 +253,12 @@ export async function factReject(
 export async function factEdit(
   tx: DbTransaction,
   args: FactEditArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   const [old] = await tx
     .select()
     .from(userFacts)
-    .where(and(eq(userFacts.id, args.factId), eq(userFacts.userId, ctx.userId)))
+    .where(and(eq(userFacts.id, args.factId), eq(userFacts.userId, userId)))
     .limit(1);
 
   if (!old) return;
@@ -267,11 +266,11 @@ export async function factEdit(
   const key = canonicalFactKey(old.key);
   const source = canonicalSource(old.key, args.source ?? { kind: "user" });
   const now = new Date();
-  await lockFactKey(tx, ctx.userId, key);
+  await lockFactKey(tx, userId, key);
 
   const conflicts = await supersedeConflictingConfirmedFacts(
     tx,
-    ctx.userId,
+    userId,
     key,
     args.newValue,
     now,
@@ -291,7 +290,7 @@ export async function factEdit(
     .insert(userFacts)
     .values({
       id: args.newFactId,
-      userId: ctx.userId,
+      userId,
       key,
       value: args.newValue,
       confidence: 1,

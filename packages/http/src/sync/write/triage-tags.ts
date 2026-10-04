@@ -2,7 +2,6 @@ import { emailTriage } from "@alfred/db/schemas";
 import type { TriageTagOverrideArgs } from "@alfred/sync";
 import { and, eq, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
-import type { ServerMutatorCtx } from "./mutator";
 
 // User override of a thread's classifier tag (rfc-triage-tags.md). Writes the
 // DB truth inline against the push `tx` (so it commits with the LMID advance);
@@ -17,7 +16,7 @@ import type { ServerMutatorCtx } from "./mutator";
 export async function triageTagOverride(
   tx: DbTransaction,
   args: TriageTagOverrideArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<{ applied: boolean }> {
   const now = new Date();
 
@@ -31,7 +30,7 @@ export async function triageTagOverride(
       rowVersion: sql`${emailTriage.rowVersion} + 1`,
       updatedAt: now,
     })
-    .where(and(eq(emailTriage.userId, ctx.userId), eq(emailTriage.sourceThreadId, args.threadId)))
+    .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, args.threadId)))
     .returning({ sourceThreadId: emailTriage.sourceThreadId });
 
   return { applied: rows.length > 0 };
