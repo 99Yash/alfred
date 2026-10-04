@@ -134,10 +134,7 @@ export async function factConfirm(
   if (!candidate) return;
 
   const key = canonicalFactKey(candidate.key);
-  // SAFETY: user_facts.source is a jsonb column written only through the
-  // mutators with memorySourceSchema-validated values; this read views it as
-  // that stored shape.
-  const source = canonicalSource(candidate.key, candidate.source as MemorySource);
+  const source = canonicalSource(candidate.key, candidate.source);
   await lockFactKey(tx, ctx.userId, key);
   const now = new Date();
 

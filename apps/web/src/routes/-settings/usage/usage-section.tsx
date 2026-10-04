@@ -50,9 +50,7 @@ export function UsageSection() {
         </div>
         <AppSegmented
           value={preset}
-          // SAFETY: Radix emits the string value of the rendered items, which
-          // is exactly the UsageRangePreset union.
-          onValueChange={(v) => setPreset(v as UsageRangePreset)}
+          onValueChange={setPreset}
           items={RANGE_ITEMS}
           label="Date range"
         />

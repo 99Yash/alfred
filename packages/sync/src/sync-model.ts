@@ -140,14 +140,10 @@ function model<
     return value as z.output<TSchema> & SyncIdentity<TSchema, TKeys>;
   };
 
-  // SAFETY: Prefix is the literal type of prefixRaw, so appending `/` produces
-  // the exact template-literal type declared here.
-  const prefix = `${prefixRaw}/` as `${Prefix}/`;
+  const prefix: `${Prefix}/` = `${prefixRaw}/`;
 
   const storageKeyForCVRId = (id: string): `${Prefix}/${string}` => {
-    // SAFETY: prefix carries Prefix and id is the persisted identity suffix,
-    // so their concatenation has the declared storage-key template shape.
-    return `${prefix}${id}` as `${Prefix}/${string}`;
+    return `${prefix}${id}`;
   };
 
   const storageKeyForId = (id: SyncIdentity<TSchema, TKeys>): `${Prefix}/${string}` => {
