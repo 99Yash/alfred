@@ -91,9 +91,15 @@ export async function handlePull(
     const nextEntities: Partial<Record<IDBKeys, ClientViewMap>> = {};
 
     for (const { slug, fetchRows } of SYNC_ENTITIES) {
-      const rows = await fetchRows(tx, userId);
-      const nextMap: ClientViewMap = {};
       const prevMap = prevSnapshot.entities[slug] ?? {};
+      const { unchanged, rows } = await fetchRows(tx, userId, prevMap);
+      const nextMap: ClientViewMap = {};
+
+      // Membership the client already holds, acknowledged as-is. Only loaded
+      // and validated rows enter the map below, each at its loaded version.
+      for (const version of unchanged) {
+        nextMap[version.id] = { v: version.rowVersion };
+      }
 
       for (const r of rows) {
         nextMap[r.id] = { v: r.rowVersion };

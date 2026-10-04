@@ -1,7 +1,8 @@
 import { toMessage } from "@alfred/contracts";
 import type { DbTransaction } from "@alfred/db";
-import type { IDBKeys, SyncedValueFor } from "@alfred/sync";
+import type { IDBKeys, SyncedValueFor, SyncModelFor } from "@alfred/sync";
 import { ZodError } from "zod";
+import type { ClientViewMap } from "../cvr";
 
 /**
  * One row's contribution to the patch: its raw `id` and row_version drive CVR
@@ -14,10 +15,36 @@ export interface EntityRow<Slug extends IDBKeys = IDBKeys> {
   serialized: SyncedValueFor<Slug>;
 }
 
+/**
+ * The identity plus version a CVR entry describes, with no claim about the row's
+ * values. Derived from the model, so `unchanged` cannot disagree with what
+ * `SYNC_MODEL[slug].parsePullVersion` produces.
+ */
+export type EntityVersion = ReturnType<SyncModelFor<IDBKeys>["parsePullVersion"]>;
+
+/** What a version projection must carry to select a changed row: identity plus version. */
+export type VersionInputFor<Slug extends IDBKeys> = Parameters<
+  SyncModelFor<Slug>["storageKeyForId"]
+>[0] & { rowVersion: number };
+
+/**
+ * One entity read's two outcomes, which the CVR diff needs separately.
+ *
+ * `unchanged` is membership the client already holds at that version, proven
+ * without reading a value. `rows` is only the changed rows that loaded *and*
+ * passed the wire schema. A changed row that failed either is in neither, so it
+ * keeps no acknowledged version and is retried on the next pull.
+ */
+export type EntityReadResult<Slug extends IDBKeys> = {
+  unchanged: EntityVersion[];
+  rows: EntityRow<Slug>[];
+};
+
 export type EntityFetcher<Slug extends IDBKeys> = (
   tx: DbTransaction,
   userId: string,
-) => Promise<EntityRow<Slug>[]>;
+  previous: Readonly<ClientViewMap>,
+) => Promise<EntityReadResult<Slug>>;
 
 /**
  * THE RECOVERABLE-SERIALIZATION PATH. Read this before editing any file in
@@ -33,7 +60,8 @@ export type EntityFetcher<Slug extends IDBKeys> = (
  * `make` produces the whole row contribution — id, rowVersion, and the parsed
  * serialized value — so every derivation that can throw (the domain mapper,
  * the schema `parse`) stays behind the same recoverable boundary. The caller
- * (`syncEntity`, in this directory) keeps only the query.
+ * (`syncEntity`, in this directory) keeps only the two queries and the choice of
+ * which projections are changed.
  *
  * `packages/http/test/replicache/entity-row.test.ts` drives the three arms.
  */

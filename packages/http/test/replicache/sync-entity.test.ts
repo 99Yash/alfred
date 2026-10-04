@@ -6,13 +6,14 @@ import { SYNC_MODEL } from "@alfred/sync";
 
 import { syncEntity } from "../../src/sync/read/sync-entity";
 
-// SAFETY: the test query ignores its transaction; this inert adapter reaches only the reader seam.
+// SAFETY: the test queries ignore their transaction; this inert adapter reaches only the reader seam.
 const UNUSED_TX = {} as DbTransaction;
 
 describe("syncEntity", () => {
   test("serializes Dates, strips server fields, and derives CVR fields", async () => {
     const fetchNotes = syncEntity(SYNC_MODEL.note, {
-      query: async () => [
+      versionQuery: async () => [{ id: "note_1", rowVersion: 4 }],
+      loadQuery: async () => [
         {
           id: "note_1",
           userId: "user_1",
@@ -25,7 +26,7 @@ describe("syncEntity", () => {
       map: (row) => row,
     });
 
-    const rows = await fetchNotes(UNUSED_TX, "user_1");
+    const { rows } = await fetchNotes(UNUSED_TX, "user_1", {});
 
     assert.deepEqual(rows, [
       {
@@ -59,11 +60,14 @@ describe("syncEntity", () => {
     };
 
     const fetchNotes = syncEntity(SYNC_MODEL.note, {
-      query: async () => [mapped],
+      versionQuery: async () => [{ id: "note_1", rowVersion: 4 }],
+      loadQuery: async () => [mapped],
       map: (row) => row,
     });
 
-    assert.deepEqual(await fetchNotes(UNUSED_TX, "user_1"), []);
+    const { rows } = await fetchNotes(UNUSED_TX, "user_1", {});
+
+    assert.deepEqual(rows, []);
     const preview = JSON.stringify(mapped).slice(0, 200);
     assert.equal(warnings[0], `[replicache] invalid note row at text; mapped value: ${preview}`);
     assert.equal(preview.length, 200);
@@ -77,7 +81,8 @@ describe("syncEntity", () => {
     });
 
     const fetchNotes = syncEntity(SYNC_MODEL.note, {
-      query: async () => [
+      versionQuery: async () => [{ id: "note_1", rowVersion: 4 }],
+      loadQuery: async () => [
         {
           id: "note_1",
           userId: "user_1",
@@ -90,7 +95,9 @@ describe("syncEntity", () => {
       map: (row) => row,
     });
 
-    assert.deepEqual(await fetchNotes(UNUSED_TX, "user_1"), []);
+    const { rows } = await fetchNotes(UNUSED_TX, "user_1", {});
+
+    assert.deepEqual(rows, []);
     assert.equal(
       warnings[0],
       "[replicache] invalid note row at text; mapped value: <unserializable mapped value>",

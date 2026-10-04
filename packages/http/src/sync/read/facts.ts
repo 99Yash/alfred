@@ -7,24 +7,52 @@ import { syncEntity } from "./sync-entity";
 
 // Only `proposed` + `confirmed` reach the client; rejected / edited /
 // superseded rows stay server-side as audit history.
+const syncsToClient = (userId: string) =>
+  and(eq(userFacts.userId, userId), inArray(userFacts.status, ["proposed", "confirmed"]));
+
+// #491: a proposed `relationship:<email>` edge to a service/no-reply sender,
+// or with an empty/uninformative value, is unreviewable junk — keep the row
+// server-side (intact + queryable) but never sync it to the /memory review
+// queue. Confirmed facts and all non-relationship facts are unaffected.
+//
+// It reads three columns only, so both stages can run it: the version stage
+// keeps an unreviewable row out of membership, and the load stage keeps it out
+// if a changed row's key or value flipped while the pull ran.
+const isSyncedFact = (f: Pick<UserFact, "status" | "key" | "value">) =>
+  !(f.status === "proposed" && isUninformativeRelationshipFact(f.key, f.value));
+
 export const fetchFacts = syncEntity(SYNC_MODEL.fact, {
-  query: async (tx, userId) => {
+  versionQuery: async (tx, userId) => {
+    const rows = await tx
+      .select({
+        id: userFacts.id,
+        rowVersion: userFacts.rowVersion,
+        status: userFacts.status,
+        key: userFacts.key,
+        value: userFacts.value,
+      })
+      .from(userFacts)
+      .where(syncsToClient(userId))
+      .orderBy(asc(userFacts.id));
+
+    return rows.filter(isSyncedFact);
+  },
+  loadQuery: async (tx, userId, changed) => {
     const rows: UserFact[] = await tx
       .select()
       .from(userFacts)
       .where(
-        and(eq(userFacts.userId, userId), inArray(userFacts.status, ["proposed", "confirmed"])),
+        and(
+          syncsToClient(userId),
+          inArray(
+            userFacts.id,
+            changed.map((v) => v.id),
+          ),
+        ),
       )
       .orderBy(asc(userFacts.id));
 
-    // #491: a proposed `relationship:<email>` edge to a service/no-reply sender,
-    // or with an empty/uninformative value, is unreviewable junk — keep the row
-    // server-side (intact + queryable) but never sync it to the /memory review
-    // queue. Confirmed facts and all non-relationship facts are unaffected.
-    return rows.filter(
-      (f: UserFact) =>
-        !(f.status === "proposed" && isUninformativeRelationshipFact(f.key, f.value)),
-    );
+    return rows.filter(isSyncedFact);
   },
   map: (f: UserFact) => {
     if (f.status !== "proposed" && f.status !== "confirmed") {
