@@ -1,3 +1,4 @@
+import { getPath } from "@alfred/contracts";
 import type { ReadonlyJSONValue, ReadTransaction, WriteTransaction } from "replicache";
 import { z } from "zod";
 import {
@@ -92,6 +93,27 @@ export interface SyncEntityModel<
     rowVersion: number;
     value: z.output<TSchema>;
   };
+  /**
+   * Validate one *light* version projection — the ordered identity tuple plus
+   * `rowVersion` — and derive the CVR id from that same tuple.
+   *
+   * `parsePullValue` is the full wire gate: it needs every schema field, so a
+   * caller must first have read the whole row. This is what the server pull runs
+   * over its membership query instead. It says nothing about the row's values,
+   * so it can acknowledge membership the client already holds, and it does NOT
+   * decide whether a value may reach the client. Every key outside `key` and
+   * `rowVersion` is ignored, so a reader whose membership is decided in JS may
+   * select the few extra columns that test reads.
+   *
+   * A malformed projection throws a `ZodError`, which the pull treats as one
+   * skippable row.
+   */
+  parsePullVersion(
+    input: unknown,
+  ): Pick<
+    ReturnType<SyncEntityModel<Prefix, TSchema, TKeys>["parsePullValue"]>,
+    "id" | "rowVersion"
+  >;
 }
 
 function identityPart<TKey extends string>(
@@ -144,6 +166,19 @@ function model<
     return parsed;
   };
 
+  // The narrow version gate. Two field shapes, not a schema narrowed from
+  // `schema`: this stays a two-field contract for every model, union schema
+  // included. Both parse once per projection row, so they are built here.
+  const identityValueSchema = z.string();
+  const rowVersionSchema = z.number();
+
+  const parsePullVersion = (input: unknown) => {
+    return {
+      id: key.map((name) => identityValueSchema.parse(getPath(input, name))).join("/"),
+      rowVersion: rowVersionSchema.parse(getPath(input, "rowVersion")),
+    };
+  };
+
   return {
     slug: prefixRaw,
     schema,
@@ -187,6 +222,7 @@ function model<
         value,
       };
     },
+    parsePullVersion,
   };
 }
 
