@@ -310,12 +310,11 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     return base.count(data);
   };
 
-  // SAFETY: delete never carries a token value; only rejectSealedWhere runs.
-  const remove = (async (data: Parameters<AuthAdapter["delete"]>[0]) => {
+  const remove: AuthAdapter["delete"] = async (data) => {
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
 
     return base.delete(data);
-  }) as AuthAdapter["delete"];
+  };
 
   const deleteMany: AuthAdapter["deleteMany"] = async (data) => {
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
@@ -370,12 +369,7 @@ export function encryptedAuthAdapter(
       transaction: (callback) =>
         // drift-ok: Better-Auth adapter interface — its transaction wraps
         // db().transaction internally; not a Drizzle handle to run runAtomic on.
-        adapter.transaction(
-          // SAFETY: decorateOperations returns the same member set it wraps —
-          // every wrapper above asserts to its AuthAdapter member type — so the
-          // decorated handle is structurally the trx interface it replaced.
-          (trx) => callback(decorateOperations(trx, resolved) as typeof trx),
-        ),
+        adapter.transaction((trx) => callback(decorateOperations(trx, resolved))),
     };
   };
 }

@@ -172,9 +172,7 @@ function toolNameMiddleware(
 ): LanguageModelV4Middleware {
   return {
     specificationVersion: "v4",
-    transformParams: async ({ params }) =>
-      // SAFETY: ai's LanguageModelMiddleware widens params; the owning type is LanguageModelV4CallOptions.
-      encodeParams(params as LanguageModelV4CallOptions, encode),
+    transformParams: async ({ params }) => encodeParams(params, encode),
     wrapGenerate: async ({ doGenerate }) => {
       const result = await doGenerate();
 

@@ -45,7 +45,6 @@ export async function handlePull(
   userId: string,
   body: PullRequestBody,
 ): Promise<PullResponse | { forbidden: true }> {
-  const { clientGroupID } = body;
   const cookie = narrowPullCookie(body.cookie);
   const cvrStore = getCVRStore();
 
@@ -53,30 +52,29 @@ export async function handlePull(
     // Serialize concurrent pulls for the same client group via advisory lock.
     // Without this, two pulls can compute the same next cvr_version and both
     // return the same cookie — which Replicache rejects.
-    const lockKey = clientGroupID;
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${body.clientGroupID}))`);
 
     // Bind clientGroupID → userId on first pull; later pulls must match.
     const [existingGroup] = await tx
       .select()
       .from(replicacheClientGroup)
-      .where(eq(replicacheClientGroup.id, clientGroupID));
+      .where(eq(replicacheClientGroup.id, body.clientGroupID));
 
     if (existingGroup) {
       if (existingGroup.userId !== userId) return { forbidden: true };
     } else {
       await tx
         .insert(replicacheClientGroup)
-        .values({ id: clientGroupID, userId, cvrVersion: 0 })
+        .values({ id: body.clientGroupID, userId, cvrVersion: 0 })
         .onConflictDoNothing();
     }
 
     // Load the previous CVR snapshot. A missing cookie, a different client
     // group, or persisted data that CVRStore rejects is a cold sync.
-    const cookieMatchesGroup = cookie != null && cookie.clientGroupID === clientGroupID;
+    const cookieMatchesGroup = cookie != null && cookie.clientGroupID === body.clientGroupID;
 
     const prev: CVRSnapshot | null = cookieMatchesGroup
-      ? await cvrStore.get(clientGroupID, cookie.order)
+      ? await cvrStore.get(body.clientGroupID, cookie.order)
       : null;
 
     const isColdSync = prev == null;
@@ -129,7 +127,7 @@ export async function handlePull(
     const clients = await tx
       .select({ id: replicacheClient.id, lastMutationId: replicacheClient.lastMutationId })
       .from(replicacheClient)
-      .where(eq(replicacheClient.clientGroupId, clientGroupID))
+      .where(eq(replicacheClient.clientGroupId, body.clientGroupID))
       .orderBy(asc(replicacheClient.id));
 
     const currentLmids: Record<string, number> = {};
@@ -170,15 +168,15 @@ export async function handlePull(
     const nextVersion = hasChanges ? Math.max(prevVersion, cookie?.order ?? 0) + 1 : prevVersion;
 
     if (nextVersion !== prevVersion) {
-      await cvrStore.put(clientGroupID, nextVersion, nextSnapshot);
+      await cvrStore.put(body.clientGroupID, nextVersion, nextSnapshot);
       await tx
         .update(replicacheClientGroup)
         .set({ cvrVersion: nextVersion })
-        .where(eq(replicacheClientGroup.id, clientGroupID));
+        .where(eq(replicacheClientGroup.id, body.clientGroupID));
     }
 
     return {
-      cookie: { order: nextVersion, clientGroupID },
+      cookie: { order: nextVersion, clientGroupID: body.clientGroupID },
       lastMutationIDChanges,
       patch,
     };

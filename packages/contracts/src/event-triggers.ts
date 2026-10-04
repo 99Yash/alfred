@@ -205,14 +205,9 @@ export const EVENT_TYPES_BY_SOURCE: {
     EVENT_SOURCES.map((source) => [source, EVENT_SOURCE_ENTRIES[source].eventTypes]),
   ) as { [S in EventSource]: EventSourceEntryOf<S>["eventTypes"] };
 
-export const EVENT_TYPES =
-  // SAFETY: every element comes from EVENT_SOURCE_ENTRIES's per-source const
-  // tuples, whose members are exactly the EventType literals; Set only
-  // dedupes (several sources share `completed`), so the frozen array is a
-  // readonly EventType[].
-  Object.freeze([
-    ...new Set(EVENT_SOURCES.flatMap((source) => EVENT_SOURCE_ENTRIES[source].eventTypes)),
-  ]) as readonly EventType[];
+export const EVENT_TYPES = Object.freeze([
+  ...new Set(EVENT_SOURCES.flatMap((source) => EVENT_SOURCE_ENTRIES[source].eventTypes)),
+]);
 
 export const isEventType = enumGuard(EVENT_TYPES);
 

@@ -6,7 +6,7 @@ import { proposeFact } from "@alfred/assistant/knowledge";
 import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "./skill-documentation-workflow-input";
 import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "./revisions";
 import { collectSkillLearnContext, type SkillLearnContext } from "./context";
-import { distillSkill, type SkillProposal } from "./distill";
+import { distillSkill } from "./distill";
 import { type ParsedMention } from "./mentions";
 import {
   LEARN_SKILL_WORKFLOW_SLUG,
@@ -237,9 +237,7 @@ export const learnSkillWorkflow: Workflow<State> = {
         let inserted = 0;
         let skipped = 0;
 
-        // SAFETY: distill returns distillOutputSchema-validated output whose
-        // proposal objects carry exactly the SkillProposal fields.
-        for (const p of distill.proposals as SkillProposal[]) {
+        for (const p of distill.proposals) {
           const fact = await proposeFact({
             userId: ctx.userId,
             key: p.key,
