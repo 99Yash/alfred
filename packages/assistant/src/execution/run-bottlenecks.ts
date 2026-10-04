@@ -292,9 +292,7 @@ function toNumber(value: string | number | null): number {
  */
 function extractErrorReason(error: unknown): string | null {
   if (error && typeof error === "object" && "reason" in error) {
-    // SAFETY: the checks above proved error is a non-null object carrying
-    // `reason`; this only types that field read.
-    const reason = (error as { reason: unknown }).reason;
+    const reason = error.reason;
 
     return typeof reason === "string" ? reason : null;
   }

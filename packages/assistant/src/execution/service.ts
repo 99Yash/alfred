@@ -260,9 +260,7 @@ export async function createRun(
     state: (initialState as object) ?? {},
     transcript,
     currentStep: workflow.initialStep,
-    // SAFETY: metadata arrives from the workflow trigger envelope, whose
-    // writers store a plain JSON object.
-    metadata: metadata as object,
+    metadata,
     trigger,
     status: "pending",
     dedupKey,

@@ -37,7 +37,7 @@ export const requireSafetyCommentForTypeAssertionRule = defineRule({
     },
     messages: {
       missingSafetyComment:
-        "This type assertion has no `SAFETY:` justification. State the checked invariant immediately before the assertion or its containing statement.",
+        "First remove this type assertion and check whether the guard, caller, schema, or library type already permits the operation. If the assertion remains necessary, state the checked invariant in a `SAFETY:` comment immediately before it or its containing statement.",
     },
   },
   createOnce(context) {

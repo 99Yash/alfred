@@ -116,11 +116,7 @@ export function StyleguidePage() {
             <Tabs
               variant="pill"
               value={mode}
-              onValueChange={(next) =>
-                // SAFETY: Radix emits the string value of a rendered item,
-                // which is exactly the StyleguideMode union.
-                setMode(next as StyleguideMode)
-              }
+              onValueChange={setMode}
               items={[
                 {
                   value: "app",

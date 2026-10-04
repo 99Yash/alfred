@@ -90,12 +90,7 @@ export function integrations(options: ProviderBindOptions): Integrations {
   // SAFETY: the registry is keyed by its own factory names, so its keys are
   // exactly keyof ProviderRegistry.
   for (const key of Object.keys(providerRegistry) as (keyof ProviderRegistry)[]) {
-    // Localized cast: iterating string keys collapses the registry to a union of
-    // factory types; the uniform signature makes the call safe, and the public
-    // return type stays precise per key via the mapped type above.
-    // SAFETY: every registry entry is a ProviderFactory (the uniform signature
-    // the table's value type declares), so the union collapses safely.
-    const build = once(() => (providerRegistry[key] as ProviderFactory)(options));
+    const build = once(() => providerRegistry[key](options));
     Object.defineProperty(bound, key, { enumerable: true, get: build });
   }
 
