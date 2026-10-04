@@ -101,3 +101,71 @@ run-trees, which is the trace surface this repo actually debugs against.
 `autoSessionTracking` is left at the SDK default (on): its envelopes are orders
 of magnitude smaller than transactions and were not measured as a cost driver,
 so it stays until someone measures otherwise.
+
+## Amendment — the cost was Redis spans, not idle transactions (2026-10-04)
+
+**Correction to the amendment above.** It attributed ~1 GB/day to
+`tracesSampleRate: 0.1` sampling "a tenth of every transaction forever" on a
+service that "is merely idle still has transactions". The measured cause is
+narrower and worse: `@sentry/node` v10 registers an OpenTelemetry
+instrumentation set **by default**, and that set includes `instrumentRedis`.
+Alfred's BullMQ workers idle by issuing `BZPOPMIN` blocking pops and `EVALSHA`
+queue Lua, so every idle worker was generating spans.
+
+Measured over one production day before the change, from Sentry's own span data:
+
+| span.op                                           | count   | share  |
+| ------------------------------------------------- | ------: | -----: |
+| `db.redis`                                        | 279,530 | 99.8%  |
+| `http.server`                                     | 50      | 0.02%  |
+| `http.client`                                     | 80      | 0.03%  |
+| `gen_ai.invoke_agent` + `gen_ai.generate_content` | 120     | 0.04%  |
+
+Within `db.redis`: `redis-evalsha` 153,530 and `redis-bzpopmin` 125,480.
+`apps/server/src/instrument.ts` passes no `integrations` option, so
+`getPreloadMethods()` returns the entire preload list
+(`@sentry/node` → `integrations/tracing/index.js`), which also covers
+Postgres, Mongo, MySQL, Kafka, Express, Koa, Fastify and GraphQL — none of
+which this app uses.
+
+**Decision.** This amendment records the cause and adds a standing constraint on
+`SENTRY_TRACES_SAMPLE_RATE`. No code change.
+
+**The constraint.** Do not raise `SENTRY_TRACES_SAMPLE_RATE` above `0` in
+production until the Redis instrumentation is genuinely excluded from the
+process. The cause is instrument *registration*, not the sample rate: `0.1` → `0`
+cut egress 84% by sampling almost everything away, and any non-zero value
+re-admits the Redis spans in proportion. A variable that reads like a
+latency-tuning knob is a ~$1.50/mo egress switch.
+
+**What did not change.** `tracesSampleRate: 0` in production, and the exceptions
+lane, exactly as the amendment above states. No instrumentation is actually
+disabled — that work has not been done.
+
+**Residual risk, and the open work.** Three things hold at
+`tracesSampleRate: 0`:
+
+1. The instrumented libraries are still patched, and spans are still created and
+   then discarded at sampling time. This amendment removed the egress, not the
+   work. Measured CPU on the idle service is 0.0–0.1%, so it is not urgent — but
+   it is not zero, and "tracing is off" is not the same claim as "nothing is
+   instrumented".
+2. **The suppression mechanism is unverified.** The obvious levers do not work:
+   against `@sentry/node` 10.74.0, both `integrations: ["http", "node-fetch"]`
+   and `integrations: []` still produced `db.redis.connect` spans. Treat "pass an
+   explicit integration list" as a hypothesis, not a fix.
+3. Re-enabling cheap tracing is worth wanting — those ~250 `http.server` /
+   `gen_ai.*` spans per day are the signal this ADR exists for, and they would
+   cost a rounding error beside the Redis flood. It stays gated on establishing
+   the suppression mechanism first.
+
+**A note on the arithmetic, because this investigation produced two confident
+wrong numbers before the right one.** Envelopes batch up to
+`DEFAULT_TRANSPORT_BUFFER_SIZE = 64` items, so dividing a connection rate by
+`tracesSampleRate` cannot yield a request rate — the factor is a function of
+your own traffic. And `tracesSampleRate` does not gate errors, sessions, or
+client reports, so "envelopes per minute" was never a sampled quantity to divide
+in the first place. The number that did reconcile was the span count itself:
+279,530 stored spans at a 0.1 sample implies ~2.8M spans/day, which at 64 items
+per envelope is ~30 envelopes/min and ~800 MB/day — matching the independently
+measured 25.4 envelopes/min and 0.96 GB/day.
