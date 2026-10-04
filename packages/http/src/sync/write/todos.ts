@@ -11,7 +11,6 @@ import type {
 } from "@alfred/sync";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
-import type { ServerMutatorCtx } from "./mutator";
 
 // Todos (ADR-0050). User-authored creates + user-initiated lifecycle
 // transitions. Alfred's proposals enter server-side via the
@@ -23,13 +22,13 @@ import type { ServerMutatorCtx } from "./mutator";
 export async function todoCreate(
   tx: DbTransaction,
   args: TodoCreateArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .insert(todos)
     .values({
       id: args.id,
-      userId: ctx.userId,
+      userId,
       name: args.name,
       description: args.description ?? null,
       status: "open",
@@ -43,7 +42,7 @@ export async function todoCreate(
 export async function todoComplete(
   tx: DbTransaction,
   args: TodoCompleteArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .update(todos)
@@ -54,7 +53,7 @@ export async function todoComplete(
       resolvedReason: "completed",
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
-    .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "open")));
+    .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "open")));
 }
 
 /**
@@ -65,7 +64,7 @@ export async function todoComplete(
 export async function todoCompleteSuggestion(
   tx: DbTransaction,
   args: TodoCompleteSuggestionArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .update(todos)
@@ -76,14 +75,14 @@ export async function todoCompleteSuggestion(
       resolvedReason: "completed",
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
-    .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "suggested")));
+    .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "suggested")));
 }
 
 /** Uncheck the box: `done → open`, clear `completed_at`. Direct UI write: `user`. */
 export async function todoReopen(
   tx: DbTransaction,
   args: TodoReopenArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .update(todos)
@@ -94,14 +93,14 @@ export async function todoReopen(
       resolvedReason: "reopened",
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
-    .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "done")));
+    .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "done")));
 }
 
 /** Accept a suggestion: `suggested → open`. `created_by` is preserved. Direct UI write: `user`. */
 export async function todoPromote(
   tx: DbTransaction,
   args: TodoPromoteArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .update(todos)
@@ -111,7 +110,7 @@ export async function todoPromote(
       resolvedReason: "promoted",
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
-    .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "suggested")));
+    .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "suggested")));
 }
 
 /**
@@ -121,7 +120,7 @@ export async function todoPromote(
 export async function todoDismiss(
   tx: DbTransaction,
   args: TodoDismissArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .update(todos)
@@ -134,7 +133,7 @@ export async function todoDismiss(
     .where(
       and(
         eq(todos.id, args.id),
-        eq(todos.userId, ctx.userId),
+        eq(todos.userId, userId),
         inArray(todos.status, ["open", "suggested"]),
       ),
     );
@@ -149,7 +148,7 @@ export async function todoDismiss(
 export async function todoClear(
   tx: DbTransaction,
   args: TodoClearArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .update(todos)
@@ -159,14 +158,14 @@ export async function todoClear(
       resolvedReason: "cleared",
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
-    .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "done")));
+    .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "done")));
 }
 
 /** Edit a todo's name and/or description. */
 export async function todoEdit(
   tx: DbTransaction,
   args: TodoEditArgs,
-  ctx: ServerMutatorCtx,
+  userId: string,
 ): Promise<void> {
   await tx
     .update(todos)
@@ -175,5 +174,5 @@ export async function todoEdit(
       ...(args.description !== undefined ? { description: args.description } : {}),
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
-    .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId)));
+    .where(and(eq(todos.id, args.id), eq(todos.userId, userId)));
 }

@@ -3,7 +3,7 @@ import { lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
 export const replicacheClientGroup = pgTable("replicache_client_group", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey(), // no createId functions here because replicache MUST generate in browser.
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),

@@ -134,7 +134,7 @@ describe("serverMutators.triageTagOverride", () => {
     const result = await serverMutators.triageTagOverride.run(
       tx,
       { threadId: baseTag.threadId, category: "action_needed" },
-      { userId: baseTag.userId },
+      baseTag.userId,
     );
 
     const { setValue, whereCalled, returningCalled } = calls();
@@ -165,7 +165,7 @@ describe("serverMutators.triageTagOverride", () => {
     const result = await serverMutators.triageTagOverride.run(
       tx,
       { threadId: "missing_thread", category: "urgent" },
-      { userId: baseTag.userId },
+      baseTag.userId,
     );
 
     assert.equal(calls().whereCalled, true);
