@@ -44,7 +44,7 @@ function capture(): CapturedPublish {
 type StreamArg = Parameters<typeof streamModelTurn>[0]["stream"];
 
 function makeStream(parts: unknown[]): StreamArg {
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
   return {
     stream: (async function* () {
       for (const part of parts) yield part;

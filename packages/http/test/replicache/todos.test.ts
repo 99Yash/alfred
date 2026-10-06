@@ -14,12 +14,12 @@ import {
 
 import { serverMutators } from "../../src/sync/write";
 
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 // Todo lifecycle transitions (ADR-0050). Covers the two new transitions —
 // clear (#297: done → cleared) and complete-from-suggested (#298: suggested →
 // done) — plus the existing accept/dismiss/complete/reopen paths so the
 // lifecycle does not regress.
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 
 type ClientTx = Parameters<typeof todoCompleteClient>[0];
 
@@ -31,7 +31,7 @@ interface MadeClientTx {
 function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
   const store = new Map<string, unknown>(Object.entries(initial));
 
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
   const tx = {
     async get(key: string): Promise<unknown> {
       return store.get(key);

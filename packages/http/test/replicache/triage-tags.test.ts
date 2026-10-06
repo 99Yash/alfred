@@ -15,7 +15,7 @@ interface MadeClientTx {
 function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
   const store = new Map<string, unknown>(Object.entries(initial));
 
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
   const tx = {
     async get(key: string): Promise<unknown> {
       return store.get(key);

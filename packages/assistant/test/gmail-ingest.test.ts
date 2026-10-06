@@ -69,9 +69,9 @@ async function seedGoogleCredential(userId: string): Promise<string> {
       accountLabel: `${userId}@example.test`,
       // Deliberate unsealed write: this test never opens the token; the seed
       // path only reads `user_id` off the credential row.
-      // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+      // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
       accessToken: "access-token" as unknown as SealedCredentialSecret,
-      // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+      // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
       refreshToken: "refresh-token" as unknown as SealedCredentialSecret,
       expiresAt: new Date(Date.now() + 3_600_000),
       scopes: [],
@@ -155,7 +155,7 @@ function makePollMessage(args: {
   filename: string;
   historyId: string;
 }): GmailMessage {
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- SAFETY: test factory builds minimal GmailMessage; parser only reads id/threadId/labelIds/payload/historyId.
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- SAFETY: test factory builds minimal GmailMessage; parser only reads id/threadId/labelIds/payload/historyId.
   return {
     id: args.id,
     threadId: args.threadId,

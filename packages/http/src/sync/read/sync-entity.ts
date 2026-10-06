@@ -176,7 +176,6 @@ function stringifyDates(value: unknown): unknown {
       out[key] = stringifyDates(entry);
     }
 
-    // eslint-disable-next-line anti-slop/no-known-value-widening -- the selected sync schema validates this complete projection immediately
     return out;
   }
 

@@ -36,7 +36,7 @@ describe("guardTurnContext gate", () => {
   // Dependencies that must never be touched on the passthrough path. If the
   // gate wrongly enters a compaction branch, invoking these throws and fails
   // the test loudly rather than hanging on a live call.
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
   const explodingModel = new Proxy(
     {},
     {
@@ -46,7 +46,7 @@ describe("guardTurnContext gate", () => {
     },
   ) as unknown as LanguageModel;
 
-  /* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
+  /* eslint-disable anti-slop/no-chained-type-assertions */
   const explodingTools = new Proxy(
     {},
     {
@@ -55,7 +55,7 @@ describe("guardTurnContext gate", () => {
       },
     },
   ) as unknown as ToolSet;
-  /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
+  /* eslint-enable anti-slop/no-chained-type-assertions */
 
   const baseArgs = (over: { turnCount: number; inFlightTailStart: number }) => ({
     ...over,

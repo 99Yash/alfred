@@ -192,7 +192,7 @@ describe("selectContextSources — who gets asked", () => {
   });
 
   test("a source that forgets its read declaration fails at registration, not at read time", () => {
-    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
+    // SAFETY: intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
     const manifest = UNDESCRIBED_MCP as RetrievalSourceManifest;
 
     assert.throws(() =>
@@ -211,7 +211,7 @@ describe("selectContextSources — who gets asked", () => {
     // `mediaKinds` is stated so the missing authority is the only reason to
     // throw: without it the test would stay green on the mediaKinds rule even
     // if the authority rule were deleted.
-    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
+    // SAFETY: intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
     const manifest = NO_AUTHORITY as RetrievalSourceManifest;
 
     assert.throws(
