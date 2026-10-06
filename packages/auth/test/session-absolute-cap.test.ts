@@ -6,7 +6,7 @@ import { makeSignature } from "better-auth/crypto";
 import type { AuthAdapter, AuthAdapterFactory } from "../src/credential-adapter";
 import { authSessionPolicy, SESSION_LIFETIME_SECONDS } from "../src/session-policy";
 
-// eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- test boundary: one adapter stores Better Auth's generic model rows and validates every field it reads below
+// test boundary: one adapter stores Better Auth's generic model rows and validates every field it reads below
 type Row = Record<string, unknown>;
 
 /**
@@ -177,11 +177,11 @@ function sessionStore(
       return row;
     },
     transaction: async <R>(callback: (trx: AuthAdapter) => Promise<R>) =>
-      // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- test boundary: the callback sees the same focused adapter that the factory exposes
+      // eslint-disable-next-line anti-slop/no-chained-type-assertions -- test boundary: the callback sees the same focused adapter that the factory exposes
       callback(adapter as unknown as AuthAdapter),
   };
 
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- test boundary: the focused in-memory adapter implements the operations Better Auth drives here
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- test boundary: the focused in-memory adapter implements the operations Better Auth drives here
   const factory = (() => adapter as unknown as AuthAdapter) as AuthAdapterFactory;
 
   return {

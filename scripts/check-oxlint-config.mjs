@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   ROOT_OXLINT_CONFIG,
+  blanketDisarmFailures,
   oxlintScripts,
   restrictedGroupCopyFailures,
   restrictedImportSites,
@@ -107,6 +108,20 @@ let copies = { rootGroups: 0, siteCount: 0, restated: 0, declared: 0, failures: 
 
 const resolved = resolvedOxlintConfig(ROOT);
 
+// Read ONCE and shared: three rules below need the declared comments, and they do not
+// survive `--print-config`, so each reader would otherwise re-read the same file and
+// three of them could disagree about whether it was readable at all.
+let source;
+
+try {
+  source = readFileSync(join(ROOT, ROOT_OXLINT_CONFIG), "utf8");
+} catch (error) {
+  source = undefined;
+  copyReaderFailures.push(
+    `${ROOT_OXLINT_CONFIG} could not be read as text (${error instanceof Error ? error.message : String(error)}), so the declared omissions written in its comments went unread. They do not survive --print-config, so without the raw file every deliberate omission reads as a drifted copy.`,
+  );
+}
+
 if (resolved.failure !== undefined) {
   copyReaderFailures.push(resolved.failure);
 } else {
@@ -126,17 +141,6 @@ if (resolved.failure !== undefined) {
     return Array.isArray(files) && files.every((glob) => typeof glob === "string") ? files : null;
   });
 
-  let source;
-
-  try {
-    source = readFileSync(join(ROOT, ROOT_OXLINT_CONFIG), "utf8");
-  } catch (error) {
-    copyReaderFailures.push(
-      `${ROOT_OXLINT_CONFIG} could not be read as text (${error instanceof Error ? error.message : String(error)}), so the declared omissions written in its comments went unread. They do not survive --print-config, so without the raw file every deliberate omission reads as a drifted copy.`,
-    );
-    source = undefined;
-  }
-
   if (source !== undefined) {
     copies = restrictedGroupCopyFailures({ sites, source, scopes });
   }
@@ -148,6 +152,37 @@ if (copyReaderFailures.length > 0 || copies.failures.length > 0) {
   for (const failure of [...copyReaderFailures, ...copies.failures]) console.error(`- ${failure}`);
   console.error(
     "An \"overrides\" entry REPLACES a rule's options wholesale rather than merging them, so a fence narrowed to part of the tree cannot be written as one added group — every scoped fence is a verbatim COPY of the root list. When the root list moves and a copy does not follow, pnpm lint still exits 0 and that one tree quietly enforces the old fence. Restate the group byte-identically, or declare the exemption in a comment beside the site's own rule key.\n",
+  );
+}
+
+// The blanket disarms. Read from the SAME resolved config as the copy reader above, so
+// there is one answer to "what did oxlint resolve" rather than two invocations that can
+// disagree.
+
+/** @type {import("./oxlint-config.mjs").DisarmReport} */
+let disarms = { disarmed: 0, declared: 0, undeclared: [], failures: [] };
+
+if (resolved.failure !== undefined) {
+  disarms = {
+    ...disarms,
+    failures: [resolved.failure],
+  };
+} else {
+  disarms = blanketDisarmFailures({
+    rootRules: resolved.config.rules,
+    overrides: resolved.config.overrides,
+    source,
+  });
+}
+
+if (disarms.failures.length > 0) {
+  console.error(
+    `Rule turned off for authored source in ${ROOT_OXLINT_CONFIG} without a stated reason:`,
+  );
+
+  for (const failure of disarms.failures) console.error(`- ${failure}`);
+  console.error(
+    'An "overrides" entry REPLACES a rule\'s options wholesale, so "off" is scoped to the RULE rather than to any one pattern inside it: it disarms every fence that rule carried across the whole scope. A test/eval/script exemption is the one legitimate blanket case, and this rule skips those. For authored source, state the reason in a `// oxlint-disarm: <rule> — <why>` comment beside the site\'s own rule key, so the next reader can tell a deliberate exemption from one nobody meant.\n',
   );
 }
 
@@ -174,6 +209,10 @@ console.log(
 );
 
 console.log(
+  `Scoped rule exemptions: ${disarms.disarmed} rule(s) off for authored source, ${disarms.declared} with a stated reason, ${disarms.undeclared.length} without.`,
+);
+
+console.log(
   `Walked source files: ${unwalked.checked} tracked or new, ${unwalked.hidden.length} removed from the walk by a gitignore rule.`,
 );
 
@@ -185,6 +224,7 @@ if (
   specifiers.failures.length > 0 ||
   copyReaderFailures.length > 0 ||
   copies.failures.length > 0 ||
+  disarms.failures.length > 0 ||
   unwalked.failures.length > 0
 ) {
   process.exit(1);

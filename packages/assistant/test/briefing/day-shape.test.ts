@@ -95,7 +95,7 @@ async function githubCredentialFor(userId: string): Promise<string> {
       accountId: `${userId}-gh`,
       // Deliberate unsealed write: nothing in this file opens the token; the
       // row exists only so the receipt has a credential to point at.
-      // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+      // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
       accessToken: "test-token" as unknown as SealedCredentialSecret,
       installationId: "1",
       status: "active",

@@ -55,7 +55,7 @@ function makeMessage(args: {
   mimeType?: string;
   size?: number;
 }): GmailMessage {
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- SAFETY: test factory builds a minimal GmailMessage shape; the gmail parser only reads id/threadId/labelIds/payload.
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- SAFETY: test factory builds a minimal GmailMessage shape; the gmail parser only reads id/threadId/labelIds/payload.
   return {
     id: args.id,
     threadId: args.threadId,
@@ -143,7 +143,8 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.equal(doc.title, "contract.pdf");
     assert.equal(doc.content, "page one text\n\npage two text");
 
-    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: documents.metadata is jsonb unknown; test narrows to the gmail_attachment shape we just wrote.
+    // SAFETY: documents.metadata is jsonb unknown; test narrows to the
+    // gmail_attachment shape we just wrote.
     const meta = doc.metadata as {
       pages?: { page: number; start: number; end: number }[];
       filename: string;
@@ -436,7 +437,8 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
     assert.equal(rows.length, 1, "one canonical row per distinct content");
 
-    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: documents.metadata is jsonb unknown; test narrows to the reference shape ingest wrote.
+    // SAFETY: documents.metadata is jsonb unknown; test narrows to the
+    // reference shape ingest wrote.
     const meta = rows[0]!.metadata as { references?: unknown[] };
     assert.ok(Array.isArray(meta.references));
     assert.equal(meta.references!.length, 1);
@@ -471,7 +473,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
 
-    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- SAFETY: same jsonb narrowing as above.
+    // SAFETY: same jsonb narrowing as above.
     const metaAfter = after[0]!.metadata as { references?: unknown[] };
     assert.equal(metaAfter.references!.length, 1, "reference append must be idempotent");
   });

@@ -11,12 +11,7 @@ import { cn } from "~/lib/utils";
  * `onGetStarted` is accepted but unused — kept for call-site symmetry while
  * the closing CTA above already owns the conversion ask.
  */
-export function LandingFooter({
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  onGetStarted: _onGetStarted,
-}: {
-  onGetStarted: () => void;
-}) {
+export function LandingFooter({ onGetStarted: _onGetStarted }: { onGetStarted: () => void }) {
   const year = useCurrentYear();
 
   return (

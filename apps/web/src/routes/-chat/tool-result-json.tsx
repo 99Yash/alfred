@@ -131,7 +131,6 @@ export function ToolResultJson({
             // A tokenizer's output has no domain identity to key by; the index
             // IS the identity here, and the list is fully re-derived whenever
             // the text changes.
-            // eslint-disable-next-line react/no-array-index-key
             <span key={i} className={token.className}>
               {token.text}
             </span>
