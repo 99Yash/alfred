@@ -14,9 +14,10 @@
  */
 
 import { z } from "zod";
+import { toStringArray } from "./guards";
 import { TOOL_INPUT_SCHEMAS } from "./tool-schemas";
 import type { ToolName } from "./tools";
-import type { JsonObject } from "./user-model";
+import type { JsonObject, JsonValue } from "./user-model";
 
 export type FieldKind =
   | "text"
@@ -45,7 +46,7 @@ interface BaseFieldSpec {
   /** Field is not in the schema's `required` set. */
   optional: boolean;
   /** Schema default, pre-filled when the proposed input omits the key. */
-  default?: unknown;
+  default?: JsonValue | undefined;
   /** Display context that is derived server-side and cannot be edited safely. */
   readOnly?: boolean | undefined;
 }
@@ -72,10 +73,80 @@ export type FieldSpec =
       multiline?: false;
     })
   | (BaseFieldSpec & {
-      kind: "textarea" | "string_array" | "json";
+      kind: "textarea";
+      /** Render full-width. */
+      multiline: true;
+    })
+  | (BaseFieldSpec & {
+      kind: "string_array";
+      /** Render full-width. */
+      multiline: true;
+    })
+  | (BaseFieldSpec & {
+      kind: "json";
       /** Render full-width. */
       multiline: true;
     });
+
+/**
+ * Every value a field control can read: the per-kind overloads of
+ * {@link fieldValue} narrow this to one arm each, and the implementation
+ * signature returns the whole union.
+ */
+export type FieldValue = string | number | boolean | JsonValue | undefined;
+
+/**
+ * Read one field's value off an unvalidated input record, coerced to the
+ * control's own shape — a text control reads a string, a stepper a finite
+ * number, a multi-line list a string array.
+ *
+ * The overloads carry the per-kind value type, so a caller that has already
+ * narrowed on `field.kind` gets the narrowed value with no `typeof` of its
+ * own: `fieldValue` is the one place that branches on the runtime
+ * representation. A wrong-shaped leaf reads as unset (`undefined`, or `[]`
+ * for a list) rather than leaking `[object Object]` into a visible input.
+ */
+export function fieldValue(
+  field: Extract<FieldSpec, { kind: "select" | "text" | "email" | "datetime" | "textarea" }>,
+  record: JsonObject,
+): string | undefined;
+export function fieldValue(
+  field: Extract<FieldSpec, { kind: "number" | "integer" }>,
+  record: JsonObject,
+): number | undefined;
+export function fieldValue(
+  field: Extract<FieldSpec, { kind: "string_array" }>,
+  record: JsonObject,
+): string[];
+export function fieldValue(
+  field: Extract<FieldSpec, { kind: "boolean" }>,
+  record: JsonObject,
+): boolean | undefined;
+export function fieldValue(
+  field: Extract<FieldSpec, { kind: "json" }>,
+  record: JsonObject,
+): JsonValue | undefined;
+export function fieldValue(field: FieldSpec, record: JsonObject): FieldValue {
+  const raw: JsonValue | undefined = record[field.key] ?? field.default;
+
+  switch (field.kind) {
+    case "select":
+    case "text":
+    case "email":
+    case "datetime":
+    case "textarea":
+      return typeof raw === "string" ? raw : undefined;
+    case "number":
+    case "integer":
+      return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+    case "string_array":
+      return toStringArray(raw);
+    case "boolean":
+      return typeof raw === "boolean" ? raw : undefined;
+    case "json":
+      return raw;
+  }
+}
 
 /** Labels for keys whose humanized form reads poorly (abbreviations, ids). */
 const LABEL_ALIASES = {
@@ -113,11 +184,11 @@ function humanizeKey(key: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function asNumber(value: unknown): number | undefined {
+function asNumber(value: JsonObject[keyof JsonObject] | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function asString(value: unknown): string | undefined {
+function asString(value: JsonObject[keyof JsonObject] | undefined): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 

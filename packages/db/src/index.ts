@@ -2,7 +2,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { POOL_MIN } from "@alfred/env/pool";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import { toMessage } from "@alfred/contracts";
+import { toMessage, unrefTimer } from "@alfred/contracts";
 
 const POOL_IDLE_TIMEOUT_MS = 5 * 60_000;
 
@@ -39,9 +39,7 @@ function startPoolHeartbeat() {
     });
   }, POOL_HEARTBEAT_INTERVAL_MS);
 
-  if (typeof heartbeat === "object" && "unref" in heartbeat) {
-    heartbeat.unref();
-  }
+  unrefTimer(heartbeat);
 
   _heartbeatTimer = heartbeat;
 }

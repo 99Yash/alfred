@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 import {
   ROOT_OXLINT_CONFIG,
   blanketDisarmFailures,
+  deadExemptionFailures,
+  mixedTestScopeFailures,
   oxlintScripts,
   restrictedGroupCopyFailures,
   restrictedImportSites,
@@ -138,6 +140,7 @@ if (resolved.failure !== undefined) {
     if (matched === null) return null;
     const files = overrides[Number(matched[1])]?.files;
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the resolved override's files are unknown until checked; a non-glob entry cannot scope a diagnostic.
     return Array.isArray(files) && files.every((glob) => typeof glob === "string") ? files : null;
   });
 
@@ -182,7 +185,29 @@ if (disarms.failures.length > 0) {
 
   for (const failure of disarms.failures) console.error(`- ${failure}`);
   console.error(
-    'An "overrides" entry REPLACES a rule\'s options wholesale, so "off" is scoped to the RULE rather than to any one pattern inside it: it disarms every fence that rule carried across the whole scope. A test/eval/script exemption is the one legitimate blanket case, and this rule skips those. For authored source, state the reason in a `// oxlint-disarm: <rule> — <why>` comment beside the site\'s own rule key, so the next reader can tell a deliberate exemption from one nobody meant.\n',
+    'An "overrides" entry REPLACES a rule\'s options wholesale, so "off" is scoped to the RULE rather than to any one pattern inside it: it disarms every fence that rule carried across the whole scope. A test/eval exemption is the one blanket case this rule skips outright; a product-tree exemption (including the ops-scripts trees) needs its own `// oxlint-disarm: <rule> — <why>` comment beside the site\'s own rule key, so the next reader can tell a deliberate exemption from one nobody meant.\n',
+  );
+}
+
+// The mixed scopes. Read from the SAME resolved config as the two readers
+// above, so there is one answer to "what did oxlint resolve" rather than three
+// invocations that can disagree.
+let mixedScopes = [];
+
+if (resolved.failure !== undefined) {
+  mixedScopes = [resolved.failure];
+} else {
+  mixedScopes = mixedTestScopeFailures({ overrides: resolved.config.overrides });
+}
+
+if (mixedScopes.length > 0) {
+  console.error(
+    `Override scope in ${ROOT_OXLINT_CONFIG} mixing test/eval globs with other scopes:`,
+  );
+
+  for (const failure of mixedScopes) console.error(`- ${failure}`);
+  console.error(
+    "blanketDisarmFailures skips any scope covering tests/evals, so the non-test half of a mixed entry is exempt without a stated reason and deleting a glob there is silent. Split the entry into a test/eval-only entry (which keeps the skip) and a product-only entry with its own `// oxlint-disarm:` marker.\n",
   );
 }
 
@@ -194,6 +219,22 @@ if (unwalked.failures.length > 0) {
   for (const failure of unwalked.failures) console.error(`- ${failure}`);
   console.error(
     "Both tools walk the tree and both honor gitignore at any depth, so this is a THIRD way to disarm a fence and the --config pin above does not reach it: --no-ignore disables .eslintignore and --ignore-path rather than the gitignore walk, --ignore-path adds an ignore file instead of replacing it, and naming the hidden file on the command line does not lint it either.\n",
+  );
+}
+
+// The dead exemptions. A stripped probe config (each candidate rule removed
+// from its own override) is driven through the repo's own oxlint, scoped to
+// exactly the listed files, and every path the rule no longer fires on is
+// reported. See deadExemptionFailures in ./oxlint-config.mjs for why this is a
+// second run rather than a pure function, and why the run is file-scoped.
+const deadEntries = deadExemptionFailures(ROOT);
+
+if (deadEntries.failures.length > 0) {
+  console.error(`Exemption path in ${ROOT_OXLINT_CONFIG} the rule no longer fires on:`);
+
+  for (const failure of deadEntries.failures) console.error(`- ${failure}`);
+  console.error(
+    "An allowlist entry rots toward listing files that no longer need it: a migrated `typeof`, a gained domain type, and the entry stays. The path is not exempting anything, so the next reader takes the list as the set of files that still do. Remove the dead path from the entry's files.\n",
   );
 }
 
@@ -216,6 +257,10 @@ console.log(
   `Walked source files: ${unwalked.checked} tracked or new, ${unwalked.hidden.length} removed from the walk by a gitignore rule.`,
 );
 
+console.log(
+  `Dead exemptions: ${deadEntries.checked} file/rule pair(s) driven through the stripped probe, ${deadEntries.dead.length} without a diagnostic.`,
+);
+
 if (
   rootFailures.length > 0 ||
   strays.length > 0 ||
@@ -225,6 +270,8 @@ if (
   copyReaderFailures.length > 0 ||
   copies.failures.length > 0 ||
   disarms.failures.length > 0 ||
+  mixedScopes.length > 0 ||
+  deadEntries.failures.length > 0 ||
   unwalked.failures.length > 0
 ) {
   process.exit(1);

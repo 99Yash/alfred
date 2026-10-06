@@ -7,7 +7,7 @@ import {
   type GoogleFeature,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
 import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
 
@@ -300,13 +300,27 @@ const GOOGLE_JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth
 
 const GOOGLE_ID_TOKEN_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
 
-interface GoogleIdTokenClaims extends JWTPayload {
-  sub?: string;
-  email?: string;
-  email_verified?: boolean;
+/**
+ * The claims `verifyIdToken` reads, proven at the `jwtVerify` boundary.
+ *
+ * jose's `jwtVerify<T>` generic is compile-time only: it re-declares the
+ * payload's type and validates nothing at runtime, so an annotated `claims`
+ * asserted a shape Google had never been asked to produce. This schema is
+ * that proof, and it runs at the same seam `tokenResponseSchema` runs above —
+ * a verified signature over an unverified body is still an unverified body.
+ *
+ * `sub`/`email` stay optional so the absence case keeps its own error below;
+ * what the schema adds is that a PRESENT claim must be a string, which the
+ * truthiness check alone could not tell from an empty one.
+ */
+const idTokenClaimsSchema = z.object({
+  sub: z.string().optional(),
+  email: z.string().optional(),
+  /** JSON boolean per OIDC Core 5.1. */
+  email_verified: z.boolean().optional(),
   /** Workspace hosted domain — present only for Workspace accounts. */
-  hd?: string;
-}
+  hd: z.string().optional(),
+});
 
 async function verifyIdToken(
   idToken: string | undefined,
@@ -316,15 +330,15 @@ async function verifyIdToken(
     throw new Error("[google.oauth] id_token missing — request 'openid email' scopes");
   }
 
-  let claims: GoogleIdTokenClaims;
+  let claims: z.infer<typeof idTokenClaimsSchema>;
 
   try {
-    const { payload } = await jwtVerify<GoogleIdTokenClaims>(idToken, GOOGLE_JWKS, {
+    const { payload } = await jwtVerify(idToken, GOOGLE_JWKS, {
       issuer: GOOGLE_ID_TOKEN_ISSUERS,
       audience,
     });
 
-    claims = payload;
+    claims = idTokenClaimsSchema.parse(payload);
   } catch (err) {
     throw new Error(`[google.oauth] id_token verification failed: ${toMessage(err)}`);
   }
@@ -337,8 +351,7 @@ async function verifyIdToken(
     throw new Error("[google.oauth] id_token email is not verified");
   }
 
-  const hostedDomain =
-    typeof claims.hd === "string" && claims.hd.trim() ? claims.hd.trim() : undefined;
+  const hostedDomain = claims.hd?.trim() || undefined;
 
   return { sub: claims.sub, email: claims.email, ...(hostedDomain ? { hostedDomain } : {}) };
 }

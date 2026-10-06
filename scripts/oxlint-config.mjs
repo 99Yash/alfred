@@ -42,7 +42,7 @@
 // ./oxlint-config.selftest.mjs.
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -123,6 +123,7 @@ export function oxlintScripts(root) {
   const found = [];
 
   for (const [script, command] of Object.entries(scripts)) {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- package.json scripts are unknown JSON at this boundary; a non-string value is skipped, not parsed.
     if (typeof command !== "string") continue;
     const tokens = command.split(/\s+/).filter(Boolean);
 
@@ -326,6 +327,7 @@ export function resolvedOxlintConfig(root) {
     };
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- --print-config emits unknown JSON; the object-shape read IS the boundary parse.
   if (config === null || typeof config !== "object" || Array.isArray(config)) {
     return {
       failure: `\`${invocation}\` emitted ${JSON.stringify(config)} rather than a config object, so no rule site could be located.`,
@@ -370,6 +372,7 @@ export function restrictedImportSites(config) {
       for (const [index, override] of overrides.entries()) {
         const where = `overrides[${index}]`;
 
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a resolved override entry is unknown until checked; the shape read IS the boundary parse.
         if (override === null || typeof override !== "object" || Array.isArray(override)) {
           failures.push(
             `${where} is ${JSON.stringify(override)} rather than an object, so any fence inside it went unread.`,
@@ -816,11 +819,12 @@ export function blanketDisarmFailures({ rootRules, overrides, source }) {
   let declaredCount = 0;
 
   for (const [index, override] of sites.entries()) {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the resolved override is unknown until checked; the shape read IS the boundary parse.
     if (override === null || typeof override !== "object" || Array.isArray(override)) continue;
 
-    const files = Array.isArray(override.files)
-      ? override.files.filter((glob) => typeof glob === "string")
-      : [];
+    const rawFiles = Array.isArray(override.files) ? override.files : [];
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- override.files is unknown in the resolved config; non-string entries are dropped, not parsed.
+    const files = rawFiles.filter((glob) => typeof glob === "string");
 
     // An override with no `files` applies to the WHOLE repo, which is the strongest
     // form of the disarm and the one most worth naming out loud.
@@ -857,6 +861,7 @@ export function blanketDisarmFailures({ rootRules, overrides, source }) {
     );
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- root rules are unknown in the resolved config; the shape read IS the boundary parse.
   if (rootRules !== undefined && (rootRules === null || typeof rootRules !== "object")) {
     failures.push(
       `the resolved config's root "rules" is ${JSON.stringify(rootRules)} rather than an object, so the rules an exemption overrides could not be compared against it.`,
@@ -864,6 +869,60 @@ export function blanketDisarmFailures({ rootRules, overrides, source }) {
   }
 
   return { disarmed, declared: declaredCount, undeclared, failures };
+}
+
+/**
+ * Every `overrides` entry that mixes test/eval globs with other scopes.
+ *
+ * `blanketDisarmFailures` skips any scope covering tests/evals, because a
+ * fixture that casts a hand-built row has no unseen invariant to narrate. That
+ * skip is per-ENTRY, not per-glob: an entry whose `files` hold test globs AND
+ * a non-test glob exempts the non-test half with no stated reason, and
+ * deleting a glob there changes nothing checkable — the entry stays skipped
+ * either way. The three anti-slop scope entries were exactly this shape (test
+ * globs beside `**\/scripts/**`).
+ *
+ * Pure test/eval scopes keep the skip; pure product scopes are judged by
+ * `blanketDisarmFailures`. A mixed entry fails HERE, and the fix is a split: a
+ * test/eval-only entry (skipped, needs no marker) beside a product-only entry
+ * carrying its own `// oxlint-disarm:` marker.
+ *
+ * Pure by construction: it reads the resolved overrides array passed in, so
+ * every case is drivable from literal fixtures with no oxlint run.
+ *
+ * @param {object} input
+ * @param {unknown} input.overrides
+ * @returns {string[]} Failure descriptions. Empty means every scope is pure.
+ */
+export function mixedTestScopeFailures({ overrides }) {
+  if (overrides !== undefined && !Array.isArray(overrides)) {
+    return [
+      `the resolved config's "overrides" is ${JSON.stringify(overrides)} rather than an array, so no scoped exemption could be read.`,
+    ];
+  }
+
+  const failures = [];
+  const sites = overrides ?? [];
+
+  for (const [index, override] of sites.entries()) {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the resolved override is unknown until checked; the shape read IS the boundary parse.
+    if (override === null || typeof override !== "object" || Array.isArray(override)) continue;
+
+    const rawFiles = Array.isArray(override.files) ? override.files : [];
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- override.files is unknown in the resolved config; non-string entries are dropped, not parsed.
+    const files = rawFiles.filter((glob) => typeof glob === "string");
+
+    const testish = files.filter((glob) => coversTestsOrEvals([glob]));
+    const product = files.filter((glob) => !coversTestsOrEvals([glob]));
+
+    if (testish.length === 0 || product.length === 0) continue;
+
+    failures.push(
+      `overrides[${index}] mixes test/eval globs (${testish.join(", ")}) with non-test scopes (${product.join(", ")}). blanketDisarmFailures skips any scope covering tests/evals, so the non-test half is exempt without a stated reason and deleting a glob there is silent. Split the entry: a test/eval-only entry keeps the skip with no marker, and a product-only entry carries its own // oxlint-disarm: <rule> — <why> marker.`,
+    );
+  }
+
+  return failures;
 }
 
 /**
@@ -1012,6 +1071,7 @@ function scopeLabel(scope) {
 function collectSite(rules, where, sites, failures) {
   if (rules === undefined) return;
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the resolved rules bag is unknown until checked; an unreadable bag is a refusal, not a skip.
   if (rules === null || typeof rules !== "object" || Array.isArray(rules)) {
     failures.push(
       `${where}.rules is ${JSON.stringify(rules)} rather than an object of rule names, so any fence inside it went unread.`,
@@ -1024,12 +1084,14 @@ function collectSite(rules, where, sites, failures) {
 
   const value = rules[RESTRICTED_IMPORTS];
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the resolved rule value is unknown until checked; the severity-string arm IS the boundary parse.
   if (typeof value === "string") {
     sites.push({ where, groups: [] });
 
     return;
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the resolved rule value is unknown until checked; an unrecognized shape is a refusal, not zero groups.
   if (!Array.isArray(value) || value.length === 0 || typeof value[0] !== "string") {
     failures.push(
       `${where}'s ${RESTRICTED_IMPORTS} resolved to ${JSON.stringify(value)}, which is neither a severity string nor a [severity, options] array. This reader cannot tell an armed fence from a disarmed one in that shape, so it refuses instead of reporting zero groups.`,
@@ -1045,6 +1107,7 @@ function collectSite(rules, where, sites, failures) {
   const groups = [];
 
   for (const options of value.slice(1).flat()) {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the resolved options element is unknown until checked; the shape read IS the boundary parse.
     if (options === null || typeof options !== "object" || Array.isArray(options)) {
       failures.push(
         `${where}'s ${RESTRICTED_IMPORTS} carries an options element ${JSON.stringify(options)} that is neither an object nor an array of them, so its fences went unread.`,
@@ -1064,11 +1127,13 @@ function collectSite(rules, where, sites, failures) {
     }
 
     for (const [index, pattern] of patterns.entries()) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a resolved pattern is unknown until checked; the string arm IS the boundary parse.
       if (typeof pattern === "string") {
         groups.push({ group: [pattern], message: null });
         continue;
       }
 
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a resolved pattern is unknown until checked; a malformed entry is a refusal, not a skip.
       if (pattern === null || typeof pattern !== "object" || Array.isArray(pattern)) {
         failures.push(
           `${where}'s ${RESTRICTED_IMPORTS} patterns[${index}] is ${JSON.stringify(pattern)}, which is neither a specifier string nor a group object.`,
@@ -1078,6 +1143,7 @@ function collectSite(rules, where, sites, failures) {
 
       const group = pattern.group;
 
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the group array holds unknown entries until checked; the element read IS the boundary parse.
       if (!Array.isArray(group) || !group.every((entry) => typeof entry === "string")) {
         failures.push(
           `${where}'s ${RESTRICTED_IMPORTS} patterns[${index}] has no "group" array of specifier strings (received ${JSON.stringify(group)}), so nothing in it could be resolved.`,
@@ -1085,6 +1151,7 @@ function collectSite(rules, where, sites, failures) {
         continue;
       }
 
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the resolved message is unknown until checked; a non-string message is read as absent.
       groups.push({ group, message: typeof pattern.message === "string" ? pattern.message : null });
     }
   }
@@ -1102,4 +1169,371 @@ function pinsRootConfig(tokens) {
   }
 
   return false;
+}
+
+/**
+ * Every explicit file path an `overrides` entry turns an anti-slop rule OFF
+ * for — the candidate set for the dead-exemption drive below.
+ *
+ * An allowlist entry rots in the direction nothing reports: a file whose
+ * `typeof` was migrated to a guard, or whose `unknown` return gained a domain
+ * type, stops firing the rule while the exemption stays listed, and the next
+ * reader takes the list as the set of files that still need it. The drive
+ * proves each listed path still exempts something by stripping the exemption
+ * and demanding the rule report there.
+ *
+ * Granularity is per (entry, rule, FILE), not per entry: one live path must
+ * not vouch for a dead sibling in the same list. Only explicit paths qualify —
+ * a glob (`*?[]{}`, or a missing/empty `files`) matches an evolving tree, so
+ * "no diagnostic today" says nothing about it and the drive would report every
+ * glob on a quiet day. `no-restricted-imports` is excluded by construction
+ * (its entries restate groups rather than switching the rule off, and the copy
+ * rule already judges them); only `anti-slop/` rules switched to an off
+ * spelling (`"off"`, `"allow"`, `0`, or a severity-led array of those) are
+ * candidates.
+ *
+ * Pure by construction: reads the resolved overrides array passed in. Fixtures
+ * in ./oxlint-config.selftest.mjs.
+ *
+ * @param {object} input
+ * @param {unknown} input.overrides
+ * @returns {{candidates: {where: string, index: number, rule: string, file: string}[],
+ *            failures: string[]}}
+ */
+export function offEntryCandidates({ overrides }) {
+  if (overrides !== undefined && !Array.isArray(overrides)) {
+    return {
+      candidates: [],
+      failures: [
+        `the resolved config's "overrides" is ${JSON.stringify(overrides)} rather than an array, so no scoped exemption could be read.`,
+      ],
+    };
+  }
+
+  const candidates = [];
+  const sites = overrides ?? [];
+
+  for (const [index, override] of sites.entries()) {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the resolved override is unknown until checked; the shape read IS the boundary parse.
+    if (override === null || typeof override !== "object" || Array.isArray(override)) continue;
+
+    const rules = override.rules;
+
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the resolved rules bag is unknown until checked; an unreadable bag contributes no candidate.
+    if (rules === null || typeof rules !== "object" || Array.isArray(rules)) continue;
+
+    const rawFiles = Array.isArray(override.files) ? override.files : [];
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- override.files is unknown in the resolved config; non-string entries are dropped, not parsed.
+    const files = rawFiles.filter((entry) => typeof entry === "string");
+
+    if (files.length === 0 || files.some(isGlobPath)) continue;
+
+    for (const [rule, value] of Object.entries(rules)) {
+      if (!rule.startsWith("anti-slop/") || !isOffValue(value)) continue;
+
+      const where = `overrides[${index}]`;
+
+      for (const file of files) candidates.push({ where, index, rule, file });
+    }
+  }
+
+  return { candidates, failures: [] };
+}
+
+/**
+ * Which candidates the stripped-config drive left without a diagnostic.
+ *
+ * `hits` is the set of `"file|short-rule"` pairs the drive observed (built by
+ * `deadExemptionFailures` from the probe run's JSON report). A candidate with
+ * no hit is a path the rule no longer fires on: the exemption is dead and the
+ * path comes out of the entry's list. Pure by construction; fixtures in
+ * ./oxlint-config.selftest.mjs.
+ *
+ * @param {{where: string, index: number, rule: string, file: string}[]} candidates
+ * @param {Set<string>} hits Observed `"file|short-rule"` pairs.
+ * @returns {string[]} Failure descriptions. Empty means every path still exempts something.
+ */
+export function deadEntryVerdicts(candidates, hits) {
+  const failures = [];
+
+  for (const { where, rule, file } of candidates) {
+    if (hits.has(`${file}|${rule.replace("anti-slop/", "")}`)) continue;
+
+    failures.push(
+      `${where} turns "${rule}" off for ${file}, but the rule reports nothing there with the exemption stripped, so the path exempts nothing. Remove the path from the entry's files. If the exemption is load-bearing for a shape the drive cannot reach, say so in a comment beside the entry rather than keeping a dead path.`,
+    );
+  }
+
+  return failures;
+}
+
+/**
+ * Every explicit exemption path the anti-slop rules no longer fire on.
+ *
+ * The drive builds a STRIPPED probe config — the tracked config with each
+ * candidate's rule removed from its own override entry — and runs the repo's
+ * own oxlint through it, scoped to exactly the candidate files. Scoping to the
+ * file list is load-bearing for determinism: a whole-tree walk varies run to
+ * run (1074 vs 1078 diagnostics measured), while explicit file arguments lint
+ * the same set every time. The probe needs absolute `jsPlugins` paths because
+ * it is written beside the root config under a non-`.oxlintrc*` name (so the
+ * stray-config rule never sees it) and oxlint resolves a relative plugin
+ * against the config's location; bare specifiers (`oxlint-tailwindcss`) keep
+ * resolving from the repo root exactly as before. The probe file is deleted in
+ * a `finally`, so a failed drive leaves no untracked config behind.
+ *
+ * CHOICE, documented: this is the full second oxlint run, not a pure function
+ * plus a `check:` script entry. A pure function can list candidates (it does —
+ * `offEntryCandidates` above), but "the rule fires here" is a claim about the
+ * vendored rule's behavior, not about the config text, and only a drive proves
+ * it. The run is a single invocation over ~100 files and measures ~1–2 s,
+ * against a ~82 ms `--print-config` the neighboring rules already pay; a
+ * second script entry would split one verdict across two commands for no
+ * measured saving.
+ *
+ * Every failure mode is a failure, never a pass: an unreadable config, an
+ * unparseable probe, a probe that could not be written, an oxlint run with no
+ * readable output, and a report that is not JSON all redden the check rather
+ * than reading as "nothing is dead". An EMPTY candidate set is the one green
+ * shape that is not a refusal: it is the completed-paydown state (every file
+ * list narrowed to globs or gone), not an unread surface, so it reports zero
+ * checked rather than failing.
+ *
+ * @param {string} root
+ * @returns {{checked: number, dead: string[], failures: string[]}}
+ */
+export function deadExemptionFailures(root) {
+  const empty = { checked: 0, dead: [], failures: [] };
+
+  const resolved = resolvedOxlintConfig(root);
+
+  if (resolved.failure !== undefined) return { ...empty, failures: [resolved.failure] };
+
+  const { candidates, failures: readerFailures } = offEntryCandidates({
+    overrides: resolved.config.overrides,
+  });
+
+  if (readerFailures.length > 0) return { ...empty, failures: readerFailures };
+
+  if (candidates.length === 0) return empty;
+
+  let source;
+
+  try {
+    source = readFileSync(resolve(root, ROOT_OXLINT_CONFIG), "utf8");
+  } catch (error) {
+    return {
+      ...empty,
+      failures: [
+        `${ROOT_OXLINT_CONFIG} could not be read as text (${error instanceof Error ? error.message : String(error)}), so the stripped probe config could not be built. Without it no exemption path could be driven.`,
+      ],
+    };
+  }
+
+  let parsed;
+
+  try {
+    parsed = JSON.parse(stripJsonComments(source));
+  } catch (error) {
+    return {
+      ...empty,
+      failures: [
+        `${ROOT_OXLINT_CONFIG} could not be parsed for the stripped probe config (${error instanceof Error ? error.message : String(error)}). The probe must be byte-identical to the tracked config minus the candidate rules, so a hand-stripped copy is not a substitute.`,
+      ],
+    };
+  }
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the probe source parses to unknown; the object-shape read IS the boundary parse.
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      ...empty,
+      failures: [
+        `${ROOT_OXLINT_CONFIG} parsed to ${JSON.stringify(parsed)} rather than a config object, so the stripped probe config could not be built.`,
+      ],
+    };
+  }
+
+  // The surgery: remove each candidate's rule from its own override entry, and
+  // drop an entry left with no rules. Everything else stays byte-identical, so
+  // a diagnostic in the probe run means the candidate path, not a neighbor.
+  const stripped = JSON.parse(JSON.stringify(parsed));
+
+  for (const { index, rule } of candidates) {
+    const entry = stripped.overrides?.[index];
+
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the probe entry is unknown until checked; a malformed entry keeps its exemption rather than silently dropping it.
+    if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
+      delete entry.rules?.[rule];
+
+      if (entry.rules !== undefined && Object.keys(entry.rules).length === 0) {
+        delete stripped.overrides[index];
+      }
+    }
+  }
+
+  stripped.overrides = (stripped.overrides ?? []).filter((entry) => entry !== null);
+
+  if (Array.isArray(stripped.jsPlugins)) {
+    stripped.jsPlugins = stripped.jsPlugins.map((specifier) => {
+      const text = String(specifier);
+
+      return text.startsWith(".") ? resolve(root, text) : specifier;
+    });
+  }
+
+  const probeName = ".dead-entry-probe.json";
+  const probePath = resolve(root, probeName);
+
+  try {
+    writeFileSync(probePath, `${JSON.stringify(stripped, null, 2)}\n`);
+  } catch (error) {
+    return {
+      ...empty,
+      failures: [
+        `${probeName} could not be written (${error instanceof Error ? error.message : String(error)}), so no exemption path could be driven.`,
+      ],
+    };
+  }
+
+  const files = [...new Set(candidates.map(({ file }) => file))];
+  let stdout;
+
+  try {
+    try {
+      // Diagnostics are the EXPECTED outcome, so the non-zero exit is the
+      // normal path and the thrown error's stdout is the report.
+      stdout = execFileSync(OXLINT_BIN, ["--config", probeName, "--format", "json", ...files], {
+        cwd: root,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      const captured = /** @type {{ stdout?: unknown }} */ (error);
+      stdout = String(captured?.stdout ?? "");
+    }
+
+    let report;
+
+    try {
+      report = JSON.parse(stdout);
+    } catch {
+      return {
+        ...empty,
+        failures: [
+          `oxlint did not emit a JSON report for the stripped probe run, so no exemption path was driven. Output was: ${stdout.slice(0, 400) || "(empty)"}`,
+        ],
+      };
+    }
+
+    const hits = new Set();
+
+    for (const diagnostic of report.diagnostics ?? []) {
+      const code = /^anti-slop\(([a-z0-9-]+)\)$/.exec(String(diagnostic?.code ?? ""));
+
+      if (code === null) continue;
+
+      const filename = String(diagnostic?.filename ?? "");
+
+      for (const { file } of candidates) {
+        if (filename === file || filename.endsWith(`/${file}`)) hits.add(`${file}|${code[1]}`);
+      }
+    }
+
+    const failures = deadEntryVerdicts(candidates, hits);
+
+    return {
+      checked: candidates.length,
+      dead: candidates
+        .filter(({ file, rule }) => !hits.has(`${file}|${rule.replace("anti-slop/", "")}`))
+        .map(({ file }) => file),
+      failures,
+    };
+  } finally {
+    try {
+      rmSync(probePath, { force: true });
+    } catch {
+      // The probe is an untracked helper; a failed delete is reported by the
+      // next stray-file walk, not by this rule.
+    }
+  }
+}
+
+/** The off spellings a resolved rule value takes: `off`, `allow`, `0`, or a severity-led array of those. */
+const OFF_SPELLINGS = new Set(["off", "allow", 0]);
+
+/** Whether a resolved rule value switches the rule off. */
+function isOffValue(value) {
+  if (OFF_SPELLINGS.has(value)) return true;
+
+  return Array.isArray(value) && value.length > 0 && isOffValue(value[0]);
+}
+
+/** Whether an exemption path is a glob rather than an explicit file. */
+function isGlobPath(path) {
+  return /[*?[\]{}]/.test(path);
+}
+
+/**
+ * The tracked config text with its `//` and `/* … *\/` comments removed, for
+ * the stripped probe build. String-aware: a comment opener inside a string
+ * literal (a fence `message` citing a URL) is text, not a comment. Template
+ * substitutions are not descended into; a `/*` inside a regex literal reads as
+ * an opener, the same measured residual the prose-locator comment reader
+ * carries.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+function stripJsonComments(source) {
+  let out = "";
+  let index = 0;
+  let quote = /** @type {string | null} */ (null);
+  const length = source.length;
+
+  while (index < length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (quote !== null) {
+      out += char;
+
+      if (char === "\\") {
+        out += next ?? "";
+        index += 2;
+        continue;
+      }
+
+      if (char === quote) quote = null;
+      index += 1;
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      out += char;
+      index += 1;
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      while (index < length && source[index] !== "\n") index += 1;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      index += 2;
+
+      while (index < length && !(source[index] === "*" && source[index + 1] === "/")) {
+        index += 1;
+      }
+
+      index += 2;
+      continue;
+    }
+
+    out += char;
+    index += 1;
+  }
+
+  return out;
 }

@@ -27,6 +27,7 @@ import {
   writeOnboardingHint,
 } from "~/lib/onboarding/onboarding-hint";
 import { LOCAL_STORAGE_KEY, setLocalStorageItem } from "~/lib/storage/storage";
+import { resolveSetState } from "~/lib/set-state";
 
 /* -----------------------------------------------------------------------------
  * Right-rail slot
@@ -136,12 +137,6 @@ type ShellAction =
   | { type: "setSidebarOpen"; value: SetStateAction<boolean> }
   | { type: "setActiveThread"; value: string }
   | { type: "setThreadViewModel"; value: ShellThreadViewModel | null };
-
-function resolveSetState<T>(current: T, next: SetStateAction<T>): T {
-  // SAFETY: the typeof check proved next is the callable arm of the union;
-  // the assertion restores exactly that arm's signature.
-  return typeof next === "function" ? (next as (current: T) => T)(current) : next;
-}
 
 function createInitialShellState(sidebarMode: "inline" | "overlay"): ShellState {
   return {

@@ -240,7 +240,7 @@ function schemaFieldEntities(schema: z.ZodType<any>): string[] {
 
   const properties = json.properties;
 
-  if (!properties || typeof properties !== "object") return [];
+  if (!properties) return [];
 
   const fieldTokens = Object.keys(properties)
     .flatMap(splitFieldName)

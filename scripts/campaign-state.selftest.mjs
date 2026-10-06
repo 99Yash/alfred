@@ -63,6 +63,7 @@ function run(args, options = {}) {
   const item = JSON.parse(readFileSync(statePath, "utf8")).items[0];
   check("single set phase", item.phase === "review", `phase is ${item.phase}`);
   check("single set round type", item.round === 2, `round is ${JSON.stringify(item.round)}`);
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- test assertion over an unknown state value
   check("single set stamps updatedAt", typeof item.updatedAt === "string", "updatedAt missing");
   check(
     "single set leaves the other item alone",

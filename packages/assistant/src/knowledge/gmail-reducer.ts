@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   canonicalizeIdentityValue,
   getPath,
+  getStringPath,
   gmailEmailMessagePayloadSchema,
   identityRefSchema,
   isRecord,
@@ -201,19 +202,23 @@ function headersFromList(headers: unknown): HeaderLookup {
 function headerOrMetadata(
   headers: HeaderLookup,
   metadata: GmailDocumentMetadata,
-  name: string,
+  name: "from" | "to" | "cc" | "bcc",
 ): string | null {
+  // `bcc` is not a parser-owned metadata field, so it is read as an unknown
+  // legacy key (no writer persists it; `looseObject` would preserve one);
+  // `from`/`to`/`cc` index the typed metadata directly.
+  if (name === "bcc") return headers.get(name) ?? getStringPath(metadata, name) ?? null;
+
   return headers.get(name) ?? normalizeHeader(metadata[name]);
 }
 
-function normalizeHeader(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
+function normalizeHeader(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
 
   return trimmed ? trimmed : null;
 }
 
-function firstNonEmpty(...values: readonly unknown[]): string | null {
+function firstNonEmpty(...values: readonly (string | null | undefined)[]): string | null {
   for (const value of values) {
     const normalized = normalizeHeader(value);
 

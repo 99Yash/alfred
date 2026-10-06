@@ -18,6 +18,9 @@ import { dirname, join } from "node:path";
 import {
   ROOT_OXLINT_CONFIG,
   blanketDisarmFailures,
+  deadEntryVerdicts,
+  mixedTestScopeFailures,
+  offEntryCandidates,
   oxlintScripts,
   restrictedGroupCopyFailures,
   restrictedImportSites,
@@ -1294,6 +1297,255 @@ function crossRuleDisarmMarkerFailures() {
   });
 }
 
+/**
+ * Fixtures for the mixed-scope rule.
+ *
+ * `blanketDisarmFailures` skips any scope covering tests/evals, and the skip
+ * is per-entry: an entry mixing test globs with a non-test glob exempts the
+ * non-test half silently. Every case here asserts the MIX is reported, never
+ * that a pure scope is quiet for the wrong reason.
+ */
+
+/**
+ * A drive: assert the rule reports `count` failure(s), each named substring
+ * appearing in exactly one of them. Asserting on the RENDERED message rather
+ * than on a count alone: a failure fired for the wrong reason reads exactly
+ * like the one being claimed.
+ *
+ * @param {string} label
+ * @param {{overrides: unknown, count: number, contains: string[]}} shape
+ */
+function mixedScopeDrive(label, { overrides, count, contains }) {
+  const failures = mixedTestScopeFailures({ overrides });
+
+  if (failures.length !== count) {
+    return [`${label}: expected ${count} failure(s), received ${JSON.stringify(failures)}`];
+  }
+
+  const mistargeted = [];
+
+  for (const want of contains) {
+    if (failures.filter((failure) => failure.includes(want)).length !== 1) {
+      mistargeted.push(
+        `${label}: expected exactly one failure containing ${JSON.stringify(want)}, received ${JSON.stringify(failures)}`,
+      );
+    }
+  }
+
+  return mistargeted;
+}
+
+/** A pure test/eval scope keeps the blanket-disarm skip and is silent here. */
+function pureTestScopeFailures() {
+  return mixedScopeDrive("a test/eval-only scope is silent", {
+    overrides: [
+      {
+        files: ["**/test/**", "**/*.test.ts", "**/evals/**", "**/*.eval.ts"],
+        rules: { "anti-slop/no-runtime-typeof": "off" },
+      },
+    ],
+    count: 0,
+    contains: [],
+  });
+}
+
+/** A pure product scope is judged by the disarm rule, not by this one. */
+function pureProductScopeFailures() {
+  return mixedScopeDrive("a product-only scope is silent here", {
+    overrides: [
+      {
+        files: ["apps/server/src/scripts/**", "packages/*/src/scripts/**"],
+        rules: { "anti-slop/no-runtime-typeof": "off" },
+      },
+    ],
+    count: 0,
+    contains: [],
+  });
+}
+
+/** The subject: test globs beside a non-test glob in one entry. */
+function mixedGlobScopeFailures() {
+  return mixedScopeDrive("a test glob beside a scripts glob is reported", {
+    overrides: [
+      {
+        files: ["**/test/**", "**/*.test.ts", "**/evals/**", "**/scripts/**"],
+        rules: { "anti-slop/no-unsafe-dictionary-type": "off" },
+      },
+    ],
+    count: 1,
+    contains: ["mixes test/eval globs", "**/scripts/**", "Split the entry"],
+  });
+}
+
+/** A named product path beside a test glob is the same mix, not a narrower one. */
+function mixedPathScopeFailures() {
+  return mixedScopeDrive("a test glob beside a product path is reported", {
+    overrides: [
+      {
+        files: ["**/test/**", "packages/x/src/a.ts"],
+        rules: { "anti-slop/no-runtime-typeof": "off" },
+      },
+    ],
+    count: 1,
+    contains: ["mixes test/eval globs", "packages/x/src/a.ts"],
+  });
+}
+
+/** An override with no `files` applies to the whole repo — judged elsewhere. */
+function repoWideScopeFailures() {
+  return mixedScopeDrive("a file-less override is silent here", {
+    overrides: [{ rules: { "anti-slop/no-runtime-typeof": "off" } }],
+    count: 0,
+    contains: [],
+  });
+}
+
+/** A malformed `overrides` container hides every scoped exemption inside it. */
+function malformedMixedScopeFailures() {
+  const failures = mixedTestScopeFailures({ overrides: { files: [] } });
+
+  return failures.length === 1 && failures[0].includes("rather than an array")
+    ? []
+    : [`a malformed overrides container must be reported, received ${JSON.stringify(failures)}`];
+}
+
+/**
+ * Fixtures for the dead-exemption candidates and verdicts.
+ *
+ * The drive itself (`deadExemptionFailures`) spawns oxlint against a temp
+ * probe config, so no literal can exercise it — but both halves it delegates
+ * to are pure: which (entry, rule, file) triples qualify, and which of those
+ * the observed hits leave without a diagnostic.
+ */
+
+const OFF = "anti-slop/no-runtime-typeof";
+
+/** One off-entry as the resolver reports it. */
+function offEntry(files, rule = OFF) {
+  return { files, rules: { [rule]: "off" } };
+}
+
+function candidateFailures() {
+  const failures = [];
+
+  const check = (label, overrides, expected) => {
+    const { candidates, failures: readerFailures } = offEntryCandidates({ overrides });
+
+    if (readerFailures.length > 0) {
+      failures.push(`${label}: the reader refused (${JSON.stringify(readerFailures)})`);
+
+      return;
+    }
+
+    const got = candidates.map(({ where, rule, file }) => `${where} ${rule} ${file}`);
+
+    if (JSON.stringify(got) !== JSON.stringify(expected)) {
+      failures.push(
+        `${label}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(got)}`,
+      );
+    }
+  };
+
+  // An explicit file list under an anti-slop off is one candidate per file.
+  check(
+    "an explicit file list yields one candidate per file",
+    [offEntry(["fixture-tree/a.ts", "fixture-tree/b.ts"])],
+    [
+      "overrides[0] anti-slop/no-runtime-typeof fixture-tree/a.ts",
+      "overrides[0] anti-slop/no-runtime-typeof fixture-tree/b.ts",
+    ],
+  );
+
+  // A glob entry matches an evolving tree: quiet today says nothing.
+  check("a glob entry yields no candidate", [offEntry(["fixture-tree/**"])], []);
+
+  // A mixed entry is one glob away from evolving: same answer.
+  check(
+    "a glob beside an explicit path yields no candidate",
+    [offEntry(["fixture-tree/a.ts", "fixture-tree/**"])],
+    [],
+  );
+
+  // A file-less entry applies to the whole repo — the blanket-disarm rule's
+  // business, and a whole-tree drive this rule refuses to run.
+  check("a file-less entry yields no candidate", [{ rules: { [OFF]: "off" } }], []);
+
+  // The multi-group fence restates groups rather than switching off.
+  check(
+    "a no-restricted-imports entry yields no candidate",
+    [{ files: ["fixture-tree/a.ts"], rules: { "no-restricted-imports": "off" } }],
+    [],
+  );
+
+  // An armed rule in a scope is not an exemption.
+  check(
+    "an armed rule yields no candidate",
+    [{ files: ["fixture-tree/a.ts"], rules: { [OFF]: ["error", {}] } }],
+    [],
+  );
+
+  // The severity-led array is the same off in another spelling.
+  check(
+    "a severity-led off array yields a candidate",
+    [{ files: ["fixture-tree/a.ts"], rules: { [OFF]: ["off"] } }],
+    ["overrides[0] anti-slop/no-runtime-typeof fixture-tree/a.ts"],
+  );
+
+  // A malformed entry hides its exemption: skipped, like the disarm rule.
+  check("a non-object entry yields no candidate", [7], []);
+
+  const malformed = offEntryCandidates({ overrides: { files: [] } });
+
+  if (malformed.failures.length !== 1 || !malformed.failures[0].includes("rather than an array")) {
+    failures.push(
+      `a malformed overrides container must be refused, received ${JSON.stringify(malformed.failures)}`,
+    );
+  }
+
+  return failures;
+}
+
+function verdictFailures() {
+  const failures = [];
+
+  const candidates = [
+    { where: "overrides[0]", index: 0, rule: OFF, file: "fixture-tree/a.ts" },
+    { where: "overrides[0]", index: 0, rule: OFF, file: "fixture-tree/b.ts" },
+  ];
+
+  // One live path does not vouch for its dead sibling.
+  const partial = deadEntryVerdicts(candidates, new Set(["fixture-tree/a.ts|no-runtime-typeof"]));
+
+  if (partial.length !== 1 || !partial[0].includes("fixture-tree/b.ts")) {
+    failures.push(
+      `a candidate with no hit must be reported while its live sibling stays silent, received ${JSON.stringify(partial)}`,
+    );
+  }
+
+  const allLive = deadEntryVerdicts(
+    candidates,
+    new Set(["fixture-tree/a.ts|no-runtime-typeof", "fixture-tree/b.ts|no-runtime-typeof"]),
+  );
+
+  if (allLive.length !== 0) {
+    failures.push(`candidates with hits must be silent, received ${JSON.stringify(allLive)}`);
+  }
+
+  // A hit for another rule is not a hit for this one.
+  const wrongRule = deadEntryVerdicts(
+    candidates,
+    new Set(["fixture-tree/a.ts|no-unknown-returns"]),
+  );
+
+  if (wrongRule.length !== 2) {
+    failures.push(
+      `a hit under another rule must not credit the candidate, received ${JSON.stringify(wrongRule)}`,
+    );
+  }
+
+  return failures;
+}
+
 /** A malformed `overrides` container hides every scoped exemption inside it. */
 function malformedDisarmsFailures() {
   const result = blanketDisarmFailures({
@@ -1371,6 +1623,14 @@ export function oxlintConfigSelfTestFailures() {
     ...vacuousDisarmMarkerFailures(),
     ...reasonlessDisarmMarkerFailures(),
     ...crossRuleDisarmMarkerFailures(),
+    ...pureTestScopeFailures(),
+    ...pureProductScopeFailures(),
+    ...mixedGlobScopeFailures(),
+    ...mixedPathScopeFailures(),
+    ...repoWideScopeFailures(),
+    ...malformedMixedScopeFailures(),
+    ...candidateFailures(),
+    ...verdictFailures(),
     ...malformedDisarmsFailures(),
     ...emptyDisarmSurfaceFailures(),
   ];

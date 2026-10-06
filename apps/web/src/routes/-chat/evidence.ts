@@ -1,5 +1,6 @@
 import {
   collapseWhitespace,
+  githubSearchResultSchema,
   GOOGLE_WORKSPACE_MIME_PREFIX,
   INTEGRATIONS,
   isToolName,
@@ -11,7 +12,7 @@ import { domainOf } from "~/lib/favicon";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { formatRelative } from "~/lib/strings";
-import { asRecord, asString, parseJsonRecord, type JsonRecord } from "~/lib/json-record";
+import { asRecord, asNumber, asString, parseJsonRecord, type JsonRecord } from "~/lib/json-record";
 import { brandlessToolIcon } from "./animated-tool-icons";
 import { toSource, type Source } from "./sources";
 import type { ToolCallView } from "./tool-call-presentation";
@@ -183,11 +184,6 @@ export interface EntityView {
   facts: EntityFact[];
   /** A short peek at the body (email snippet, issue lede). */
   excerpt?: string | undefined;
-}
-
-/** Read a numeric leaf off a best-effort parsed record. */
-function asNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 /**
@@ -475,9 +471,14 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       arrayKey: "items",
       faviconDomain: INTEGRATIONS.github.domain,
       remaining: (result, shown) => {
-        const total = asNumber(result.totalCount);
+        // `totalCount` is the exact count the search reported; the preview
+        // holds only the first page, so the panel names the rest. A preview
+        // that lost the count (or predates the schema) yields no "+N".
+        const parsed = githubSearchResultSchema.safeParse(result);
 
-        return total && total > shown ? total - shown : undefined;
+        if (!parsed.success) return undefined;
+
+        return parsed.data.totalCount > shown ? parsed.data.totalCount - shown : undefined;
       },
       row: (item) => {
         const title = asString(item.title);

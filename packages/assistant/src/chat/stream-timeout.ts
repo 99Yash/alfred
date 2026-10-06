@@ -12,12 +12,15 @@
  * long, not that anything is broken — so it's recoverable by re-issuing the
  * turn from the unchanged pre-turn transcript. `DOMException` is not an
  * `Error` subclass in Node, so match structurally on `name` rather than
- * `instanceof`.
+ * `instanceof` — `isIndexable` + `Reflect.get`, not a cast.
  *
  * Its own module because both halves of the turn read it: the chat turn's
  * retry branch (recover from it) and `classifyChatFailure` (tag it `timeout`
  * rather than letting the transient-fault net call it `overloaded`).
  */
+
+import { isIndexable } from "@alfred/contracts";
+
 export function isStreamTimeoutAbort(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "name" in err && err.name === "TimeoutError";
+  return isIndexable(err) && Reflect.get(err, "name") === "TimeoutError";
 }

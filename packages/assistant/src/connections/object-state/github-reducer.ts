@@ -2,11 +2,10 @@ import {
   canonicalizeGithubPullRequestUrl,
   canonicalizeGithubTargetId,
   getIdPath,
+  getPath,
   getStringPath,
   isEventTypeForSource,
   isRecord,
-  jsonObjectSchema,
-  type JsonObject,
 } from "@alfred/contracts";
 import type { ObjectStateDelta } from "./store";
 
@@ -70,29 +69,28 @@ export function reduceGithubEvent(
 }
 
 function reducePullRequest(action: string | null, payload: unknown): ObjectStateDelta[] {
-  if (!isRecord(payload)) return [];
-
-  const parsedPr = jsonObjectSchema.safeParse(payload.pull_request);
-
-  if (!parsedPr.success) return [];
-
-  const pr = parsedPr.data;
-
-  const githubId = typeof pr.id === "number" ? pr.id : null;
+  // Boundary reads, the way every sibling reducer reads its own provider body:
+  // `getIdPath` / `getStringPath` off the raw `unknown` payload, so each field
+  // carries its own contract and no parse step can widen the rest back to
+  // `JsonObject`.
+  const githubId = getIdPath(payload, "pull_request", "id");
 
   if (githubId === null) return [];
-  const number = typeof pr.number === "number" ? pr.number : null;
 
-  const nativeState = pullRequestNativeState(action, pr);
+  // GitHub serializes the PR number as a JSON integer. `getIdPath` collapses
+  // either spelling to one string; `Number` restores the integer the URL
+  // canonicalizer takes, and that canonicalizer is what re-checks it is a safe
+  // integer of at least 1.
+  const rawNumber = getIdPath(payload, "pull_request", "number");
+  const number = rawNumber === null ? null : Number(rawNumber);
+  const nativeState = pullRequestNativeState(action, getPath(payload, "pull_request", "merged"));
 
   if (nativeState === null) return [];
 
-  const head = isRecord(pr.head) ? pr.head : null;
-  const headSha = head && typeof head.sha === "string" ? head.sha : null;
-  const headRef = head && typeof head.ref === "string" ? head.ref : null;
-
-  const repo = isRecord(payload.repository) ? payload.repository : null;
-  const repoFullName = repo && typeof repo.full_name === "string" ? repo.full_name : null;
+  const headSha = getStringPath(payload, "pull_request", "head", "sha");
+  const headRef = getStringPath(payload, "pull_request", "head", "ref");
+  const repoFullName = getStringPath(payload, "repository", "full_name");
+  const htmlUrl = getStringPath(payload, "pull_request", "html_url");
 
   const keys: ObjectStateDelta["keys"] = [];
 
@@ -101,8 +99,8 @@ function reducePullRequest(action: string | null, payload: unknown): ObjectState
   const pullRequestUrl =
     repoFullName && number !== null
       ? canonicalizeGithubPullRequestUrl({ repoFullName, number })
-      : typeof pr.html_url === "string"
-        ? canonicalizeGithubPullRequestUrl({ url: pr.html_url })
+      : htmlUrl
+        ? canonicalizeGithubPullRequestUrl({ url: htmlUrl })
         : null;
 
   if (pullRequestUrl) {
@@ -112,16 +110,19 @@ function reducePullRequest(action: string | null, payload: unknown): ObjectState
   return [
     {
       kind: "pull_request",
-      externalId: String(githubId),
+      externalId: githubId,
       nativeState,
       closureSource: "verified_push",
-      title: typeof pr.title === "string" ? pr.title : undefined,
+      title: getStringPath(payload, "pull_request", "title"),
       url: pullRequestUrl ?? undefined,
       repo: repoFullName ?? undefined,
       attributes: {
         ...(headSha ? { head_sha: headSha } : {}),
         ...(headRef ? { head_ref: headRef } : {}),
-        github_id: githubId,
+        // The stored attribute keeps its numeric spelling; only the projection
+        // identity is text. `githubId` is already a validated safe-integer
+        // string, so `Number` is exact.
+        github_id: Number(githubId),
         ...(number !== null ? { number } : {}),
       },
       keys,
@@ -132,7 +133,7 @@ function reducePullRequest(action: string | null, payload: unknown): ObjectState
 /** Collapse the PR `state` + `merged` boolean into one native-state token. */
 function pullRequestNativeState(
   action: string | null,
-  pr: JsonObject,
+  merged: unknown,
 ): "open" | "merged" | "closed" | null {
   switch (action) {
     case "opened":
@@ -140,7 +141,7 @@ function pullRequestNativeState(
     case "synchronize":
       return "open";
     case "closed":
-      return pr.merged === true ? "merged" : "closed";
+      return merged === true ? "merged" : "closed";
     default:
       return null;
   }

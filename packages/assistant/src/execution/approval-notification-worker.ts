@@ -17,6 +17,7 @@ import {
   isQuestionApproval,
   isRecord,
   jsonValueSchema,
+  type JsonValue,
   type ToolName,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -212,7 +213,7 @@ interface RenderApprovalNotificationArgs {
   toolName: ToolName;
   integration: string;
   riskTier: string;
-  displayInput: unknown;
+  displayInput: JsonValue;
   approvalUrl: string;
 }
 
@@ -265,7 +266,7 @@ function approvalDeepLink(stagingId: string): string {
   return `${webOrigin()}/approvals#approval-${encodeURIComponent(stagingId)}`;
 }
 
-function summarizeInput(input: unknown): Array<{ label: string; value: string }> {
+function summarizeInput(input: JsonValue): Array<{ label: string; value: string }> {
   if (!isRecord(input)) {
     return [{ label: "Input", value: truncate(formatValue(input), 500) }];
   }

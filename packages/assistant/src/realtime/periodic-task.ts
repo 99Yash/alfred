@@ -21,7 +21,7 @@
  * shutdown wait could return with a pass still mid-flight and the documented
  * protection did not exist.
  */
-import { toMessage } from "@alfred/contracts";
+import { toMessage, unrefTimer } from "@alfred/contracts";
 
 export interface PeriodicTaskOptions {
   /** Log prefix, e.g. `"outbox-reaper"`. */
@@ -93,7 +93,7 @@ export class PeriodicTask {
     );
 
     // Never hold the process open for a maintenance loop.
-    if (typeof this.#timer === "object" && "unref" in this.#timer) this.#timer.unref();
+    unrefTimer(this.#timer);
   }
 
   /**

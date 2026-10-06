@@ -71,7 +71,7 @@ function encode(bytes: Uint8Array): string {
 
 /** Single-assertion boundary: the sealed envelope is a string at runtime. */
 function toSealedEnvelope(joined: string): SealedCredentialSecret {
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: envelope is a string at runtime but branded as symbol to prevent implicit provider use
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: envelope is a string at runtime but branded as symbol to prevent implicit provider use
   return joined as unknown as SealedCredentialSecret;
 }
 

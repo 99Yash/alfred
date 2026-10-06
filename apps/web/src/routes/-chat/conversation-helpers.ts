@@ -1,3 +1,4 @@
+import { githubSearchResultSchema, gmailSearchResultSchema } from "@alfred/contracts";
 import type { SyncedChatMessage } from "@alfred/sync";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
@@ -100,16 +101,15 @@ function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
   const result = parseJsonRecord(raw);
 
   if (tool.toolName === "github.search") {
-    const totalCount =
-      result && typeof result.totalCount === "number"
-        ? result.totalCount
-        : Number(/"totalCount"\s*:\s*(\d+)/.exec(raw)?.[1] ?? 0);
+    // `resultPreview` is pruned server-side into valid JSON (chat-turn's
+    // `preview()`), so the result schema parses fresh rows. A preview that no
+    // longer parses (a historical row from before the prune fix) yields no
+    // suggestion rather than a regex-mined guess.
+    const parsed = githubSearchResultSchema.safeParse(result);
 
-    const hasRows = result
-      ? Array.isArray(result.items) && result.items.length > 0
-      : /"items"\s*:\s*\[\s*\{/.test(raw);
+    if (!parsed.success) return null;
 
-    if (totalCount <= 0 || !hasRows) return null;
+    if (parsed.data.totalCount <= 0 || parsed.data.items.length === 0) return null;
 
     return { id: "github-pr-list", text: "Show me the matching results.", brand: "github" };
   }
@@ -129,11 +129,13 @@ function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
   }
 
   if (tool.toolName === "gmail.search") {
-    const hasMessages = result
-      ? Array.isArray(result.messages) && result.messages.length > 0
-      : /"messages"\s*:\s*\[\s*\{/.test(raw);
+    // The schema pins the current shape (`query` echo included); the array
+    // fallback keeps historical rows whose preview predates the echo.
+    const parsed = gmailSearchResultSchema.safeParse(result);
+    const fallback = result && Array.isArray(result.messages) ? result.messages : [];
+    const messages = parsed.success ? parsed.data.messages : fallback;
 
-    if (!hasMessages) return null;
+    if (messages.length === 0) return null;
 
     return { id: "gmail-draft-reply", text: "Draft a reply to one of these.", brand: "gmail" };
   }

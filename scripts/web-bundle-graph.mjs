@@ -225,6 +225,7 @@ export function nodeOnlyPackages(root) {
 
     if (dependencies === undefined) continue;
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks parsed package.json dependencies / renders a warning string
     if (dependencies === null || typeof dependencies !== "object" || Array.isArray(dependencies)) {
       failures.push(
         `${workspace.manifest} has a "${DEPENDENCIES}" field that is not an object, so the packages it declares cannot be read into the forbid set.`,
@@ -693,6 +694,7 @@ export async function recordBundleGraph(root) {
             // recorded warning nobody exits on. Record, then delegate.
             onwarn(warning, defaultHandler) {
               graph.warnings.push(
+                // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks parsed package.json dependencies / renders a warning string
                 typeof warning === "string" ? warning : String(warning?.message ?? warning),
               );
               defaultHandler(warning);

@@ -329,6 +329,19 @@ export function locatorProblem(span, context, { packages, listed, topLevelDirs }
  * of source files whose comments are scanned. `allowed` maps `file:\`span\`` to
  * the reason the unresolved locator is honest; an entry with an empty reason, or
  * one that no span matches, is itself a failure.
+ *
+ * `allowed` is typed, not `typeof`-checked: the table is in-repo
+ * (check-prose-locators.mjs owns the only instance), so a non-string reason is
+ * a type error at the call site rather than a runtime branch here. The empty-
+ * reason failure stays, because "exempt but cannot say why" is a prose problem
+ * no type can express.
+ *
+ * @param {object} input
+ * @param {{ file: string, text: string }[]} input.docs
+ * @param {{ file: string, text: string }[]} input.sources
+ * @param {Map<string, { dir: string, keys: Map<string, unknown>, problem: unknown }>} input.packages
+ * @param {Set<string>} input.listed
+ * @param {Map<string, string>} [input.allowed]
  */
 export function proseLocatorFailures({ docs, sources, packages, listed, allowed = new Map() }) {
   const failures = [];
@@ -336,7 +349,7 @@ export function proseLocatorFailures({ docs, sources, packages, listed, allowed 
   let checked = 0;
 
   for (const [key, reason] of allowed) {
-    if (typeof reason !== "string" || reason.trim() === "") {
+    if (reason.trim() === "") {
       failures.push(
         `ALLOWED entry "${key}" has no reason. If you cannot write one, the prose is wrong, not the check.`,
       );

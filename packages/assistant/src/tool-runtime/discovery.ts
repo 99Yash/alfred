@@ -1,4 +1,5 @@
 import {
+  getStringPath,
   isToolName,
   isWriteRiskTier,
   MCP_LIST_TOOLS_MAX_LIMIT,
@@ -590,10 +591,9 @@ function textFromContent(content: unknown): string {
     .flatMap((part) => {
       if (typeof part === "string") return [part];
 
-      if (!part || typeof part !== "object") return [];
-      const text = Reflect.get(part, "text");
+      const text = getStringPath(part, "text");
 
-      return typeof text === "string" ? [text] : [];
+      return text === undefined ? [] : [text];
     })
     .join(" ");
 }
