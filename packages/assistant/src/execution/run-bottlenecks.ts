@@ -32,7 +32,13 @@
  */
 
 import { db } from "@alfred/db";
-import { actionStagings, agentRuns, agentSteps, apiCallLog } from "@alfred/db/schemas";
+import {
+  actionStagings,
+  agentRuns,
+  agentSteps,
+  apiCallLog,
+  type AgentError,
+} from "@alfred/db/schemas";
 import { isParkedAgentStepStatus, isQuestionApproval } from "@alfred/contracts";
 import { asc, eq } from "drizzle-orm";
 
@@ -286,16 +292,7 @@ function toNumber(value: string | number | null): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/**
- * Read the structured `reason` off an `agent_steps.error` jsonb value. The
- * column is untyped `unknown`, so narrow at this boundary rather than casting.
- */
-function extractErrorReason(error: unknown): string | null {
-  if (error && typeof error === "object" && "reason" in error) {
-    const reason = error.reason;
-
-    return typeof reason === "string" ? reason : null;
-  }
-
-  return null;
+/** Read the structured `reason` off an `agent_steps.error` jsonb value. */
+function extractErrorReason(error: AgentError | null): string | null {
+  return error?.reason ?? null;
 }

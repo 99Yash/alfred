@@ -641,7 +641,7 @@ function Disclosure({
   triggerClassName,
   contentClassName,
 }: {
-  title: ReactNode;
+  title: string;
   defaultOpen?: boolean | undefined;
   children: ReactNode;
   triggerClassName?: string | undefined;
@@ -668,7 +668,7 @@ function Disclosure({
                 aria-hidden
                 className="shrink-0 text-gray-700 transition-transform group-data-[state=open]/disclosure:rotate-90"
               />
-              {typeof title === "string" ? <span className="truncate">{title}</span> : title}
+              <span className="truncate">{title}</span>
             </AccordionPrimitive.Trigger>
           </h3>
         </AccordionPrimitive.Header>

@@ -1,8 +1,8 @@
 import {
   calendarListEventsInput,
+  fieldValue,
   toolInputFields,
   toJsonValue,
-  toStringArray,
   type FieldSpec,
   type ToolName,
 } from "@alfred/contracts";
@@ -57,7 +57,7 @@ export function ApprovalInputEditor({
           key={field.key}
           id={`${idPrefix}-${field.key}`}
           field={field}
-          value={record[field.key] ?? field.default}
+          record={record}
           disabled={disabled || field.readOnly}
           onChange={(next) => {
             const updated = { ...record };
@@ -121,13 +121,13 @@ function hasFieldValue(record: JsonRecord, key: CalendarListEventsKey): boolean 
 function EditableField({
   id,
   field,
-  value,
+  record,
   disabled,
   onChange,
 }: {
   id: string;
   field: FieldSpec;
-  value: unknown;
+  record: JsonRecord;
   disabled: boolean | undefined;
   onChange: (value: unknown) => void;
 }) {
@@ -139,7 +139,7 @@ function EditableField({
         </label>
         <AppSwitch
           id={id}
-          checked={value === true}
+          checked={fieldValue(field, record) === true}
           disabled={disabled}
           onCheckedChange={(checked) => onChange(checked)}
         />
@@ -157,7 +157,13 @@ function EditableField({
         {field.label}
       </label>
       <div className="mt-1.5">
-        <FieldControl id={id} field={field} value={value} disabled={disabled} onChange={onChange} />
+        <FieldControl
+          id={id}
+          field={field}
+          record={record}
+          disabled={disabled}
+          onChange={onChange}
+        />
       </div>
     </div>
   );
@@ -166,13 +172,13 @@ function EditableField({
 function FieldControl({
   id,
   field,
-  value,
+  record,
   disabled,
   onChange,
 }: {
   id: string;
   field: FieldControlSpec;
-  value: unknown;
+  record: JsonRecord;
   disabled: boolean | undefined;
   onChange: (value: unknown) => void;
 }) {
@@ -182,7 +188,7 @@ function FieldControl({
         <AppSelect
           id={id}
           label={field.label}
-          value={typeof value === "string" ? value : undefined}
+          value={fieldValue(field, record)}
           onChange={onChange}
           options={field.options}
           clearable={field.optional}
@@ -191,7 +197,9 @@ function FieldControl({
         />
       );
     case "number":
-    case "integer":
+    case "integer": {
+      const numeric = fieldValue(field, record);
+
       return (
         <AppInput
           id={id}
@@ -200,7 +208,7 @@ function FieldControl({
           min={field.min}
           max={field.max}
           step={field.step ?? (field.kind === "integer" ? 1 : undefined)}
-          value={typeof value === "number" && Number.isFinite(value) ? String(value) : ""}
+          value={numeric === undefined ? "" : String(numeric)}
           disabled={disabled}
           onChange={(e) => {
             const next = e.target.value.trim();
@@ -209,11 +217,13 @@ function FieldControl({
           className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
       );
+    }
+
     case "datetime":
       return (
         <AppDateTimePicker
           id={id}
-          value={typeof value === "string" ? value : undefined}
+          value={fieldValue(field, record)}
           onChange={onChange}
           disabled={disabled}
         />
@@ -222,7 +232,7 @@ function FieldControl({
       return (
         <AppTextarea
           id={id}
-          value={toStringArray(value).join("\n")}
+          value={fieldValue(field, record).join("\n")}
           rows={3}
           disabled={disabled}
           placeholder="One per line"
@@ -239,12 +249,19 @@ function FieldControl({
         />
       );
     case "json":
-      return <JsonField id={id} value={value} disabled={disabled} onChange={onChange} />;
+      return (
+        <JsonField
+          id={id}
+          value={fieldValue(field, record)}
+          disabled={disabled}
+          onChange={onChange}
+        />
+      );
     case "textarea":
       return (
         <AppTextarea
           id={id}
-          value={typeof value === "string" ? value : ""}
+          value={fieldValue(field, record) ?? ""}
           rows={3}
           disabled={disabled}
           onChange={(e) => onChange(emptyToUndefined(e.target.value, field.optional))}
@@ -257,7 +274,7 @@ function FieldControl({
         <AppInput
           id={id}
           type={field.kind === "email" ? "email" : "text"}
-          value={typeof value === "string" ? value : value === undefined ? "" : String(value)}
+          value={fieldValue(field, record) ?? ""}
           disabled={disabled}
           onChange={(e) => onChange(emptyToUndefined(e.target.value, field.optional))}
         />

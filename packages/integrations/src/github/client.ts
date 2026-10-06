@@ -175,13 +175,19 @@ export interface IssueDetail {
   body: string;
 }
 
-/** `https://api.github.com/repos/owner/name` → `owner/name`. */
-function repositoryFromUrl(repositoryUrl: unknown): string {
-  if (typeof repositoryUrl !== "string") return "";
+/**
+ * `https://api.github.com/repos/owner/name` → `owner/name`.
+ *
+ * Returns `undefined` when absent or unparseable so each caller supplies its
+ * own fallback once: search has no target context and keeps `""`, while
+ * `getIssue` knows the addressed `${owner}/${repo}`.
+ */
+function repositoryFromUrl(repositoryUrl: string | undefined): string | undefined {
+  if (repositoryUrl === undefined) return undefined;
   const marker = "/repos/";
   const idx = repositoryUrl.indexOf(marker);
 
-  return idx >= 0 ? repositoryUrl.slice(idx + marker.length) : "";
+  return idx >= 0 ? repositoryUrl.slice(idx + marker.length) : undefined;
 }
 
 /**
@@ -304,7 +310,7 @@ export function createGithubClient(options: GithubClientOptions) {
             state: it.state,
             isPullRequest: it.pull_request !== undefined,
             merged: mergedAt !== null,
-            repository: repositoryFromUrl(it.repository_url),
+            repository: repositoryFromUrl(it.repository_url) ?? "",
             createdAt: it.created_at,
             closedAt: it.closed_at,
             mergedAt,
@@ -378,7 +384,7 @@ export function createGithubClient(options: GithubClientOptions) {
         title: issue.title,
         url: issue.html_url,
         state: issue.state,
-        repository: repositoryFromUrl(issue.repository_url) || `${owner}/${repo}`,
+        repository: repositoryFromUrl(issue.repository_url) ?? `${owner}/${repo}`,
         author: issue.user?.login ?? null,
         labels,
         comments: issue.comments ?? 0,

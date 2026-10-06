@@ -144,8 +144,8 @@ diagnostic to notice.
 - `pnpm lint` runs `oxlint --report-unused-disable-directives-severity=error`, so a
   directive that suppresses nothing **fails the build**. If one appears, delete it rather
   than re-narrowing the rule.
-- Two rules are `"off"` across test/eval/script scopes on purpose
-  (`require-safety-comment-for-type-assertion`, `no-unsafe-dictionary-type`): a fixture
+- Three rules are `"off"` across test/eval/ops-scripts scopes on purpose
+  (`no-unsafe-dictionary-type`, `no-unknown-returns`, `no-runtime-typeof`): a fixture
   that casts a hand-built row has no unseen invariant to narrate, so a `SAFETY:` comment
   there would only extract a repeated sentence. **A `SAFETY:` note is still worth
   writing in a test** — as an ordinary comment, not as a directive. That is the one

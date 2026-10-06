@@ -6,6 +6,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
+import { isStateUpdater } from "~/lib/set-state";
 
 /**
  * The page a `pages` artifact is showing, scoped to the artifact it belongs to.
@@ -28,7 +29,7 @@ export function useArtifactPageIndex(
     (action) =>
       setState((previous) => {
         const current = previous.forId === artifactId ? previous.index : 0;
-        const next = typeof action === "function" ? action(current) : action;
+        const next = isStateUpdater(action) ? action(current) : action;
 
         return { forId: artifactId, index: next };
       }),

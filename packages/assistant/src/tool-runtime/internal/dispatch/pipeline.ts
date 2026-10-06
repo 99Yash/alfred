@@ -14,7 +14,7 @@ import type {
 } from "@alfred/contracts";
 import {
   APPROVAL_EXPIRY_MS,
-  getPath,
+  getStringPath,
   hashToolInput,
   hashToolRequest,
   INTEGRATION_ACTIONS,
@@ -1930,29 +1930,33 @@ function validateScratchToolAccess(args: {
   caller: ToolExecuteContext["caller"];
 }): string | null {
   if (args.toolName === "system.read_scratch") {
-    const key = readStringProp(args.input, "key");
+    const key = getStringPath(args.input, "key") ?? null;
     const target = parseScratchAccessKey(key);
 
-    if (typeof target === "string") return target;
+    if (target.error !== null) return target.error;
 
-    if (args.caller !== "boss" && target.zone === "scratch" && target.subId !== args.caller.subId) {
-      return `Sub-agent '${args.caller.subId}' cannot read scratch for '${target.subId}'`;
+    if (
+      args.caller !== "boss" &&
+      target.key.zone === "scratch" &&
+      target.key.subId !== args.caller.subId
+    ) {
+      return `Sub-agent '${args.caller.subId}' cannot read scratch for '${target.key.subId}'`;
     }
 
     return null;
   }
 
   if (args.toolName === "system.write_scratch") {
-    const key = readStringProp(args.input, "key");
+    const key = getStringPath(args.input, "key") ?? null;
     const target = parseScratchAccessKey(key);
 
-    if (typeof target === "string") return target;
+    if (target.error !== null) return target.error;
 
     if (args.caller === "boss") {
-      return target.zone === "shared" ? null : "Boss can only write shared.<path> scratch keys";
+      return target.key.zone === "shared" ? null : "Boss can only write shared.<path> scratch keys";
     }
 
-    return target.zone === "scratch" && target.subId === args.caller.subId
+    return target.key.zone === "scratch" && target.key.subId === args.caller.subId
       ? null
       : `Sub-agent '${args.caller.subId}' can only write scratch.${args.caller.subId}.<path> keys`;
   }
@@ -1961,16 +1965,16 @@ function validateScratchToolAccess(args: {
     // Who may call it is `availability.callers: ["boss"]` on the registration,
     // already enforced at the floor. What remains here is the input-shaped part:
     // which scratch keys a promote may name.
-    const from = parseScratchAccessKey(readStringProp(args.input, "fromKey"));
+    const from = parseScratchAccessKey(getStringPath(args.input, "fromKey") ?? null);
 
-    if (typeof from === "string") return from;
-    const to = parseScratchAccessKey(readStringProp(args.input, "toKey"));
+    if (from.error !== null) return from.error;
+    const to = parseScratchAccessKey(getStringPath(args.input, "toKey") ?? null);
 
-    if (typeof to === "string") return to;
+    if (to.error !== null) return to.error;
 
-    if (from.zone !== "scratch") return "system.promote fromKey must be scratch.<subId>.<path>";
+    if (from.key.zone !== "scratch") return "system.promote fromKey must be scratch.<subId>.<path>";
 
-    if (to.zone !== "shared") return "system.promote toKey must be shared.<path>";
+    if (to.key.zone !== "shared") return "system.promote toKey must be shared.<path>";
 
     return null;
   }
@@ -1978,18 +1982,14 @@ function validateScratchToolAccess(args: {
   return null;
 }
 
-function parseScratchAccessKey(key: string | null): ScratchToolKey | string {
-  if (key === null) return "Scratch key must be a string";
+type ScratchAccessTarget = { key: ScratchToolKey; error: null } | { key: null; error: string };
+
+function parseScratchAccessKey(key: string | null): ScratchAccessTarget {
+  if (key === null) return { key: null, error: "Scratch key must be a string" };
 
   try {
-    return parseScratchToolKey(key);
+    return { key: parseScratchToolKey(key), error: null };
   } catch (err) {
-    return toMessage(err);
+    return { key: null, error: toMessage(err) };
   }
-}
-
-function readStringProp(input: unknown, prop: string): string | null {
-  const value = getPath(input, prop);
-
-  return typeof value === "string" ? value : null;
 }

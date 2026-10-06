@@ -149,10 +149,10 @@ export function captureOutput(args: {
  * the `prompt` string, folding in `instructions` when present. Attached to every
  * call's meta but only emitted when `LANGFUSE_CAPTURE_IO=true`.
  */
-function captureInput(args: { instructions?: unknown; prompt?: unknown; messages?: unknown }) {
+function captureInput(args: Pick<GenerateTextArgs, "instructions" | "prompt" | "messages">) {
   const { instructions, prompt, messages } = args;
 
-  if (Array.isArray(messages)) {
+  if (messages !== undefined) {
     if (typeof instructions === "string") {
       return [{ role: "system", content: instructions }, ...messages];
     }
@@ -345,7 +345,7 @@ export async function meteredGenerateText(
   // namespace alias. Cast through unknown to a callable shape and pin the
   // public return type to <ToolSet, never>, which downstream callers (which
   // never use structured output) can read freely.
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
   return metered(meta, () => generateText(callArgs), ((
     result: GenerateTextResult<ToolSet, never, never>,
   ) =>
@@ -381,7 +381,7 @@ export async function meteredGenerateObject<O>(
   // Omit/spread round trip — TS widens `messages` to `T[] | undefined`. Cast
   // back to the SDK's parameter type so the call type-checks; the original
   // `args` already satisfied the union.
-  /* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
+  /* eslint-disable anti-slop/no-chained-type-assertions */
   const callArgs = {
     ...rest,
     timeout: rest.timeout ?? DEFAULT_LLM_TIMEOUT_MS,
@@ -392,8 +392,8 @@ export async function meteredGenerateObject<O>(
     }),
   } as unknown as Parameters<typeof generateText>[0];
 
-  /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
-  /* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
+  /* eslint-enable anti-slop/no-chained-type-assertions */
+  /* eslint-disable anti-slop/no-chained-type-assertions */
   return (await metered(meta, () => generateText(callArgs), ((
     result: GenerateTextResult<ToolSet, never, never>,
   ) =>
@@ -402,7 +402,7 @@ export async function meteredGenerateObject<O>(
       attribution.cacheWriteTtl,
       rest.model,
     )) as never)) as unknown as Result;
-  /* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
+  /* eslint-enable anti-slop/no-chained-type-assertions */
 }
 
 export type StreamTextArgs = Parameters<typeof streamText>[0];

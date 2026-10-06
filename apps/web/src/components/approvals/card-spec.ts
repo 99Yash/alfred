@@ -1,7 +1,12 @@
-import { humanizeToolName, type JsonObject, type ToolName } from "@alfred/contracts";
+import {
+  calendarCreateEventInput,
+  gmailSendDraftInput,
+  humanizeToolName,
+  type JsonObject,
+  type ToolName,
+} from "@alfred/contracts";
 import { asRecord } from "~/lib/json-record";
 import { capitalize } from "~/lib/strings";
-import { stringArray, stringValue } from "./format";
 
 /**
  * Input-aware card titles. The card *body* (the field layout) is now derived
@@ -17,20 +22,30 @@ const TITLE_OVERRIDES = new Map<ToolName, (input: JsonObject) => string>([
   [
     "gmail.send_draft",
     (input) => {
-      const to = stringArray(input.to);
+      // The input schema's preprocessors fold the model's two habits — a bare
+      // recipient string, a `body` for `bodyText` — before validation, so a
+      // successful parse reads `to` as the string array the title needs. A
+      // failed parse (a staged input the model hasn't finished shaping) falls
+      // back to the generic title rather than guessing off raw leaves.
+      const parsed = gmailSendDraftInput.safeParse(input);
 
-      if (to.length === 0) return "Send a Gmail draft";
-      const rest = to.length > 1 ? ` +${to.length - 1}` : "";
+      if (!parsed.success) return "Send a Gmail draft";
+      const [first, ...rest] = parsed.data.to;
 
-      return `Email ${to[0]}${rest}`;
+      if (!first) return "Send a Gmail draft";
+      const suffix = rest.length > 0 ? ` +${rest.length}` : "";
+
+      return `Email ${first}${suffix}`;
     },
   ],
   [
     "calendar.create_event",
     (input) => {
-      const summary = stringValue(input.summary);
+      const parsed = calendarCreateEventInput.safeParse(input);
 
-      return summary ? `Schedule “${summary}”` : "Create a calendar event";
+      if (!parsed.success) return "Create a calendar event";
+
+      return `Schedule “${parsed.data.summary}”`;
     },
   ],
 ]);

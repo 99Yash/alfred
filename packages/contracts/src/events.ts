@@ -362,7 +362,7 @@ export const EVENT_KINDS =
 
 export const eventFrameSchema = z.object({
   id: z.number().int().positive(),
-  kind: z.custom<EventKind>((value) => typeof value === "string" && isKnownEventKind(value), {
+  kind: z.custom<EventKind>((value) => isKnownEventKind(value), {
     message: "must be a known event kind",
   }),
   payload: z.unknown(),
@@ -371,6 +371,8 @@ export const eventFrameSchema = z.object({
 
 export type EventFrame = z.infer<typeof eventFrameSchema>;
 
-export function isKnownEventKind(value: string): value is EventKind {
-  return Object.prototype.hasOwnProperty.call(eventPayloadSchemas, value);
+export function isKnownEventKind(value: unknown): value is EventKind {
+  return (
+    typeof value === "string" && Object.prototype.hasOwnProperty.call(eventPayloadSchemas, value)
+  );
 }

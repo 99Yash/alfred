@@ -1,6 +1,8 @@
 import {
   boundPassthroughBody,
   canonicalJson,
+  enumGuard,
+  isIndexable,
   isRecord,
   jsonObjectSchema,
   mcpContentKindValues,
@@ -274,7 +276,7 @@ function createSchemaValidator(): McpSchemaValidator {
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
       const declaredSchema = "$schema" in schema ? schema.$schema : undefined;
 
-      if (typeof declaredSchema !== "string") {
+      if (declaredSchema === undefined) {
         return validators.draft2020.getValidator<T>(schema);
       }
 
@@ -769,12 +771,12 @@ export class McpRawClient {
       .callTool(tool, validated.data, options.signal, options.trace)
       .catch((err: unknown) => this.#throwProtocolError(err, generation));
 
-    const isToolError = isRecord(result) && result.isError === true;
+    const isToolError = result.isError === true;
     const outputValidator = this.#outputValidators.get(tool.name);
     let outputSchemaValidated = false;
 
     if (!isToolError && outputValidator) {
-      const structuredContent = isRecord(result) ? result.structuredContent : undefined;
+      const structuredContent = result.structuredContent;
       const output = outputValidator(structuredContent);
 
       if (!output.valid) {
@@ -928,7 +930,7 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "unknown schema error";
 }
 
-const MCP_CONTENT_KINDS: ReadonlySet<string> = new Set(mcpContentKindValues);
+const isMcpContentKind = enumGuard(mcpContentKindValues);
 
 /**
  * Map a content block to its closed census kind. The SDK validates blocks
@@ -936,12 +938,8 @@ const MCP_CONTENT_KINDS: ReadonlySet<string> = new Set(mcpContentKindValues);
  * only ever yields a declared kind; `unknown` is the documented fallback for an
  * untyped or degraded shape, never an open passthrough of the server's string.
  */
-function contentKindOf(block: unknown): McpContentKind {
-  const type = isRecord(block) && typeof block.type === "string" ? block.type : "unknown";
-
-  // SAFETY: the Set membership test above proved type is one of the known
-  // kinds; this narrows the string to that union.
-  return MCP_CONTENT_KINDS.has(type) ? (type as McpContentKind) : "unknown";
+function contentKindOf(block: McpProtocolCallResult["content"][number]): McpContentKind {
+  return isMcpContentKind(block.type) ? block.type : "unknown";
 }
 
 /**
@@ -954,8 +952,7 @@ function resultProvenance(
   result: McpProtocolCallResult,
   facts: { isToolError: boolean; outputSchemaValidated: boolean; truncated: boolean },
 ): McpResultProvenance {
-  const record = isRecord(result) ? result : undefined;
-  const content = record && Array.isArray(record.content) ? record.content : [];
+  const content = result.content;
   const contentKinds: Partial<Record<McpContentKind, number>> = {};
 
   for (const block of content) {
@@ -965,7 +962,7 @@ function resultProvenance(
 
   return {
     isError: facts.isToolError,
-    hasStructuredContent: record ? record.structuredContent !== undefined : false,
+    hasStructuredContent: result.structuredContent !== undefined,
     outputSchemaValidated: facts.outputSchemaValidated,
     contentBlockCount: content.length,
     contentKinds,
@@ -984,7 +981,12 @@ function deepFreeze<T>(value: T): T {
     for (const child of Object.values(value)) deepFreeze(child);
   }
 
-  if (typeof value === "object" && value !== null) Object.freeze(value);
+  // Freeze-any-reference gate (not a record guard): `structuredClone`
+  // preserves Dates and other non-plain references, and the admitted catalog
+  // must be deeply immutable, so everything indexable is frozen even when it
+  // is not a plain JSON record. Recursion above stays `isRecord`-gated
+  // because only plain records and arrays have enumerable JSON children.
+  if (isIndexable(value)) Object.freeze(value);
 
   return value;
 }

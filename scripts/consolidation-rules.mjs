@@ -405,9 +405,52 @@ export const RULES = [
   // ---- hints: canonical helper exists, legacy call sites remain -------------
   {
     id: "hand-rolled-record-guard",
-    re: /typeof\s+(\w+)\s*===\s*["']object["']\s*&&\s*\1\s*!==\s*null/,
+    // Both spellings of the same check, because an author reaches for both:
+    //   - `typeof x === "object" && x !== null` (the positive narrow), and
+    //   - `typeof x !== "object" || x === null` (the negated early-return).
+    // The second used to pass silently — packages/contracts/src/errors.ts:76
+    // (`causeOf`'s `data` read) is the measured escape. The backreference pins
+    // both halves to the same identifier so an unrelated null test on the next
+    // operand does not match across the pair.
+    re: /typeof\s+(\w+)\s*===\s*["']object["']\s*&&\s*\1\s*!==\s*null|typeof\s+(\w+)\s*!==\s*["']object["']\s*\|\|\s*\2\s*===\s*null/,
     severity: "hint",
+    owners: ["packages/contracts/src/guards.ts"],
     fix: "isRecord(x) from @alfred/contracts is this check. Use toRecord(x) if you want a Record or {} back rather than a boolean.",
+  },
+  {
+    id: "hand-rolled-enum-guard",
+    // `(TUPLE as readonly string[]).includes(value)` — the membership-test
+    // boilerplate `enumGuard` in packages/contracts/src/guards.ts exists to
+    // own. The tuple stays the single source of truth (the `typeof
+    // TUPLE[number]` type, a `z.enum(TUPLE)` where parsing is needed, and the
+    // guard are three projections of one declaration); a hand-spelled cast
+    // plus `.includes` at each call site is a fourth spelling nothing keeps in
+    // agreement, and it needs a SAFETY comment because `Set.has` cannot narrow
+    // (see the telemetry `readCauses` pay SAFETY cast this row retires).
+    //
+    // `hint`, not `gate`: three legacy sites remain in files this campaign
+    // does not own (contracts/event-triggers.ts `isEventTypeForSource`,
+    // contracts/tool-schemas.ts `promoteWindowSynonym`, assistant
+    // tool-runtime/internal/registry.ts `registerTool`), and a whole-file
+    // `owners` entry would blind the rule exactly where the next copy will be
+    // written. Promote to `gate` once those three carry `// drift-ok:` markers
+    // or migrate to `enumGuard`.
+    //
+    // `scope: "chain"`: a formatter may split the cast from the `.includes(`
+    // across lines. The span between them admits whitespace only (never `;`),
+    // so it cannot run past the end of the statement into an unrelated
+    // membership test — which is also why the declaration-then-use split
+    // (`const windowValues = … as readonly string[];` …
+    // `windowValues.includes(val)` chapters later) is NOT covered: two
+    // statements are outside any sound span, and widening to reach them would
+    // fence every cast in the file. That shape stays measured residue
+    // alongside the `typeof x === "string" && isKnownX(x)` redundant- prefix
+    // shape (the guard already takes `unknown`) and the bare
+    // `SOME_SET.has(x)`-plus-SAFETY-cast shape, both too broad to fence.
+    re: /as\s+readonly\s+string\s*\[\s*\]\s*\)\s{0,40}?\.includes\s*\(/,
+    scope: "chain",
+    severity: "hint",
+    fix: "Build the guard once with enumGuard(TUPLE) from @alfred/contracts — it narrows `unknown` to `typeof TUPLE[number]` with no cast and no SAFETY comment. The tuple stays the single source of truth; a per-site `(TUPLE as readonly string[]).includes(value)` is a fourth spelling of it.",
   },
   {
     id: "raw-json-parse",

@@ -795,6 +795,43 @@ export const githubSearchInput = withKeyAliases(
     }
   });
 
+/**
+ * `github.search` result shape, mirroring the tool's execute return (exact
+ * `totalCount` plus the matching `items`). Web-visible consumers — follow-up
+ * suggestions, the evidence panel's "+N more" — depend on that pair, so it is
+ * pinned here beside `gmail.search` rather than re-derived per caller.
+ *
+ * Lenient on purpose: `.catchall(z.unknown())` tolerates the producer's
+ * conditional extras (`note` when the index timed out, `incompleteResults`)
+ * and any future field, while the required core (`totalCount`, and each
+ * item's identity fields) is what every search execution always emits — and
+ * what preview pruning never drops (hits carry 10 keys; the tightest prune
+ * tier keeps 16). A pruned or historical preview that lost a core field fails
+ * closed: the consumer shows no count rather than a wrong one.
+ */
+export const githubSearchHitSchema = z
+  .object({
+    number: z.number(),
+    title: z.string(),
+    url: z.string(),
+    state: z.string(),
+    merged: z.boolean(),
+    repository: z.string(),
+  })
+  .catchall(z.unknown());
+
+export type GithubSearchHit = z.infer<typeof githubSearchHitSchema>;
+
+export const githubSearchResultSchema = z
+  .object({
+    totalCount: z.number(),
+    query: z.string().optional(),
+    items: z.array(githubSearchHitSchema),
+  })
+  .catchall(z.unknown());
+
+export type GithubSearchResult = z.infer<typeof githubSearchResultSchema>;
+
 export const githubGetPullRequestInput = withGithubItemUrl(
   "pull_number",
   z
@@ -2184,4 +2221,5 @@ export const TOOL_INPUT_SCHEMAS = {
  */
 export const TOOL_OUTPUT_SCHEMAS = {
   "gmail.search": gmailSearchResultSchema,
+  "github.search": githubSearchResultSchema,
 } satisfies Partial<Record<ToolName, z.ZodType>>;

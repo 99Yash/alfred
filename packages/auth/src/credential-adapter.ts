@@ -79,10 +79,14 @@ function sealWrite<T extends Record<string, unknown>>(payload: T, vault: Credent
  * point of the invariant: a plaintext row means the backfill missed it, and
  * returning it would let the system keep working while quietly holding usable
  * tokens — the exact state this change exists to end.
+ *
+ * Generic over the row (the `sealWrite` pattern above): the rebuild touches
+ * only sealed field values, so the row's own type rides through untouched and
+ * callers are not forced through an `unknown` round-trip.
  */
-function openRow(row: unknown, vault: CredentialVault): unknown {
+function openRow<T>(row: T, vault: CredentialVault): T {
   if (!isRecord(row)) return row;
-  const source = row;
+  const source: Record<string, unknown> = row;
   let opened: Record<string, unknown> | undefined;
 
   for (const field of ACCOUNT_SECRET_FIELDS) {
@@ -94,7 +98,9 @@ function openRow(row: unknown, vault: CredentialVault): unknown {
     opened[field] = vault.open(value);
   }
 
-  return opened ?? row;
+  // SAFETY: opening replaces only sealed field values with plaintext strings;
+  // the record's key structure is untouched, so T's shape holds.
+  return (opened ?? source) as T;
 }
 
 /**
@@ -103,11 +109,15 @@ function openRow(row: unknown, vault: CredentialVault): unknown {
  * named `accessToken`. A blind walk would decrypt — or reject — a coincidental
  * `accessToken` on some unrelated joined model.
  */
-function openJoined(row: unknown, join: unknown, vault: CredentialVault): unknown {
-  if (join === null || typeof join !== "object" || !(ACCOUNT_MODEL in join)) return row;
+function openJoined<T>(
+  row: T,
+  join: Parameters<AuthAdapter["findOne"]>[0]["join"],
+  vault: CredentialVault,
+): T {
+  if (join === undefined || !(ACCOUNT_MODEL in join)) return row;
 
   if (!isRecord(row)) return row;
-  const source = row;
+  const source: Record<string, unknown> = row;
 
   if (!(ACCOUNT_MODEL in source)) return row;
   const joined = source[ACCOUNT_MODEL];
@@ -117,7 +127,9 @@ function openJoined(row: unknown, join: unknown, vault: CredentialVault): unknow
     ? joined.map((entry) => openRow(entry, vault))
     : openRow(joined, vault);
 
-  return Object.assign({}, source, { [ACCOUNT_MODEL]: resolved });
+  // SAFETY: same key-structure-preserving rebuild as `openRow`; only the
+  // account join value is replaced with its opened form.
+  return Object.assign({}, source, { [ACCOUNT_MODEL]: resolved }) as T;
 }
 
 /**

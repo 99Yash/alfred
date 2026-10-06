@@ -9,7 +9,7 @@ import {
   signalParentOfSubAgent,
   STALE_RUN_LEASE_MS,
 } from "./service";
-import { toMessage } from "@alfred/contracts";
+import { toMessage, unrefTimer } from "@alfred/contracts";
 
 /**
  * Heartbeat cadence. Worker bumps `last_checkpoint_at` on the active run
@@ -70,9 +70,7 @@ export async function startAgentWorker(opts: StartAgentWorkerOpts): Promise<void
     void resumeSweep();
   }, RESUME_SWEEP_INTERVAL_MS);
 
-  if (typeof _resumeTimer === "object" && "unref" in _resumeTimer) {
-    _resumeTimer.unref();
-  }
+  unrefTimer(_resumeTimer);
 }
 
 async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
@@ -114,9 +112,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
             });
         }, HEARTBEAT_INTERVAL_MS);
 
-        if (typeof heartbeat === "object" && "unref" in heartbeat) {
-          heartbeat.unref();
-        }
+        unrefTimer(heartbeat);
       },
     });
 

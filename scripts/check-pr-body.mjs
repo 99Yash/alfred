@@ -80,6 +80,7 @@ try {
 // `gh pr view` exits non-zero with no pull request, so reaching here means one was
 // found — but the shape is still `unknown` until it is checked, and a shape this reader
 // does not recognize must not read as an empty body.
+// oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks gh pr view --json output; fails closed
 if (pr === null || typeof pr !== "object" || Array.isArray(pr)) {
   console.error(`${invocation} emitted ${JSON.stringify(pr)} rather than a pull request object.`);
   process.exit(1);
@@ -92,6 +93,7 @@ if (pr.state !== "OPEN") {
   process.exit(0);
 }
 
+// oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks gh pr view --json output; fails closed
 if (typeof pr.body !== "string" || typeof pr.title !== "string") {
   console.error(
     `PR #${pr.number} carries no readable title/body (body is ${JSON.stringify(pr.body)}), so this check would pass over a body nobody examined.`,
