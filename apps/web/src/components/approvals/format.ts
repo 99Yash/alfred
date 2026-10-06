@@ -4,7 +4,7 @@
  * scope and these stay trivially testable.
  */
 
-import { eventTriggerPhrase, humanizeSlug, toStringArray } from "@alfred/contracts";
+import { eventTriggerPhrase, humanizeSlug } from "@alfred/contracts";
 
 export type JsonParseResult = { ok: true; value: unknown } | { ok: false; message: string };
 
@@ -54,18 +54,6 @@ export function parseJson(value: string): JsonParseResult {
 
 export function formatJson(value: unknown): string {
   return JSON.stringify(value ?? {}, null, 2);
-}
-
-export function stringValue(value: unknown): string {
-  if (typeof value === "string") return value;
-
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-
-  return "";
-}
-
-export function stringArray(value: unknown): string[] {
-  return toStringArray(value);
 }
 
 export function shortId(value: string): string {

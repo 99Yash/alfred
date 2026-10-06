@@ -74,6 +74,12 @@ export function repoRoot() {
 /**
  * Validate a manifest value. Pure: returns failure descriptions, touches nothing.
  *
+ * The `typeof` chains below ARE the schema: manifest.json parses to `unknown`
+ * and this function establishes its contract field by field, which is exactly
+ * what the per-site disables beneath name. A zod schema cannot replace them —
+ * zod is not resolvable from scripts/ (no root dependency, no workspace
+ * boundary to import through), so there is no schema step to reach for here.
+ *
  * @param {unknown} value
  * @param {string} root
  * @returns {string[]} Failure descriptions. Empty means valid.
@@ -81,33 +87,40 @@ export function repoRoot() {
 export function validateManifest(value, root) {
   const failures = [];
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest.json parses to unknown; this object check IS the validator (zod unresolvable from scripts/).
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return ["manifest is not an object"];
   }
 
   const m = /** @type {Record<string, unknown>} */ (value);
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
   if (typeof m.id !== "string" || !/^[a-z][a-z0-9-]*$/.test(m.id)) {
     failures.push(`id must be a lowercase slug like "a-834", got ${JSON.stringify(m.id)}`);
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
   if (typeof m.tier !== "string" || !TIERS.has(m.tier)) {
     failures.push(`tier must be one of ${[...TIERS].join(", ")}, got ${JSON.stringify(m.tier)}`);
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
   if (typeof m.title !== "string" || m.title.trim() === "") {
     failures.push("title must be a non-empty string");
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
   if (typeof m.base !== "string" || !/^[0-9a-f]{40}$/.test(m.base)) {
     failures.push(`base must be a full 40-hex commit sha, got ${JSON.stringify(m.base)}`);
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
   if (typeof m.source !== "object" || m.source === null || Array.isArray(m.source)) {
     failures.push("source must be an object");
   } else {
     const source = /** @type {Record<string, unknown>} */ (m.source);
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
     if (typeof source.kind !== "string" || !SOURCE_KINDS.has(source.kind)) {
       failures.push(
         `source.kind must be one of ${[...SOURCE_KINDS].join(", ")}, got ${JSON.stringify(source.kind)}`,
@@ -115,12 +128,14 @@ export function validateManifest(value, root) {
     }
 
     if (source.kind === "pr") {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
       if (typeof source.pr !== "number" || !Number.isInteger(source.pr) || source.pr <= 0) {
         failures.push(
           `source.pr must be a positive integer for a pr task, got ${JSON.stringify(source.pr)}`,
         );
       }
 
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
       if (typeof source.mergedAt !== "string" || source.mergedAt === "") {
         failures.push("source.mergedAt must be a non-empty ISO string for a pr task");
       }
@@ -132,6 +147,7 @@ export function validateManifest(value, root) {
     }
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
   if (typeof m.promptFile !== "string" || m.promptFile === "") {
     failures.push("promptFile must be a non-empty repo-relative path");
   } else if (!existsSync(join(root, m.promptFile))) {
@@ -144,6 +160,7 @@ export function validateManifest(value, root) {
     for (const key of ["testPatch", "goldPatch"]) {
       const patch = m[key];
 
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
       if (typeof patch !== "string" || patch === "") {
         failures.push(`${key} must be a non-empty repo-relative path for tier a`);
         continue;
@@ -181,6 +198,7 @@ export function validateManifest(value, root) {
     const seen = new Set();
 
     for (const file of m.hiddenFiles) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
       if (typeof file !== "string" || file === "") {
         failures.push("hiddenFiles entries must be non-empty strings");
       } else if (seen.has(file)) {
@@ -195,12 +213,14 @@ export function validateManifest(value, root) {
     failures.push("verify must be a non-empty array of shell commands");
   } else {
     for (const command of m.verify) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
       if (typeof command !== "string" || command.trim() === "") {
         failures.push("verify entries must be non-empty shell commands");
       }
     }
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
   if (typeof m.createdAt !== "string" || Number.isNaN(Date.parse(m.createdAt))) {
     failures.push(`createdAt must be an ISO timestamp, got ${JSON.stringify(m.createdAt)}`);
   }

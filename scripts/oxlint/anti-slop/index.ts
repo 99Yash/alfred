@@ -11,17 +11,16 @@ import { noUnknownTypeAliasesRule } from "./rules/no-unknown-type-aliases.ts";
 import { noUnsafeDictionaryTypeRule } from "./rules/no-unsafe-dictionary-type.ts";
 import { noWidenThenAssertRule } from "./rules/no-widen-then-assert.ts";
 import { requireReadableSpacingRule } from "./rules/require-readable-spacing.ts";
-import { requireSafetyCommentForTypeAssertionRule } from "./rules/require-safety-comment-for-type-assertion.ts";
 
 /**
  * The subset of dmmulroy/anti-slop this repo adopts. See ./README.md for the
  * upstream commit, the sync procedure, and the measured reason each excluded
  * rule stayed out.
  *
- * Ten rules are enabled at "error" in .oxlintrc.json (pure ratchets: zero
- * violations at adoption, or driven to zero at warn and promoted — the last
- * by-surface promotion was no-unsafe-dictionary-type). Two rules are enabled
- * at "warn" for paydown. Three
+ * Eleven rules are enabled at "error" in .oxlintrc.json (pure ratchets: zero
+ * violations at adoption, driven to zero at warn and promoted, or promoted
+ * after a by-surface scoping with test/eval, ops-scripts, and honest-boundary
+ * exemptions). Three
  * rules conflict with repo invariants and are NOT registered:
  * - no-conditional-empty-object-spread: conflicts with exactOptionalPropertyTypes
  * - no-unknown-parameters: conflicts with boundary validator pattern
@@ -29,6 +28,10 @@ import { requireSafetyCommentForTypeAssertionRule } from "./rules/require-safety
  * no-shape-in-symbol-names was dropped in #1149 and is NOT registered: a
  * substring ban cannot tell the credential `shape` field from the DayShape
  * domain (see docs/reference/code-style.md).
+ * require-safety-comment-for-type-assertion was removed outright: all 281 of
+ * its violations lived under the test/eval exemption, so it never fired on a
+ * product file — the `SAFETY:` convention it asked for lives on as review
+ * judgment in docs/reference/code-style.md instead of as a rule.
  */
 const antiSlopPlugin = eslintCompatPlugin({
   meta: { name: "anti-slop" },
@@ -44,7 +47,6 @@ const antiSlopPlugin = eslintCompatPlugin({
     "no-unsafe-dictionary-type": noUnsafeDictionaryTypeRule,
     "no-widen-then-assert": noWidenThenAssertRule,
     "require-readable-spacing": requireReadableSpacingRule,
-    "require-safety-comment-for-type-assertion": requireSafetyCommentForTypeAssertionRule,
   },
 });
 

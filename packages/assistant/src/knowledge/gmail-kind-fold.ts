@@ -2,7 +2,6 @@ import {
   USER_MODEL_PROJECTION_NAME,
   getStringPath,
   identityRefSchema,
-  isRecord,
   type EntityKindClassification,
   type IdentityRef,
   type ProjectionCursorValue,
@@ -249,20 +248,13 @@ function ensureAccumulator(
  */
 export function payloadSignalsFromObservation(observation: Observation): GmailPayloadSignals {
   const payload = observation.payload;
-  const headers = isRecord(payload.headers) ? payload.headers : null;
-
-  if (!headers) return {};
 
   return {
-    listId: stringOrNull(headers.listId),
-    listUnsubscribe: stringOrNull(headers.listUnsubscribe),
-    precedence: stringOrNull(headers.precedence),
-    autoSubmitted: stringOrNull(headers.autoSubmitted),
+    listId: getStringPath(payload, "headers", "listId") ?? null,
+    listUnsubscribe: getStringPath(payload, "headers", "listUnsubscribe") ?? null,
+    precedence: getStringPath(payload, "headers", "precedence") ?? null,
+    autoSubmitted: getStringPath(payload, "headers", "autoSubmitted") ?? null,
   };
-}
-
-function stringOrNull(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
 }
 
 /**

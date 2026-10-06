@@ -33,19 +33,13 @@ const MAX_STAGGERED_ROWS = 6;
  * A successful tool result is JSON in almost every case, but the tool returns it
  * minified — one long wrapped line that reads as a wall of text. Re-indent it so
  * the expanded card is scannable. Returns null for anything that isn't a JSON
- * object/array (plain-text results, a bare scalar, or a truncated/sanitized
+ * object (plain-text results, a bare scalar, or a truncated/sanitized
  * preview that no longer parses), so the caller falls back to the raw text.
  */
 function prettyJson(text: string): string | null {
-  try {
-    const parsed: unknown = JSON.parse(text);
+  const record = parseJsonRecord(text);
 
-    if (parsed === null || typeof parsed !== "object") return null;
-
-    return JSON.stringify(parsed, null, 2);
-  } catch {
-    return null;
-  }
+  return record ? JSON.stringify(record, null, 2) : null;
 }
 
 /**

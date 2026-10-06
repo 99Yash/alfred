@@ -7,6 +7,7 @@ import {
 } from "@alfred/ai";
 import type { ChatMessageRole } from "@alfred/db/schemas";
 import { NoObjectGeneratedError } from "ai";
+import { ZodError } from "zod";
 
 import {
   conversationSummarySchema,
@@ -209,9 +210,7 @@ function isSummaryValidationError(error: unknown): boolean {
     return true;
   }
 
-  return (
-    typeof error === "object" && error !== null && "name" in error && error.name === "ZodError"
-  );
+  return error instanceof ZodError;
 }
 
 function conversationSummaryPrompt(evidence: ConversationSummaryEvidence): string {

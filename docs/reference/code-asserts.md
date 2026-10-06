@@ -15,7 +15,7 @@ where to put a new invariant.
 | Chained `as` / angle-bracket asserts | `anti-slop/no-chained-type-assertions` (`error`) |
 | `unknown` in a type alias that leaks to callers | `anti-slop/no-unknown-type-aliases` (`error`), `no-unknown-returns` (`error`) |
 | `typeof` over unparsed wire values instead of boundary parse | `anti-slop/no-runtime-typeof` (`error`) |
-| Type assertions without `SAFETY:` comment | `anti-slop/require-safety-comment-for-type-assertion` (`error`; test/eval scopes exempt) |
+| Type assertions: check first whether the assertion is needed at all | review judgment (see `code-style.md` — the `require-safety-comment-for-type-assertion` rule was removed after measuring 281/281 violations under the test/eval exemption and 0 in product source) |
 | `vi.mock`/`jest.mock` | `anti-slop/no-module-mocking` (`error`) |
 | `Record<string, any>` already covered | `typescript/no-restricted-types` |
 | `process.env.*` outside `serverEnv()` | `scripts/consolidation-rules.mjs` `gate: no-process-env` |
@@ -50,8 +50,11 @@ comes back" is what produces the next 53.
 `.lessons/an-off-in-a-lint-override-disarms-every-pattern-the-rule-carries.md`. For a
 single-rule `anti-slop` override there are no groups to restate, so the cure that
 lesson gives does not apply and the exemption is invisible instead. The rule requires a
-`// oxlint-disarm: <rule> — <why>` comment beside the key, and skips test/eval/script
-scopes, where a blanket `"off"` is the deliberate and correct choice.
+`// oxlint-disarm: <rule> — <why>` comment beside the key, and skips test/eval
+scopes, where a blanket `"off"` is the deliberate and correct choice. The two
+ops-scripts trees (`apps/server/src/scripts`, `packages/*/src/scripts`) carry
+their own disarm markers, and repo-level `scripts/` gates carry per-site
+disables instead of any glob.
 
 It deliberately does **not** report a scope for naming many individual files. The lists
 in this config are heterogeneous by design — a boundary parser, a provider client, a

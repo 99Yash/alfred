@@ -176,7 +176,8 @@ export function buildToolName<I extends IntegrationSlug, A extends ActionSlug<I>
   throw new Error(`Unknown tool name '${name}'`);
 }
 
-export function isToolName(value: string): value is ToolName {
+export function isToolName(value: unknown): value is ToolName {
+  if (typeof value !== "string") return false;
   const separator = value.indexOf(".");
 
   if (separator <= 0 || separator !== value.lastIndexOf(".")) return false;
@@ -209,10 +210,7 @@ export const TOOL_NAMES: readonly ToolName[] = INTEGRATION_SLUGS.flatMap((integr
  * `z.string().refine(…)`) because only `z.custom` carries the narrowed output
  * type through `z.infer`.
  */
-export const toolNameSchema = z.custom<ToolName>(
-  (value) => typeof value === "string" && isToolName(value),
-  "Invalid tool name",
-);
+export const toolNameSchema = z.custom<ToolName>((value) => isToolName(value), "Invalid tool name");
 
 export function hashToolInput(toolName: ToolName, input: unknown): string {
   return `fnv1a64:${fnv1a64(`${toolName}:${canonicalJson(input)}`)}`;

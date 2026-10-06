@@ -864,7 +864,7 @@ function topLevelPropertyNames(schema: z.ZodType<any>): string[] | null {
 
   const properties = json.properties;
 
-  return properties && typeof properties === "object" ? Object.keys(properties) : null;
+  return properties ? Object.keys(properties) : null;
 }
 
 export function registerTools(tools: readonly RegisteredTool[]): void {

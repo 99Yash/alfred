@@ -28,6 +28,7 @@ import {
   type McpCallInput,
   type McpEffectClass,
   type McpResultProvenance,
+  unrefTimer,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { requireRow, runAtomic } from "@alfred/db/helpers";
@@ -934,7 +935,7 @@ export class McpExecutionBroker {
 
     // The drain must never hold the process open: boot covers whatever a
     // shutdown leaves behind.
-    if (typeof timer === "object" && "unref" in timer) timer.unref();
+    unrefTimer(timer);
     this.#repairDrainTimer = timer;
   }
 

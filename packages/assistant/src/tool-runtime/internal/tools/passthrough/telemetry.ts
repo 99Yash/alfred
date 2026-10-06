@@ -15,7 +15,12 @@
  * non-truncated result returns `null` and emits nothing.
  */
 
-import { integrationFromToolName, isRecord, type PassthroughTruncation } from "@alfred/contracts";
+import {
+  enumGuard,
+  integrationFromToolName,
+  isRecord,
+  type PassthroughTruncation,
+} from "@alfred/contracts";
 
 /**
  * The structured thermometer signal folded onto the tool span's metadata and
@@ -42,7 +47,9 @@ export interface PassthroughTruncationTelemetry {
   causes: PassthroughTruncation["causes"];
 }
 
-const TRUNCATION_CAUSE_KINDS = new Set(["string_chars", "array_items", "body_bytes"]);
+const TRUNCATION_CAUSE_KINDS = ["string_chars", "array_items", "body_bytes"] as const;
+
+const isTruncationCauseKind = enumGuard(TRUNCATION_CAUSE_KINDS);
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -57,12 +64,10 @@ function readCauses(value: unknown): PassthroughTruncation["causes"] {
     if (!isRecord(entry)) continue;
     const { kind, droppedApprox } = entry;
 
-    if (typeof kind !== "string" || !TRUNCATION_CAUSE_KINDS.has(kind)) continue;
+    if (!isTruncationCauseKind(kind)) continue;
 
     if (!isFiniteNumber(droppedApprox)) continue;
-    // SAFETY: kind was proven a member of TRUNCATION_CAUSE_KINDS and
-    // droppedApprox finite above; together they are exactly this union member.
-    causes.push({ kind, droppedApprox } as PassthroughTruncation["causes"][number]);
+    causes.push({ kind, droppedApprox });
   }
 
   return causes;

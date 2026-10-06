@@ -182,8 +182,8 @@ function deepenUserPrompt(args: DeepenTriageArgs): string {
   return lines.join("\n");
 }
 
-function appendStringMeta(lines: string[], label: string, value: unknown): void {
-  if (typeof value === "string" && value.trim()) {
+function appendStringMeta(lines: string[], label: string, value: string | null | undefined): void {
+  if (value?.trim()) {
     lines.push(`${label}: ${value}`);
   }
 }

@@ -1,4 +1,5 @@
 import {
+  isRecord,
   retrievalSourceManifestSchema,
   sourceManifestDeclaresMediaKind,
   sourceManifestExpansionKinds,
@@ -409,7 +410,7 @@ function deepFreezeValue(value: unknown): void {
     return;
   }
 
-  if (typeof value === "object" && value !== null) {
+  if (isRecord(value)) {
     for (const entry of Object.values(value)) deepFreezeValue(entry);
 
     Object.freeze(value);

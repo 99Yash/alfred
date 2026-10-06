@@ -123,6 +123,7 @@ for (const id of ["a-834", "c-contracts-slack-action"]) {
     const { manifest } = readManifest(root, id);
     expect(manifest.id === id, `seed ${id} reads back`);
     expect(manifest.tier === "a" || manifest.tier === "c", `seed ${id} has a known tier`);
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- test assertion over an unknown manifest value
     expect(typeof manifest.verify[0] === "string", `seed ${id} has a verify command`);
   } catch (error) {
     failures += 1;
