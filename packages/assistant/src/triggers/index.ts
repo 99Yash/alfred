@@ -179,12 +179,9 @@ function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unkno
 export const domainEventSchema = z
   .object({
     ...domainEventIdentityShape,
-    source: z.custom<EventSource>(
-      (value) => typeof value === "string" && isEventSource(value),
-      "Unknown event source",
-    ),
+    source: z.custom<EventSource>(isEventSource, "Unknown event source"),
     type: z.custom<EventType | RawReceiptType>(
-      (value) => typeof value === "string" && (isEventType(value) || isRawEventType(value)),
+      (value) => isEventType(value) || (typeof value === "string" && isRawEventType(value)),
       "Unknown event type",
     ),
     /** The provider's own kind of a raw event; present exactly when `type` is `raw`. */

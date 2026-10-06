@@ -135,6 +135,7 @@ export function resolvedExclude(tscBinary, root, projectPath) {
     return { exclude: [], problem: `tsc printed no readable config for ${projectPath}` };
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- guards child-process stdout / parsed baseline JSON
   if (typeof parsed !== "object" || parsed === null) {
     return { exclude: [], problem: `tsc printed no readable config for ${projectPath}` };
   }
@@ -143,6 +144,7 @@ export function resolvedExclude(tscBinary, root, projectPath) {
 
   if (raw === undefined) return { exclude: [], problem: null };
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- guards child-process stdout / parsed baseline JSON
   if (!Array.isArray(raw) || raw.some((entry) => typeof entry !== "string")) {
     return {
       exclude: [],
@@ -273,6 +275,7 @@ function runTsc(tscBinary, root, args) {
   } catch (error) {
     const partial = /** @type {{stdout?: unknown}} */ (error).stdout;
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- guards child-process stdout / parsed baseline JSON
     return typeof partial === "string" ? partial : "";
   }
 }

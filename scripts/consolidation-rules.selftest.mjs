@@ -80,12 +80,14 @@ const TEST_TREE_FILE = "packages/assistant/test/flags.behavior.test.ts";
 const KNOWLEDGE_OWNER_FILE = "packages/assistant/src/knowledge/entity-kind-classifier.ts";
 
 /**
- * @type {{name: string, caught: boolean, code: string, file?: string, rule?: string}[]} `file`
+ * @type {{name: string, caught: boolean, code: string, file?: string, rule?: string, lanes?: "gate"|"all"}[]} `file`
  *   defaults to {@link FILE}; name it only when the rule under test scopes on the
  *   path. `rule` names the rule id that must fire: `selfTestFailures` asserts the
  *   match attributes to it, so a dead row cannot hide behind another rule's
  *   match (a-green-lint-run-cannot-tell-an-armed-fence-from-a-dead-one).
  *   Optional so older fixtures keep today's behavior; item 47 generalizes this.
+ *   `lanes` defaults to `"gate"`; a `hint` row needs `"all"`, because a hint
+ *   never fires in the gate lane `pnpm check` enforces.
  */
 const CASES = [
   {
@@ -720,6 +722,44 @@ switch (resultCategory) {
     code: String.raw`  const collapsed = content.replace(/\s+/g, " ").trim();`,
     file: KNOWLEDGE_OWNER_FILE,
   },
+  {
+    // `hand-rolled-enum-guard` fences the `(TUPLE as readonly string[]).includes`
+    // boilerplate `enumGuard` owns. `lanes: "all"` because the row is a hint.
+    name: "hand-rolled-enum-guard — the cast-plus-includes membership test",
+    rule: "hand-rolled-enum-guard",
+    lanes: "all",
+    caught: true,
+    file: "packages/contracts/src/event-triggers.ts",
+    code: `  return (EVENT_SOURCE_ENTRIES[source].eventTypes as readonly string[]).includes(value);`,
+  },
+  {
+    name: "hand-rolled-enum-guard — the formatter-split cast still matches (why the rule is chain scope)",
+    rule: "hand-rolled-enum-guard",
+    lanes: "all",
+    caught: true,
+    code: `  return (EVENT_TYPES as readonly string[])
+    .includes(value);`,
+  },
+  {
+    name: "hand-rolled-enum-guard — the guard built once with enumGuard is the intended form",
+    lanes: "all",
+    caught: false,
+    code: `  if (!isTruncationCauseKind(kind)) continue;`,
+  },
+  {
+    name: "hand-rolled-enum-guard — a z.enum over the tuple is a declaration, not a membership test",
+    lanes: "all",
+    caught: false,
+    code: `    reason: z.enum(GMAIL_MESSAGE_EVENT_REASONS).optional(),`,
+  },
+  {
+    // The documented residue, locked: a cast stored to a binding chapters
+    // before the `.includes` is two statements, outside any sound span.
+    name: "hand-rolled-enum-guard — a cast bound chapters before its includes is outside the span",
+    lanes: "all",
+    caught: false,
+    code: `  const windowValues = CALENDAR_WINDOW_VALUES as readonly string[];`,
+  },
 ];
 
 // Line-scope fixtures. `boot-error-plain-extends` is a per-line rule, so it is
@@ -738,7 +778,7 @@ const LINE_FILE = "packages/assistant/src/connections/ingestion/chat-media.ts";
 const OBJECT_STATE_FILE = "packages/assistant/src/connections/object-state/store.ts";
 
 /**
- * @type {{name: string, caught: boolean, code: string, file?: string, rule?: string}[]} `file`
+ * @type {{name: string, caught: boolean, code: string, file?: string, rule?: string, lanes?: "gate"|"all"}[]} `file`
  *   defaults to {@link LINE_FILE}, as in {@link CASES}.
  */
 const LINE_CASES = [
@@ -915,14 +955,46 @@ const LINE_CASES = [
     caught: false,
     code: ` * declaring \`closesAskFrom: "live_confirmation"\` needs a read taken at the`,
   },
+  {
+    // `hand-rolled-record-guard` covers both spellings. The negated early-return
+    // used to pass silently (errors.ts `causeOf`); the positive narrow is the
+    // regression guard on the alternation itself. `lanes: "all"` because the row
+    // is a hint — it never fires in the gate lane.
+    name: "hand-rolled-record-guard — the negated early-return spelling (the errors.ts:76 escape)",
+    caught: true,
+    rule: "hand-rolled-record-guard",
+    lanes: "all",
+    file: "packages/contracts/src/errors.ts",
+    code: `  if (typeof data !== "object" || data === null) return undefined;`,
+  },
+  {
+    name: "hand-rolled-record-guard — the positive narrow spelling",
+    caught: true,
+    rule: "hand-rolled-record-guard",
+    lanes: "all",
+    code: `  if (typeof payload === "object" && payload !== null) return payload;`,
+  },
+  {
+    name: "hand-rolled-record-guard — the helper's own definition owns the spelling",
+    caught: false,
+    lanes: "all",
+    file: "packages/contracts/src/guards.ts",
+    code: `  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;`,
+  },
+  {
+    name: "hand-rolled-record-guard — the backreference pins both halves to one identifier",
+    caught: false,
+    lanes: "all",
+    code: `  if (typeof head !== "object" || prev === null) return head;`,
+  },
 ];
 
 /** @returns {string[]} One message per failed fixture; empty when all pass. */
 export function selfTestFailures() {
   const failures = registryUnionFailures();
 
-  for (const { name, caught, code, file, rule } of CASES) {
-    const hits = matchChains(code, file ?? FILE, "gate");
+  for (const { name, caught, code, file, rule, lanes } of CASES) {
+    const hits = matchChains(code, file ?? FILE, lanes ?? "gate");
 
     if (hits.length > 0 !== caught) {
       failures.push(
@@ -941,8 +1013,10 @@ export function selfTestFailures() {
     }
   }
 
-  for (const { name, caught, code, file, rule } of LINE_CASES) {
-    const hits = code.split("\n").flatMap((line) => matchLine(line, file ?? LINE_FILE, "gate"));
+  for (const { name, caught, code, file, rule, lanes } of LINE_CASES) {
+    const hits = code
+      .split("\n")
+      .flatMap((line) => matchLine(line, file ?? LINE_FILE, lanes ?? "gate"));
 
     if (hits.length > 0 !== caught) {
       failures.push(

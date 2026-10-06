@@ -56,16 +56,26 @@ export const AppThemeContext = createContext<AppThemeContextValue | null>(null);
 
 const STORAGE_KEY = "app-theme";
 
+const DARK_QUERY = "(prefers-color-scheme: dark)";
+
+/**
+ * The `window.matchMedia` capability probe both theme readers share. Returns
+ * `null` when there is no window (SSR) or no `matchMedia`, so each reader
+ * states its own fallback instead of repeating the probe.
+ */
+function safeMatchMedia(query: string): MediaQueryList | null {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return null;
+
+  return window.matchMedia(query);
+}
+
 function readPersistedMode(): AppThemeMode {
   return getLocalStorageItem(STORAGE_KEY);
 }
 
 function getSystemPreference(): AppResolvedTheme {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return "dark"; // Alfred defaults to dark when nothing is detectable
-  }
-
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  // Alfred defaults to dark when nothing is detectable.
+  return safeMatchMedia(DARK_QUERY)?.matches === false ? "light" : "dark";
 }
 
 export function AppThemeProvider({ children }: { children: ReactNode }) {
@@ -74,8 +84,9 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
 
   // Track changes to the OS preference while the component is mounted.
   useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+    const mql = safeMatchMedia(DARK_QUERY);
+
+    if (!mql) return;
     const handler = (e: MediaQueryListEvent) => setSystemPref(e.matches ? "dark" : "light");
     mql.addEventListener("change", handler);
 

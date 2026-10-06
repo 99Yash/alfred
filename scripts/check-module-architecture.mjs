@@ -867,6 +867,7 @@ function ratchetList(root, path) {
   let value = root;
 
   for (const key of path.split(".")) {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks a parsed tsconfig/manifest structure; the parsed config is the untrusted value
     if (value === null || typeof value !== "object") return undefined;
     value = value[key];
   }
@@ -1352,6 +1353,7 @@ function baselineRatchetFaults(parsed) {
 
     const index = declared.findIndex(
       (component) =>
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks a parsed tsconfig/manifest structure; the parsed config is the untrusted value
         !Array.isArray(component) || component.some((node) => typeof node !== "string"),
     );
 
@@ -1370,9 +1372,11 @@ function baselineRatchetFaults(parsed) {
       continue;
     }
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks a parsed tsconfig/manifest structure; the parsed config is the untrusted value
     const index = value.findIndex((entry) => typeof entry !== "string");
 
     if (index !== -1) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks a parsed tsconfig/manifest structure; the parsed config is the untrusted value
       faults.push(`${ratchet.path}[${index}] is ${typeof value[index]}, not a string`);
       continue;
     }
@@ -2336,6 +2340,7 @@ const text = 'import "ignored-string"';
   const documentArrayPaths = (value, prefix = "") => {
     if (Array.isArray(value)) return [prefix];
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks a parsed tsconfig/manifest structure; the parsed config is the untrusted value
     if (value === null || typeof value !== "object") return [];
 
     return Object.entries(value).flatMap(([key, child]) =>
@@ -2955,6 +2960,7 @@ const aliasedPort = make("aliased");
 
   if (absentScan.compositionSources.length > 0 || absentScan.manifestSource !== null) {
     failures.push(
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks a parsed tsconfig/manifest structure; the parsed config is the untrusted value
       `runtime-adapter collector self-test mismatch: expected an absent root to yield no sources and a null manifest, received ${absentScan.compositionSources.length} sources and manifestSource=${typeof absentScan.manifestSource}`,
     );
   }
@@ -2982,6 +2988,7 @@ const aliasedPort = make("aliased");
     discoveredCompositionScan.manifestSource === null
   ) {
     failures.push(
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks a parsed tsconfig/manifest structure; the parsed config is the untrusted value
       `runtime-adapter discovery self-test mismatch: ${relativeToRoot(RUNTIME_ADAPTER_ROOT)} yielded ${discoveredCompositionScan.compositionSources.length} scanned files and manifestSource=${typeof discoveredCompositionScan.manifestSource}, so the runtime-adapter rule enforces nothing — update RUNTIME_ADAPTER_ROOT/RUNTIME_ADAPTER_MANIFEST or delete the rule that reads them`,
     );
   }

@@ -133,10 +133,6 @@ const PROBES = {
     snippet: `export const first = 1;\nexport const second = 2;\n`,
     severity: "error",
   },
-  "require-safety-comment-for-type-assertion": {
-    snippet: `export const userId = value as UserId;\n`,
-    severity: "error",
-  },
 };
 
 // The control. Linted alongside the probes so "every probe reported its rule"
@@ -159,6 +155,7 @@ const failures = [];
 function capturedStdout(error) {
   const stdout = /** @type {{ stdout?: unknown }} */ (error).stdout;
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- normalizes exec-error stdout; the shape read IS the boundary parse
   return typeof stdout === "string" ? stdout : "";
 }
 

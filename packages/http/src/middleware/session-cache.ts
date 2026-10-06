@@ -1,4 +1,5 @@
 import { auth } from "@alfred/auth";
+import { unrefTimer } from "@alfred/contracts";
 
 type Session = Awaited<ReturnType<ReturnType<typeof auth>["api"]["getSession"]>>;
 
@@ -30,8 +31,7 @@ const sweepTimer = setInterval(() => {
   }
 }, 60_000);
 
-// eslint-disable-next-line anti-slop/no-runtime-typeof -- platform capability check: Node's setInterval returns an object with unref, browsers return a number; not domain parsing
-if (typeof sweepTimer === "object" && "unref" in sweepTimer) sweepTimer.unref();
+unrefTimer(sweepTimer);
 
 const SESSION_COOKIE_NAMES = new Set([
   "better-auth.session_token",

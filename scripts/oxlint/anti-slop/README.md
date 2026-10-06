@@ -33,33 +33,34 @@ copy we own, not a dependency we track.
 
 ## What is enforced
 
-**Ten rules at `error`** — ratchets with zero violations in the tree:
+**Twelve rules at `error`** — ratchets with zero violations in the tree:
 
-| Rule                                        | What it rejects                                                         |
-| ------------------------------------------- | ----------------------------------------------------------------------- |
-| `no-module-mocking`                         | `vi.mock` / `jest.mock` and friends, in favor of real seams             |
-| `no-reflect-apply`                          | `Reflect.apply`, in favor of a typed call                               |
-| `no-widen-then-assert`                      | widening a known value to `unknown` and asserting it back               |
-| `no-object-parameters`                      | `object` type on function inputs                                        |
-| `no-chained-type-assertions`                | nested `as` / angle-bracket assertions                                  |
-| `no-known-value-widening`                   | broadening known literal types to `Record<string, T>`                   |
-| `no-unknown-type-aliases`                   | type aliases that resolve to `unknown`                                  |
-| `require-readable-spacing`                  | missing blank lines between declarations and statement groups (autofix) |
-| `require-safety-comment-for-type-assertion` | type assertions without a nearby `SAFETY:` comment                      |
-| `no-unsafe-dictionary-type`                 | `Record<string, unknown>` and equivalents                               |
+| Rule                         | What it rejects                                                         |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| `no-module-mocking`          | `vi.mock` / `jest.mock` and friends, in favor of real seams             |
+| `no-reflect-apply`           | `Reflect.apply`, in favor of a typed call                               |
+| `no-widen-then-assert`       | widening a known value to `unknown` and asserting it back               |
+| `no-object-parameters`       | `object` type on function inputs                                        |
+| `no-chained-type-assertions` | nested `as` / angle-bracket assertions                                  |
+| `no-known-value-widening`    | broadening known literal types to `Record<string, T>`                   |
+| `no-unknown-type-aliases`    | type aliases that resolve to `unknown`                                  |
+| `require-readable-spacing`   | missing blank lines between declarations and statement groups (autofix) |
+| `no-unsafe-dictionary-type`  | `Record<string, unknown>` and equivalents                               |
+| `no-runtime-typeof`          | runtime `typeof` checks instead of boundary parsing                     |
+| `no-unknown-returns`         | functions returning `unknown`                                           |
 
-All but `require-readable-spacing` and
-`require-safety-comment-for-type-assertion` were adopted at warn with violations
+All but `require-readable-spacing` were adopted at warn with violations
 and driven to zero before promotion (`no-chained-type-assertions`: 46 → 0;
 `no-known-value-widening`: 290 → 0; `no-unknown-type-aliases` was clean on arrival
 and never had any).
 
-`require-safety-comment-for-type-assertion` is the first rule promoted after a
-by-surface scoping rather than a whole-tree paydown. Its product-source sites
-(12 at promotion) were driven to zero and the test, eval and test-support scopes
-are exempted by an `overrides` entry in `.oxlintrc.json`, because a fixture that
-casts a hand-built row to feed a seam has no unseen invariant to narrate. The
-promotion bar and the measured split are recorded in
+`require-safety-comment-for-type-assertion` was removed outright after measuring
+281 violations in the tree with all 281 under the test/eval exemption and 0 in
+product source: a rule enforced on zero files is worse than no rule, because it
+reads as a live invariant while protecting nothing. The `SAFETY:` convention it
+asked for lives on as review judgment (`docs/reference/code-style.md`), and the
+rule's history — the first promotion after a by-surface scoping, 12
+product-source sites driven to zero — stays recorded in
 `docs/research/anti-slop-paydown-2026-09-12.md`.
 
 `no-unsafe-dictionary-type` is the second rule promoted after a by-surface
@@ -81,18 +82,9 @@ takes no options; the vendored source is the policy. The padding engine is the
 ESLint Stylistic `padding-line-between-statements` rule, vendored under
 `vendor/eslint-stylistic/` with its own license and provenance.
 
-**Two rules at `warn`** — paydown rules with live violations (counts as of
-2026-09-18):
-
-| Rule                 | Violations | What it rejects                                     |
-| -------------------- | ---------- | --------------------------------------------------- |
-| `no-runtime-typeof`  | ~357       | runtime `typeof` checks instead of boundary parsing |
-| `no-unknown-returns` | ~94        | functions returning `unknown`                       |
-
 `no-runtime-typeof` runs with `{ "allowInTypeGuards": true }` (see
 `.oxlintrc.json`), so a `typeof` check inside a `value is T` predicate does not
-report. Counts drift with paydown; regenerate with
-`pnpm exec oxlint --format json . | grep -o 'anti-slop([^)]*)' | sort | uniq -c`.
+report.
 
 `pnpm check:oxlint-plugin` holds all of that together: it runs the upstream
 fixtures, asserts every vendored rule is registered here, and DRIVES each rule

@@ -146,6 +146,7 @@ export function listWorkspaces(root) {
     try {
       const parsed = JSON.parse(readFileSync(join(root, manifest), "utf8"));
 
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks a parsed workspace manifest
       if (parsed !== null && typeof parsed === "object" && typeof parsed.name === "string") {
         name = parsed.name;
       }

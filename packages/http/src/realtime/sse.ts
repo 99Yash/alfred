@@ -14,7 +14,7 @@
  * replace `Content-Type` or diverge on the proxy-buffering posture below.
  */
 
-import { toMessage } from "@alfred/contracts";
+import { toMessage, unrefTimer } from "@alfred/contracts";
 import type { EventKind } from "@alfred/contracts/events";
 
 /** How often a stream writes a comment frame to keep the connection warm. */
@@ -214,10 +214,7 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
         write(": heartbeat\n\n");
       }, HEARTBEAT_INTERVAL_MS);
 
-      // eslint-disable-next-line anti-slop/no-runtime-typeof -- platform capability check: Node's setInterval returns an object with unref, browsers return a number; not domain parsing
-      if (typeof heartbeat === "object" && "unref" in heartbeat) {
-        heartbeat.unref();
-      }
+      unrefTimer(heartbeat);
 
       const runTeardown = () => {
         if (tornDown) return;

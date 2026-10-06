@@ -49,6 +49,7 @@ export function exportTargets(exportsValue) {
 
   if (
     exportsValue !== null &&
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- shape-checks the exports map of a parsed package.json; no schema exists for it
     typeof exportsValue === "object" &&
     !Array.isArray(exportsValue) &&
     Object.keys(exportsValue).length === 0
@@ -68,6 +69,7 @@ export function exportTargets(exportsValue) {
 }
 
 function isSubpathMap(value) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- shape-checks the exports map of a parsed package.json; no schema exists for it
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const keys = Object.keys(value);
 
@@ -81,6 +83,7 @@ function visitConditions(value, subpath, targets, failures) {
     return;
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- shape-checks the exports map of a parsed package.json; no schema exists for it
   if (typeof value === "string") {
     targets.push({ subpath, target: value, kind: "target" });
 
@@ -101,6 +104,7 @@ function visitConditions(value, subpath, targets, failures) {
     return;
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- shape-checks the exports map of a parsed package.json; no schema exists for it
   if (typeof value === "object") {
     const keys = Object.keys(value);
 
@@ -226,6 +230,7 @@ export function packageExportsFailures(root) {
       continue;
     }
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- shape-checks the exports map of a parsed package.json; no schema exists for it
     if (parsed === null || typeof parsed !== "object" || !("exports" in parsed)) continue;
     mapped += 1;
 
@@ -362,6 +367,7 @@ export function workspaceExportIndex(root) {
       continue;
     }
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- shape-checks the exports map of a parsed package.json; no schema exists for it
     if (parsed === null || typeof parsed !== "object" || !("exports" in parsed)) {
       packages.set(name, { dir, keys: new Map(), problem: `${name} declares no exports map` });
       continue;

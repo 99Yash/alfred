@@ -21,7 +21,7 @@
     // The vendored anti-slop rules (scripts/oxlint/anti-slop/, see its README for the
     // upstream commits and for the upstream rules this repo does not vendor).
     //
-    // Twelve rules at `error`. Each was either adopted clean (zero violations on arrival,
+    // Eleven rules at `error`. Each was either adopted clean (zero violations on arrival,
     // so it can only fire on code written after adoption) or driven to zero at warn and
     // promoted here. That is also the bar for registering a new rule — a rule the tree
     // already violates belongs in its own change, violations first, rule second.
@@ -29,12 +29,13 @@
     // whitespace-only `--fix` across the tree to zero, so the diff added blank lines
     // and nothing else.
     // Four rules were promoted after a by-surface scoping: product source was
-    // driven to zero and the test/eval/script scopes, plus named
+    // driven to zero and the test/eval scopes, the two ops-scripts trees
+    // (apps/server/src/scripts, packages/*/src/scripts), plus named
     // honest-boundary files where the flagged spelling IS the boundary parse,
-    // are exempted by "overrides" entries at the bottom of this file. See
+    // are exempted by "overrides" entries at the bottom of this file. Repo-level
+    // scripts/ gates are NOT exempt — each carries its own per-site disable. See
     // docs/research/anti-slop-paydown-2026-09-12.md for the promotion bar.
-    // (require-safety-comment-for-type-assertion first, then
-    // no-unsafe-dictionary-type, no-unknown-returns, and no-runtime-typeof.)
+    // (no-unsafe-dictionary-type, no-unknown-returns, and no-runtime-typeof.)
     "anti-slop/no-module-mocking": "error",
     "anti-slop/no-reflect-apply": "error",
     "anti-slop/no-widen-then-assert": "error",
@@ -43,7 +44,6 @@
     "anti-slop/no-known-value-widening": "error",
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/require-readable-spacing": "error",
-    "anti-slop/require-safety-comment-for-type-assertion": "error",
     // No rule remains at warn for paydown. Three upstream rules stay out:
     // - no-conditional-empty-object-spread: conflicts with exactOptionalPropertyTypes
     // - no-unknown-parameters: conflicts with boundary validator pattern
@@ -305,7 +305,7 @@
       }
     },
     {
-      // Five files where no-known-value-widening is off ON PURPOSE — each holds a
+      // Four files where no-known-value-widening is off ON PURPOSE — each holds a
       // widened type that is the honest contract, not discarded evidence:
       // - packages/contracts/src/json.ts: safeJsonParse erases to `unknown` by design;
       //   its catch arm returns a literal, which the rule rejects against any
@@ -319,9 +319,6 @@
       // - packages/integrations/../attachments.ts (contracts): ingestPolicyByMime is
       //   the deliberately widened VIEW of the literal INGEST_POLICY table for
       //   open-ended MIME-type lookups; the literal stays the single source of truth.
-      // - packages/assistant/src/connections/mcp/hash.ts: computeDescriptorHashes
-      //   builds a `{ [remoteName]: hash }` record that is PERSISTED to a jsonb
-      //   column; a Map would not serialize and the record type is the storage shape.
       // The bar for removing a file from this list is a change that keeps the
       // contract AND satisfies the rule — not a reworded cast.
       // oxlint-disarm: anti-slop/no-known-value-widening — each file's widened type is the honest contract (an erased `unknown`, a mandatory mutual-recursion annotation, a deliberately widened view of a literal table), not discarded evidence.
@@ -329,24 +326,24 @@
         "packages/contracts/src/json.ts",
         "packages/contracts/src/passthrough-bounds.ts",
         "packages/contracts/src/attachments.ts",
-        "packages/integrations/src/shared/rest-passthrough.ts",
-        "packages/assistant/src/connections/mcp/hash.ts"
+        "packages/integrations/src/shared/rest-passthrough.ts"
       ],
       "rules": {
         "anti-slop/no-known-value-widening": "off"
       }
     },
     {
-      // require-safety-comment-for-type-assertion is at `error` for product source;
-      // test, eval and test-support scopes are exempt ON PURPOSE. The rule asks an
-      // assertion to name the invariant TypeScript cannot check, which is load-bearing
-      // when a cast crosses a product seam. A fixture that casts a hand-built row or a
-      // stubbed response to feed a seam has no unseen invariant to narrate — the cast IS
-      // the fixture — so the rule there only extracts a repeated sentence. Product
-      // source was driven to zero at warn before this promotion; see
-      // docs/research/anti-slop-paydown-2026-09-12.md. Every glob below must keep
-      // matching the surfaces the research measured (packages/*/test, packages/*/evals,
-      // apps/*/evals, and *.test.*), or the rule silently returns to those trees.
+      // no-unsafe-dictionary-type is at `error` for product source; test and
+      // eval scopes are exempt ON PURPOSE. The rule asks an open dictionary
+      // to name its value contract, which is load-bearing when the bag crosses
+      // a product seam. A fixture's capture buffer or an eval's mock row has
+      // no unseen contract to name — the bag IS the fixture — so the rule
+      // there only extracts renames. Product source was driven to zero at warn
+      // before this promotion; see docs/research/anti-slop-paydown-2026-09-12.md
+      // and docs/research/narrow-record-types-2026-08-09.md. The ops-scripts
+      // scopes live in the NEXT entry: a test/eval entry may not carry a
+      // non-test glob, because the blanket-disarm check skips a scope covering
+      // tests/evals wholesale and the non-test half would go unjudged.
       "files": [
         "**/test/**",
         "**/*.test.ts",
@@ -357,42 +354,31 @@
         "**/*.eval.ts"
       ],
       "rules": {
-        "anti-slop/require-safety-comment-for-type-assertion": "off"
+        "anti-slop/no-unsafe-dictionary-type": "off"
       }
     },
     {
-      // no-unsafe-dictionary-type is at `error` for product source; test, eval
-      // and script scopes are exempt ON PURPOSE. The rule asks an open
-      // dictionary to name its value contract, which is load-bearing when the
-      // bag crosses a product seam. A fixture's capture buffer, an eval's mock
-      // row, or a one-off probe's parsed-JSON bag has no unseen contract to
-      // name — the bag IS the fixture — so the rule there only extracts
-      // renames. Product source was driven to zero at warn before this
-      // promotion; see docs/research/anti-slop-paydown-2026-09-12.md and
-      // docs/research/narrow-record-types-2026-08-09.md. The `**/scripts/**`
-      // glob covers both ops tooling (apps/server/src/scripts) and package
-      // probes/smokes (packages/*/src/scripts): neither is typed product
-      // code the rule exists to police.
-      "files": [
-        "**/test/**",
-        "**/*.test.ts",
-        "**/*.test.tsx",
-        "**/*.test.mts",
-        "**/*.test.cts",
-        "**/evals/**",
-        "**/*.eval.ts",
-        "**/scripts/**"
-      ],
+      // no-unsafe-dictionary-type stays off ON PURPOSE in the two ops-scripts
+      // trees below: a one-off probe's parsed-JSON bag has no unseen contract
+      // to name, and neither tree is typed product code the rule exists to
+      // police. Repo-level scripts/ gates are NOT covered — each honest
+      // boundary walk there carries its own per-site disable with the reason,
+      // so deleting one surfaces as an unused directive rather than silence.
+      // oxlint-disarm: anti-slop/no-unsafe-dictionary-type — a one-off probe's parsed-JSON bag has no unseen contract to name; ops tooling, not product seams.
+      "files": ["apps/server/src/scripts/**", "packages/*/src/scripts/**"],
       "rules": {
         "anti-slop/no-unsafe-dictionary-type": "off"
       }
     },
     {
-      // no-unknown-returns is at `error` for product source; test, eval
-      // and script scopes are exempt ON PURPOSE. A fixture's stubbed row or a
-      // one-off probe's parsed-JSON bag has no named domain type to return —
-      // the `unknown` IS the fixture — so the rule there only extracts
-      // renames. See docs/research/anti-slop-paydown-2026-09-12.md.
+      // no-unknown-returns is at `error` for product source; test and eval
+      // scopes are exempt ON PURPOSE. A fixture's stubbed row has no named
+      // domain type to return — the `unknown` IS the fixture — so the rule
+      // there only extracts renames. See
+      // docs/research/anti-slop-paydown-2026-09-12.md. The ops-scripts scopes
+      // live in the NEXT entry: a test/eval entry may not carry a non-test
+      // glob, because the blanket-disarm check skips a scope covering
+      // tests/evals wholesale and the non-test half would go unjudged.
       "files": [
         "**/test/**",
         "**/*.test.ts",
@@ -400,25 +386,35 @@
         "**/*.test.mts",
         "**/*.test.cts",
         "**/evals/**",
-        "**/*.eval.ts",
-        "**/scripts/**"
+        "**/*.eval.ts"
       ],
       "rules": {
         "anti-slop/no-unknown-returns": "off"
       }
     },
     {
-      // no-runtime-typeof is at `error` for product source; test, eval
-      // and script scopes are exempt ON PURPOSE. A fixture's `typeof`
-      // probe of a hand-built row, an eval's check of a stubbed response,
-      // or a one-off script's probe of parsed JSON is not the unparsed-value
-      // narrowing the rule exists to reject — the probe IS the fixture or
-      // the probe. Product source was driven to zero at warn before this
-      // promotion; see docs/research/anti-slop-paydown-2026-09-12.md.
-      // The `**/scripts/**` glob covers both ops tooling
-      // (apps/server/src/scripts) and package probes/smokes
-      // (packages/*/src/scripts) plus repo-level scripts/: none is typed
-      // product code the rule exists to police.
+      // no-unknown-returns stays off ON PURPOSE in the two ops-scripts trees
+      // below: a one-off probe's parsed-JSON bag has no named domain type to
+      // return, and neither tree is typed product code the rule exists to
+      // police. Repo-level scripts/ gates are NOT covered — each honest
+      // boundary walk there carries its own per-site disable with the reason,
+      // so deleting one surfaces as an unused directive rather than silence.
+      // oxlint-disarm: anti-slop/no-unknown-returns — a one-off probe's parsed-JSON bag has no named domain type to return; ops tooling, not product seams.
+      "files": ["apps/server/src/scripts/**", "packages/*/src/scripts/**"],
+      "rules": {
+        "anti-slop/no-unknown-returns": "off"
+      }
+    },
+    {
+      // no-runtime-typeof is at `error` for product source; test and eval
+      // scopes are exempt ON PURPOSE. A fixture's `typeof` probe of a
+      // hand-built row or an eval's check of a stubbed response is not the
+      // unparsed-value narrowing the rule exists to reject — the probe IS the
+      // fixture. Product source was driven to zero at warn before this
+      // promotion; see docs/research/anti-slop-paydown-2026-09-12.md. The
+      // ops-scripts scopes live in the NEXT entry: a test/eval entry may not
+      // carry a non-test glob, because the blanket-disarm check skips a scope
+      // covering tests/evals wholesale and the non-test half would go unjudged.
       "files": [
         "**/test/**",
         "**/*.test.ts",
@@ -426,9 +422,22 @@
         "**/*.test.mts",
         "**/*.test.cts",
         "**/evals/**",
-        "**/*.eval.ts",
-        "**/scripts/**"
+        "**/*.eval.ts"
       ],
+      "rules": {
+        "anti-slop/no-runtime-typeof": "off"
+      }
+    },
+    {
+      // no-runtime-typeof stays off ON PURPOSE in the two ops-scripts trees
+      // below: a one-off probe of parsed JSON is not the unparsed-value
+      // narrowing the rule exists to reject, and neither tree is typed product
+      // code the rule exists to police. Repo-level scripts/ gates are NOT
+      // covered — each honest boundary walk there carries its own per-site
+      // disable with the reason, so deleting one surfaces as an unused
+      // directive rather than silence.
+      // oxlint-disarm: anti-slop/no-runtime-typeof — a one-off script's probe of parsed JSON is not the unparsed-value narrowing the rule rejects; ops tooling, not product seams.
+      "files": ["apps/server/src/scripts/**", "packages/*/src/scripts/**"],
       "rules": {
         "anti-slop/no-runtime-typeof": "off"
       }
@@ -441,7 +450,7 @@
       // - canonical unknown-walkers and serializers (contracts guards,
       //   sanitize, bound, flatten-json, tools stringifyCanonical, web
       //   eden restoreWireTimestamps, signature canonicalize,
-      //   context-search deepFreeze, mcp client deepFreeze) dispatch on
+      //   mcp client deepFreeze) dispatch on
       //   the runtime representation because the representation IS the
       //   contract being established;
       // - schema-boundary validators (contracts tool-schemas and
@@ -450,36 +459,28 @@
       //   z.custom, replay-state preprocess, weather schemas transform)
       //   narrow `unknown` process.env, webhook, and model-output fields
       //   inside the Zod boundary that owns them;
-      // - provider and external-payload readers (github-reducer,
-      //   gmail-reducer, gmail-kind-fold, fact-policy content probes,
-      //   hosted-endpoint parseUrl, github client, google oauth claims,
-      //   mcp protocol TTL, discovery textFromContent, conversation
-      //   transcript helpers, evidence asNumber, tool-call-card
-      //   prettyJson, login-search sanitizeRedirect, briefings gather
-      //   parseCoord, run-bottlenecks jsonb reason) narrow webhook,
+      // - provider and external-payload readers (gmail-reducer,
+      //   fact-policy content probes, hosted-endpoint parseUrl, github
+      //   client, mcp protocol TTL, discovery textFromContent, conversation
+      //   transcript helpers, login-search sanitizeRedirect, briefings gather
+      //   parseCoord) narrow webhook,
       //   provider, and persisted-JSON fields at the ingestion edge;
-      // - unknown renderers (approvals format stringValue and
-      //   input-editor tool-input values, memory formatters, approval
-      //   notification formatValue, facts previewValue, skill fact
-      //   renderers, deepen meta, relationship and user-context fact
-      //   strings, finalize-guards child-outcome render, metering
-      //   captureInput, langfuse metadata scrub, logger error
-      //   diagnostics, passthrough transport error fields,
-      //   stream-timeout and compaction error duck-typing, credential
-      //   envelope open and vault classify) branch `unknown` into text
-      //   for display, logs, or redaction, which is the boundary;
+      // - unknown renderers (memory formatters, approval notification
+      //   formatValue, facts previewValue, skill fact renderers,
+      //   relationship and user-context fact strings, finalize-guards
+      //   child-outcome render, metering captureInput, langfuse metadata
+      //   scrub, logger error diagnostics, passthrough transport error
+      //   fields, credential envelope open and vault classify) branch
+      //   `unknown` into text for display, logs, or redaction, which is
+      //   the boundary;
       // - typed-union discriminators with no helper spelling (toast
-      //   Shorthand, shell and artifact-pages SetStateAction resolvers, agent
-      //   value-or-thunk resolve, gateway RequestInfo, tool-call-round
-      //   restore result, tool JSON-schema properties reads,
-      //   pipeline PropertyKey symbol arm and scratch-key error
-      //   strings, undici resource capability probes in fetch-url,
-      //   window/matchMedia/requestIdle/crypto capability probes,
-      //   Node timer unref probes in worker, db, periodic-task and
-      //   broker, ReactNode discrimination in chat text renderers,
-      //   markdown code-class prop, extractor transcript union,
-      //   credential-adapter seal and join walks, telemetry cause
-      //   validation) narrow an already-typed union whose arms differ
+      //   Shorthand, agent value-or-thunk resolve, gateway RequestInfo,
+      //   pipeline PropertyKey symbol arm and scratch-key error strings, undici resource capability
+      //   probes in fetch-url, window/matchMedia/requestIdle/crypto
+      //   capability probes, ReactNode discrimination in chat text
+      //   renderers, markdown code-class prop, extractor transcript union,
+      //   auth credential-adapter seal walk over better-auth's loosely-typed
+      //   adapter payloads) narrow an already-typed union whose arms differ
       //   by representation — `?.`, `??`, and the contracts guards
       //   either do not apply or change the semantics.
       // A new `typeof` anywhere else in product source is an error.
@@ -492,51 +493,34 @@
         "packages/contracts/src/tools.ts",
         "packages/contracts/src/tool-schemas.ts",
         "packages/contracts/src/tool-fields.ts",
-        "packages/contracts/src/events.ts",
-        "packages/contracts/src/errors.ts",
         "packages/env/src/server.ts",
         "packages/extraction/src/extract-pdf-protocol.ts",
         "packages/assistant/src/triggers/index.ts",
         "packages/assistant/src/knowledge/signature.ts",
-        "packages/assistant/src/context-search/registry.ts",
         "packages/assistant/src/connections/mcp/client.ts",
         "packages/assistant/src/connections/mcp/protocol.ts",
         "packages/assistant/src/connections/hosted-endpoint.ts",
-        "packages/assistant/src/connections/object-state/github-reducer.ts",
         "packages/assistant/src/knowledge/gmail-reducer.ts",
-        "packages/assistant/src/knowledge/gmail-kind-fold.ts",
         "packages/assistant/src/knowledge/fact-policy.ts",
         "packages/assistant/src/knowledge/facts.ts",
         "packages/assistant/src/knowledge/user-context.ts",
         "packages/assistant/src/knowledge/extractor.ts",
         "packages/assistant/src/tool-runtime/discovery.ts",
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
-        "packages/assistant/src/tool-runtime/internal/registry.ts",
-        "packages/assistant/src/tool-runtime/internal/metadata-defaults.ts",
-        "packages/assistant/src/tool-runtime/internal/tool-call-round.ts",
         "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
-        "packages/assistant/src/tool-runtime/internal/tools/passthrough/telemetry.ts",
         "packages/assistant/src/tool-runtime/internal/tools/passthrough/transport.ts",
-        "packages/assistant/src/tool-runtime/mcp/broker.ts",
-        "packages/assistant/src/chat/compaction/conversation-summary-generator.ts",
         "packages/assistant/src/chat/finalize-guards.ts",
-        "packages/assistant/src/chat/stream-timeout.ts",
         "packages/assistant/src/briefings/gather.ts",
         "packages/assistant/src/execution/approval-notification-worker.ts",
         "packages/assistant/src/execution/run-bottlenecks.ts",
-        "packages/assistant/src/execution/worker.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
         "packages/assistant/src/skills/compose.ts",
         "packages/assistant/src/skills/distill.ts",
-        "packages/assistant/src/triage/deepen.ts",
         "packages/assistant/src/triage/sender-relationship.ts",
-        "packages/assistant/src/realtime/periodic-task.ts",
         "packages/integrations/src/github/client.ts",
-        "packages/integrations/src/google/oauth.ts",
-        "packages/auth/src/credential-adapter.ts",
         "packages/db/src/credential-envelope.ts",
         "packages/db/src/credential-vault-maintenance.ts",
-        "packages/db/src/index.ts",
+        "packages/auth/src/credential-adapter.ts",
         "packages/logging/src/logger.ts",
         "packages/ai/src/agent.ts",
         "packages/ai/src/gateway-throttle.ts",
@@ -545,19 +529,11 @@
         "apps/web/src/lib/eden.ts",
         "apps/web/src/lib/events/replay-state.ts",
         "apps/web/src/lib/weather/schemas.ts",
-        "apps/web/src/lib/shell/app-shell.tsx",
         "apps/web/src/lib/toast.tsx",
         "apps/web/src/lib/chat/animate-text.tsx",
-        "apps/web/src/components/approvals/format.ts",
-        "apps/web/src/components/approvals/input-editor.tsx",
-        "apps/web/src/components/dimension-chat-thread.tsx",
-        "apps/web/src/components/artifacts/use-artifact-pages.ts",
         "apps/web/src/components/markdown-renderer/markdown-pre.tsx",
         "apps/web/src/components/ui/v2/theme.tsx",
         "apps/web/src/main.tsx",
-        "apps/web/src/routes/-chat/conversation-helpers.ts",
-        "apps/web/src/routes/-chat/evidence.ts",
-        "apps/web/src/routes/-chat/tool-call-card.tsx",
         "apps/web/src/routes/-login/login-search.ts",
         "apps/web/src/routes/-memory/memory-page.tsx",
         "apps/web/src/routes/-memory/proposed-fact-card.tsx"
@@ -579,9 +555,8 @@
       //   schema, per packages/contracts/AGENTS.md;
       // - provider clients (rest-passthrough parseBody, authed-json,
       //   provider-client, sentry/notion/google clients, redis eval,
-      //   credential-adapter openRow/openJoined, rate-limit Redis port)
-      //   return what the provider or store returned, which has no static
-      //   shape — bound and redact at the call site instead;
+      //   rate-limit Redis port) return what the provider or store returned,
+      //   which has no static shape — bound and redact at the call site instead;
       // - queue processors (knowledge/briefings/automation/ingestion/chat-memory
       //   queues, compaction queue, idle-capture queue) return through
       //   BullMQ's `Processor` contract, whose `Promise<unknown>` no caller
@@ -608,7 +583,6 @@
         "packages/integrations/src/notion/client.ts",
         "packages/integrations/src/google/http.ts",
         "packages/db/src/redis.ts",
-        "packages/auth/src/credential-adapter.ts",
         "packages/auth/src/rate-limit.ts",
         "packages/assistant/src/tool-runtime/internal/registry.ts",
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",

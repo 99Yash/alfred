@@ -1047,8 +1047,12 @@ function stripParams(
       out[k] = v;
     } else if (typeof v === "boolean") {
       out[k] = String(v);
-    } else if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
-      out[k] = toStringArray(v).join(", ");
+    } else if (Array.isArray(v)) {
+      // `toStringArray` drops non-strings; the length check keeps the old
+      // all-strings-only contract (mixed arrays stay dropped) without a probe.
+      const strings = toStringArray(v);
+
+      if (strings.length === v.length) out[k] = strings.join(", ");
     }
     // Anything else (objects, mixed arrays) is silently dropped — Langfuse
     // can't render them and including them broke the type contract.

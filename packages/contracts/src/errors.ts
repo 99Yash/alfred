@@ -18,6 +18,8 @@
  * bundle can all import it without crossing a package boundary.
  */
 
+import { isIndexable } from "./guards";
+
 /**
  * Max chars of an external error body we retain. Bounded so a giant HTML error
  * page or stack-trace dump can't bloat a log line, and — unlike the old inline
@@ -73,11 +75,9 @@ function causeOf(err: Error): unknown {
   // off an `Error` is a presence check, not a shape assertion.
   const data: unknown = (err as { readonly data?: unknown }).data;
 
-  if (typeof data !== "object" || data === null) return undefined;
+  if (!isIndexable(data)) return undefined;
 
-  // SAFETY: the line above proves `data` is a non-null object, and the read
-  // yields `unknown`, so the assertion widens nothing the caller can trust.
-  return (data as { readonly cause?: unknown }).cause;
+  return Reflect.get(data, "cause");
 }
 
 /**
