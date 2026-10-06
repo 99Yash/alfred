@@ -5,6 +5,7 @@ import {
   type BriefingSourcePanel,
   type BriefingSourcePanelItem,
   gmailThreadUrl,
+  humanizeSlug,
   parseBriefingReference,
 } from "@alfred/contracts";
 import type { BriefingGather } from "@alfred/contracts";
@@ -208,7 +209,7 @@ function compactMetadata(values: Record<string, string | undefined>): Record<str
 }
 
 function integrationSubtitle(provider: string, providerKind: string, relatedRepo?: string): string {
-  const kind = providerKind.replaceAll("_", " ");
+  const kind = humanizeSlug(providerKind);
 
   return relatedRepo ? `${provider} · ${relatedRepo} · ${kind}` : `${provider} · ${kind}`;
 }

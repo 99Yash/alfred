@@ -345,7 +345,7 @@ export async function meteredGenerateText(
   // namespace alias. Cast through unknown to a callable shape and pin the
   // public return type to <ToolSet, never>, which downstream callers (which
   // never use structured output) can read freely.
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- SDK Output interface not nameable (namespace alias only); pin public return to <ToolSet, never> for callers without structured output
   return metered(meta, () => generateText(callArgs), ((
     result: GenerateTextResult<ToolSet, never, never>,
   ) =>
@@ -381,7 +381,7 @@ export async function meteredGenerateObject<O>(
   // Omit/spread round trip — TS widens `messages` to `T[] | undefined`. Cast
   // back to the SDK's parameter type so the call type-checks; the original
   // `args` already satisfied the union.
-  /* eslint-disable anti-slop/no-chained-type-assertions */
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- discriminated Prompt union widens across Omit/spread; original args already satisfied the union
   const callArgs = {
     ...rest,
     timeout: rest.timeout ?? DEFAULT_LLM_TIMEOUT_MS,
@@ -392,8 +392,7 @@ export async function meteredGenerateObject<O>(
     }),
   } as unknown as Parameters<typeof generateText>[0];
 
-  /* eslint-enable anti-slop/no-chained-type-assertions */
-  /* eslint-disable anti-slop/no-chained-type-assertions */
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- SDK Output interface not nameable (namespace alias only); pin public return to the structured-output Result
   return (await metered(meta, () => generateText(callArgs), ((
     result: GenerateTextResult<ToolSet, never, never>,
   ) =>
@@ -402,7 +401,6 @@ export async function meteredGenerateObject<O>(
       attribution.cacheWriteTtl,
       rest.model,
     )) as never)) as unknown as Result;
-  /* eslint-enable anti-slop/no-chained-type-assertions */
 }
 
 export type StreamTextArgs = Parameters<typeof streamText>[0];

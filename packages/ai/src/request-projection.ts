@@ -1,5 +1,4 @@
 import type { LanguageModelV4CallOptions, SharedV4ProviderOptions } from "@ai-sdk/provider";
-import { getPath, toRecord } from "@alfred/contracts";
 import { z } from "zod";
 
 export type CacheTtl = "5m" | "1h";
@@ -51,7 +50,7 @@ function withAnthropicCacheControl<
   T extends { readonly providerOptions?: LanguageModelV4CallOptions["providerOptions"] },
 >(value: T, ttl: CacheTtl): T {
   const existing = value.providerOptions ?? {};
-  const anthropic = toRecord(getPath(existing, "anthropic"));
+  const anthropic = existing["anthropic"] ?? {};
 
   return {
     ...value,
