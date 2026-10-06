@@ -47,7 +47,10 @@ export function normalizeDecisionTraceKey(decisionKey?: string): string {
  * entry to `unknown`: that silently disables every producer's `ctx.trace`
  * payload check, which is the whole point of the map.
  */
-// oxlint-disable-next-line no-empty-interface no-empty-object-type
+// Declared empty on purpose: every entry is added by a producer through
+// declaration merging, and the doc comment above is the contract those producers
+// read. Neither `no-empty-interface` nor `no-empty-object-type` fires under the
+// current config, so this carries no suppression.
 export interface DecisionTraceRegistry {}
 
 export type DecisionTraceKind = keyof DecisionTraceRegistry;

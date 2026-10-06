@@ -324,6 +324,7 @@
       //   column; a Map would not serialize and the record type is the storage shape.
       // The bar for removing a file from this list is a change that keeps the
       // contract AND satisfies the rule — not a reworded cast.
+      // oxlint-disarm: anti-slop/no-known-value-widening — each file's widened type is the honest contract (an erased `unknown`, a mandatory mutual-recursion annotation, a deliberately widened view of a literal table), not discarded evidence.
       "files": [
         "packages/contracts/src/json.ts",
         "packages/contracts/src/passthrough-bounds.ts",
@@ -482,6 +483,7 @@
       //   by representation — `?.`, `??`, and the contracts guards
       //   either do not apply or change the semantics.
       // A new `typeof` anywhere else in product source is an error.
+      // oxlint-disarm: anti-slop/no-runtime-typeof — each `typeof` in the list is the parse itself, a runtime capability probe, a display/redaction branch on `unknown`, or a typed-union discrimination with no helper spelling; none is an unparsed value narrowed in place of a boundary decode.
       "files": [
         "packages/contracts/src/guards.ts",
         "packages/contracts/src/sanitize.ts",
@@ -591,6 +593,7 @@
       //   result because every tool's `execute_result` is free-form JSON
       //   unless a TOOL_OUTPUT_SCHEMAS entry says otherwise.
       // A new open-`unknown` return anywhere else in product source is an error.
+      // oxlint-disarm: anti-slop/no-unknown-returns — each entry returns a value that IS untyped at its boundary (a parser, a provider response, a BullMQ `Promise<unknown>` no caller reads, a free-form tool result), so `unknown` is the honest contract rather than an erased type.
       "files": [
         "packages/contracts/src/json.ts",
         "packages/contracts/src/guards.ts",
@@ -640,6 +643,7 @@
       // envelope (credential-adapter), a third-party AST shape
       // (briefing-markdown), and a key-sorting rebuild (trajectory). A new
       // open-dictionary spelling anywhere else in product source is an error.
+      // oxlint-disarm: anti-slop/no-unsafe-dictionary-type — each entry carries a dynamic dictionary that is not debt per the narrow-record-types decision table: a canonical guard or rebuild, a parser staging buffer, a positional accumulator with its own SAFETY note, or a generic envelope over a literal-union key.
       "files": [
         "packages/contracts/src/guards.ts",
         "packages/contracts/src/log-redaction.ts",

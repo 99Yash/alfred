@@ -116,7 +116,7 @@ const BRAND_ICONS = {
   },
   slack: { kind: "svg", slug: "slack" },
   // Monochrome marks: like GitHub, the bare glyph is single-tone, so it tracks
-  // --app-fg-4 on chrome (dark in light mode, light in dark) and stays white on
+  // app-fg-4 on chrome (dark in light mode, light in dark) and stays white on
   // the dark integration tiles via `frost`. Full-color artwork lives in the
   // app-icon coins (integration-tile-components.tsx).
   notion: {
@@ -368,7 +368,6 @@ export function IntegrationGlyph({
       viewBox="8 8 34 34"
       width={size}
       xmlns="http://www.w3.org/2000/svg"
-      // eslint-disable-next-line react/no-danger
       dangerouslySetInnerHTML={{ __html: inner }}
     />
   );

@@ -124,6 +124,33 @@ The five ways a "safe" derive silently changes the type (all real cases from the
 
 After a derive lands, drop now-orphaned imports — the literal often named a union (e.g. `ActionStagingStatus`) the derived form no longer references, and `noUnusedLocals` fails the build otherwise.
 
+### Suppressions
+
+A lint suppression is a claim: _this line is the one exception_. `pnpm lint` verifies
+the claim's effect and nothing else, so a directive naming a rule that no longer fires
+is indistinguishable from a live one — and, unlike a broken invariant, it produces no
+diagnostic to notice.
+
+- **Name the rule you are suppressing, in the spelling the config uses**
+  (`eslint-disable-next-line` and `oxlint-disable-next-line` are both honoured). A bare
+  `eslint-disable` over a block reads as "this region is unchecked" and is almost never
+  what was meant.
+- **Keep the reason on the directive**, after ` -- `. It is the only thing that tells the
+  next reader whether the exemption is still true, and `--reason` is preserved verbatim
+  when a sibling rule name is removed from a multi-rule directive.
+- **Do not keep a suppression "in case the rule comes back."** That is how 53 accumulated
+  on this tree, 40 of them naming a rule that is `"off"` for every test scope and so
+  could not have suppressed anything. Deleting the directive is the fix.
+- `pnpm lint` runs `oxlint --report-unused-disable-directives-severity=error`, so a
+  directive that suppresses nothing **fails the build**. If one appears, delete it rather
+  than re-narrowing the rule.
+- Two rules are `"off"` across test/eval/script scopes on purpose
+  (`require-safety-comment-for-type-assertion`, `no-unsafe-dictionary-type`): a fixture
+  that casts a hand-built row has no unseen invariant to narrate, so a `SAFETY:` comment
+  there would only extract a repeated sentence. **A `SAFETY:` note is still worth
+  writing in a test** — as an ordinary comment, not as a directive. That is the one
+  shape the unused-directive check cannot enforce, so it is review judgment.
+
 ---
 
 ## 2. TypeScript discipline
@@ -203,6 +230,7 @@ Escape hatch `// tautology-ok: <reason>` is chain-aware (like `// drift-ok:`) �
 3. External/LLM call with no timeout or `abortSignal`.
 4. New endpoint missing rate-limit / auth coverage.
 5. Silent `catch` with no user feedback.
+5a. A lint suppression that suppresses nothing, or one kept "in case the rule returns" (§ Suppressions).
 6. Duplicated logic that represents one co-changing domain truth → centralize it; leave coincidental similarity separate.
 7. Non-exhaustive switch over a union → add the `never` check.
 8. `useEffect` updating state after unmount / wrong deps.

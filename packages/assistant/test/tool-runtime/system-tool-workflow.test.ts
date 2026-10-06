@@ -14,7 +14,7 @@ import {
 // registration fails loud, a registered adapter receives the exact args and its
 // result is handed straight back. The adapter never inspects the input, so a
 // minimal placeholder stands in for a fully-parsed workflow input here.
-// eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+// eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
 const authorArgs = {
   userId: "user_1",
   runId: "run_1",
@@ -24,13 +24,13 @@ const authorArgs = {
 
 const recoverArgs = { userId: "user_1", workflowId: "wf_1", revisionId: "rev_1" };
 
-/* eslint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
+/* eslint-disable anti-slop/no-chained-type-assertions */
 const activateArgs = {
   userId: "user_1",
   input: { workflowId: "wf_1" },
   createdByRunId: "run_1",
 } as unknown as Parameters<typeof activateWorkflow>[0];
-/* eslint-enable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion */
+/* eslint-enable anti-slop/no-chained-type-assertions */
 
 let unregister: (() => void) | undefined;
 

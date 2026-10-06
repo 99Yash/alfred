@@ -102,6 +102,13 @@ and a reviewer who has to guess the claim will review the diff's shape instead.
 > is the resolution expected, is any operation destructive or reordered — and are
 > never style-reviewed.
 >
+> Read `docs/reference/code-asserts.md` too. It maps every assert in
+> `code-style.md` to the tier that already enforces it — which rows are `pnpm check`
+> gates and which stay review judgment. You need it in both directions: do NOT report
+> a violation of an already-ratcheted rule as a finding, and when you add a rule to
+> `code-style.md`, add its row to `code-asserts.md` so the next reader knows whether
+> to write a check or to write a checklist item.
+>
 > Also run `pnpm check && pnpm check-types` (the former does not typecheck) and
 > report anything they flag that the PR did not fix.
 >

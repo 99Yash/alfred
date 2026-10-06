@@ -43,6 +43,20 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
+      # The four sections CLAUDE.md asks a PR body for. A STEP here and not an entry in
+      # `check:ci`, because the check reads GitHub rather than the working tree: it runs
+      # `gh pr view`, which needs a pull request to exist. It fails CLOSED — `gh`
+      # missing, unauthenticated, rate-limited, or no PR found is a failure, never a
+      # pass — which is exactly why it must not sit in a chain that also runs on a branch
+      # with no PR yet: it would redden `pnpm verify:ci` for anyone mid-work.
+      #
+      # Skipped on a push to main, where there is no PR body to check.
+      - name: Pull-request body carries the sections CLAUDE.md asks for
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: corepack pnpm check:pr-body "${{ github.event.pull_request.number }}"
+
       - name: Verify architecture, boundaries, style, and types
         # `verify:ci`, not `verify:fast`: jscpd (`check:duplicates`) runs as the
         # advisory `duplicates` job below so a copy-paste flag does not block

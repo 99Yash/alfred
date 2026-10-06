@@ -114,7 +114,7 @@ function recordingAdapter() {
       store.row = row;
     },
     getStored: () => store.row,
-    // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+    // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
     adapter: fake as unknown as AuthAdapter,
   };
 }

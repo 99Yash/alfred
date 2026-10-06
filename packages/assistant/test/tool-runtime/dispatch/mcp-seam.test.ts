@@ -160,7 +160,7 @@ class PausedFirstCallProtocol implements McpProtocolClient {
 }
 
 function asBroker(fake: CapturingBroker): McpExecutionBroker {
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
   return fake as unknown as McpExecutionBroker;
 }
 
