@@ -8,7 +8,6 @@ import {
   encodeInboxCursor,
   Errors,
   extractGmailDocumentBody,
-  getPath,
   isUsageRunCategory,
   parseGmailDocumentMetadata,
   parseInboxCursor,
@@ -895,8 +894,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             .limit(1);
 
           const row = rows[0];
-          const rawHeadline = getPath(row?.fullBriefing, "headline");
-          const headline = rawHeadline === undefined ? null : String(rawHeadline);
+          const headline = row?.fullBriefing?.headline ?? null;
 
           return {
             briefing: row

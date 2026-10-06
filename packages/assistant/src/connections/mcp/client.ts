@@ -6,6 +6,7 @@ import {
   isRecord,
   jsonObjectSchema,
   mcpContentKindValues,
+  toMessage,
   type BoundedPassthroughBody,
   type ExternalToolRef,
   type JsonObject,
@@ -471,7 +472,7 @@ export class McpRawClient {
       } catch (err) {
         throw new McpClientError(
           "unsupported_protocol_version",
-          err instanceof Error ? err.message : "MCP protocol negotiation failed",
+          toMessage(err),
         );
       }
 
@@ -627,7 +628,7 @@ export class McpRawClient {
       } catch (err) {
         throw new McpClientError(
           "invalid_schema",
-          `MCP tool '${tool.name}' has an input schema Alfred cannot compile: ${errorMessage(err)}`,
+          `MCP tool '${tool.name}' has an input schema Alfred cannot compile: ${toMessage(err)}`,
         );
       }
 
@@ -643,7 +644,7 @@ export class McpRawClient {
         } catch (err) {
           throw new McpClientError(
             "invalid_schema",
-            `MCP tool '${tool.name}' has an output schema Alfred cannot compile: ${errorMessage(err)}`,
+            `MCP tool '${tool.name}' has an output schema Alfred cannot compile: ${toMessage(err)}`,
           );
         }
       }
@@ -924,10 +925,6 @@ export class McpRawClient {
 
     return run;
   }
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : "unknown schema error";
 }
 
 const isMcpContentKind = enumGuard(mcpContentKindValues);

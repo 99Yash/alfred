@@ -1155,15 +1155,20 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   initialStep: "chat-turn",
   initialState(input) {
     const metadata = input.metadata ?? {};
-    const threadId = getStringPath(metadata, "threadId") ?? null;
+    const threadIdValue = metadata["threadId"];
+    const threadId = isNonEmptyString(threadIdValue) ? threadIdValue : null;
 
     if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
 
-    const messageId =
-      getStringPath(metadata, "assistantMessageId") ??
-      // `kickId` is the legacy alias for `startId`; keep it as fallback for
-      // runs persisted before the rename so the hash stays stable.
-      `msg_${Math.abs(hashString(`${threadId}:${input.userId}:${getStringPath(metadata, "startId") ?? getStringPath(metadata, "kickId") ?? ""}`))}`;
+    const assistantMessageIdValue = metadata["assistantMessageId"];
+    const startIdValue = metadata["startId"];
+    const kickIdValue = metadata["kickId"];
+
+    const messageId = isNonEmptyString(assistantMessageIdValue)
+      ? assistantMessageIdValue
+      : // `kickId` is the legacy alias for `startId`; keep it as fallback for
+        // runs persisted before the rename so the hash stays stable.
+        `msg_${Math.abs(hashString(`${threadId}:${input.userId}:${isNonEmptyString(startIdValue) ? startIdValue : isNonEmptyString(kickIdValue) ? kickIdValue : ""}`))}`;
 
     const tier: ChatModelTier = metadata.tier === "deep" ? "deep" : "standard";
 
@@ -1171,9 +1176,11 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       ? metadata.allowedIntegrations.filter((v): v is string => typeof v === "string")
       : [];
 
-    const userMessageId = getStringPath(metadata, "userMessageId");
+    const userMessageIdValue = metadata["userMessageId"];
+    const userMessageId = isNonEmptyString(userMessageIdValue) ? userMessageIdValue : undefined;
 
-    const artifactTargetId = getStringPath(metadata, "artifactTargetId");
+    const artifactTargetIdValue = metadata["artifactTargetId"];
+    const artifactTargetId = isNonEmptyString(artifactTargetIdValue) ? artifactTargetIdValue : undefined;
 
     return {
       threadId,
@@ -1213,7 +1220,8 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   },
   async initialTranscript(input, context) {
     const metadata = input.metadata ?? {};
-    const threadId = getStringPath(metadata, "threadId") ?? null;
+    const threadIdValue = metadata["threadId"];
+    const threadId = isNonEmptyString(threadIdValue) ? threadIdValue : null;
 
     if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
     const ex = context?.db ?? db();

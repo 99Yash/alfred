@@ -13,7 +13,7 @@
  * newly released OpenAI models that models.dev has not published yet. A catalog
  * row wins when both sources contain the same provider/model.
  */
-import { httpErrorFromResponse, isRecord } from "@alfred/contracts";
+import { httpErrorFromResponse, isRecord, toMessage } from "@alfred/contracts";
 import type { ModelPricingMetadata } from "@alfred/contracts/model-pricing";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
@@ -269,10 +269,6 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
   return rows;
 }
 
-function safeErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 function safeCauseMessage(err: unknown): string | undefined {
   if (!(err instanceof Error) || !("cause" in err)) return undefined;
   const cause = err.cause;
@@ -368,7 +364,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[sync-prices] FAIL:", safeErrorMessage(err));
+    console.error("[sync-prices] FAIL:", toMessage(err));
     const cause = safeCauseMessage(err);
 
     if (cause) console.error("[sync-prices] cause:", cause);
