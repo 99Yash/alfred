@@ -190,7 +190,6 @@ export function useMicRecording() {
   useEffect(() => {
     return () => cancel();
     // cancel closes over refs only; we intentionally run cleanup on unmount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return { recording, error, elapsed, start, cancel, finish, levelsRef: initializedLevelsRef };

@@ -452,11 +452,10 @@ export type SignalOutcome =
   | "already_terminal"
   | "wake_mismatch";
 
-// Typed loosely so callers can share the helper from inside their own
-// outer transaction without coupling this module to one concrete Drizzle
-// transaction instantiation.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AgentTx = any;
+// `DbTransaction` is derived from `db()`'s own return type, so callers can share
+// this helper from inside their own outer transaction without coupling this module
+// to one concrete Drizzle transaction instantiation.
+type AgentTx = DbTransaction;
 
 /**
  * Move a `waiting` run back to `runnable` if its wake condition matches.
@@ -885,7 +884,10 @@ export async function cancelRunInTx(
       // landing after cancellation) can't match — signalRun guards on
       // status='waiting' but defence-in-depth is cheap here.
       wakeCondition: null,
-      error: { reason: args.reason, cancelledAt: now.toISOString() },
+      // `AgentError` requires `message`; the cancel has no exception text, so
+      // the operator-facing reason doubles as it. The cancel instant is
+      // `endedAt` below — it is not restated here.
+      error: { message: args.reason, reason: args.reason },
       outcome: runOutcome,
       endedAt: now,
       lastCheckpointAt: now,

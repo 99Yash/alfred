@@ -17,6 +17,7 @@ import { dirname, join } from "node:path";
 
 import {
   ROOT_OXLINT_CONFIG,
+  blanketDisarmFailures,
   oxlintScripts,
   restrictedGroupCopyFailures,
   restrictedImportSites,
@@ -1098,6 +1099,227 @@ function emptyWalkSurfaceFailures() {
     : [`an empty walk surface must be reported, received ${JSON.stringify(result.failures)}`];
 }
 
+/**
+ * Fixtures for the blanket-disarm rule.
+ *
+ * The subject is a fence that is not merely absent but SILENT: a rule turned `"off"` for
+ * a scope produces no diagnostic, and a clean run over a disarmed tree is identical to a
+ * clean run over an armed one. So every case here asserts that a MUTATION is reported,
+ * never that the happy path is quiet.
+ */
+
+/** A declared disarm as a config author writes it, beside the rule key it excuses. */
+function disarm(rule, reason) {
+  return `      // oxlint-disarm: ${rule} — ${reason}`;
+}
+
+/**
+ * A drive: assert the rule reports exactly the failures named, and count what it read.
+ *
+ * @param {string} label
+ * @param {{overrides: unknown, source?: string, expected: string[],
+ *          disarmed?: number, declared?: number}} shape
+ */
+function disarmDrive(label, { overrides, source = "", expected, disarmed, declared }) {
+  const result = blanketDisarmFailures({
+    rootRules: { "anti-slop/no-runtime-typeof": "error" },
+    overrides,
+    source,
+  });
+
+  const failures = [];
+
+  if (result.failures.length !== expected.length) {
+    return [
+      `${label}: expected ${expected.length} failure(s), received ${JSON.stringify(result.failures)}`,
+    ];
+  }
+
+  // Asserting on the RENDERED message rather than a count alone: a failure fired for the
+  // wrong reason reads exactly like the one being claimed.
+  for (const want of expected) {
+    if (result.failures.filter((failure) => failure.includes(want)).length !== 1) {
+      failures.push(
+        `${label}: expected exactly one failure containing ${JSON.stringify(want)}, received ${JSON.stringify(result.failures)}`,
+      );
+    }
+  }
+
+  if (disarmed !== undefined) {
+    failures.push(...equal(result.disarmed, disarmed, `${label}: disarmed`));
+  }
+
+  if (declared !== undefined) {
+    failures.push(...equal(result.declared, declared, `${label}: declared`));
+  }
+
+  return failures;
+}
+
+/** The false-positive control: a stated reason silences the rule. */
+function declaredDisarmFailures() {
+  return disarmDrive("a disarm with a stated reason is silent", {
+    overrides: [
+      { files: ["packages/x/src/a.ts"], rules: { "anti-slop/no-runtime-typeof": "off" } },
+    ],
+    source: `${disarm("anti-slop/no-runtime-typeof", "the parse itself")}\n      "x": 1`,
+    expected: [],
+    disarmed: 1,
+    declared: 1,
+  });
+}
+
+/** The subject: a blanket `"off"` over product source with nobody saying why. */
+function undeclaredDisarmFailures() {
+  return disarmDrive("a disarm with no stated reason is reported", {
+    overrides: [
+      { files: ["packages/x/src/a.ts"], rules: { "anti-slop/no-runtime-typeof": "off" } },
+    ],
+    source: '      "x": 1',
+    expected: ['turns "anti-slop/no-runtime-typeof" off'],
+    disarmed: 1,
+    declared: 0,
+  });
+}
+
+/**
+ * The test/eval/script exemption. This is the one legitimate blanket `"off"`, and it is
+ * legitimate PRECISELY because the config says why in prose — the rule skips those scopes
+ * so it can judge authored source without demanding a marker per fixture tree.
+ */
+function testScopeDisarmFailures() {
+  return disarmDrive("a test-tree blanket off needs no marker", {
+    overrides: [
+      {
+        files: ["**/test/**", "**/*.test.ts", "**/evals/**", "**/scripts/**"],
+        rules: { "anti-slop/no-unsafe-dictionary-type": "off" },
+      },
+    ],
+    source: "      // the fixture IS the dictionary",
+    expected: [],
+    disarmed: 0,
+    declared: 0,
+  });
+}
+
+/**
+ * An override with no `files` at all applies to the WHOLE repo — the strongest form of
+ * the disarm, and the one a reader is least likely to notice.
+ */
+function repoWideDisarmFailures() {
+  return disarmDrive("a file-less override disarms the whole repo", {
+    overrides: [{ rules: { "anti-slop/no-runtime-typeof": "off" } }],
+    source: '      "x": 1',
+    expected: ["off for the whole repository"],
+    disarmed: 1,
+  });
+}
+
+/**
+ * `no-restricted-imports` is excluded: it is the one rule here carrying several
+ * independent groups, and `restrictedGroupCopyFailures` already demands a restated copy
+ * or a declared omission per group. Re-reporting it here would double the same finding.
+ */
+function restrictedImportsNotReReportedFailures() {
+  return disarmDrive("the multi-group fence is left to the copy rule", {
+    overrides: [
+      { files: ["apps/server/src/scripts/**"], rules: { "no-restricted-imports": "off" } },
+    ],
+    source: '      "x": 1',
+    expected: [],
+    disarmed: 0,
+  });
+}
+
+/** A rule still ON in a scope is not a disarm and must not be reported as one. */
+function armedScopeFailures() {
+  return disarmDrive("an armed rule in a scope is silent", {
+    overrides: [
+      { files: ["packages/x/src/a.ts"], rules: { "anti-slop/no-runtime-typeof": ["error", {}] } },
+    ],
+    source: '      "x": 1',
+    expected: [],
+    disarmed: 0,
+  });
+}
+
+/**
+ * A marker with prose but no rule name is VACUOUS — it cannot be attributed to any rule,
+ * so crediting it would let one comment anywhere in the file excuse every disarm.
+ */
+function vacuousDisarmMarkerFailures() {
+  return disarmDrive("a marker naming no rule excuses nothing", {
+    overrides: [
+      { files: ["packages/x/src/a.ts"], rules: { "anti-slop/no-runtime-typeof": "off" } },
+    ],
+    source: "      // oxlint-disarm: — this tree is special",
+    expected: ['turns "anti-slop/no-runtime-typeof" off'],
+    declared: 0,
+  });
+}
+
+/** A marker with a rule name and NO prose is as vacuous as one with neither. */
+function reasonlessDisarmMarkerFailures() {
+  return disarmDrive("a marker with no reason excuses nothing", {
+    overrides: [
+      { files: ["packages/x/src/a.ts"], rules: { "anti-slop/no-runtime-typeof": "off" } },
+    ],
+    source: "      // oxlint-disarm: anti-slop/no-runtime-typeof",
+    expected: ['turns "anti-slop/no-runtime-typeof" off'],
+    declared: 0,
+  });
+}
+
+/**
+ * A reason declared for a DIFFERENT rule must not excuse this one. This is what makes
+ * attribution by rule name rather than by position: a positional reader would credit the
+ * nearest preceding marker, which is whichever rule the config author happened to exempt
+ * first.
+ */
+function crossRuleDisarmMarkerFailures() {
+  return disarmDrive("a reason for another rule does not excuse this one", {
+    overrides: [
+      {
+        files: ["packages/x/src/a.ts"],
+        rules: {
+          "anti-slop/no-runtime-typeof": "off",
+          "anti-slop/no-unknown-returns": "off",
+        },
+      },
+    ],
+    source: `${disarm("anti-slop/no-unknown-returns", "a provider response")}\n      "x": 1`,
+    expected: ['turns "anti-slop/no-runtime-typeof" off'],
+    disarmed: 2,
+    declared: 1,
+  });
+}
+
+/** A malformed `overrides` container hides every scoped exemption inside it. */
+function malformedDisarmsFailures() {
+  const result = blanketDisarmFailures({
+    rootRules: {},
+    overrides: { files: [] },
+    source: "",
+  });
+
+  return result.failures.length === 1 && result.failures[0].includes("rather than an array")
+    ? equal(result.disarmed, 0, "a malformed override container reports zero disarms")
+    : [
+        `a malformed override container must be reported, received ${JSON.stringify(result.failures)}`,
+      ];
+}
+
+/**
+ * The vacuity floor. A config with no overrides at all cannot have a scoped disarm, and a
+ * reader that finds nothing must say so rather than report a clean bill of health.
+ */
+function emptyDisarmSurfaceFailures() {
+  return disarmDrive("a config with no overrides is reported", {
+    overrides: [],
+    expected: ['declares no "overrides" entry'],
+  });
+}
+
 export function oxlintConfigSelfTestFailures() {
   return [
     ...cleanFixtureFailures(),
@@ -1140,5 +1362,16 @@ export function oxlintConfigSelfTestFailures() {
     ...nestedIgnoredSourceFailures(),
     ...untrackedIgnoredSourceFailures(),
     ...emptyWalkSurfaceFailures(),
+    ...declaredDisarmFailures(),
+    ...undeclaredDisarmFailures(),
+    ...testScopeDisarmFailures(),
+    ...repoWideDisarmFailures(),
+    ...restrictedImportsNotReReportedFailures(),
+    ...armedScopeFailures(),
+    ...vacuousDisarmMarkerFailures(),
+    ...reasonlessDisarmMarkerFailures(),
+    ...crossRuleDisarmMarkerFailures(),
+    ...malformedDisarmsFailures(),
+    ...emptyDisarmSurfaceFailures(),
   ];
 }

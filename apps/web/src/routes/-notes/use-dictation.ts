@@ -103,17 +103,16 @@ export function useDictation() {
   useEffect(() => {
     return () => stop();
     // stop closes over refs/setters only; run teardown once on unmount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return { supported, listening, interim, error, start, stop };
 }
 
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 // Minimal ambient types for the Web Speech API. This TS DOM lib ships the
 // result sub-types but not the recognition interface, its events, or the
 // `webkitSpeechRecognition` global — so we declare just what this hook touches.
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 
 interface SpeechRecognition extends EventTarget {
   lang: string;

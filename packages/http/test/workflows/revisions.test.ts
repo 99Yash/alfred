@@ -486,7 +486,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         provider: "google",
         accountId: accountRef,
         accountLabel: "test@example.test",
-        // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+        // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
         accessToken: "test-token" as unknown as SealedCredentialSecret,
         scopes: [GOOGLE_SCOPE.gmail.readonly],
         status: "active",
@@ -570,7 +570,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         provider: "google",
         accountId: accountRef,
         accountLabel: "stale@example.test",
-        // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
+        // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
         accessToken: "test-token" as unknown as SealedCredentialSecret,
         scopes: [GOOGLE_SCOPE.gmail.readonly],
         status: "active",

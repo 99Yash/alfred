@@ -707,6 +707,206 @@ export function restrictedGroupCopyFailures({ sites, source, scopes }) {
 }
 
 /**
+ * @typedef {{rule: string, where: string, files: string[]|null, reason: string|null}} DisarmedRule
+ * @typedef {{disarmed: number, declared: number, undeclared: DisarmedRule[],
+ *            failures: string[]}} DisarmReport
+ */
+
+// A non-test exemption is only defensible if it says WHY on the spot. The marker is
+// deliberately a comment in the config rather than a table here, for the reason
+// OMISSION_MARKER's own note gives: a declaration hosted in this file is a second copy
+// of the fact, in a file the person editing `.oxlintrc.json` is not looking at.
+const DISARM_MARKER = "oxlint-disarm:";
+
+/**
+ * Does this override scope cover tests and evals, or authored source?
+ *
+ * The test/eval scopes are the one place a blanket `"off"` is legitimate: `require-
+ * safety-comment-for-type-assertion` and `no-unsafe-dictionary-type` are OFF there
+ * precisely because a fixture is allowed to assert loosely and a comment on every cast
+ * would be noise. So the rule judges authored source only, and a scope is classified
+ * by the globs it names rather than by a hard-coded path, because the scopes are the
+ * config author's own words.
+ *
+ * @param {string[]} files
+ * @returns {boolean}
+ */
+function coversTestsOrEvals(files) {
+  return files.some((glob) => /(^|\/)(test|evals)(\/|$)|\.test\.|\.eval\./u.test(glob));
+}
+
+/**
+ * Every rule an `overrides` entry turns OFF for authored source, and the ones that do
+ * not declare why.
+ *
+ * The shape this closes is `.lessons/an-off-in-a-lint-override-disarms-every-pattern-
+ * the-rule-carries.md`: an `overrides` entry REPLACES a rule's options wholesale, so
+ * `"off"` is scoped to the RULE rather than to any one pattern inside it, and an
+ * allowlist written that way silently disarms every other fence that rule carried over
+ * the whole tree. That lesson's own cure — restate every group except the exempted one
+ * — does not exist for a single-rule `anti-slop` override, because there are no groups
+ * to restate. For those the correct form is a SCOPE, not a file enumeration: an 84-
+ * entry list of paths rots in both directions (a new file in the tree is silently
+ * unfenced; a deleted one leaves a dead entry), and nothing reports either drift.
+ *
+ * This rule therefore reports two distinct defects:
+ *
+ *   - a blanket `"off"` over authored source with no `oxlint-disarm:` comment naming
+ *     why. The absence of a declared reason is what makes it undiscoverable: the next
+ *     reader cannot tell a deliberate exemption from one nobody meant, which is the
+ *     exact ambiguity the lesson names.
+ *
+ * It deliberately does NOT report a scope for naming many individual files. An earlier
+ * draft did, on the argument that a long list is a glob nobody wrote, and that argument
+ * is wrong for this config: the lists here are heterogeneous by design (a boundary
+ * parser, a provider client, a BullMQ processor and a framework seam are all honest
+ * `unknown` returns, and no single path glob covers them without exempting every
+ * unrelated module in the same directory). Replacing such a list with `src/**` would
+ * make the fence WEAKER, so a rule demanding it would be tuned away within a week —
+ * which is the outcome the anti-slop README warns about. A curated allowlist is the
+ * correct shape; what it needs is a stated reason, not a shorter list.
+ *
+ * `no-restricted-imports` is EXCLUDED because it is the one rule in this config with
+ * several independent groups, and it is already fenced by
+ * `restrictedGroupCopyFailures` above — which demands a restated copy or a declared
+ * omission per group, and so covers the disarm this rule would otherwise re-report.
+ *
+ * Pure by construction: it reads a resolved config and the raw config text, both
+ * passed in, so every case is drivable from literal fixtures with no oxlint run.
+ *
+ * @param {object} input
+ * @param {Record<string, unknown>|undefined} input.rootRules
+ * @param {unknown} input.overrides
+ * @param {string} input.source
+ * @returns {DisarmReport}
+ */
+export function blanketDisarmFailures({ rootRules, overrides, source }) {
+  const failures = [];
+  const undeclared = [];
+
+  if (overrides !== undefined && !Array.isArray(overrides)) {
+    return {
+      disarmed: 0,
+      declared: 0,
+      undeclared: [],
+      failures: [
+        `the resolved config's "overrides" is ${JSON.stringify(overrides)} rather than an array, so no scoped exemption could be read.`,
+      ],
+    };
+  }
+
+  const sites = overrides ?? [];
+
+  // The reason lives in a comment, and comments do not survive `--print-config`, so it is
+  // read from the tracked JSONC text. Attribution is by RULE NAME rather than by
+  // position, deliberately: a positional reader needs the two readers to agree on
+  // order, and crediting a scope with a reason written beside a different scope is
+  // worse than reporting none. A marker names the rule it excuses, so a reason can only
+  // be claimed by a disarm of that same rule.
+  const declared = declaredDisarms(source);
+
+  // `off` is the resolved spelling of a disabled rule, alongside `allow` and 0.
+  const isOff = (value) =>
+    value === "off" ||
+    value === "allow" ||
+    value === 0 ||
+    (Array.isArray(value) && isOff(value[0]));
+
+  let disarmed = 0;
+  let declaredCount = 0;
+
+  for (const [index, override] of sites.entries()) {
+    if (override === null || typeof override !== "object" || Array.isArray(override)) continue;
+
+    const files = Array.isArray(override.files)
+      ? override.files.filter((glob) => typeof glob === "string")
+      : [];
+
+    // An override with no `files` applies to the WHOLE repo, which is the strongest
+    // form of the disarm and the one most worth naming out loud.
+    const scopeLabel = files.length === 0 ? "the whole repository" : files.join(", ");
+
+    if (files.length > 0 && coversTestsOrEvals(files)) continue;
+
+    for (const [rule, value] of Object.entries(override.rules ?? {})) {
+      if (rule === RESTRICTED_IMPORTS) continue;
+
+      if (!isOff(value)) continue;
+
+      disarmed += 1;
+
+      const reason = declared.get(rule) ?? null;
+      const where = `overrides[${index}]`;
+
+      if (reason !== null && reason.length > 0) {
+        declaredCount += 1;
+      } else {
+        undeclared.push({ rule, where, files, reason });
+        failures.push(
+          `${where} turns "${rule}" off for ${scopeLabel} with no reason. An "overrides" entry REPLACES a rule's options wholesale, so "off" is scoped to the RULE and disarms every fence that rule carried across this whole tree — and a blanket exemption nobody wrote a reason for is indistinguishable, to the next reader, from one nobody meant. Write \`// ${DISARM_MARKER} ${rule} — <why this scope is exempt>\` beside this site's "${rule}" key, or narrow the scope to the paths that genuinely need it.`,
+        );
+      }
+    }
+  }
+
+  // The vacuity floor. A rule that reads nothing passes a healthy repo and a disarmed
+  // one identically, which is the failure being fixed rather than a quiet edge case.
+  if (sites.length === 0) {
+    failures.push(
+      `the resolved config declares no "overrides" entry, so this rule examined no scoped exemption at all. Either every scoped fence was deleted, or the reader stopped seeing them; both must be loud.`,
+    );
+  }
+
+  if (rootRules !== undefined && (rootRules === null || typeof rootRules !== "object")) {
+    failures.push(
+      `the resolved config's root "rules" is ${JSON.stringify(rootRules)} rather than an object, so the rules an exemption overrides could not be compared against it.`,
+    );
+  }
+
+  return { disarmed, declared: declaredCount, undeclared, failures };
+}
+
+/**
+ * Every `oxlint-disarm: <rule> — <why>` declaration in the tracked config text, keyed by
+ * the rule it excuses.
+ *
+ * A marker with no rule name is a declaration this rule cannot attribute to anything,
+ * so it is DROPPED and the caller keeps reporting the disarm — a bare `oxlint-disarm:`
+ * with only prose is the vacuous case, and crediting it would let a comment anywhere in
+ * the file excuse any rule. Naming the rule is what makes the declaration checkable.
+ *
+ * @param {string} source
+ * @returns {Map<string, string>} rule name → the prose that follows it
+ */
+function declaredDisarms(source) {
+  const declared = new Map();
+
+  for (const line of source.split("\n")) {
+    const at = line.indexOf(DISARM_MARKER);
+
+    if (at === -1 || !line.slice(0, at).includes("//")) continue;
+
+    const rest = line.slice(at + DISARM_MARKER.length).trim();
+    const [rule, ...words] = rest.split(/\s+/u);
+
+    if (rule === undefined || !rule.includes("/")) continue;
+
+    // An em dash or a hyphen may separate the rule from its reason; neither is part of
+    // the reason. Everything after is prose, kept verbatim.
+    const reason = words
+      .join(" ")
+      .replace(/^[—-]\s*/u, "")
+      .trim();
+
+    if (reason.length === 0) continue;
+
+    declared.set(rule, reason);
+  }
+
+  return declared;
+}
+
+/**
  * Which declared omissions the raw config text carries, and for which site.
  *
  * Comments do not survive `oxlint --print-config`, so the declaration has to come from
