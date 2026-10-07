@@ -262,8 +262,9 @@ export function describeOpenAskViolation(violation: OpenAskViolation): string {
  * draft. Lower-case; the haystack is lower-cased before the scan.
  *
  * "follow up on" and "needs your approval" (#1240) are the present-tense ask,
- * so the past-tense form of the same event does not match them: "followed up
- * on", "the follow-up on", "needed your approval", "got your approval".
+ * so the past-tense and noun forms of the same event do not match them:
+ * "followed up on", "the follow-up on", "needed your approval", "got your
+ * approval".
  */
 const OPEN_ASK_MARKERS = [
   "action needed",
