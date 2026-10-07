@@ -176,9 +176,13 @@ export async function auditComposedBriefing(args: {
  * binds only when exactly one object in this same briefing has that pull-request
  * number, which keeps the binding deterministic and local.
  *
- * The marker scan skips the closed object's own title. The verified-closed
- * recap names an object by its title, and a title such as "Follow up on the
- * #1082 review" is the object's name, not an ask about it.
+ * The marker scan skips a hit that lies fully inside a word-bounded,
+ * case-insensitive copy of any bound closed object's title. The
+ * verified-closed recap names an object by its title, and a title such as
+ * "Follow up on the #1082 review" is the object's name, not an ask about it.
+ * The skip is span-based, on the unchanged sentence text, so a short title
+ * can never hide a longer ask around it ("Review" hides nothing inside
+ * "review it"), and one sentence with two closed objects is scanned once.
  */
 export function findOpenAskViolations(args: {
   composed: ComposedBriefingBody;
@@ -190,13 +194,20 @@ export function findOpenAskViolations(args: {
 
   for (const field of BRIEFING_BODY_FIELDS) {
     for (const sentence of splitSentences(args.composed[field])) {
-      for (const url of objectsBoundTo(sentence.text, byNumber)) {
-        const closed = args.closedByUrl.get(url);
+      const bound = objectsBoundTo(sentence.text, byNumber)
+        .map((url) => args.closedByUrl.get(url))
+        .filter((closed): closed is ClosedObjectFact => closed !== undefined);
 
-        if (!closed) continue;
-        const marker = findOpenAskMarker(withoutTitle(sentence.text, closed.title));
+      if (bound.length === 0) continue;
 
-        if (!marker) continue;
+      const marker = findOpenAskMarker(
+        sentence.text,
+        bound.map((closed) => closed.title),
+      );
+
+      if (!marker) continue;
+
+      for (const closed of bound) {
         violations.push({
           field,
           sentence: sentence.text.trim(),
@@ -321,8 +332,9 @@ const NEGATION_BEFORE_RE =
 
 const NEGATION_LOOKBACK = 24;
 
-function findOpenAskMarker(sentence: string): string | null {
+function findOpenAskMarker(sentence: string, titles: readonly (string | null)[]): string | null {
   const haystack = sentence.toLowerCase();
+  const spans = titleSpans(haystack, titles);
 
   for (const marker of OPEN_ASK_MARKERS) {
     let from = 0;
@@ -331,6 +343,12 @@ function findOpenAskMarker(sentence: string): string | null {
       const at = haystack.indexOf(marker, from);
 
       if (at === -1) break;
+
+      if (spans.some((span) => at >= span.start && at + marker.length <= span.end)) {
+        from = at + 1;
+        continue;
+      }
+
       const before = haystack.slice(Math.max(0, at - NEGATION_LOOKBACK), at);
 
       if (!NEGATION_BEFORE_RE.test(before)) return marker;
@@ -342,14 +360,53 @@ function findOpenAskMarker(sentence: string): string | null {
 }
 
 /**
- * Blank out every case-insensitive copy of `title` in `sentence`. The result is
- * only scanned for markers, which are lower-case, so it is returned lower-cased.
+ * Word-bounded, case-insensitive spans of every bound closed object's title in
+ * the already lower-cased haystack. Offsets agree with the marker scan by
+ * construction, because both read the same string.
+ *
+ * A span needs a word boundary on each side where the title meets a word
+ * character: a one-word title such as "Review" matches inside "Please review
+ * it" (both sides bounded), but not inside "reviews" (the trailing `s` keeps
+ * the word going). Only a marker hit fully inside one span is skipped, so the
+ * title can excuse its own name and never a longer ask around it.
  */
-function withoutTitle(sentence: string, title: string | null): string {
-  const lowered = sentence.toLowerCase();
-  const needle = title?.trim().toLowerCase();
+function titleSpans(
+  haystack: string,
+  titles: readonly (string | null)[],
+): Array<{ start: number; end: number }> {
+  const spans: Array<{ start: number; end: number }> = [];
 
-  return needle ? lowered.replaceAll(needle, " ") : lowered;
+  for (const title of titles) {
+    const needle = title?.trim().toLowerCase();
+
+    if (!needle) continue;
+    let from = 0;
+
+    for (;;) {
+      const at = haystack.indexOf(needle, from);
+
+      if (at === -1) break;
+
+      const end = at + needle.length;
+
+      const beforeOk =
+        at === 0 || !isWordChar(haystack[at - 1] ?? "") || !isWordChar(needle[0] ?? "");
+
+      const afterOk =
+        end === haystack.length ||
+        !isWordChar(haystack[end] ?? "") ||
+        !isWordChar(needle[needle.length - 1] ?? "");
+
+      if (beforeOk && afterOk) spans.push({ start: at, end });
+      from = at + 1;
+    }
+  }
+
+  return spans;
+}
+
+function isWordChar(char: string): boolean {
+  return char.length === 1 && /[\p{L}\p{N}_]/u.test(char);
 }
 
 /**
