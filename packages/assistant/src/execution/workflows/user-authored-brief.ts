@@ -8,12 +8,12 @@ import {
   compactionThresholdTokens,
   getStringPath,
   isInboundEventSource,
+  isNonEmptyString,
   jsonObjectSchema,
   parseIanaTimezone,
   parseIntegrationMentions,
   isIntegrationSlug,
   isToolName,
-  toRecord,
   workflowRevisionDefinitionSchema,
   workflowRequiredCapabilitySchema,
   type AgentTranscriptMessage,
@@ -821,11 +821,14 @@ async function buildTriggerEventMessage(
   const parsedPayload = jsonObjectSchema.safeParse(trigger.payload ?? {});
   const payload = parsedPayload.success ? parsedPayload.data : {};
 
-  const documentId = getStringPath(payload, "documentId");
+  const documentIdValue = payload["documentId"];
+  const documentId = isNonEmptyString(documentIdValue) ? documentIdValue : undefined;
 
-  const receiptId = getStringPath(payload, "receiptId");
+  const receiptIdValue = payload["receiptId"];
+  const receiptId = isNonEmptyString(receiptIdValue) ? receiptIdValue : undefined;
 
-  const reason = getStringPath(payload, "reason");
+  const reasonValue = payload["reason"];
+  const reason = isNonEmptyString(reasonValue) ? reasonValue : undefined;
 
   if (!documentId && receiptId && trigger.source && isInboundEventSource(trigger.source)) {
     return buildReceiptTriggerMessage({
@@ -951,7 +954,7 @@ async function buildReceiptTriggerMessage(input: {
     };
   }
 
-  const summary = getStringPath(toRecord(doc.metadata), "summary");
+  const summary = getStringPath(doc.metadata, "summary");
 
   return {
     role: "user",

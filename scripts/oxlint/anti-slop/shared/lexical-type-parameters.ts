@@ -14,7 +14,6 @@ function collectInferTypeParameterNames(
   names: Set<string>,
 ): void {
   if (node.type === "TSInferType") names.add(node.typeParameter.name.name);
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion -- boundary cast: source type is structurally incompatible with target
   const record = node as unknown as Readonly<Record<string, unknown>>;
   for (const key of visitorKeys[node.type] ?? []) {
     const value = record[key];
