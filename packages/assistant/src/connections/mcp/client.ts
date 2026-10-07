@@ -470,10 +470,7 @@ export class McpRawClient {
       try {
         negotiated = parseMcpNegotiatedServer(server);
       } catch (err) {
-        throw new McpClientError(
-          "unsupported_protocol_version",
-          toMessage(err),
-        );
+        throw new McpClientError("unsupported_protocol_version", toMessage(err));
       }
 
       if (generation.unhealthy) throw generation.unhealthy;

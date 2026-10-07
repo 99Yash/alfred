@@ -1180,7 +1180,10 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     const userMessageId = isNonEmptyString(userMessageIdValue) ? userMessageIdValue : undefined;
 
     const artifactTargetIdValue = metadata["artifactTargetId"];
-    const artifactTargetId = isNonEmptyString(artifactTargetIdValue) ? artifactTargetIdValue : undefined;
+
+    const artifactTargetId = isNonEmptyString(artifactTargetIdValue)
+      ? artifactTargetIdValue
+      : undefined;
 
     return {
       threadId,

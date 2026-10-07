@@ -5,7 +5,6 @@ import {
   type BriefingSourcePanel,
   type BriefingSourcePanelItem,
   gmailThreadUrl,
-  humanizeSlug,
   parseBriefingReference,
 } from "@alfred/contracts";
 import type { BriefingGather } from "@alfred/contracts";
@@ -209,7 +208,11 @@ function compactMetadata(values: Record<string, string | undefined>): Record<str
 }
 
 function integrationSubtitle(provider: string, providerKind: string, relatedRepo?: string): string {
-  const kind = humanizeSlug(providerKind);
+  // Deliberately a bare underscore-to-space swap, not humanizeSlug: a providerKind
+  // is a dotted `github.pull_request.closed`, and title-casing it would render the
+  // provider name a second time ("Github.Pull Request.Closed") beside the provider
+  // column that already reads "github".
+  const kind = providerKind.replaceAll("_", " ");
 
   return relatedRepo ? `${provider} · ${relatedRepo} · ${kind}` : `${provider} · ${kind}`;
 }
