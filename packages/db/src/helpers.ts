@@ -477,6 +477,10 @@ export type DbRunner = DbRoot | DbTransaction;
  */
 const bodiesInFlight = new WeakSet<object>();
 
+/**
+ * run these database operations together;
+ * if the callback throws, undo its database writes.
+ */
 export async function runAtomic<T>(
   runner: DbRunner,
   body: (tx: DbTransaction) => Promise<T>,
