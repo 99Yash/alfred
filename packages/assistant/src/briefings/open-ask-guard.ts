@@ -257,6 +257,10 @@ export function describeOpenAskViolation(violation: OpenAskViolation): string {
  * multi-word phrase on purpose: the bare word "review" appears in honest recap
  * prose ("the review comments landed"), so matching it would block a correct
  * draft. Lower-case; the haystack is lower-cased before the scan.
+ *
+ * Each phrase is the present-tense ask, so the recap form of the same event
+ * does not match it: "followed up on", "the follow-up on", "needed your
+ * approval", and "got your approval" all read as history (#1240).
  */
 const OPEN_ASK_MARKERS = [
   "action needed",
@@ -266,6 +270,7 @@ const OPEN_ASK_MARKERS = [
   "blocked on you",
   "blocked on your",
   "flagged for your review",
+  "follow up on",
   "give it a look",
   "have a look",
   "merge it",
@@ -274,6 +279,7 @@ const OPEN_ASK_MARKERS = [
   "needs a look",
   "needs action",
   "needs review",
+  "needs your approval",
   "needs your attention",
   "needs your eye",
   "needs your review",
@@ -299,13 +305,25 @@ const OPEN_ASK_MARKERS = [
 
 /**
  * A negated marker is not an ask — "nothing needs your review there" states the
- * opposite of what the phrase alone reads as. Only the text immediately before
- * the phrase is inspected, so this cannot reach across a clause and excuse a
- * real ask.
+ * opposite of what the phrase alone reads as. The negation may carry a
+ * `longer` or `need to` tail, so "no longer needs your approval" and "no need
+ * to follow up on" — the verified-closed recap ADR-0048 G asks the composer to
+ * write — read as negated too. Only the text immediately before the phrase is
+ * inspected, so this cannot reach across a clause and excuse a real ask.
  */
-const NEGATION_BEFORE_RE = /(?:\b(?:no|not|nothing|none|never|nobody)\b|n't)[\s,]*$/;
+const NEGATION_BEFORE_RE =
+  /(?:\b(?:no|not|nothing|none|never|nobody)\b|n't)(?:\s+(?:longer|need\s+to))?[\s,]*$/;
 
-const NEGATION_LOOKBACK = 24;
+/**
+ * A marker that a reported request introduces is history, not an ask — "you
+ * asked me to follow up on #503; it merged" retells the request the closure
+ * answered. Like the negation check, it reads only the text directly before
+ * the phrase, so an imperative ("Follow up on #503") has no frame to excuse it.
+ */
+const REPORTED_REQUEST_BEFORE_RE =
+  /\b(?:(?:asked|told|reminded)\s+(?:me|you|us|alfred)|promised|agreed|offered|planned|meant|wanted)\s+to\s+$/;
+
+const LEAD_IN_LOOKBACK = 24;
 
 function findOpenAskMarker(sentence: string): string | null {
   const haystack = sentence.toLowerCase();
@@ -317,9 +335,12 @@ function findOpenAskMarker(sentence: string): string | null {
       const at = haystack.indexOf(marker, from);
 
       if (at === -1) break;
-      const before = haystack.slice(Math.max(0, at - NEGATION_LOOKBACK), at);
+      const before = haystack.slice(Math.max(0, at - LEAD_IN_LOOKBACK), at);
 
-      if (!NEGATION_BEFORE_RE.test(before)) return marker;
+      if (!NEGATION_BEFORE_RE.test(before) && !REPORTED_REQUEST_BEFORE_RE.test(before)) {
+        return marker;
+      }
+
       from = at + marker.length;
     }
   }
