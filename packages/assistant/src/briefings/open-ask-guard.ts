@@ -175,6 +175,10 @@ export async function auditComposedBriefing(args: {
  * markdown link, so the number is the only reference they have. A bare number
  * binds only when exactly one object in this same briefing has that pull-request
  * number, which keeps the binding deterministic and local.
+ *
+ * The marker scan skips the closed object's own title. The verified-closed
+ * recap names an object by its title, and a title such as "Follow up on the
+ * #1082 review" is the object's name, not an ask about it.
  */
 export function findOpenAskViolations(args: {
   composed: ComposedBriefingBody;
@@ -186,14 +190,13 @@ export function findOpenAskViolations(args: {
 
   for (const field of BRIEFING_BODY_FIELDS) {
     for (const sentence of splitSentences(args.composed[field])) {
-      const marker = findOpenAskMarker(sentence.text);
-
-      if (!marker) continue;
-
       for (const url of objectsBoundTo(sentence.text, byNumber)) {
         const closed = args.closedByUrl.get(url);
 
         if (!closed) continue;
+        const marker = findOpenAskMarker(withoutTitle(sentence.text, closed.title));
+
+        if (!marker) continue;
         violations.push({
           field,
           sentence: sentence.text.trim(),
@@ -335,6 +338,17 @@ function findOpenAskMarker(sentence: string): string | null {
   }
 
   return null;
+}
+
+/**
+ * Blank out every case-insensitive copy of `title` in `sentence`. The result is
+ * only scanned for markers, which are lower-case, so it is returned lower-cased.
+ */
+function withoutTitle(sentence: string, title: string | null): string {
+  const lowered = sentence.toLowerCase();
+  const needle = title?.trim().toLowerCase();
+
+  return needle ? lowered.replaceAll(needle, " ") : lowered;
 }
 
 /**
