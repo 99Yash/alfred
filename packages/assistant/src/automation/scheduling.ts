@@ -2,6 +2,7 @@ import {
   eventTriggerPhrase,
   isRawEventType,
   parseIanaTimezone,
+  toMessage,
   type IanaTimezone,
   type WorkflowTrigger,
 } from "@alfred/contracts";
@@ -50,7 +51,7 @@ export function validateCronTrigger(
   } catch (err) {
     return {
       ok: false,
-      message: err instanceof Error ? err.message : "invalid cron expression",
+      message: toMessage(err),
     };
   }
 }

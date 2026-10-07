@@ -50,7 +50,7 @@ const weather = tool({
 // longer assignable to the SDK's own `ToolSet`: bare `Tool` fixes `INPUT` to
 // `never`, and the flag removes the optional-property slack that used to let the
 // two unify. The cast is that SDK variance gap, not a claim about this tool.
-// eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
+// eslint-disable-next-line anti-slop/no-chained-type-assertions -- tool() Tool<INPUT> no longer unifies with the SDK ToolSet under exactOptionalPropertyTypes (INPUT fixed to never)
 const tools = { weather } as unknown as ToolSet;
 
 function toolCallCount(metadata: unknown): number {
