@@ -1,6 +1,4 @@
-// Public seam for the automation module (renamed from workflows).
-// Owns user-authored workflow definitions, revisions, readiness, triggers,
-// schedules, occurrence claims. HTTP routes stay in @alfred/api and import from here.
+// Public seam for automation: user workflow definitions, revisions, readiness, triggers, and schedules.
 
 export {
   DEFAULT_WORKFLOW_TIMEZONE,

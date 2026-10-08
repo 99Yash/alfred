@@ -6,7 +6,7 @@ import type {
   SupportedPassthroughSlug,
 } from "./integrations";
 
-/** One `integration_credentials` row as the availability policy reads it; a {@link CredentialProofRow}. */
+/** One `integration_credentials` row, as the availability policy reads it. */
 export interface ProviderAvailability extends CredentialProofRow {
   credentialId: string;
   accountId: string;
@@ -17,22 +17,13 @@ export interface ProviderAvailability extends CredentialProofRow {
   metadata: unknown;
 }
 
-/**
- * The credential a single tool needs when it is narrower than its integration:
- * the provider whose rows to read and the scopes any one of them must hold.
- */
+/** A tool's own credential need, when it is narrower than its integration's. */
 export interface ToolCredentialRequirement {
   provider: CredentialProvider;
   anyOfScopes: readonly string[];
 }
 
-/**
- * The health of one live integration whose credential provider has rows:
- * `active` when one row satisfies the entry's connected rule, `needs_reauth`
- * when none does. No rows at all is `null` at the use site, not a member. The
- * one owner of the vocabulary: the dispatch snapshot below and the
- * `GET /api/integrations` wire (`./integration-status`) both derive from it.
- */
+/** `needs_reauth` when no row passes the connected rule. No rows at all is `null` at the use site. */
 export const integrationHealthSchema = z.enum(["active", "needs_reauth"]);
 
 export type IntegrationHealth = z.infer<typeof integrationHealthSchema>;
@@ -42,12 +33,7 @@ export interface IntegrationAvailability {
   accountLabel: string | null;
 }
 
-/**
- * The label a credential row shows for its account: the provider's label,
- * trimmed, or `null` when it gave none or a blank. The one rule the dispatch
- * snapshot, the boss preamble, and the `GET /api/integrations` body share, so a
- * whitespace label cannot read `null` in one place and `"  "` in another.
- */
+/** Trimmed label, or `null` when blank. */
 export function credentialAccountLabel(
   row: Pick<ProviderAvailability, "accountLabel">,
 ): string | null {
@@ -55,27 +41,18 @@ export function credentialAccountLabel(
 }
 
 /**
- * Credential rows grouped by `integration_credentials.provider`. The key is the
- * persisted vocabulary the registry derives, so a lookup with a slug that is not
- * a provider (`gmail`, `slack`) is a compile error, not an empty list.
- *
- * Named apart from the snapshot below because it is the whole of what a delivery
- * health reader needs. Such a reader asks one question — does this user hold a
- * row that can still receive? — and the tile join, the dispatch snapshot and the
- * readiness context each already hold this map. Taking the map rather than the
- * snapshot is what lets a reader run on the caller's rows instead of issuing its
- * own credential query.
+ * Rows by provider. A slug that is not a provider, such as `gmail`, fails to compile.
+ * Delivery health readers take this map so they reuse the caller's rows.
  */
 export type CredentialRowsByProvider = ReadonlyMap<
   CredentialProvider,
   readonly ProviderAvailability[]
 >;
 
-/** Connection state consumed by tool availability policy. */
 export interface IntegrationAvailabilitySnapshot {
   integrations: ReadonlyMap<LoadableIntegrationSlug, IntegrationAvailability>;
   providers: CredentialRowsByProvider;
-  /** Default-off general-passthrough enablement for every supported slug. */
+  /** Off by default. */
   passthroughEnabled: ReadonlyMap<SupportedPassthroughSlug, boolean>;
 }
 

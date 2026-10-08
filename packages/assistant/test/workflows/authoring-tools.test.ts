@@ -31,8 +31,7 @@ const recoverTool = builtinTools.get("system.recover_workflow");
 const activateTool = builtinTools.get("system.activate_workflow");
 
 before(() => {
-  // The workflow tools route through the tool-runtime seam; install the
-  // workflows-owned handler so `execute` resolves instead of the boot-order throw.
+  // Without the adapter, `execute` throws the boot-order error.
   registerWorkflowSystemToolAdapter();
 });
 

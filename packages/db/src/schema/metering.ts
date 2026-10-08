@@ -13,19 +13,9 @@ import {
 import { user } from "./auth";
 
 /**
- * Per-call cost log for every billable external request (LLM, embedding,
- * web search, transcription, future tool APIs). Single source of truth
- * per ADR-0015: one row per terminal attempt; aggregates derive from
- * this table via materialized views or scheduled rollups (not yet built).
- *
- * `cost_usd` is computed from `model_prices` at WRITE time and snapshot
- * here — later price corrections never silently rewrite history.
- *
- * Attribution columns are nullable so we can meter calls outside of an
- * agent run (cold-start research, ad-hoc test calls). The `kind`
- * discriminator lets us reuse this table for non-LLM costs (embeddings,
- * web_search) without per-kind tables. user_id FK cascades on delete —
- * single-user app, no value in keeping cost history past the user.
+ * One row per billable external call, LLM or not (ADR-0015).
+ * `cost_usd` is priced at write time, so later price fixes do not rewrite history.
+ * Run columns are nullable so calls outside an agent run can be metered too.
  */
 export const apiCallLog = pgTable(
   "api_call_log",
@@ -38,9 +28,9 @@ export const apiCallLog = pgTable(
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     cachedInputTokens: integer("cached_input_tokens"),
-    /** Prompt tokens written to a paid provider cache during this call. */
+    /** Prompt tokens written to a paid provider cache. */
     cacheWriteInputTokens: integer("cache_write_input_tokens"),
-    /** Snapshot at write time. numeric(12,8) keeps fractions of a cent across orders of magnitude. */
+    /** numeric(12,8) keeps fractions of a cent. */
     costUsd: numeric("cost_usd", { precision: 12, scale: 8 }).notNull().default("0"),
     latencyMs: integer("latency_ms"),
     userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
@@ -48,34 +38,17 @@ export const apiCallLog = pgTable(
     stepId: text("step_id"),
     attempt: integer("attempt"),
     messageId: text("message_id"),
-    /** Trimmed model params + retry/attempt count + idempotency-key. */
     requestMeta: jsonb("request_meta"),
-    /** finish_reason, usage block, tool_calls count, raw provider response id. */
     responseMeta: jsonb("response_meta"),
     error: jsonb("error"),
     /**
-     * Transport status of a failed call. NULL on success and on a failure that
-     * carried no HTTP status (an abort, a socket error, a parse fault).
-     *
-     * Present because `error.message` alone cannot separate the two 429s the
-     * Cloudflare AI Gateway returns. Both read "Too Many Requests"; only the
-     * body distinguishes the gateway's own rule (`internalCode 2003`) from the
-     * Unified Billing budget (`internalCode 2018`), and three separate
-     * diagnoses had to open the Cloudflare dashboard to tell them apart.
+     * HTTP status of a failed call. NULL on success and on a failure with no status.
+     * The gateway returns two 429s with the same message, so the message alone is not enough.
      */
     statusCode: integer("status_code"),
     /**
-     * The provider's raw error body, run through `redactSecrets` and truncated.
-     *
-     * Written only on a failure, which narrows the exposure but does not remove
-     * it: `redactSecrets` strips credentials, not prose, and an error body can
-     * still carry user content — a 400 `invalid_request_error` echoes the
-     * offending request, and a content-filter rejection carries the flagged
-     * text. So this column holds user data on those two shapes, and
-     * `api_call_log` has no retention policy yet. The trade is deliberate: a
-     * rejection body is the only thing that separates the gateway's two 429s
-     * (see {@link apiCallLog.statusCode}) without the Cloudflare log API.
-     * Revisit it with retention, not by dropping the column.
+     * Failed-call error body, redacted and truncated. Only this body tells the two gateway 429s apart.
+     * It can still hold user text (a 400 echo, a content-filter hit), and the table has no retention yet.
      */
     responseBody: text("response_body"),
   },
@@ -87,12 +60,8 @@ export const apiCallLog = pgTable(
 );
 
 /**
- * Time-versioned per-(provider, model) pricing. Lookups select the row
- * with the largest `valid_from` ≤ now() — old rows stay forever so
- * historical writes resolve to their original snapshot price.
- *
- * Seeded by `pnpm db:sync-prices` from models.dev (ADR-0016 source-of-
- * truth). New deploys can change pricing without redeploys to code.
+ * Time-versioned prices per (provider, model). Lookups take the latest `valid_from` <= now().
+ * Old rows stay. `pnpm db:sync-prices` seeds it from models.dev (ADR-0016).
  */
 export const modelPrices = pgTable(
   "model_prices",
@@ -100,21 +69,18 @@ export const modelPrices = pgTable(
     id: bigserial("id", { mode: "number" }).primaryKey(),
     provider: text("provider").notNull(),
     model: text("model").notNull(),
-    /** Effective from this timestamp; lookups pick the latest ≤ now(). */
     validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
-    /** Cost per 1,000,000 input tokens, USD. */
+    /** USD per 1M tokens. */
     inputPerMtok: numeric("input_per_mtok", { precision: 12, scale: 6 }).notNull(),
-    /** Cost per 1,000,000 output tokens, USD. */
     outputPerMtok: numeric("output_per_mtok", { precision: 12, scale: 6 }).notNull(),
-    /** Cost per 1,000,000 cached-read input tokens (Anthropic prompt cache, etc.). NULL if unsupported. */
+    /** NULL if the model has no cache reads. */
     cachedInputPerMtok: numeric("cached_input_per_mtok", { precision: 12, scale: 6 }),
-    /** Cost per 1,000,000 prompt-cache write tokens. NULL falls back to the normal input rate. */
+    /** NULL falls back to the normal input rate. */
     cacheWriteInputPerMtok: numeric("cache_write_input_per_mtok", { precision: 12, scale: 6 }),
-    /** Cost per call for fixed-fee endpoints (Perplexity, transcription). NULL when token-based. */
+    /** Fixed fee per call. NULL when priced by token. */
     perCallUsd: numeric("per_call_usd", { precision: 12, scale: 6 }),
-    /** Model context window in tokens, populated from models.dev capability metadata when available. */
     contextWindow: integer("context_window"),
-    /** Free-form provenance: source URL, models.dev id, etc. */
+    /** Provenance, such as the source URL or models.dev id. */
     metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },

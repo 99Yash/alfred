@@ -1,44 +1,22 @@
 /**
- * Document templates for the `pdf` medium (pristine-artifacts Phase 2a).
- *
- * Where `archetypes.ts` covers SLIDE layouts (one idea per 1280x720 page), these
- * cover DOCUMENTS — a resume, a report page, a product one-pager — the dense,
- * read-up-close 816x1056 medium the slide archetypes do not serve. Each is a
- * complete, on-token body-level page built from the `art-doc-*` vocabulary and
- * the `--art-doc-*` type scale, sized to fill the sheet.
- *
- * They exist because live use proved the failure mode: asked for a "resume,"
- * the model had no document exemplar to compose from, so it hand-rolled a
- * page-level `<style>` with hardcoded Apple greys and a 10.5px base — off-brand,
- * cramped, and stranding the bottom half of the page. A real house-styled
- * template is the anchor that keeps document output on the system; the resume
- * (the most-requested and worst-regressed) is inlined into the authoring prompt,
- * the rest stay in-package as named guidance + render fixtures.
- *
- * Same contract as archetypes: body-level HTML only (no <html>/<head>/<body>,
- * no page-dimension styles — the shell owns those), all color/type from tokens.
- * Placeholder content is generic on purpose; the model swaps in the real facts.
+ * Body-level `pdf` page templates built from the `art-doc-*` classes.
+ * Without one, the model wrote its own tiny, off-brand type. The PDF prompt
+ * inlines the resume; it names the others.
  */
 
 export interface DocumentTemplate {
-  /** Stable id used by the prompt and tests. */
+  /** Stable id. */
   readonly id: string;
-  /** Human name shown in guidance. */
+  /** Name shown in the prompt. */
   readonly name: string;
-  /** The format this template is authored for. */
   readonly format: "pdf";
-  /** One-line description of when to reach for it. */
+  /** When to use it. */
   readonly description: string;
-  /** Body-level HTML exemplar (goes inside the shell's `.art-page`). */
+  /** Body-level HTML for inside `.art-page`. */
   readonly html: string;
 }
 
-/**
- * Résumé / CV — the anchor template. A header (name + role, contact stack), a
- * one-line summary, an experience list, and a two-column skills + education
- * footer. Uses the document type scale (readable, not tiny) and fills the page
- * top to bottom.
- */
+/** Resume: header, summary, experience, and a skills and education footer. */
 const resume: DocumentTemplate = {
   id: "resume",
   name: "Résumé / CV",
@@ -122,11 +100,7 @@ const resume: DocumentTemplate = {
 </div>`,
 };
 
-/**
- * Report / brief — a titled document page: title + meta line, a lede, two headed
- * prose sections, and a highlighted takeaway panel. For a memo, summary, or
- * single-page write-up.
- */
+/** Report: title, lede, two sections, and a takeaway panel. */
 const report: DocumentTemplate = {
   id: "report",
   name: "Report / brief",
@@ -165,11 +139,7 @@ const report: DocumentTemplate = {
 </div>`,
 };
 
-/**
- * One-pager — a product / project brief: name + tagline header, a positioning
- * lede, a three-up value grid, and a closing line. Slightly warmer; the one
- * document template that leans on the accent.
- */
+/** One-pager: header, lede, a three-column value grid, and a closing line. Uses the accent most. */
 const onePager: DocumentTemplate = {
   id: "one-pager",
   name: "One-pager",
@@ -234,10 +204,10 @@ const onePager: DocumentTemplate = {
 </div>`,
 };
 
-/** The house document-template set, in a sensible authoring order. */
+/** All document templates. */
 export const documentTemplates: readonly DocumentTemplate[] = [resume, report, onePager];
 
-/** Look up a document template by id (used by the prompt / tests / tooling). */
+/** Find a document template by id. */
 export function documentTemplateById(id: string): DocumentTemplate | undefined {
   return documentTemplates.find((t) => t.id === id);
 }

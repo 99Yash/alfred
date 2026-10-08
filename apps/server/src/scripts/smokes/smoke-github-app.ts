@@ -1,18 +1,9 @@
 /**
- * GitHub App structural smoke test (ADR-0052).
+ * GitHub App smoke against real GitHub (ADR-0052): the App JWT signs and `GET /app`
+ * accepts it, installations list, an installation token works, and the install URL
+ * builds. With no installation, it prints how to install.
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-github-app.ts
- *
- * What this verifies against real GitHub, without a browser dance:
- *   - The private key loads (PKCS#1) and `jose` signs a valid App JWT.
- *   - GitHub accepts the JWT: `GET /app` returns this App's identity.
- *   - `GET /app/installations` lists installations; if the user has
- *     installed the App, it mints an installation token and confirms it
- *     works (`GET /installation/repositories`).
- *   - The install URL builds.
- *
- * If no installation exists yet, it prints how to install — that's the
- * one manual step (the browser connect flow).
  */
 import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
@@ -48,7 +39,7 @@ async function main() {
   console.log("[smoke-github-app] install URL builds:");
   console.log(`   ${buildInstallUrl("smoke-state").slice(0, 120)}\n`);
 
-  // ---- Phase 1: App JWT is valid (GET /app) --------------------------------
+  // Phase 1: the App JWT is valid.
   const jwt = await mintAppJwt();
 
   const appRes = await githubSmokeFetch("https://api.github.com/app", {
@@ -64,8 +55,7 @@ async function main() {
     return;
   }
 
-  // SAFETY: GitHub's app endpoint always returns these fields for a valid
-  // JWT (checked above); this smoke only logs them.
+  // SAFETY: `GET /app` returns these fields for a valid JWT; the smoke only logs them.
   const app = (await appRes.json()) as { id: number; slug: string; name: string };
   console.log(
     `[smoke-github-app] App JWT accepted — app #${app.id} "${app.name}" (slug ${app.slug})`,
@@ -77,7 +67,7 @@ async function main() {
     );
   }
 
-  // ---- Phase 2: installations ----------------------------------------------
+  // Phase 2: installations.
   const instRes = await githubSmokeFetch("https://api.github.com/app/installations", {
     headers: { ...GH, Authorization: `Bearer ${jwt}` },
   });
@@ -126,7 +116,7 @@ async function main() {
     console.log(`   → installation can see ${repos.total_count ?? "?"} repositories`);
   }
 
-  // ---- Phase 3: stored credential ------------------------------------------
+  // Phase 3: stored credential.
   const creds = await db()
     .select({
       accountLabel: integrationCredentials.accountLabel,

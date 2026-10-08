@@ -60,8 +60,7 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
   });
 
   test("the header key survives a subject the loop-key grammar cannot read", () => {
-    // No `[owner/repo]` bracket and no `(PR #N)` — the subject grammar returns
-    // nothing here, which is exactly why the header is the stronger evidence.
+    // The subject has no `[owner/repo]` or `(PR #N)`, so only the header can key it.
     const key = globalKey(
       referentKeyForEmail({
         subject: "Re: fix(onboarding): polish flow",
@@ -168,10 +167,8 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
   });
 
   test("a header from a non-GitHub sender mints nothing, so nobody can claim a PR node", () => {
-    // The header is written by whoever sent the mail. Ungated, this message
-    // would take the permanent node for 99Yash/alfred#913. The header class is
-    // the STRONGER class and runs first, so a gate on the subject class alone
-    // would never run.
+    // The sender writes the header, so ungated it could claim 99Yash/alfred#913 forever.
+    // The header class runs first, so the gate must cover it too.
     assert.equal(
       referentKeyForEmail({
         subject: "hey look at this",
@@ -186,8 +183,7 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
   });
 
   test("an over-long opaque header id mints nothing rather than an illegal identity", () => {
-    // `integration_object_key` ends in `.+`, so an unbounded id passes the
-    // FORMAT and would fail only at the size refine much later.
+    // The `integration_object_key` format ends in `.+`, so only the later size check stops a long id.
     assert.equal(
       referentKeyForEmail({
         subject: null,
@@ -213,8 +209,7 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
       }),
       null,
     );
-    // `push` is not on the allow-list: an unrecognized shape falls through
-    // rather than guessing, because a wrong mint is permanent.
+    // `push` is not on the allow-list. Do not guess, because a wrong mint is permanent.
     assert.equal(
       referentKeyForEmail({
         subject: null,
@@ -240,9 +235,8 @@ describe("referentKeyForEmail — GitHub threading headers", () => {
 });
 
 describe("referentKeyForEmail — the observation payload seam", () => {
-  // `GmailEmailMessagePayload` carries TWO fields named `messageId`: the Gmail
-  // message id at the top level and the RFC threading id under `headers`. Only
-  // the second is evidence about a referent.
+  // Two fields are named `messageId`: the Gmail id at the top, the RFC id under `headers`.
+  // Only the RFC id is evidence.
   function gmailPayload(headerMessageId: string | null, gmailMessageId: string) {
     return gmailEmailMessagePayloadSchema.parse({
       provider: "gmail",
@@ -282,9 +276,7 @@ describe("referentKeyForEmail — the observation payload seam", () => {
   });
 
   test("the Gmail message id is never read as a threading header", () => {
-    // A Gmail id shaped like a GitHub threading id must mint nothing. Reading
-    // the wrong `messageId` here would silently disable the header class for
-    // every real message, because a Gmail id never parses.
+    // Reading the wrong `messageId` would silently disable the header class for every message.
     const payload = gmailPayload(null, "99Yash/alfred/pull/913@github.com");
     assert.equal(
       referentKeyForEmail({
@@ -341,10 +333,8 @@ describe("referentKeyForEmail — subject grammar fallback", () => {
   });
 
   test("a repeated vendor subject is sender-scoped even when the vendor is GitHub", () => {
-    // Regression, found on the real corpus: reading the loop ref's PROVIDER
-    // before its KIND promoted this normalized subject to a global
-    // `github:subject:…` key, which would claim to identify an object across
-    // every source. It identifies nothing outside this sender.
+    // Regression: checking the provider before the kind minted a global `github:subject:…` key.
+    // A normalized subject means nothing outside this sender.
     const key = senderKey(
       referentKeyForEmail({
         subject: "[GitHub] Sudo email verification code",
@@ -373,8 +363,7 @@ describe("referentKeyForEmail — subject grammar fallback", () => {
   });
 
   test("a runaway tracker subject mints nothing rather than an unbounded name", () => {
-    // A subject this long never repeats, so it dedups nothing, and the value it
-    // would build breaks `MAX_IDENTITY_VALUE_BYTES` far from the mint.
+    // A subject this long dedups nothing and would break `MAX_IDENTITY_VALUE_BYTES` far from the mint.
     assert.equal(
       referentKeyForEmail({
         subject: `Netsmart ${"save view issues ".repeat(60)}`,
@@ -418,9 +407,7 @@ describe("referent identity values", () => {
   });
 
   test("an identity value is checked against the whole contract, not just the format", () => {
-    // `alfred:referent:<id>/<name>` matches `IDENTITY_VALUE_FORMATS` for any
-    // non-empty tail, so a format-only assert would pass an oversized value and
-    // let it fail at `computeStableEntityId` instead.
+    // The format accepts any non-empty tail, so only the size check stops an oversized value.
     const key = senderKey(
       referentKeyForEmail({
         subject: 'ALARM: "baserow-response-time" in US East',

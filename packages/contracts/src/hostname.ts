@@ -1,30 +1,13 @@
-// The shared "what string is a syntactically valid DNS hostname" grammar
-// (per-label shape, non-numeric TLD, ≤253 chars), encoded ONCE. Both the domain
-// identity floor (`user-model.ts` → `identityValueMatchesKind("domain")`) and the
-// domain classifier (`identity-affiliation.ts` → `classifyEmailDomain`) validate
-// the same `orgDomain` write, so their notion of a valid hostname must not drift.
-//
-// This is a dependency-free leaf on purpose: `user-model.ts` value-imports
-// `classifyEmailDomain` from `identity-affiliation.ts`, so having either of them
-// import the grammar from the other would close a runtime value cycle. A leaf that
-// imports nothing breaks that cleanly, and it stays private (NOT re-exported from
-// `index.ts`) — these are internal grammar consts, not a public contract surface.
-//
-// Exports are UNANCHORED fragments; each caller supplies its own anchoring
-// (`^...@${HOSTNAME}$`, `^${HOSTNAME}$`, `new RegExp(\`^${HOSTNAME}$\`)`).
+// The one DNS hostname grammar, shared by `user-model.ts` and `domain.ts`.
+// A leaf with no imports, so sharing it cannot create an import cycle. Not exported from `index.ts`.
+// Fragments are unanchored; each caller adds `^` and `$`.
 
-// A DNS label: 1–63 chars, no leading/trailing hyphen. Written without lookbehind
-// so it parses on every JS engine.
+// 1 to 63 chars, no hyphen at either end. No lookbehind, for older engines.
 export const DNS_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
 
-// Final DNS label: same label grammar, but must contain at least one letter. This
-// rejects all-numeric pseudo-TLDs (`example.123`) while still accepting punycoded
-// IDN labels (`xn--...`).
+// The TLD needs a letter: rejects `example.123`, accepts punycode `xn--...`.
 export const DNS_TLD = `(?=[a-z0-9-]*[a-z])${DNS_LABEL}`;
 
-// A DNS hostname: ≥2 labels (must carry a TLD), each per `DNS_LABEL` (so no empty
-// label, no leading/trailing hyphen — rejects `bad..com`, `-bad`, `bad-`), ≤253
-// chars total, and a non-numeric TLD. The lookahead bounds only the host (`[^@]`,
-// since a hostname never contains `@`), so the same fragment validates a standalone
-// `domain` AND the part after `@` in an `email`.
+// Two or more labels, 253 chars max. The length lookahead skips `@`, so the same
+// fragment works alone and after the `@` of an email.
 export const HOSTNAME = `(?=[^@]{1,253}$)${DNS_LABEL}(?:\\.${DNS_LABEL})*\\.${DNS_TLD}`;

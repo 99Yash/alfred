@@ -17,25 +17,12 @@ import { and, eq, gte, inArray, isNotNull, isNull, lt, notInArray, or, sql } fro
 import type { SQL } from "drizzle-orm";
 
 /**
- * Settings → Usage aggregations over `api_call_log` (per-call cost log; one row
- * per billable external request, `cost_usd` snapshot at write time). Runs are
- * recovered by grouping on `run_id` and left-joining `agent_runs` to read the
- * owning run's `workflow_slug` — the category discriminator (ADR-0015/0027).
- *
- * Scope notes:
- *  - Only rows with a non-null `run_id` become activity rows; ad-hoc probe
- *    calls (no run) still count in the summary totals but have no run to show.
- *  - `cost_usd`/token sums arrive from Postgres as strings — always coerce.
- *  - Single-user app: these read paths are called rarely (a settings tab), so
- *    correctness and clarity win over shaving the extra count round-trip.
+ * Settings > Usage, from `api_call_log`. The run's `workflow_slug` gives the category.
+ * Calls with no run count in the totals but have no activity row. Postgres sums arrive as strings.
  */
 
 /**
- * Frozen workflow-slug → category map. These slugs are stable run identifiers
- * defined across the workflow modules (`CHAT_TURN_WORKFLOW_SLUG`,
- * `DAILY_BRIEFING_WORKFLOW_SLUG`, …); duplicated here as literals rather than
- * importing ten heavy workflow modules into this lightweight read service.
- * Changing a slug is already a migration-class event, so the coupling is safe.
+ * Slug literals, to avoid importing every workflow module. A slug change already needs a migration.
  */
 export const SLUG_CATEGORY = {
   "__chat-turn__": "chat",
@@ -51,21 +38,16 @@ export const SLUG_CATEGORY = {
   "__user-authored-brief__": "sub_agent",
 } satisfies Record<string, UsageRunCategory>;
 
-/** Every slug the map above recognizes — the complement is a user workflow. */
+/** Any other slug is a user workflow. */
 const KNOWN_SLUGS = Object.keys(SLUG_CATEGORY);
 
-/** Coerce a Postgres aggregate (string | number | null) to a finite number. */
 function num(value: unknown): number {
   const n = Number(value);
 
   return Number.isFinite(n) ? n : 0;
 }
 
-/**
- * Coerce a timestamp aggregate to an ISO string. `min(created_at)` comes back
- * as a `Date` under node-postgres but a string under some drivers/raw casts —
- * normalize either shape (invalid → epoch, never throws).
- */
+/** Accepts a `Date` or a string, since drivers differ. Invalid input gives the epoch. */
 function toIso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   const d = new Date(String(value));
@@ -73,18 +55,13 @@ function toIso(value: unknown): string {
   return Number.isNaN(d.getTime()) ? new Date(0).toISOString() : d.toISOString();
 }
 
-/** A run's category: mapped slug, user-workflow, or uncategorized (no run row). */
 function categoryOf(workflowSlug: string | null): UsageRunCategory {
   if (workflowSlug === null) return "uncategorized";
 
   return Object.entries(SLUG_CATEGORY).find(([slug]) => slug === workflowSlug)?.[1] ?? "workflow";
 }
 
-/**
- * Display label for an activity row. Briefings split morning/evening from the
- * run's `state.slot` (best-effort — the column is untyped jsonb); everything
- * else uses a fixed category label or the raw user-workflow slug.
- */
+/** Briefings read morning or evening from the untyped `state.slot`. */
 function labelOf(category: UsageRunCategory, workflowSlug: string | null, state: unknown): string {
   switch (category) {
     case "chat":
@@ -118,12 +95,10 @@ function labelOf(category: UsageRunCategory, workflowSlug: string | null, state:
   }
 }
 
-/** WHERE predicate selecting the runs that fall in one category. */
 function categoryPredicate(category: UsageRunCategory): SQL {
   switch (category) {
     case "workflow":
-      // SAFETY: drizzle's and() returns a narrower SQL chunk union than the
-      // declared return; the built predicate is exactly a SQL node.
+      // SAFETY: and() with two defined args always returns a SQL node.
       return and(isNotNull(agentRuns.id), notInArray(agentRuns.workflowSlug, KNOWN_SLUGS)) as SQL;
     case "uncategorized":
       return isNull(agentRuns.id);
@@ -137,7 +112,7 @@ function categoryPredicate(category: UsageRunCategory): SQL {
   }
 }
 
-/** Period totals for the overview strip. `end` is exclusive. */
+/** `end` is exclusive. */
 export async function getUsageSummary(
   userId: string,
   start: Date,
@@ -175,7 +150,7 @@ export async function getUsageSummary(
   };
 }
 
-/** Per-category cards for the window. Sums reconcile to the overview totals. */
+/** The category sums add up to the overview totals. */
 export async function getUsageBreakdown(
   userId: string,
   start: Date,
@@ -187,13 +162,9 @@ export async function getUsageBreakdown(
     lt(apiCallLog.createdAt, end),
   );
 
-  // Group by the raw slug, then fold slugs into categories in JS. Grouping on a
-  // SQL CASE would trip Postgres's ungrouped-column check. Every call in the
-  // window lands in exactly one card: a null slug (LEFT JOIN miss — an orphaned
-  // run_id, or an ad-hoc call with no run_id at all) folds into `uncategorized`.
-  // We deliberately DON'T filter to non-null run_id here: the overview strip
-  // sums every call, so excluding run-less calls would make the cards total
-  // less than the headline spend with nothing on screen explaining the gap.
+  // Group by slug and fold in JS; a SQL CASE trips the ungrouped-column check.
+  // Keep calls with no run (as `uncategorized`), or the cards would not add up to the headline
+  // spend.
   const slugRows = await db()
     .select({
       workflowSlug: agentRuns.workflowSlug,
@@ -244,7 +215,6 @@ export interface UsageActivityQuery {
   sortDir: UsageSortDir;
 }
 
-/** Paginated per-run activity rows, filtered by category and sorted. */
 export async function getUsageActivity(
   userId: string,
   q: UsageActivityQuery,
@@ -257,7 +227,6 @@ export async function getUsageActivity(
     eq(apiCallLog.userId, userId),
     gte(apiCallLog.createdAt, q.start),
     lt(apiCallLog.createdAt, q.end),
-    // Activity rows are runs; ad-hoc no-run calls have nothing to group on.
     isNotNull(apiCallLog.runId),
   ];
 
@@ -280,9 +249,7 @@ export async function getUsageActivity(
 
   const createdExpr = sql<string>`min(${apiCallLog.createdAt})`;
   const costExpr = sql`coalesce(sum(${apiCallLog.costUsd}), 0)`;
-  // Map the direction to a literal fragment rather than interpolating the
-  // caller's string with sql.raw — keeps this exported function injection-safe
-  // even if a future caller passes an unsanitized `sortDir`.
+  // A literal fragment, never sql.raw of caller input.
   const dir = q.sortDir === "asc" ? sql`asc` : sql`desc`;
 
   const orderExpr =
@@ -303,9 +270,7 @@ export async function getUsageActivity(
     .from(apiCallLog)
     .leftJoin(agentRuns, eq(agentRuns.id, apiCallLog.runId))
     .where(where)
-    // Group by the run + `agent_runs.id` (its PK): Postgres then lets us select
-    // `workflow_slug`/`state` as functionally dependent on the PK instead of
-    // forcing the whole `state` jsonb blob into the GROUP BY hash key.
+    // Grouping by the PK lets us select `state` without hashing the jsonb.
     .groupBy(apiCallLog.runId, agentRuns.id)
     .orderBy(orderExpr)
     .limit(pageSize)
@@ -336,7 +301,7 @@ export async function getUsageActivity(
   return { runs, total, page, pageSize };
 }
 
-/** Per-(run, model) call counts for the runs on the current page, busiest first. */
+/** Calls per run and model for the current page, busiest first. */
 async function modelsForRuns(
   userId: string,
   runIds: ReadonlyArray<string>,
@@ -354,10 +319,7 @@ async function modelsForRuns(
       calls: sql`count(*)`,
     })
     .from(apiCallLog)
-    // Same [start, end) window as the run aggregates above — without it a run
-    // whose calls straddle the window boundary would count models it only used
-    // outside the queried period, and `sum(models.calls)` would exceed its
-    // in-window `calls`.
+    // Same window as the run totals, or model counts could exceed a run's calls.
     .where(
       and(
         eq(apiCallLog.userId, userId),

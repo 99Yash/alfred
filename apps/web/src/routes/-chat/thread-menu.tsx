@@ -15,26 +15,9 @@ import { useThreadUsageSummary } from "./thread-usage";
 import { Tip } from "./tip";
 
 /**
- * The chat header's "..." menu.
- *
- * The header had a `Share2` and an `Ellipsis` button from the first commit,
- * both copied from the Dimension design reference and neither wired to
- * anything. This is the ellipsis half. Dimension has no header ellipsis at all
- * — its "..." lives on sidebar rows — so the contents are a decision rather
- * than a port, and the ordering below is the decision:
- *
- *   1. Thread identity — Rename, Pin. What the sidebar row menu already offers,
- *      here aimed at the thread you are reading, so you need not hunt for its
- *      row to rename it.
- *   2. Take it elsewhere — Copy as Markdown.
- *   3. How Alfred behaves — model effort and action autonomy. These MIRROR the
- *      composer's two pickers rather than replacing them: the composer is where
- *      you change them mid-sentence, and this is where you find them when you
- *      have forgotten which control is which. Both write the same state AND
- *      read their labels from the pickers' own `TIER_OPTIONS` / `MODE_OPTIONS`,
- *      so the two surfaces cannot disagree about either.
- *   4. Economics — the thread usage rollup as a read-only row.
- *   5. Destructive — Delete, last and separated.
+ * The chat header's "..." menu, in groups: Rename/Pin, Copy as Markdown,
+ * model effort and autonomy, usage, then Delete.
+ * Effort and autonomy mirror the composer's pickers and read labels from `TIER_OPTIONS` / `MODE_OPTIONS`.
  */
 
 const menuSurfaceClass = cn(
@@ -50,24 +33,19 @@ const menuItemClass = cn(
   "data-[highlighted]:bg-app-bg-a2 data-[highlighted]:text-app-fg-4",
 );
 
-// `relative` anchors the absolutely-positioned `ItemIndicator`; `pl-7` leaves
-// room for it so checked and unchecked rows keep the same text baseline.
+// `relative` anchors the `ItemIndicator`; `pl-7` keeps the text baseline fixed.
 const radioItemClass = cn(menuItemClass, "relative pl-7 data-[state=checked]:text-app-fg-4");
 
 const sectionLabelClass = "px-2 pt-2 pb-1 text-[11px] font-medium text-app-fg-2 select-none";
 
-/**
- * Indicator glyph per tier. The labels come from `TIER_OPTIONS`; only the icon
- * is local, because the composer's picker draws a per-tier SVG mark that does
- * not read at a 13px menu indicator.
- */
+/** Local icons: the picker's per-tier SVG does not read at 13px. */
 const TIER_ICON = { standard: Zap, deep: Brain } satisfies Record<
   ChatModelTier,
   typeof Zap | typeof Brain
 >;
 
 export interface ThreadMenuProps {
-  /** Absent on a thread that has not been created yet; the menu then stays unmounted. */
+  /** Absent before the thread exists; then the menu does not mount. */
   threadId: string | undefined;
   title: string;
   pinned: boolean;
@@ -83,15 +61,8 @@ export interface ThreadMenuProps {
 }
 
 /**
- * Read-only economics row.
- *
- * Matches the `ThreadTotal` above the composer and the `UsageLine` under a
- * reply: token counts and dollars are a product surface. Renders nothing
- * before a turn has landed with usage either.
- *
- * It owns its own leading separator rather than being wrapped in one, because a
- * separator outside a component that returns `null` draws two adjacent rules on
- * every thread with no usage yet.
+ * Read-only usage row. Nothing before a turn has usage.
+ * Owns its separator: a wrapper separator around `null` draws two rules.
  */
 function UsageRow({ messages }: { messages: readonly SyncedChatMessage[] }) {
   const summary = useThreadUsageSummary(messages);
@@ -132,8 +103,7 @@ export function ThreadMenu({
   const { resolved } = useAppTheme();
   const [open, setOpen] = useState(false);
 
-  // No thread yet means nothing to rename, copy, or delete. An empty menu that
-  // opens is worse than no menu, which is the bug this whole change fixes.
+  // No thread yet: no menu, because an empty menu is worse.
   if (!threadId) return null;
 
   const copyMarkdown = () => {
@@ -158,13 +128,8 @@ export function ThreadMenu({
           className={menuSurfaceClass}
           align="end"
           sideOffset={4}
-          // Radix returns focus to the trigger in a `setTimeout(…, 0)` after the
-          // menu closes. `Rename` opens an inline editor that focuses itself on
-          // mount, so that timeout fires SECOND, steals the focus back, and the
-          // editor's blur handler commits and closes it in the same frame — the
-          // rename affordance never appears. The sidebar's copy escapes this
-          // only because its trigger unmounts with the row; this trigger does
-          // not. Preventing the auto-focus leaves the editor holding focus.
+          // Radix refocuses the trigger in a `setTimeout` after close. That steals focus from the
+          // Rename editor, whose blur then commits and closes it. Prevent the refocus.
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
           <DropdownMenu.Item className={menuItemClass} onSelect={onRename}>
@@ -217,9 +182,7 @@ export function ThreadMenu({
           <DropdownMenu.RadioGroup
             value={autoApprove ? "autonomy" : "gated"}
             onValueChange={(next) => {
-              // The policy is a global default that a pending mutation is
-              // already rewriting; ignore a re-select of the current value so a
-              // double click cannot flip it twice.
+              // Ignore a re-select while pending, so a double click cannot flip it twice.
               if (autoApprovePending) return;
 
               if ((next === "autonomy") !== autoApprove) onToggleAutoApprove();

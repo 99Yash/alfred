@@ -36,17 +36,9 @@ import { cn } from "~/lib/utils";
 import type { ChatSidePanelMode } from "~/routes/-chat/rail/models";
 
 /**
- * The chat's artifact sidebar (ADR-0075 Phase 3). Renders a single synced
- * `artifacts` row inline beside the conversation: a `document` artifact as
- * markdown, a `pages` artifact as scaled iframe pages with a thumbnail strip
- * and a fullscreen presentation mode. Content arrives live via Replicache —
- * each authoring tool call rewrites the row and pokes, so pages appear at page
- * granularity while the boss is still `generating`.
- *
- * Layout mirrors the Today rail's two modes (`useRailMode`): `inline` takes a
- * resizable column next to the conversation; `overlay` slides in over it with a
- * backdrop on narrow viewports. The two share the shell's single right-rail
- * slot — opening an artifact swaps the rail out (see `chat-shell`).
+ * Artifact sidebar (ADR-0075 Phase 3): a `document` as markdown, `pages` as scaled iframes.
+ * Replicache pokes on each authoring call, so pages appear while the boss is still `generating`.
+ * Shares the shell's right-rail slot with the Today rail, in the same inline/overlay modes.
  */
 
 export interface ArtifactEditSuggestion {
@@ -55,38 +47,22 @@ export interface ArtifactEditSuggestion {
 }
 
 interface ArtifactSidebarProps {
-  /**
-   * The open artifact. A real synced row id, or `pending:<toolCallId>` while a
-   * `create_artifact` is still streaming and has no durable row yet — in which
-   * case the body comes entirely from `liveStream`.
-   */
+  /** A synced row id, or `pending:<toolCallId>` while a create streams; then the body is all `liveStream`. */
   artifactId: string;
-  /**
-   * The boss's live authoring stream for this document, if it's being written
-   * right now. Fills the body token-by-token ahead of (create) or over
-   * (update/append) the synced row; the panel reconciles to the synced row once
-   * the tool completes. Null for pages and for idle synced artifacts.
-   */
+  /** The live authoring stream for a document, if it is being written now. Null for pages and idle rows. */
   liveStream?: LiveArtifactStream | null | undefined;
   mode: ChatSidePanelMode;
-  /** Inline-mode width in px (ignored in overlay mode). */
+  /** Inline width in px; overlay ignores it. */
   width: number;
   onWidthChange: (width: number) => void;
   onClose: () => void;
-  /** Prefill the composer with an edit scaffold for this artifact. */
   onSuggestEdit?: ((suggestion: ArtifactEditSuggestion) => void) | undefined;
 }
 
-/**
- * The document body + labels the sidebar renders, resolved from the synced row
- * and the live authoring stream. While the boss writes, the live body wins so
- * the panel fills as tokens arrive; once the tool completes we fall back to the
- * synced row (server-sanitized, and the source for future edits).
- */
+/** Body and labels. The live body wins while the boss writes; then the synced (sanitized) row. */
 interface DocumentView {
-  /** Rendered markdown (live while streaming, synced once settled). */
   markdown: string;
-  /** True while the body is still being authored — drives the "Writing…" state. */
+  /** Drives the "Writing…" state. */
   generating: boolean;
 }
 
@@ -101,11 +77,8 @@ function resolveDocumentView(
 
   const streaming = liveStream != null && !liveStream.done;
 
-  // Show the live body while authoring, or when a create's row hasn't synced
-  // yet (done but no synced content). `append` renders after existing content.
-  // A just-finished append also stays live until the synced row actually carries
-  // its section (endsWith), so the section doesn't blink out between the tool's
-  // succeeded event and the Replicache poke landing.
+  // Live while authoring or before a create's row syncs.
+  // A finished append stays live until the synced row ends with its section, so it does not blink out.
   const appendPendingSync =
     liveStream != null &&
     liveStream.mode === "append" &&
@@ -139,15 +112,10 @@ export function ArtifactSidebar({
   const artifact = useArtifact(artifactId);
   const [fullscreen, setFullscreen] = useState(false);
 
-  // Which page is in view. Lifted here so it is the single source of truth
-  // shared by the thumbnail strip, the header's "present" button, and the
-  // presentation overlay — so presenting starts on the page the user is actually
-  // looking at, not page 1.
+  // Shared by the strip, the present button, and the overlay, so presenting starts on the current page.
   const [pageIndex, setPageIndex] = useArtifactPageIndex(artifactId);
 
-  // Escape closes the panel (overlay) or exits fullscreen first. The handler
-  // reads the latest fullscreen/mode/onClose through an Effect Event so the
-  // listener mounts once and never re-subscribes on a parent re-render.
+  // Escape exits fullscreen first, then closes the overlay. Effect Event, so the listener mounts once.
   const onEscape = useEffectEvent(() => {
     if (fullscreen) setFullscreen(false);
     else if (mode === "overlay") onClose();
@@ -166,17 +134,14 @@ export function ArtifactSidebar({
   const isPages = artifact?.kind === "pages";
   const isExternalFile = artifact?.kind === "external_file";
 
-  // A pending create has no synced row yet — the live stream is always a
-  // document (pages never stream), so treat it as one for the whole panel.
+  // A pending create has no row yet; pages never stream, so it is a document.
   const isDocument =
     !isPages && !isExternalFile && (artifact?.kind === "document" || liveStream != null);
 
   const documentView = resolveDocumentView(artifact, liveStream);
   const title = artifact?.title ?? liveStream?.title ?? "Artifact";
 
-  // "Suggest an edit" hands the boss a scaffold in the composer. On overlay
-  // (narrow) the panel covers the composer, so close it first — the user lands
-  // on the focused composer with the scaffold inserted.
+  // In overlay mode the panel covers the composer, so close it first.
   const onEdit = useCallback(() => {
     if (!artifact || !onSuggestEdit) return;
     onSuggestEdit({ artifactTargetId: artifact.id, text: "Edit this artifact: " });
@@ -361,8 +326,7 @@ function ArtifactSubline({
   documentView: DocumentView;
   pageCount: number | undefined;
 }) {
-  // A document being authored (live stream, maybe no synced row yet) shows the
-  // writing state directly — there's no `generating` synced row to key off.
+  // A live document may have no synced row to read `generating` from.
   if (isDocument && documentView.generating) {
     return (
       <>
@@ -374,9 +338,7 @@ function ArtifactSubline({
 
   if (!artifact) return <span>Loading…</span>;
 
-  // An external_file is minted `generating` (its content is complete at mint;
-  // the run finalizer flips it + backfills messageId), so skip the lifecycle
-  // states below — there is nothing to generate — and label it by source/type.
+  // External files are complete at mint, so skip the lifecycle states.
   if (artifact.content?.kind === "external_file") {
     const { source, mimeType } = artifact.content;
     const sourceLabel = source === "drive" ? "Google Drive" : source;
@@ -439,8 +401,6 @@ function ArtifactBody({
   pageIndex: number;
   onPageIndexChange: Dispatch<SetStateAction<number>>;
 }) {
-  // Document path covers a live-authoring create (no synced row yet) as well as
-  // a synced document; the body comes from `documentView` either way.
   if (isDocument) {
     const markdown = documentView.markdown;
 
@@ -491,15 +451,8 @@ function ArtifactBody({
 }
 
 /**
- * Google preview origins we trust to receive `allow-scripts allow-same-origin`.
- * The Drive `/preview` viewer genuinely needs both — scripts to render, and its
- * own origin to read the user's Google session for private files. That combo is
- * only safe because the frame is CROSS-origin from Alfred (the browser's
- * same-origin policy blocks any sandbox escape into our origin). Since
- * `previewUrl` is provider metadata typed as an arbitrary `z.string().url()`,
- * we enforce the "it's really Google" assumption here rather than trusting it:
- * an Alfred-origin (or attacker-controlled) URL must never reach that scripted,
- * same-origin frame.
+ * Hosts allowed into the `allow-scripts allow-same-origin` frame. Drive `/preview` needs both.
+ * Safe only because the frame is cross-origin. `previewUrl` is any URL, so check the host.
  */
 const TRUSTED_PREVIEW_HOSTS = new Set(["drive.google.com", "docs.google.com"]);
 
@@ -514,17 +467,9 @@ function isTrustedPreviewUrl(url: string): boolean {
 }
 
 /**
- * Render an existing external file inline (#287): a Drive file the agent
- * couldn't read/export, surfaced so the user can view + download it. The preview
- * is a REMOTE iframe (the provider's own `/preview` page) — a different, relaxed
- * sandbox from the locked `srcDoc` frame the authored `pages` kind uses, because
- * it loads a trusted third-party origin (Google) that needs its own scripts and
- * same-origin. `allow-same-origin` grants the framed Google page access to ITS
- * origin only, never Alfred's — and we only mount the frame when `previewUrl`
- * resolves to a trusted Google host (see {@link isTrustedPreviewUrl}); otherwise
- * we fall back to the "Open in Drive" link alone. (React Doctor still flags the
- * literal `allow-scripts`+`allow-same-origin` combo statically; that warning is
- * knowingly accepted here, guarded by the host check rather than suppressed.)
+ * A Drive file the agent could not read, shown so the user can view or download it (#287).
+ * The remote preview frame mounts only for {@link isTrustedPreviewUrl}; else just "Open in Drive".
+ * React Doctor flags the sandbox combo; the host check is the guard.
  */
 function ExternalFileBody({ content, title }: { content: ExternalFileContent; title: string }) {
   const previewTrusted = isTrustedPreviewUrl(content.previewUrl);
@@ -570,10 +515,6 @@ function ExternalFileBody({ content, title }: { content: ExternalFileContent; ti
 }
 
 /* -------------------------------------------------------------------------- */
-/* Fullscreen presentation                                                     */
-/* -------------------------------------------------------------------------- */
-
-/* -------------------------------------------------------------------------- */
 /* Resize handle (inline mode)                                                 */
 /* -------------------------------------------------------------------------- */
 
@@ -587,13 +528,8 @@ function ResizeHandle({
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
   const [dragging, setDragging] = useState(false);
 
-  // Pointer *capture* (not window listeners) routes every move/up back to this
-  // element even after the cursor crosses onto the artifact's iframes. A plain
-  // window `pointermove` stops firing the instant the pointer enters an
-  // `<iframe>` (the events go to the frame's own document), so dragging the
-  // panel narrower — cursor moving in over the rendered pages — would freeze
-  // mid-drag. Capture also removes the need to add/tear-down global listeners:
-  // it auto-releases on pointerup / lostpointercapture.
+  // Pointer capture, not window listeners: `pointermove` stops once the cursor enters an iframe.
+  // Capture releases on its own at pointerup.
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       e.preventDefault();
@@ -609,8 +545,7 @@ function ResizeHandle({
   const onPointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if (!drag.current) return;
-      // The panel sits on the right; its left edge is the handle, so dragging
-      // left (clientX decreasing) widens it. `onWidthChange` clamps the bounds.
+      // Dragging left widens the panel. `onWidthChange` clamps.
       const delta = drag.current.startX - e.clientX;
       onWidthChange(drag.current.startWidth + delta);
     },
@@ -626,11 +561,7 @@ function ResizeHandle({
   }, []);
 
   return (
-    // react-doctor's prefer-tag-over-role maps role="separator" → <hr>, but an
-    // <hr> is a thematic break — it can't be an interactive drag splitter. The
-    // ARIA separator role (with orientation + label) is the right semantics for
-    // a resize handle, so the role stays. Same deliberate compromise as the
-    // mention palette's role="menu".
+    // react-doctor wants <hr>, but an <hr> cannot be a drag splitter. Keep role="separator".
     <div
       role="separator"
       aria-orientation="vertical"
@@ -639,13 +570,10 @@ function ResizeHandle({
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onLostPointerCapture={endDrag}
-      // ~10px hit target (Apple's gesture guidance) over the 1px visual rule;
-      // `touch-none` stops a touch-drag scrolling the page instead of resizing.
+      // ~10px hit target over the 1px rule; `touch-none` stops page scroll.
       className="group absolute inset-y-0 left-0 z-10 w-2.5 cursor-col-resize touch-none"
     >
-      {/* Feedback lives on the press and stays lit for the whole drag (the
-       * cursor leaves the hover zone as the panel resizes, so group-hover alone
-       * would flicker the rule back to faint mid-gesture). */}
+      {/* Lit on press for the whole drag; group-hover alone flickers as the cursor leaves. */}
       <div
         className={cn(
           "absolute inset-y-0 left-0 w-px transition-colors",

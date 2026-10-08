@@ -1,49 +1,16 @@
 /**
- * Baseline discovery metadata derivation (#413).
- *
- * Hand-authored `discovery` copy on `liveTool` calls is the curated ideal, but
- * it does not scale: every new integration tool — and, once they exist,
- * MCP/imported tools with only a server identity, a name, a description, and an
- * input schema — would otherwise be invisible to {@link searchToolCatalog}
- * except by its exact canonical name. This module derives a useful search
- * baseline from that identity so any registered tool participates in lazy
- * discovery, and merges local overrides on top so high-value tools can still be
- * tuned without re-listing everything the baseline already covers.
- *
- * The single derivation path is {@link deriveToolDiscovery}; `liveTool` calls it
- * for every builtin, and a future MCP importer should call it with the imported
- * server slug, tool name, description, and translated zod schema to get the same
- * search baseline.
- *
- * This module is only the *discovery* seam. Discovery metadata alone does not
- * make an imported tool loadable: two closed-world layers must open first — the
- * registry (`RegisteredTool.integration` / `liveTool` are keyed on the builtin
- * `IntegrationSlug`) and availability (`evaluateToolAvailability` keys on the
- * closed `LIVE_PROVIDERS`, so an unknown slug reads as permanently not-connected).
- * Until both open, a derived-metadata imported tool can be ranked in text but
- * never surfaced as runnable — this is a foundation, not a finished MCP path.
+ * Derive search metadata from a tool's name, description, and schema, so every
+ * tool is findable by capability without hand-written copy (#413).
  */
 
 import { humanizeSlug } from "@alfred/contracts";
 import { z } from "zod";
 import type { ToolDiscoveryMetadata } from "./registry";
 
-/**
- * A provider identity used only as free search text — never validated or used
- * for a closed-world operation here. It is a builtin {@link IntegrationSlug}
- * today, but the derivation deliberately accepts any string so a future MCP
- * importer can pass an imported server slug (`linear`, `stripe`, …) without
- * widening the closed registry enums the builtin name/action checks depend on.
- */
+/** Free search text only. A plain string, so it does not widen the closed slug enums. */
 type ProviderLabel = string;
 
-/**
- * Generic verb synonyms, keyed by the action's leading token. This is English
- * vocabulary, not a per-tool catalog: the baseline maps a user's likely phrasing
- * ("show my events", "open the page") onto the action's own verb so recall does
- * not depend on the author guessing every phrasing. Only the leading token is
- * expanded — unknown leads (`recent`, `batch`) simply contribute no synonyms.
- */
+/** Synonyms for the action's leading token. An unknown lead adds none. */
 const VERB_SYNONYMS = {
   search: ["find", "look up", "query"],
   list: ["show", "view", "browse"],
@@ -69,11 +36,7 @@ const VERB_SYNONYMS = {
   spawn: ["start", "launch", "delegate"],
 } satisfies Record<string, readonly string[]>;
 
-/**
- * Input-schema property names that carry no capability signal — pagination,
- * opaque ids, and generic request plumbing. Excluded from derived entities so a
- * query like "page" or "limit" never surfaces an unrelated tool.
- */
+/** Field names with no capability signal, so "page" or "limit" never surfaces a tool. */
 const PLUMBING_FIELD_TOKENS = new Set([
   "id",
   "ids",
@@ -99,34 +62,22 @@ const PLUMBING_FIELD_TOKENS = new Set([
 ]);
 
 export interface DeriveToolDiscoveryInput {
-  /** Server/provider identity — a builtin integration slug or an imported MCP server slug. */
   integration: ProviderLabel;
-  /** The tool's action slug, e.g. `create_event`. */
   action: string;
-  /** The executable description; the derived `summary` default. */
   description: string;
-  /** Input schema, read for its top-level field names. */
+  /** Read for its top-level field names. */
   inputSchema: z.ZodType<any>;
-  /** Hand-authored copy; each field takes precedence over the derived baseline. */
+  /** Hand-written copy. Each field wins over the derived value. */
   overrides?: ToolDiscoveryMetadata | undefined;
 }
 
-/**
- * The discovery shape after derivation + override merge: `title` and `summary`
- * are always present (derived from the action/description when unauthored), the
- * rest stay optional. This is exactly the shape the registry stores on every
- * {@link RegisteredTool}, exported so the two never drift.
- */
+/** Discovery after the merge. `title` and `summary` are always set. */
 export type ResolvedDiscovery = Required<Pick<ToolDiscoveryMetadata, "title" | "summary">> &
   ToolDiscoveryMetadata;
 
 /**
- * Merge a derived discovery baseline with hand-authored overrides. Scalars
- * (`title`, `summary`) take the override when present, else the derived default.
- * Arrays are a de-duplicated union — an author supplies a small delta that
- * *improves* the baseline rather than forking it — with authored phrasings kept
- * first so they read as canonical. `relatedTools` is authored-only: the baseline
- * cannot know which exact companion tool is useful next.
+ * Merge derived metadata with overrides. Scalars take the override. Arrays are a
+ * de-duplicated union, authored entries first. `relatedTools` is authored only.
  */
 export function deriveToolDiscovery(input: DeriveToolDiscoveryInput): ResolvedDiscovery {
   const overrides = input.overrides ?? {};
@@ -140,11 +91,8 @@ export function deriveToolDiscovery(input: DeriveToolDiscoveryInput): ResolvedDi
   const derivedEntities = [...entitiesFromTokens(rest), ...schemaFieldEntities(input.inputSchema)];
   const humanizedAction = humanizeSlug(input.action).toLowerCase();
   const qualifiedAlias = `${input.integration} ${humanizedAction}`;
-  // A single-token action ("search", "redeploy") humanizes to one bare word that
-  // many providers share, so as an *exact* alias it would force-preload every
-  // sibling holding that word at the top score tier on a one-word prompt. Keep
-  // the bare form only for multi-token actions ("create event"), which are
-  // specific; a lone verb stays reachable via `verbs` and the qualified alias.
+  // A bare one-word alias ("search") would preload every tool that shares the
+  // word on a one-word prompt, so only multi-token actions keep the bare form.
   const derivedAliases = tokens.length > 1 ? [humanizedAction, qualifiedAlias] : [qualifiedAlias];
 
   return {
@@ -166,13 +114,8 @@ function actionTokens(action: string): string[] {
 }
 
 /**
- * Turn raw tokens — from an action's trailing words or a schema field name —
- * into entity phrases: drop too-short connector noise (`by`, `to`, `id`), then
- * expand each survivor to its number forms. Both token sources route through
- * here so an arbitrary MCP tool name (`get_item_by_id`) can't leak `by`/`id` as
- * entities any more than a schema field can. Schema-field *plumbing* (pagination,
- * request options) is a field-name concern, filtered by the caller before this —
- * a word like `page` is noise in `pageToken` but a real entity in `create_page`.
+ * Drop short connector tokens (`by`, `id`) and add singular forms. The caller
+ * filters plumbing first: `page` is noise in `pageToken` but real in `create_page`.
  */
 function entitiesFromTokens(tokens: readonly string[]): string[] {
   const out: string[] = [];
@@ -205,26 +148,14 @@ function singularize(word: string): string {
 }
 
 /**
- * Singularize each word of a normalized phrase. Search/preload matching (#414)
- * reduces both the query and every catalog phrase to this form so a plural
- * prompt ("my pull requests") matches a singular authored entity ("pull
- * request") and vice versa. It reuses {@link singularize} word-by-word rather
- * than reimplementing the rules, so the matcher and the derived-entity forms
- * share one notion of "singular" and cannot drift. Expects an already-normalized,
- * single-spaced string (see the discovery ranker's `normalize`).
+ * Singularize each word, so "pull requests" matches "pull request" (#414).
+ * Expects a normalized, single-spaced string.
  */
 export function singularizePhrase(value: string): string {
   return value.split(" ").map(singularize).join(" ");
 }
 
-/**
- * Meaningful nouns from the schema's top-level fields. Read through zod's own
- * JSON-Schema conversion — like the dispatcher's accepted-key view, but with
- * boot-safe options (`reused: "inline"` so wrapped schemas still report their
- * inner object, `unrepresentable: "any"` so an exotic field can't throw) — since
- * this runs at registration, where any conversion failure degrades to no fields
- * rather than aborting boot.
- */
+/** Nouns from the top-level fields. Runs at boot, so a failed conversion yields none. */
 function schemaFieldEntities(schema: z.ZodType<any>): string[] {
   let json: z.core.JSONSchema.BaseSchema;
 

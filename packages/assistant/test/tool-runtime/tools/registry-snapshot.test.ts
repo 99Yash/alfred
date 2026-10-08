@@ -9,10 +9,8 @@ import {
 } from "../../../src/tool-runtime/internal/registry";
 
 /**
- * `listRegisteredTools()` is read on every discovery/search/preload/kernel
- * call, so it memoizes a frozen, sorted snapshot and rebuilds only when the
- * registry mutates. This pins both halves: the shared frozen reference reused
- * across reads, and its invalidation on register/clear.
+ * `listRegisteredTools()` memoizes a frozen snapshot and rebuilds it only when the registry
+ * changes.
  */
 describe("listRegisteredTools snapshot", () => {
   after(() => clearToolRegistryForTests());

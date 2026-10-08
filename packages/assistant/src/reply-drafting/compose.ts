@@ -69,8 +69,7 @@ return an empty body. No placeholders or explanations outside the reply.`,
 
   if (!bodyText) return { bodyText, claims: [] };
 
-  // Review the final sanitized body independently. The composer cannot omit
-  // its own unsupported claims or manufacture resolved evidence objects.
+  // A separate review: the composer cannot drop its own unsupported claims or invent evidence.
   const review = await meteredGenerateObject<z.infer<typeof reviewSchema>>(
     {
       model: model.model(),

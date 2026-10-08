@@ -16,9 +16,7 @@ export function OnboardingRoute() {
   const { data: session, isPending } = authClient.useSession();
   const [finishing, setFinishing] = useState(false);
 
-  // Each OAuth callback redirects back with only its own `?*_connected`
-  // param, so the URL alone can't show both badges at once. Fall back to
-  // live credential state for whichever param the current URL is missing.
+  // Each callback returns with only its own `?*_connected` param, so fall back to live credential state.
   const googleAccount = useConnectedAccountLabel("google");
   const githubAccount = useConnectedAccountLabel("github");
   const connectedEmail = google_connected ?? googleAccount ?? undefined;
@@ -42,13 +40,10 @@ export function OnboardingRoute() {
     setFinishing(true);
 
     try {
-      // #229: capture the browser's IANA zone so chat date grounding + briefing
-      // delivery don't silently default to UTC. The server persists it to the
-      // canonical `timezone` pref only if unset (won't clobber a chosen zone).
+      // Send the browser zone so dates and briefings do not default to UTC. The server keeps a zone already set.
       const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-      // Eden returns `{ data, error }`, a failed POST resolves, so inspect
-      // `error` before navigating and invalidating the onboarding gate.
+      // Eden resolves a failed POST, so check `error` before leaving.
       const { error } = await client.api.me.onboarding.complete.post(
         browserTimezone ? { timezone: browserTimezone } : {},
       );
@@ -57,18 +52,11 @@ export function OnboardingRoute() {
         throw new Error(`onboarding complete failed (${error.status})`);
       }
 
-      // #991: seed the first-paint hint synchronously, then leave with a
-      // full-page navigation. The SPA path (`invalidateQueries` + `navigate`)
-      // raced the `AppShell` guard: its optimistic branch read a still-`false`
-      // hint while the refetched flag had not yet rendered, and pushed the
-      // user straight back to `/onboarding`. The Google callback never had
-      // this problem because it is a server 302 into a fresh document that
-      // rebuilds cache and hint from server truth — so make completion take
-      // the same shape. Nothing in-memory is worth keeping at this point.
+      // Seed the hint, then do a full-page navigation. The SPA path raced the
+      // `AppShell` guard, which read a stale `false` and sent the user back to `/onboarding`.
       writeOnboardingHint(session.user.id, true);
       window.location.assign("/");
-      // Leave `finishing` true so the button doesn't flip back to "Start
-      // using Alfred" during the unload.
+      // Keep `finishing` true so the button label does not flip back during unload.
     } catch (err) {
       console.warn("[onboarding] failed to mark complete:", err);
       toast.error({
@@ -85,15 +73,10 @@ export function OnboardingRoute() {
       connectedEmail={connectedEmail}
       connectedGithub={connectedGithub}
       onConnect={() => {
-        // Authorization opens in a new tab. The `useConnectedAccountLabel`
-        // reads above fall back to live credential state, so the original tab
-        // shows the connected badge on focus without needing the callback's
-        // `?*_connected` URL param.
+        // New tab; the live credential read above shows the badge when this tab regains focus.
         openAuthorizationTab(`${API_URL}/api/integrations/google/connect`);
       }}
       onConnectGithub={() => {
-        // Same new-tab shape as Google: the live credential read above keeps
-        // the first badge while the second grant completes elsewhere.
         openAuthorizationTab(`${API_URL}/api/integrations/github/connect`);
       }}
       onSkip={() => goToStep(3)}

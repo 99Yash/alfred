@@ -1,22 +1,6 @@
 /**
- * Dimension-grammar CommandPalette.
- *
- * cmdk + Radix Dialog. Slots:
- *   <CommandPalette open onOpenChange placeholder>
- *     <CommandPalette.Group heading="Navigate">
- *       <CommandPalette.Item value="goto:integrations" onSelect={…} icon={Plug} shortcut="↵">
- *         Integrations
- *       </CommandPalette.Item>
- *       …
- *     </CommandPalette.Group>
- *   </CommandPalette>
- *
- * Items receive an `icon` component + an optional `shortcut` chip. `value` is
- * used by cmdk for filtering; spell it out so search matches are robust.
- *
- * Per recon §3.8: rows are `h-11 rounded-md px-3 text-sm font-medium` with a
- * leading icon tile and a trailing kbd hint. Active row is the highlighted
- * cmdk-selected row.
+ * Command palette: cmdk inside a Radix Dialog.
+ * Use `CommandPalette.Group` and `CommandPalette.Item`; cmdk filters on `value`, so spell it out.
  */
 
 import { Command as CommandPrimitive } from "cmdk";
@@ -28,20 +12,14 @@ import { cn } from "~/lib/utils";
 
 type IconComponent = ComponentType<{ size?: number; className?: string }>;
 
-/* -------------------------------------------------------------------------- */
-/* Root                                                                        */
-/* -------------------------------------------------------------------------- */
-
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Placeholder for the search input. */
   placeholder?: string | undefined;
-  /** Optional aria-label fallback when no title is shown. */
+  /** aria-label used when no title is shown. */
   ariaTitle?: string | undefined;
-  /** Empty-state copy when the query matches nothing. */
   emptyLabel?: string | undefined;
-  /** Footer slot — usually `<CommandPaletteLegend />`. */
+  /** Usually `<CommandPaletteLegend />`. */
   footer?: ReactNode | undefined;
   children?: ReactNode | undefined;
 }
@@ -60,11 +38,10 @@ export function CommandPalette({
       <DialogContent title={ariaTitle} srOnlyHeader className="max-w-[640px] p-0">
         <CommandPrimitive
           label={ariaTitle}
-          /* cmdk does its own keyboard handling; Radix's focus trap keeps
-           * Tab inside the dialog. */
+          /* cmdk owns the keyboard; Radix's focus trap keeps Tab in the dialog. */
           className="flex flex-col"
         >
-          {/* Header — search input */}
+          {/* Search input */}
           <div className="flex items-center gap-2.5 border-b border-white/8 px-4">
             <Search size={16} className="shrink-0 text-gray-800" aria-hidden />
             <CommandPrimitive.Input
@@ -77,7 +54,7 @@ export function CommandPalette({
             />
           </div>
 
-          {/* Body — scrolling list */}
+          {/* Scrolling list */}
           <CommandPrimitive.List className={cn("scrollbar max-h-[400px] overflow-y-auto", "p-2")}>
             <CommandPrimitive.Empty className="py-8 text-center text-[13px] text-gray-800">
               {emptyLabel}
@@ -91,10 +68,6 @@ export function CommandPalette({
     </Dialog>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/* Group                                                                       */
-/* -------------------------------------------------------------------------- */
 
 interface GroupProps {
   heading?: ReactNode | undefined;
@@ -118,22 +91,15 @@ function Group({ heading, children }: GroupProps) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Item                                                                        */
-/* -------------------------------------------------------------------------- */
-
 interface ItemProps {
-  /** Internal id used by cmdk for filtering + onSelect dispatch. */
+  /** cmdk's id for filtering and `onSelect`. */
   value: string;
-  /** Searchable keywords beyond the visible label. */
   keywords?: ReadonlyArray<string> | undefined;
-  /** Triggered on click or Enter while highlighted. */
   onSelect: () => void;
-  /** Leading icon component (Lucide). */
   icon?: IconComponent | undefined;
-  /** Inline keyboard hint shown on the right — usually `↵` for the focused row. */
+  /** Right-side keyboard hint, usually `↵`. */
   shortcut?: string | undefined;
-  /** Disabled rows still render but cmdk skips them in keyboard nav. */
+  /** Still rendered, but keyboard nav skips it. */
   disabled?: boolean | undefined;
   children: ReactNode;
 }
@@ -175,9 +141,7 @@ function Item({ value, keywords, onSelect, icon: Icon, shortcut, disabled, child
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Legend (footer keyboard hints)                                              */
-/* -------------------------------------------------------------------------- */
+/* Footer keyboard hints */
 
 function Legend({ hints }: { hints?: ReadonlyArray<{ keys: ReactNode; label: string }> }) {
   const items = hints ?? [

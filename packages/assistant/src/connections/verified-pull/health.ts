@@ -1,17 +1,7 @@
 /**
  * Owner-reviewed MCP health reads for briefing loops (#1196).
- *
- * This is a verified pull, not model-selected relevance. The gather-time
- * caller supplies the governed broker seam; this module owns only the current
- * owner-scoped mapping query, bounded result parsing, exact identity matching,
- * and the existing object-state fold. A result cannot reach the store until
- * the broker has re-read the mapping, checked ownership/catalog identity, and
- * sent it through the MCP invocation ledger.
- *
- * Unmapped, drifted, malformed, unknown-token, non-matching, cross-provider,
- * and ambiguous reads mint nothing. The caller receives only presentation
- * evidence for its still-open loops; no result shape can grant closure
- * directly.
+ * Results reach the store only through the broker, which re-checks the mapping and logs the call.
+ * Any doubtful read mints nothing, and no result grants closure directly.
  */
 
 import {
@@ -55,7 +45,7 @@ import {
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-/** One live notification loop. Subject/from remain untrusted text. */
+/** Subject and from are untrusted text. */
 export interface ApprovedMcpHealthLoop {
   documentId: string;
   subject: string | null;
@@ -64,11 +54,11 @@ export interface ApprovedMcpHealthLoop {
 
 export interface ApprovedMcpHealthLoopResult {
   documentId: string;
-  /** Present only after one unique, successfully folded exact match. */
+  /** Set only after one unique exact match folded. */
   candidate: CandidateKey<"about"> | null;
-  /** The row re-read AFTER the store guards ran, never the raw provider claim. */
+  /** The row after the store guards, never the raw provider claim. */
   state: ObjectState | null;
-  /** Presentation-only evidence for the existing non-closing relevance verdict. */
+  /** For display only; it closes nothing. */
   detail: string;
 }
 
@@ -80,11 +70,7 @@ export type CurrentMcpHealthMapping = Pick<
   definition: McpHealthMappingDefinition;
 };
 
-/**
- * The broker owns the live connection, descriptor, and ledger. This module
- * intentionally has no `prepareToolCall` or raw `call` seam: an omitted broker
- * degrades to can't-check instead of reopening the old ungated path.
- */
+/** No raw `call` seam on purpose: without the broker, the read is can't-check. */
 export interface ApprovedMcpHealthCallInput {
   userId: string;
   connectionId: string;
@@ -117,11 +103,7 @@ interface MappingRead {
   items: ParsedHealthItem[];
 }
 
-/**
- * Current, owner-scoped reviews only. The SQL descriptor-hash equality is the
- * first half of catalog-drift invalidation; the broker's re-read of the exact
- * mapping and live descriptor is the second, closing the refresh-to-call race.
- */
+/** Current owner reviews whose descriptor hash still matches. The broker re-checks at call time. */
 async function listCurrentMappings(userId: string): Promise<readonly CurrentMcpHealthMapping[]> {
   const descriptorHashExpr = sql<
     string | null
@@ -262,8 +244,7 @@ function parseItems(
   const parsed: ParsedHealthItem[] = [];
 
   for (const rawItem of rawItems) {
-    // Identity and state tokens are compared as bytes. Do not trim either
-    // provider value before the exact key/token lookup.
+    // Exact byte match: do not trim.
     const identity = getBoundedString(rawItem, identityPath, MAX_APPROVED_IDENTITY_LENGTH, {
       trim: false,
     });
@@ -327,12 +308,7 @@ async function readMapping(
     : null;
 }
 
-/**
- * Exact identity, scoped to the provider named by the owner mapping. The
- * registry guard refuses built-in providers (their own readers remain
- * authoritative); no result parser, substring search, or notification sender is
- * allowed to reinterpret an output identity here.
- */
+/** Exact match within the mapping's provider. Built-in providers keep their own readers. */
 function exactIdentityMatch(
   loopRef: LoopEntityRef,
   outputIdentity: string,
@@ -346,8 +322,6 @@ function exactIdentityMatch(
 }
 
 function loopReference(loop: ApprovedMcpHealthLoop): LoopEntityRef | null {
-  // The notification's deterministic key is the only identity this lane reads.
-  // This is the loop-key module's existing vocabulary, not an output parser.
   const reference = deriveLoopEntityRef(loop.subject, { sender: loop.from });
 
   return reference && reference.key.length <= MAX_APPROVED_LOOP_KEY_LENGTH ? reference : null;
@@ -478,11 +452,7 @@ async function verifyLoop(args: {
   };
 }
 
-/**
- * Verify every supplied loop through the owner's current mapping rows. Faults
- * are local to one mapping/loop and degrade to can't-check; this function does
- * not throw and never returns closure authority outside the store-backed state.
- */
+/** Never throws. A fault makes only its own mapping or loop can't-check. */
 export async function verifyApprovedMcpHealth(
   args: {
     userId: string;

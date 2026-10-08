@@ -1,20 +1,13 @@
 /**
- * TTFT probe for the chat boss turn (issue: prod chat "5–7s thinking before
- * tool calls", 2026-06-28). Langfuse records only full-call latency, never
- * time-to-first-token, so we can't tell from traces whether the ~7s first turn
- * is slow-to-start (TTFT: model ingesting the system prompt + ~49 tool schemas)
- * or slow-decode (token generation). This probe streams the real model with the
- * REAL tool schemas and timestamps the first chunk to split the two, sweeping
- * tools-on/off and Haiku/Sonnet so the cause is isolated, not guessed.
+ * Time-to-first-token probe for the chat boss turn. Langfuse records only full-call
+ * latency, so this streams the real model with the real tool schemas and times the
+ * first chunk, with tools on and off, per model route. It calls the AI SDK
+ * directly, so it measures the model, not the agent loop.
  *
- * Direct AI-SDK streaming call — deliberately bypasses AlfredAgent/withFallback
- * so we measure raw model latency, not orchestration. Uses the real tool
- * registry (`listToolsForIntegration`) so the tool-schema bulk is faithful.
- *
- * Run locally (needs ANTHROPIC_API_KEY + serverEnv vars):
+ * Run locally from apps/server (needs the model keys and serverEnv vars):
  *   ./node_modules/.bin/tsx --env-file=.env src/scripts/probes/probe-chat-ttft.ts
- * (from apps/server). Tune with PROBE_RUNS (default 3), PROBE_MODELS
- * ("haiku,sonnet"), PROBE_MAX_OUT (default 400).
+ * Tune with PROBE_RUNS (default 3), PROBE_MODELS (default "haiku,boss,opus"),
+ * PROBE_MAX_OUT (default 400).
  */
 import {
   route,
@@ -28,13 +21,8 @@ import {
 import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
 import { INTEGRATION_SLUGS } from "@alfred/contracts";
 
-// Routed through the real dispatch helpers so the tool-name shim + provider
-// options match prod. `route("standard").model()` = Haiku (the chat Auto tier),
-// `route("deep").model()` = Opus + adaptive thinking (the Deep tier), and
-// `route("boss").model()` = Luna (the background boss) — all withFallback-wrapped
-// (transparent on success). `thinking` carries the per-tier reasoning block so
-// the Deep tier faithfully emits reasoning tokens BEFORE tool calls — the exact
-// "5-7s thinking before tool calls" symptom this probe exists to isolate.
+// Real `route()` handles, so provider options and reasoning settings match prod.
+// The map keys are labels only; each route resolves to whatever model it uses today.
 type ChatProviderOptions = ReturnType<ModelRouteHandle["providerOptions"]>;
 
 const MODELS = new Map<string, () => ModelRouteHandle>([
@@ -52,14 +40,10 @@ const RUNS = Number(process.env.PROBE_RUNS ?? "3");
 
 const MAX_OUT = Number(process.env.PROBE_MAX_OUT ?? "400");
 
-/** The real prod ask — forces a multi-integration tool fan-out when tools exist. */
+/** A real prod ask that fans out across integrations when tools exist. */
 const USER_PROMPT = "enlist the activities across all of my integrations in the last 24 hours";
 
-/**
- * A representative, stable boss-sized system block (cache-eligible). Content is
- * generic — what matters is that it's a constant ~few-KB prefix across all
- * conditions so the only thing varying is the tool set / model.
- */
+/** A constant boss-sized system block, so only the tools and model vary. */
 const SYSTEM_PROMPT = [
   "You are Alfred, a personal AI assistant operating over the user's connected integrations.",
   "Answer in the user's voice, be concise, and prefer acting (calling tools) over asking.",
@@ -73,9 +57,9 @@ const SYSTEM_PROMPT = [
   ),
 ].join("\n");
 
-/** Build the full real tool menu (system + every loadable integration). */
+/** The full tool menu: system plus every loadable integration. */
 function buildAllTools() {
-  const registry = registerBuiltinTools(); // the registry is populated at server boot; do it here too.
+  const registry = registerBuiltinTools(); // server boot normally does this
   const out: Record<string, Tool> = {};
 
   for (const slug of INTEGRATION_SLUGS) {
@@ -84,15 +68,14 @@ function buildAllTools() {
     }
   }
 
-  // SAFETY: ToolSet is the SDK's index-signature tool record; the resolved
-  // map satisfies it by construction.
+  // SAFETY: the resolved map is a name-to-tool record, which is what ToolSet is.
   return { tools: out as ToolSet, count: Object.keys(out).length };
 }
 
 interface Sample {
-  ttftMs: number; // first content chunk of any kind
-  firstTextMs: number | null; // first text-delta
-  firstToolMs: number | null; // first tool-call / tool-input
+  ttftMs: number; // first chunk of any kind
+  firstTextMs: number | null;
+  firstToolMs: number | null;
   totalMs: number;
   outTokens: number;
   toolCalls: number;
@@ -119,8 +102,7 @@ async function once(
     ...(tools ? { tools } : {}),
     maxOutputTokens: MAX_OUT,
     temperature: 0,
-    // Mirror prod: the per-tier reasoning block (Deep = Opus adaptive thinking)
-    // plus the warm prompt cache on the stable system block.
+    // Like prod: the route's reasoning options plus prompt caching.
     providerOptions: {
       ...thinking,
       anthropic: { ...thinking?.anthropic, cacheControl: { type: "ephemeral" } },
@@ -167,7 +149,7 @@ async function condition(
   tools: ToolSet | undefined,
   thinking?: ChatProviderOptions,
 ): Promise<void> {
-  await once(model, tools, thinking).catch(() => null); // warm the prompt cache; ignore result
+  await once(model, tools, thinking).catch(() => null); // warm the prompt cache
   const samples: Sample[] = [];
 
   for (let i = 0; i < RUNS; i++) samples.push(await once(model, tools, thinking));

@@ -8,12 +8,8 @@ import {
 } from "@alfred/assistant/execution/transcript-dedup";
 
 /**
- * Guards the Anthropic "each tool_use must have a single result" 400: the SDK
- * synthesizes its own `role:"tool"` result when the model hands a tool a
- * schema-invalid input, but our execute-less dispatcher also authors one — two
- * results for the same toolCallId fail the next turn. Both the boss and chat
- * workflows must drop the synthesized dup. (Regression: the sub-agent
- * /user-authored-brief workflow appended verbatim and crashed at boss-turn.)
+ * On a schema-invalid input the SDK adds its own tool result, and our dispatcher
+ * adds one too. Two results for one toolCallId is an Anthropic 400, so drop the SDK's.
  */
 
 function toolMessage(...toolCallIds: string[]): AgentTranscriptMessage {

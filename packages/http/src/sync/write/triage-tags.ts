@@ -3,16 +3,9 @@ import type { TriageTagOverrideArgs } from "@alfred/sync";
 import { and, eq, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
 
-// User override of a thread's classifier tag (rfc-triage-tags.md). Writes the
-// DB truth inline against the push `tx` (so it commits with the LMID advance);
-// the Gmail label is reconciled AFTER commit via `enqueueTriageRelabel`
-// (push.ts). No Gmail IO here — external IO cannot be transactional.
+// No Gmail IO here: the label syncs after commit (rfc-triage-tags.md).
 
-/**
- * Override a thread's tag → `source='user'`. No-op if the thread has no
- * `email_triage` row yet (override before first classify); the eventual
- * classify writes `auto` and the user can override again.
- */
+/** Set `source='user'`. No-op before the first classification. */
 export async function triageTagOverride(
   tx: DbTransaction,
   args: TriageTagOverrideArgs,

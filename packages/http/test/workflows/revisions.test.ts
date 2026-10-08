@@ -64,9 +64,7 @@ async function seedUser(): Promise<string> {
 describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
   before(() => {
     registerBuiltinTools();
-    // The sentinel's check-readiness step calls the registered readiness port
-    // (item 10); wire it the way runtime composition does, else runOnce throws
-    // "[agent] no workflow readiness check is registered".
+    // Wire the readiness port as runtime composition does, or `runOnce` throws.
     registerWorkflowReadiness();
   });
 
@@ -115,8 +113,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     if (!revised.ok) return;
 
-    // An empty previous CVR makes every visible row changed, so the reader
-    // loads and serializes them all — the same rows the old one-shot fetch did.
+    // An empty previous CVR marks every visible row changed, so all rows load.
     const { rows: synced } = await ENTITY_FETCHERS.workflow(db(), userId, {});
     const entity = synced.find((row) => row.id === slug)?.serialized;
     assert.ok(entity && "slug" in entity && entity.slug === slug);
@@ -432,9 +429,8 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       .set({ nextRunAt: scheduledFor })
       .where(eq(workflows.id, created.workflow.id));
 
-    // Faithfully replicate `startRunInTx`: commit the CAS claim + run row in
-    // one transaction, then simulate a Redis outage on the post-commit
-    // enqueue. The row must survive as `pending` for the resume sweep.
+    // Commit the claim and run row, then fail the enqueue as a Redis outage.
+    // The row must stay `pending` for the resume sweep.
     const tick = await dispatchDueCronWorkflows(new Date(), {
       startRunInTx: async (spec) => {
         const created = await db().transaction(async (tx) => {

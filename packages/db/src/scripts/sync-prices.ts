@@ -1,17 +1,9 @@
 /**
- * Pull current model pricing from models.dev and upsert into `model_prices`
- * with today's `valid_from`. Per ADR-0016: models.dev is the canonical
- * registry; pinning specific SKUs at implementation time (not in ADRs).
+ * Copy model prices from models.dev into `model_prices` (ADR-0016).
+ * Adds a row only when the price changed, so a rerun is safe.
+ * `STATIC_PRICES` fills catalog gaps. A catalog row wins over a static one.
  *
  *   $ pnpm --filter @alfred/db db:sync-prices
- *
- * The script is idempotent within a day: re-running creates a new
- * `valid_from` row only if pricing actually changed (we compare the
- * latest row to the incoming numbers and skip equal rows).
- *
- * A small static fallback covers catalog gaps: Voyage's embedding models and
- * newly released OpenAI models that models.dev has not published yet. A catalog
- * row wins when both sources contain the same provider/model.
  */
 import { httpErrorFromResponse, isRecord, toMessage } from "@alfred/contracts";
 import type { ModelPricingMetadata } from "@alfred/contracts/model-pricing";
@@ -25,15 +17,9 @@ const MODELS_DEV_URL = "https://models.dev/api.json";
 
 const MODELS_DEV_FETCH_TIMEOUT_MS = 30_000;
 
-/** Providers we care about. Anything else from models.dev is ignored. */
 const PROVIDERS = ["anthropic", "google", "openai", "perplexity"] as const;
 
-/**
- * A single reasoning-control mechanism from models.dev. The catalog-wide universe
- * is a closed 3-type set (`effort` | `budget_tokens` | `toggle`); `values` is
- * present only on `effort`. Captured into `model_prices.metadata.capabilities`
- * as a change-detection snapshot; the provider packages own the runtime mapping.
- */
+/** Stored only so a models.dev change shows in the diff. Runtime does not read it. */
 const modelsDevReasoningOptionSchema = z
   .object({
     type: z.string(),
@@ -68,9 +54,7 @@ const modelsDevModelSchema = z
       .optional(),
     limit: z
       .object({
-        // models.dev reports 0 for SKUs with no token context/output window
-        // (image, video, TTS, embedding). Our own providers carry these — e.g.
-        // OpenAI's gpt-image-* — so 0 is valid, not `too_small`.
+        // models.dev reports 0 for image, TTS, and embedding models.
         context: z.number().int().nonnegative().optional(),
         output: z.number().int().nonnegative().optional(),
       })
@@ -94,7 +78,7 @@ const modelsDevCatalogSchema = z.record(
 
 type ModelsDevCatalog = z.infer<typeof modelsDevCatalogSchema>;
 
-/** Static fallbacks for catalog gaps. Per-Mtok USD. */
+/** USD per 1M tokens. */
 const STATIC_PRICES: Array<{
   provider: string;
   model: string;
@@ -106,8 +90,7 @@ const STATIC_PRICES: Array<{
   contextWindow: number | null;
   metadata?: Record<string, unknown>;
 }> = [
-  // OpenAI API model page, retrieved 2026-09-24. models.dev has not published
-  // gpt-6-luna yet, but predeploy must be able to price the production route.
+  // From OpenAI's model page, 2026-09-24. models.dev does not list gpt-6-luna yet.
   {
     provider: "openai",
     model: "gpt-6-luna",
@@ -133,8 +116,7 @@ const STATIC_PRICES: Array<{
       } satisfies ModelPricingMetadata,
     },
   },
-  // Voyage embeddings (https://www.voyageai.com/pricing/, retrieved 2026-04-30).
-  // Voyage charges per input token only; output tokens not applicable.
+  // https://www.voyageai.com/pricing/, 2026-04-30. Input tokens only.
   {
     provider: "voyage",
     model: "voyage-context-3",
@@ -190,11 +172,7 @@ async function fetchCatalog(): Promise<ModelsDevCatalog> {
     if (!res.ok) throw await httpErrorFromResponse("models.dev", res, { url: MODELS_DEV_URL });
     const raw: unknown = await res.json();
 
-    // models.dev is a large third-party catalog; we consume only PROVIDERS.
-    // Scope validation to those before parsing so shape drift in providers we
-    // ignore (0-valued limits, null enum values, new field types) can never
-    // fail predeploy — the whole-catalog parse is otherwise a standing outage
-    // risk every time upstream adds models.
+    // Parse only PROVIDERS, so a shape change in another provider cannot fail predeploy.
     const scoped = isRecord(raw)
       ? Object.fromEntries(
           PROVIDERS.filter((provider) => provider in raw).map((provider) => [
@@ -236,8 +214,7 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
         source: "models.dev",
         metadata: {
           pricing: {
-            // models.dev exposes Anthropic's default 5m cache-write rate. Alfred
-            // also uses 1h breakpoints, billed by Anthropic at 2x base input.
+            // models.dev gives only the 5m cache-write rate. Anthropic bills 1h writes at 2x input.
             cacheWrite1hPerMtok: provider === "anthropic" ? cost.input * 2 : null,
             tiers:
               cost.tiers?.map((tier) => ({
@@ -252,10 +229,7 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
           capabilities: {
             reasoning: m.reasoning ?? false,
             toolCall: m.tool_call ?? false,
-            // Catalog change-detection snapshot. The AI SDK and its provider
-            // packages own runtime reasoning mapping (ADR-0078 amendment
-            // 2026-08-09); these fields stay so a models.dev shift is visible in
-            // the price-snapshot diff, never a runtime source.
+            // Diff snapshot only. The AI SDK owns the runtime mapping (ADR-0078).
             reasoningOptions: m.reasoning_options ?? null,
             temperature: m.temperature ?? null,
           },

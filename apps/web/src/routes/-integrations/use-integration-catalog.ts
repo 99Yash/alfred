@@ -9,26 +9,18 @@ import {
 } from "./helpers";
 
 export interface IntegrationCatalog {
-  /** Connected section (if any) floated above the filtered category sections. */
+  /** The connected section, if any, then the filtered categories. */
   sections: ReadonlyArray<Section>;
-  /** Whether the MCP-server section matches the current query. */
   mcpVisible: boolean;
-  /** No catalog section and no MCP section survive the query. */
+  /** Nothing matches the query. */
   empty: boolean;
 }
 
-/**
- * Resolve the integration catalog against the user's live credentials and
- * filter it by `query`. Shared by the full `/integrations` page and the
- * chat "Connect your tools" dialog so both derive the same sections from one
- * place. Mirrors dimension's `AllIntegrationsDialog` grouping.
- */
+/** The catalog resolved against live credentials and filtered by `query`. Shared by the page and the dialog. */
 export function useIntegrationCatalog(query: string): IntegrationCatalog {
   const resolved = useResolvedIntegrations();
 
-  // The "Connected" section is synthesised on top of the resolved overlay.
-  // Drop connected providers from the category sweep so they don't render
-  // twice (once floating, once in their natural category).
+  // Connected providers float on top, so drop them from their categories.
   const { connectedSection, remainingProviders } = useMemo(() => {
     const connected = buildConnectedSection(resolved, query);
     const remaining = connected ? resolved.filter((p) => p.status !== "connected") : resolved;

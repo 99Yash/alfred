@@ -41,27 +41,11 @@ import { authMacro } from "../middleware/auth";
 import { requireOnboarded } from "../middleware/onboarding";
 
 /**
- * Google integration routes.
- *
- *   GET  /api/integrations/google/connect  → 302 to Google's authorize URL
- *   GET  /api/integrations/google/callback ← Google redirects here with `code`
- *   POST /api/integrations/google/:id/ingest → enqueue an ingestion job
- *
- * Connection state is read from `GET /api/integrations` (`../integrations.ts`).
- *
- * The `state` parameter on the authorize URL carries `(userId, nonce)`,
- * HMAC-signed with `BETTER_AUTH_SECRET` to detect tampering. The real
- * CSRF/replay defense is the nonce: we persist it in Redis with a TTL
- * and atomically consume it on callback, so a captured state can't be
- * reused.
+ * Google connect. `state` is HMAC-signed `(userId, nonce)`. The CSRF defense is the
+ * Redis nonce, consumed once on callback.
  */
 
-/**
- * Best-effort post-callback side effects (initial-sync, watch install, event
- * publication). A
- * failure here must not bounce the user to an OAuth error page, so each is
- * swallowed with a warn.
- */
+/** A post-callback failure must not send the user to an OAuth error page. */
 async function bestEffort(label: string, fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
@@ -70,12 +54,7 @@ async function bestEffort(label: string, fn: () => Promise<void>): Promise<void>
   }
 }
 
-/**
- * Confirm a credential id belongs to the caller before acting on it —
- * otherwise an authenticated user could drive watch/ingest operations against
- * someone else's credential id. Throws NotFoundError (not Forbidden) so the
- * response never confirms whether the id exists for another user.
- */
+/** 404, not 403, so the response never confirms another user's id exists. */
 async function assertCredentialOwned(id: string, userId: string): Promise<void> {
   const owner = await db()
     .select({ id: integrationCredentials.id })
@@ -93,22 +72,12 @@ export const googleIntegrationRoutes = new Elysia({
 })
   .use(authMacro)
   .use(requireOnboarded)
-  // `/connect` must be reachable *during* onboarding before
-  // `user.onboarded_at` is set — otherwise the step-1 CTA 302s to 403 while
-  // the user is still onboarding.
+  // No `requireOnboarded`: onboarding links to `/connect`.
   .guard({ auth: true }, (app) =>
     app.get(
       "/connect",
       async ({ user, query, set }) => {
-        // Default (no `?features` param) requests the FULL grant — every
-        // feature's scopes in a single consent. Alfred operates as one
-        // Production-unverified tenant (ADR-0044, amended 2026-06-08), so
-        // there is no scope tier to dodge and no user cap that matters; the
-        // owner clicks through the unverified-app warning once and grants
-        // the lot. `?features=briefing,triage` narrows the request for a
-        // targeted reconnect; `include_granted_scopes=true` (on the
-        // authorize URL) merges it into the existing grant rather than
-        // re-prompting from scratch.
+        // No `?features` means the full grant (ADR-0044). `?features=` narrows a reconnect.
         let features: readonly GoogleFeature[] | undefined;
 
         if (query.features) {
@@ -121,15 +90,12 @@ export const googleIntegrationRoutes = new Elysia({
 
           if (known.length !== parsed.length) {
             throw Errors.BadRequestError(
-              // SAFETY: the cast only types .includes' argument for the
-              // unknown-feature test; `f` itself prints unchanged.
+              // SAFETY: the cast only types the `.includes` argument; `f` prints unchanged.
               `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GoogleFeature)).join(", ")}`,
             );
           }
 
-          // An explicit param that parses to nothing (e.g. `?features=,`)
-          // requests identity scopes only — it must not silently widen to
-          // the full grant. `scopesForFeatures([])` returns identity-only.
+          // `?features=,` means identity scopes only, never the full grant.
           features = known;
         }
 
@@ -200,9 +166,7 @@ export const googleIntegrationRoutes = new Elysia({
       .patch(
         "/:id/persona",
         async ({ params, body, user }) => {
-          // User override for the auto-detected account persona (ADR-0051 #3).
-          // Scoped to the caller's own credential — the WHERE on user.id is the
-          // ownership check (no row updated for someone else's id).
+          // Persona override (ADR-0051 #3). The `userId` filter is the ownership check.
           const updated = await db()
             .update(integrationCredentials)
             .set({ persona: body.persona })
@@ -248,8 +212,7 @@ export const googleIntegrationRoutes = new Elysia({
           });
 
           if (!state) {
-            // #278: non-prod mailbox-write gate is off — be explicit rather than
-            // returning a null watch the client would read as "installed".
+            // A null watch would read as "installed", so fail loudly.
             throw Errors.ServiceUnavailableError(
               "Gmail mailbox writes are disabled in this environment (GMAIL_MAILBOX_WRITES_ENABLED)",
             );
@@ -288,7 +251,6 @@ export const googleIntegrationRoutes = new Elysia({
       .post(
         "/:id/ingest",
         async ({ params, body, user }) => {
-          // Confirm the credential belongs to the caller before enqueueing.
           await assertCredentialOwned(params.id, user.id);
 
           const queue = getIngestionQueue();
@@ -313,9 +275,7 @@ export const googleIntegrationRoutes = new Elysia({
         },
       ),
   )
-  // Callback runs unauthenticated — the user is mid-OAuth-flow with Google,
-  // not in our session yet (or in a different tab). The signed `state`
-  // proves who initiated the flow without needing a session cookie.
+  // No session here; the signed `state` proves who started the flow.
   .get(
     "/callback",
     async ({ query, set }) => {
@@ -327,10 +287,7 @@ export const googleIntegrationRoutes = new Elysia({
 
       if (!decoded) throw Errors.BadRequestError("Invalid state");
 
-      // Atomically consume the nonce. If it's missing/expired/already used,
-      // reject — this is what makes captured `state` values single-use.
-      // We additionally require the persisted userId to match the one in
-      // the signed state as a sanity check.
+      // Consuming the nonce makes a captured `state` single-use.
       const storedUserId = await consumeOAuthNonce(PROVIDER, decoded.nonce);
 
       if (!storedUserId || storedUserId !== decoded.userId) {
@@ -351,11 +308,7 @@ export const googleIntegrationRoutes = new Elysia({
         hostedDomain: tokens.hostedDomain ?? null,
       });
 
-      // Initial-sync seed: pull the last few messages and triage them so a
-      // brand-new account has classified mail to look at immediately. The
-      // job is idempotent — a re-connect with no new messages fans no
-      // triage runs. Capped tight (8 msgs) so first-run LLM cost stays in
-      // pennies; bulk historical re-ingest still skips triage.
+      // Triage a few recent messages so a new account has sorted mail at once. Idempotent.
       await bestEffort(`failed to enqueue initial-sync for ${credentialId}`, async () => {
         await getIngestionQueue().add("gmail.ingest_recent", {
           kind: "gmail.ingest_recent",
@@ -365,12 +318,7 @@ export const googleIntegrationRoutes = new Elysia({
         });
       });
 
-      // Install the Gmail watch so realtime ingestion (ADR-0037: pub/sub →
-      // poll_recent → triage) starts immediately. Without this a new account
-      // has no watch, so mail is only picked up by the 5-min poll_sweep
-      // fallback — the source of the multi-minute tag latency. Enqueued (not
-      // inline) to keep the OAuth redirect snappy; best-effort, and the
-      // watch-renew cron keeps it alive thereafter.
+      // Without a watch, mail waits for the 5-minute poll sweep (ADR-0037).
       await bestEffort(`failed to enqueue watch install for ${credentialId}`, async () => {
         await getIngestionQueue().add("gmail.watch_install", {
           kind: "gmail.watch_install",
@@ -378,14 +326,9 @@ export const googleIntegrationRoutes = new Elysia({
         });
       });
 
-      // Publish the connection occurrence through the generic trigger path.
-      // Cold-start research is one consumer today; future consumers do not
-      // require another integration-owned callback seam.
       await publishGoogleCallbackCompleted(decoded.userId, credentialId);
 
-      // Bounce back to the SPA. If the user hasn't finished onboarding yet,
-      // pop them back onto step 2 of the flow (popular-integrations grid)
-      // instead of the chat home so the funnel stays linear.
+      // A user still onboarding goes back to step 2.
       const userRow = await db()
         .select({ onboardedAt: user.onboardedAt })
         .from(user)

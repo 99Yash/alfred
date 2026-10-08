@@ -57,7 +57,7 @@ function headlineIcon(headline: RunHeadline, status: WorkflowRunHistoryRow["stat
   }
 }
 
-/** One run in the History tab: what happened, why it fired, and the one thing to do next. */
+/** One run: what happened, why it fired, and the next step. */
 export function HistoryRunRow({
   row,
   expanded,
@@ -112,9 +112,7 @@ export function HistoryRunRow({
               variant="primary"
               size="sm"
               onClick={() => {
-                // Authorization opens in a new tab so the workflow context
-                // stays in place; the row's Recheck action picks up the new
-                // grant on return.
+                // New tab keeps the workflow in place; Recheck picks up the grant.
                 openAuthorizationTab(`${API_URL}${recovery.path}`);
               }}
             >

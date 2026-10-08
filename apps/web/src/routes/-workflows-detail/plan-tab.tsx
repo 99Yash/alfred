@@ -26,13 +26,8 @@ import { cn } from "~/lib/utils";
 import { WorkflowIcon } from "./workflow-icon";
 
 /**
- * Trigger kinds a user can author. `on_signal` is intentionally absent —
- * no signal producer exists yet (ADR-0047 8b deferred), so the editor
- * never offers it. Event sources and what each offers derive from the entry's
- * `authoring` field in `@alfred/contracts` (#990): a `typed` source (Gmail)
- * offers its declared events; a `raw` source (GitHub, Sentry) offers the raw
- * kinds its inventory has seen, and the saved trigger is
- * `{ type: "raw", rawKind }`. The editor holds no policy of its own.
+ * Authorable trigger kinds. No `on_signal`: nothing produces signals yet (ADR-0047).
+ * Each event source's options come from its `authoring` field in `@alfred/contracts`.
  */
 type TriggerKind = "cron" | "event" | "manual";
 
@@ -54,7 +49,7 @@ function eventTypeLabel(type: string): string {
   return type.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** The typed events the editor offers for a source; empty for a raw-authorable source. */
+/** Empty for a raw-authorable source. */
 function typedEventTypes(source: AuthorableEventSource): readonly string[] {
   return isTypedAuthorableEventSource(source) ? EVENT_TYPES_BY_SOURCE[source] : [];
 }
@@ -67,7 +62,7 @@ interface Draft {
   cronTimezone: string;
   eventSource: AuthorableEventSource;
   eventType: string;
-  /** The provider kind for an inbound source; empty until the user picks one. */
+  /** Empty until the user picks one. */
   eventRawKind: string;
   allowed: LoadableIntegrationSlug[];
 }
@@ -88,8 +83,7 @@ function draftFromWorkflow(w: SyncedWorkflow): Draft {
     eventType: t.kind === "event" ? t.type : (typedEventTypes(eventSource)[0] ?? ""),
     eventRawKind: t.kind === "event" ? (t.rawKind ?? "") : "",
     allowed: w.allowedIntegrations.filter((s): s is LoadableIntegrationSlug =>
-      // SAFETY: widening the const tuple only types the .includes receiver for
-      // this membership test.
+      // SAFETY: widening the const tuple only types the `.includes` receiver.
       (LOADABLE_INTEGRATION_SLUGS as readonly string[]).includes(s),
     ),
   };
@@ -137,19 +131,14 @@ export function PlanTab({
   onSave: (args: Omit<WorkflowUpdateArgs, "slug" | "expectedRowVersion">) => Promise<void>;
 }) {
   const readOnly = workflow.isBuiltin;
-  // The draft seeds once per mount. The parent keys this component on
-  // `slug:rowVersion`, so when the row changes underneath us (our own save bumps
-  // rowVersion, or another device edits it) React remounts and re-seeds — no sync
-  // effect, no stale-workflow capture. Mid-edit clobbering is acceptable at
-  // single-user scale and keeps the form honest to the synced row.
+  // Seeds once. The parent keys this on `slug:rowVersion`, so a changed row remounts it.
   const [draft, setDraft] = useState<Draft>(() => draftFromWorkflow(workflow));
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const eventTypes = typedEventTypes(draft.eventSource);
 
-  // The raw inventory is the option list for a raw-authorable source. The hook
-  // call stays unconditional; `null` disables the query for Gmail and non-event kinds.
+  // Unconditional hook; `null` disables the query for Gmail and non-event kinds.
   const rawSource =
     draft.kind === "event" && isRawAuthorableEventSource(draft.eventSource)
       ? draft.eventSource
@@ -165,8 +154,7 @@ export function PlanTab({
   const rawInventoryEmpty = rawSource !== null && rawKinds.isSuccess && rawKindOptions.length === 0;
   const rawKindMissing = rawSource !== null && draft.eventRawKind === "";
 
-  // The event trigger source must be inside a non-empty allowed-integration
-  // cap, or the run can't act on what fired it (server rejects this too).
+  // The source must be inside a non-empty integration cap, or the run cannot act (the server checks too).
   const eventCapViolation =
     draft.kind === "event" &&
     draft.allowed.length > 0 &&

@@ -1,24 +1,6 @@
 /**
- * Dimension-grammar Tabs primitive.
- *
- * Three visual variants — every one is the same control surface, just a
- * different chrome. Pick the variant based on context:
- *
- *   - `underline`  — text-only row sitting on a `border-b border-white/10`
- *                    baseline. Active tab gets a lavender gradient on its
- *                    label + a 1px purple underline that overlaps the
- *                    baseline. Used inside the skill editor (Learn / History).
- *   - `segmented`  — a dark pill track (`rounded-2xl bg-black/20 p-1`) with
- *                    individual tab cells (`rounded-[14px]`). Active cell
- *                    fills with `bg-white/[0.12]`. Used by the rail mode group.
- *   - `pill`       — flat row, no track. Each pill has its own padding +
- *                    rounded-full chrome. Active fills white-ish with dark
- *                    text. Used in Settings mode pills (Gmail / Slack / …).
- *
- * Item-based API — the consumer passes labels (+ optional icons) and renders
- * the corresponding content panel itself. Tabs is just the chrome. Built on
- * `@radix-ui/react-tabs` so we get roving tabindex, arrow-key navigation,
- * Home/End cycling, and proper `disabled` semantics for free.
+ * Tabs chrome on Radix tabs: `underline`, `segmented`, or `pill`.
+ * The caller renders the panels.
  */
 
 import * as TabsPrimitive from "@radix-ui/react-tabs";
@@ -30,7 +12,6 @@ export type TabsVariant = "underline" | "segmented" | "pill";
 interface TabItem<T extends string = string> {
   value: T;
   label: ReactNode;
-  /** Optional leading icon — typically a 14px Lucide glyph. */
   icon?: ReactNode | undefined;
   disabled?: boolean | undefined;
 }
@@ -40,7 +21,7 @@ interface TabsProps<T extends string = string> {
   value: T;
   onValueChange: (value: T) => void;
   items: ReadonlyArray<TabItem<T>>;
-  /** ARIA label for the tablist. Defaults to "Tabs". */
+  /** Defaults to "Tabs". */
   label?: string | undefined;
   className?: string | undefined;
 }
@@ -53,8 +34,7 @@ export function Tabs<T extends string = string>({
   label = "Tabs",
   className,
 }: TabsProps<T>) {
-  // SAFETY: Radix emits the string value of a rendered item, which is exactly
-  // the generic T this component was instantiated with.
+  // SAFETY: Radix emits the value of a rendered item, which is a T.
   const emit = (next: string) => onValueChange(next as T);
 
   return (
@@ -75,10 +55,6 @@ export function Tabs<T extends string = string>({
     </TabsPrimitive.Root>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/* variant chrome                                                              */
-/* -------------------------------------------------------------------------- */
 
 function listClassName(variant: TabsVariant, className?: string): string {
   if (variant === "segmented") {

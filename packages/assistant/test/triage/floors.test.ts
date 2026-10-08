@@ -51,18 +51,13 @@ function context(over: Partial<FloorContext> = {}): FloorContext {
 const SECRET_TEXT = "an api key was leaked in the public repo";
 
 // ---------------------------------------------------------------------------
-// The sequence itself: ORDER IS THE POLICY (floors/index.ts). Until this file
-// existed, floor order was covered by exactly one end-to-end assertion in
-// classify.test.ts — every other floor test called a single floor directly, so
-// a reordered `FLOOR_SEQUENCE` was invisible. These cases are chosen so that
-// running the same four floors in a different order gives a DIFFERENT audit;
-// asserting the final category alone would not catch a swap.
+// Floor order is the policy. Each case gives a different audit if the floors
+// run in another order; the final category alone would not catch a swap.
 // ---------------------------------------------------------------------------
 
 describe("applyFloors — sequence order", () => {
   test("audits arrive in sequence order: override → senderKind → spam → meeting", () => {
-    // `applyFloors` inserts one audit key per `FLOOR_SEQUENCE` entry as it folds,
-    // so key order IS sequence order.
+    // One audit key per `FLOOR_SEQUENCE` entry, in fold order.
     const { audits } = applyFloors(classification(), context());
     assert.deepEqual(Object.keys(audits), ["override", "senderKind", "spam", "meeting"]);
   });
@@ -77,11 +72,8 @@ describe("applyFloors — sequence order", () => {
   });
 
   test("override runs FIRST: a secret escalation escapes the sender-kind demotion", () => {
-    // A group sender + `awaiting_reply` is the sender-kind floor's always-demote
-    // case. Because the override floor escalates to `urgent` first, sender-kind
-    // sees `urgent` — which it only demotes for a broadcast sign-in or a
-    // monitoring alarm — so the security escalation and its todo both survive.
-    // Reversed, this same input demotes to `fyi` and clears the todo.
+    // Group sender + `awaiting_reply` always demotes, but sender-kind sees `urgent` first.
+    // In reverse order, this input demotes to `fyi` and clears the todo.
     const outcome = applyFloors(
       classification({
         category: "awaiting_reply",
@@ -98,9 +90,7 @@ describe("applyFloors — sequence order", () => {
   });
 
   test("meeting runs LAST: a secret-escalated urgent is already past the gate", () => {
-    // Same recap subject the meeting floor demotes on its own (see below), but
-    // the override floor has already moved the category off `meeting`, and the
-    // meeting gate only fires on a surviving `meeting` tag.
+    // The meeting gate fires only on a surviving `meeting` tag; override already moved it.
     const outcome = applyFloors(
       classification({ category: "meeting" }),
       context({ signalText: SECRET_TEXT, subject: "Meeting notes: Eng standup" }),
@@ -113,9 +103,7 @@ describe("applyFloors — sequence order", () => {
   });
 
   test("meeting runs LAST: a sender-kind-demoted fyi is already past the gate", () => {
-    // Passive collab activity on a task tracker whose subject also reads as a
-    // recap. Sender-kind demotes it, so the meeting floor stamps nothing — one
-    // demotion, one rationale clause, one reason in the audit.
+    // Sender-kind demotes first, so the meeting floor adds no second demotion reason.
     const outcome = applyFloors(
       classification({ category: "action_needed", collabActivity: "other_activity" }),
       context({
@@ -145,24 +133,13 @@ describe("applyFloors — sequence order", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Threading: each floor sees the PREVIOUS floor's classification, not the
-// model's. This is the property the fold exists to make structural.
+// Each floor sees the previous floor's classification, not the model's.
 // ---------------------------------------------------------------------------
 
 describe("applyFloors — threading", () => {
   test("sender-kind is handed the override floor's urgent and keeps it under the secret veto", () => {
-    // The model said `fyi`. The override floor escalates it to `urgent`, and
-    // that `urgent` — not the model's `fyi` — is what the sender-kind floor
-    // receives next.
-    //
-    // The fixture is a sign-in broadcast that ALSO names a leaked key, because
-    // the override floor is the only floor that escalates and it fires on
-    // nothing else. Without the leaked key this body is a textbook
-    // `broadcast_auth_signin_confirmation` demotion. With it, the sign-in reason
-    // carries the same `matchesExposedSecret` veto that `collab_passive_activity`
-    // and `monitoring_alarm` already had (#580), so the escalation survives and
-    // no demotion is stamped. Before #580 this asserted a final `fyi`; the flip
-    // is deliberate.
+    // Only override escalates, and only on a leaked key, so the sign-in body names one.
+    // The `matchesExposedSecret` veto (#580) then blocks the sign-in demotion.
     const body =
       "we detected a new sign-in to your account from a new device. " +
       "if this was you, no action is needed. " +
@@ -187,14 +164,8 @@ describe("applyFloors — threading", () => {
   });
 
   test("the demotion veto survives a comma-set-off leak clause", () => {
-    // Regression for #1188 round 3. The veto predicate
-    // `matchesExposedCredentialClaim` used to share the floor's whitespace-only
-    // gap, which ends at a comma. A leak clause written as a set-off aside —
-    // ordinary in scanner and breach-aggregator mail — therefore read as no
-    // claim at all, the sign-in demotion fired, and a real alarm landed at `fyi`
-    // with its todo cleared. The veto now has its own gap that crosses one
-    // comma-set-off aside; the floor's own gap is unchanged, so this body still
-    // does not force `urgent`.
+    // Regression: #1188. The veto gap crosses one comma aside; the floor's gap does not,
+    // so this body vetoes the demotion but does not force `urgent`.
     const body =
       "we detected a new sign-in to your account from a new device. " +
       "if this was you, no action is needed. " +
@@ -229,8 +200,7 @@ describe("applyFloors — threading", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The `model` tags. Each floor registers its own next to its `apply`, so the
-// fold — not `classifyEmail` — is what contributes them to the model id.
+// The `model` tags. Each floor owns its tag, so the fold adds them, not `classifyEmail`.
 // ---------------------------------------------------------------------------
 
 describe("applyFloors — model id tags", () => {
@@ -261,11 +231,8 @@ describe("applyFloors — model id tags", () => {
   });
 
   test("tags only the override floor on a sign-in broadcast that names a leaked key", () => {
-    // Same sign-in-plus-leaked-key body as the threading case above. Only the
-    // override floor escalates, so two floors could only fire on one email
-    // through it — and since #580 every demoting reason that can see an
-    // `urgent` refuses to fire when `matchesExposedSecret` hits. The
-    // `+kindfloor` tag this once carried is gone on purpose.
+    // Since #580, no demoting reason fires on `urgent` when `matchesExposedSecret` hits,
+    // so `+kindfloor` is absent on purpose.
     const outcome = applyFloors(
       classification({ category: "fyi" }),
       context({
@@ -321,11 +288,9 @@ describe("applyFloors — demote, never bury", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The persisted trace. `FLOOR_TRACE_PROJECTIONS` is keyed on the audits this
-// sequence derives, so a fourth floor cannot compile until it says what its
-// facts are CALLED in `agent_decision_traces` — the one floor consumer the
-// over-tag audits (#210/#354) can query. This is the runtime twin of that
-// compile error: it fails if the annotation is widened rather than answered.
+// The persisted trace. `FLOOR_TRACE_PROJECTIONS` is keyed on the floor audits,
+// so a new floor must name its facts in `agent_decision_traces`.
+// This runtime check fails if someone widens that type instead.
 // ---------------------------------------------------------------------------
 
 describe("floors — trace projections", () => {

@@ -16,20 +16,13 @@ import {
 } from "@alfred/assistant/execution";
 
 /**
- * Durable state for the interactive chat turn, plus the handful of pure
- * operations that are *about* that state rather than about any one protocol.
- *
- * It lives here rather than in `chat-turn.ts` because every protocol module the
- * workflow orchestrates (join, closure, retry budgets, the finalize guards,
- * attachment hydration) needs `ChatRunState`, while `chat-turn.ts` imports all
- * of them. Keeping the schema in the workflow would make each of those an
- * import cycle. Nothing in this module may import `./chat-turn`.
+ * Durable chat turn state and the pure operations on it.
+ * Separate from `chat-turn.ts` to avoid import cycles. Never import `./chat-turn` here.
  */
 
-// The interactive chat turn extends the shared core (see `./pending-tool-call`)
-// with a narration `segmentIndex`; the background brief has no narration.
+// Chat adds a narration `segmentIndex` to the shared pending call.
 const pendingToolCallSchema = basePendingToolCallSchema.extend({
-  /** Narration segment this call follows (see `chatRunStateSchema.segmentIndex`). */
+  /** Narration segment this call follows. */
   segmentIndex: z.number().int().nonnegative().default(0),
 });
 
@@ -41,20 +34,12 @@ const toolCallLogSchema = z.object({
   status: z.enum(["succeeded", "failed"]),
   argsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
-  // `preview()` pruned the result to fit its cap. Persisted so a reload keeps
-  // the fact, because a pruned preview still parses (#1018 review, S2).
-  // Optional so checkpoints written before this field still parse.
+  // A pruned preview still parses, so persist the fact for reloads.
   resultTruncated: z.boolean().optional(),
-  // A `failed` entry rejected before execution: malformed, invented, inactive,
-  // or disallowed. The honesty guard excludes recovered entries so an internal
-  // first attempt cannot make it claim a later, successful call failed.
+  // A `failed` entry rejected before execution: malformed, invented, inactive, or disallowed.
   nonExecution: z.boolean().optional(),
-  // Set only when that rejection was connection health (#378 item 3): the one
-  // non-execution that persists to the message row, so a reload re-offers the
-  // repair. Optional so checkpoints written before this field still parse. The
-  // slug is a closed enum, so a checkpoint written by a build whose registry
-  // knew a slug this one does not must read as "no nudge" (the bounce then
-  // stays internal plumbing) rather than fail the whole run-state parse.
+  // Connection-health rejection only (#378). `.catch`: a slug this build does not
+  // know reads as no nudge instead of failing the whole state parse.
   connectNudge: chatConnectNudgeSchema.optional().catch(undefined),
   segmentIndex: z.number().int().nonnegative().default(0),
 });
@@ -64,75 +49,44 @@ const narrationSegmentSchema = z.object({
   text: z.string(),
 });
 
+// Defaults and optionals let older checkpoints still parse.
 export const chatRunStateSchema = z
   .object({
     threadId: z.string().min(1),
     messageId: z.string().min(1),
-    // The triggering user message id (ADR-0072). Lets the failure path tell a
-    // *current-turn* image attachment (recoverable by "Send without it") apart
-    // from a *historical* one replayed in the transcript (recoverable only by a
-    // new chat). Optional for legacy runs minted before this field existed.
+    // Lets the failure path tell this turn's image from a replayed one (ADR-0072).
     userMessageId: z.string().optional(),
-    // Structured artifact target selected by the sidebar. This is run metadata,
-    // never inferred from user-authored prose or attachment content.
+    // Set by the sidebar selection, never inferred from user prose.
     artifactTargetId: z.string().optional(),
     tier: chatModelTierSchema,
-    // The durable tool surface, shared with every other checkpointed workflow
-    // (see `toolSurfaceStateFields`) and resolved by `foldToolSurfaceState` in
-    // the transform below.
     ...toolSurfaceStateFields,
-    // ADR-0053 connected summary, snapshotted once at run start (first turn) and
-    // reused every turn so the system-prompt prefix stays cache-stable.
+    // Snapshotted on the first turn so the system prompt stays fixed (ADR-0053).
     connectedSummary: z.string().optional(),
-    // Deployment identity block (`selfIdentityGrounding`): who Alfred is in this
-    // deployment, read from configuration. Snapshotted with the connected
-    // summary for the same reason: the system prompt must not change mid-run.
-    // Empty for pre-identity checkpoints whose existing hash pins the old prompt.
+    // `selfIdentityGrounding`, snapshotted for the same reason. Empty on older pinned runs.
     selfIdentity: z.string().optional(),
-    // SHA-256 of the cache-stable system prompt. AlfredAgent is constructed per
-    // model step on this workflow, so its instance-local stability assertion
-    // cannot compare chat turns; the durable workflow state owns that check.
-    // The stability invariant holds for the whole run, including artifact
-    // mutations and resume. Once set, the pin is never cleared. Optional for
-    // checkpoints written before the first system prompt was built.
+    // Pins the system prompt for the whole run. Never cleared once set.
     systemPromptHash: z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .optional(),
-    // Per-thread artifact facts (default id, selection resolution, bounded
-    // index). Ephemeral per-turn text, recomposed after every artifact mutation
-    // so the next model step resolves the correct edit target. Optional for
-    // legacy checkpoints minted before the split.
+    // Ephemeral per-turn text. Rebuilt after each artifact edit.
     artifactThreadFacts: z.string().optional(),
-    // Exact selected artifact body, carried as a lower-trust assistant reference
-    // message rather than system text. Empty when no artifact exists/was found.
+    // The selected artifact body, sent as a lower-trust assistant message, not system text.
     artifactReference: z.string().optional(),
-    // Determines when to admit the PDF guide to the transcript. Refreshed with
-    // the selected artifact context after mutations; never changes system text.
+    // `pdf` admits the PDF guide to the transcript.
     artifactDesignMedium: artifactFormatSchema.optional(),
-    // The PDF guide enters the durable transcript once per run. Absence means
-    // it has not been admitted yet, including on legacy checkpoints.
+    // The PDF guide enters the transcript once per run.
     pdfDesignGuideAdmitted: z.literal(true).optional(),
-    // User's IANA timezone, snapshotted once on the first turn — it can't change
-    // mid-run, so re-reading it from the DB every turn (like `connectedSummary`)
-    // is wasted latency. Stored as a plain string, like every other persisted
-    // state field, and re-parsed into a zone at each read (`parseIanaTimezone`).
+    // Snapshotted on the first turn. A plain string; parse with `parseIanaTimezone`.
     timezone: z.string().optional(),
     pendingToolCalls: z.array(pendingToolCallSchema),
-    // Text of the current (latest) narration segment. Accumulates within a step;
-    // when a step ends with tool calls it's pushed onto `narration` and reset,
-    // so by turn's end this holds only the final answer (what `content` persists).
+    // The current segment only. At turn end this is the final answer.
     assistantText: z.string().default(""),
-    // Closed narration segments — the brief lines written before each tool step.
+    // Closed segments: the lead-in lines before each tool step.
     narration: z.array(narrationSegmentSchema).default([]),
-    // Index of the current segment; bumped each time a tool-bearing step closes.
     segmentIndex: z.number().int().min(0).default(0),
-    // Set by the last dispatch round when it auto-activated ≥1 tool via an
-    // inactive-tool bounce (#407). While true, the next chat-turn's lead-in text
-    // is an internal reissue ("tools warming up, retrying") — machinery the
-    // prompt forbids surfacing and PR 503 already hides on the tool-card channel
-    // — so its narration segment and live deltas are withheld from the user.
-    // Default false for runs minted before the field existed.
+    // The last round auto-activated a tool (#407), so the next turn's lead-in is
+    // machinery. Its narration and live deltas are withheld.
     reissuePending: z.boolean().default(false),
     reasoningText: z.string().default(""),
     reasoningMs: z.number().int().min(0).default(0),
@@ -140,79 +94,41 @@ export const chatRunStateSchema = z
     deltaSeq: z.number().int().min(0).default(0),
     reasoningSeq: z.number().int().min(0).default(0),
     turnCount: z.number().int().min(0).default(0),
-    // Index where the current within-run tool burst begins. The persisted
-    // foreground guard may replace the loaded transcript before the first model
-    // call; subsequent tool-loop turns must continue from that prepared
-    // transcript and compact only the older prefix when pressure grows.
+    // Where the current tool burst starts. Within-run compaction touches only the older prefix.
     inFlightTailStart: z.number().int().min(0).default(0),
-    // Consecutive empty completions retried this run (bounded by `turn-budgets`).
-    // Reset to 0 whenever a turn is productive (tool calls or real text), so this
-    // counts a provider stuck returning empties — not scattered empties across a
-    // long turn loop. Default 0 for runs minted before the field existed.
+    // Consecutive retries, bounded by `turn-budgets`. A productive turn resets all three.
     emptyCompletionRetries: z.number().int().min(0).default(0),
-    // Consecutive stream-timeout retries this run (bounded by `turn-budgets`).
-    // Sibling of `emptyCompletionRetries`: reset to 0 on any productive turn, so
-    // it counts retries of the *same* stuck turn — not one timeout per tool-loop
-    // step. Default 0 for runs minted before the field existed.
     streamTimeoutRetries: z.number().int().min(0).default(0),
-    // Consecutive capacity (429/5xx) retries this run (bounded by
-    // `turn-budgets`). Sibling of the two above: reset to 0 on any productive
-    // turn. Default 0 for runs minted before the field existed.
     capacityRetries: z.number().int().min(0).default(0),
     startedAt: z.iso.datetime().optional(),
     // Read only while resuming checkpoints created before `startedAt`.
     started: z.boolean().optional(),
-    // ── Phase thermometer (#902) ─────────────────────────────────────────
-    // Wall-clock accumulators for the turn's phase split, shipped once at the
-    // run's terminal as the `runtime.turn.phases` span (see
-    // `./turn-thermometer`). Generation is the streamed model turn; dispatch is
-    // host-side tool-round execution including sub-agent join parks. All three
-    // default to 0 for checkpoints minted before this slice.
+    // Phase thermometer (#902). Dispatch includes sub-agent join parks.
     generationMs: z.number().int().min(0).default(0),
     dispatchMs: z.number().int().min(0).default(0),
-    // Total wall-clock spent inside step bodies; `other` is derived at emit
-    // time as the residual after generation and dispatch (`otherPhaseMs`).
+    // `other` is the residual of this after generation and dispatch.
     stepWallMs: z.number().int().min(0).default(0),
-    // Set when a dispatch round parks the run, folded back into the phase
-    // buckets on resume by {@link foldResumedPark}.
     parkedAt: z.iso.datetime().optional(),
     /** Why the run parked: `join` = sub-agent await, `gate` = HIL approval. */
     parkKind: z.enum(["join", "gate"]).optional(),
-    // Instant the ephemeral `<runtime_context>` line — the chat run's single
-    // source of the current date and time — is anchored to (#410). Held stable
-    // across a contiguous execution slice so the tool-result tail stays
-    // cacheable, and across a park too: it is cleared only when the park
-    // outlived the prompt cache, and re-stamped only when the reading it states
-    // is wrong. Absent on legacy runs.
+    // The instant `<runtime_context>` states (#410). Held stable so the cached tail survives.
     runtimeGroundingAnchor: z.iso.datetime().optional(),
-    // ADR-0073 finalization guard: child runs spawned this turn whose outcomes
-    // are already accounted for in the transcript — either folded by the guard, or
-    // surfaced because the boss explicitly called `await_sub_agent` (a successful
-    // await commits the child's real outcome as a normal tool result). Lets the
-    // guard re-run on each resume without re-folding a child it already surfaced,
-    // and stops it from injecting a false "finished without you awaiting it" note
-    // for a child the boss did await.
+    // Children whose outcome the transcript already has, folded or awaited (ADR-0073).
     foldedChildRunIds: z.array(z.string()).default([]),
-    // #346 honesty guard: toolCallIds of net-failed mutating calls the finalize
-    // guard has already injected a "do not claim this succeeded" note for. Mirrors
-    // `foldedChildRunIds` — tracking what's been handled keeps the guard idempotent
-    // across resumes and stops it re-firing (and looping) on a failure it already
-    // surfaced to the model.
+    // Failures the honesty guard already noted (#346), so it never loops on one.
     notedFailureToolCallIds: z.array(z.string()).default([]),
   })
   .transform(({ started, ...state }) => ({
     ...foldToolSurfaceState(state),
-    // The old boolean recorded only that the event fired. Runtime migration is
-    // the best timestamp available for an already-started legacy checkpoint.
+    // The old boolean has no time, so "now" is the best guess.
     startedAt: state.startedAt ?? (started ? new Date().toISOString() : undefined),
   }));
 
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
 /**
- * Own the chat path's cross-turn system stability invariant in durable state.
- * `AlfredAgent` is intentionally short-lived here (one instance per model
- * step), so its instance-local assertion cannot protect the prompt cache.
+ * Throw if the system prompt changed within the run.
+ * `AlfredAgent` lives for one model step here, so its own check cannot see this.
  */
 export function assertStableChatSystem(
   state: Pick<ChatRunState, "systemPromptHash">,
@@ -240,8 +156,7 @@ export function admitPdfDesignGuide(
   if (state.artifactDesignMedium !== "pdf" || state.pdfDesignGuideAdmitted) return;
   state.pdfDesignGuideAdmitted = true;
 
-  // A trailing assistant message is an unsupported prefill on the Anthropic
-  // fallback. Like finalize-guard notes, runtime guidance uses the user role.
+  // A trailing assistant message is an unsupported prefill on Anthropic, so use the user role.
   return { role: "user", content: ARTIFACT_DOCUMENT_DESIGN_PROMPT };
 }
 
@@ -251,12 +166,8 @@ export function interruptChatRun(
   transcript: AgentTranscriptMessage[],
   wake: Extract<StepResult<ChatRunState>, { kind: "interrupt" }>["wake"],
 ): Extract<StepResult<ChatRunState>, { kind: "interrupt" }> {
-  // The grounding anchor deliberately survives the park. Its fate is decided on
-  // the way back in, by `foldResumedPark`, which knows how long the park lasted;
-  // clearing it here made a one-second approval cost the whole cached tail.
-  // Stamp the park so the phase thermometer (#902) can attribute the parked
-  // wall-clock on resume: in this workflow a signal wake is a sub-agent join
-  // (`await_sub_agent`), an HIL wake is a gated action waiting on the user.
+  // Keep the grounding anchor: `foldResumedPark` knows the park length and decides.
+  // A signal wake is a sub-agent join; an HIL wake is an approval.
   state.parkedAt = new Date().toISOString();
   state.parkKind = wake.kind === "hil" ? "gate" : "join";
 
@@ -264,23 +175,9 @@ export function interruptChatRun(
 }
 
 /**
- * Close out a park on the way back in: attribute its wall-clock (#902) and
- * decide whether the run's "now" survived it.
- *
- * Called at the top of the resumed step body, the one seam a wake passes
- * through — which is why both decisions live here. A sub-agent join park folds
- * into `dispatchMs` — the join is tool work the boss is synchronously waiting
- * on, and it is exactly the slow-tool signal the thermometer hunts. A gate
- * (approval) park is human time, not machine dispatch, so it stays out of the
- * buckets and lands in the residual `other` reading instead. Either way the
- * markers clear so a later park stamps fresh.
- *
- * The grounding anchor is cleared only when the park outlived the prompt cache
- * ({@link RUNTIME_GROUNDING_PARK_GRACE_MS}), because clearing it re-stamps the
- * `<runtime_context>` line and costs every cached token behind it. A short park
- * keeps the anchor, and `resolveRuntimeGroundingAnchor` still re-stamps if the
- * calendar day moved. Returns the folded gap (0 when the state carries no
- * unfinished park).
+ * Close a park on resume (#902). A join park counts as dispatch; an approval park
+ * is human time and lands in `other`. Clear the anchor only past
+ * {@link RUNTIME_GROUNDING_PARK_GRACE_MS}. Returns the gap.
  */
 export function foldResumedPark(
   state: Pick<ChatRunState, "parkedAt" | "parkKind" | "dispatchMs" | "runtimeGroundingAnchor">,
@@ -301,49 +198,18 @@ export function foldResumedPark(
   return gap;
 }
 
-/**
- * The two decisions that differ between the chat turn's two narration-segment
- * closes, as arguments rather than a warning in each about the other.
- *
- * Both closes park `assistantText` on the narration trail, clear it, and advance
- * `segmentIndex`; that much is one operation ({@link closeNarrationSegment}).
- * They diverge on exactly the two fields below — which used to live as a
- * "distinct from the other one, do not merge them" note in each function
- * pointing at the other, across a module boundary. Prose in both directions is
- * what a missing mechanism looks like: as named fields a reader of either close
- * sees both policies, and neither has to warn about the other.
- */
+/** The two ways the lead-in close and the guard close differ. */
 export interface NarrationClose {
-  /**
-   * Whether the closed text belongs on the trail at all.
-   *
-   * A lead-in withheld by the #407 reissue gate is internal machinery ("tools
-   * warming up, retrying") the user never saw and must never read back, so it is
-   * dropped. A premature answer a finalize guard rejected already streamed to
-   * the client, so it stays — the trail is where it lands once the live answer
-   * area clears.
-   */
+  /** Keep the text on the trail. A withheld #407 lead-in is dropped; a streamed answer stays. */
   readonly keepText: boolean;
   /**
-   * Whether a close that kept nothing still advances `segmentIndex`.
-   *
-   * A tool-bearing step advances regardless: the tool cards that follow are
-   * numbered off the segment, so a dropped or blank lead-in that skipped the
-   * bump would leave them on the previous segment's line. A finalize guard with
-   * no text to close must NOT advance — nothing streamed on the segment it would
-   * move to, and the client only follows a HIGHER-segment delta.
+   * Advance `segmentIndex` even when nothing was kept. Tool steps must, so their
+   * cards stay aligned. A guard with no text must not: nothing streamed there.
    */
   readonly advanceWhenNothingKept: boolean;
 }
 
-/**
- * Close the current narration segment under a {@link NarrationClose}, returning
- * whether text was actually parked on the trail.
- *
- * Mutates in place rather than returning a patch: every caller is a step or
- * guard that already owns `state`, and a patch has to be written back field by
- * field — which is one more place to forget `segmentIndex`.
- */
+/** Close the current segment in place. Returns whether text went onto the trail. */
 export function closeNarrationSegment(
   state: Pick<ChatRunState, "narration" | "assistantText" | "segmentIndex">,
   close: NarrationClose,
@@ -365,16 +231,7 @@ export function closeNarrationSegment(
   return kept;
 }
 
-/**
- * Close the current narration segment as a tool-bearing step ends: the lead-in
- * text was a preface to those tools, not the answer, so it moves onto the
- * narration trail and the segment index advances so later tool cards stay
- * aligned. When `reissuePending` is set the lead-in is instead an internal
- * reissue of just-auto-activated tools (#407) — machinery the prompt forbids
- * surfacing (see the "internal machinery" prompt rule) and PR 503 already hides
- * on the tool-card channel — so its text is dropped from the trail while the
- * index still advances.
- */
+/** End a tool step: its text was a lead-in, not the answer. A #407 reissue lead-in is dropped. */
 export function closeLeadInNarration(
   state: Pick<ChatRunState, "narration" | "assistantText" | "segmentIndex" | "reissuePending">,
 ): void {
@@ -384,12 +241,7 @@ export function closeLeadInNarration(
   });
 }
 
-/**
- * All of this turn's assistant prose in order: the closed narration segments
- * followed by the current segment. Used where the transcript needs the full
- * thing (e.g. a stopped turn); the persisted `content` keeps only the final
- * segment so the durable reply stays free of narration lead-ins.
- */
+/** All of this turn's prose in order. The persisted `content` keeps only the final segment. */
 export function fullAssistantText(state: ChatRunState): string {
   return [...state.narration.map((n) => n.text), state.assistantText]
     .filter((t) => t.trim().length > 0)

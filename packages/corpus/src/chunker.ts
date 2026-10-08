@@ -1,37 +1,18 @@
 /**
- * Paragraph-aware chunker.
- *
- * Strategy:
- *   1. Split content on blank-line boundaries (paragraphs).
- *   2. Greedily merge consecutive paragraphs until adding the next one
- *      would push the chunk past `targetTokens`.
- *   3. Provide a small character overlap between chunks so retrieval
- *      doesn't miss content that straddles a boundary.
- *   4. If a single paragraph is itself longer than `maxTokens`, fall
- *      back to a sentence/word split for that paragraph alone.
- *
- * Token counting is character-based at 4 chars/token — accurate enough
- * for chunk sizing without pulling in a tokenizer (gpt-tokenizer, tiktoken,
- * js-tiktoken all add real bundle weight). Voyage's 32k token context
- * means we have headroom anyway.
- *
- * Why paragraph-aware vs fixed-window: emails are paragraph-shaped. A
- * fixed-window chunker drops sentences mid-clause; paragraph splits
- * preserve the unit of thought, which embedding quality cares about.
+ * Paragraph chunker: merge paragraphs up to `targetTokens`, overlap each chunk
+ * with the previous tail, and split a paragraph over `maxTokens` by sentence.
+ * Tokens are estimated from characters, so no tokenizer dependency is needed.
  */
 
 import { isValidPage } from "@alfred/contracts";
 import { APPROXIMATE_CHARS_PER_TOKEN } from "@alfred/ai";
 
 export interface ChunkerOptions {
-  /** Target token count per chunk. Default 1000. */
+  /** Default 1000. */
   targetTokens?: number;
-  /**
-   * Hard ceiling per chunk before we force a split inside a paragraph.
-   * Default 1500 — gives the greedy merge slack to land near the target.
-   */
+  /** Size that forces a split inside a paragraph. Default 1500. */
   maxTokens?: number;
-  /** Token overlap between consecutive chunks. Default 80. */
+  /** Default 80. */
   overlapTokens?: number;
 }
 
@@ -39,12 +20,12 @@ export interface Chunk {
   position: number;
   content: string;
   tokenCount: number;
-  /** 1-indexed page anchor for PDF-sourced chunks. Absent for non-paged sources. */
+  /** 1-indexed PDF page. Absent for sources without pages. */
   page?: number | undefined;
 }
 
 export interface PageInput {
-  /** 1-indexed page number, proven by the extractor. */
+  /** 1-indexed page number from the extractor. */
   page: number;
   /** Markdown text for this page. */
   text: string;
@@ -76,13 +57,11 @@ export function chunkText(text: string, opts: ChunkerOptions = {}): Chunk[] {
     .map((p) => p.trim())
     .filter(Boolean);
 
-  // Greedy merge with a hard ceiling.
   const merged: string[] = [];
   let buffer = "";
 
   for (const para of paragraphs) {
     if (para.length > max) {
-      // Flush the buffer, then split the oversized paragraph itself.
       if (buffer) {
         merged.push(buffer);
         buffer = "";
@@ -107,7 +86,7 @@ export function chunkText(text: string, opts: ChunkerOptions = {}): Chunk[] {
 
   if (buffer) merged.push(buffer);
 
-  // Apply overlap by prepending the tail of the previous chunk.
+  // Overlap: prepend the previous chunk's tail.
   const chunks: Chunk[] = [];
 
   for (let i = 0; i < merged.length; i++) {
@@ -121,7 +100,7 @@ export function chunkText(text: string, opts: ChunkerOptions = {}): Chunk[] {
 }
 
 function splitOversized(paragraph: string, max: number): string[] {
-  // Try sentence-level split first; fall back to fixed-width slicing.
+  // Sentences first, then fixed-width slices.
   const sentences = paragraph.split(SENTENCE_SPLIT).filter(Boolean);
 
   if (sentences.length === 1) return sliceByChars(paragraph, max);
@@ -165,11 +144,7 @@ function sliceByChars(text: string, max: number): string[] {
   return out;
 }
 
-/**
- * Page-bounded chunker (ADR-0091 D6). Chunks each page independently so no chunk claims
- * text from two pages. Overlap is preserved *within* a page but disabled *across* pages,
- * so a chunk with `page: 3` never carries page 2's tail.
- */
+/** Chunk each page on its own, so no chunk holds text from two pages (ADR-0091 D6). */
 export function chunkPages(pages: readonly PageInput[], opts: ChunkerOptions = {}): Chunk[] {
   if (pages.length === 0) return [];
   const chunks: Chunk[] = [];
@@ -180,7 +155,6 @@ export function chunkPages(pages: readonly PageInput[], opts: ChunkerOptions = {
     const trimmed = page.text.trim();
 
     if (!trimmed) continue;
-    // Reuse the paragraph-aware splitter per page, but never bleed across pages.
     const pageChunks = chunkText(trimmed, opts);
 
     for (const pc of pageChunks) {
@@ -191,15 +165,12 @@ export function chunkPages(pages: readonly PageInput[], opts: ChunkerOptions = {
         page: page.page,
       });
     }
-    // chunkText for a single short page yields one chunk already; the per-page call
-    // inherently disables cross-page overlap — the boundary is the call itself.
   }
 
-  // Re-assign positions globally so they remain dense 0..N-1 after empty pages are skipped.
   return chunks;
 }
 
 export function estimateTokens(text: string): number {
-  // Rounded up so very short strings still return >=1.
+  // At least 1, even for a very short string.
   return Math.max(1, Math.ceil(text.length / APPROXIMATE_CHARS_PER_TOKEN));
 }

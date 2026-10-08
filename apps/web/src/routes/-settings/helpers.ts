@@ -25,7 +25,6 @@ export const SECTIONS = [
   icon: ComponentType<{ size?: number; className?: string }>;
 }>;
 
-/** A settings sidebar section, inferred from the `SECTIONS` registry. */
 export type SectionDef = (typeof SECTIONS)[number];
 
 export type SectionId = SectionDef["id"];
@@ -37,14 +36,11 @@ export interface BackgroundAgentDef {
   icon: ComponentType<{ size?: number; className?: string }>;
   tint: AppTint;
   /**
-   * `user_preferences` key this switch writes. The switch reads its state via
-   * `isOn(prefKey)`, which applies the per-key default from
-   * `FEATURE_FLAG_DEFAULTS` when no row exists (UNSET = ON for the original
-   * agents, OFF for reply drafting). Omitted for agents that have no flag yet —
-   * those render as disabled "Coming soon" rows.
+   * The preference key. `isOn` applies `FEATURE_FLAG_DEFAULTS` when no row exists.
+   * Omitted for agents with no flag; those render as "Coming soon".
    */
   prefKey?: FeatureFlagKey | undefined;
-  /** Not built yet — row is shown for parity but switched off and disabled. */
+  /** Shown but off and disabled. */
   comingSoon?: boolean | undefined;
 }
 

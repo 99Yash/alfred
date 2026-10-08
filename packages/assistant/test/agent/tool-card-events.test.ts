@@ -52,16 +52,14 @@ describe("sub-agent chat origin", () => {
   });
 
   test("a background parent has no chat origin, and that is not an error", () => {
-    // A cron brief or any non-chat boss run spawns children with no thread to
-    // publish into; they must still parse, and simply run without a trail.
+    // A cron brief spawns children with no thread. They run without a trail.
     const meta = readSubAgentMetadata({ subAgent: base });
     assert.equal(meta?.parentRunId, "run_parent");
     assert.equal(meta?.chat, undefined);
   });
 
   test("a partial chat origin is rejected rather than half-published", () => {
-    // Publishing with a threadId but no messageId would address a turn the
-    // client cannot key, so the whole metadata fails to parse instead.
+    // The client cannot key a turn without the messageId.
     const meta = readSubAgentMetadata({ subAgent: { ...base, chat: { threadId: "thread_1" } } });
     assert.equal(meta, null);
   });
@@ -76,9 +74,7 @@ describe("sub-agent tool cards", () => {
     chat: { threadId: "thread_1", messageId: "msg_1" },
   };
 
-  // A liveness predicate that records whether it was consulted, so a test can
-  // prove the door asks the parent-open question — and skips it when there is no
-  // chat turn to publish to.
+  // Records whether the door asked the parent-open question.
   function openStub(answer: boolean) {
     let asked = 0;
 
@@ -92,7 +88,6 @@ describe("sub-agent tool cards", () => {
     };
   }
 
-  // The door only mints a target for a live parent; every card test needs one.
   async function liveTarget() {
     const target = await subAgentToolCardTarget(
       child,
@@ -107,8 +102,7 @@ describe("sub-agent tool cards", () => {
   }
 
   test("the door refuses to mint a target when the injected predicate says closed", async () => {
-    // This is the gate item 38 introduced, now folded INTO the door: a terminal
-    // parent's barrier never releases, so no card may be republished under it.
+    // A terminal parent's barrier never releases, so no card may publish under it.
     const shut = openStub(false);
     assert.equal(
       await subAgentToolCardTarget(child, "run_child", "user_1", shut.isParentOpen),
@@ -122,9 +116,7 @@ describe("sub-agent tool cards", () => {
   });
 
   test("the event is addressed to the PARENT run, never the child", async () => {
-    // The client keys its in-flight turn on (messageId, runId). A child runId
-    // here would read as a new turn and blank the bubble mid-stream, so this is
-    // the one field worth pinning.
+    // The client keys its turn on (messageId, runId). A child runId would blank the bubble.
     const target = await liveTarget();
     assert.equal(target.runId, "run_parent");
     assert.notEqual(target.runId, "run_child");
@@ -136,8 +128,7 @@ describe("sub-agent tool cards", () => {
   });
 
   test("no target for the boss, or for a child of a background parent — and no liveness read for either", async () => {
-    // Neither case has a chat turn to publish to, so the door short-circuits
-    // BEFORE the DB read: there is no parent barrier to reason about.
+    // No chat turn, so the door returns before the DB read.
     const bossStub = openStub(true);
     assert.equal(
       await subAgentToolCardTarget(null, "run_child", "user_1", bossStub.isParentOpen),
@@ -174,8 +165,7 @@ describe("sub-agent tool cards", () => {
     );
 
     for (const payload of [started, terminal]) {
-      // publishEvent throws on a payload the schema rejects, which would fail
-      // the sub-agent's dispatch step — so validate the exact shape we publish.
+      // `publishEvent` throws on a rejected payload and would fail the dispatch step.
       assert.equal(chatToolSchema.safeParse(payload).success, true);
       assert.equal(payload.runId, "run_parent");
       assert.equal(payload.threadId, "thread_1");
@@ -213,10 +203,8 @@ describe("sub-agent tool cards", () => {
 });
 
 describe("provider-supplied identity is clamped, not rejected", () => {
-  // A model can invent a tool name of any length. `publishEvent` throws on a
-  // payload the schema rejects, and the boss's publish sits inside the awaited
-  // commit hook — so an over-long name must degrade to a bounce
-  // (`unknown_tool`, which self-corrects) rather than kill the run.
+  // A model can invent a name of any length. A throw in the commit hook would kill
+  // the run, so an over-long name degrades to an `unknown_tool` bounce.
   const target = {
     runId: "run_parent",
     threadId: "thread_1",
@@ -271,9 +259,7 @@ describe("toolEventOutcome", () => {
   });
 
   test("a dispatcher bounce is flagged so both publishers retract the card", () => {
-    // This is the field the whole nonExecution contract hangs on: the chat turn
-    // and the sub-agent trail derive it here so they cannot drift, and a surface
-    // that lost it would render internal plumbing as a user-facing failure.
+    // Without this flag, a surface shows internal plumbing as a user-facing failure.
     for (const kind of ["invalid_input", "unknown_tool", "inactive_tool", "not_allowed"] as const) {
       const outcome = toolEventOutcome(
         completion(

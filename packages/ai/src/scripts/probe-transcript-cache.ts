@@ -1,26 +1,13 @@
 /**
- * Live proof that the transcript cache breakpoint (#223) lands cache *reads*,
- * not just writes. No server / DB needed — a direct Anthropic call.
+ * Live check that the transcript cache breakpoint produces cache reads. Calls Anthropic directly.
  *
  *   $ ANTHROPIC_API_KEY=… pnpm --filter @alfred/ai exec tsx src/scripts/probe-transcript-cache.ts
- *   (or run from repo root with --env-file=apps/server/.env)
  *
- * Drives the same concrete-model protocol wrapper AlfredAgent uses, then calls
- * the real model twice with a growing transcript:
- *
- *   Turn 1 (cold): expect cache_creation ≈ system+transcript, cache_read = 0.
- *   Turn 2 (warm): append two messages, move the breakpoint to the new last
- *                  message → expect cache_read ≈ the turn-1 prefix (the win),
- *                  cache_creation ≈ only the appended delta.
- *
- * If turn 2's cache_read is ~0, transcript caching is NOT working.
+ * Turn 2 must read about the turn-1 prefix from cache. A read near 0 means caching is broken.
  */
 
-// NOTE: this probe deliberately bypasses the package's model-dispatch helpers and
-// reads `process.env` directly. The whole point is to isolate the raw Anthropic
-// cache accounting from the agent stack — `route("standard").model()` would pull in fallback
-// wrapping, and `serverEnv()` would throw on ~19 unrelated vars a bare probe has no
-// business requiring. Do not "fix" this to route through the helpers.
+// Bypasses `route()` and `serverEnv()` on purpose: it measures raw Anthropic caching,
+// without fallback wrapping or unrelated required env vars.
 import { anthropic } from "@ai-sdk/anthropic";
 import { getPath, toRecord } from "@alfred/contracts";
 import { generateText, type ModelMessage } from "ai";
@@ -30,9 +17,7 @@ const TTL = "5m" as const;
 
 const GENERATE_TIMEOUT_MS = 60_000;
 
-// A stable, sizable first message so the prefix clears Anthropic's ~1024-token
-// minimum cacheable size. Deterministic content (no timestamps) so the prefix
-// is byte-identical across the two turns.
+// Fixed text over Anthropic's ~1024-token cache minimum, identical on both turns.
 const FILLER = Array.from(
   { length: 400 },
   (_, i) => `Reference note ${i}: the quick brown fox jumps over the lazy dog near the riverbank.`,
@@ -46,8 +31,7 @@ const systemBlock =
 const model = adaptProviderModel("anthropic", anthropic("claude-sonnet-4-6")).model;
 
 function cacheStats(meta: unknown) {
-  // Anthropic reports cache accounting under providerMetadata.anthropic.usage
-  // (snake_case). Standardized cache usage lives on `res.usage.inputTokenDetails`.
+  // Anthropic's raw, snake_case cache numbers.
   const usage = toRecord(getPath(meta, "anthropic", "usage"));
 
   return {
@@ -85,8 +69,7 @@ async function main(): Promise<void> {
 
   await turn("turn 1 (cold)", base);
 
-  // Append the assistant's prior answer + a follow-up — what a real turn 2 looks
-  // like after a tool round. The turn-1 prefix is now a strict prefix.
+  // Append an answer and a follow-up, so turn 1 is a strict prefix.
   const grown: ModelMessage[] = [
     ...base,
     { role: "assistant", content: "A fox is mentioned." },

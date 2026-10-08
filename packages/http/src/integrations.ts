@@ -10,27 +10,9 @@ import { Elysia, t } from "elysia";
 import { authMacro } from "./middleware/auth";
 
 /**
- * `/api/integrations`: the reads the integrations UI makes about the catalog as
- * a whole. One module owns the prefix; the per-provider connect and disconnect
- * families mount under `/api/integrations/<provider>` from `./connections`, and
- * the MCP surface under `/api/integrations/mcp`.
- *
- *   GET /api/integrations                 → registry ⋈ credentials ⋈ connected rule (ADR-0093)
- *   GET /api/integrations/tool-tiers      → capability-tier counts per loadable slug
- *   GET /api/integrations/raw-kinds/:slug → raw receipt inventory of one live slug (ADR-0097 item 9)
- *
- * The inventory sits under a static segment, not `/:slug/raw-kinds`, so it can
- * never shadow a per-provider family's own routes.
- *
- * The status join is assistant behavior and lives in
- * `@alfred/assistant/connections`; this route is its transport (ADR-0089).
- *
- * Auth only, no `requireOnboarded`. Onboarding step 2 reads the status for its
- * "connected as …" badges before `user.onboarded_at` is set, and the Google and
- * GitHub connect routes are open to an onboarding user for the same reason. The
- * bearer providers' routes are not, so this read is the first place an
- * onboarding user can see a Notion, Sentry, or Vercel connection. The body
- * holds credential ids, account ids, and labels only.
+ * Catalog-wide reads for the integrations UI (ADR-0093, ADR-0097).
+ * `raw-kinds/:slug` uses a static first segment so it cannot shadow a provider's routes.
+ * No `requireOnboarded`: onboarding step 2 reads the status before `onboarded_at` is set.
  */
 export const integrationsRoutes = new Elysia({
   prefix: "/api/integrations",
@@ -52,8 +34,7 @@ export const integrationsRoutes = new Elysia({
       .get(
         "/raw-kinds/:slug",
         ({ user, params }) => {
-          // A planned provider has no credential rows, so it has no receipts to
-          // inventory; the web does not ask for one.
+          // A planned provider has no credentials, so it has no receipts.
           if (!isLiveProviderSlug(params.slug)) throw Errors.NotFoundError("Unknown integration");
 
           return readRawReceiptInventory(user.id, params.slug);

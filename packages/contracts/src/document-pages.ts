@@ -1,12 +1,7 @@
 import { z } from "zod";
 import { isValidPage } from "./guards";
 
-/**
- * Page offset into a concatenated document content string.
- * `start` is inclusive, `end` is exclusive — proven by the extractor's
- * deterministic join with "\n\n" separators. Both are byte offsets in
- * JS string length (UTF-16 code units), not token counts.
- */
+/** One page's `[start, end)` range in the document content, in UTF-16 code units. */
 export const documentPageOffsetSchema = z
   .object({
     page: z.number().refine(isValidPage, "page must be a positive integer"),
@@ -20,20 +15,12 @@ export const documentPageOffsetSchema = z
 
 export type DocumentPageOffset = z.infer<typeof documentPageOffsetSchema>;
 
-/**
- * Ordered list of page offsets for a document's `metadata.pages`.
- * The extractor emits pages dense 1..N; the writer filters empty pages
- * but preserves offset arithmetic for the remaining ones.
- */
+/** `metadata.pages`. Empty pages are dropped, so page numbers can have gaps. */
 export const documentPagesSchema = z.array(documentPageOffsetSchema);
 
 export type DocumentPages = z.infer<typeof documentPagesSchema>;
 
-/**
- * Legacy text-embedded page shape — kept for backward compatibility with
- * readers that may encounter rows written before offset encoding. New
- * writers must emit offsets, not text.
- */
+/** Legacy `{page,text}` shape on old rows. New writers emit offsets. */
 export const documentPageTextSchema = z.object({
   page: z.number().refine(isValidPage, "page must be a positive integer"),
   text: z.string(),
@@ -47,13 +34,7 @@ export const documentPagesMixedSchema = z.array(
 
 export type DocumentPagesMixed = z.infer<typeof documentPagesMixedSchema>;
 
-/**
- * Parse `metadata.pages` from an untrusted jsonb payload. Returns the
- * offset-encoded pages when valid, otherwise `null`. Offset pages are the
- * canonical writer path (`{page,start,end}`). Legacy `{page,text}` rows
- * return `null` here — use `parseDocumentPagesMixed` when you need the
- * mixed fallback.
- */
+/** Parse offset pages. Legacy `{page,text}` rows return `null`. */
 export function parseDocumentPages(raw: unknown): DocumentPages | null {
   if (!Array.isArray(raw)) return null;
   const parsed = documentPagesSchema.safeParse(raw);
@@ -61,12 +42,7 @@ export function parseDocumentPages(raw: unknown): DocumentPages | null {
   return parsed.success ? parsed.data : null;
 }
 
-/**
- * Parse `metadata.pages` that may contain legacy `{page,text}` entries.
- * Returns `null` only when the payload is not an array or fails the
- * mixed union. Callers that only handle offset pages should use
- * `parseDocumentPages` above.
- */
+/** Parse pages that can include legacy `{page,text}` entries. */
 export function parseDocumentPagesMixed(raw: unknown): DocumentPagesMixed | null {
   if (!Array.isArray(raw)) return null;
   const parsed = documentPagesMixedSchema.safeParse(raw);

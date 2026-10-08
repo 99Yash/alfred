@@ -48,23 +48,13 @@ import {
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed tests for the MCP persistence layer (PRD #540). They exercise the
- * atomic operations the broker rests on — the catalog-revision publish
- * (idempotent insert + pointer advance) and the ledger barrier reservation —
- * plus the boot reconcile sweep. Explicit successor behavior lives in
- * recovery.test.ts, where both durable barriers can be asserted together. Pure
- * row access is covered incidentally by the fixtures.
- *
- * Opt-in on `DATABASE_URL` (mirrors dispatch/staging.test.ts): seeds throwaway
- * `test-mcp-*` users and cascades everything away on teardown.
+ * DB-backed tests for MCP persistence: the catalog-revision publish, the ledger barrier
+ * reservation, and the boot reconcile sweep. Successor behavior lives in recovery.test.ts.
+ * Needs `DATABASE_URL`. Seeds `test-mcp-*` users and cascades them away on teardown.
  */
 const SKIP = dbBackedSkip("database");
 
-/**
- * Permissive schema on purpose: these tests exercise persistence, not the raw
- * client's exact-schema admission (covered by the client tests). Publication
- * takes `readonly Tool[]`, so a fixture must be a real descriptor.
- */
+/** Permissive schema on purpose. Publication takes `readonly Tool[]`, so a fixture must be a real descriptor. */
 function tool(name: string): Tool {
   return { name, inputSchema: { type: "object", additionalProperties: true } };
 }
@@ -115,7 +105,7 @@ async function seedStaging(userId: string): Promise<string> {
       riskTier: "high",
       proposedInput: {},
       proposedInputHash: randomUUID(),
-      // #559a: the ledger's NOT NULL effect identity and canonical request hash.
+      // The ledger's NOT NULL effect identity and canonical request hash.
       effectKey: `eff:${run.id}:${toolCallId}`,
       attemptKey: `eff:${run.id}:${toolCallId}:1`,
       requestHash: `req_seed_${randomUUID()}`,
@@ -449,8 +439,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
   test("concurrent first use reuses the GitHub row backfilled by migration 0108", async () => {
     const userId = await seedUser();
-    // Migration 0108 keeps the connection id and derives the server id from it
-    // by swapping the `mcpc_` prefix for `mcps_`, so the fixture mirrors both.
+    // Migration 0108 derives the server id from the connection id (`mcpc_` becomes `mcps_`).
     const migratedConnectionId = `mcpc_migrated_${randomUUID()}`;
     const migratedServerId = migratedConnectionId.replace(/^mcpc_/, "mcps_");
     const endpoint = new URL(GITHUB_MCP_ENDPOINT_HREF);
@@ -613,7 +602,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal((await readConnection(connId))?.currentCatalogRevisionId, revA.id);
     assert.equal((await readCurrentRevision(connId))?.id, revA.id);
 
-    // Re-publishing the SAME hash returns the same row — no duplicate.
+    // Re-publishing the same hash returns the same row.
     const revAAgain = await publishCatalogRevision({
       connectionId: connId,
       revisionHash: "sha256:aaa",
@@ -717,7 +706,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(policy?.riskTier, "low");
     assert.equal(policy?.policyRevision, 2);
 
-    // A different descriptor hash is a MISS (drift → no downgrade reused).
+    // A different descriptor hash is a miss: drift does not reuse a downgrade.
     assert.equal(await readToolPolicy(connId, "create_issue", "sha256:DRIFT"), undefined);
   });
 
@@ -732,8 +721,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       descriptors: [searchTool],
     });
 
-    // Publication derives the hash, so the review has to bind to the derived
-    // one — a literal here would be a miss, which is the point of the binding.
+    // Publication derives the hash, so the review binds to the derived one. A literal would miss.
     const searchHash = descriptorHash(searchTool);
 
     const policy = await upsertToolPolicy({
@@ -806,7 +794,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(first.ok, true);
 
-    // A second, distinct staging with the SAME barrier key is rejected.
+    // A second, distinct staging with the same barrier key is rejected.
     const second = await reserveMcpInvocationForTests({
       ...barrierKey,
       stagingId: await seedStaging(userId),
@@ -819,7 +807,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     const blocking = await findUnresolvedBarrier(barrierKey);
     assert.ok(first.ok && blocking?.id === first.invocation.id);
 
-    // Resolving the prior frees the barrier — an identical insert now succeeds.
+    // Resolving the prior frees the barrier, so an identical insert now succeeds.
     assert.ok(first.ok);
     await patchMcpInvocationForTests(first.invocation.id, {
       resolvedAt: new Date(),
@@ -907,7 +895,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(summary.markedUnknown, 1);
     assert.equal(summary.alignedStagingBarriers, 1);
 
-    // prepared + read are resolved; the effectful write stays BLOCKED (unresolved).
+    // prepared + read are resolved; the effectful write stays blocked (unresolved).
     const rows = await db()
       .select()
       .from(mcpInvocation)
@@ -939,8 +927,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       argsHash: "sha256:pay-crash",
     };
 
-    // A process died right after crossing the delivery boundary: a
-    // `delivery_possible` write row with no outcome yet.
+    // A process died right after the delivery boundary: a `delivery_possible` write with no outcome.
     const crashedStagingId = await seedStaging(userId);
 
     const crashed = await seedMcpInvocationForTests({
@@ -950,8 +937,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       attemptLifecycle: "delivery_possible",
     });
 
-    // Boot reconcile normalizes the possibly-delivered write to unknown/blocked
-    // WITHOUT resolving it — the barrier must survive the crash.
+    // Boot reconcile marks the write unknown/blocked without resolving it, so the barrier survives the crash.
     await reconcileInflightInvocations(userId);
 
     const [recovered] = await db()
@@ -970,8 +956,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(recoveredStaging?.outcome, "unknown");
 
-    // On resume a fresh `tool_call_id` (new staging) proposing the identical call
-    // is refused by the durable barrier — it cannot bypass the recovered unknown.
+    // A fresh `tool_call_id` that proposes the identical call is refused by the durable barrier.
     const resumed = await reserveMcpInvocationForTests({
       ...key,
       stagingId: await seedStaging(userId),
@@ -1037,10 +1022,8 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       descriptors: [tool("b_tool")],
     });
 
-    // Pointing A's current-revision at B's revision violates the composite FK
-    // ((connectionId, id) must match), so the write is rejected outright
-    // (issue #540 clarification #6). Drizzle wraps the pg error, so the
-    // constraint text rides on `.cause`.
+    // The composite FK `(connectionId, id)` rejects A pointing at B's revision.
+    // Drizzle wraps the pg error, so the constraint text is on `.cause`.
     await assert.rejects(
       updateConnection(connA, { currentCatalogRevisionId: revB.id }),
       (err: unknown) => {
@@ -1054,26 +1037,14 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 });
 
 /**
- * The ONE branch of the test reservation helper no live database can reach, and the one the
- * move changed. The barrier classification used to run on a hand-rolled 23505
- * narrowing whose return distinguished three cases by `undefined` vs `""`; it now
- * runs on `@alfred/db`'s canonical `isUniqueViolation` + `uniqueViolationConstraint`
- * pair. Two cases are already pinned above against real indexes: a named barrier
- * collision and a named `mcp_invocation_staging_idx` collision. The third — a 23505
- * whose `constraint` the driver did NOT report — must still default to the barrier,
- * because reading only the constraint name would collapse it into "not a unique
- * violation" and rethrow, turning a blocked ambiguous write into a 500.
- *
- * Postgres always names the index it violated, so this is reachable only with an
- * injected runner. That is also what makes it worth a test: the case is invisible
- * to every DB-backed assertion in this file.
+ * A 23505 with no reported `constraint` must still default to the barrier. Reading only
+ * the constraint name would rethrow it and turn a blocked ambiguous write into a 500.
+ * Postgres always names the index, so only an injected runner reaches this branch.
  */
 describe("test reservation unique-violation classification", () => {
   /**
-   * A minimal drizzle-shaped runner: `stagingCorrelation`'s select resolves, and
-   * the ledger insert rejects with `err`. The cast is the test's, not production
-   * code's — `DbRunner` is drizzle's full builder surface and only these two
-   * chains are reached.
+   * A minimal drizzle-shaped runner: `stagingCorrelation`'s select resolves, and the
+   * ledger insert rejects with `err`. Only these two chains are reached.
    */
   function runnerThatRejectsInsertWith(
     err: unknown,
@@ -1130,8 +1101,7 @@ describe("test reservation unique-violation classification", () => {
         values,
         runnerThatRejectsInsertWith(wrappedPgError({ code: "23503" })),
       ),
-      // The ORIGINAL wrapper is rethrown untouched — not re-wrapped, and not
-      // swallowed into a typed result. A foreign-key violation is a real failure.
+      // The original wrapper is rethrown untouched. A foreign-key violation is a real failure.
       /Failed query/,
     );
   });

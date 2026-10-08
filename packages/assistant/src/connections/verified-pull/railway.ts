@@ -18,32 +18,17 @@ import {
 } from "./driver";
 
 /**
- * Railway's half of the verified pull (#1094) — the first
- * {@link VerifiedPullProvider}.
- *
- * Railway mails a build failure and stays silent on success. What the fold
- * buys is trigger and verdict state, not email-loop closure: the folded rows
- * re-arm the next gather's trigger (failed/active rows re-verify) and dedup
- * identical reads, and the pull appends verified red/green verdict lines
- * beside the failure mail. It does NOT drop the email loop through
- * `reconcileEvidence` — the Railway adapter proposes no keys until the
- * deployment-URL grammar lands, so no Railway row reaches the closure reader
- * today.
- *
- * The Railway MCP catalog publishes `list-services` and `list-deployments`.
- * The read uses the user's ready, issuer-pinned connection and parses only
- * structured tool output. Missing tools, invalid output, and remote errors
- * prove nothing and leave the loop live.
+ * Railway's half of the verified pull (#1094). Railway mails failures, not successes.
+ * The folded rows re-arm the next gather's trigger and add red/green verdict lines.
+ * Reads use the ready, issuer-pinned MCP connection and parse only structured output.
  */
-
-/** A Railway deployment target: the identity a pull reads. */
 export interface RailwayPullTarget {
   projectId: string;
   serviceId: string;
   environmentId: string;
 }
 
-/** Display names for a target, best-effort — identity never depends on them. */
+/** Display names only, never identity. */
 interface RailwayTargetNames {
   project: string;
   service: string;
@@ -65,10 +50,7 @@ const railwayDeploymentSchema = z.object({
   status: z.string(),
   createdAt: z.string().nullable(),
   url: z.string().nullable(),
-  // The read filters and orders client-side (below), so the item must carry
-  // the target it belongs to. Both arrive as strings on the live wire and
-  // are absent-tolerant here: a response that omits them is still readable,
-  // and only a POSITIVE mismatch drops the item.
+  // Optional: only a positive mismatch drops the item.
   serviceId: z.string().nullable().optional(),
   environmentId: z.string().nullable().optional(),
 });
@@ -82,7 +64,6 @@ interface RailwayReadSession {
   prepared: McpPreparedToolCall;
 }
 
-/** Prepare a ready, issuer-pinned Railway connection for a bounded pull. */
 async function prepareRailwayRead(userId: string): Promise<RailwayReadSession | null> {
   const connections = await listOwnedConnections(userId);
 
@@ -123,10 +104,7 @@ async function readRailwayTool<Schema extends z.ZodType>(
   return parsed.success ? parsed.data : null;
 }
 
-/**
- * Read current deployment state for one target over the user's Railway MCP
- * connection. Unknown output or a transport fault is never a guessed state.
- */
+/** Any failure returns `null`, never a guessed state. */
 export async function readRailwayDeploymentStatus(
   userId: string,
   target: RailwayPullTarget,
@@ -136,28 +114,18 @@ export async function readRailwayDeploymentStatus(
 
     return read ? await readRailwayDeploymentStatusFromSession(read, target) : null;
   } catch {
-    // A failed read is unverified. It cannot close the loop.
     return null;
   }
 }
 
-/**
- * How many deployments one read pulls. The catalog window is 1–50 (default
- * 10); ten is enough to find the newest readable state while staying at the
- * default cost. Never 1: a single row makes the server's return order the
- * verdict, and order is a server claim, not a contract.
- */
+/** Never 1: then the server's order alone would pick the verdict. */
 const RAILWAY_DEPLOYMENT_READ_LIMIT = 10;
 
 async function readRailwayDeploymentStatusFromSession(
   read: RailwayReadSession,
   target: RailwayPullTarget,
 ): Promise<VerifiedPullReading | null> {
-  // Argument names mirror the catalog's `list-deployments` input schema:
-  // `projectId` is the one required property; `serviceId`, `environmentId`,
-  // and `limit` are optional filters. `prepared.call` validates this object
-  // against that live schema and throws `invalid_arguments` on drift, which
-  // both callers fold to null — an unverifiable read, never a guessed state.
+  // `prepared.call` checks these against the live schema and throws on drift.
   const parsed = await readRailwayTool(
     read.connectionId,
     read.prepared,
@@ -173,13 +141,8 @@ async function readRailwayDeploymentStatusFromSession(
 
   if (!parsed) return null;
 
-  // The catalog describes the list as most-recent-first, but the verdict
-  // must not depend on that claim: drop deployments for other targets, put
-  // the newest provider instant first (an absent instant sorts last, keeping
-  // server order among ties — the sort is stable), and take the newest
-  // deployment whose status is in the registry vocabulary. A newest row with
-  // an unknown status (a future enum, a casing drift) yields to the previous
-  // readable row instead of failing the whole read.
+  // Do not trust server order. Take the newest deployment with a known status;
+  // no instant sorts last, and ties keep server order.
   const candidates = parsed.deployments
     .filter(
       (deployment) =>
@@ -208,11 +171,7 @@ async function readRailwayDeploymentStatusFromSession(
   };
 }
 
-/**
- * Collapse a Railway deployment status into the registry's outcome
- * vocabulary. Byte-exact on the provider enum: anything unlisted — a future
- * status, a casing drift — reads as unknown, and absence never closes.
- */
+/** Exact match only: an unknown status reads as `null`. */
 function collapseRailwayStatus(status: string): VerifiedPullStatus | null {
   switch (status) {
     case "SUCCESS":
@@ -240,12 +199,7 @@ function parseProviderInstant(value: string | null): Date | null {
   return Number.isNaN(time.getTime()) ? null : time;
 }
 
-/**
- * Mint the pull receipt body for a parsed status — the ONLY constructor of
- * the shape `reduceRailwayEvent` folds. Takes a {@link VerifiedPullReading},
- * never text: an email string or adapter output cannot construct it, because
- * no string-taking overload exists (criterion 6).
- */
+/** The only minter of the pull shape `reduceRailwayEvent` folds. Takes a parsed reading, never text. */
 export function mintRailwayPullReceipt(
   target: RailwayPullTarget,
   parsed: VerifiedPullReading,
@@ -268,11 +222,7 @@ export function mintRailwayPullReceipt(
   };
 }
 
-/**
- * Best-effort display names for known targets, keyed by canonical target id.
- * MCP project and service reads supply display names. Any failure gives an
- * empty map, and titles fall back to ids. Names never define identity.
- */
+/** Display names by target id. A failure gives an empty map, and titles show ids. */
 async function resolveRailwayTargetNames(
   read: RailwayReadSession,
 ): Promise<Map<string, RailwayTargetNames>> {
@@ -321,11 +271,7 @@ async function resolveRailwayTargetNames(
   return byId;
 }
 
-/**
- * Discover pull targets from Railway MCP's project and service lists — the
- * bootstrap, before any target row exists. Bounded: the first `limit` in
- * provider order. A transport fault discovers nothing, so the loop stays live.
- */
+/** Bootstrap targets before any row exists: the first `limit`. A fault finds none. */
 export async function discoverRailwayTargets(
   userId: string,
   limit: number = MAX_VERIFIED_PULL_TARGETS,
@@ -377,12 +323,7 @@ export async function discoverRailwayTargets(
   }
 }
 
-/**
- * The Railway MCP connection's readiness as pull provenance: connected means
- * the stored row is `ready`, and issuer-pinned means its authorization server
- * is byte-for-byte `RAILWAY_MCP_STORED_ISSUER` — never URL-round-tripped. Both
- * conditions gate the deployment read.
- */
+/** Both gate the read. The issuer must equal `RAILWAY_MCP_STORED_ISSUER` byte for byte. */
 export async function readRailwayMcpReadiness(
   userId: string,
 ): Promise<{ connected: boolean; issuerPinned: boolean }> {
@@ -409,14 +350,7 @@ export const railwayVerifiedPullProvider: VerifiedPullProvider<
   targetKind: "deployment_target",
   attemptKeyKind: "deployment_id",
 
-  /**
-   * A surfaced digest item signaling a Railway deployment failure.
-   * Deliberately narrow (a railway sender domain AND a failure word in
-   * subject or snippet). The structured follow-up is a Railway
-   * deployment-URL grammar plus a text adapter; until then this heuristic is
-   * the only way a brand-new failure (no target row yet, discovery already
-   * bootstrapped) starts a pull.
-   */
+  /** A Railway sender plus a failure word. Only triggers a read. */
   digestSignalsFailure(items) {
     return items.some((item) => {
       const from = item.from ?? "";
@@ -429,13 +363,7 @@ export const railwayVerifiedPullProvider: VerifiedPullProvider<
     });
   },
 
-  /**
-   * The external id IS the canonical `projectId/serviceId/environmentId`
-   * form (the reducer only writes what `canonicalizeRailwayTargetId`
-   * returned, which refuses slashes), so a three-part split recovers the
-   * query the pull needs. Anything else is a row this build did not write —
-   * dropped, never pulled.
-   */
+  /** Segments cannot hold `/`, so a three-part split is exact. */
   targetFromRow(row) {
     const [projectId, serviceId, environmentId] = row.externalId.split("/");
 
@@ -449,7 +377,6 @@ export const railwayVerifiedPullProvider: VerifiedPullProvider<
   readStatus: readRailwayDeploymentStatusFromSession,
   mintReceipt: mintRailwayPullReceipt,
 
-  /** Red-then-green lives here. */
   toActivityItem(result) {
     const where = result.names
       ? `${result.names.service} (${result.names.environment})`

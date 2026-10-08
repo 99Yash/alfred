@@ -1,16 +1,6 @@
 /**
- * Schema-derived form descriptors for tool inputs.
- *
- * The web approval surface needs to render a typed control per field — a
- * dropdown for an enum, a stepper for a bounded integer, a datetime picker,
- * etc. Rather than hand-mirror each tool's shape in the web layer (which
- * drifts from the server), we derive that descriptor from the SAME zod schema
- * the dispatcher validates with, via zod 4's native JSON-Schema conversion.
- *
- * The result is a flat `FieldSpec[]` in declaration order. Anything we can't
- * express as a first-class control (nested objects, freeform records, unknown)
- * degrades to a `json` field, so every tool renders something sane and the
- * raw-JSON fallback only appears for genuinely opaque inputs.
+ * Form fields for the web approval view, derived from the same zod schema the
+ * dispatcher validates with. Anything without a control becomes a `json` field.
  */
 
 import { z } from "zod";
@@ -37,17 +27,14 @@ export interface FieldOption {
 }
 
 interface BaseFieldSpec {
-  /** Object key in the tool input. */
   key: string;
-  /** Human label for the control. */
   label: string;
-  /** The schema's `.describe()` text, shown as helper/title text. */
+  /** The schema's `.describe()` text. */
   description?: string | undefined;
-  /** Field is not in the schema's `required` set. */
   optional: boolean;
-  /** Schema default, pre-filled when the proposed input omits the key. */
+  /** Pre-filled when the proposed input omits the key. */
   default?: JsonValue | undefined;
-  /** Display context that is derived server-side and cannot be edited safely. */
+  /** Derived on the server; editing it is not safe. */
   readOnly?: boolean | undefined;
 }
 
@@ -88,23 +75,11 @@ export type FieldSpec =
       multiline: true;
     });
 
-/**
- * Every value a field control can read: the per-kind overloads of
- * {@link fieldValue} narrow this to one arm each, and the implementation
- * signature returns the whole union.
- */
 export type FieldValue = string | number | boolean | JsonValue | undefined;
 
 /**
- * Read one field's value off an unvalidated input record, coerced to the
- * control's own shape — a text control reads a string, a stepper a finite
- * number, a multi-line list a string array.
- *
- * The overloads carry the per-kind value type, so a caller that has already
- * narrowed on `field.kind` gets the narrowed value with no `typeof` of its
- * own: `fieldValue` is the one place that branches on the runtime
- * representation. A wrong-shaped leaf reads as unset (`undefined`, or `[]`
- * for a list) rather than leaking `[object Object]` into a visible input.
+ * Read one field off an unvalidated input, typed by `field.kind`.
+ * A wrong-shaped value reads as unset, not `[object Object]`.
  */
 export function fieldValue(
   field: Extract<FieldSpec, { kind: "select" | "text" | "email" | "datetime" | "textarea" }>,
@@ -192,7 +167,7 @@ function asString(value: JsonObject[keyof JsonObject] | undefined): string | und
   return typeof value === "string" ? value : undefined;
 }
 
-/** The JSON-Schema `type` may be a string or an array (e.g. `["string","null"]`). */
+/** `type` can be an array, such as `["string","null"]`. */
 function primaryType(schema: JsonObject): string | undefined {
   const t = schema.type;
 
@@ -241,8 +216,7 @@ function fieldFromProperty(key: string, prop: JsonObject, required: boolean): Fi
   }
 
   if (type === "array") {
-    // SAFETY: a JSON Schema `items` keyword, when present, is itself a schema
-    // object; JsonObject is that shape.
+    // SAFETY: JSON Schema `items` is a schema object.
     const items = (prop.items as JsonObject | undefined) ?? {};
     const itemType = primaryType(items);
 
@@ -264,18 +238,16 @@ function fieldFromProperty(key: string, prop: JsonObject, required: boolean): Fi
     return { ...base, kind: "text" };
   }
 
-  // Objects, freeform records, unions, unknown → edit as JSON.
   return { ...base, kind: "json", multiline: true };
 }
 
-/** Resolve a one-level `$ref` against the schema's `$defs`/`definitions`. */
+/** Resolve one level of `$ref`. */
 function deref(schema: JsonObject, root: JsonObject): JsonObject {
   const ref = asString(schema.$ref);
 
   if (!ref) return schema;
   const name = ref.replace(/^#\/(\$defs|definitions)\//, "");
-  // SAFETY: `$defs` / `definitions` hold named schema nodes per the JSON
-  // Schema spec; the loose record view types that map.
+  // SAFETY: `$defs` / `definitions` map names to schema nodes.
   const defs = (root.$defs ?? root.definitions) as Record<string, JsonObject> | undefined;
 
   return defs?.[name] ?? schema;
@@ -285,12 +257,9 @@ function deriveFields(schema: z.ZodType): FieldSpec[] | null {
   let json: JsonObject;
 
   try {
-    // `io: "input"` so defaulted fields read as optional; `reused: "inline"`
-    // avoids `$ref` indirection for shared primitives; `unrepresentable: "any"`
-    // keeps custom `.refine()` checks from throwing (the server still enforces
-    // them on `.parse()` — they just don't shape the form).
-    // SAFETY: z.toJSONSchema emits a JSON Schema document, which is exactly
-    // the loose record shape JsonObject models.
+    // `io: "input"` makes defaulted fields optional. `unrepresentable: "any"` stops
+    // `.refine()` from throwing; the server still enforces it.
+    // SAFETY: z.toJSONSchema emits a JSON Schema object.
     json = z.toJSONSchema(schema, {
       io: "input",
       reused: "inline",
@@ -302,8 +271,7 @@ function deriveFields(schema: z.ZodType): FieldSpec[] | null {
 
   const root = json;
   const resolved = deref(json, root);
-  // SAFETY: a JSON Schema `properties` keyword maps property names to schema
-  // nodes; the loose record view types that map.
+  // SAFETY: JSON Schema `properties` maps names to schema nodes.
   const properties = resolved.properties as Record<string, JsonObject> | undefined;
 
   if (!properties) return null;
@@ -321,17 +289,10 @@ function deriveFields(schema: z.ZodType): FieldSpec[] | null {
 
 const FIELD_CACHE = new Map<ToolName, FieldSpec[] | null>();
 
-/**
- * The form descriptor for a tool's input, or `null` when there's no schema
- * (e.g. `system.spawn_sub_agent`) or it can't be expressed as fields — callers
- * fall back to a raw-JSON view. Memoized per tool.
- */
+/** `null` when the tool has no schema or no fields. Callers then show raw JSON. Memoized. */
 export function toolInputFields(toolName: ToolName): FieldSpec[] | null {
   if (FIELD_CACHE.has(toolName)) return FIELD_CACHE.get(toolName) ?? null;
-  // SAFETY: TOOL_INPUT_SCHEMAS is keyed by ToolName (its key type is checked
-  // against the union) with one intentionally absent entry, so Partial is the
-  // honest lookup type; the cast only homogenizes the per-tool schema values
-  // to their common base for this read.
+  // SAFETY: keyed by ToolName with one entry absent on purpose; the cast only widens the values.
   const schema = (TOOL_INPUT_SCHEMAS as Partial<Record<ToolName, z.ZodType>>)[toolName];
   const fields = schema ? deriveFields(schema) : null;
   FIELD_CACHE.set(toolName, fields);

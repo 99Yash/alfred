@@ -1,38 +1,12 @@
 /**
- * The route surface `@alfred/http`'s barrel mounts, and how it depends on `NODE_ENV`.
- *
- * This module is the single statement of "which routes mount". Two suites read it:
- * `../root-app.test.ts`, which asserts the surface of the app it imported in its own
- * process, and `../route-surface-env.test.ts`, which spawns one child process per
- * `NODE_ENV` value and asserts each child's answer.
- *
- * ## Why the table is literal
- *
- * `packages/http/src/realtime/events.ts` mounts `POST /api/events/_demo` only when
- * `nodeEnv()` answers `"development"`, and `nodeEnv()` reads a zod enum with
- * `.default("development")` (`packages/env/src/server.ts`), so an *unrecognized* value
- * such as `"prod"` mounts the development route. `includesDevelopmentOnlyRoutes` is
- * hand-written for every row and `routeSurfaceFor` reads no environment, because an
- * expectation that called `nodeEnv()` would be tautological with the function under test:
- * it would agree with any future change to that fallback.
- *
- * This module imports no environment reader, so it does not add an
- * `@alfred/http -> @alfred/env` edge.
- *
- * ## What this detects, and what it does not
- *
- * The pair of suites detects a module-load environment read that changes **which routes
- * mount** — the shape `packages/http/src/realtime/events.ts` once had, where a
- * `serverEnv()` call sat inside an eager Elysia `.guard(hook, cb)` callback. A
- * module-load environment read inside a builder chain that changes **no** route — a guard
- * schema, a header value, a timeout — changes nothing in `app.routes` and stays
- * undetected here.
+ * The routes the `@alfred/http` barrel mounts, per `NODE_ENV`.
+ * `POST /api/events/_demo` mounts when `nodeEnv()` is `"development"`, and an invalid value
+ * such as `"prod"` falls back to it. Expectations are hand-written and read no env:
+ * calling `nodeEnv()` here would agree with any change to that fallback.
+ * Catches a module-load env read that changes which routes mount, not one that changes no route.
  */
 
-/**
- * The complete ordered `"METHOD /path"` list, as `app.routes` reports it, including every
- * development-only entry. Order is part of the assertion: Elysia matches in mount order.
- */
+/** Ordered `"METHOD /path"` list from `app.routes`. Order matters: Elysia matches in mount order. */
 const ROUTE_SURFACE = [
   "POST /api/replicache/pull",
   "POST /api/replicache/push",
@@ -122,12 +96,9 @@ const ROUTE_SURFACE = [
   "ALL /*",
 ] as const satisfies readonly string[];
 
-/** The entries that mount only when `nodeEnv()` answers `"development"`. */
 const DEVELOPMENT_ONLY_ROUTES = ["POST /api/events/_demo"] as const satisfies readonly string[];
 
-/** One `NODE_ENV` value and the route surface it must produce. */
 export type RouteSurfaceCase = {
-  /** Names the row in a test title and in an assertion message. */
   readonly label: string;
   /** `undefined` means the variable is absent from the child environment. */
   readonly nodeEnv: string | undefined;
@@ -135,11 +106,7 @@ export type RouteSurfaceCase = {
   readonly includesDevelopmentOnlyRoutes: boolean;
 };
 
-/**
- * The pinned set of `NODE_ENV` values. `unrecognized` is the row that matters: it is the
- * case item 06 measured, where the schema default turns an invalid value into
- * `"development"` and mounts a development-only write endpoint.
- */
+/** `unrecognized` matters most: the schema default turns it into `"development"`. */
 export const ROUTE_SURFACE_CASES = [
   { label: "absent", nodeEnv: undefined, includesDevelopmentOnlyRoutes: true },
   { label: "development", nodeEnv: "development", includesDevelopmentOnlyRoutes: true },
@@ -148,17 +115,9 @@ export const ROUTE_SURFACE_CASES = [
   { label: "unrecognized", nodeEnv: "prod", includesDevelopmentOnlyRoutes: true },
 ] as const satisfies readonly RouteSurfaceCase[];
 
-/** The label of the row that describes every value outside the enum. */
 const UNRECOGNIZED_NODE_ENV_LABEL = "unrecognized";
 
-/**
- * Finds a row by its label, and throws when the label has no row.
- *
- * The lookup is by label rather than by array position on purpose. This table exists to be
- * extended, so a later row inserted above the one a positional lookup names would rebind
- * that lookup to the wrong row in silence, and an in-bounds index of a longer tuple is
- * something `noUncheckedIndexedAccess` cannot report.
- */
+/** Look up by label, not index, so an inserted row cannot silently rebind the lookup. */
 function routeSurfaceCaseByLabel(label: string): RouteSurfaceCase {
   const found = ROUTE_SURFACE_CASES.find((testCase) => testCase.label === label);
 
@@ -177,11 +136,7 @@ export function routeSurfaceFor(testCase: RouteSurfaceCase): readonly string[] {
   return ROUTE_SURFACE.filter((route) => !developmentOnly.includes(route));
 }
 
-/**
- * The row that describes the ambient `NODE_ENV` of the current process, for a suite that
- * asserts the surface of an app it imported itself. An unrecognized value has no row of
- * its own, so it falls back to the row that shares its behavior.
- */
+/** The row for this process's `NODE_ENV`. An unrecognized value uses the `unrecognized` row. */
 export function ambientRouteSurfaceCase(): RouteSurfaceCase {
   const ambient = process.env.NODE_ENV;
 

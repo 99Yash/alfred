@@ -4,10 +4,9 @@ import type {
 } from "~/lib/shell/thread-view-model";
 import type { RailInboxItem, RailMeetingItem, RailTodoItem } from "~/routes/-chat/rail/models";
 
-/** Preview fixtures group by time only; "pinned" is a per-entry flag, not a bucket. */
+/** Fixtures group by time only; "pinned" is a flag, not a bucket. */
 type ThreadGroup = Exclude<ShellThreadGroup, "pinned">;
 
-/** Canonical thread entry plus the preview blurb the fixtures render. */
 export interface PreviewThreadEntry extends ShellThreadEntry {
   preview: string;
 }

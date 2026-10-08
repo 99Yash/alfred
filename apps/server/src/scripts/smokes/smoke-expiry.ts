@@ -1,26 +1,11 @@
 /**
- * Smoke test for m13 Phase 5e — the approval expiry worker.
+ * Smoke test for approval expiry on real Postgres and Redis, with a stub tool.
+ * It calls `expireStaging` directly instead of waiting 24h for the job.
+ * Covers: staging sets `expires_at` and queues a job; expiry wakes the run and a
+ * re-dispatch returns 'auto-expired' without executing; a human decision wins;
+ * `removeApprovalExpiryJob` cancels the timer.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-expiry.ts
- *
- * Exercises the auto-expiry lifecycle against real Postgres and Redis.
- * The gated tool is a stub registered into the in-process registry (not
- * real Gmail), so no OAuth account is needed. The expiry transition is
- * driven directly via `expireStaging` rather than by waiting 24h for the
- * scheduled BullMQ job to fire.
- *
- * Bullets exercised:
- *   1. Staging a gated action sets `expires_at` (≈ now + APPROVAL_EXPIRY_MS)
- *      and queues a `staging-expire` job.
- *   2. `expireStaging` on a parked, still-pending row → row flips to
- *      'expired' (reason='auto-expired', row_version bumped), the run is
- *      woken (status='runnable', wake cleared), and re-dispatching the
- *      same tool_call_id yields a synthesized 'rejected' / 'auto-expired'
- *      result WITHOUT executing the tool. Calling it again is a no-op.
- *   3. `expireStaging` on a row the user already decided (approved) is a
- *      no-op — the human decision wins.
- *   4. The decision API's `removeApprovalExpiryJob` dequeues a scheduled
- *      expiry job (so a human decision cancels the fallback timer).
  */
 
 import { getStringPath } from "@alfred/contracts";
@@ -96,7 +81,7 @@ async function setGated(userId: string): Promise<void> {
   bustPolicyCache(userId);
 }
 
-/** Park the run on the HIL wake exactly as the executor would on interrupt. */
+/** Park the run on the HIL wake, as the executor does on interrupt. */
 async function parkRunOnApproval(runId: string, stagingId: string): Promise<void> {
   await db()
     .update(agentRuns)
@@ -167,7 +152,7 @@ async function main(): Promise<void> {
 
   const queue = getApprovalExpiryQueue();
 
-  // ─── 1. Staging sets expires_at + queues an expiry job ────────────────
+  // 1. Staging sets expires_at + queues an expiry job
   const runId1 = await createSmokeRun(userId, "expire-turn");
   const stagedId = await stageGatedDraft(userId, runId1, "tc_expire_1");
 
@@ -181,7 +166,6 @@ async function main(): Promise<void> {
   );
   assert(stagedRow.expiresAt instanceof Date, "staged gated row must carry expires_at");
   const expiresInMs = stagedRow.expiresAt.getTime() - Date.now();
-  // Generous window: within ±5 min of the configured constant.
   assert(
     Math.abs(expiresInMs - APPROVAL_EXPIRY_MS) < 5 * 60_000,
     `expires_at should be ≈ now + APPROVAL_EXPIRY_MS, off by ${expiresInMs - APPROVAL_EXPIRY_MS}ms`,
@@ -190,7 +174,7 @@ async function main(): Promise<void> {
   assert(queuedJob, "dispatcher must enqueue a staging-expire job for a gated row");
   console.log("[smoke-expiry] 1. staging: expires_at set, expiry job queued ✓");
 
-  // ─── 2. expireStaging on a parked, pending row ────────────────────────
+  // 2. expireStaging on a parked, pending row
   await parkRunOnApproval(runId1, stagedId);
   const expired = await expireStaging({ stagingId: stagedId, userId });
   assert(expired.status === "expired", `expireStaging expected 'expired', got '${expired.status}'`);
@@ -219,9 +203,7 @@ async function main(): Promise<void> {
   assert(wokenRun.wakeCondition === null, "woken run must clear its wake_condition");
   console.log("[smoke-expiry] 2. expired: row=expired/auto-expired, run woken ✓");
 
-  // Re-dispatch the same tool_call_id — the dispatcher reads the 'expired'
-  // row and synthesizes the structured auto-expired rejection without
-  // executing the tool. This is what the resumed executor sees.
+  // The resumed executor sees an auto-expired rejection, and the tool does not run.
   const reDispatched = await dispatchToolCall({
     runId: runId1,
     stepId: "turn-1",
@@ -246,7 +228,6 @@ async function main(): Promise<void> {
   assert(draftExec === 0, "re-dispatch of expired row must not execute the tool");
   console.log("[smoke-expiry] 2. re-dispatch: synthesized auto-expired rejection, tool not run ✓");
 
-  // Idempotency: expiring an already-expired row is a no-op.
   const expiredAgain = await expireStaging({ stagingId: stagedId, userId });
   assert(
     expiredAgain.status === "skipped" && expiredAgain.reason === "expired",
@@ -254,7 +235,7 @@ async function main(): Promise<void> {
   );
   console.log("[smoke-expiry] 2. idempotent: second expire is a no-op ✓");
 
-  // ─── 3. Human decision wins over expiry ───────────────────────────────
+  // 3. Human decision wins over expiry
   const runId2 = await createSmokeRun(userId, "decided-turn");
   const decidedId = await stageGatedDraft(userId, runId2, "tc_expire_2");
   await db()
@@ -275,7 +256,7 @@ async function main(): Promise<void> {
   assert(stillApproved?.status === "approved", "human-approved row must remain 'approved'");
   console.log("[smoke-expiry] 3. decided row: expiry no-ops, approval preserved ✓");
 
-  // ─── 4. removeApprovalExpiryJob dequeues the fallback timer ────────────
+  // 4. removeApprovalExpiryJob dequeues the fallback timer
   const runId3 = await createSmokeRun(userId, "cancel-job-turn");
   const cancelId = await stageGatedDraft(userId, runId3, "tc_expire_3");
   assert(
@@ -287,7 +268,7 @@ async function main(): Promise<void> {
   assert(!goneJob, "removeApprovalExpiryJob must dequeue the staging-expire job");
   console.log("[smoke-expiry] 4. removeApprovalExpiryJob: job dequeued ✓");
 
-  // ─── cleanup ──────────────────────────────────────────────────────────
+  // cleanup
   for (const id of [stagedId, decidedId, cancelId]) {
     await removeApprovalExpiryJob(id);
   }

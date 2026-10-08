@@ -32,10 +32,9 @@ import { validateWorkflowDefinition } from "@alfred/assistant/automation/revisio
 
 const HEALTHY_SOURCE: EventSourceHealth = { grain: "source", health: { healthy: true } };
 
-/** A full health map: every source healthy at source grain, except the entries given. */
+/** Every source healthy, except the entries given. */
 function healthMap(overrides: Partial<EventSourceHealthMap> = {}): EventSourceHealthMap {
-  // SAFETY: `Object.fromEntries` types its keys as `string`; the pairs are built
-  // from EVENT_SOURCES, so the keys are exactly EventSource.
+  // SAFETY: the keys come from EVENT_SOURCES; `Object.fromEntries` widens them to `string`.
   const healthy = Object.fromEntries(
     EVENT_SOURCES.map((source) => [source, HEALTHY_SOURCE]),
   ) as Record<EventSource, EventSourceHealth>;
@@ -65,7 +64,7 @@ function resolveWorkflowReadiness(
   });
 }
 
-/** The Gmail entry of the health map for one credential's facts, as the reader would build it. */
+/** The Gmail health entry the reader builds for one credential. */
 function gmailHealth(
   facts: ReadonlyMap<string, GmailEventHealth>,
   now: Date,

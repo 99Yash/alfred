@@ -1,9 +1,4 @@
-/**
- * The slug unions and slug lists derived from the registry. Every union is a
- * mapped conditional over the record, never a hand-listed tuple. Every runtime
- * list is a `filter` over `INTEGRATION_SLUGS` with a predicate that reads the
- * record, then an `enumGuard`, so a list and its union cannot disagree.
- */
+/** Slug unions and lists, all derived from the registry. Never hand-list a slug tuple. */
 
 import { enumGuard } from "../guards";
 import {
@@ -27,32 +22,25 @@ export type LiveProviderSlug = SlugsWhere<{ kind: "provider"; status: "live" }>;
 
 export type PlannedSlug = SlugsWhere<{ kind: "provider"; status: "planned" }>;
 
-/** The slugs that have an integration page. */
+/** Slugs with an integration page. */
 export type CatalogSlug = SlugsWhere<{ kind: "provider" }>;
 
-/**
- * Every slug the tool surface can load: a provider or a channel. `system` and
- * `mcp` are excluded; they are Alfred's own machinery, not a connection.
- */
+/** Providers and channels. Internal slugs are not connections. */
 export type LoadableIntegrationSlug = Exclude<IntegrationSlug, InternalIntegrationSlug>;
 
 export type GoogleSlug = SlugsWhere<{ credential: { shape: "google_oauth" } }>;
 
 export type GithubAppSlug = SlugsWhere<{ credential: { shape: "github_app" } }>;
 
-/** The slugs whose access is one long-lived bearer token: the shared bearer persistence layer's domain. */
+/** Slugs whose access is one long-lived bearer token. */
 export type BearerSlug = SlugsWhere<{ credential: { shape: "bearer" } }>;
 
-/** The bearer slugs whose token the user pastes into a form; each has its own connect body. */
+/** Bearer slugs where the user pastes the token into a form. */
 export type TokenPasteSlug = SlugsWhere<{
   credential: { shape: "bearer"; connect: "token_paste" };
 }>;
 
-/**
- * The persisted vocabulary of `integration_credentials.provider` and the route
- * family `/api/integrations/<provider>`: `google` for the Google products, the
- * slug for every other live provider. See `CredentialSpec` in `./registry`.
- */
+/** Values of `integration_credentials.provider`: `google` for all Google products, else the slug. */
 export type CredentialProvider = "google" | GithubAppSlug | BearerSlug;
 
 export type SupportedPassthroughSlug = SlugsWhere<{
@@ -63,7 +51,7 @@ export type SupportedRestSlug = SlugsWhere<{ passthrough: { transport: "rest" } 
 
 export type SupportedGraphqlSlug = SlugsWhere<{ passthrough: { transport: "graphql" } }>;
 
-/** Every `brand` literal a provider entry owns; the web keys its icon table on this. */
+/** The web keys its icon table on this. */
 export type IntegrationBrandKey = IntegrationEntryOf<CatalogSlug>["brand"];
 
 // ---------------------------------------------------------------------------
@@ -121,22 +109,18 @@ export const TOKEN_PASTE_SLUGS: readonly TokenPasteSlug[] = BEARER_PROVIDER_SLUG
 
 export const isTokenPasteSlug = enumGuard(TOKEN_PASTE_SLUGS);
 
-/** The credential provider of a live slug: `google` for a Google product, else the slug itself. */
 export function credentialProviderOf(slug: LiveProviderSlug): CredentialProvider {
   return isGoogleSlug(slug) ? "google" : slug;
 }
 
-/**
- * The route family of a credential provider, `/api/integrations/<provider>`.
- * The literal type survives so Eden's client keeps a typed path per provider.
- */
+/** Returns a literal type, so Eden keeps a typed path per provider. */
 export function integrationRoutePrefix<P extends CredentialProvider>(
   provider: P,
 ): `/api/integrations/${P}` {
   return `/api/integrations/${provider}`;
 }
 
-/** The distinct providers, in first-appearance slug order (`google` once for six slugs). */
+/** Distinct providers in slug order. `google` appears once. */
 export const CREDENTIAL_PROVIDERS: readonly CredentialProvider[] = [
   ...new Set(LIVE_PROVIDER_SLUGS.map(credentialProviderOf)),
 ];

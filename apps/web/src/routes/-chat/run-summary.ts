@@ -4,35 +4,18 @@ import { lowerFirst } from "~/lib/strings";
 import { brandlessToolIcon } from "./animated-tool-icons";
 import { presentTool, toolCategory, type ToolCallView } from "./tool-call-presentation";
 
-/**
- * How a finished run of tool calls is summarized — the narrative headline and
- * the glyphs of the services it touched. Its own module because two surfaces
- * summarize a run the same way: the turn's top-level activity trail
- * (`ToolCallGroup`) and a spawned sub-agent's nested trail (`SubAgentCard`).
- * Keeping it here rather than in either one avoids a cycle between them.
- *
- * Derivation only — `RunGlyphCluster` renders the glyphs this picks.
- */
+// Run summary for `ToolCallGroup` and `SubAgentCard`. Its own module to avoid a cycle between them.
 
-/** One coin in the run summary: an integration brand tile, or a system mark. */
+/** One coin: an integration brand tile or a system mark. */
 export type RunGlyph =
   | { kind: "brand"; key: string; brand: IntegrationBrand }
   | { kind: "icon"; key: string; Icon: LucideIcon };
 
-/**
- * The distinct glyphs a finished run touched, in first-seen order: an
- * integration's brand coin where the tool has one, otherwise the brandless
- * tool's own mark (web_search → globe, corpus_search → library, …). Deduped so
- * repeated calls collapse to a single coin and a Gmail-read-then-web-search run
- * reads as gmail + globe.
- */
+/** Distinct glyphs a run touched, in first-seen order: the brand coin, else the tool's own mark. */
 export function runGlyphs(tools: ToolCallView[]): RunGlyph[] {
   const glyphs: RunGlyph[] = [];
   const seenBrands = new Set<IntegrationBrand>();
-  // Deduped by the component itself, not by a name: several tools deliberately
-  // share one mark (both `mcp.*` tools draw the plug, both workflow authoring
-  // tools draw the flow), and two of them in one run must still collapse to a
-  // single coin.
+  // Dedupe by icon, not name: several tools share one mark.
   const seenIcons = new Set<LucideIcon>();
 
   for (const tool of tools) {
@@ -50,8 +33,7 @@ export function runGlyphs(tools: ToolCallView[]): RunGlyph[] {
     if (Icon) {
       if (seenIcons.has(Icon)) continue;
       seenIcons.add(Icon);
-      // The first tool name that introduced this mark is unique across the
-      // list — every later one is skipped above — so it is a stable React key.
+      // The first tool name per mark is unique, so it is a stable key.
       glyphs.push({ kind: "icon", key: tool.toolName, Icon });
     }
   }
@@ -60,20 +42,9 @@ export function runGlyphs(tools: ToolCallView[]): RunGlyph[] {
 }
 
 /**
- * Narrative headline for a finished run — what Alfred *did*, as a sentence
- * rather than a tally. Reads vs. writes are split by `toolCategory`:
- *  - one kind of read → that read's done label   ("Checked your calendar")
- *  - several reads     → "Searched multiple sources"
- *  - one write          → that write's done label  ("Sent a Gmail draft")
- *  - several writes      → "Finished N actions"
- *  - both                → "<reads> and <writes, lowercased>"
- * The integration glyphs alongside the headline already say *which* services
- * were touched, so the text is free to describe the shape of the work. Plumbing
- * (connecting an integration, spawning a sub-agent) is excluded from the tally.
- *
- * Only steps that actually landed are counted: a failed calendar read must not
- * read as "Checked your calendar". The trail carries its own failure marker, so
- * the headline is free to be about the work that got done.
+ * Headline for a finished run, e.g. "Checked your calendar", "Searched multiple sources",
+ * "Finished N actions", or reads and writes joined. Plumbing is not counted.
+ * Only steps that landed count, so a failed read never reads as done.
  */
 export function runSummary(tools: ToolCallView[]): string {
   const succeeded = tools.filter((t) => t.status === "succeeded");
@@ -104,7 +75,6 @@ export function runSummary(tools: ToolCallView[]): string {
 
   if (lone) return lone;
 
-  // Nothing countable landed. If steps failed, say so rather than claiming
-  // work; otherwise the run was pure plumbing and "worked on it" is accurate.
+  // Nothing landed: say so if a step failed; else it was only plumbing.
   return tools.some((t) => t.status === "failed") ? "Couldn't finish that" : "Worked on it";
 }

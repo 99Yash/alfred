@@ -1,12 +1,8 @@
 /**
- * Smoke test for m6 cost metering.
+ * Smoke test for cost metering: one cheap real call through `meteredGenerateText`
+ * must log an `api_call_log` row with usage and cost. With LANGFUSE_* keys, it flushes the span.
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-metered.ts
- *
- * Makes one cheap real LLM call through `meteredGenerateText`,
- * verifies an `api_call_log` row landed with non-zero usage and
- * computed cost, and (when LANGFUSE_* keys are present) flushes the
- * span so it shows up in the Langfuse dashboard.
  */
 import { flushLangfuse, route, meteredGenerateText } from "@alfred/ai";
 import { closeConnections, warmPool } from "@alfred/db";
@@ -37,7 +33,7 @@ async function main() {
 
   console.log(`[smoke-metered] response: ${JSON.stringify(result.text)}`);
 
-  // Wait briefly for the fire-and-forget DB write.
+  // Let the fire-and-forget DB write land.
   await new Promise((r) => setTimeout(r, 500));
 
   const after = await db().select().from(apiCallLog).orderBy(desc(apiCallLog.id)).limit(1);
@@ -64,8 +60,7 @@ async function main() {
     );
   }
 
-  // SAFETY: apiCallLog.requestMeta is jsonb written by the metering layer with
-  // the idempotency key included.
+  // SAFETY: the metering layer writes requestMeta with the idempotency key.
   const meta = row.requestMeta as { idempotencyKey?: string } | null;
 
   if (meta?.idempotencyKey !== idempotencyKey) {

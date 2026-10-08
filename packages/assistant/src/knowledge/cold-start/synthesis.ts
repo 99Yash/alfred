@@ -5,29 +5,15 @@ import { NO_PUBLIC_PROFILE_LINE } from "./no-profile";
 import type { ColdStartSignals } from "./signals";
 
 /**
- * Cold-start v2 — step 3 of the agent harness: boss synthesis
- * (ADR-0011/0022 amendment).
- *
- * The boss folds the identity anchor + every aspect finding into one tight,
- * telegraphic research summary (~300 words). This summary is what gets
- * persisted as the `cold_start_research` memory chunk AND fed to the existing
- * cheap-tier fact extractor — so the v1 extract→persist tail (ADR-0019's
- * two-stage extract) is reused byte-for-byte. The {@link ResearchResult} shape
- * is unchanged from the old single-call Sonar path it replaces.
- *
- * Telegraphic on purpose: aspect findings are verbose and overlapping; the
- * synthesis dedupes, drops the padding, and keeps only attested claims. No
- * tools here — synthesis reasons over findings the sub-agents already gathered.
+ * Cold-start step 4: the boss folds the anchor and findings into one terse summary
+ * of about 300 words. It becomes the `cold_start_research` memory chunk and the extractor input.
  */
 
 const SYNTHESIS_MAX_OUTPUT_TOKENS = 1_500;
 
 export interface ResearchResult {
-  /** Telegraphic synthesized research — the memory chunk + extractor input. */
   content: string;
-  /** Deduped citation URLs gathered across seed + all aspects. */
   citations: string[];
-  /** finish_reason / token usage surfaced for ops visibility. */
   meta: {
     finishReason: string;
     inputTokens?: number | undefined;
@@ -60,8 +46,7 @@ function buildPrompt(args: SynthesizeColdStartArgs): string {
   lines.push(`Subject:`);
   lines.push(`- Name: ${args.signals.name}`);
 
-  // No full email — synthesis output is persisted as the memory chunk, so keep
-  // the contact-detail local-part out of it. Name + domain + anchor suffice.
+  // No full email: this output is persisted as a memory chunk.
   if (args.signals.emailDomain) lines.push(`- Email domain: ${args.signals.emailDomain}`);
   lines.push("");
   lines.push(`=== Identity anchor ===`);
@@ -76,7 +61,6 @@ function buildPrompt(args: SynthesizeColdStartArgs): string {
   return lines.join("\n");
 }
 
-/** Order-preserving dedupe of every citation gathered upstream. */
 function mergeCitations(anchor: IdentityAnchor, aspects: AspectFinding[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];

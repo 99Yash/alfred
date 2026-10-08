@@ -15,17 +15,7 @@ import { deliveryInstantFromDate } from "@alfred/assistant/connections/object-st
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
-/**
- * Characterization of `gatherDayShape` (ADR-0064 / #230) — the deterministic
- * "how busy was this day" read the composer cannot argue with. It had no test
- * of its own: `suppression-gather.test.ts` only asserts the
- * `demandingEmailCount` that `gatherBriefingWithSuppressionAudit` folds on top.
- *
- * Pinned before campaign arch-20260727 item 06 moves the gather into the
- * composing agent, because both halves of the shape — the activity-volume
- * thresholds and the `stateDeliveredAt` window on `shipped` — are behaviour a
- * reseat could silently change.
- */
+/** `gatherDayShape` (ADR-0064): the activity-volume thresholds and the `stateDeliveredAt` window on `shipped`. */
 
 const SKIP = dbBackedSkip("database");
 
@@ -67,7 +57,7 @@ function prPayload(number: number, opts: { merged?: boolean } = {}) {
   };
 }
 
-/** Drive the production write path so `stateDeliveredAt` is set the real way. */
+/** Use the production write path so `stateDeliveredAt` is real. */
 async function mergePr(userId: string, number: number, deliveredAt: Date): Promise<void> {
   await objectStateStore.applyEvent({
     userId,
@@ -79,7 +69,7 @@ async function mergePr(userId: string, number: number, deliveredAt: Date): Promi
   });
 }
 
-/** One GitHub App credential per user: every receipt is attributed to one (ADR-0097). */
+/** Every receipt needs a credential (ADR-0097). */
 const githubCredentialByUser = new Map<string, string>();
 
 async function githubCredentialFor(userId: string): Promise<string> {
@@ -93,8 +83,7 @@ async function githubCredentialFor(userId: string): Promise<string> {
       userId,
       provider: "github",
       accountId: `${userId}-gh`,
-      // Deliberate unsealed write: nothing in this file opens the token; the
-      // row exists only so the receipt has a credential to point at.
+      // Unsealed on purpose: nothing here opens the token.
       // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
       accessToken: "test-token" as unknown as SealedCredentialSecret,
       installationId: "1",
@@ -108,7 +97,7 @@ async function githubCredentialFor(userId: string): Promise<string> {
   return row.id;
 }
 
-/** Seed one GitHub delivery the way the ingress route stores it: a `github.push` receipt. */
+/** Seed a `github.push` receipt as the ingress route stores it. */
 async function seedGithubReceipt(userId: string, deliveredAt: Date): Promise<void> {
   await db()
     .insert(eventReceipts)
@@ -179,7 +168,7 @@ describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
     await seedGithubReceipt(userId, BEFORE_WINDOW);
     await seedGithubReceipt(userId, AFTER_WINDOW);
 
-    // Only the in-window delivery counts, so the day is `normal`, not `busy`.
+    // Only the in-window delivery counts.
     assert.equal((await shapeFor(userId)).activityVolume, "normal");
   });
 
@@ -188,8 +177,7 @@ describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
 
     for (let i = 0; i < 9; i++) await seedGithubReceipt(userId, IN_WINDOW);
 
-    // `gatherBriefingWithSuppressionAudit` passes the already-fetched count to
-    // avoid re-querying; that count is trusted verbatim.
+    // A passed-in count is trusted as is.
     assert.equal((await shapeFor(userId, 0)).activityVolume, "quiet");
   });
 
@@ -199,7 +187,7 @@ describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
 
     const shape = await shapeFor(userId, 0);
     assert.deepEqual(shape.shipped, [{ title: "PR 11", url: "https://github.com/o/r/pull/11" }]);
-    // A resolved object does not make the day busy — the two halves are independent.
+    // A resolved object does not make the day busy.
     assert.equal(shape.activityVolume, "quiet");
   });
 

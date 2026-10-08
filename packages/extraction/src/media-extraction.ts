@@ -3,17 +3,13 @@ import { createPdfExtractor, type ExtractedPdf } from "./extract-pdf";
 import { parsePdfExtractionLimits, truncateTextToFit } from "./extract-pdf-protocol";
 import type { ExtractionLimits } from "./constants";
 
-/**
- * Normalized extraction result for any `ContentFormat`. PDF keeps page offsets;
- * text-like formats produce `content` without pages. Error kinds stay identical
- * so the Gmail persist loop can handle them uniformly.
- */
+/** One result shape for every format. Only PDF has page offsets. */
 export type MediaExtractionResult =
   | {
       readonly kind: "extracted";
       readonly format: ContentFormat;
       readonly content: string;
-      /** Page offsets for formats that prove them (pdf). Null otherwise. */
+      /** PDF page offsets, else null. */
       readonly pages: readonly { page: number; start: number; end: number }[] | null;
     }
   | { readonly kind: "needs_ocr"; readonly format: ContentFormat }
@@ -30,15 +26,7 @@ export type MediaExtractionResult =
 
 export type MediaExtractor = (bytes: Uint8Array) => Promise<MediaExtractionResult>;
 
-/**
- * The one format table. Each entry owns the one fact extraction needs for a
- * content format: how bytes become text (`factory`). Limits live beside it in
- * `DOOR_LIMITS`. The literal plus `satisfies` pins the direction — a format
- * missing here, or an entry no contract name backs, is a type error. Adding a
- * format is one `INGEST_POLICY` edit in `@alfred/contracts` (the browser-safe
- * MIME → format map stays there), one entry here, and one `DOOR_LIMITS` row;
- * nothing else in the repo changes.
- */
+/** How each format turns bytes into text. A missing format is a type error. Limits are in `DOOR_LIMITS`. */
 export const FORMAT_REGISTRY = {
   pdf: {
     factory: createPdfMediaExtractor,
@@ -60,10 +48,6 @@ export const FORMAT_REGISTRY = {
     }
   >
 >;
-
-// ---------------------------------------------------------------------------
-// Format extractors
-// ---------------------------------------------------------------------------
 
 function pdfResultToMedia(result: ExtractedPdf, format: ContentFormat): MediaExtractionResult {
   switch (result.kind) {
@@ -151,10 +135,8 @@ function createTextMediaExtractor(format: ContentFormat, limits: ExtractionLimit
       return { kind: "invalid", format, reason: "empty file" };
     }
 
-    // NUL-safe decode — strip controls that would poison the document table.
     let text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-    // Remove NUL bytes (ADR-0070 sanitizer also does this at persist, but
-    // the extractor should not produce them).
+    // Postgres text rejects NUL. The persist sanitizer strips it too (ADR-0070).
     text = text.replace(/\0/g, "");
 
     if (text.length > parsed.maxCharacters) {
@@ -180,12 +162,7 @@ function createTextMediaExtractor(format: ContentFormat, limits: ExtractionLimit
   };
 }
 
-/**
- * Stub docx/spreadsheet extractor. Until a real office parser lands, enforce
- * limits and then return `invalid` so the ingest skips without embedding zip
- * garbage. Wiring the real parser is a one-line swap here (tier 3 ownership)
- * without touching Gmail ingest.
- */
+/** Stub for docx and xlsx: checks the size, then returns `invalid` until a real parser exists. */
 function createOfficeMediaExtractor(
   format: ContentFormat,
   limits: ExtractionLimits,
@@ -204,8 +181,7 @@ function createOfficeMediaExtractor(
       };
     }
 
-    // Docx/xlsx are ZIP containers (PK header). Don't decode as UTF-8 — we'd
-    // embed binary noise. Signal `invalid` until a real parser replaces this.
+    // These are ZIP files. Decoding them as UTF-8 would embed binary noise.
     return { kind: "invalid", format, reason: "office extraction not yet implemented" };
   };
 }

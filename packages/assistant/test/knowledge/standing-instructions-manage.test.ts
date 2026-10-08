@@ -21,8 +21,7 @@ import {
   listStandingInstructions,
   rememberSenderSuppression,
 } from "@alfred/assistant/knowledge";
-// `STANDING_INSTRUCTION_LIST_LIMIT` is internal-by-intent (dropped from the
-// barrel, item 15) — read from its owning file directly.
+// Internal constant, not in the `knowledge` barrel.
 import { STANDING_INSTRUCTION_LIST_LIMIT } from "@alfred/assistant/knowledge/standing-instructions";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";

@@ -7,11 +7,7 @@ import { workflowRecoveryNavigation } from "./recovery-navigation";
 import type { WorkflowReadinessProblem } from "./readiness";
 import { activateWorkflowDefinition, recoverWorkflowDraft } from "./revisions";
 
-/**
- * Shape the `blocked` tool result for a draft that still has readiness problems.
- * The recovery navigation is workflow-owned policy, so it lives here beside the
- * authoring and revision calls, not in the tools module.
- */
+/** The `blocked` result for a draft with readiness problems. Recovery navigation is workflow policy. */
 function blockedWorkflowRecoveryResult(args: {
   workflowId: string;
   revisionId: string;
@@ -30,13 +26,8 @@ function blockedWorkflowRecoveryResult(args: {
 }
 
 /**
- * The workflows-owned implementation of the `SystemToolWorkflowAdapter` seam.
- * The system tools (`system.author_workflow` / `system.recover_workflow` /
- * `system.activate_workflow`) call the seam; this adapter runs the workflow
- * authoring, revision, recovery, and readiness policy, then returns the exact
- * model-visible tool result. It lives in the workflows module so the tools
- * module never imports workflows (ADR-0089: the runtime composes tools, not the
- * reverse). Composition installs it at boot.
+ * Workflow side of the `SystemToolWorkflowAdapter` seam, for the `system.*_workflow` tools.
+ * Lives here so the tools module never imports workflows (ADR-0089). Installed at boot.
  */
 const workflowSystemToolAdapter: SystemToolWorkflowAdapter = {
   async authorWorkflow(args) {
@@ -122,12 +113,7 @@ const workflowSystemToolAdapter: SystemToolWorkflowAdapter = {
   },
 };
 
-/**
- * Install the workflow-behavior handler behind the tool-runtime seam. The
- * composition root calls this after `registerBuiltinTools`, so a system tool
- * that reaches the seam finds a registered adapter rather than the boot-order
- * throw.
- */
+/** Install after `registerBuiltinTools`, so a system tool never hits the boot-order throw. */
 export function registerWorkflowSystemToolAdapter(): () => void {
   return registerSystemToolWorkflowAdapter(workflowSystemToolAdapter);
 }

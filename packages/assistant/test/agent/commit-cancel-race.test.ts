@@ -21,31 +21,9 @@ import type { StepResult, Workflow } from "@alfred/assistant/execution";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed tests for the mid-flight cancel race (#530).
- *
- * The worker holds no row lock while a step body runs — the lease tx already
- * committed — so a cancel landing mid-step (user "Reject and end run", a
- * sub-agent cancel) writes `status='cancelled'` under a worker that is still
- * executing. `cancelRunInTx` does NOT bump `attempt`, so an attempt-only commit
- * guard still matched: the late commit overwrote `cancelled` with
- * `runnable`/`completed`/`waiting` and the run kept executing and billing, or
- * re-fired `approval.requested` on a run whose stagings were just rejected.
- *
- * The fix is the status half of `commitGuardedRunUpdate`'s guard — a commit
- * only lands while the run is non-terminal. These lock that every commit
- * branch (advance, done, interrupt, failure) refuses to resurrect a cancelled
- * run, and that the refusal is reported as a distinct benign skip.
- *
- * Refusing the commit is only half the invariant, and the review of the first
- * fix caught the other half. Rolling the commit back means NOTHING closes the
- * client-facing turn — the chat bubble streams forever — so the cancel path now
- * drives the workflow's `onTerminal` hook with `outcome: "cancelled"`, and that
- * is asserted here too (finding D2). Also covered: the fifth terminal write, `markRunFailed`, which
- * shipped unguarded and overwrote `cancelled` with `failed` (D1); and the
- * superseded classification, which labelled a reclaim+terminal compound
- * `terminal` when `reclaim` is the actionable half (D3).
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
+ * A cancel can land mid-step, and `cancelRunInTx` does not bump `attempt`.
+ * Every commit branch must refuse to resurrect the cancelled run, and the
+ * cancel itself must close the client turn through `onTerminal` (#530).
  */
 const SKIP = dbBackedSkip("database");
 
@@ -65,15 +43,9 @@ const TERMINAL_SKIP_REASON = "run_already_terminal";
 
 const RECLAIM_SKIP_REASON = "superseded_by_reclaim";
 
-/** Which `onTerminal` branch fired. Mirrors the runtime's `TerminalOutcome` discriminant. */
 type TerminalRunOutcome = "failed" | "cancelled";
 
-/**
- * Every closure-hook invocation the closure workflow saw, in order. `outcome`
- * records WHICH branch fired: a cancel rendered as a failure would put a
- * retryable error on a turn the user deliberately ended, so the two are asserted
- * apart, not merged.
- */
+/** A cancel shown as a failure would offer a retry on a turn the user ended. */
 const terminalCalls: { runId: string; outcome: TerminalRunOutcome; reason: string }[] = [];
 
 /** A step that is cancelled while it runs, then returns a normal `next`. */
@@ -115,13 +87,7 @@ const cancelThenThrowWorkflow: Workflow<Record<string, never>> = {
   },
 };
 
-/**
- * Stands in for chat-turn: a workflow that owes the client closure when its run
- * goes terminal outside the step body. Recording the hook's branch rather than
- * driving chat-turn keeps the assertion on the *runtime* obligation and off
- * chat-turn's finalizers (which would want a thread, a message row, and a model
- * call for the thread title).
- */
+/** Stands in for chat-turn without its finalizers (thread, message row, title model call). */
 const cancelClosureWorkflow: Workflow<Record<string, never>> = {
   slug: CANCEL_CLOSURE_SLUG,
   name: "cancel race closure test",
@@ -188,11 +154,8 @@ async function seedRun(args: {
 }
 
 /**
- * A sub-agent child of `parentRunId`, owned by the same user. Only the
- * `subAgent` metadata makes it a child — that pointer is what the cascade
- * (and `listSpawnedChildRuns`) reads. Runs a `closure: { kind: "none" }`
- * workflow (`CANCEL_ADVANCE_SLUG`), mirroring the production sub-agent workflow
- * `__user-authored-brief__`, which declares no client closure.
+ * The `subAgent` metadata pointer alone makes it a child. Uses a
+ * `closure: { kind: "none" }` workflow, like the real `__user-authored-brief__`.
  */
 async function seedChildRun(args: {
   userId: string;
@@ -293,12 +256,7 @@ async function countApprovalRequests(userId: string): Promise<number> {
   return rows.length;
 }
 
-/**
- * The terminal `agent.run`/`failed` frames this run emitted. `markRunFailed`
- * releases the client's replay barrier by publishing one such frame in the same
- * tx as the `failed` status write, so a superseded (rolled-back) write must
- * leave zero.
- */
+/** Published in the `failed` write's tx, so a rolled-back write leaves none. */
 async function readFailedRunFrames(userId: string, runId: string): Promise<unknown[]> {
   const rows = await db()
     .select({ payload: eventsOutbox.payload })
@@ -310,12 +268,7 @@ async function readFailedRunFrames(userId: string, runId: string): Promise<unkno
     .filter((p) => getStringPath(p, "runId") === runId && getStringPath(p, "phase") === "failed");
 }
 
-/**
- * The `error` string carried by this run's `agent.run`/`cancelled` frame, if
- * any. `cancelRunInTx` mints it through `boundAgentRunError`, so it is bounded
- * to `AGENT_RUN_ERROR_MAX` even when the caller's `reason` is longer — otherwise
- * `publishEvent`'s `safeParse` would throw on the over-cap string.
- */
+/** Bounded by `boundAgentRunError`, else `publishEvent` throws on a long reason. */
 async function readCancelledFrameError(userId: string, runId: string): Promise<string | undefined> {
   const rows = await db()
     .select({ payload: eventsOutbox.payload })
@@ -435,13 +388,9 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       attempt: 1,
     });
 
-    // A pending approval the cancel must reject…
     await seedPendingStaging(userId, runId);
 
-    // …and two committed effects the cancel must NOT touch: one `succeeded`
-    // and one stuck at the sticky `unknown` outcome. The ambiguity barrier
-    // keys on the unknown row, so a cancel rewriting it would erase the
-    // possibly-delivered protection for a later identical proposal.
+    // The ambiguity barrier keys on the `unknown` row; a cancel must not rewrite it.
     for (const [suffix, outcome] of [
       ["done", "succeeded"],
       ["unknown", "unknown"],
@@ -554,9 +503,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
 
     await cancelRun({ runId, reason: "user_stopped" });
 
-    // This is the D1 ordering: the cancel transaction already committed and
-    // completed its first sweep, then the still-live step body's independent
-    // staging autocommit lands.
+    // The live step body's staging lands after the cancel's sweep.
     await seedPendingStaging(userId, runId);
     assert.deepEqual(await readStagingStatuses(runId), ["pending"]);
 
@@ -581,7 +528,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     );
   });
 
-  // ---- D2: refusing the commit must not mean nothing closes the turn --------
+  // ---- A refused commit must still close the turn ----
 
   test("a mid-step cancel closes the client turn exactly once", async () => {
     const { runId } = await seedRun({
@@ -602,8 +549,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
   });
 
   test("a waiting-state cancel closes the client turn too", async () => {
-    // The pre-existing half of the same gap: a run parked on an approval never
-    // enters a step body at all, so nothing but the cancel path can close it.
+    // A parked run never enters a step body, so only the cancel path can close it.
     const { runId } = await seedRun({
       workflowSlug: CANCEL_CLOSURE_SLUG,
       status: "waiting",
@@ -616,10 +562,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
   });
 
   test("a cancel reason over the cap publishes a bounded frame, not a safeParse throw", async () => {
-    // The live instance item 66 closes: `cancelRunInTx` publishes the reason on
-    // the length-capped `agent.run` frame. An over-cap reason used to make
-    // `publishEvent`'s `safeParse` throw inside the tx; `boundAgentRunError`
-    // bounds it. Reason is `CancelRunArgs.reason: string` with no cap of its own.
+    // `CancelRunArgs.reason` has no cap, but the `agent.run` frame does.
     const { userId, runId } = await seedRun({
       workflowSlug: CANCEL_CLOSURE_SLUG,
       status: "running",
@@ -628,7 +571,6 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
 
     const longReason = "x".repeat(AGENT_RUN_ERROR_MAX + 500);
 
-    // Would reject (throw) on the over-cap payload without the publisher clamp.
     assert.equal(await cancelRun({ runId, reason: longReason }), "cancelled");
 
     const frameError = await readCancelledFrameError(userId, runId);
@@ -639,7 +581,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     );
   });
 
-  // ---- #559b: the cancel reaches the children the boss delegated to --------
+  // ---- #559b: the cancel reaches sub-agent children ----
 
   test("#559b: cancelling a parent cascades to its non-terminal sub-agent children", async () => {
     const { userId, runId } = await seedRun({
@@ -669,9 +611,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       subId: "c",
     });
 
-    // A child of a DIFFERENT parent. The cascade selects on the metadata
-    // pointer, so a predicate that fell back to "every sub-agent run of this
-    // user" would kill this one too.
+    // Another parent's child: catches a cascade that matches every sub-agent of the user.
     const other = await seedRun({
       workflowSlug: CANCEL_CLOSURE_SLUG,
       status: "running",
@@ -714,10 +654,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
   });
 
   test("#559b: a cascaded child sweeps its own stagings", async () => {
-    // The child's staging sweep rides back inside the parent's `afterCommit`
-    // closure. A sub-agent owes no client closure (its workflow declares
-    // `closure: { kind: "none" }`), so the only obligation the cascade carries
-    // is rejecting the child's pending approvals and tearing down their jobs.
+    // A sub-agent owes no client closure, so the cascade only sweeps its stagings.
     const { userId, runId } = await seedRun({
       workflowSlug: CANCEL_CLOSURE_SLUG,
       status: "running",
@@ -731,8 +668,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       subId: "closes",
     });
 
-    // A pending approval on the CHILD. The parent's bulk reject is scoped to
-    // its own run id, so only the cascade can decide this row.
+    // The parent's bulk reject is scoped to its own run id, so only the cascade reaches this row.
     await seedPendingStaging(userId, childRunId);
 
     assert.equal(
@@ -768,9 +704,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
   });
 
   test("#559b: a cancelled parent may not spawn a fresh child", async () => {
-    // The other half of the cascade. Cancelling reaches the children that
-    // exist; this is what stops a new one being born a moment later, when the
-    // parent's step body runs on past the cancel and calls `spawn_sub_agent`.
+    // The parent's step body can run past the cancel and call `spawn_sub_agent`.
     const { userId, runId } = await seedRun({
       workflowSlug: CANCEL_CLOSURE_SLUG,
       status: "running",
@@ -822,7 +756,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     assert.deepEqual(terminalCalls, [], "no second closure for a no-op cancel");
   });
 
-  // ---- D1: markRunFailed is a terminal write and must be guarded -----------
+  // ---- markRunFailed is a terminal write and must be guarded ----
 
   test("markRunFailed refuses to overwrite a cancelled run with failed", async () => {
     const { userId, runId } = await seedRun({
@@ -835,8 +769,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     const cancelled = await readRun(runId);
     terminalCalls.length = 0;
 
-    // The window `runOnce` hits when a post-deploy step-resolution failure races
-    // a cancel: leased at attempt 7, cancel lands, then the resolve throws.
+    // A step-resolution failure that races a cancel.
     const cause = await markRunFailed(
       runRow(userId, runId, CANCEL_CLOSURE_SLUG, 7),
       STEP,
@@ -854,9 +787,6 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     assert.deepEqual(run?.error, cancelled?.error, "the cancel's reason payload is intact");
     assert.deepEqual(run?.endedAt, cancelled?.endedAt, "and so is its endedAt");
     assert.deepEqual(terminalCalls, [], "and no failure closure ran on a cancelled turn");
-    // The release frame rides the same tx as the guarded `failed` write, so the
-    // supersede rollback drops it — a leaked `failed` frame over a `cancelled`
-    // run is the #530 class the guard exists to prevent.
     assert.deepEqual(
       await readFailedRunFrames(userId, runId),
       [],
@@ -880,8 +810,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(cause, null, "not superseded");
     assert.equal((await readRun(runId))?.status, "failed");
-    // The terminal `agent.run`/`failed` frame that releases the client's
-    // replay barrier — published in the same tx as the `failed` status write.
+    // This frame releases the client's replay barrier.
     assert.equal(
       (await readFailedRunFrames(userId, runId)).length,
       1,
@@ -896,11 +825,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       attempt: 1,
     });
 
-    // A resolve-failure message longer than the `agent.run` frame's `error` cap.
-    // On `main` this makes `publishEvent`'s `safeParse` throw INSIDE the guarded
-    // tx, rolling the `failed` write back so the run stays `running` and
-    // re-enters the reclaim loop. The bound at the sanitize sink is what lets the
-    // terminal write commit.
+    // Unbounded, the frame's `safeParse` throws in the tx and the run stays `running`.
     const cause = await markRunFailed(
       runRow(userId, runId, CANCEL_CLOSURE_SLUG, 1),
       STEP,
@@ -926,14 +851,11 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     );
   });
 
-  // ---- D3: a compound supersede reports the actionable cause ---------------
+  // ---- A compound supersede reports the actionable cause ----
 
   test("a reclaim that also completed the run classifies as a reclaim", async () => {
-    // Worker A ran a long step at attempt 3; the sweep reclaimed to 4 and worker
-    // B finished the run. BOTH halves of A's guard now fail. `reclaim` is the
-    // half worth reporting — it means a duplicate full-price model call and a
-    // stale window to tune, where `run_already_terminal` reads as "the user
-    // cancelled" and closes the investigation.
+    // Both guard halves fail. A reclaim means a duplicate model call to fix;
+    // `run_already_terminal` reads as a user cancel.
     const { userId, runId } = await seedRun({
       workflowSlug: CANCEL_CLOSURE_SLUG,
       status: "running",

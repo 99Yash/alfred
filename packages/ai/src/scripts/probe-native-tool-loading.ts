@@ -1,24 +1,12 @@
 /**
- * Slice 0 probe for issue #1031: characterize the installed AI SDK's
- * provider-native tool-loading shapes end to end.
- *
- * The probe is opt-in and live: it spends a small amount of money against the
- * configured Cloudflare Unified Billing gateway. It makes no production change.
- *
- * Run from `packages/ai`:
+ * Live probe of the AI SDK's provider-native tool loading. It spends a little money on the gateway.
  *
  *   ./node_modules/.bin/tsx --env-file=../../apps/server/.env \
  *     src/scripts/probe-native-tool-loading.ts --scenario=anthropic
  *
- * Scenarios: `anthropic`, `openai`, `fallback`, `all` (default). Each live
- * scenario makes two identical calls so a second-call cache read is observable.
- *
- * The probe records sanitized fixtures under
- * `packages/ai/test/fixtures/native-tool-loading/` for later slices' offline
- * tests. It never writes a provider credential: provider ids are stable-remapped
- * in both keys and values, response headers (account, organization, project,
- * gateway-trace, and bot-management identifiers) are dropped, and the gateway
- * token/account are redacted defensively before a fixture is written.
+ * Scenarios: `anthropic`, `openai`, `fallback`, `all` (default). Each calls twice, to show a cache read.
+ * Writes sanitized fixtures to `packages/ai/test/fixtures/native-tool-loading/`:
+ * ids remapped, headers dropped, gateway token and account redacted.
  */
 
 import { randomUUID } from "node:crypto";
@@ -84,13 +72,7 @@ const EAGER_TOOL = "probe.eager";
 
 const DISCOVERABLE_TOOLS = ["probe.alpha", "probe.beta"] as const;
 
-/**
- * Reserved key for the provider-defined search tool. It must not contain a dot
- * or double underscore: the adapter's inner name shim decodes `__` to `.` on
- * every tool-call it sees, and the SDK derives the provider tool's low-level
- * `name` from this key. A dotted/underscored key would therefore come back
- * mangled and be rejected as an unknown tool.
- */
+/** No dot or `__`: the name codec would decode it and the tool would come back unknown. */
 const NATIVE_SEARCH_KEY = "probeNativeSearch";
 
 const FIXTURE_DIR = resolve(
@@ -98,9 +80,7 @@ const FIXTURE_DIR = resolve(
   "../../test/fixtures/native-tool-loading",
 );
 
-// A stable, sizable context so the Anthropic system prefix clears the ~1024-token
-// minimum cacheable size. Deterministic so repeated calls share a byte-identical
-// prefix and a turn-2 read is meaningful.
+// Fixed text over Anthropic's ~1024-token cache minimum, identical on both calls.
 const FILLER = Array.from(
   { length: 400 },
   (_, index) =>
@@ -115,11 +95,7 @@ const SYSTEM_INSTRUCTIONS =
   "Durable context you must keep in mind: " +
   FILLER;
 
-/**
- * A per-process nonce in the system prefix keeps the first call cold. Without
- * it, a rerun within Anthropic's 5m TTL would read the previous run's cache and
- * the cold-write evidence would be ambiguous.
- */
+/** Keeps the first call cold, even on a rerun inside the 5m cache TTL. */
 const RUN_NONCE = randomUUID();
 
 const PROBE_INSTRUCTIONS = `${SYSTEM_INSTRUCTIONS}\nRun nonce (ignore): ${RUN_NONCE}`;
@@ -128,13 +104,9 @@ const USER_PROMPT =
   "Find and call the tool that records a penguin sighting, with count 3. " +
   "Then reply with exactly the tool's output and nothing else.";
 
-// ── SDK shape record (slice 0 item 1) ──────────────────────────────────────
+// ── SDK shape record ───────────────────────────────────────────────────────
 
-/**
- * The installed-source shapes this probe is characterizing. These are the
- * documented low-level projections the provider packages own; the live capture
- * below proves the normalized parts and request serialization match.
- */
+/** The provider packages' documented shapes. The live capture checks them. */
 const INSTALLED_SDK_CONTRACTS = {
   anthropic: {
     searchToolConstructor: "anthropic.tools.toolSearchBm25_20251119()",
@@ -207,9 +179,7 @@ function buildFunctionTools(): ToolSet {
 
 function withNativeSearchTool(tools: ToolSet, provider: ProviderId): ToolSet {
   if (provider === "anthropic") {
-    // SAFETY: the SDK unifies provider-defined tools' input generic to `never`
-    // inside the non-generic `ToolSet`; this record is one provider tool under
-    // its own reserved key, which is exactly the ToolSet shape.
+    // SAFETY: `ToolSet` widens a provider tool's input to `never`; this is one tool under its key.
     return {
       ...tools,
       [NATIVE_SEARCH_KEY]: anthropic.tools.toolSearchBm25_20251119(),
@@ -217,7 +187,7 @@ function withNativeSearchTool(tools: ToolSet, provider: ProviderId): ToolSet {
   }
 
   if (provider === "openai") {
-    // SAFETY: same provider-defined-tool `never`-input widening as above.
+    // SAFETY: same `never` input widening as above.
     return {
       ...tools,
       [NATIVE_SEARCH_KEY]: openai.tools.toolSearch({ execution: "server" }),
@@ -310,8 +280,7 @@ function transformSurface(
   const tools = params.tools ?? [];
 
   if (protocol.mode === "application") {
-    // Application mode sees only the eager kernel: every provider-defined
-    // search tool and every discoverable function tool is dropped.
+    // Application mode keeps only the eager kernel tools.
     const eagerTools = tools.filter(
       (definition) => definition.type === "function" && !DISCOVERABLE.has(definition.name),
     );
@@ -353,15 +322,8 @@ function probeLeg(provider: ProviderId, model: LanguageModelV4, mode: "native" |
 // ── Capture and sanitization ───────────────────────────────────────────────
 
 /**
- * Provider ids appear as both values and object keys (for example
- * `performance.toolExecutionMs` is keyed by the raw tool-call id). The prefix
- * set covers Anthropic (`toolu`, `srvtoolu`, `msg`), OpenAI (`call`, `tsc`,
- * `tso`, `rs`, `resp`), Google (`call`), and chat-completions shapes.
- *
- * Values can be short (Google mints `call_5393`), so the value pattern has no
- * length floor. Keys do: a field name such as `call_id` must not be renamed,
- * so a key only counts as an id when it carries the long, high-entropy tail a
- * real provider id has.
+ * Provider ids appear as values and as keys. Values can be short (`call_5393`), so no length floor.
+ * Keys need a long tail, so a field name like `call_id` is not renamed.
  */
 const ID_VALUE =
   /^(?:msg|resp|toolu|srvtoolu|call|tsc|tso|req|chatcmpl|fc|item|evt|rs)_[A-Za-z0-9_-]+$/;
@@ -378,11 +340,7 @@ const SECRET_KEYS = new Set([
   "openai_api_key",
 ]);
 
-/**
- * Response metadata that is never part of the tool-loading shape but carries
- * account, organization, project, gateway-trace, or bot-management identifiers.
- * Dropping the whole block beats enumerating every provider-specific header.
- */
+/** Headers carry account and trace ids, so drop them whole. */
 const DROPPED_KEYS = new Set(["headers", "set-cookie"]);
 
 function stableId(raw: string, ids: Map<string, string>): string {
@@ -425,10 +383,7 @@ function sanitizeJson(value: JsonValue, ids: Map<string, string>): JsonValue {
   return value;
 }
 
-/**
- * Replace the configured gateway token/account with markers. The canonical
- * `redactSecrets` runs on top of this in `writeFixture` as a second pass.
- */
+/** `redactSecrets` runs after this in `writeFixture`. */
 function redactGatewayConfig(text: string): string {
   const config = cloudflareGatewayConfig();
 
@@ -500,9 +455,9 @@ interface StreamRecord {
 }
 
 interface FallbackRecord {
-  /** The native-transformed primary params the probe middleware produced before the projection threw. */
+  /** The primary params, captured before the projection threw. */
   primaryTransformedParams: JsonValue;
-  /** The live Google wire request body: the per-leg application projection's output. */
+  /** The live Google request body. */
   fallbackRequestBody: JsonValue;
 }
 
@@ -772,13 +727,7 @@ async function runOpenAi(): Promise<ScenarioResult> {
   });
 }
 
-/**
- * A synthetic retryable failure that fires before the primary provider is
- * dispatched, so the Anthropic->Gemini fallback is exercised without a second
- * billable Anthropic call. The middleware still runs the native projection
- * first, so the captured primary params prove what the primary *would* have
- * sent while the live Google leg proves the application projection.
- */
+/** Fail the primary before dispatch, so the fallback runs without a billed Anthropic call. */
 function forcingPrimaryFailureMiddleware(
   capture: LanguageModelV4CallOptions[],
 ): LanguageModelV4Middleware {
@@ -822,9 +771,7 @@ async function runFallback(): Promise<ScenarioResult> {
   const fallbackRequestBody = sanitizeJson(toJsonValue(result.finalStep.request.body), ids);
   const rawPrimaryParams = sanitizeJson(toJsonValue(capturedPrimary[0]), ids);
   const primaryCarriedEnvelope = JSON.stringify(rawPrimaryParams).includes("alfredInternal");
-  // The captured primary params are pre-projection, so they still hold the
-  // internal envelope. Strip it from the fixture so no committed file contains
-  // it; the boolean records that the probe middleware ran outside the projection.
+  // These params still hold the internal envelope; keep it out of committed fixtures.
   const primaryTransformedParams = stripInternalEnvelope(rawPrimaryParams);
   const fallbackTools = extractWireToolNames(fallbackRequestBody);
 
@@ -953,8 +900,7 @@ async function main(): Promise<void> {
       console.log(`[native-tool-probe] wrote ${path}`);
       console.log(`  ${JSON.stringify(result.checks)}`);
     } catch (error: unknown) {
-      // Keep going so a rate limit on one provider does not discard the
-      // fixtures the other scenarios already captured.
+      // Continue, so one provider's rate limit keeps the other fixtures.
       failures.push(error);
       console.error("[native-tool-probe] scenario failed:", toMessage(error));
     }

@@ -14,13 +14,8 @@ import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * End-to-end coverage of the morning suppression chain the daily-briefing
- * workflow runs (#259 / ADR-0064): real rows →
- * {@link gatherBriefingWithSuppressionAudit} folds `demandingEmailCount` onto
- * `day_shape` → {@link isQuietMorning}. The pure predicate is unit-pinned in
- * suppression.test.ts; this pins the DB seam and the exact gather handoff the
- * workflow reads. The smoke can't cover it because it runs `reason: "forced"`,
- * bypassing the gate.
+ * Real rows through {@link gatherBriefingWithSuppressionAudit} into {@link isQuietMorning} (ADR-0064).
+ * The smoke run cannot cover this: it uses `reason: "forced"`, which skips the gate.
  */
 
 const SKIP = dbBackedSkip("database");
@@ -153,9 +148,7 @@ describe("morning suppression gate over gathered rows (DB-backed)", { skip: SKIP
     });
 
     const gate = await gateFor(userId);
-    // Receipt/payment info and follow_up sit below the 0.6 demanding cutoff.
-    // fyi is ambient/suppressed, not a priority bucket, so it does not inflate
-    // the raw fallback count either.
+    // Payment info and follow_up sit below the 0.6 cutoff; fyi is not a priority bucket.
     assert.equal(gate.emailCount, 2);
     assert.equal(gate.demandingCount, 0);
     assert.equal(gate.quiet, true);
@@ -191,12 +184,8 @@ describe("morning suppression gate over gathered rows (DB-backed)", { skip: SKIP
   });
 
   test("KNOWN GAP (#259): a mixed day with an over-tagged bulk action_needed still sends", async () => {
-    // Pins the current trade-off, not an endorsement: the literal #259 repro
-    // day had a resolved micro-charge PLUS an over-tagged action_needed bulk
-    // digest. Significance can't demote a single-sighting bulk digest
-    // (recurrence needs repeats) and the sender-kind floor is awaiting_reply-only
-    // today, so the day still sends. If #210's action_needed demotion later
-    // pulls this to `muted`, this assertion should flip — update it consciously.
+    // A known trade-off (#259): nothing demotes a one-off bulk digest tagged action_needed yet.
+    // Flip this on purpose if that changes.
     const userId = await seedUser();
     await seedEmail({
       userId,

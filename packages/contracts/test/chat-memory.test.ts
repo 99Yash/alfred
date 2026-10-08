@@ -10,10 +10,7 @@ import {
 } from "@alfred/contracts";
 import { z } from "zod";
 
-/**
- * Pins the chat→memory proposition contract (chat-mem v1, #398; D4/D6): the
- * tagged shape the end-of-thread extractor emits and #399 consumes.
- */
+/** The proposition shape the end-of-thread extractor emits. */
 
 const validUserProposition = {
   subject: "user" as const,

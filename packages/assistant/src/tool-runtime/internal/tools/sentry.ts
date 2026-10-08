@@ -1,11 +1,4 @@
-/**
- * Sentry tools. The only tool today is the general read-only passthrough: the
- * curated reads (an issue, its latest event with source context) arrive with
- * the consumer that needs them (the Seer pull-request verifier, #567).
- *
- * Every call goes through `ctx.integrations.sentry`, so this file names no
- * credential function and holds no token.
- */
+/** Sentry tools: only the read-only passthrough so far. */
 
 import { restPassthroughInput } from "@alfred/contracts";
 import { runRestPassthrough } from "./passthrough";

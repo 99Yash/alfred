@@ -2,12 +2,8 @@ import { Check, ChevronRight, Plus, X } from "lucide-react";
 import { cn } from "~/lib/utils";
 
 /**
- * A suggested-todo row (ADR-0050). `onAccept` promotes it (`suggested → open`);
- * the leading glyph is a `+` when accept is wired, a chevron on static previews.
- * `onComplete` marks it done directly (`suggested → done`) via a hover-revealed
- * check; `onDismiss` declines it (`suggested → dismissed`) via a hover-revealed
- * `×`. The three actions carry distinct accessible names so keyboard and
- * screen-reader users can tell "add to to-dos", "mark done", and "dismiss" apart.
+ * A suggested todo (ADR-0050). Accept: `suggested → open`; check: `→ done`; `×`: `→ dismissed`.
+ * Each action has its own accessible name.
  */
 export function SuggestionRow({
   label,
@@ -32,9 +28,7 @@ export function SuggestionRow({
       <button
         type="button"
         onClick={onAccept}
-        // The accessible name must lead with — and contain — the button's full
-        // visible text (label + detail) so it passes label-content-name-mismatch
-        // and voice-control users can say what they see; the action follows.
+        // Lead with the visible text (label-content-name-mismatch), then the action.
         aria-label={
           onAccept ? `${detail ? `${label} ${detail}` : label}, add as a to-do` : undefined
         }
@@ -44,16 +38,14 @@ export function SuggestionRow({
         )}
       >
         <span className="min-w-0 flex-1">
-          {/* The title IS the todo. `title` attr exposes the full string on hover
-              if it wraps past two lines, so nothing is unreadably clipped. */}
+          {/* `title` shows the full text if it clips. */}
           <span
             title={label}
             className="line-clamp-2 block text-[12.5px] leading-5 font-medium text-pretty text-white"
           >
             {label}
           </span>
-          {/* `detail` is a hard-fact fragment (amount / deadline / decision), not a
-              body sentence — render it as one compact, dimmed meta line, never a wall. */}
+          {/* A short fact (amount, deadline), one dimmed line. */}
           {detail ? (
             <span
               title={detail}
@@ -63,8 +55,7 @@ export function SuggestionRow({
             </span>
           ) : null}
         </span>
-        {/* Glyph sits in a 24px box matching the dismiss `×` so the two controls
-            share a footprint and their centers line up — even when the title wraps. */}
+        {/* 24px box, same as the `×`, so their centers align. */}
         <span className="flex size-6 shrink-0 items-center justify-center">
           {onAccept ? (
             <Plus

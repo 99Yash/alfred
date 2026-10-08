@@ -2,22 +2,8 @@ import { parseEmailAddress } from "@alfred/contracts";
 import { envFieldValue } from "@alfred/env/server";
 
 /**
- * Alfred self-mail identity. Pure identity helpers — no `documents` /
- * `ingestion_state` writes and no corpus indexing — so they stay in the
- * provider package after the ingestion orchestration moved to the api-layer
- * consumer (`@alfred/assistant` `connections/ingestion/gmail-ingest.ts`). Both the
- * consumer's persist path and downstream self-mail retirement/label backfills
- * plus the drift-audit metrics read them through `@alfred/integrations/google`.
- */
-
-/**
- * Alfred's own send identity, parsed from `RESEND_FROM_EMAIL` (e.g.
- * `"Alfred <hey@alfred.beauty>"`) — the single source of truth shared with
- * `@alfred/mailer` and the deployment identity block
- * (`@alfred/assistant/settings` `selfIdentityGrounding`). Lazily resolved +
- * cached for the process. Read through `envFieldValue` (single field, never
- * throws): a booted process has already validated the whole environment, and a
- * bare test run without the variable gets `null` instead of a throw.
+ * Alfred's send address, from `RESEND_FROM_EMAIL`. Cached per process.
+ * `envFieldValue` returns `null` in a bare test run instead of throwing.
  */
 let _selfSenderEmail: string | null | undefined;
 
@@ -30,13 +16,8 @@ export function selfSenderEmail(): string | null {
 }
 
 /**
- * True when a message was sent by Alfred itself (briefing / approval mail,
- * `From` = `RESEND_FROM_EMAIL`). Alfred's outbound re-enters the connected
- * inbox as ordinary *inbound* mail — it carries no Gmail `SENT` label, so the
- * `isSent` guard never catches it. Left un-filtered it gets ingested, triaged
- * into the demanding lanes, and re-fed into the next briefing: a self-
- * amplifying loop (issue #211). Self-mail carries no signal Alfred didn't
- * itself author, so we drop it before it becomes a `documents` row.
+ * Alfred's own mail comes back as inbound with no `SENT` label. Ingesting it would
+ * feed each briefing into the next (#211), so it is dropped before it becomes a document.
  */
 export function isSelfAuthored(from: string | null): boolean {
   const self = selfSenderEmail();

@@ -4,49 +4,18 @@ import { pollChatStopFlag } from "./stop-signal";
 /** Poll the user-stop flag at most this often (ms). */
 const STOP_CHECK_MS = 400;
 
-/**
- * Owns a chat turn's user-stop lifecycle: a single {@link AbortController} whose
- * signal covers the foreground context guard (compaction can make billable model
- * calls too) and the streamed answer, plus a throttled poll of the Redis stop
- * flag. Extracted from `chat-turn`'s step body so the stop machinery is testable
- * in isolation (`vi.useFakeTimers` + an injected `isStopRequested`) and the step
- * body reads as orchestration. The dispatch-tools step keeps its own one-shot
- * check — a single up-front read, not worth wrapping — and that read goes
- * through `isChatStopRequested`, not through the `pollChatStopFlag` below,
- * because a one-shot reader cannot afford a rejected cold read (#127).
- */
+/** One abort signal for a turn's context guard and stream, driven by a throttled poll of the stop flag. */
 export interface TurnStopController {
   /** The abort signal to pass to the context guard and `streamTurn`. */
   readonly signal: AbortSignal;
-  /** Live view of whether a stop has been observed (read by the post-drain branches). */
   readonly stopped: boolean;
-  /**
-   * Throttled poll of the stop flag ({@link STOP_CHECK_MS}). Returns `true` once a
-   * stop is observed and, on first observation, aborts {@link signal}. In-flight
-   * reads are de-duped so a burst of calls issues at most one Redis read.
-   */
+  /** Throttled poll. Aborts {@link signal} on the first stop seen. */
   checkStop(): Promise<boolean>;
-  /**
-   * Start a background interval that drives {@link checkStop} while the context
-   * guard runs (the guard has no stream loop to poll from). Returns a disposer;
-   * call it in a `finally`.
-   */
+  /** Poll on an interval, for code with no stream loop. Returns a disposer. */
   startPolling(): () => void;
   /**
-   * Sleep `ms`, and end early the moment a user stop lands.
-   *
-   * This exists so a caller cannot wait on {@link signal} alone. The stop flag
-   * lives in Redis, and `controller.abort()` fires only from inside
-   * {@link checkStop} — so a signal with no poller behind it can never fire,
-   * however long the wait. The capacity backoff learned that the expensive
-   * way: it slept on the signal after the guard's poller was already disposed,
-   * and a user Stop went unheard for the whole backoff and then billed a full
-   * model turn. Polling for the duration of the wait is therefore part of the
-   * wait, not something the caller may forget to arrange.
-   *
-   * Returns the ending, rather than resolving void or rejecting, so the caller
-   * must name both cases: a stopped turn and an elapsed backoff want opposite
-   * endings, and a rejection would have made "stopped" look like a fault.
+   * Sleep `ms`, or end early on Stop. Polls while it waits: {@link signal} fires
+   * only from {@link checkStop}, so a wait on the bare signal never ends early.
    */
   wait(ms: number): Promise<"elapsed" | "stopped">;
 }

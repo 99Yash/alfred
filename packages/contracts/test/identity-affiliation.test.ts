@@ -23,14 +23,7 @@ import {
   type GroundingTier,
 } from "@alfred/contracts";
 
-/**
- * Pure unit tests for the ADR-0080 identity-affiliation deterministic core
- * (`docs/plans/identity-facts-projection-v1.md`). These are the safety floor the
- * design's invariant 3 ("deterministic core, LLM at the edges") rests on — the
- * domain classifier, the grounding-tier authority ranking, and the per-key
- * grounding rule. No DB, no LLM; they pin the exact behavior the projection
- * reducer will compose.
- */
+/** The deterministic core of identity affiliation (ADR-0080). */
 
 describe("classifyConnectedAccount / classifyBareDomain — the four employer-signal outcomes (§4b)", () => {
   test("free-mail providers are consumer_email (no employer signal)", () => {
@@ -79,8 +72,7 @@ describe("classifyConnectedAccount / classifyBareDomain — the four employer-si
   });
 
   test("role/service local parts are service_or_role_account regardless of domain", () => {
-    // The Weekday-class failure mode is a recruiter, but the role-mailbox guard
-    // covers the noreply/support sender family that must never read as employment.
+    // Role mailboxes must never read as employment.
     for (const email of [
       "noreply@acme.com",
       "no-reply@acme.com",
@@ -116,8 +108,7 @@ describe("classifyConnectedAccount / classifyBareDomain — the four employer-si
   });
 
   test("a real employer wins over the ambiguous-token substring trap", () => {
-    // "alum" is an ambiguous token, but it must match as a domain hint, not a
-    // bare substring of an unrelated org (`alumacorp.com`).
+    // "alum" must not match as a substring of `alumacorp.com`.
     assert.equal(
       classifyConnectedAccount({
         email: "ceo@alumacorp.com",
@@ -225,7 +216,6 @@ describe("grounding-tier authority ranking (§5)", () => {
     assert.equal(isStrongerGrounding("directory_verified", "corporate_affiliation"), true);
     assert.equal(isStrongerGrounding("corporate_affiliation", "directory_verified"), false);
     assert.equal(isStrongerGrounding("weak_mentions", "user_correction"), false);
-    // a tier is never strictly stronger than itself
     assert.equal(isStrongerGrounding("corporate_affiliation", "corporate_affiliation"), false);
   });
 
@@ -287,12 +277,11 @@ describe("affiliationGroundingTier — the 'no grounding, no row' contract (§4a
     assert.equal(affiliationGroundingTier("corporate_domain"), "corporate_affiliation");
     assert.equal(affiliationGroundingTier("consumer_email"), null);
     assert.equal(affiliationGroundingTier("service_or_role_account"), null);
-    // ambiguous needs corroboration (a later slice) — alone it grounds nothing
+    // Ambiguous grounds nothing without corroboration.
     assert.equal(affiliationGroundingTier("ambiguous_domain"), null);
   });
 
   test("end-to-end: a corporate account grounds employer, a personal one does not", () => {
-    // Work account → corporate_domain → corporate_affiliation → grounds employer.
     const work = classifyConnectedAccount({
       email: "yash@oliv.ai",
       verifiedHostedDomain: "oliv.ai",
@@ -303,7 +292,6 @@ describe("affiliationGroundingTier — the 'no grounding, no row' contract (§4a
     const workTier = affiliationGroundingTier(work);
     assert.ok(workTier && canGroundIdentityKey(workTier, "employer"));
 
-    // Personal Gmail → consumer_email → no tier → no employer row materializes.
     const personal = classifyConnectedAccount({ email: "yashgouravkar@gmail.com" });
     assert.equal(personal, "consumer_email");
     assert.ok(personal);

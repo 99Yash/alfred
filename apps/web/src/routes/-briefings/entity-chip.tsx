@@ -4,16 +4,9 @@ import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 
 /**
- * Typed inline reference rendered from a resolved briefing segment (ADR-0049).
- * One component, variant by `BriefingReferenceKind` for icon/tone. The kind
- * comes from the contracts resolver (`referenceKind` on the segment), never
- * from local string splitting. Interactive iff the resolved segment carries an
- * `href` — v1 hrefs are external (Gmail thread / provider URL); meeting chips
- * are always static (the calendar gather carries no event link yet).
- *
- * Email and meeting chips render the vendor brand mark (Gmail / Google
- * Calendar); activity chips keep a toned lucide glyph since the segment carries
- * no specific provider.
+ * Inline reference from a resolved briefing segment (ADR-0049). The kind comes
+ * from the contracts resolver, never from string splitting. Clickable only when
+ * the segment has an `href`; meeting chips have none yet.
  */
 export interface EntityChipProps {
   kind: BriefingReferenceKind;

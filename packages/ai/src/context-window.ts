@@ -7,11 +7,7 @@ export interface ContextWindowBudget {
   fixedInputOverheadTokens?: number;
 }
 
-/**
- * Input capacity left after reserving output and fixed request overhead. Keep
- * this arithmetic shared by pressure thresholds and hard fit checks so a call
- * cannot reserve one shape while its guard reasons about another.
- */
+/** Input room left after output and overhead. Thresholds and fit checks share it, so they agree. */
 export function effectiveInputWindowTokens({
   contextWindowTokens,
   outputReserveTokens = 0,
@@ -37,7 +33,7 @@ export function requestFitsContextWindow(
   return inputTokens <= effectiveInputWindowTokens(budget);
 }
 
-/** Resolve the smallest effective input window across every model a path may call. */
+/** The smallest input window among the models a path may call. */
 export async function resolveEffectiveInputWindowTokens({
   models,
   outputReserveTokens = 0,

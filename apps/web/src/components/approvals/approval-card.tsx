@@ -12,7 +12,7 @@ import { useApprovalDecision, type WriteDecision } from "./use-approval-decision
 
 export type { RecordedDecision, WriteDecision } from "./use-approval-decision";
 
-// Hoisted so the `leading` props below don't allocate a fresh element per render.
+// Hoisted so `leading` gets a stable element.
 const ICON_X = <X size={14} />;
 
 const ICON_PENCIL = <Pencil size={14} />;
@@ -24,18 +24,15 @@ const ICON_REVISE_SM = <RefreshCw size={13} />;
 const ICON_CHECK = <Check size={14} />;
 
 /**
- * One staged *write*, reviewed in the `/approvals` queue and in a workflow's
- * Approvals tab. A question rides the same row and the same route but draws
- * `QuestionApprovalCard` instead (ADR-0099); `StagedApprovalCard` picks. So
- * this card only ever sees a write, and its decision union says so — a
- * reason-less rejection and a dismissal are both uncompilable here.
+ * One staged write in the approvals queue. Questions get `QuestionApprovalCard`
+ * (ADR-0099), so the write-only decision type rules out a reason-less reject.
  */
 export function ApprovalCard({
   staging,
   onDecide,
 }: {
   staging: SyncedActionStaging;
-  /** Resolves when the decision is recorded; throws with a message on failure. */
+  /** Throws with a message on failure. */
   onDecide: (decision: WriteDecision) => Promise<void>;
 }) {
   const {
@@ -55,8 +52,7 @@ export function ApprovalCard({
     run,
   } = useApprovalDecision(staging);
 
-  // On success the row leaves the pending queue and Replicache removes the
-  // card; `run` leaves `busy` set and no local cleanup is needed.
+  // On success Replicache removes the card, so `busy` needs no cleanup.
   const decide = (decision: WriteDecision) => run(() => onDecide(decision));
 
   return (
@@ -116,8 +112,7 @@ export function ApprovalCard({
         </div>
       ) : null}
 
-      {/* Fields are always live — no read-only/Adjust step. Edit in place, then
-       * the primary button reads "Approve changes". */}
+      {/* Fields are always editable; an edit makes the button say "Approve changes". */}
       <ApprovalInputEditor
         toolName={staging.toolName}
         value={draftInput}
@@ -186,8 +181,7 @@ export function ApprovalCard({
       {error ? <p className="text-[12px] text-app-red-4">{error}</p> : null}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {/* Revise sends the action back to Alfred with a note — the run stays
-         * alive and Alfred tries again. End run (in the panel) stops it. */}
+        {/* Revise returns the action with a note and the run continues. End run stops it. */}
         <AppButton
           variant="ghost"
           size="md"

@@ -35,12 +35,7 @@ export function TypeFilterPopover({
 
   const label = selectedTypes.size === 0 ? "All types" : `${selectedTypes.size} selected`;
 
-  // The content renders in a portal on `document.body`, outside the `.app`
-  // subtree that declares the theme's custom properties — so it inherits the
-  // LIGHT `:root` values and paints a white sheet on a dark page. Re-apply `app`
-  // and stamp the resolved theme on the content itself; React context still
-  // flows through a portal even though CSS inheritance does not. Same pattern as
-  // `AppSelect` and the chat model picker.
+  // The portal leaves `.app` and would get light `:root` tokens; re-apply `app` and the theme.
   const dataTheme = use(AppThemeContext)?.resolved;
 
   return (

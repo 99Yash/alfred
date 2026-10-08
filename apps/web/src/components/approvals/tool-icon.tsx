@@ -4,12 +4,7 @@ import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { brandForIntegration } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 
-/**
- * Slugs without a catalog brand (Alfred's own `system` and `mcp` tools,
- * `imessage`) fall back to a neutral glyph tile so every staged tool still
- * renders an icon. Exhaustive over the non-catalog slugs: a new internal or
- * channel entry in the registry is a compile error here until it has a glyph.
- */
+/** Glyphs for slugs with no catalog brand. Exhaustive, so a new internal slug fails to compile until it has one. */
 const GLYPH_FALLBACK = {
   system: Settings2,
   mcp: Settings2,
@@ -23,10 +18,7 @@ export function ToolIcon({ integration }: { integration: IntegrationSlug }) {
     return <IntegrationIcon brand={brand} size="md" title={integration} />;
   }
 
-  // No brand artwork — render the Lucide mark on a theme-aware neutral coin so
-  // it sits in the same family as the full-bleed app-icon coins beside it. A
-  // catalog slug only lands here when its page has no brand, which the catalog
-  // map forbids; the neutral glyph is the same fallback the Map used to return.
+  // A neutral coin. The catalog map forbids a brandless catalog slug, so `Settings2` is a fallback only.
   const Glyph = isCatalogSlug(integration) ? Settings2 : GLYPH_FALLBACK[integration];
 
   return (

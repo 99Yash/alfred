@@ -11,13 +11,7 @@ import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integrations/inte
 import { brandForIntegration } from "~/lib/integrations/integrations";
 import { PROVIDER_COLOR } from "./source-meta-utils";
 
-/**
- * Display metadata for a briefing's gather sources (ADR-0049). The source slug
- * is carried on every section and source panel, so the timeline can show a
- * leading icon per source without inferring anything from prose. Sources backed
- * by a single vendor render that vendor's brand mark; the rest fall back to a
- * toned lucide glyph.
- */
+/** Brand mark per single-vendor gather source (ADR-0049); others get a toned glyph. */
 const SOURCE_BRAND = new Map<GatherSourceSlug, IntegrationBrand>([
   ["email", "gmail"],
   ["calendar", "google_calendar"],
@@ -31,7 +25,6 @@ const SOURCE_LUCIDE = {
   day_of_week: CalendarClock,
 } satisfies Record<GatherSourceSlug, LucideIcon>;
 
-/** Vendor brand mark where the source maps to one, else a toned lucide glyph. */
 export function SourceIcon({ source }: { source: GatherSourceSlug }) {
   const brand = SOURCE_BRAND.get(source);
 
@@ -41,11 +34,7 @@ export function SourceIcon({ source }: { source: GatherSourceSlug }) {
   return <Icon size={12} aria-hidden />;
 }
 
-/**
- * Inline brand mark for an integration-activity provider. Falls back to a
- * generic Activity icon when the provider is not a known slug or has no
- * catalog brand (system, imessage).
- */
+/** Brand mark for an activity provider, or a generic Activity icon. */
 export function ProviderGlyph({ provider, size = 14 }: { provider: string; size?: number }) {
   if (!isIntegrationSlug(provider)) {
     return <Activity size={size} aria-hidden className="text-app-fg-2" />;

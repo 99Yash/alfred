@@ -16,12 +16,7 @@ import type { AppSidebarProps } from "./types";
 
 export type { AppSidebarProps, SidebarThreadActions } from "./types";
 
-/**
- * Shared in-app sidebar mounted by `AppShell` on every authenticated route.
- *
- * Visibility and minimized-rail state remain independent so overlay mode can
- * slide the full drawer while inline mode can persist its width and rail state.
- */
+/** Visibility and the minimized rail are separate state: overlay slides, inline persists width. */
 export function AppSidebar({
   onOpenSearch,
   activeThread,

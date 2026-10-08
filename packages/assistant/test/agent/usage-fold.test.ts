@@ -61,9 +61,7 @@ describe("foldModelUsage", () => {
   });
 
   test("re-buckets both breakdowns: one model can serve two agents and back", () => {
-    // The caller groups by (agent, model), so the same model appears under two
-    // agents and the same agent under two models. Neither breakdown may double
-    // count.
+    // Rows group by (agent, model), so neither breakdown may double count.
     const usage = foldModelUsage([
       group({ subId: null, model: "claude-sonnet-4-6", costUsd: "0.10", calls: "3" }),
       group({ subId: null, model: "gemini-2.5-flash", costUsd: "0.01", calls: "1" }),

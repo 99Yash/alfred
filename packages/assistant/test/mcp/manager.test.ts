@@ -20,11 +20,8 @@ import { permissiveMcpEndpointAuthorizerForTests } from "../../src/connections/m
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed tests for the connection manager (PRD #540). A real `McpRawClient`
- * is wired to a FAKE `McpProtocolClient` through the raw client's
- * `protocolFactory`, injected via the manager's `clientFactory` seam — so
- * connect → refresh → publish → status runs end-to-end with no socket. Opt-in on
- * `DATABASE_URL`, mirroring the other MCP tests.
+ * DB-backed connection manager tests. A real `McpRawClient` runs over a fake `McpProtocolClient`
+ * via the `clientFactory` seam, so connect, refresh, publish, and status run with no socket. Needs `DATABASE_URL`.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -45,7 +42,7 @@ class FakeProtocol implements McpProtocolClient {
     toolsListChanged: true,
   };
 
-  /** Set to reject `connect()` — exercises the manager's failure branch. */
+  /** Set to reject `connect()`. */
   connectError: Error | null = null;
   #toolsChanged: (() => void | Promise<void>) | null = null;
 
@@ -150,7 +147,7 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     await manager.getReadyClient(connId);
     const firstRevisionId = (await readConnection(connId))?.currentCatalogRevisionId;
 
-    // Same tools → same published revision, pointer unchanged.
+    // Same tools give the same revision; the pointer does not move.
     await manager.refreshCatalog(connId);
     assert.equal((await readConnection(connId))?.currentCatalogRevisionId, firstRevisionId);
 
@@ -200,10 +197,8 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
 
   test("a failed connect records a BOUNDED, REDACTED lastError", async () => {
     const connId = await seedConnection();
-    // The shape the real SDK throws: `StreamableHTTPError` inlines the ENTIRE
-    // upstream response body into its message (streamableHttp.js — `Error POSTing
-    // to endpoint: ${text}`). An MCP server is the least trusted counterparty
-    // Alfred talks to, so this column must never take the body verbatim.
+    // The real `StreamableHTTPError` inlines the whole upstream body in its message.
+    // An MCP server is the least trusted party, so this column must never store the body verbatim.
     const secret = "sk-live-abcdef0123456789";
     const protocol = new FakeProtocol([tool("tool_a")]);
     protocol.connectError = new Error(

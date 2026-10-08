@@ -35,12 +35,12 @@ export function codecForProvider(provider: keyof typeof CODEC_BY_PROVIDER): Tool
 }
 
 export function assertToolNameRegistry(): void {
-  // SAFETY: Object.keys erases to string[]; keys are exactly the const record's own keys.
+  // SAFETY: the keys are exactly the const record's own keys.
   for (const provider of Object.keys(CODEC_BY_PROVIDER) as (keyof typeof CODEC_BY_PROVIDER)[]) {
     const spec = CODEC_BY_PROVIDER[provider];
     const codec = codecForProvider(provider);
 
-    // SAFETY: INTEGRATION_ACTIONS is keyed by IntegrationSlug; keys are exactly that union.
+    // SAFETY: INTEGRATION_ACTIONS is keyed by exactly IntegrationSlug.
     for (const integration of Object.keys(INTEGRATION_ACTIONS) as IntegrationSlug[]) {
       const actions = INTEGRATION_ACTIONS[integration];
 
@@ -59,7 +59,7 @@ export function assertToolNameRegistry(): void {
           throw new Error(`${name} exceeds provider ${provider} tool-name policy`);
         }
 
-        // Round-trip invariant: encode → decode must be identity.
+        // decode(encode(name)) must equal name.
         if (codec.decode(encoded) !== name) {
           throw new Error(`${name} failed tool-name codec round-trip for ${provider}`);
         }
@@ -70,5 +70,5 @@ export function assertToolNameRegistry(): void {
   }
 }
 
-// Verify at module load — same timing as the original file-level assert.
+// Runs at module load.
 assertToolNameRegistry();

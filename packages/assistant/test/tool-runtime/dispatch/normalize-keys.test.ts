@@ -18,12 +18,11 @@ describe("normalizeToolInputKeys", () => {
 
     assert.deepEqual(input, { q: "hi", maxResults: 5 });
     assert.deepEqual(renamed, [{ from: "max_results", to: "maxResults" }]);
-    // And it validates first-try after normalization.
     assert.equal(gmailSearchInput.safeParse(input).success, true);
   });
 
   test("renames camelCase → the snake_case schema key (direction-agnostic)", () => {
-    // GitHub uses snake_case to match the REST API; the model reaches for camel.
+    // GitHub uses snake_case. The model sends camelCase.
     const { input } = normalizeToolInputKeys(
       { owner: "99Yash", repo: "alfred", pullNumber: 305 },
       githubGetPullRequestInput,
@@ -51,7 +50,7 @@ describe("normalizeToolInputKeys", () => {
   });
 
   test("does not clobber a canonical key the model already set", () => {
-    // Both present → the variant is ambiguous; leave it for strict validation.
+    // Both present is ambiguous, so strict validation decides.
     const { input, renamed } = normalizeToolInputKeys(
       { q: "hi", maxResults: 5, max_results: 99 },
       gmailSearchInput,

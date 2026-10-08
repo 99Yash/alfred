@@ -50,7 +50,7 @@ describe("extractContentFlags", () => {
   test("detects currency amounts in multiple notations", () => {
     assert.equal(extractContentFlags("Total due: $1,200.00").hasCurrencyAmount, true);
     assert.equal(extractContentFlags("Amount: 500 INR").hasCurrencyAmount, true);
-    // Trailing-symbol European amount — the regex's own documented example.
+    // European amount with a trailing symbol.
     assert.equal(extractContentFlags("Betrag: 1.000,00 €").hasCurrencyAmount, true);
     assert.equal(extractContentFlags("no money here").hasCurrencyAmount, false);
   });
@@ -96,8 +96,7 @@ describe("extractContentFlags", () => {
       true,
     );
     assert.equal(extractContentFlags("lunch with the team tomorrow").hasInvestorNotice, false);
-    // `proxy`/`registrar` are qualified to their financial sense — routine
-    // engineering prose must not trip the investor hint.
+    // `proxy` and `registrar` match only in their financial sense, not in engineering prose.
     assert.equal(
       extractContentFlags("set up a reverse proxy in front of the package registrar")
         .hasInvestorNotice,
@@ -106,9 +105,7 @@ describe("extractContentFlags", () => {
   });
 
   test("currency scan stays linear on a long adversarial digit run (ReDoS guard)", () => {
-    // A bounded `{0,20}` run keeps the failing-suffix backtrack linear: this
-    // returns immediately rather than hanging the test (it would time out if
-    // the quantifier were unbounded). Real amounts still match (above).
+    // The bounded `{0,20}` run keeps backtracking linear; unbounded, this input hangs.
     assert.equal(extractContentFlags("1".repeat(100_000) + " trailing").hasCurrencyAmount, false);
   });
 

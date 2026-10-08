@@ -12,8 +12,7 @@ export function HeroTile({
 }) {
   const isCenter = variant === "center";
 
-  // The full-bleed tile is the artwork itself; the wrapper only carries the
-  // rotation and the elevated drop shadow that floats it off the backdrop.
+  // The tile is the artwork; the wrapper adds rotation and shadow.
   return (
     <div className="app-stack transition-transform" style={{ transform: `rotate(${rotate}deg)` }}>
       <IntegrationIcon

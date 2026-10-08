@@ -1,22 +1,9 @@
 /**
- * m7a structural smoke test.
+ * Google integration smoke. Without OAuth: the authorize URL builds and the routes
+ * return 401 unauthenticated. With a connected account: ingest writes documents,
+ * and a re-run adds none. It does not run the browser OAuth flow.
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-google.ts
- *
- * What this verifies *without* a real Google OAuth setup:
- *   - The OAuth helper builds an authorize URL (or surfaces a clear
- *     error when env vars are missing).
- *   - The /api/integrations/google routes are mounted and gated by
- *     auth (unauthenticated requests get 401).
- *
- * What this verifies *with* a working OAuth setup + a connected Google
- * account in `integration_credentials`:
- *   - The ingestor can fetch + write documents end-to-end.
- *   - Re-running is idempotent (no duplicate document rows).
- *
- * The script does not initiate the browser OAuth dance — that's a
- * manual one-time step. The instructions print at the end if no
- * credential exists yet.
  */
 import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
@@ -30,7 +17,7 @@ import { toMessage } from "@alfred/contracts";
 async function main() {
   await warmPool();
 
-  // ---- Phase 1: env + URL builder ------------------------------------------
+  // Phase 1: env and URL builder.
   const env = serverEnv();
 
   if (
@@ -44,14 +31,12 @@ async function main() {
     return;
   }
 
-  // Pass the full grant explicitly: the no-scopes default now resolves to
-  // the public (restricted-free) set, but this smoke checks the full
-  // Gmail-ingestion grant builds.
+  // The default scope set excludes restricted scopes, so pass the full grant.
   const url = buildAuthorizeUrl({ state: "smoke-test-state", scopes: ALL_GOOGLE_SCOPES });
   console.log("[smoke-google] authorize URL builds OK:");
   console.log(`   ${url.slice(0, 120)}…\n`);
 
-  // ---- Phase 2: live routes ------------------------------------------------
+  // Phase 2: live routes.
   const baseUrl = "http://localhost:3001";
   console.log(`[smoke-google] probing ${baseUrl}/api/integrations/google/connect (no auth)…`);
 
@@ -69,9 +54,7 @@ async function main() {
     console.warn(`[smoke-google] WARN could not reach server (is it running?): ${toMessage(err)}`);
   }
 
-  // ---- Phase 3: ingestion against a real credential ------------------------
-  // Pick the first connected Google account, regardless of user. For
-  // single-user alfred this is fine; in multi-user it'd take a userId.
+  // Phase 3: ingest with the first connected Google account.
   const rows = await db()
     .select({
       id: integrationCredentials.id,
@@ -107,7 +90,6 @@ async function main() {
   console.log(`[smoke-google] result: ${JSON.stringify(result, null, 2)}`);
   console.log(`[smoke-google] documents before=${before} after=${after} delta=${after - before}`);
 
-  // Idempotency check: rerun must add 0 rows.
   const rerun = await ingestRecentGmail({
     credentialId: cred.id,
     query: "newer_than:7d",
@@ -124,7 +106,6 @@ async function main() {
 
   console.log(`[smoke-google] idempotent rerun: inserted=${rerun.inserted} (expected 0) ✓`);
 
-  // Sanity: documents list lookup by source.
   const sample = await db()
     .select()
     .from(documents)

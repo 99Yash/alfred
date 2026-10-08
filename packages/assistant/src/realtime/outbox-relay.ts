@@ -1,19 +1,7 @@
 /**
- * Outbox -> Redis relay.
- *
- * One process-wide loop drains `events_outbox` rows where `published_at IS
- * NULL`, publishes each onto `user-events:u:<userId>`, then stamps
- * `published_at = now()` in the same transaction. Wakes up on Postgres
- * `LISTEN events_outbox_new` plus a periodic backstop in case a NOTIFY is
- * missed (e.g. listener reconnecting).
- *
- * Delivery contract: at-least-once. The publish-then-mark order means a crash
- * after publish but before mark causes the row to be re-published on restart.
- * Consumers dedupe by frame `id`.
- *
- * `FOR UPDATE SKIP LOCKED` lets multiple replicas race safely if we ever scale
- * past one. Today there's only one server replica so it's a no-op cost, but
- * it's free insurance.
+ * Outbox to Redis relay. Wakes on `LISTEN events_outbox_new`, with a poll as backstop.
+ * At-least-once: publish, then mark published in the same transaction.
+ * A crash between them re-publishes, and consumers dedupe by frame `id`.
  */
 import pg from "pg";
 import { serverEnv } from "@alfred/env/server";
@@ -38,7 +26,7 @@ let pool: pg.Pool | undefined;
 let listenClient: pg.Client | undefined;
 
 interface OutboxRow {
-  id: string; // bigserial returns as string in pg
+  id: string; // pg returns bigserial as a string
   user_id: string;
   kind: string;
   payload: unknown;
@@ -68,14 +56,11 @@ async function drainOnce(): Promise<number> {
       return 0;
     }
 
-    // Publish to Redis BEFORE marking published — at-least-once over at-most-once.
     const published: string[] = [];
 
     for (const row of rows) {
       if (!isKnownEventKind(row.kind)) {
-        // Unknown kind made it into the outbox somehow; mark it published so
-        // we don't loop forever on it. This shouldn't happen in practice
-        // because publishEvent() validates the kind at insert time.
+        // Mark it published so it does not loop forever.
         console.warn("[outbox-relay] dropping unknown kind", row.kind, "id", row.id);
         published.push(row.id);
         continue;
@@ -93,7 +78,7 @@ async function drainOnce(): Promise<number> {
         published.push(row.id);
       } catch (err) {
         console.warn("[outbox-relay] publish failed for id", row.id, toMessage(err));
-        // Don't include in `published` — leave row for next pass.
+        // Leave the row for the next pass.
       }
     }
 
@@ -115,15 +100,7 @@ async function drainOnce(): Promise<number> {
   }
 }
 
-/**
- * Drain until a batch comes back short, or the task is stopped.
- *
- * The re-entrancy guard, the coalescing of overlapping wakes, and the bounded
- * wait on shutdown all live in `PeriodicTask` now. What is left here is the one
- * thing specific to the relay: keep going while batches are full, and check the
- * signal between them so a shutdown does not start a batch it cannot finish
- * before the pool closes.
- */
+/** Drain until a batch comes back short. Check the signal between batches. */
 async function drainPass(signal: AbortSignal): Promise<void> {
   let batches = 0;
 
@@ -145,9 +122,7 @@ async function drainPass(signal: AbortSignal): Promise<void> {
 const relay = new PeriodicTask({
   name: "outbox-relay",
   intervalMs: BACKSTOP_POLL_MS,
-  // The backstop only exists in case a NOTIFY is missed. `startListener` fires
-  // the first drain once it is actually listening, so there is nothing to do at
-  // the moment `start()` is called.
+  // `startListener` triggers the first drain once it listens.
   runOnStart: false,
   pass: drainPass,
 });
@@ -157,9 +132,7 @@ async function startListener(): Promise<void> {
   listenClient.on("error", (err) => {
     console.warn("[outbox-relay] listen client error:", err.message);
   });
-  // `relay.trigger()` is already a no-op once stopped, so the notification path
-  // needs no guard of its own. The reconnect path still does: it must not build
-  // a new client after shutdown.
+  // `trigger()` is a no-op once stopped. The reconnect must check, so it builds no client after shutdown.
   listenClient.on("notification", () => {
     relay.trigger();
   });
@@ -177,7 +150,6 @@ async function startListener(): Promise<void> {
 
   await listenClient.connect();
   await listenClient.query(`LISTEN ${NOTIFY_CHANNEL}`);
-  // Drain any rows that landed before the listener was up.
   relay.trigger();
 }
 
@@ -193,7 +165,7 @@ export async function startOutboxRelay(): Promise<void> {
     console.warn("[outbox-relay] pool error:", err.message);
   });
 
-  // Before the listener, so the drain it triggers has a live task to run on.
+  // Start before the listener, so its trigger is not a no-op.
   relay.start();
   await startListener();
 
@@ -203,15 +175,11 @@ export async function startOutboxRelay(): Promise<void> {
 export async function stopOutboxRelay(): Promise<void> {
   if (relay.stopped) return;
 
-  // Stop the task first: it aborts the pass and waits for it, which is what
-  // makes closing the pool below safe. Unlisten in between so no new NOTIFY
-  // arrives while we drain.
+  // Unlisten, then stop the task (it waits for the pass), then close the pool.
   if (listenClient) {
     try {
       await listenClient.query(`UNLISTEN ${NOTIFY_CHANNEL}`);
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 
   const drained = await relay.stop();
@@ -222,9 +190,6 @@ export async function stopOutboxRelay(): Promise<void> {
   }
 
   if (pool) {
-    // Only safe because `relay.stop()` resolved. If it timed out the pass still
-    // holds a client, and ending the pool here is the tear-out we are avoiding —
-    // so say so rather than close silently.
     if (!drained) console.warn("[outbox-relay] closing pool with a drain still in flight");
     await pool.end().catch(() => {});
     pool = undefined;

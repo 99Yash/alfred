@@ -1,10 +1,8 @@
 import { isRecord } from "./guards";
 
 /**
- * Bounded scalar leaves from an untrusted JSON value. Paths preserve context
- * for text indexing and let callers inspect link fields without a second walk.
- * Truncated leaves must not be used as links or other exact scalar values.
- * Limits bound recursion, wide empty containers, and text sent to an embedder.
+ * Flatten untrusted JSON to bounded scalar leaves with their paths.
+ * Never use a truncated leaf as a link or other exact value.
  */
 export function flattenJson(value: unknown) {
   const leaves: { path: string[]; value: string; truncated: boolean }[] = [];

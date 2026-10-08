@@ -44,7 +44,7 @@ function consumerNamed(name: string) {
   return consumer;
 }
 
-/** Wire the four batch-fact consumers into the live seam and hand back teardown. */
+/** Register the four batch-fact consumers; returns teardown. */
 function registerAllConsumers(): () => void {
   const unregisters = gmailIngestedTriggerConsumers().map((consumer) =>
     registerTriggerConsumer(consumer),
@@ -77,9 +77,7 @@ describe("gmail documents_ingested consumers", () => {
   });
 
   test("a throwing reaction is swallowed by the seam, not the body", async () => {
-    // A triage handler that throws a plain (non-boot) error makes the triage
-    // consumer's accept reject. Because it registers best-effort, the seam
-    // swallows that rejection and the publish resolves — no body-level try/catch.
+    // A plain error from a best-effort consumer is swallowed by the seam.
     const originalWarn = console.warn;
     console.warn = () => {};
 
@@ -104,9 +102,7 @@ describe("gmail documents_ingested consumers", () => {
   });
 
   test("a boot-wiring failure still rejects the publish even from a best-effort consumer", async () => {
-    // With no triage handler registered, the triage seam throws
-    // NoGmailTriageHandlerRegisteredError (a TriggerConsumerBootError). The seam
-    // must NOT swallow it — a broken boot path has to fail the job and retry.
+    // A missing handler is a TriggerConsumerBootError: it must fail the job.
     const unregisterConsumers = registerAllConsumers();
 
     try {
@@ -122,28 +118,21 @@ describe("gmail documents_ingested consumers", () => {
   });
 
   test("every consumer ignores a non-batch event without touching a side effect", async () => {
-    // The batch consumers share the bus with `message_received` and see the
-    // re-entrant emit the triage consumer itself publishes. Each must no-op on
-    // any event that is not its Gmail batch fact — otherwise it would recurse or
-    // reach for a handler/DB that this test does not wire.
+    // Each consumer must no-op on any other event, or it recurses on the triage re-emit.
     for (const consumer of gmailIngestedTriggerConsumers()) {
       await assert.doesNotReject(() => consumer.accept(messageReceived));
     }
   });
 
   test("corpus, user-model, and inbox consumers short-circuit an empty batch", async () => {
-    // These three carry an explicit empty-guard, so an empty batch reaches
-    // neither corpus, the DB, nor the SSE bus — no handler or DB needed.
+    // These three return early on an empty batch.
     for (const name of ["gmail-corpus-index", "gmail-user-model-capture", "gmail-inbox-rail"]) {
       await assert.doesNotReject(() => consumerNamed(name).accept(emptyBatch()));
     }
   });
 
   test("triage consumer routes through the triage seam and stays best-effort", async () => {
-    // The triage consumer always calls the post-insert triage seam (thread
-    // repair runs even with nothing to reconcile). A stub handler stands in for
-    // runtime composition; the consumer must resolve, not reject, when its
-    // best-effort reactions have nothing to do.
+    // The triage consumer always calls the seam, since thread repair runs on an empty batch too.
     const unregister = registerGmailTriageHandler({
       async postInsert() {
         return { replyReevalTargets: [] };

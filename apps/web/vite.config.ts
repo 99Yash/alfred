@@ -8,17 +8,10 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // Shared lucide icons (and other tiny shared modules) otherwise each
-        // become their own ~1KB chunk — the landing page alone pulled ~20 of
-        // them as separate requests. Merge sub-20KB chunks into their importers
-        // to collapse that waterfall.
+        // Merge tiny shared chunks (lucide icons) into importers, so pages do not load ~20 of them.
         experimentalMinChunkSize: 20_000,
-        // Carve heavy, rarely-changing vendors out of the always-loaded entry
-        // chunk into stable buckets. Without this, react + router + query +
-        // replicache + auth all land in one ~580KB entry that every route
-        // (including the public landing) pays for on first paint. Splitting
-        // them keeps each below the 500KB warning and lets the browser cache
-        // vendor code across app deploys.
+        // Split stable vendors out of the entry chunk, so it stays under 500KB
+        // and the browser caches vendor code across deploys.
         manualChunks(id) {
           if (!id.includes("node_modules")) return;
 
@@ -44,8 +37,7 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    // Never auto-increment onto the API port. A duplicate web process on 3001
-    // makes auth fail with misleading CORS/network errors.
+    // Never move onto the API port 3001. That breaks auth with misleading CORS errors.
     strictPort: true,
     proxy: {
       "/api/auth": {

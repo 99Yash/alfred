@@ -7,8 +7,7 @@ import { getIntegrationPage } from "~/lib/integrations/integrations";
 
 export function IntegrationDetailPage() {
   const { slug } = useParams({ from: "/integrations/$slug" });
-  // The route's `beforeLoad` redirects the legacy `google_*` ids, so a param
-  // that is not a catalog slug here is a genuine miss.
+  // `beforeLoad` redirects legacy `google_*` ids, so a non-slug here is a real miss.
   const page = getIntegrationPage(slug);
   const resolved = useResolvedIntegration(slug);
   const provider = resolved ?? page;

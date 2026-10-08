@@ -7,57 +7,35 @@ import {
 import type { ChatMessageRole } from "@alfred/db/schemas";
 
 /**
- * Chat → memory end-of-thread extractor (chat-memory-capture-v1.md, #398;
- * decisions D6/D9).
- *
- * A pure cheap-model pass over a FINISHED chat transcript that distills CRISP,
- * nameable propositions (D6) tagged with the D4 epistemic axes. It mirrors the
- * document extractor (`./extraction.ts`): the LLM call is kept separate
- * from persistence so the workflow owns writes (and #399 can wire the output
- * into `insertObservation` without touching this file), and so both the
- * transcript-building and the parse are unit-testable without the AI SDK.
- *
- * v1 reads role + content only (D9) — tool-call details are out of scope. The
- * idle debounce means the whole conversation is visible, so a correction arc
- * has already resolved: capture the FINAL state, never the mid-thread wrong turn.
- *
- * Cheap-tier model per ADR-0016 (`route("cheap").model()`).
+ * Chat end-of-thread extractor (`docs/plans/chat-memory-capture-v1.md`, D6/D9).
+ * A cheap-model pass over a finished transcript that returns crisp, tagged
+ * propositions. It writes nothing. Reads role and content only. The thread is
+ * finished, so capture the final state, not a mid-thread wrong turn.
  */
 
-/** One transcript turn the extractor reads (role + content only, D9). */
+/** One transcript turn: role and content only (D9). */
 export interface ThreadTurn {
   role: ChatMessageRole;
   content: string;
 }
 
-/**
- * Char budget for the transcript fed to the extractor. Bounded like the doc
- * extractor's ~12k cap; when a thread exceeds it we keep the LATEST turns so
- * the resolved end-of-thread state (the whole point of the debounce, D9)
- * survives — the oldest turns are dropped first.
- */
+/** Over budget, keep the latest turns: the resolved end state lives there. */
 export const MAX_TRANSCRIPT_CHARS = 12_000;
 
 export interface ExtractThreadArgs {
   userId: string;
   threadId: string;
-  /** The thread's finished turns, oldest-first, or an already-rendered capped transcript. */
+  /** Finished turns, oldest first, or an already-rendered transcript. */
   transcript: ThreadTurn[] | string;
-  /** Run/step ids forwarded to the metering log + Langfuse trace. */
+  /** Forwarded to the metering log and Langfuse trace. */
   runId?: string;
   stepId?: string;
-  /** Stable per-call idempotency key — caller derives from `(runId, stepId, threadId)`. */
+  /** The caller derives it from `(runId, stepId, threadId)`. */
   idempotencyKey?: string;
-  /**
-   * Seam for tests (and future callers): the structured-generation function.
-   * Defaults to the metered cheap-model call. A test can inject a stub that
-   * returns a fixed object without dragging the AI SDK into the harness — the
-   * same split the doc extractor achieves via the workflow's manual mode.
-   */
+  /** Test seam. Defaults to the metered cheap-model call. */
   generate?: GenerateObject;
 }
 
-/** The minimal generation seam the extractor depends on (see `ExtractThreadArgs.generate`). */
 export type GenerateObject = (args: {
   system: string;
   prompt: string;
@@ -68,12 +46,7 @@ const ROLE_LABELS = {
   assistant: "Alfred",
 } satisfies Record<ChatMessageRole, string>;
 
-/**
- * Render the turns into a `Role: content` transcript, newest-preserving. Joins
- * turns oldest-first but, when the budget is exceeded, drops from the FRONT so
- * the tail (where a correction lands) is always kept. Pure + exported so the
- * truncation rule is unit-testable on its own.
- */
+/** Render `Role: content` lines, dropping the oldest turns when over budget. */
 export function buildThreadTranscript(
   transcript: ThreadTurn[],
   maxChars: number = MAX_TRANSCRIPT_CHARS,
@@ -86,8 +59,7 @@ export function buildThreadTranscript(
     })
     .filter((line): line is string => line !== null);
 
-  // Accumulate from the newest turn backwards until the budget is spent, so the
-  // dropped turns are the oldest ones.
+  // Walk back from the newest turn, so the oldest turns drop first.
   const kept: string[] = [];
   let used = 0;
   let truncated = false;
@@ -154,11 +126,7 @@ function userPrompt(transcript: string): string {
   return ["=== Conversation transcript ===", transcript].join("\n");
 }
 
-/**
- * Default generation seam: the metered cheap-model structured-output call.
- * Mirrors `extractFactsFromDocument`'s metering attribution so chat capture
- * shows up in the same cost lane.
- */
+/** The metered cheap-model call, attributed like `extractFactsFromDocument`. */
 function defaultGenerate(args: ExtractThreadArgs): GenerateObject {
   return async ({ system, prompt }) => {
     const result = await meteredGenerateObject<ChatMemoryExtractionResult>(
@@ -168,7 +136,6 @@ function defaultGenerate(args: ExtractThreadArgs): GenerateObject {
         prompt,
         schema: chatMemoryExtractionResultSchema,
         temperature: 0,
-        // Hard cap so a misbehaving model can't produce a huge blob.
         maxOutputTokens: 2_000,
       },
       {
@@ -189,12 +156,7 @@ function defaultGenerate(args: ExtractThreadArgs): GenerateObject {
   };
 }
 
-/**
- * Run the cheap-tier model over a finished thread and return its crisp
- * propositions. No persistence — the caller (the `chat-memory-capture`
- * workflow) owns what happens next. Returns an empty array for an empty
- * transcript without calling the model.
- */
+/** Propositions from a finished thread. Empty transcript returns `[]` with no model call. */
 export async function extractPropositionsFromThread(
   args: ExtractThreadArgs,
 ): Promise<ChatProposition[]> {
@@ -208,7 +170,6 @@ export async function extractPropositionsFromThread(
   const generate = args.generate ?? defaultGenerate(args);
   const result = await generate({ system: SYSTEM_PROMPT, prompt: userPrompt(transcript) });
 
-  // Re-validate the seam's output so an injected/relaxed generator can't return
-  // a shape that violates the contract downstream consumers rely on.
+  // Re-validate: an injected generator can return anything.
   return chatMemoryExtractionResultSchema.parse(result).propositions;
 }

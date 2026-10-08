@@ -13,15 +13,9 @@ import {
 } from "@alfred/assistant/chat/chat-attachments";
 
 /**
- * Direct coverage for the ADR-0065 per-turn image budget, which had none while
- * it lived inside `chat-turn.ts`: it could only be exercised through a live
- * model turn with real object storage, so every accounting bug was a production
- * bug. With the object reader injected, the budget and its three distinct skip
- * reasons (over-budget / unreadable / invalid) are ordinary unit tests.
- *
- * The invariant that matters in production: an image that cannot be inlined is
- * REPLACED by a text part saying so, never silently dropped. A silently dropped
- * image is how the boss ends up confidently describing a picture it never saw.
+ * The ADR-0065 per-turn image budget.
+ * An image that cannot be inlined becomes a text part, never a silent drop,
+ * or the boss describes a picture it never saw.
  */
 
 /** A minimal valid PNG header, enough for `sniffPassThroughImageMime`. */
@@ -34,7 +28,7 @@ function pngBytes(totalBytes: number): Uint8Array {
   return bytes;
 }
 
-/** The stored (pre-hydration) shape `buildStoredContentParts` emits for an image. */
+/** The stored image shape from `buildStoredContentParts`. */
 interface StoredImageRecord {
   type: "chat_attachment_image";
   storageKey: string;
@@ -98,8 +92,7 @@ describe("chat attachment hydration — per-turn byte budget", () => {
     const content = transcript[0]?.content;
     assert.equal(filePartCount(content), 1);
     assert.deepEqual(textParts(content), ["what is this"]);
-    // Base64 expands 3 bytes to 4 characters; the budget counts the encoded size,
-    // which is what actually rides the request.
+    // The budget counts base64 size: 4 characters per 3 bytes.
     assert.equal(budget.usedEncodedBytes, 4_000);
     assert.equal(budget.skippedImages, 0);
   });
@@ -148,8 +141,7 @@ describe("chat attachment hydration — per-turn byte budget", () => {
   });
 
   test("an undeclared oversize image is caught by the post-read budget check", async () => {
-    // No `byteSize`, so the projection check cannot fire — only the re-check
-    // against the real encoded size stops this one.
+    // No `byteSize`, so only the re-check on the encoded size stops this one.
     const raw = pngBytes(MAX_MODEL_ATTACHMENT_BYTES_PER_TURN);
 
     const { transcript, budget } = await hydrateTranscriptForModel(
@@ -205,8 +197,7 @@ describe("chat attachment hydration — per-turn byte budget", () => {
   });
 
   test("bytes that are not a supported image are reported as invalid", async () => {
-    // No `mediaType` on the part, so the mime is sniffed from the bytes — and
-    // these are not an image.
+    // No `mediaType`, so the bytes are sniffed, and they are not an image.
     const { transcript, budget } = await hydrateTranscriptForModel(
       [userMessage([{ type: "chat_attachment_image", storageKey: "junk" }])],
       readerFor({ junk: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]) }),

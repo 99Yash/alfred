@@ -8,11 +8,7 @@ export type TaskGroupSettledResult<T> =
   | { status: "fulfilled"; value: T }
   | { status: "rejected"; reason: unknown };
 
-/**
- * Run sibling tasks under one abort scope. If any task rejects, the group
- * aborts the shared signal immediately, then waits for every task to settle
- * before returning/throwing so no child work escapes its caller's lifetime.
- */
+/** Run tasks under one abort signal. One failure aborts the rest, and all settle before this returns. */
 export async function runTaskGroup<T>(
   tasks: ReadonlyArray<TaskFactory<T>>,
   opts: { signal?: AbortSignal } = {},
@@ -62,12 +58,7 @@ export async function settleTaskGroup<T>(
   });
 }
 
-/**
- * Bounded-concurrency map with the same structured lifetime as runTaskGroup:
- * one unhandled item failure aborts the shared signal and the workers drain
- * before the error is rethrown. Callers that want best-effort processing should
- * catch per item inside `fn`.
- */
+/** Like `runTaskGroup`, with a concurrency limit. For best effort, catch inside `fn`. */
 export async function mapConcurrent<T>(
   items: ReadonlyArray<T>,
   concurrency: number,
@@ -85,8 +76,7 @@ export async function mapConcurrent<T>(
         const current = index++;
 
         if (current >= items.length) return;
-        // SAFETY: current < items.length was checked above, so the indexed
-        // read is defined even under noUncheckedIndexedAccess.
+        // SAFETY: `current < items.length` is checked above.
         await fn(items[current] as T, scope);
       }
     }),

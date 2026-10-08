@@ -3,12 +3,7 @@ import { type ReactNode } from "react";
 import { LandingBackground } from "~/components/landing";
 import { cn } from "~/lib/utils";
 
-/**
- * Standalone layout for the public legal pages (`/privacy-policy`,
- * `/terms-of-service`). These render chromeless and auth-free so Google's
- * OAuth verification reviewers — and any signed-out visitor — can read them
- * directly. Mirrors the landing's dark canvas; quiet, document-shaped column.
- */
+/** Chromeless, auth-free layout for the legal pages, so OAuth reviewers can read them. */
 export function LegalPage({
   title,
   effectiveDate,
@@ -20,9 +15,7 @@ export function LegalPage({
 }) {
   return (
     <LandingBackground className="min-h-[100dvh] w-full overflow-x-hidden">
-      {/* `<main>` gives these chromeless public pages their required primary
-       * landmark (the authed shell supplies one for app routes; chromeless
-       * routes must bring their own). */}
+      {/* Chromeless routes must bring their own primary landmark. */}
       <main className="relative mx-auto w-full max-w-3xl px-5 pt-16 pb-24 sm:px-8 sm:pt-24">
         <a
           href="/"
@@ -53,7 +46,6 @@ export function LegalPage({
   );
 }
 
-/** A titled section within a legal document. */
 export function LegalSection({ heading, children }: { heading: string; children: ReactNode }) {
   return (
     <section className="space-y-3">

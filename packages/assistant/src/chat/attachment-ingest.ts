@@ -27,21 +27,11 @@ import {
   releasePendingUploadBudget,
 } from "./attachment-upload-quota";
 
-/**
- * Attachment ingest for the chat composer (ADR-0065). Owns what happens to the
- * bytes: the quota reservation, the duplicate short circuit, the pass-through
- * image decode, the write to the bucket, and the auth-scoped read back.
- *
- * The transport in front of this decodes a multipart request and turns a throw
- * into a status. It takes no decision that outlives the response.
- */
+/** Chat upload ingest (ADR-0065): quota, duplicate check, decode, bucket write, and owner-scoped read. */
 
 /**
- * Extract chat-safe text from PDF bytes. A scanned PDF can continue without
- * deterministic text. Invalid, encrypted, and resource-limited PDFs fail at
- * the ingest boundary instead of creating a ready row with no readable data.
- * Door-bound via `extraction({ door: "chatUpload" })` — no `ContentFormat` at
- * the call site.
+ * Extract text from a PDF. A scanned PDF returns no text and continues. An invalid,
+ * encrypted, or over-limit PDF throws, so no ready row is left with nothing readable.
  */
 export async function extractChatPdfText(bytes: Uint8Array): Promise<string | null> {
   const media = extraction({ door: "chatUpload" });
@@ -57,8 +47,7 @@ export async function extractChatPdfText(bytes: Uint8Array): Promise<string | nu
   if (!result) throw Errors.BadRequestError("Unsupported file type.");
 
   if (result.kind === "extracted") {
-    // ADR-0091 D4: `degradedText` carries `[page N]` markers; the corpus path
-    // keeps the marker-less `content` plus offsets.
+    // Chat text carries `[page N]` markers (ADR-0091 D4).
     return formatExtractedMediaText(result);
   }
 
@@ -157,12 +146,7 @@ export interface UploadChatAttachmentInput {
   name: string;
   mime: string;
   size: number;
-  /**
-   * The bytes, read on demand. A duplicate row rejects before reading them; an
-   * existing object reads them to prove an exact retry instead of trusting only
-   * size and MIME. A `File` would do the same job, but a Web `File` is a
-   * transport shape and does not belong in a product signature.
-   */
+  /** Read on demand: a duplicate row rejects before the read. */
   readBytes: () => Promise<Uint8Array>;
 }
 
@@ -178,14 +162,9 @@ export async function schedulePendingUploadCleanup(
 }
 
 /**
- * Accept one attachment's bytes into the bucket and return the key the send
- * step will reference. No `chat_attachments` row is written here — that happens
- * at send time, in {@link import("./turn-admission").startChatTurn}.
- *
- * The reserve/release accounting is the delicate part. `reservedPendingBytes`
- * becomes non-zero only AFTER the byte checks pass and only BEFORE the write,
- * so the `catch` releases exactly what was reserved and releases nothing when an
- * earlier step throws.
+ * Write one attachment to the bucket and return its key. The row is written at send time.
+ * `reservedPendingBytes` is set only after the checks and before the write, so the
+ * `catch` releases exactly what was reserved.
  */
 export async function uploadChatAttachment(
   input: UploadChatAttachmentInput,
@@ -196,8 +175,6 @@ export async function uploadChatAttachment(
     );
   }
 
-  // Validate the declared mime + actual byte size against the ingest
-  // policy (per-type cap); the storage key is rebuilt server-side.
   assertUploadAllowed(input.mime, input.size);
 
   const storageKey = buildAttachmentKey({
@@ -214,9 +191,7 @@ export async function uploadChatAttachment(
     await assertAttachmentUploadRateAllowed(input.userId);
 
     return await withChatStorageKeyLock(storageKey, async (storageDb) => {
-      // The session advisory lock is shared by every replica and uses the same
-      // namespace as turn admission and pending cleanup. It keeps the key
-      // immutable without holding an open transaction during object-store I/O.
+      // An advisory lock shared with admission and cleanup, so no transaction stays open during I/O.
       const existingRows = await storageDb
         .select({ id: chatAttachments.id })
         .from(chatAttachments)
@@ -250,8 +225,6 @@ export async function uploadChatAttachment(
 
       const bytes = await input.readBytes();
 
-      // Extract PDFs before the common storage tail. Images keep their existing
-      // pass-through decode. No other degrade-text type is admitted by the gate.
       const degradation: AttachmentDegradation = isPdf
         ? { kind: "pdf", text: await extractChatPdfText(bytes) }
         : { kind: "image" };
@@ -268,8 +241,7 @@ export async function uploadChatAttachment(
       });
       reservedPendingBytes = input.size;
       await writeObject(storageKey, bytes, input.mime);
-      // Enqueue cleanup as soon as raw bytes exist. If the sidecar write or the
-      // later turn commit fails, the delayed job still owns the orphan.
+      // Schedule cleanup now: if a later write or the turn commit fails, the job reaps the orphan.
       await schedulePendingUploadCleanup(input.userId, storageKey);
 
       if (degradation.kind === "pdf") {
@@ -288,13 +260,7 @@ export async function uploadChatAttachment(
   }
 }
 
-/**
- * A freshly minted presigned GET for one of this user's attachments. The bucket
- * is private, so the synced row carries display metadata only and the raw bytes
- * are reachable only through an owner-scoped lookup. Throws when the attachment
- * is not this user's, which is what makes the redirect safe to hand to an
- * `<img>` tag.
- */
+/** A presigned GET for one of this user's attachments. Throws for another user's, so an `<img>` redirect is safe. */
 export async function resolveChatAttachmentContentUrl(
   attachmentId: string,
   userId: string,

@@ -1,39 +1,14 @@
 /**
- * COMMITTED backfill: mint revision 1 for every user-authored workflow (#555).
+ * Mint revision 1 for every user-authored workflow (#555). SQL cannot do this:
+ * the content hash comes from `workflowRevisionContentHash`, and a later no-op
+ * edit must reproduce it.
  *
- * Migration `0090_nappy_owl` adds `workflow_revisions` plus the two pointers
- * on `workflows`, but it cannot fill them. The content hash is SHA-256 over a
- * canonical JSON pre-image produced by `workflowRevisionContentHash`, so a SQL
- * `UPDATE` would either omit the hash or invent one that no later `revise` call
- * could reproduce. This script mints the row through the same function the
- * service uses, which is what makes "an edit that changes nothing appends no
- * revision" true for a pre-existing workflow on its very first edit.
+ * Per row with `current_revision_id IS NULL`: mint revision 1 from the row's
+ * columns, point `current_revision_id` at it, and also `published_revision_id`
+ * when the row is `active`. `allowed_tools` and `required_capabilities` stay empty.
+ * Built-ins are skipped. A row with no `brief` is skipped and reported.
  *
- * Per user-authored row with `current_revision_id IS NULL`:
- *
- *   1. Read the definition off the row's denormalized columns.
- *   2. Mint revision 1 with that definition and its content hash.
- *   3. Point `current_revision_id` at it, and `published_revision_id` too when
- *      the row is `active` — an active row IS running that definition, so
- *      pinning it is the truthful record. A draft/paused/archived row publishes
- *      nothing, so its published pointer stays null and an edit keeps
- *      refreshing the denormalized copy exactly as it does today.
- *
- * `allowed_tools` and `required_capabilities` stay empty. This script does not
- * guess an execution envelope for a workflow nobody reviewed; `#557`'s
- * capability resolver fills them on the next real edit.
- *
- * Built-ins are skipped by definition — their source of truth is a TS module
- * and both pointers stay null. A row with a null or empty `brief` is skipped
- * and reported: a revision with no brief has nothing to run, so inventing one
- * would be worse than leaving the row un-migrated.
- *
- * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
- * `node dist/scripts/backfills/backfill-workflow-revisions-committed.js`.
- *
- * Dry by default — prints what it WOULD write. `--commit` applies and
- * REQUIRES `--emails=...` so a prod shell typo cannot mutate the default
- * account. Idempotent: a row that already has a revision is never matched.
+ * Bundled for prod. Dry by default. `--commit` requires `--emails=...`. Idempotent.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfills/backfill-workflow-revisions-committed.js
@@ -92,9 +67,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
   const skipped: Array<{ slug: string; reason: string }> = [];
 
   for (const row of rows) {
-    // The row's own columns are the definition. Parsing (rather than trusting)
-    // is what catches the null brief and any trigger written before the current
-    // schema; an unparseable row is reported, never guessed at.
+    // Parse, so a null brief or an old trigger shape is reported, not guessed.
     const parsed = workflowRevisionDefinitionSchema.safeParse({
       name: row.name,
       description: row.description,
@@ -136,8 +109,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
         allowedIntegrations: definition.allowedIntegrations,
         allowedTools: definition.allowedTools,
         requiredCapabilities: definition.requiredCapabilities,
-        // An active row was approved at some point; the row's own creation is
-        // the closest instant on record. A non-published revision is unapproved.
+        // The row's creation time is the closest approval time on record.
         approvedAt: publishes ? (row.createdAt ?? new Date()) : null,
       });
       await tx
@@ -194,7 +166,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

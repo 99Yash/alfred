@@ -11,18 +11,10 @@ import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
-// GROUND: behavioral guard that the boss answers relative calendar questions
-// ("today" / "tomorrow" / "this week") through the STRUCTURED `window` /
-// `partOfDay` fields instead of inventing a param name or hand-computing
-// explicit RFC3339 bounds. The prod trace (run_wdtn451w1zp0): asked "what's on
-// my calendar today" the boss invented `{timeframe:"today"}` (rejected — the
-// real field is `window`), then bailed to explicit `timeMin/timeMax` bounds
-// with a `+05:30` offset (rejected — the schema only accepted `Z`), landing the
-// answer on the THIRD attempt. We expose the real calendar.list_events tool
-// with no `execute` so the model stops at the first call, then assert its args.
-//
-// Run locally with apps/server/.env populated (ANTHROPIC_API_KEY +
-// GOOGLE_GENERATIVE_AI_API_KEY, matching serverEnv): `pnpm --filter @alfred/assistant eval`.
+// The boss must answer "today" or "this week" with the `window` / `partOfDay` fields.
+// In prod (run_wdtn451w1zp0) it invented `timeframe`, then hand-computed bounds, and took three tries.
+// The tool has no `execute`, so the run stops at the first call and we check its args.
+// Run with apps/server/.env populated: `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
@@ -41,17 +33,11 @@ const CONNECTED_SUMMARY = [
   "- github.search, github.get_pull_request, github.get_issue — the user's GitHub issues and pull requests — connected as 99Yash",
 ].join("\n");
 
-// Mirror prod: chat's system prompt states no date; "now" rides the ephemeral
-// runtime line delivered as an assistant turn just before the user's message
-// (see runFirstCall), the single source of the current date and time (#410).
+// Like prod: the system prompt has no date. "Now" comes from the runtime line in runFirstCall (#410).
 const SYSTEM = buildChatSystemPrompt("", CONNECTED_SUMMARY, selfIdentityGrounding());
 
-// The advertised parameters (from the model-facing JSON schema). The runtime
-// schema also tolerates window-key synonyms (`timeframe`/`range`/…), but the
-// goal we measure here is that the model uses the real `window` — a synonym
-// still counts as a grounding miss even though the tool would accept it.
-// SAFETY: reads only the top-level `properties` keyword off the emitted JSON
-// Schema document.
+// The runtime schema accepts synonyms like `timeframe`, but using one still counts as a miss.
+// SAFETY: reads only the top-level `properties` of the emitted JSON Schema.
 const ADVERTISED = z.toJSONSchema(calendarListEventsInput, { io: "input" }) as {
   properties?: Record<string, unknown>;
 };
@@ -70,8 +56,7 @@ interface Case {
 
 const CASES: Case[] = [
   {
-    // The exact prod fumble: relative "today" must use window, not invented
-    // params and not hand-computed bounds.
+    // The exact prod failure.
     input: "what's on my calendar today?",
     expected: { window: "today" },
   },
@@ -99,8 +84,6 @@ function runFirstCall(input: string) {
     ],
     temperature: 0,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    // The real calendar tool, execute-less so the run halts on the first tool
-    // call and we can inspect the args the model chose.
     tools: {
       [LIST_EVENTS_TOOL]: tool({
         description:
@@ -122,8 +105,7 @@ evalite<string, GroundingTaskOutput, ExpectedCalendarCall>("Agent calendar groun
 
     return {
       toolName: call?.toolName ?? null,
-      // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
-      // tolerates absence via ??.
+      // SAFETY: diagnostic view of the tool-call input; `??` covers absence.
       args: (call?.input as Record<string, unknown> | undefined) ?? null,
       text: result.text,
     };
@@ -140,7 +122,6 @@ evalite<string, GroundingTaskOutput, ExpectedCalendarCall>("Agent calendar groun
       }),
     },
     {
-      // The core regression: only real schema params (no invented `timeframe`).
       name: "No invented parameters",
       scorer: ({ output }) => {
         const args = output.args ?? {};
@@ -156,8 +137,6 @@ evalite<string, GroundingTaskOutput, ExpectedCalendarCall>("Agent calendar groun
       },
     },
     {
-      // Relative questions resolve through the structured window/partOfDay
-      // fields, not hand-computed timeMin/timeMax bounds.
       name: "Uses the relative window field",
       scorer: ({ output, expected }) => {
         const args = output.args ?? {};

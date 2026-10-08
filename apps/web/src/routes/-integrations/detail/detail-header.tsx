@@ -19,11 +19,8 @@ import { INTEGRATION_STATUS_QUERY_KEY } from "~/lib/integrations/use-integration
 import { toast } from "~/lib/toast";
 
 /**
- * The connect action reads the registry entry's credential: a planned provider
- * renders a disabled "Coming Soon"; a `token_paste` credential renders the form
- * its `TOKEN_PASTE_FORMS` row declares; every other live credential redirects to
- * the path `connectPathFor` builds (the provider's route family plus, for a
- * Google product, the `?features=` its entry declares).
+ * Planned: disabled "Coming Soon". `token_paste`: its `TOKEN_PASTE_FORMS` form.
+ * Otherwise: redirect to `connectPathFor`.
  */
 function ConnectAction({ provider, connected }: { provider: IntegrationPage; connected: boolean }) {
   if (!isLiveProviderSlug(provider.slug)) {
@@ -67,13 +64,10 @@ export function DetailHeader({
   );
 }
 
-/** OAuth/redirect providers (Google, GitHub, Notion, Vercel). */
+/** OAuth redirect providers. */
 function RedirectConnect({ slug, connected }: { slug: LiveProviderSlug; connected: boolean }) {
-  // Google providers gate the redirect behind consent coaching: one grant
-  // covers the whole Workspace, and an unverified app trips two consent-screen
-  // gotchas (uncheckable per-scope boxes + the "unverified app" interstitial)
-  // that the dialog pre-explains. Other OAuth providers carry no such gotcha,
-  // so they redirect straight through. Mirrors the onboarding flow.
+  // Google gets consent coaching first: one grant covers Workspace, and the
+  // unverified-app screens need explaining. Other providers redirect directly.
   const [consentOpen, setConsentOpen] = useState(false);
   const isGoogle = credentialProviderOf(slug) === "google";
   const label = connected ? "Add Account" : "Connect";
@@ -104,23 +98,13 @@ function RedirectConnect({ slug, connected }: { slug: LiveProviderSlug; connecte
 }
 
 /**
- * The `token_paste` connect flow. Sentry uses an internal integration token,
- * so the user pastes a token they generated themselves. We
- * POST it to the provider's connect route (which validates it upstream before
- * storing) and refresh the credential query on success so the tile flips to
- * "Connected". The table below is the per-provider half: what the user pastes,
- * where to get it, whether the route needs a second field beside the token, and
- * the typed Eden call. Its key set is the registry's token-paste slugs, so a new
- * `token_paste` credential cannot ship without a form.
+ * Per-provider paste form. The connect route validates the token upstream.
+ * Keyed by the registry's token-paste slugs, so a new one cannot ship without a form.
  */
 interface TokenPasteForm {
   tokenPlaceholder: string;
-  /** Where the user generates the token. */
   tokenUrl: string;
-  /**
-   * A second identifier the connect route needs beside the token (Sentry's
-   * organization slug), or `undefined` when the token alone names the account.
-   */
+  /** A second id the route needs (Sentry's org slug); `undefined` if the token is enough. */
   scope?: { placeholder: string } | undefined;
   submit(values: {
     token: string;
@@ -156,8 +140,7 @@ function TokenPasteConnect({ slug, connected }: { slug: TokenPasteSlug; connecte
       const res = await form.submit({ token: token.trim(), scope: scope.trim() });
 
       if (res.error) {
-        // The connect route distinguishes a wrong token, a wrong organization,
-        // an already-connected sibling, and an upstream outage; show its message.
+        // The route's message tells a wrong token, wrong org, duplicate, and outage apart.
         toast.error(responseErrorMessage(res.error.value, res.error.status, `Connect ${name}`));
 
         return;

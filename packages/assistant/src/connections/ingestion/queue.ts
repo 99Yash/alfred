@@ -31,27 +31,8 @@ import { runDeliveryAlertSweepForAllUsers } from "./delivery-alert-sweep";
 import { backfillReceiptDocuments } from "./receipt-corpus-backfill";
 
 /**
- * Ingestion queue. Each provider gets its own job kind so a stuck
- * Slack-shaped job doesn't block Gmail throughput. Job kinds:
- *  - gmail.ingest_recent  (m7a) — bulk recent-window ingest
- *  - gmail.poll_recent    (ADR-0037) — pub/sub realtime path; messages.list search index
- *  - gmail.poll_history   (m7c) — history.list catch-up; demoted to poll-fallback only
- *  - gmail.watch_renew    (m7c) — replace watch channels nearing expiry
- *  - gmail.poll_sweep     (m7c) — repeatable: enqueue polls for active Gmail cursors
- *  - gmail.embed_sweep    (m7c) — repeatable: retry embed for chunkless docs
- *  - gmail.media_ingest   (ADR-0091 amendment) — deferred attachment ingest:
- *                    fetch + extract + persist + embed one message's attachments
- *  - user_model.gmail_kind_refold — refresh active Gmail kind projection after
- *                    live observation capture.
- *  - ingress.deliver      (ADR-0097) — publish one stored inbound webhook receipt
- *                    to the trigger bus; `jobId` is the receipt id so a redelivery's
- *                    re-enqueue is a no-op while the job lives, and `removeOnFail`
- *                    is set so a redelivery can revive a receipt after the last
- *                    attempt failed.
- *  - ingress.health_sweep (ADR-0100) — repeatable: pull each event source's own
- *                    delivery health and email the user about one that stopped
- *                    delivering. A broken source sends nothing, so a schedule
- *                    is the only thing that can notice.
+ * Ingestion queue: Gmail sync, chat media, user-model refolds and inbound receipt delivery.
+ * Repeatable schedules live in `repeatable.ts`.
  */
 const INGESTION_QUEUE_NAME = "ingestion-runs";
 
@@ -64,7 +45,7 @@ type GmailInsertJobKind = GmailDocumentsIngestedPayload["jobKind"];
 interface GmailInsertResult {
   userId: string;
   insertedDocumentIds: string[];
-  /** Freshly-inserted docs the ingestor did NOT embed inline — the ingestor owns this fact. */
+  /** Inserts the ingestor did not embed inline. The ingestor decides this. */
   unembeddedDocumentIds: readonly string[];
   triageDocumentIds: string[];
   sentDocumentIds: string[];
@@ -84,17 +65,8 @@ export function hasGmailPostInsertSideEffects(args: {
 }
 
 /**
- * Publish the batch fact `gmail.documents_ingested` for one completed insert
- * job. This is the ONLY downstream call the Gmail insert path makes: the
- * connection layer states the raw fact and imports no domain reaction. The
- * independent consumers — corpus embed, user-model capture, inbox rail, triage
- * post-insert — subscribe through composition (`gmail-ingested-consumers.ts`)
- * and each owns its own policy over these document sets.
- *
- * `result.unembeddedDocumentIds` (the docs the corpus consumer must embed) is
- * decided by the ingestor at the point where the inline embed happens or is
- * deferred, so this publisher forwards it uniformly and holds no embed-policy
- * knowledge of its own.
+ * Publish `gmail.documents_ingested` for one insert job. This is the only downstream call the Gmail
+ * insert path makes; consumers subscribe in `gmail-ingested-consumers.ts`.
  */
 async function publishGmailDocumentsIngested(args: {
   credentialId: string;
@@ -137,26 +109,21 @@ export type IngestionJobData =
       query?: string | undefined;
       maxMessages?: number | undefined;
       /**
-       * Emit triage trigger events for freshly-inserted docs after this job finishes.
-       * Default false — bulk re-ingests (30+ days of backlog) skip triage to
-       * avoid burning LLM tokens on stale mail. The OAuth callback opts in
-       * for the small first-connect seed (~8 messages).
+       * Emit triage events for the inserts. Default false, so bulk backlogs do not burn LLM tokens.
+       * The OAuth callback opts in for the small first-connect seed.
        */
       triageInsertedDocs?: boolean | undefined;
     }
   | {
       kind: "gmail.poll_recent";
       credentialId: string;
-      /** #560b: the Pub/Sub push historyId, for cursor-jump gap detection. */
+      /** Pub/Sub push historyId, for gap detection (#560b). */
       pushHistoryId?: string;
     }
   | {
       /**
-       * Install the Gmail `users.watch` channel for a freshly-connected
-       * credential so pub/sub realtime (ADR-0037) starts flowing. Enqueued
-       * by the OAuth callback — without it a new account has no watch, so
-       * mail is only caught by the 5-min `gmail.poll_sweep` fallback.
-       * Idempotent: re-installing overwrites `metadata.watch`.
+       * Install the Gmail watch for a new credential (ADR-0037). `gmail.watch_renew` only renews
+       * existing watches, so without this a new account gets only the 5-minute sweep.
        */
       kind: "gmail.watch_install";
       credentialId: string;
@@ -165,10 +132,8 @@ export type IngestionJobData =
       kind: "gmail.poll_history";
       credentialId: string;
       /**
-       * `webhook` is retained for the rare manual replay or backfill case;
-       * realtime traffic flows through `gmail.poll_recent` after ADR-0037.
-       * `poll-fallback` is the sweep; an insert on that path with no push
-       * delivery nearby is the evidence behind the stale-push signal (#998).
+       * `webhook` is for manual replay or backfill. `poll-fallback` inserts are the stale-push
+       * evidence (#998).
        */
       reason?: GmailPollHistoryReason;
     }
@@ -177,76 +142,47 @@ export type IngestionJobData =
   | { kind: "gmail.embed_sweep" }
   | { kind: "ingress.health_sweep" }
   | {
-      /**
-       * Deferred attachment ingest for one Gmail message (ADR-0091
-       * amendment). Scheduled by the poll paths instead of running fetch +
-       * child-process parse inline, so a multi-attachment message cannot hold
-       * the poll job (cursor advance + sibling messages) for minutes.
-       * Idempotent: skip-if-exists dedup makes re-runs a no-op; the mail row's
-       * `mediaPending` flag stays set until a clean pass clears it.
-       */
+      /** Deferred attachment ingest for one message (ADR-0091 amendment). Idempotent. */
       kind: "gmail.media_ingest";
       credentialId: string;
       messageId: string;
-      /** Mail document id — the row carrying the `mediaPending` flag. */
+      /** Mail document that carries the `mediaPending` flag. */
       documentId: string;
     }
   | {
-      /**
-       * Re-project the active Gmail kind-only user-model after live observation
-       * capture. No active projection means no-op: initial activation remains
-       * the committed script's job.
-       */
+      /** Re-project the active Gmail kind user-model. No active projection means no-op. */
       kind: "user_model.gmail_kind_refold";
       userId: string;
     }
   | {
       /**
-       * Scheduled backstop (#218 PR J): fan out `user_model.gmail_kind_refold`
-       * to every user with an ACTIVE user-model projection, keeping the Gmail
-       * kind projection fresh when live-capture refolds were missed or a
-       * backfill added observations out-of-band. Per-user refolds still pass the
-       * frozen-logic gate before activating; the fan-out itself never activates.
+       * Backstop: refold every user with an active projection, in case a live refold was missed.
+       * The fan-out never activates; each refold still passes the frozen-logic gate.
        */
       kind: "user_model.gmail_kind_refold_sweep";
     }
   | {
-      /**
-       * Reconcile one thread's Gmail label to its current `email_triage`
-       * category after a user override (rfc-triage-tags.md). Enqueued by the
-       * Replicache push handler post-commit; runs `reconcileThreadLabel`,
-       * which is idempotent under the per-thread advisory lock.
-       */
+      /** Sync one thread's Gmail label to its `email_triage` category after a user override. */
       kind: "triage.relabel";
       userId: string;
       sourceThreadId: string;
     }
   | {
-      /**
-       * Reap chat attachment objects from the bucket under a key prefix
-       * (ADR-0065). Object storage has no FK cascade, so when a thread (or, in
-       * future, an account) is deleted, the rows cascade but the bytes don't —
-       * this job drops `chat/{userId}/{threadId}/` (or `chat/{userId}/`) by
-       * prefix. Enqueued post-commit by the Replicache push handler. Best-effort
-       * and idempotent: a missing prefix is a no-op.
-       */
+      /** Delete chat attachment bytes under a key prefix (ADR-0065). Storage has no FK cascade. */
       kind: "media.cleanup";
       userId: string;
       prefix: string;
     }
   | {
       /**
-       * Reap uploaded attachment objects that never got a durable
-       * `chat_attachments` row. Scheduled when `/attachments/upload` accepts a
-       * key; successful `/turn` writes make this a no-op because the exact
-       * storage key is now present in Postgres.
+       * Delete uploads that never got a `chat_attachments` row. A no-op once `/turn` saved the key.
        */
       kind: "media.cleanup_pending_upload";
       userId: string;
       keys: string[];
     }
   | {
-      /** ADR-0097: publish one `event_receipts` row to the trigger bus. */
+      /** Publish one `event_receipts` row to the trigger bus (ADR-0097). */
       kind: "ingress.deliver";
       receiptId: string;
     };
@@ -260,8 +196,7 @@ export function getIngestionQueue(): Queue<IngestionJobData> {
   _queue = new Queue<IngestionJobData>(INGESTION_QUEUE_NAME, {
     connection: createRedisConnection("queue"),
     defaultJobOptions: {
-      // Long-running ingestion can fail mid-page; let BullMQ retry with
-      // exponential backoff. The DB unique index makes re-runs safe.
+      // The DB unique index makes retries safe.
       attempts: 5,
       backoff: { type: "exponential", delay: 5_000 },
       removeOnComplete: { count: 50, age: 24 * 60 * 60 },
@@ -280,18 +215,13 @@ export async function startIngestionWorker(opts: StartIngestionWorkerOpts = {}):
   if (_worker) return;
   _worker = new Worker<IngestionJobData>(INGESTION_QUEUE_NAME, processIngestionJob, {
     connection: createRedisConnection("queue"),
-    // Default 2: ingestion is I/O-heavy but per-credential; bumping this
-    // mostly helps when a user connects multiple Google accounts.
     concurrency: opts.concurrency ?? 2,
   });
   _worker.on("error", (err) => {
     console.error("[ingestion:worker] error:", err.message);
   });
-  // Job-level failures are distinct from worker `error` events: BullMQ catches
-  // a throwing processor, marks the job failed, and retries silently. Without
-  // this listener a credential going `invalid_grant` produced 100 dead
-  // poll_history jobs and zero log lines — Gmail ingestion went dark for 36h
-  // with no signal. Log every failed attempt so the next outage is visible.
+  // BullMQ retries a failed job silently. Without this log, an `invalid_grant` once left Gmail
+  // ingestion dark for 36h with no signal.
   _worker.on("failed", (job, err) => {
     console.error(
       `[ingestion:worker] job failed kind=${job?.data?.kind ?? "?"} id=${job?.id ?? "?"} ` +
@@ -307,11 +237,7 @@ export async function stopIngestionWorker(): Promise<void> {
   }
 }
 
-/**
- * Enqueue a chat-attachment bucket cleanup for a key prefix (ADR-0065). Called
- * post-commit when a thread (or account) is deleted — the rows cascade, the
- * bytes are reaped here. Deduplicated per prefix so a double-delete coalesces.
- */
+/** Delete chat attachment bytes for a deleted thread or account (ADR-0065). Dedups per prefix. */
 export async function enqueueChatStorageCleanup(userId: string, prefix: string): Promise<void> {
   await getIngestionQueue().add(
     "media.cleanup",
@@ -341,7 +267,7 @@ interface ChatEnrichmentQueueDeps {
   recordEnqueueFailure(attachmentId: string): Promise<void>;
 }
 
-/** Internal test seam for the claim -> enqueue -> failure-transition lifecycle. */
+/** Test seam for the claim, enqueue, failure lifecycle. */
 export async function enqueueChatAttachmentEnrichmentWith(
   deps: ChatEnrichmentQueueDeps,
   args: { userId: string; attachmentId: string; estimatedCostMicrousd: number },
@@ -391,20 +317,9 @@ export async function closeIngestionQueue(): Promise<void> {
 }
 
 /**
- * Enqueue the delivery of one stored inbound webhook receipt (ADR-0097). The
- * `jobId` is the receipt id, and the receive path calls this again when a
- * duplicate delivery finds a receipt that is not yet `completed`.
- *
- * BullMQ refuses a second `add` for a `jobId` whose record still exists, in
- * EVERY state — waiting, delayed between attempts, completed, and failed
- * (`addStandardJob` → `handleDuplicatedJob` only emits `duplicated`). While the
- * job is live that is exactly the no-op we want. After the last attempt fails,
- * the queue's default `removeOnFail` would keep the record for seven days, and
- * every redelivery in that window would be swallowed against it: the receipt
- * would read `failed` with nothing able to revive it. `removeOnFail: true`
- * drops the record with the final failure, so the next redelivery adds a fresh
- * job. The receipt row already records the failure; the queue's failed set
- * added nothing.
+ * Enqueue delivery of one stored receipt (ADR-0097). `jobId` is the receipt id, so a redelivery is
+ * a no-op while the job exists. BullMQ refuses a duplicate `jobId` in every state, failed too, so
+ * `removeOnFail: true` lets a redelivery revive a receipt whose last attempt failed.
  */
 export async function enqueueInboundDelivery(receiptId: string): Promise<void> {
   await getIngestionQueue().add(
@@ -416,12 +331,7 @@ export async function enqueueInboundDelivery(receiptId: string): Promise<void> {
 
 const GMAIL_MEDIA_INGEST_DEDUP_TTL_MS = 60_000;
 
-/**
- * Schedule deferred attachment ingest for one Gmail message (ADR-0091
- * amendment). The TTL-bounded dedup id collapses duplicate schedules from
- * concurrent poll paths within a minute; a later re-schedule (flagged retry,
- * next sweep) creates a fresh job. The job itself is idempotent.
- */
+/** Schedule attachment ingest for one message. The dedup TTL collapses concurrent schedules. */
 export async function enqueueGmailMediaIngest(args: {
   credentialId: string;
   messageId: string;
@@ -460,8 +370,6 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       );
 
       if (hasGmailPostInsertSideEffects(result)) {
-        // Publish the batch fact; the composition-registered consumers react.
-        // The ingestor set `result.unembeddedDocumentIds`; this publisher forwards it.
         await publishGmailDocumentsIngested({
           credentialId: data.credentialId,
           jobKind: data.kind,
@@ -474,12 +382,8 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
     }
 
     case "gmail.poll_recent": {
-      // Pub/sub-driven realtime path (ADR-0037). Lists messages from Gmail's
-      // search index (`newer_than:5m`), persists/dedupes by `documents.source_id`,
-      // and publishes the batch fact on inserts. We don't touch history.list here — that
-      // path's index lags pub/sub and was the source of 1–3 min tag-latency
-      // tails. Catch-up for anything missed lives on `gmail.poll_history`
-      // via the 5-min sweep below.
+      // Realtime path on a Pub/Sub push (ADR-0037). `history.list` lags the push, so it is only the
+      // catch-up path.
       const result = await pollGmailRecent({
         credentialId: data.credentialId,
         pushHistoryId: data.pushHistoryId,
@@ -517,10 +421,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           `cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
 
-      // Catch-up path (ADR-0037): the realtime `gmail.poll_recent` job covers
-      // the steady state; anything it misses shows up here. The batch fact
-      // carries `fullResync` so the triage consumer skips back-catalog triage
-      // while still running bounded thread repairs.
+      // `fullResync` makes the triage consumer skip back-catalog triage.
       if (hasGmailPostInsertSideEffects(result)) {
         await publishGmailDocumentsIngested({
           credentialId: data.credentialId,
@@ -534,12 +435,6 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
     }
 
     case "gmail.watch_install": {
-      // Net-new watch for a just-connected credential. Distinct from
-      // `gmail.watch_renew`, which only refreshes already-installed watches
-      // nearing expiry (`findExpiringGmailWatches`) and so never covers a
-      // brand-new account. Without this, realtime (ADR-0037) never starts
-      // and the account is stuck on the 5-min poll_sweep until the watch
-      // happens to be installed some other way.
       // #278: non-prod must not register a watch on the shared real mailbox.
       if (!gmailMailboxWritesEnabled()) {
         console.log(
@@ -577,9 +472,8 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
     }
 
     case "gmail.watch_renew": {
-      // Renew anything expiring within 24h. ADR-0024 caps watch life at
-      // ~7d, so a daily renewal cycle is well within margin.
-      // #278: non-prod must not touch the shared real mailbox's watch.
+      // Gmail watches expire after about 7 days, so daily renewal of the next 24h is enough. #278:
+      // non-prod must not touch the shared real mailbox's watch.
       if (!gmailMailboxWritesEnabled()) {
         console.log(
           "[ingestion:worker] gmail.watch_renew: skipped reason=writes-disabled (non-prod)",
@@ -623,8 +517,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
     }
 
     case "gmail.poll_sweep": {
-      // Completion time must not make the next sweep skip a credential.
-      // Even a recent push can miss mail outside its search window.
+      // Sweep every cursor: even a recent push can miss mail outside its search window.
       const stale = await findCredentialsNeedingPoll();
       const queue = getIngestionQueue();
 
@@ -632,9 +525,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         await queue.add(
           "gmail.poll_history",
           { kind: "gmail.poll_history", credentialId: c.credentialId, reason: "poll-fallback" },
-          // Keep one waiting poll and at most one follow-up while active.
-          // A sweep during a long poll requests a catch-up after it finishes.
-          // Realtime polls have a separate dedup id.
+          // One waiting poll plus at most one follow-up while a poll runs.
           {
             deduplication: {
               id: `gmail.poll_history.${c.credentialId}`,
@@ -650,12 +541,8 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
     }
 
     case "gmail.embed_sweep": {
-      // Pick up documents whose embed step failed during ingest. Bounded
-      // batch — anything left over comes back next tick. The sweep loop is
-      // owned by @alfred/corpus (`retryPending`); this case only schedules it
-      // and reports the summary count. Gmail, attachments, and each inbound
-      // source have separate bounded batches so a busy source cannot starve
-      // another. Inbound batches also project receipts stored before #989.
+      // Retry failed embeds in separate bounded batches, so a busy source cannot starve another.
+      // Inbound batches also project receipts stored before #989.
       const [mail, media, ...inbound] = await Promise.all([
         retryPending({ source: "gmail", limit: 50 }),
         retryPending({ source: "gmail_attachment", limit: 50 }),
@@ -711,8 +598,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
     }
 
     case "triage.relabel": {
-      // One label-writer for both the classifier and user overrides
-      // (rfc-triage-tags.md, Invariant 6).
+      // One label writer for classifier and user overrides.
       const result = await runGmailTriageRelabel({
         userId: data.userId,
         sourceThreadId: data.sourceThreadId,
@@ -723,15 +609,12 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} applied=true label=${result.appliedLabelId}`,
         );
       } else if (result.reason === "writes-disabled") {
-        // #278: expected in non-prod — the mailbox-write gate is off, so the DB
-        // row is canonical and Gmail is intentionally untouched. Info, not error.
+        // #278: expected in non-prod. The DB row is canonical.
         console.log(
           `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} skipped reason=writes-disabled`,
         );
       } else {
-        // A non-applied relabel must NOT be silent — `applied_label_id` stays
-        // unset, so the thread looks untagged in Gmail. Surface the reason
-        // (#277: `target-unresolvable` is a dead message id with no live fallback).
+        // Never silent: the thread looks untagged in Gmail (#277).
         console.error(
           `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} NOT applied reason=${result.reason}`,
         );
@@ -777,7 +660,6 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
   }
 }
 
-/** Run one refold job through the registered user-model handler. */
 export async function runGmailKindRefoldJob(userId: string) {
   return refoldGmailKindProjection({ userId });
 }

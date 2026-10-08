@@ -1,31 +1,8 @@
 /**
- * TRANSPORT ONLY. This file reads the request and writes the response; it takes
- * no decision that outlives either. What a snapshot may contain, when a share
- * is reused rather than minted, and what an unauthenticated visitor may read
- * are all decided in `@alfred/assistant/sharing` (ADR-0089/0102).
- *
- * THE ONE THING THIS FILE DOES DECIDE is which routes are behind `auth` and
- * which is not. Read that split carefully before editing:
- *
- *   - `/api/threads/:threadId/share`  (POST)   — owner only
- *   - `/api/threads/:threadId/shares` (GET)    — owner only
- *   - `/api/shares/:sharedThreadId`   (DELETE) — owner only
- *   - `/api/shared/:urlSlug`          (GET)    — PUBLIC, no session
- *
- * The public route is the only unauthenticated data route in the API. It is
- * mounted as a separate Elysia instance rather than as an exception inside the
- * guarded one, because an `auth: true` guard applies to every route declared in
- * its block and a future route added next to a `{ auth: false }` sibling would
- * inherit the wrong side of that line by default. Two instances make the
- * boundary structural: the guarded block cannot accidentally leak a route, and
- * this one has exactly one member that a reviewer can see in full.
- *
- * THE PUBLIC INSTANCE OWNS A NARROW PREFIX, AND THAT IS PART OF THE SPLIT. It
- * is mounted at `/api/shared`, not at `/api`. An unauthenticated instance that
- * owned the whole `/api` namespace would make every path it could ever declare
- * public by default, so the next route appended to that chain would inherit no
- * session check and nothing would say so. The prefix keeps the blast radius of
- * a future edit inside one namespace whose name reads as public.
+ * Transport only; decisions live in `@alfred/assistant/sharing` (ADR-0089/0102).
+ * This file decides one thing: which routes need a session. The public read is a
+ * separate instance on the narrow `/api/shared` prefix, so a new route cannot
+ * become public by accident.
  */
 import { Errors } from "@alfred/contracts";
 import { Elysia, t } from "elysia";
@@ -40,25 +17,19 @@ import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
 import { publicRateLimit } from "./middleware/public-rate-limit";
 
-/** Owner-only share management. Every route here needs a session AND onboarding. */
 const ownerSharingRoutes = new Elysia({ prefix: "/api", normalize: "typebox" })
   .use(authMacro)
   .use(requireOnboarded)
   .guard({ auth: true, requireOnboarded: true }, (app) =>
     app
       .post(
-        /**
-         * Publish the thread, or return the existing share that already covers
-         * it. Idempotent for an unchanged thread, so a double click does not
-         * scatter two public URLs (see `shareThread`).
-         */
+        /** Idempotent for an unchanged thread, so a double click makes one URL. */
         "/threads/:threadId/share",
         async ({ params, user }) =>
           await shareThread({ userId: user.id, threadId: params.threadId }),
         { params: t.Object({ threadId: t.String({ minLength: 1, maxLength: 120 }) }) },
       )
       .get(
-        /** Live shares of this thread, so the dialog can list and revoke them. */
         "/threads/:threadId/shares",
         async ({ params, user }) => ({
           shares: await listThreadShares({ userId: user.id, threadId: params.threadId }),
@@ -66,13 +37,7 @@ const ownerSharingRoutes = new Elysia({ prefix: "/api", normalize: "typebox" })
         { params: t.Object({ threadId: t.String({ minLength: 1, maxLength: 120 }) }) },
       )
       .delete(
-        /**
-         * Revoke a share. `revokeSharedThread` scopes the delete by `user_id`,
-         * so an id alone cannot revoke someone else's link. A miss answers 404
-         * rather than 204: the caller asked to remove a specific share and
-         * should learn it was not theirs to remove, and a UI that already
-         * removed the row treats either answer the same way.
-         */
+        /** Scoped by `user_id`. A miss is a 404, not a 204. */
         "/shares/:sharedThreadId",
         async ({ params, user, set }) => {
           const removed = await revokeSharedThread({
@@ -91,16 +56,8 @@ const ownerSharingRoutes = new Elysia({ prefix: "/api", normalize: "typebox" })
   );
 
 /**
- * The public read. No `authMacro`, no `requireOnboarded`, no `user` in scope —
- * the slug is the whole capability.
- *
- * A missing slug answers 404 with no detail. Do not enrich that message with
- * "revoked" versus "never existed": the difference tells a prober whether a
- * guessed slug was ever real.
- *
- * `publicRateLimit` is the bound that a session check gives every other route
- * here. It is a cost control and fails open; the slug remains the access
- * control.
+ * Public read: the slug is the whole capability.
+ * Keep the 404 vague: "revoked" vs "never existed" tells a prober the slug was real.
  */
 const publicSharingRoutes = new Elysia({ prefix: "/api/shared", normalize: "typebox" })
   .use(publicRateLimit("shared-thread"))

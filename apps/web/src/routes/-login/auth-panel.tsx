@@ -19,10 +19,8 @@ export function AuthPanel({ redirect }: { redirect?: string | undefined }) {
     try {
       const { error: signInError } = await authClient.signIn.social({
         provider: "google",
-        // Absolute URL so Better Auth doesn't resolve it against BETTER_AUTH_URL
-        // (the server origin) and strand the user on :3001 after the OAuth callback.
-        // `redirect` (sanitized in the route's validateSearch) returns the user to
-        // wherever the auth guard bounced them from; default `/` for a cold sign-in.
+        // Absolute, or Better Auth resolves it against the server origin (:3001).
+        // `redirect` is sanitized in `validateSearch`.
         callbackURL: `${window.location.origin}${redirect ?? "/"}`,
       });
 
@@ -30,7 +28,7 @@ export function AuthPanel({ redirect }: { redirect?: string | undefined }) {
         setError(signInError.message ?? "Couldn't start Google sign-in");
         setLoading(false);
       }
-      // On success the browser is redirected to Google — no further state to set.
+      // On success the browser goes to Google.
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't start Google sign-in");
       setLoading(false);

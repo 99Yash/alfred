@@ -16,26 +16,13 @@ import {
 } from "@alfred/assistant/context-search/test-support";
 
 /**
- * Behavioral tests for the expansion phase (#1077; ADR-0101 sub-decisions
- * 17-18).
- *
- * The phase is a POLICY, not a shape: which cards are worth a provider round
- * trip, who reads a handle, what a refresh is allowed to replace, and what the
- * boundary says about a source it did not ask. The compiler carries the reader
- * signature and `registerContextSource` carries the declaration parse; neither
- * can carry any of those four decisions, so each one is pinned here.
- *
- * Every assertion is on a DECLARATION — a handle kind against a manifest's
- * `expansionKinds` — and never on which source made it. Nothing below routes by
- * a source id, because the phase does not.
- *
- * Each test installs and disposes its own sources; node's runner isolates test
- * files in separate processes, and the disposers run in `finally`.
+ * Expansion phase policy (ADR-0101 sub-decisions 17-18): which cards earn a round trip,
+ * who reads a handle, what a refresh may replace, and what a skip reports.
+ * Routing is by handle `kind` against a manifest's `expansionKinds`, never by source id.
  */
 
 const STALE_HANDLE: EvidenceExpansionHandle = {
-  // The handle names a `sourceId` that can never expand it. Routing is by
-  // `kind`, so a wrong name here must make no difference at all.
+  // This `sourceId` can never expand the handle. Routing is by `kind`, so the name must not matter.
   sourceId: "expand-test:stale",
   kind: "test_record",
   ref: "record-1",
@@ -108,20 +95,15 @@ describe("the expansion phase — a stale card is upgraded in place", () => {
       // The expander received the handle the card carried, whole.
       assert.deepEqual(handles, [STALE_HANDLE]);
 
-      // The ranking row still names the card the refresh replaced: the phase
-      // runs after the rank and does not re-rank, so the refresh is visible in
-      // a trace rather than silently rewriting the working.
+      // The ranking row still names the replaced card: the phase runs after the rank and does not re-rank.
       assert.equal(result.ranking.length, 1);
       assert.equal(result.ranking[0]?.cardId, "stale:1");
 
-      // Exactly one report per registered source, and the live source's skip
-      // is gone: it was consulted, so it reports what it actually did.
+      // One report per source. The live source was consulted, so its skip is gone.
       assert.equal(result.sources.length, 2);
       assert.equal(reportFor(result, "expand-test:live")?.status, "ok");
 
-      // The refreshed card belongs to the live source now, so the origin no
-      // longer claims it. Without the transfer the packer would report the
-      // refreshed card as an item it had dropped.
+      // The refreshed card now belongs to the live source. Otherwise the packer reports it as dropped.
       const origin = reportFor(result, "expand-test:stale");
 
       assert.equal(origin?.status, "ok");
@@ -161,8 +143,7 @@ describe("the expansion phase — a stale card is upgraded in place", () => {
       assert.equal(calls, 0);
       assert.equal(result.evidence[0]?.id, "stale:1");
 
-      // Never consulted, so the skip stands rather than becoming an `empty`
-      // that would claim the source was asked and had nothing.
+      // Never consulted, so the skip stands. `empty` would claim the source was asked.
       const live = reportFor(result, "expand-test:live");
 
       assert.equal(live?.status, "skipped");
@@ -207,8 +188,7 @@ describe("the expansion phase — routing reads the declaration alone", () => {
         staleSource([staleCard("stale:1", { ...STALE_HANDLE, kind: "unrouted_record" })]),
       ),
       registerContextSource(
-        // This source can expand, and it declares a different kind. Naming the
-        // expander on the handle must not reach it either.
+        // This source can expand, but declares a different kind. Naming it on the handle must not reach it.
         defineTestExpansionSource("expand-test:live", ["test_record"], async () => {
           calls += 1;
 
@@ -275,10 +255,7 @@ describe("the expansion phase — routing reads the declaration alone", () => {
 
       assert.deepEqual(expanded.toSorted(), ["record-1", "record-2"]);
 
-      // The refresh takes the better-ranked of the two positions — order
-      // matters, so this pins the exact sequence rather than set membership:
-      // the shared handle's refresh at the first position, the unshared
-      // sibling untouched in the middle, the other kind's refresh last.
+      // The refresh takes the better-ranked position, so this pins the exact order, not set membership.
       const ids = result.evidence.map((card) => card.id);
 
       assert.deepEqual(ids, ["live:a", "stale:2", "live:b"]);
@@ -293,10 +270,7 @@ describe("the expansion phase — the budget cap", () => {
     const expanded: string[] = [];
     const cardCount = CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS + 2;
 
-    // Distinct records, strictly descending scores: rank order is input order,
-    // so the cap must spend its budget on the first handles and pass over the
-    // weakest two. Every id below is unique, so a replacement can only land
-    // where the assertion says it does.
+    // Distinct records, strictly descending scores, unique ids: the cap must spend its budget on the first handles.
     const cards = Array.from({ length: cardCount }, (_, index) => ({
       ...staleCard(`stale:${index + 1}`, { ...STALE_HANDLE, ref: `record-${index + 1}` }),
       score: 1 - index * 0.01,
@@ -316,8 +290,7 @@ describe("the expansion phase — the budget cap", () => {
     try {
       const result = await searchContext({ userId: "user-1", query: "anything" });
 
-      // The count cap bounds how many round trips the read pays for: exactly
-      // the cap, on the best-ranked handles.
+      // The count cap bounds the round trips: exactly the cap, on the best-ranked handles.
       assert.equal(expanded.length, CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS);
       assert.deepEqual(
         expanded,
@@ -327,8 +300,7 @@ describe("the expansion phase — the budget cap", () => {
         ),
       );
 
-      // Replaced in place, never appended: the refreshed cards take the first
-      // positions and the passed-over cards keep their stale content last.
+      // Replaced in place: refreshed cards come first, and passed-over cards keep stale content last.
       assert.deepEqual(
         result.evidence.map((card) => card.id),
         [
@@ -393,8 +365,7 @@ describe("the expansion phase — a failure costs the read nothing", () => {
           "expand-test:live",
           ["test_record"],
           async () =>
-            // Structurally a card, and it makes no freshness claim. The boundary
-            // must not stamp `live` on the source's behalf.
+            // A card with no freshness claim. The boundary must not stamp `live` for the source.
             ({ ...liveCard("expand-test:live", "live:1"), time: { freshness: "ingested" } }),
         ),
       ),
@@ -425,9 +396,7 @@ describe("the expansion phase — a failure costs the read nothing", () => {
 
       const live = reportFor(result, "expand-test:live");
 
-      // The source was never asked the query — only consulted for a handle it
-      // had nothing to add — so `empty` would claim it was asked and found
-      // nothing. The `expansion-only` skip stands.
+      // The source was consulted only for a handle, never asked the query. The `expansion-only` skip stands.
       assert.equal(live?.status, "skipped");
       assert.equal(live?.status === "skipped" ? live.reason : undefined, "expansion-only");
     } finally {

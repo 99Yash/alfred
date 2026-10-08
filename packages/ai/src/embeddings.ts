@@ -18,22 +18,9 @@ export {
 
 import type { CallAttribution } from "./metering/metered";
 
-/**
- * Embedding API for the alfred corpus.
- *
- * Per ADR-0021: Voyage family at 1024 dim, cosine distance, primary for
- * both ingestion and query. m7b ships a single Voyage model
- * (`voyage-3.5`) for both sides; voyage-context-3 (contextualized
- * embeddings) is layered in later when the corpus is large enough that
- * neighbour-context matters.
- *
- * Gemini fallback is acknowledged in the ADR but deferred until the
- * Voyage path is exercised — Gemini's native 768-dim output requires a
- * separate index column, which is more migration than the milestone
- * needs.
- */
+// Voyage embeddings at 1024 dimensions, one model for indexing and queries (ADR-0021).
 
-/** Single owner for the price the embed cost-cap math derives its budget from. */
+/** The price the embed cost cap uses. */
 export function voyageInputPricePerMtokUsd(): number {
   return serverEnv().VOYAGE_INPUT_PRICE_PER_MTOK_USD ?? VOYAGE_INPUT_PRICE_PER_MTOK_USD_DEFAULT;
 }
@@ -42,25 +29,16 @@ const VOYAGE_API_BASE = "https://api.voyageai.com/v1/embeddings";
 
 const VOYAGE_DEFAULT_MODEL = "voyage-3.5";
 
-/**
- * `input_type` distinguishes how Voyage encodes the text:
- *   - `document` — the text being indexed (passages, emails, docs).
- *   - `query`    — the search query at retrieval time.
- *
- * Same model, different prompt template; matters for retrieval quality.
- */
+/** Voyage encodes indexed text and search queries differently. It matters for retrieval quality. */
 export type EmbeddingInputType = "document" | "query";
 
 export interface EmbedOptions extends CallAttribution {
-  /** Voyage model id; defaults to `voyage-3.5`. */
+  /** Defaults to `voyage-3.5`. */
   model?: string;
-  /** `document` for ingestion, `query` for search. Defaults to `document`. */
+  /** Defaults to `document`. */
   inputType?: EmbeddingInputType;
-  /** Override the dimensions; only meaningful for models that support it. */
   dimensions?: number;
-  /** Forwarded to `metered()` for cost attribution + Langfuse spans. */
   idempotencyKey?: string;
-  /** Forwarded to the underlying fetch call. */
   abortSignal?: AbortSignal;
 }
 
@@ -71,7 +49,6 @@ interface VoyageEmbeddingResponse {
   usage: { total_tokens: number };
 }
 
-/** Voyage's success payload, validated at the boundary instead of asserted. */
 const voyageEmbeddingResponseSchema = z.object({
   object: z.literal("list"),
   data: z.array(
@@ -148,7 +125,6 @@ async function callVoyage(texts: string[], opts: EmbedOptions): Promise<VoyageEm
   );
 }
 
-/** Embed a single text. Returns a 1024-dim vector. */
 export async function embed(text: string, opts: EmbedOptions = {}): Promise<number[]> {
   if (text.length === 0) {
     throw new Error("[embeddings] cannot embed empty string");
@@ -163,11 +139,8 @@ export async function embed(text: string, opts: EmbedOptions = {}): Promise<numb
 }
 
 /**
- * Split texts into Voyage-legal batches: at most `VOYAGE_MAX_BATCH_INPUTS`
- * inputs and an estimated `VOYAGE_MAX_BATCH_TOKENS` total per batch. Pure:
- * never mutates the input. A single text over the token budget still gets
- * its own batch — the provider rejects it, and the caller's existing
- * failure handling owns that outcome.
+ * Split into batches within Voyage's limits.
+ * One text over the token limit gets its own batch, and Voyage rejects it.
  */
 export function batchForVoyage(texts: readonly string[]): string[][] {
   const batches: string[][] = [];
@@ -196,12 +169,7 @@ export function batchForVoyage(texts: readonly string[]): string[][] {
   return batches;
 }
 
-/**
- * Embed a batch, chunking into multiple Voyage calls when the input exceeds
- * the provider's per-request limits (1000 inputs, 120k tokens). Batches run
- * sequentially and vectors merge in input order. Each call is metered
- * separately, so cost attribution stays per-request.
- */
+/** One metered Voyage call per batch, in sequence. Vectors keep input order. */
 export async function embedMany(texts: string[], opts: EmbedOptions = {}): Promise<number[][]> {
   if (texts.length === 0) return [];
   const filtered = texts.map((t) => (t.length === 0 ? " " : t));
@@ -209,8 +177,7 @@ export async function embedMany(texts: string[], opts: EmbedOptions = {}): Promi
 
   for (const batch of batchForVoyage(filtered)) {
     const response = await callVoyage(batch, opts);
-    // Voyage promises ordered output within a request, but we sort
-    // defensively in case their response ordering changes.
+    // Voyage returns them in order today; sort anyway.
     const sorted = [...response.data].sort((a, b) => a.index - b.index);
     out.push(...sorted.map((d) => d.embedding));
   }

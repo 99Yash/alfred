@@ -28,31 +28,11 @@ import {
 } from "./workflow-input";
 
 /**
- * Legacy morning briefing compatibility workflow.
- *
- * Registered only so nonterminal `morning-briefing` agent runs persisted before
- * the daily-briefing cutover can resume from their checkpoints. It is hidden
- * from catalogs, never seeded, and cannot start new runs.
- *
- * Steps:
- *   1. gather  — create/resume the `briefings` row, collect the
- *                normalized `BriefingGather`, persist it.
- *   2. compose — run the schema-bound boss-model composer, or deterministic
- *                fallback, then persist the full briefing.
- *   3. send    — gate the composed output, then either suppress a quiet
- *                cron morning or render + dispatch via `notify()`.
- *
- * Idempotency:
- *   - `briefings` is unique on `(user_id, briefing_date, slot)`, so
- *     duplicate workflow runs for a slot either no-op when terminal or
- *     resume the existing in-progress row.
- *   - `notify()` is keyed by the same local briefing date + slot. If the
- *     email send succeeded but the workflow crashed before marking
- *     `briefings` sent, retry returns `duplicate` and the row is marked sent.
- *
- * Empty-day behavior:
- *   - Cron morning can suppress after compose and persist a quiet terminal
- *     row. Evening always sends; manual/forced runs bypass suppression.
+ * Legacy `morning-briefing` workflow, kept only so old in-flight runs can resume.
+ * Hidden, never seeded, and cannot start new runs.
+ * Steps: gather, compose (boss model or fallback), send (suppress a quiet cron morning or notify).
+ * `briefings` is unique on `(user_id, briefing_date, slot)`, and `notify()` uses the same key,
+ * so a crash after send marks the row sent on retry.
  */
 
 const composedOutputSchema = z.object({
@@ -81,7 +61,7 @@ const gatheredStateSchema = initialStateSchema.extend({
   briefingDate: z.string(),
   timezone: z.string(),
   briefingId: z.string(),
-  /** Step handoff copy; canonical copy also lives in `briefings.gather`. */
+  /** Step handoff copy; `briefings.gather` holds the canonical one. */
   gather: briefingGatherSchema,
 });
 
@@ -105,8 +85,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
   name: "Legacy morning briefing",
   description:
     "Daily multi-source morning briefing — normalized gather, boss-model compose, sent via Resend (ADR-0041).",
-  // Retained as part of the persisted workflow definition. Resume-only
-  // metadata prevents this trigger from being catalogued or seeded.
+  // Resume-only metadata keeps this trigger out of catalogs and the seeder.
   trigger: { kind: "cron", schedule: "0 * * * *" },
   initialStep: "gather",
   stateSchema,
@@ -119,8 +98,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
       phase: "initial",
       slot: parsed.slot,
       reason: parsed.reason,
-      // When the caller pins a date (smoke script, manual UI button, the
-      // cron tick), keep it. Otherwise let `gather` compute it from tz.
+      // A pinned date is kept; otherwise `gather` computes it.
       briefingDate: parsed.briefingDate,
     };
   },
@@ -132,7 +110,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
         const prefs = await resolveBriefingPreferences(ctx.userId);
         const timezone = prefs.timezone;
 
-        // Persisted state carries the day as a plain string; a fresh run mints one.
+        // Persisted state is a plain string; a fresh run mints one.
         const briefingDate = ctx.state.briefingDate
           ? parseLocalDateKey(ctx.state.briefingDate)
           : inZone(timezone).day();
@@ -483,10 +461,7 @@ function decideSend(
 }
 
 function formatDateLabel(briefingDate: string, timezone: IanaTimezone): string {
-  // briefingDate is a YYYY-MM-DD string already in the user's tz; we
-  // want the long-form for the email body ("Saturday, May 2"). Build a
-  // Date at noon-UTC of that day so DST doesn't bump us into a
-  // neighbouring day during formatting.
+  // Noon UTC, so DST cannot shift the long-form date to a neighbor day.
   const noonUtc = new Date(`${briefingDate}T12:00:00Z`);
 
   return new Intl.DateTimeFormat("en-US", {

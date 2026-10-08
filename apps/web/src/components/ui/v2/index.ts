@@ -1,9 +1,4 @@
-/**
- * Production app-grammar primitives. Legacy dimension versions of duplicated
- * primitives are isolated in ../legacy for the development styleguide.
- *
- * See ./README.md and archive/visitors-now/design-notes.md.
- */
+/** Production app primitives. Legacy versions live in ../legacy for the styleguide. See ./README.md. */
 
 export { AppButton } from "./button";
 

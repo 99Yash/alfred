@@ -101,7 +101,6 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
 
     const until = new Date(Date.now() + 60_000);
 
-    // Before suppression: both emails are visible to the briefing agent.
     const before = await listEmailsSinceWatermark({
       userId,
       sinceIngestedAt: null,
@@ -110,7 +109,6 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
 
     assert.equal(before.length, 2);
 
-    // The user tells Alfred to stop surfacing the coaching sender.
     const remembered = await rememberSenderSuppression({
       userId,
       senderEmail: "no-reply@shapeshifter.so",
@@ -119,7 +117,6 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
 
     assert.equal(remembered.ok, true);
 
-    // After: the suppressed sender is gone; the real ask remains.
     const after = await listEmailsSinceWatermark({
       userId,
       sinceIngestedAt: null,
@@ -130,8 +127,7 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
     assert.equal(after[0]?.documentId, keepDocId);
     assert.ok(!after.some((e) => e.from?.includes("shapeshifter")));
 
-    // Limit is applied after a small metadata-only over-fetch, so the newest
-    // suppressed row does not under-fill the caller's requested window.
+    // An over-fetch keeps a suppressed row from under-filling the limit.
     const limited = await listEmailsSinceWatermark({
       userId,
       sinceIngestedAt: null,

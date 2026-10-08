@@ -37,26 +37,17 @@ import {
 } from "./fact-policy";
 import { valueSignature } from "./signature";
 
-/**
- * `user_facts.status` lifecycle values (ADR-0019). The text column itself
- * cannot carry a pg enum, so this app-boundary schema is the source of truth;
- * the union derives from the tuple so a new status cannot drift from its parse.
- */
+/** `user_facts.status` values (ADR-0019). The union derives from the tuple. */
 export const FACT_STATUSES = ["proposed", "confirmed", "rejected", "edited", "superseded"] as const;
 
 export const factStatusSchema = z.enum(FACT_STATUSES);
 
 export type FactStatus = (typeof FACT_STATUSES)[number];
 
-/**
- * Confidence ≥ this auto-confirms a proposal; < this stays `proposed`
- * and waits for the user (ADR-0019). Tunable post-launch — start strict.
- */
+/** At or above this, a proposal auto-confirms; below, it waits for the user (ADR-0019). */
 export const AUTO_CONFIRM_THRESHOLD = 0.85;
 
-// ---------------------------------------------------------------------------
-// schemas
-// ---------------------------------------------------------------------------
+// --- schemas ---
 
 export const proposeFactArgsSchema = userFactInsertSchema
   .pick({
@@ -71,16 +62,9 @@ export const proposeFactArgsSchema = userFactInsertSchema
   .extend({
     userId: z.string().min(1),
     key: z.string().min(1).max(200),
-    // Fact-policy validation owns the per-key shape; callers intentionally
-    // carry `unknown` until that policy gate runs inside `proposeFact`.
+    // `proposeFact` runs the per-key policy check.
     value: z.unknown(),
-    /**
-     * [0, 1] — ≥ AUTO_CONFIRM_THRESHOLD auto-confirms. Clamped here at the
-     * persistence boundary: model confidences (`confidenceSchema`) are a bare
-     * `z.number()` with no schema-enforced range, and extractors pass them
-     * straight through (memory-extraction, cold-start, learn-skill), so a stray
-     * 1.1 / -0.1 from structured output would otherwise crash this gate.
-     */
+    /** Clamped to [0, 1]: model confidences have no enforced range, and 1.1 would crash the gate. */
     confidence: z.number().transform(clamp01),
     source: memorySourceSchema,
   }) satisfies z.ZodType<
@@ -96,7 +80,7 @@ export const editFactArgsSchema = z.object({
   factId: z.string().min(1),
   userId: z.string().min(1),
   newValue: z.unknown(),
-  /** Defaults to `{ kind: 'user' }` — edits via UI. */
+  /** Defaults to `{ kind: 'user' }`. */
   source: memorySourceSchema.optional(),
 });
 
@@ -106,7 +90,7 @@ export const supersedeFactArgsSchema = z.object({
   factId: z.string().min(1),
   userId: z.string().min(1),
   newValue: z.unknown(),
-  /** [0, 1] — clamped at the boundary, like `proposeFactArgsSchema.confidence`. */
+  /** Clamped like `proposeFactArgsSchema.confidence`. */
   confidence: z.number().transform(clamp01),
   source: memorySourceSchema,
 });
@@ -121,21 +105,15 @@ export const rejectFactArgsSchema = z.object({
 
 export type RejectFactArgs = z.infer<typeof rejectFactArgsSchema>;
 
-// ---------------------------------------------------------------------------
-// row shape
-// ---------------------------------------------------------------------------
+// --- row shape ---
 
-/**
- * Like the DB row, but with the two jsonb columns narrowed to their parsed
- * shapes. Every other column tracks `UserFact` ($inferSelect) automatically —
- * only `status`/`source`, which `rowToFact` zod-parses, are restated.
- */
+/** `UserFact` with the zod-parsed `status` and `source` narrowed. */
 export type FactRow = Omit<UserFact, "status" | "source"> & {
   status: FactStatus;
   source: MemorySource;
 };
 
-/** Assertion helper for INSERT…RETURNING — drizzle's type is `T | undefined`. */
+/** INSERT…RETURNING gives `T | undefined`. */
 function requireRow<T>(row: T | undefined, op: string): T {
   if (row == null) throw new Error(`[memory.facts] ${op} returned no row`);
 
@@ -150,57 +128,31 @@ function rowToFact(r: UserFact): FactRow {
   };
 }
 
-// ---------------------------------------------------------------------------
-// propose
-// ---------------------------------------------------------------------------
+// --- propose ---
 
 /**
- * Insert a new fact. Confidence ≥ AUTO_CONFIRM_THRESHOLD lands as
- * `confirmed`; lower stays `proposed` and waits for the correction-loop
- * UX (ADR-0019).
- *
- * The unbypassable persistence backstop for the memory-capture gate (#330,
- * ADR-0079). In order:
- *
- *  0. **Canonicalize the key (all sources).** `current_company`/`company` →
- *     `employer`, `name` → `full_name`, etc., BEFORE dedup/conflict — so an
- *     alias never forks a fact and the conflict check compares like with like.
- *     A `wasAlias` mapping records `originalKey` in `source.meta` for provenance.
- *     A key that fails canonicalization (`unknown_key`) is rejected ONLY for
- *     `source.kind === "document"` (the polluted path); other sources persist
- *     it as-is with a `fact_key_unknown_non_document` trace (visible drift, no
- *     breakage to user/cold_start/tool_call/agent).
- *  0a. **Relationship junk floor (ALL sources, #492).** A `relationship:<email>`
- *     edge to a service/no-reply sender, or with an empty/uninformative value, is
- *     never persisted regardless of source. Junk has ONE definition
- *     (`isUninformativeRelationshipFact`) shared with the read filter (#491) and
- *     the backfill purge (#493).
- *  1. **Document write policy (`document` only).** Reject `not_writable`
- *     (`pref:*`, `phone_number`, junk) and bad value shapes. Authorship
- *     ("is this doc by the user?") is NOT here — `proposeFact` lacks document
- *     metadata by design; the workflow gate (`memory-extraction.ts`) owns it.
- *  2. **Rejection-aware.** Skip if `rejected_inferences` holds the same
- *     `(key, value-signature)` — the user already said no.
- *  3. **Active-dup guard.** Skip if an active row (proposed *or* confirmed)
- *     with the same `(key, value-signature)` already exists.
- *  4. **Single-valued conflict (source-agnostic).** For `SINGLE_VALUED_KEYS`,
- *     an incoming value differing from an active *authoritative* (confirmed)
- *     value supersedes immediately when `source.kind === "user"`, but is held
- *     as `proposed` with NO `memory.fact_learned` event for autonomous sources
- *     (document/cold_start/tool_call/agent/chunk). Deterministic code can't tell
- *     "the user moved" from "a contact's value leaked" — both arrive at 0.95 —
- *     so the safe direction is to surface, not silently overwrite the truth.
+ * Insert a fact: confirmed at or above `AUTO_CONFIRM_THRESHOLD`, else proposed.
+ * The unbypassable backstop of the capture gate (#330, ADR-0079), in order:
+ *  0. Canonicalize the key. An unknown key is rejected only from documents;
+ *     other sources keep it with a drift trace.
+ *  0a. Drop relationship junk from any source (#492).
+ *  1. Documents: reject `not_writable` keys and bad values. Authorship is the
+ *     workflow gate's job.
+ *  2. Skip a value the user already rejected.
+ *  3. Skip an active duplicate.
+ *  4. Single-valued conflict: a user value supersedes; an autonomous value is held
+ *     as `proposed` with no event. Code cannot tell "the user moved" from a leaked
+ *     contact value, so surface it instead of overwriting.
  */
 export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null> {
   const parsed = proposeFactArgsSchema.parse(args);
   const isDocument = parsed.source.kind === "document";
 
-  // (0) Canonicalize the key onto the one ontology before any dedup/conflict.
+  // (0) Canonicalize before any dedup or conflict check.
   const canon = canonicalizeFactKey(parsed.key);
 
   if (!canon.ok) {
-    // Unknown key: reject from the polluted document path; for trusted/curated
-    // sources persist as-is with a drift trace (don't silently break them).
+    // Unknown key: reject from documents; keep from trusted sources with a drift trace.
     if (isDocument) return null;
     console.warn(
       `[memory.facts] fact_key_unknown_non_document: persisting unknown key as-is ` +
@@ -215,12 +167,10 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
       ? { ...parsed.source, meta: { ...parsed.source.meta, originalKey: canon.originalKey } }
       : parsed.source;
 
-  // (0a) Relationship junk floor — ALL sources. A service/no-reply edge or an
-  // empty/uninformative relationship value is junk no matter who proposed it;
-  // never persist one. Shared definition with the read filter (#491) + backfill.
+  // (0a) Relationship junk, from any source.
   if (canon.ok && isUninformativeRelationshipFact(key, parsed.value)) return null;
 
-  // (1) Document write policy — only the per-document path is allow-listed.
+  // (1) Document write policy.
   if (isDocument && canon.ok) {
     if (classifyDocumentFactKey(key) === "not_writable") return null;
 
@@ -235,14 +185,12 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
   const userDriven = parsed.source.kind === "user";
 
   const fact = await db().transaction(async (tx) => {
-    // Serialize the source-agnostic `(userId,key)` invariant across concurrent
-    // propose/confirm paths. Without this, two workers can both observe no active
-    // value and insert parallel confirmed rows for a single-valued key.
+    // Serialize per `(userId, key)`, or two workers can both insert a confirmed single-valued row.
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`${parsed.userId}:${key}`}, 0))`,
     );
 
-    // (2) Bypass if already rejected.
+    // (2) Already rejected.
     const [rejectedHit] = await tx
       .select({ id: rejectedInferences.id })
       .from(rejectedInferences)
@@ -257,7 +205,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
 
     if (rejectedHit) return null;
 
-    // (3) Bypass if an active row with the same value already exists.
+    // (3) Active duplicate.
     const active = (
       await tx
         .select()
@@ -277,9 +225,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
 
     if (active.some((r) => valueSignature(r.value) === sig)) return null;
 
-    // (4) Single-valued conflict: an active *authoritative* (confirmed) value that
-    // differs from the incoming one. User edits are authoritative → supersede;
-    // autonomous sources → hold as `proposed`, no event.
+    // (4) Single-valued conflict with a confirmed value.
     let conflictRows: FactRow[] = [];
 
     if (isSingleValuedKey(key)) {
@@ -290,8 +236,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
     const heldByConflict = conflictRows.length > 0 && !userDriven;
     const status: FactStatus = heldByConflict ? "proposed" : confidenceStatus;
 
-    // User-authoritative conflict: retire the prior active confirmed value(s)
-    // before inserting the replacement, linking the chain via `supersedes_id`.
+    // Retire the prior confirmed value and link the chain via `supersedes_id`.
     if (conflictRows.length > 0 && userDriven) {
       await tx
         .update(userFacts)
@@ -328,10 +273,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
 
     const inserted = rowToFact(requireRow(row, "proposeFact"));
 
-    // Auto-confirm fires a soft-notification event in the same tx so the
-    // outbox row commits atomically with the fact (no phantom toasts on
-    // rollback). A conflict held as `proposed` is NOT a confirm, so it emits
-    // nothing — the user adjudicates the contradiction from the Memory page.
+    // Same tx as the fact, so a rollback leaves no phantom toast. A held conflict emits nothing.
     if (status === "confirmed") {
       await publishEvent({
         tx,
@@ -349,14 +291,14 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
     return inserted;
   });
 
-  // Poke after commit so the client's pull lands the new row.
+  // Poke after commit so the client pull sees the row.
   if (!fact) return null;
   emitReplicachePokes([parsed.userId]);
 
   return fact;
 }
 
-/** ≤280-char one-line preview of a fact value, for soft-notification toasts. */
+/** One-line preview for toasts, at most 280 chars. */
 function previewValue(value: unknown): string {
   let s: string;
 
@@ -372,9 +314,7 @@ function previewValue(value: unknown): string {
   return s.length > 280 ? s.slice(0, 277) + "…" : s;
 }
 
-// ---------------------------------------------------------------------------
-// confirm
-// ---------------------------------------------------------------------------
+// --- confirm ---
 
 /** Move a `proposed` row to `confirmed`. No-op if already confirmed. */
 export async function confirmFact(factId: string, userId: string): Promise<FactRow | null> {
@@ -480,15 +420,9 @@ export async function confirmFact(factId: string, userId: string): Promise<FactR
   return fact;
 }
 
-// ---------------------------------------------------------------------------
-// reject
-// ---------------------------------------------------------------------------
+// --- reject ---
 
-/**
- * Mark the row `rejected` and capture its (key, value)-signature in
- * `rejected_inferences` so the extraction sub-agent doesn't re-propose
- * it. Idempotent on the signature row via the unique index.
- */
+/** Mark `rejected` and record the signature, so extraction does not propose it again. Idempotent. */
 export async function rejectFact(args: RejectFactArgs): Promise<FactRow | null> {
   const parsed = rejectFactArgsSchema.parse(args);
 
@@ -530,15 +464,9 @@ export async function rejectFact(args: RejectFactArgs): Promise<FactRow | null> 
   return fact;
 }
 
-// ---------------------------------------------------------------------------
-// edit (user-driven supersession)
-// ---------------------------------------------------------------------------
+// --- edit (user-driven supersession) ---
 
-/**
- * User edited a fact in the UI. Old row → `edited`; a new `confirmed`
- * row replaces it with `supersedes_id` linking back. The new row's
- * confidence is 1.0 — the user is the source of truth.
- */
+/** A user edit: the old row becomes `edited`; a new confirmed row at confidence 1.0 supersedes it. */
 export async function editFact(args: EditFactArgs): Promise<FactRow | null> {
   const parsed = editFactArgsSchema.parse(args);
   const source: MemorySource = parsed.source ?? { kind: "user" };
@@ -585,15 +513,9 @@ export async function editFact(args: EditFactArgs): Promise<FactRow | null> {
   return fact;
 }
 
-// ---------------------------------------------------------------------------
-// supersede (system-driven)
-// ---------------------------------------------------------------------------
+// --- supersede (system-driven) ---
 
-/**
- * System replacement (re-extraction with higher confidence, conflict
- * resolution). Old row → `superseded`; new row inherits confirm/proposed
- * status from `confidence` like `proposeFact`.
- */
+/** A system replacement. The old row becomes `superseded`; the new status follows `confidence`. */
 export async function supersedeFact(args: SupersedeFactArgs): Promise<FactRow | null> {
   const parsed = supersedeFactArgsSchema.parse(args);
   const now = new Date();
@@ -640,25 +562,18 @@ export async function supersedeFact(args: SupersedeFactArgs): Promise<FactRow | 
   return fact;
 }
 
-// ---------------------------------------------------------------------------
-// recall
-// ---------------------------------------------------------------------------
+// --- recall ---
 
 export interface RecallOpts {
-  /** Include `proposed` rows (default false — only confirmed). */
+  /** Include `proposed` rows. Default false. */
   includeProposed?: boolean;
-  /** Cap results. Default 50. */
+  /** Default 50. */
   limit?: number;
 }
 
 /**
- * Currently-active rows for `(userId, key)` — confirmed by default,
- * with the temporal validity window applied: `valid_from <= now()
- * AND (valid_until IS NULL OR valid_until > now())`. Ordered newest first.
- *
- * Multiple active rows are legal: a single key can have multiple values
- * (`relationship:alice = mentor`, `relationship:alice = friend`). Callers
- * that want one row use `recallLatestByKey`.
+ * Active rows for `(userId, key)` inside their validity window, newest first.
+ * A key can hold several values, so there can be several rows.
  */
 export async function recallActiveByKey(
   userId: string,
@@ -689,7 +604,7 @@ export async function recallActiveByKey(
   return rows.map(rowToFact);
 }
 
-/** Most recent active row for `(userId, key)` or null. */
+/** Latest active row for `(userId, key)`, or null. */
 export async function recallLatestByKey(
   userId: string,
   key: string,
@@ -700,10 +615,7 @@ export async function recallLatestByKey(
   return row ?? null;
 }
 
-/**
- * List facts by status — for the memory page (proposed cards, confirmed
- * facts list, recent-rejections audit). Ordered by recency.
- */
+/** Facts by status, newest first, for the memory page. */
 export async function listFactsByStatus(
   userId: string,
   status: FactStatus,
@@ -719,25 +631,12 @@ export async function listFactsByStatus(
   return rows.map(rowToFact);
 }
 
-/**
- * Hard cap on supersession-chain length. A real chain is a handful of edits;
- * this only fires on a corrupt/cyclic `supersedes_id` pointer, bounding the
- * recursion so a bad row can't run the query away.
- */
+/** Stops a corrupt or cyclic `supersedes_id` chain from running away. */
 const MAX_SUPERSESSION_DEPTH = 256;
 
 /**
- * Walk the supersession chain from a row back to its origin, tip-first (the
- * queried row at index 0, the origin root last).
- *
- * One `WITH RECURSIVE` round trip instead of a query per hop: the base term
- * seeds the starting row, the recursive term follows `supersedes_id` (a row's
- * predecessor is the fact whose `id` equals the current row's `supersedes_id`),
- * scoped to `userId` at every level and bounded by {@link MAX_SUPERSESSION_DEPTH}.
- *
- * The column projection is generated from the table metadata so the raw rows
- * come back in `$inferSelect` (camelCase) shape — no hand-rolled column list to
- * drift from the schema — and feed `rowToFact` unchanged.
+ * The supersession chain, tip first, in one `WITH RECURSIVE` query scoped to
+ * `userId`. Columns come from table metadata, so rows feed `rowToFact` unchanged.
  */
 export async function getSupersessionChain(userId: string, factId: string): Promise<FactRow[]> {
   const columns = getTableColumns(userFacts);

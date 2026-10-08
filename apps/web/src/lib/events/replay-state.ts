@@ -11,10 +11,8 @@ export const replayStateSchema = z
     z.object({
       cursor: z.number().int().nonnegative(),
       activeRuns: z.record(z.string(), z.number().int().nonnegative()),
-      // The ids of runs whose `completed` was already applied, so a later frame
-      // that merely names one cannot re-arm its barrier. `.default({})` lets a
-      // legacy `{ cursor, activeRuns }` value from before this field parse
-      // without migration.
+      // Runs whose terminal frame was applied, so a later frame cannot re-arm them.
+      // `.default({})` parses older `{ cursor, activeRuns }` values.
       completedRuns: z.record(z.string(), z.number().int().nonnegative()).default({}),
     }),
   )
@@ -28,27 +26,9 @@ export interface ReplayStateStore {
 }
 
 /**
- * The next connection resumes from the oldest active chat barrier. While idle,
- * it resumes from the latest frame seen. Cursor progress and recovery barriers
- * are separate so a barrier can deliberately sit *behind* the cursor: a reload
- * during a run resumes from before that run's first frame rather than from the
- * newest id seen, which is what replays the in-flight turn.
- *
- * A barrier is deleted by its own run's terminal frame — `chat.message` /
- * `phase: "completed"` for a chat run, or `agent.run` /
- * `phase: "completed" | "failed" | "cancelled" | "blocked"` for a non-chat run (a
- * sub-agent or a user-authored scheduled workflow, which arm on
- * `approval.requested` but never publish `chat.message`). That deletion holds
- * whatever id the frame
- * arrives with, because `advanceReplayState`'s clearing branch never reads
- * `frame.id`. The arming branch carries the matching tolerance: a run whose
- * terminal frame was applied is recorded in `completedRuns`, and a later frame
- * that merely names it arms nothing. So after any sequence of frames — arriving
- * in any id order, which the SSE endpoint in
- * `packages/http/src/realtime/events.ts` warns is routine when the relay
- * retries a row — a run whose `completed` has been applied holds no entry in
- * `activeRuns`, and `since` never freezes below the cursor because of a frame
- * that only names an already-completed run.
+ * Resume from the oldest active run barrier, else from the cursor.
+ * A barrier sits behind the cursor on purpose, so a reload mid-run replays the turn.
+ * Frames can arrive in any id order (relay retries), so release ignores `frame.id`.
  */
 export function replaySince(state: ReplayState): number {
   const barriers = Object.values(state.activeRuns);
@@ -56,19 +36,7 @@ export function replaySince(state: ReplayState): number {
   return barriers.length > 0 ? Math.min(state.cursor, ...barriers) : state.cursor;
 }
 
-/**
- * Pure state transition.
- *
- * **Callers must hand over a frame that came out of `parseEventFrame`.** Payload
- * fields are read unguarded here and in `barrierRunId` / `releasedRunId`, so
- * validation is a
- * demand on the caller, not a property of this module. The two callers that exist
- * both satisfy it: in production `noteReplayFrame` is the sole entry and
- * `createEventSource` zod-parses every frame before it, and the unit tests build
- * frames through the typed union, which is the same guarantee at compile time. A
- * future caller that hands over an unvalidated frame puts whatever the payload
- * carries into a barrier that is persisted to localStorage.
- */
+/** Pure transition. Pass only frames from `parseEventFrame`: payload fields are read unguarded. */
 export function advanceReplayState(state: ReplayState, frame: EventStreamFrame): ReplayState {
   const cursor = Math.max(state.cursor, frame.id);
 
@@ -78,12 +46,7 @@ export function advanceReplayState(state: ReplayState, frame: EventStreamFrame):
   const released = releasedRunId(frame);
 
   if (released) {
-    // The run terminated: release its barrier and record it as completed, so a
-    // later frame that merely names it cannot re-arm one. The record holds
-    // whatever id the terminal frame arrives with, matching the clearing
-    // branch's id-tolerance. Release keys on the run *lifecycle*, so a non-chat
-    // run's `agent.run` terminal releases the barrier its `approval.requested`
-    // armed, which no `chat.message` will ever come to release.
+    // Record the run as completed so a later frame cannot re-arm it.
     delete activeRuns[released];
     completedRuns[released] = frame.id;
   } else {
@@ -95,10 +58,7 @@ export function advanceReplayState(state: ReplayState, frame: EventStreamFrame):
     }
   }
 
-  // Drop any completion the resume floor has already passed: replay resends only
-  // ids strictly above `replaySince`, so a completion at or below the floor can
-  // never produce a stray. This bounds the map — it drains to empty whenever the
-  // runs go idle (`replaySince === cursor` prunes every completion below cursor).
+  // Replay resends only ids above the floor, so older completions can go. This keeps the map small.
   const floor = replaySince({ cursor, activeRuns, completedRuns });
 
   for (const [completedRunId, completedId] of Object.entries(completedRuns)) {
@@ -116,14 +76,7 @@ export function advanceReplayState(state: ReplayState, frame: EventStreamFrame):
   return { cursor, activeRuns, completedRuns };
 }
 
-/**
- * Read before every transition instead of caching a tab-local cursor. That
- * makes sequential cross-tab writes monotonic and keeps active-run barriers
- * discovered by another tab in the shared state.
- *
- * `noteFrame` inherits `advanceReplayState`'s requirement on its caller: the
- * frame must be one `parseEventFrame` produced.
- */
+/** Reads the store before every transition, so other tabs' cursor and barriers are kept. */
 export function createReplayStateController(store: ReplayStateStore) {
   let maxSeenId = 0;
 
@@ -137,13 +90,8 @@ export function createReplayStateController(store: ReplayStateStore) {
       const barriersChanged = !sameBarriers(current.activeRuns, next.activeRuns);
       const completedRunsChanged = !sameBarriers(current.completedRuns, next.completedRuns);
 
-      // While a run is active its persisted barrier already supplies the
-      // correct reload cursor, so keep high-frequency deltas in memory. Persist
-      // lifecycle changes — a barrier arming or clearing, or a run recorded as
-      // completed — and idle progress. A `completed` for a run this tab never
-      // armed leaves `activeRuns` unchanged but still writes `completedRuns`, and
-      // that record must reach localStorage or a fresh tab loses the terminal
-      // memory the arming branch relies on to refuse a later stray.
+      // Mid-run deltas stay in memory; the barrier covers a reload.
+      // Persist barrier and completion changes, and progress while idle.
       if (
         next !== current &&
         (barriersChanged || completedRunsChanged || Object.keys(next.activeRuns).length === 0)
@@ -163,24 +111,8 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
 }
 
 /**
- * Why each kind speaks for no replay barrier — the exclusion ledger, one
- * written reason per excluded kind.
- *
- * The reasons are prose and nothing checks that they are true. What the table
- * enforces is that one *exists*: this table and `SPEAKS_FOR_A_RUN` partition the
- * frame union's *membership*, so a kind in neither does not compile and a new
- * event kind cannot be added without stating its barrier policy. That is the
- * hazard `CLOSURE_POLICY`
- * guards on this event's producer side
- * (`packages/assistant/src/chat/chat-turn-closure.ts`), where a fourth turn
- * ending compiled clean and silently inherited the `completed` policy.
- *
- * The key type is the whole frame union's `kind` rather than a run-scoped
- * subset, so a kind the payload contract already makes unable to name a run
- * (`inbox.updated` and `memory.fact_learned` today — see their entries) writes
- * its reason here beside a kind excluded by policy. A run-scoped key type would
- * drop those kinds silently instead, and the reason nobody has to write is the
- * one this table exists to demand.
+ * The reason each kind arms no replay barrier.
+ * With `SPEAKS_FOR_A_RUN` it splits every frame kind, so a new kind must pick a side to compile.
  */
 const SPEAKS_FOR_NO_RUN = {
   "agent.run":
@@ -208,23 +140,8 @@ const SPEAKS_FOR_NO_RUN = {
 } satisfies Partial<Record<EventStreamFrame["kind"], string>>;
 
 /**
- * The other half of the partition: every kind `SPEAKS_FOR_NO_RUN` does not name.
- *
- * This literal, not the `switch`, is what partitions *membership*. A guard
- * called from an arm only enforces the arms it is called from, and `default` is
- * a sink — a hoisted early return, or an explicit `case` returning `null`,
- * diverts a kind before the sink, so the tables and not the guards are what
- * make a kind's classification mandatory. A kind in neither table is `TS2741`
- * (missing key) and a kind in both is `TS2353` (excess property), wherever the
- * `switch` sends it.
- *
- * What membership does **not** buy is an obligation on the arm. The value `true`
- * compels no `case` to mint anything, so `case "chat.tool": return null` retires
- * an included kind with no written reason and compiles clean — the ledger would
- * then say a barrier is armed where the code arms none. Nothing at the type
- * level closes that direction; one runtime assertion per included kind in
- * `test/events/replay-state.test.ts` does, at **tier 4** — the divergence is
- * detected after it is written, not prevented.
+ * Kinds that arm a barrier: every kind `SPEAKS_FOR_NO_RUN` does not name.
+ * The type does not force an arm to mint; `test/events/replay-state.test.ts` checks that.
  */
 const SPEAKS_FOR_A_RUN = {
   "chat.message": true,
@@ -234,78 +151,31 @@ const SPEAKS_FOR_A_RUN = {
   "approval.requested": true,
 } satisfies Record<Exclude<EventStreamFrame["kind"], keyof typeof SPEAKS_FOR_NO_RUN>, true>;
 
-/**
- * The `default` arm's return. `TS2345` here on a kind that arms nothing and has
- * no `SPEAKS_FOR_NO_RUN` reason — a new event kind, or a deleted table entry.
- */
+/** `TS2345` here means a kind arms nothing and has no `SPEAKS_FOR_NO_RUN` reason. */
 function speaksForNoRun(_kind: keyof typeof SPEAKS_FOR_NO_RUN): null {
   return null;
 }
 
 declare const BARRIER_RUN_ID: unique symbol;
 
-/**
- * A run id that came out of `toBarrierRunId`. The brand is why no arm can
- * produce one without routing through that mint: a `case` returning
- * `frame.payload.runId` directly is `TS2322` against `barrierRunId`'s
- * return type, which is the shape an author reaches for the moment a kind needs
- * arm-specific handling.
- */
+/** A run id minted only by `toBarrierRunId`. Returning `payload.runId` directly fails with `TS2322`. */
 type BarrierRunId = string & { readonly [BARRIER_RUN_ID]: true };
 
-/**
- * The frames that carry a run id this module keys a barrier on: the five
- * `SPEAKS_FOR_A_RUN` kinds that *arm* one, plus `agent.run`, which arms nothing
- * but whose terminal phase *releases* one (see `releasedRunId`). These are the
- * only inputs the mint below accepts.
- */
+/** Frames that arm a barrier, plus `agent.run`, which only releases one. */
 type RunScopedFrame = Extract<
   EventStreamFrame,
   { kind: keyof typeof SPEAKS_FOR_A_RUN | "agent.run" }
 >;
 
-/**
- * The arming and releasing arms' shared return, and the only mint of a
- * `BarrierRunId`. `TS2345` here on any kind outside `RunScopedFrame`: a kind
- * with no run id promoted to a `case` in `barrierRunId` or `releasedRunId` does
- * not compile, so an arm cannot mint a barrier under a kind that carries no run.
- *
- * It takes the whole frame rather than a kind plus a run id read off that frame,
- * because two arguments cannot be related: `toBarrierRunId("chat.delta",
- * frame.payload.runId)` from an `agent.progress` arm type-checked, minting a
- * barrier under a kind the ledger excludes. One parameter makes that pair
- * unrepresentable.
- */
+/** The only `BarrierRunId` mint. Takes the whole frame so kind and run id cannot mismatch. */
 function toBarrierRunId(frame: RunScopedFrame): BarrierRunId {
-  // SAFETY: RunScopedFrame's payload was schema-parsed with runId present;
-  // BarrierRunId brands that same string.
+  // SAFETY: the payload was schema-parsed with `runId`; the brand wraps that string.
   return frame.payload.runId as BarrierRunId;
 }
 
 /**
- * The run whose replay barrier a frame may arm or release, or `null` for a kind
- * this module does not let speak for one.
- *
- * A `switch` and not the `Set<EventKind>` this used to be: a runtime membership
- * test narrows neither the key nor the object, so with the Set the `runId` read
- * came off `unknown` and needed two guards the compiler could not check. As
- * `case` labels the five kinds are checked against `@alfred/contracts/events`
- * instead — renaming `runId`, or adding a `case` for a kind that carries none,
- * is a compile error here rather than a `null` that silently stops establishing
- * a barrier.
- *
- * Unlike `frameThreadId` there is no set derived from the *payloads*. `threadId`
- * is a *coverage* claim — every thread-scoped frame must be gated, so a payload
- * that grows one and is not classified is a bug. Replay is kind-agnostic, so
- * this list is not about what survives a reload: it names the frames allowed to
- * speak for a run's barrier, and that is policy, which is why it is written
- * rather than derived. `SPEAKS_FOR_NO_RUN` and `SPEAKS_FOR_A_RUN` state that
- * policy and partition the union's membership — the two guards below only route
- * `frame.kind` into the halves those tables define, and no type makes an
- * included arm actually arm anything (see `SPEAKS_FOR_A_RUN`).
- *
- * `payload.runId` is read unguarded under the caller contract stated on
- * `advanceReplayState`.
+ * The run whose barrier this frame arms, or `null`.
+ * The list is policy, so it is written out, not derived from payloads.
  */
 function barrierRunId(frame: EventStreamFrame): BarrierRunId | null {
   switch (frame.kind) {
@@ -320,19 +190,11 @@ function barrierRunId(frame: EventStreamFrame): BarrierRunId | null {
   }
 }
 
-/** The `chat.message` phases, sourced from the frame union so a new phase surfaces here. */
 type ChatMessagePhase = Extract<EventStreamFrame, { kind: "chat.message" }>["payload"]["phase"];
 
-/** The `agent.run` phases, sourced from the frame union so a new phase surfaces here. */
 type AgentRunPhase = Extract<EventStreamFrame, { kind: "agent.run" }>["payload"]["phase"];
 
-/**
- * Whether a `chat.message` phase ends its run. No `default`: a new `chat.message`
- * phase makes this function's declared `boolean` return fail with TS2366 until it
- * is classified (**tier 1**). This is the old `releasesBarrier`'s inner switch,
- * extracted so the kind `switch` in `releasedRunId` cannot swallow its
- * exhaustiveness in a `default`.
- */
+/** No `default`, so a new phase fails with TS2366 until it is classified. */
 function isTerminalChatPhase(phase: ChatMessagePhase): boolean {
   switch (phase) {
     case "completed":
@@ -346,50 +208,19 @@ function isTerminalChatPhase(phase: ChatMessagePhase): boolean {
 }
 
 /**
- * Whether an `agent.run` phase ends its run. No `default`: a new `agent.run`
- * phase fails with TS2366 until it is classified (**tier 1**).
- *
- * Terminal membership is *derived*, not restated. The first arm holds the
- * phases that name a run status (`completed` / `failed` / `cancelled` /
- * `blocked` / `deferred`), and `RUN_STATUS_KIND` (`packages/contracts/src/agent.ts`,
- * read through `isTerminalStatus`) decides each one — so a server that
- * re-classifies a terminal run status cannot leave this rule disagreeing with
- * it. A phase whose name is not a run status is a `TS2345` in that arm, so the
- * arm holds only status-named phases. `deferred` is a *live* status there, so
- * it returns `false`: it is a park, not an end, and keeps the barrier until a
- * later terminal frame or a `chat.message` / `completed` releases it.
- *
- * The second arm holds the intra-run progress phases with no run-status twin —
- * `started`, `step_started`, `step_completed`, `interrupted`, `resumed` — none
- * of which ends a run. `interrupted` sits on status `waiting`; the rest sit on a
- * run that continues.
- *
- * This rule rests on two assumptions the compiler does NOT check:
- * (a) *Arm placement is a human choice, not a type.* The exhaustive `switch`
- * forces every phase to be classified (`TS2366`), but it does not force a
- * status-named phase into the deriving first arm — `case "completed": return
- * false` compiles. Only the per-phase test in `replay-state.test.ts` catches a
- * misplaced arm (**tier 4**).
- * (b) *`phase`-name == `status`-name holds by server construction only.* The
- * `agent.run` phase enum and the run-status enum are two independent enums that
- * share five names by convention; no code, type, or test pins the
- * correspondence. Item 56's server pairing test
- * (`packages/assistant/test/agent/terminal-agent-run-pairing.test.ts`) pins one
- * direction of it — a terminal run status ⟹ a terminal `agent.run` frame — which
- * is why the barrier release below can trust a terminal phase to mean the run
- * ended.
+ * No `default`, so a new phase fails with TS2366 until it is classified.
+ * Phase names match run status names by convention only; nothing type-checks that.
  */
 function isTerminalRunPhase(phase: AgentRunPhase): boolean {
   switch (phase) {
-    // Phases that name a run status: RUN_STATUS_KIND decides terminality, so a
-    // server re-classification cannot desync this rule.
+    // Status-named phases: `isTerminalStatus` decides. `deferred` is live.
     case "completed":
     case "failed":
     case "cancelled":
     case "blocked":
     case "deferred":
       return isTerminalStatus(phase);
-    // Intra-run progress phases with no run-status counterpart — never terminal.
+    // Progress phases with no run status. Never terminal.
     case "started":
     case "step_started":
     case "step_completed":
@@ -400,26 +231,9 @@ function isTerminalRunPhase(phase: AgentRunPhase): boolean {
 }
 
 /**
- * The run whose replay barrier a frame *releases*, or `null`. This is the one
- * place the release rule lives; it replaced the old `releasesBarrier` boolean so
- * the arming key (`barrierRunId`) and the release key are read the same way — a
- * branded `BarrierRunId` minted only through `toBarrierRunId`.
- *
- * A chat run releases on `chat.message` / `completed`; a non-chat run (sub-agent
- * or user-authored workflow, which never publishes `chat.message`) releases on
- * `agent.run` / `completed` | `failed` | `cancelled`. Both mint through the same
- * frame-typed door, so a `case` returning `frame.payload.runId` directly is
- * `TS2322`.
- *
- * The kind `switch` has a `default: return null`, so this is **tier 4** on kind
- * coverage: a future run-lifecycle kind that terminates a run is not forced by
- * the compiler to be listed here — a test catches it. The arming partition
- * (`SPEAKS_FOR_A_RUN` / `SPEAKS_FOR_NO_RUN`, `TS2741`) is the chokepoint that
- * surfaces any new kind for classification; this list carries no closed
- * "does-not-release" table, to keep the ledger non-positive.
- *
- * `payload.phase` is read unguarded under the caller contract on
- * `advanceReplayState`.
+ * The run whose barrier this frame releases, or `null`.
+ * A chat run releases on `chat.message` `completed`. A sub-agent or workflow never sends
+ * `chat.message`, so it releases on a terminal `agent.run` phase.
  */
 function releasedRunId(frame: EventStreamFrame): BarrierRunId | null {
   switch (frame.kind) {

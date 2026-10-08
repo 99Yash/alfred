@@ -4,40 +4,17 @@ import type { PassthroughTruncation } from "./passthrough";
 import { sanitizeToolResult } from "./sanitize";
 
 /**
- * Payload bounding for untrusted, uncurated tool-result bodies bound for the
- * transcript — shared by the general read-only passthrough tier (ADR-0074
- * rung-a) and the raw MCP client (epic #271). It lives in `@alfred/contracts`,
- * not beside either consumer, because both call sites do the *same* job — bound
- * an untrusted provider payload for model exposure — and the primitives it
- * composes ({@link sanitizeToolResult}, {@link boundToolResult}) already live
- * here. Keeping the composition wrapper below its consumers avoids a stable
- * primitive depending up on a volatile product tier.
- *
- * The pipeline composes four bounds:
- *   1. `sanitizeToolResult` — strip NUL/lone-surrogate poison (ADR-0070).
- *   2. `boundToolResult` — cap any single string at 8,000 chars.
- *   3. every array at any depth is capped to its first {@link PASSTHROUGH_MAX_ARRAY_ITEMS}
- *      elements — a top-level-only row cap is insufficient because provider
- *      payloads nest their lists (`items`, `data`, `messages`, `value`, …).
- *   4. the whole body is capped to {@link PASSTHROUGH_MAX_BODY_BYTES} via
- *      deterministic structural pruning that always leaves valid JSON.
- *
- * Whenever anything is clipped, a {@link PassthroughTruncation} "thermometer"
- * signal is emitted so we can *measure* the context wall being hit (ADR-0074).
- *
- * Web-safe (pure `TextEncoder`/`JSON`/structural work, no Node APIs), matching
- * the repo invariant that cross-boundary browser-safe contracts live here.
+ * Bound an untrusted provider body before the model sees it (ADR-0074).
+ * Steps: strip NUL and lone surrogates, cap each string at 8,000 chars,
+ * cap every array at any depth (providers nest lists), then cap total bytes.
  */
 
-/** Every array at any depth is capped to its first N elements. */
 export const PASSTHROUGH_MAX_ARRAY_ITEMS = 50;
 
-/** The complete returned body is capped to this many bytes (32 KiB). */
 export const PASSTHROUGH_MAX_BODY_BYTES = 32 * 1024;
 
 const encoder = new TextEncoder();
 
-/** Approximate serialized byte size of a JSON-shaped value. */
 function approxBytes(value: unknown): number {
   let json: string;
 
@@ -52,16 +29,10 @@ function approxBytes(value: unknown): number {
 
 interface ArrayCapResult {
   value: unknown;
-  /** Total array elements dropped across every array at every depth. */
   dropped: number;
 }
 
-/**
- * Recursively cap every array to its first {@link PASSTHROUGH_MAX_ARRAY_ITEMS}
- * elements. Returns a new structure only when something changed (clean path
- * allocates nothing). Exotic objects pass through — mirrors the sanitize/bound
- * POJO posture.
- */
+/** Returns the same object when nothing changed. */
 function capArrays(value: unknown): ArrayCapResult {
   if (Array.isArray(value)) {
     let dropped = 0;
@@ -105,12 +76,8 @@ function capArrays(value: unknown): ArrayCapResult {
 }
 
 /**
- * Deterministically prune a value so its serialized size fits `budget` bytes,
- * always leaving valid JSON. Greedy in stable order: keep leading array
- * elements / object entries while they fit, recurse into a container child that
- * would overflow, and drop the rest behind an explicit truncation sentinel so
- * the model reads the result as clipped, never complete. Primitives (already
- * string-capped upstream) are returned as-is.
+ * Keep leading entries while they fit, recurse into an overflowing container,
+ * and end with a truncation marker so the model sees the result is clipped.
  */
 function pruneToBudget(value: unknown, budget: number): unknown {
   if (Array.isArray(value)) {
@@ -161,18 +128,13 @@ function pruneToBudget(value: unknown, budget: number): unknown {
     return out;
   }
 
-  // A lone primitive that still overflows the whole budget — only possible for a
-  // very long multibyte string (post 8k-char cap). Replace with a marker.
+  // Only a long multibyte string gets here after the 8k-char cap.
   return `…[value dropped to fit ${budget}-byte cap]`;
 }
 
 const OVERFLOW = Symbol("overflow");
 
-/**
- * Fit one child into `remaining` bytes: keep it whole if it fits, recurse into a
- * container that doesn't, or signal OVERFLOW for a scalar/too-small budget so
- * the parent stops and appends its sentinel.
- */
+/** OVERFLOW tells the parent to stop and append its marker. */
 function fitChild(child: unknown, remaining: number): unknown | typeof OVERFLOW {
   if (remaining <= 0) return OVERFLOW;
 
@@ -187,7 +149,6 @@ function fitChild(child: unknown, remaining: number): unknown | typeof OVERFLOW 
 
 interface ByteCapResult {
   value: unknown;
-  /** Approximate bytes dropped (original minus returned). */
   dropped: number;
 }
 
@@ -206,12 +167,7 @@ export interface BoundedPassthroughBody {
   truncation?: PassthroughTruncation;
 }
 
-/**
- * Bound a raw provider body for the transcript: compose poison-strip, per-string
- * cap, array-item cap, and total-byte cap, emitting a {@link PassthroughTruncation}
- * signal listing every cause that fired. Idempotent with the dispatch-boundary
- * sanitize pass (safe to run both).
- */
+/** Safe to run with the dispatch-boundary sanitize pass too. */
 export function boundPassthroughBody(input: unknown): BoundedPassthroughBody {
   const originalBytesApprox = approxBytes(input);
   const causes: PassthroughTruncation["causes"] = [];

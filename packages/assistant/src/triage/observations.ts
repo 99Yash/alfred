@@ -1,27 +1,14 @@
 import type { AccountPersona } from "@alfred/contracts";
-// Type-only, and a TOP-LEVEL `import type` rather than an inline `{ type X }`
-// specifier: under `verbatimModuleSyntax` the inline form survives erasure as a
-// bare side-effect import, which would drag the whole knowledge barrel into this
-// pure, IO-free module at runtime. The module-architecture check also requires
-// the barrel here, not the `../knowledge/user-context-line` leaf.
+// Top-level `import type`: an inline `{ type X }` survives as a side-effect import
+// and loads the whole knowledge barrel at runtime.
 import type { UserContextLine } from "../knowledge";
 import type { TriageSenderKindSignal } from "./sender-kind";
 import type { SenderPrior } from "./sender-priors";
 import type { ThreadState } from "./thread-state";
 
 /**
- * Deterministic observation layer (ADR-0051 #4a). PURE — zero IO, zero LLM.
- * Assembles the pre-model context fed into the single cheap classify call:
- * sender prior histogram, account persona, thread state, known-contact flag,
- * Gmail-native signals, and cheap regex content flags.
- *
- * The mechanism that makes a cheap model smart is *focused attention*, not a
- * bigger model — so this layer's whole job is to surface anomalies (a security
- * keyword in mail from a 99%-newsletter sender) the model would otherwise miss.
- *
- * Phase 2 builds + snapshot-tests this assembler; Phase 3 wires its output
- * into the classifier prompt and the inconsistency checker. Keeping it pure
- * means the wiring is a prompt change, not a re-architecture.
+ * Pre-model context for the cheap classifier (ADR-0051 #4a). No IO. Its job is
+ * to surface anomalies the model would miss, like a security word from a newsletter sender.
  */
 
 // ---------------------------------------------------------------------------
@@ -29,25 +16,17 @@ import type { ThreadState } from "./thread-state";
 // ---------------------------------------------------------------------------
 
 export interface GmailSignals {
-  /** Gmail's own inbox categories present on the message (`primary`, `promotions`, …). */
+  /** Gmail inbox categories (`primary`, `promotions`, …). */
   categories: string[];
   important: boolean;
   starred: boolean;
   inInbox: boolean;
   /**
-   * Gmail filed the message as spam: a THIRD PARTY'S verdict that the mail is
-   * unsolicited, and a fallible one, so #1098 split what it buys. On the reply
-   * lanes it is an absolute — the spam floor demotes `awaiting_reply`/
-   * `follow_up` to `fyi`, because those lanes claim the SENDER is owed a reply,
-   * which is exactly what the verdict denies. (Observed in prod: a spam-filed
-   * promo with "Would love your thoughts!" tagged `awaiting_reply`.) On
-   * `urgent`/`action_needed` it is only a strong PRIOR, carried by rule 20 in
-   * the prompt: the model keeps the demand lane when the body names an
-   * obligation the user already owns, and no floor overrides that. So a
-   * spam-filed message CAN hold a demanding category.
+   * Gmail's spam verdict (#1098). The spam floor always demotes the reply lanes.
+   * For `urgent`/`action_needed` it is only a prior (rule 20), so spam can stay urgent.
    */
   spam: boolean;
-  /** Gmail filed the message as trash (user-deleted). A hint only — no floor keys on it. */
+  /** User-deleted. A hint only; no floor reads it. */
   trash: boolean;
 }
 
@@ -72,7 +51,7 @@ export function extractGmailSignals(labelIds: readonly string[]): GmailSignals {
     else if (id === "TRASH") trash = true;
   }
 
-  categories.sort(); // stable order for snapshot tests
+  categories.sort();
 
   return { categories, important, starred, inInbox, spam, trash };
 }
@@ -82,58 +61,24 @@ export function extractGmailSignals(labelIds: readonly string[]): GmailSignals {
 // ---------------------------------------------------------------------------
 
 export interface ContentFlags {
-  /** A bulk-mail unsubscribe footer — a strong newsletter/marketing tell. */
   hasUnsubscribe: boolean;
-  /** A currency amount (`$1,200.00`, `₹500`, `1.000,00 €`) — a payment tell. */
   hasCurrencyAmount: boolean;
   /**
-   * Security/credential vocabulary — broad on purpose (matches sign-in /
-   * password / token language). Feeds the model AND the second-pass
-   * under-classification net. This is STRICTLY BROADER than the override-floor
-   * predicate (which keys on exposure verbs only), so a self-initiated magic
-   * link sets this flag but never trips the floor.
-   *
-   * The flag is a HINT, never a demand lane. Every vendor authentication echo
-   * sets it — a password-change confirmation as much as a breach alert — and
-   * rule 15 decides between them on WHO asserts the risk, not on this vocabulary.
-   * So no deterministic path may read `true` here and write `urgent` or
-   * `action_needed`; only the exposed-secret floor and the model's own judgment
-   * choose a demand lane.
+   * Broad security vocabulary; every vendor auth echo sets it. A hint only:
+   * no deterministic path may turn it into `urgent` or `action_needed`.
    */
   hasSecurityKeyword: boolean;
-  /** An embedded calendar invite (iCal) — a meeting tell. */
   hasCalendarInvite: boolean;
-  /**
-   * Investor / shareholder / AGM / registrar notice language (ADR-0051 §5,
-   * Phase 3). Migrated from the deleted `applyTriageClassificationGuardrails`
-   * investor rewrite — now a NAMED FLAG fed to the model, never a category
-   * rewrite. Helps the model honor rule 9 (a corporate "meeting" is not the
-   * user's meeting).
-   */
+  /** Investor/AGM notice language, for rule 9. A hint, never a category rewrite. */
   hasInvestorNotice: boolean;
-  /**
-   * Public-event blast language — WWDC/keynote/webinar/conference/summit/
-   * launch/save-the-date (ADR-0051 §5, Phase 3). Migrated from the deleted
-   * public-event guardrail; a named flag, not a rewrite. Helps the model
-   * honor rule 8 (public events are marketing/newsletter/fyi, not meeting).
-   */
+  /** Public-event blast language, for rule 8. A hint, never a category rewrite. */
   hasPublicEventLanguage: boolean;
 }
 
 const UNSUBSCRIBE_RE = /\bunsubscribe\b|\bmanage (your )?preferences\b|list-unsubscribe/i;
 
-// The trailing-symbol branch keeps `\b` only on the currency CODES (`100 EUR`),
-// never on the glyphs: a `\b` after `€`/`£` never holds (non-word glyph → EOL/
-// space is not a word boundary), so anchoring the whole branch on `\b` silently
-// dropped trailing-symbol EU amounts like `1.000,00 €`.
-//
-// The integer/decimal run is bounded (`{0,20}`, not `*`): a real amount is
-// short, and an unbounded run followed by a REQUIRED trailing symbol backtracks
-// O(n²) — it re-attempts the match from every digit position when the suffix is
-// absent. `extractContentFlags` scans the full (uncapped) email body, so a
-// single inbound message with a long digit/comma run would otherwise stall the
-// triage worker (quadratic ReDoS). The bound keeps every real currency format
-// matching while making the failing-suffix backtrack linear.
+// No `\b` after a glyph: it never holds after `€`, so `1.000,00 €` would not match.
+// `{0,20}`, not `*`: the body is uncapped and `*` backtracks quadratically (ReDoS).
 const CURRENCY_RE =
   /(?:[$€£₹]\s?\d|\b(?:usd|eur|gbp|inr)\b\s?\d|\d[\d.,]{0,20}\s?(?:[$€£₹]|\b(?:usd|eur|gbp|inr)\b))/i;
 
@@ -142,24 +87,14 @@ const SECURITY_RE =
 
 const CALENDAR_RE = /BEGIN:VCALENDAR|BEGIN:VEVENT|\bical\b|text\/calendar/i;
 
-// `proxy` and `registrar` are qualified to their financial sense: bare
-// `\bproxy\b`/`\bregistrar\b` false-positive on routine engineering prose
-// ("reverse proxy", "package registrar") for a developer's mail mix, setting a
-// spurious investor-notice hint. The qualifiers keep the real notices
-// ("proxy voting", "registrar and transfer agent", "registrar to the issue").
+// `proxy`/`registrar` are qualified: bare words match "reverse proxy" in dev mail.
 const INVESTOR_RE =
   /\bannual general meeting\b|\bagm\b|\bshareholder(?:s)?\b|\bproxy\s+(?:vote|voting|statement|card|form|materials?)\b|\be-?voting\b|\bevoting\b|\bannual report\b|\bregistrar\s+(?:and|&|to)\b|\bdepository\b|\bnsdl\b|\bcdsl\b/i;
 
-// `conference` requires a public-event qualifier (`conference 2026`,
-// `tech conference`) — bare `\bconference\b` false-positived on personal
-// "conference call" / "conference room", nudging the model off `meeting`.
-// The suppressor alternatives carry a trailing `\b` so they exempt only the
-// whole personal-meeting words (`room`/`rooms`), not prefixes of unrelated
-// words ("conference calligraphy", "conference liner notes").
+// `conference` skips "conference call/room"; the trailing `\b` keeps "conference calligraphy".
 const PUBLIC_EVENT_RE =
   /\bwwdc\d*\b|\bkeynote\b|\bwebinar\b|\bconferences?\b(?!\s+(?:call|rooms?|line|bridge|dial-?in)\b)|\bsummit\b|\bproduct launch\b|\blaunch event\b|\bpublic event\b|\bsave the date\b/i;
 
-/** Derive cheap deterministic content flags from the email's signal text. */
 export function extractContentFlags(text: string): ContentFlags {
   return {
     hasUnsubscribe: UNSUBSCRIBE_RE.test(text),
@@ -178,94 +113,35 @@ export function extractContentFlags(text: string): ContentFlags {
 export interface Observations {
   senderPrior: {
     key: string | null;
-    /** Histogram — empty object when this sender has no prior (or is a human/skip). */
+    /** Empty when the sender has no prior. */
     categoryCounts: Record<string, number>;
     lastCategory: string | null;
   };
-  /** `'work' | 'personal' | null` — null until detected on the credential. */
+  /** Null until detected on the credential. */
   persona: AccountPersona | null;
   thread: ThreadState;
-  /** The sender is a known contact in the user's entity graph. */
   knownContact: boolean;
-  /**
-   * Rendered `Sender relationship` descriptor for a human sender (ADR-0059) —
-   * significance + reciprocity + same-org + the user's role, or `no prior
-   * contact on record`. `null` for non-human senders (line omitted).
-   */
+  /** Rendered relationship line for a human sender (ADR-0059); null for non-humans. */
   senderRelationship: string | null;
-  /**
-   * Typed cold-contact flag (rule 16b) derived from the same signals as
-   * `senderRelationship` — `weak`/one-way-inbound/no-prior-contact human sender.
-   * The prose feeds the model; this feeds the deterministic person-waiting todo
-   * gate. `false` for non-human senders (no person-waiting stake).
-   */
+  /** Typed twin of `senderRelationship` for the cold-sender todo gate (rule 16b). */
   senderRelationshipIsCold: boolean;
-  /**
-   * Active user-model projection says this sender address is a non-person.
-   * Null means no active/confident opinion, not "person".
-   */
+  /** The projection says this sender is a non-person. Null means no opinion, not "person". */
   senderKind: TriageSenderKindSignal | null;
-  /**
-   * The matched standing instruction for this sender, when one exists. Null
-   * when no instruction matches or when the read failed — the sibling flag
-   * below tells those two apart. Membership is derived at read time: any
-   * active suppression binds its sender, so there is no stale-row state.
-   *
-   * This is the only observation that carries the user's verbatim words
-   * (`phrasing`). Every sibling is derived from the corpus, so a sibling can
-   * be wrong about what the user wants and this one outranks them on that
-   * question — see the ordering note in `renderObservations`.
-   */
+  /** The only observation in the user's own words, so it outranks the rest. */
   standingInstruction: TriageStandingDirective | null;
-  /**
-   * The pre-classify standing-instruction read failed, so a null
-   * `standingInstruction` above means "unknown", not "no instruction".
-   * Trace-only metadata — never rendered into the prompt. A blip must never
-   * invent an instruction, and the reverse failure (a real instruction hidden
-   * for one mail) is repaired by the next classify of the thread.
-   */
+  /** Trace only: a null `standingInstruction` means unknown, not none. */
   standingInstructionReadFailed: boolean;
-  /**
-   * A bounded prior about the user, drawn from the most recent cold-start
-   * research chunk (ADR-0050 D1, first slice). Null when no chunk exists or the
-   * read failed — both are simply "no prior", because this observation can only
-   * ever add context and never denies anything.
-   *
-   * It is Alfred's OWN research, so it is weaker evidence than the email body
-   * and far weaker than the user's verbatim `standingInstruction` above. The
-   * render order in `renderObservations` says so.
-   *
-   * A null is two-way ambiguous on its own — "no cold-start chunk" (the common
-   * case) vs "the read threw" — so read it with {@link
-   * Observations.userContextReadFailed}.
-   */
+  /** Cold-start research prior (ADR-0050 D1). Weaker than the body and the user's words. */
   userContext: UserContextLine | null;
-  /**
-   * The cold-start read failed, so a null `userContext` means "unknown", not
-   * "this user has no cold-start chunk". Without this flag a 100% read failure
-   * is byte-identical to the common case, and the deploy cannot be measured.
-   *
-   * The decision trace answers "did this classification see a cold-start
-   * prior?" from `SenderExtractionEvent.userContextPresent`, which this flag
-   * completes: a present prior reads (true, false), an absent one
-   * (false, false) and a failed read (false, true).
-   *
-   * Never fails the classification: a failed read renders no line, exactly like
-   * an absent chunk, so the flag is a report and not a branch.
-   */
+  /** A null `userContext` means unknown, not absent. Else a total read failure looks normal. */
   userContextReadFailed: boolean;
   gmail: GmailSignals;
   content: ContentFlags;
 }
 
 /**
- * One matched standing instruction, flattened for the classifier. `phrasing`
- * is the user's verbatim words — the only string that can outrank derived
- * signals on what the user wants. `directive` is the resolved, prompt-ready
- * sentence and is NOT rendered for ordering: it is model-composed at capture
- * time, so a claim that it "cannot be wrong" would rest on Alfred's own
- * inference. `factId` is carried so the decision trace can join a category
- * back to the instruction that biased it.
+ * `phrasing` is the user's words and is rendered. `directive` is model-composed and
+ * is not. `factId` lets the trace join back to the instruction.
  */
 export interface TriageStandingDirective {
   factId: string;
@@ -274,61 +150,28 @@ export interface TriageStandingDirective {
 }
 
 export interface AssembleObservationsArgs {
-  /**
-   * Pre-derived prior key (or null for human/skip senders). The caller does the
-   * `senderKeyFor` derivation; the assembler does not re-derive from a
-   * `SenderContext`, so it does not take one.
-   */
+  /** From `senderKeyFor`; null for humans. */
   senderKey: string | null;
   senderPrior: SenderPrior | null;
   persona: AccountPersona | null;
   thread: ThreadState;
   knownContact: boolean;
-  /** Pre-resolved `Sender relationship` descriptor (ADR-0059); `null` for non-human senders. */
   senderRelationship: string | null;
-  /**
-   * Pre-resolved typed cold-contact flag (rule 16b); `false` for non-human
-   * senders. Optional here (defaults to `false`) so eval/smoke harnesses that do
-   * not exercise the cold-sender gate need not thread it; the production
-   * `gatherObservations` always passes it.
-   */
+  // The optional fields below default so evals and smokes can skip them;
+  // `gatherObservations` always passes them.
   senderRelationshipIsCold?: boolean;
-  /** Active projection-backed non-person sender kind, if confidently known. */
   senderKind: TriageSenderKindSignal | null;
-  /**
-   * Matched suppression instruction. Optional (defaults to
-   * `null`) so eval and smoke harnesses that do not exercise it need not thread
-   * it; production `gatherObservations` always passes it.
-   */
   standingInstruction?: TriageStandingDirective | null | undefined;
-  /**
-   * The pre-classify standing-instruction read failed. Optional (defaults to
-   * `false`) so eval and smoke harnesses that do not exercise the failure path
-   * need not thread it; production `gatherObservations` always passes it.
-   */
   standingInstructionReadFailed?: boolean | undefined;
-  /**
-   * Cold-start prior about the user. NOT capped here or by its reader: the prompt
-   * budget is applied at the render site (`triage/classify.ts`), which is the only
-   * place the byte bound can hold on every construction path. Optional (defaults
-   * to `null`) so eval and smoke harnesses need not thread it; production
-   * `gatherObservations` always passes it.
-   */
+  /** Not capped here; `classify.ts` caps it at render. */
   userContext?: UserContextLine | null | undefined;
-  /**
-   * The cold-start read threw. Optional (defaults to `false`) so eval and smoke
-   * harnesses need not thread it; production `gatherObservations` always passes it.
-   */
   userContextReadFailed?: boolean | undefined;
   labelIds: readonly string[];
-  /** Concatenated signal text (subject + body + headers), lowercased or not. */
+  /** Subject + body + headers, any case. */
   signalText: string;
 }
 
-/**
- * Assemble the full observation object. Pure and order-stable so it can be
- * snapshot-tested and diffed in the `triage.classification` decision trace.
- */
+/** Pure and order-stable, so traces diff cleanly. */
 export function assembleObservations(args: AssembleObservationsArgs): Observations {
   return {
     senderPrior: {

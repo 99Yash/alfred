@@ -17,8 +17,7 @@ import {
   startToolSearchSpan,
 } from "../../src/tool-runtime/internal/runtime-spans";
 
-// The batch summary only reads `.kind`, so a minimal typed literal is enough to
-// exercise the count buckets without a live registry/dispatch.
+// The batch summary reads only `.kind`.
 const result = (kind: ToolCallDispatchResult["kind"]): ToolCallDispatchResult =>
   ({ kind }) as ToolCallDispatchResult;
 
@@ -205,10 +204,7 @@ describe("runtime.tool_load (single owner for every load path)", () => {
   });
 
   test("a dispatcher inactive-bounce activation emits the same span through the shared owner (#414)", () => {
-    // Both the explicit `system.load_tool` path and this inactive-bounce path
-    // must emit an identically shaped `runtime.tool_load` span so one count
-    // covers every lazy activation. The inactive bounce differs only in
-    // `source` and its zero-latency, already-resolved close.
+    // Same `runtime.tool_load` span as `system.load_tool`, so one count covers every activation.
     const { opened, ended } = capture(() =>
       recordRoundToolActivation(bossRun, "calendar.list_events" as never, "inactive_bounce"),
     );

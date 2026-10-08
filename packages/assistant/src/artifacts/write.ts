@@ -18,25 +18,16 @@ import { AppError } from "@alfred/contracts/app-errors";
 import { artifactReplacementMatchesBase } from "./content-hash";
 
 /**
- * Server-side write path for agent-authored artifacts (ADR-0075). The
- * `system.create_artifact` / `append_artifact_page` / `update_artifact` tools
- * delegate here; the chat-turn finalizer calls {@link finalizeRunArtifacts} to
- * close out a turn's artifacts.
- *
- * Every mutation bumps `row_version` and pokes the user AFTER commit, so the
- * sidebar sees content arrive at page/step granularity (the v1 "streaming"
- * model — there is no token-level stream; see the artifact-sidebar plan). Reads
- * + writes of a `pages` row's content run inside a `SELECT … FOR UPDATE`
- * transaction as a second line of defense against callers outside the ordered
- * chat dispatcher and concurrent runs editing the same artifact.
+ * Write path for agent-authored artifacts (ADR-0075). The artifact tools call this;
+ * the turn finalizer calls {@link finalizeRunArtifacts}.
+ * Every write bumps `row_version` and pokes after commit, so the sidebar updates per page.
+ * Content reads and writes run under `SELECT … FOR UPDATE` against concurrent runs.
  */
 
-/** Common provenance every write carries — who/where the artifact belongs to. */
 export interface ArtifactWriteContext {
   userId: string;
-  /** The chat thread that produced the artifact (required — artifacts are thread-owned). */
+  /** Required: artifacts are thread-owned. */
   threadId: string;
-  /** The authoring agent run (audit/replay). */
   runId: string;
 }
 
@@ -74,21 +65,13 @@ export type UpdateArtifactResult =
       reason: string;
     };
 
-/** Hard ceiling on pages per artifact — mirrors the `artifactContentSchema` cap. */
+/** Same cap as `artifactContentSchema`. */
 const MAX_PAGES = 100;
 
 /**
- * Validate one authored page against its format's authoring contract before it
- * is stored. `pdf` gets the full document contract (typography + motion);
- * `slides` gets the motion-only check (they keep inline-geometry freedom).
- *
- * A `pages` row always carries a format IN PRACTICE — the `createArtifactInput`
- * tool schema refine (`@alfred/contracts` tool-schemas) rejects a `pages` create
- * that omits one — but the DB column is nullable (a `document` has no format), so
- * this boundary cannot assert it in the type. A null format therefore skips
- * validation rather than throwing: the check trusts that upstream refine, and the
- * worst case of a hand-inserted formatless `pages` row is an unvalidated page,
- * not a crash.
+ * Check a page against its format's contract: full for `pdf`, motion-only for `slides`.
+ * The column is nullable (`document` has none), so a null format skips the check.
+ * The tool schema already requires a format for `pages`.
  */
 function validatePageForFormat(
   format: ArtifactFormat | null,
@@ -102,10 +85,8 @@ function validatePageForFormat(
 }
 
 /**
- * Create a new artifact row in `generating` status. `document` seeds its
- * markdown body (the boss authors the whole doc in one call); `pages` seeds an
- * empty page list that subsequent {@link appendArtifactPage} calls fill. The
- * turn finalizer flips the row to `complete` when the authoring turn ends.
+ * Create an artifact in `generating`. `document` seeds its markdown; `pages` starts
+ * empty for {@link appendArtifactPage}. The finalizer marks it `complete`.
  */
 export async function createArtifact(
   ctx: ArtifactWriteContext,
@@ -121,11 +102,8 @@ export async function createArtifact(
       ? { kind: "document" as const, markdown: input.markdown ?? "" }
       : emptyArtifactContent("pages");
 
-  // `message_id` starts NULL. The authoring assistant message is
-  // not persisted to `chat_messages` until the turn finalizes (~minutes after
-  // the tool runs), so referencing it here fails the `message_id` FK for every
-  // in-turn create_artifact call. `finalizeRunArtifacts` backfills the column
-  // after that message is persisted so the web can attach its trigger card.
+  // `message_id` starts NULL: the assistant message is not saved until the turn ends,
+  // so the FK would fail. `finalizeRunArtifacts` fills it in.
   let row: Pick<Artifact, "id" | "title" | "kind" | "format"> | undefined;
 
   try {
@@ -157,11 +135,7 @@ export async function createArtifact(
   return { ok: true, artifactId: row.id, title: row.title, kind: row.kind, format: row.format };
 }
 
-/**
- * Append one HTML page to a `pages` artifact. Runs inside a row-locking
- * transaction so concurrent appends serialize and preserve every page. Refuses
- * a `document` artifact, an unknown id, or a full page list.
- */
+/** Append one HTML page under a row lock. Refuses a `document`, an unknown id, or a full list. */
 export async function appendArtifactPage(
   ctx: ArtifactWriteContext,
   input: { artifactId: string; title: string; html: string },
@@ -243,15 +217,9 @@ export async function appendArtifactPage(
 }
 
 /**
- * Append one markdown section to a `document` artifact (ADR-0085). The stored
- * body is a long document authored as many capped sections; this concatenates
- * `input.markdown` onto the end with a blank-line separator inside the same
- * row-locking transaction {@link appendArtifactPage} uses, so concurrent appends
- * serialize and preserve every section. Refuses a `pages` artifact, an unknown
- * id, or accumulation past the stored {@link DOCUMENT_MARKDOWN_MAX} cap. Being
- * additive and row-locked, it needs no `baseContentHash` and doubles as the safe
- * cross-turn "extend this document" operation (leaving the row's existing
- * `runId`/`messageId`/status untouched, matching {@link appendArtifactPage}).
+ * Append one markdown section to a `document` (ADR-0085), under the same row lock.
+ * Refuses a `pages` artifact, an unknown id, or going past {@link DOCUMENT_MARKDOWN_MAX}.
+ * Additive and locked, so it needs no `baseContentHash` and is safe across turns.
  */
 export async function appendArtifactSection(
   ctx: ArtifactWriteContext,
@@ -279,10 +247,7 @@ export async function appendArtifactSection(
     const current = row.content.markdown;
     const next = current.length > 0 ? `${current}\n\n${input.markdown}` : input.markdown;
 
-    // The stored total cap must be enforced by hand: `content` binds via
-    // `.$type<>()` (compile-time only), so no Zod runs before this DB write —
-    // exactly why appendArtifactPage guards MAX_PAGES here rather than trusting
-    // the schema.
+    // `content` is typed with `.$type<>()` only, so no Zod runs before this write. Check the cap here.
     if (next.length > DOCUMENT_MARKDOWN_MAX) return { status: "content_limit" as const };
 
     await tx
@@ -328,11 +293,8 @@ export async function appendArtifactSection(
 }
 
 /**
- * Revise an existing artifact: rename it, replace a `document`'s markdown, or
- * replace a `pages` artifact's whole page list. Content type must match the
- * artifact's kind (markdown↔document, pages↔pages). Find/replace and per-page
- * surgical edits are deferred (v1 edits flow through the boss as a full
- * replacement — see the plan).
+ * Rename an artifact, or replace its whole content. Content type must match the kind.
+ * Partial edits are not supported.
  */
 export async function updateArtifact(
   ctx: ArtifactWriteContext,
@@ -385,10 +347,8 @@ export async function updateArtifact(
 
     const replacesContent = input.markdown !== undefined || input.pages !== undefined;
 
-    // Content authored earlier in this same run is already present in the live
-    // transcript. Cross-turn full replacement is different: require proof that
-    // the model received the complete, still-current body. This rejects edits
-    // based on a truncated reference and lost updates after concurrent changes.
+    // A cross-turn full replacement must prove the model saw the full current body.
+    // This blocks edits from a truncated view and lost updates.
     if (
       replacesContent &&
       row.runId !== ctx.runId &&
@@ -402,8 +362,7 @@ export async function updateArtifact(
       return { status: "stale_content" as const };
     }
 
-    // Spread order matters: `pages` wins over `markdown` when both arrive,
-    // matching the previous assignment order.
+    // `pages` wins over `markdown` when both arrive.
     const set = {
       rowVersion: sql`${artifacts.rowVersion} + 1`,
       ...(input.title !== undefined ? { title: input.title } : {}),
@@ -460,13 +419,8 @@ export async function updateArtifact(
 }
 
 /**
- * Close out a turn's artifacts: flip every still-`generating` artifact authored
- * by `runId` to a terminal state (`complete` on a clean turn, `error` on a
- * faulted one). Called by the chat-turn finalizers so an artifact is never left
- * stuck `generating` if the boss forgets to "finish" it — completion is tied to
- * the authoring run's lifecycle, not a separate model tool. The caller already
- * pokes on turn end, but we poke here too so a finalize that runs without a
- * sibling poke (the failure path) still propagates the terminal state.
+ * Move a run's `generating` artifacts to `complete`, or `error` on a faulted turn,
+ * so none is left stuck. Pokes too, because the failure path has no other poke.
  */
 export async function finalizeRunArtifacts(
   userId: string,

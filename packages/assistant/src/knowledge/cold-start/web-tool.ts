@@ -3,36 +3,19 @@ import { z } from "zod";
 import { runWebSearch } from "../web-search";
 
 /**
- * A local `web_search` tool for cold-start's bounded agent loops (seed +
- * aspect sub-agents). Each call delegates to {@link runWebSearch} — the same
- * grounded-Gemini path the boss/sub-agents use at runtime — so every search
- * lands its own `api_call_log` row tagged `kind='web_search'` while the
- * surrounding reasoning turn is a single `kind='llm'` row.
- *
- * Why local-execute rather than `system.spawn_sub_agent`: cold-start is a
- * deterministic onboarding workflow, not a boss-driven autonomous run. We want
- * the agent harness (a model that picks its own queries and adapts to what it
- * finds), but bounded — `meteredGenerateText` + `stopWhen(isStepCount(n))`
- * gives exactly that without the separate `agent_runs` / queue / dispatch
- * machinery the spawn path carries, which is far too heavy and slow for a
- * signup callback.
- *
- * The returned `citations` array is mutated in place across the loop: every
- * search appends its (deduped, order-preserving) source URLs so the caller can
- * read the full citation set after the loop finishes.
+ * A local `web_search` tool for cold-start's capped agent loops. It calls `runWebSearch`,
+ * so each search logs its own `api_call_log` row. It avoids `system.spawn_sub_agent`,
+ * which is too slow for a signup callback. `citations` grows in place across the loop.
  */
 export interface ColdStartWebTool {
-  /** Pass straight to `meteredGenerateText`'s `tools`. */
   tools: ToolSet;
-  /** Deduped citation URLs collected across every search this loop ran. */
   citations: string[];
-  /** How many searches actually executed — for step logging. */
   searchCount: () => number;
 }
 
 export function buildColdStartWebTool(args: {
   userId: string;
-  /** Optional — passed straight through so an omitted run meters as null, not "". */
+  /** An omitted run meters as null, not "". */
   runId?: string | undefined;
   stepId?: string | undefined;
   abortSignal?: AbortSignal | undefined;
@@ -56,7 +39,6 @@ export function buildColdStartWebTool(args: {
         runId: args.runId,
         stepId: args.stepId,
         abortSignal: args.abortSignal,
-        // Stable per-search key so a retried turn re-uses the same trace id.
         idempotencyKey: toolCallId,
       });
 

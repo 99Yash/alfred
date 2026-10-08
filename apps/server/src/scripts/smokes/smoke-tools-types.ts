@@ -1,11 +1,6 @@
 /**
- * Compile-time guard for the m13 Phase 2 tool registry.
- *
- * `pnpm check-types` is the only step that exercises this file — it has
- * no runtime body. If `ToolName` ever stops narrowing properly (e.g. a
- * refactor accidentally widens it to `string`), the `@ts-expect-error`
- * comments below stop firing and tsc -b will fail the build for the
- * `server` package, which is exactly the signal we want.
+ * Compile-time guard for the tool registry. No runtime body: if `ToolName`
+ * widens to `string`, the `@ts-expect-error` lines below fail `check-types`.
  */
 
 import type { RegisteredTool } from "@alfred/assistant/tool-runtime";
@@ -13,13 +8,9 @@ import type { BuiltinToolRegistry } from "@alfred/assistant/tool-runtime/builtin
 
 declare const registry: BuiltinToolRegistry;
 
-// Resolves: `'gmail.search'` is a member of the `ToolName` template union.
 const _searchTool: RegisteredTool | undefined = registry.get("gmail.search");
 
 void _searchTool;
-
-// Compile errors below are the contract — if any of them stop erroring,
-// the registry has lost its type safety.
 
 // @ts-expect-error — `'gmail.fake_action'` is not a declared GMAIL_ACTION.
 registry.get("gmail.fake_action");

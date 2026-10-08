@@ -14,66 +14,12 @@ import { getTool, listRegisteredTools } from "../../src/tool-runtime/internal/re
 import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 
 /**
- * Schema-budget regression guard (#414, PRD User Story 15). The whole point of
- * lazy loading is that the model sees a *tiny* kernel by default and only pays
- * for tools it loads. These ceilings pin that guarantee against the real tool
- * registry: a giant schema slipping into the kernel, or an integration doubling
- * its surface, trips a ceiling here instead of silently inflating every prompt.
- *
- * The kernel ceiling is a *tight* ratchet: the kernel schema is paid on every
- * single prompt, so it sits only ~10-15% above the measured surface — enough for
- * ordinary description edits, but a new tool declared `surface:"kernel"` (even a
- * medium ~1KB one, well under the old 8KB ceiling) trips it. The full-surface
- * ceiling is only paid when everything loads, so it needs no per-prompt
- * tightness, but it sits about one small tool (~1.5 KB) above the measured
- * surface so that every new tool records its own measurement here. When a
- * ceiling legitimately needs to rise, bump it deliberately — the bump is the
- * review signal.
+ * Ceilings on tool-schema size. The kernel is paid on every prompt, so its
+ * ceiling sits about 10% above the measurement. The full-surface ceiling sits
+ * about one small tool above it. Raise a ceiling on purpose: the bump is the review signal.
  */
 
-// Measured 2026-07-16: kernel 5,904 B / 1,477 tok across 8 tools; full 51,127 B across 57 tools.
-// Measured 2026-07-20: full 71,764 B — the general invocation tier (ADR-0074) added one
-// read-only `.request` passthrough tool per supported integration (railway.graphql + the REST
-// family github/notion/vercel + the six Google products), each carrying a query-DSL-steering
-// description. These are lazy (never kernel), so the growth is only paid when everything loads.
-// Measured 2026-08-01: full 80,532 B — workflow recovery added one small lazy tool that
-// revalidates a blocked immutable draft before the existing high-risk activation tool runs.
-// Measured 2026-08-21: full 81,604 B — system.corpus_search (lane 08 of #649) added one lazy
-// read-only search over the ingested corpus.
-// Measured 2026-09-05: full 86,649 B across 75 tools — the Sentry provider (#563) added one lazy
-// read-only `sentry.request` REST passthrough, the same ~1.9 KB shape as the Vercel/Notion ones.
-// Measured 2026-09-09: full 90,494 B across 76 tools — the surface stood at 89,982 B before #990
-// (the ask_user tool, #1016, used the remaining margin without a bump); #990 adds `rawKind` and
-// its one-line grounding to the authorable event trigger, which both `system.author_workflow`
-// and `system.activate_workflow` embed (+256 B each). Ceiling raised 90,000 → 92,000: the #990
-// delta plus ~1.5 KB, so the next tool addition trips it and records its own line.
-// Measured 2026-09-12: kernel 6,420 → 9,481 B / ~2,370 tok and full 90,494 → 93,131 B —
-// `system.search_context` (#426) is the model-facing door to the Context Search boundary and the
-// chat prompt names it as the first-pass cross-source read, so it is kernel (the spec's "chat
-// guidance prefers it" cannot hold if the tool must be searched and loaded first). Its envelope
-// (query + task + exact object references + limit) carries the boundary's full request shape,
-// which is most of the kernel delta; keeping the exact-object path is what lets the fabric's
-// object-state adapter contribute instead of always reporting empty. The tool prose was trimmed
-// to keep the ratchet tight; the exact-object union is still ~1.3 KB of the tool and is the first
-// candidate to move behind a later drill-down if the first-pass query path proves sufficient.
-// Ceilings raised for this deliberate review signal.
-// Measured 2026-09-17: full 93,131 → 94,488 B across 77 tools — the standing-instruction
-// `scope` field (#1107) adds one optional enum to `system.remember`, at the top level and on
-// each `senders` entry, plus the tool prose that steers the domain option and names the
-// domain classes that fall back to `sender`. NO ceiling bump: 94,488 B still sits under
-// 95,000 B, and the ~512 B of margin left is the intended tightness — the next tool addition
-// trips the ceiling and records its own line.
-// Measured 2026-09-23: kernel 9,817 → 11,868 B / ~2,455 → ~2,968 tok across 10 tools —
-// `system.ask_user` (#1019) moves into the kernel because the chat prompt now points at it for
-// every ambiguous request; lazy, it would cost a search/load bounce and a mid-turn cache bust
-// before each ask. The tool is ~2 KB because its description carries the when-to-ask rubric and
-// its schema nests questions and options. `callers` + `requiresLiveChat` keep it off sub-agent
-// and background surfaces. Kernel ceilings raised 10,500 → 13,000 B and 2,600 → 3,300 tok,
-// about 10% above the new measurement.
-// Measured 2026-09-28: kernel 11,868 → 12,083 B / ~2,968 → ~3,021 tok across 10 tools — no tool
-// moves. The search fold (#1258) makes `system.search_tools` say its best registered hit is
-// already callable and `system.load_tool` say when to prefer the search; those two longer
-// descriptions are the whole delta. NO ceiling bump: 917 B of kernel headroom remains.
+// Measured 2026-10-08: kernel 12,083 B / ~3,021 tok across 10 tools; full 89,578 B across 72 tools.
 const KERNEL_SCHEMA_BYTES_CEILING = 13_000;
 
 const KERNEL_SCHEMA_TOKENS_CEILING = 3_300;
@@ -124,8 +70,6 @@ describe("tool-schema budget", () => {
 
     const full = estimateToolSurfaceBudget([...listRegisteredTools()]);
 
-    // The lazy-tool win: each exact activation pays only for its own schema,
-    // while the kernel remains a small fraction of the everything-loaded surface.
     assert.ok(kernel.schemaBytes < preloaded.schemaBytes);
     assert.ok(preloaded.schemaBytes < loaded.schemaBytes);
     assert.ok(loaded.schemaBytes < full.schemaBytes);

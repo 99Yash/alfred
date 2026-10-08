@@ -26,14 +26,8 @@ import { cn } from "~/lib/utils";
 import { artifactTypeLabel, formatArtifactDate } from "./helpers";
 
 /**
- * The library's full-screen reader for one artifact, opened from a card at
- * `/library/$artifact`.
- *
- * A `pages` artifact renders through the same {@link ArtifactPagesBody} the chat
- * sidebar uses — thumbnail strip, one large page, click to present — so a deck
- * reads identically in both places. Page index and presentation state live here
- * rather than in the body, because Escape must exit the presentation before it
- * closes the viewer, and the two viewers must not both answer an arrow key.
+ * Full-screen reader at `/library/$artifact`, using the chat sidebar's {@link ArtifactPagesBody}.
+ * Page and presentation state live here: Escape exits presenting before it closes the viewer.
  */
 export function ArtifactViewer() {
   const { artifact: artifactId } = useParams({ from: "/library/$artifact" });
@@ -52,8 +46,7 @@ export function ArtifactViewer() {
     void navigate({ to: "/library" });
   }, [navigate]);
 
-  // Escape exits the presentation first, then closes the viewer. The handler
-  // reads the latest state through an Effect Event, so the listener mounts once.
+  // Escape exits presenting first. An Effect Event reads fresh state, so the listener mounts once.
   const onEscape = useEffectEvent(() => {
     if (presenting) setPresenting(false);
     else close();
@@ -69,8 +62,7 @@ export function ArtifactViewer() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // Arrow keys page through the deck. Disabled while presenting, where the
-  // overlay owns the same keys against the same index.
+  // Off while presenting; the overlay owns the arrow keys then.
   useArtifactPageKeys({
     enabled: canPresent && !presenting,
     pageCount: pages.length,
@@ -321,10 +313,7 @@ function ArtifactDialog({
   children: ReactNode;
 }) {
   return (
-    // `size-full` is load-bearing: the UA stylesheet sizes a `<dialog>` with
-    // `width/height: fit-content`, which `inset-0` alone cannot override (an
-    // over-constrained box keeps the width and drops `right`). Without it the
-    // viewer collapses to the width of its own header.
+    // `size-full` is required: the UA's `<dialog>` `fit-content` size beats `inset-0`.
     <dialog
       open
       aria-modal="true"
@@ -339,9 +328,7 @@ function ArtifactDialog({
         type="button"
         aria-label="Close artifact"
         onClick={onClose}
-        // Near-opaque, not translucent: the library grid behind stays legible
-        // through an 88% wash, and a deck read over rows of chat titles is the
-        // noise this viewer exists to remove.
+        // Near-opaque, so the grid behind does not add noise to the deck.
         className="absolute inset-0 -z-10 bg-app-background/97 backdrop-blur-xl"
       />
       {compact ? (

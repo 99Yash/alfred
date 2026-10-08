@@ -6,19 +6,8 @@ import {
 import { availableToolNamesByIntegration } from "@alfred/assistant/tool-runtime";
 
 /**
- * ADR-0053 connected summary: a frozen, human-readable one-line-per-integration
- * grounding block ("integration.action names — short desc", with `(needs reauth)` markers)
- * snapshotted into `agent_runs.state` at run start and concatenated into the
- * boss/chat/sub-agent system prompt. It is *grounding*, not the security floor:
- * the dispatcher still hard-enforces `allowed_integrations` + connection health
- * before any tool executes. Its job here is to tell the model — in the exact
- * fully-qualified `integration.action` tool names it can paste verbatim — which
- * services are actually live, so the boss stops inventing tools, mis-shaping a
- * call as a bare slug, or asking the user to load an integration it is already
- * connected to.
- *
- * Computed once per run (one DB read) and cached in run state; never recomputed
- * mid-turn, so the system-prompt prefix stays cache-stable (ADR-0053 / ADR-0026).
+ * One line per connected integration for the system prompt (ADR-0053). Grounding only;
+ * the dispatcher enforces access. Computed once per run so the prompt prefix stays cache-stable.
  */
 
 const CONNECTED_HEADER =
@@ -28,13 +17,7 @@ const NO_INTEGRATIONS_TEXT =
   "You have no integrations connected right now. If the user asks about their email, calendar, files, or other connected data, tell them they need to connect it first — never pretend to have access you do not.";
 
 /**
- * The lines iterate `LIVE_PROVIDERS` in registry order (ADR-0093): each live
- * entry carries its `summaryBlurb`, and `identityInSummary` marks the entries
- * whose connected account identity (e.g. GitHub login) is appended — the F2
- * binding (ADR-0071) that lets the boss resolve `author:@me` / `owner` from its
- * own connection instead of asking the user. Planned providers and channels
- * (`slack`, `linear`, `imessage`) are not live entries, so ADR-0053's "skip
- * empty-action slugs" falls out of the type instead of a hand-kept list.
+ * `identityInSummary` appends the account login, so the boss can resolve `@me` itself (ADR-0071).
  */
 export function buildConnectedSummaryFromAvailability(
   availability: IntegrationAvailabilitySnapshot,
@@ -55,19 +38,12 @@ export function buildConnectedSummaryFromAvailability(
     const access = availability.integrations.get(entry.slug);
 
     if (!access || access.health === null) continue;
-    // List the fully-qualified tool names (`calendar.list_events`), not the
-    // bare actions. A slug-then-actions shape ("calendar — list_events, …")
-    // reads like "call `calendar` with action=list_events", and the boss did
-    // exactly that — emitting a bare `calendar {action:"list_events"}` call
-    // that dispatch can only reject ("Couldn't" card). Handing it the literal
-    // `integration.action` strings is the shape it should paste verbatim.
+    // Full tool names: with bare actions, the boss called `calendar` with an `action` argument.
     const identity = entry.identityInSummary ? access.accountLabel : null;
     const binding = identity ? ` — connected as ${identity}` : "";
     const tools = availableByIntegration.get(entry.slug) ?? [];
 
-    // A slug with credentials but no executable tools needs reauthorization.
-    // Exact tool availability wins when a narrower scope still supports part
-    // of the integration (for example Gmail read without Gmail send).
+    // Credentials but no usable tools means reauth. A narrower scope can still allow some tools.
     if (tools.length === 0 && access.health === "needs_reauth") {
       lines.push(
         `- ${entry.slug} — ${entry.summaryBlurb}${binding} (needs reauth — tell the user to reconnect ${entry.slug}; don't call its tools yet)`,

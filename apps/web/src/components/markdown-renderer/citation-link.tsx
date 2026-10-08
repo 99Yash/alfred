@@ -8,13 +8,7 @@ interface CitationLinkProps {
   children: ReactNode;
 }
 
-/**
- * Inline source pill rendered for markdown links tagged with a `cite` title —
- * `[label](https://example.com "cite")`. Shows the source favicon + label, with
- * the domain in a tooltip. Alfred's adaptation of dimension's citation link:
- * favicon-by-domain (matching the existing web-search citation grammar) rather
- * than a fixed integration-icon catalog.
- */
+/** Source pill for a link titled `cite` (`[label](url "cite")`): favicon and label, domain in a tooltip. */
 export function CitationLink({ href, children }: CitationLinkProps) {
   const domain = domainOf(href);
 

@@ -47,7 +47,7 @@ interface CalendarCredential {
 
 type CompactCalendarEvent = ReturnType<typeof compactEvent>;
 
-/** Read = either scope; write = the events scope. Matched any-of by the resolver. */
+/** Read needs either scope. Write needs the events scope. */
 const CALENDAR_READ_SCOPES = [
   GOOGLE_SCOPE.calendar.readonly,
   GOOGLE_SCOPE.calendar.events,
@@ -62,8 +62,7 @@ export function resolveCalendarListWindow(
 ): CalendarListWindow {
   const bounds = parseExplicitBounds(input, timezone, now);
 
-  // Pure explicit-date/time path: bounds given, no relative window. Honor them
-  // exactly; an inverted range is the one genuinely unusable shape, so reject.
+  // Bounds without a window: honor them exactly, but reject an inverted range.
   if (bounds && !input.window) {
     if (bounds.timeMax <= bounds.timeMin) {
       throw new AppError("calendar_bounds_order");
@@ -74,18 +73,9 @@ export function resolveCalendarListWindow(
 
   const relative = resolveRelativeWindow(input, timezone, now);
 
-  // Over-specification: the model supplied BOTH explicit bounds and a relative
-  // window. The window is normally the reliable intent — the server resolves it
-  // in the user's timezone and the model's hand-computed bounds are the
-  // redundant, sloppy part (11/11 observed failures were noon-to-noon "today"
-  // bounds alongside window:'today', which *overlap* the real day). So window
-  // wins by default. BUT if the bounds are a valid range that is entirely
-  // DISJOINT from the resolved window, they can't be sloppy same-day bounds —
-  // they're a deliberate specific-date ask ("events on Jul 20") the model *also*
-  // (wrongly) stamped a window onto. Honoring the window there would silently
-  // answer a different day than the one asked for, so prefer the bounds. This
-  // keeps the precedence self-correcting instead of resting on the unverifiable
-  // assumption that a present window is always the truer signal.
+  // Both bounds and a window: the window wins, because model-computed bounds are
+  // often sloppy (noon-to-noon "today"). Bounds fully disjoint from the window are
+  // a deliberate date ask, so they win instead.
   if (
     bounds &&
     bounds.timeMin < bounds.timeMax &&
@@ -97,12 +87,7 @@ export function resolveCalendarListWindow(
   return relative;
 }
 
-/**
- * Parse `timeMin`/`timeMax` into a concrete range, or `null` when neither is set
- * or a value is unparseable. Never throws: the caller decides whether an
- * inverted/invalid range is fatal (the pure-bounds path rejects it) or simply
- * ignorable in favor of a relative window (the over-specified path falls back).
- */
+/** Parse `timeMin`/`timeMax`, or `null` when unset or unparseable. Never throws. */
 function parseExplicitBounds(
   input: CalendarListEventsInput,
   timezone: IanaTimezone,

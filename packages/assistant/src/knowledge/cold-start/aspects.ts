@@ -4,46 +4,29 @@ import type { ColdStartSignals } from "./signals";
 import { buildColdStartWebTool } from "./web-tool";
 
 /**
- * Cold-start v2 — step 2 of the agent harness: bounded parallel aspect
- * sub-agents (ADR-0011/0022 amendment).
- *
- * Each aspect is a focused web-research sub-agent: a sub-agent-tier model with
- * a local `web_search` tool, capped at a few searches, that returns ~500 words
- * of dense findings on one facet of the user. They run concurrently (one boss
- * identity anchor in, N findings out) and feed the boss synthesis step.
- *
- * The aspect set is deterministic and small — "bounded" in the design's sense —
- * rather than model-chosen: it's the same handful of facets we extract facts
- * for, filtered by signal (e.g. skip the employer aspect for a consumer email).
- * The seed's identity anchor is injected into every brief so all aspects chase
- * the same person.
+ * Cold-start step 3: parallel sub-agents, one per facet of the user, each with a capped
+ * `web_search` loop (ADR-0011/0022). The set is fixed, not model-chosen.
  */
 
 const ASPECT_MAX_STEPS = 4;
 
-/** Findings are ephemeral run-state; the cap keeps the synthesis prompt lean. */
+/** Findings are run-state only; the cap keeps the synthesis prompt small. */
 const ASPECT_MAX_OUTPUT_TOKENS = 1_200;
 
 export interface ColdStartAspect {
   id: string;
   label: string;
-  /** The facet-specific research instruction handed to the sub-agent. */
   brief: string;
 }
 
 export interface AspectFinding {
   id: string;
   label: string;
-  /** ~500-word dense findings, or an explicit "nothing found". */
   finding: string;
   citations: string[];
 }
 
-/**
- * The deterministic aspect set. `company` is dropped for consumer email
- * domains (no employer to research); the rest always run. Briefs carry the
- * relation/confidence guards inline so each sub-agent stays conservative.
- */
+/** Drop `company` for a consumer email domain; it has no employer to research. */
 export function selectAspects(signals: ColdStartSignals): ColdStartAspect[] {
   const aspects: ColdStartAspect[] = [
     {
@@ -95,10 +78,7 @@ function buildPrompt(args: {
   lines.push(`Subject:`);
   lines.push(`- Name: ${args.signals.name}`);
 
-  // Deliberately NOT the full email — the local-part is a contact detail that
-  // adds nothing to web research and would otherwise ride into the checkpointed
-  // finding + synthesis. The resolved anchor + domain disambiguate. (Identity
-  // resolution in the `seed` step is the only place the full email belongs.)
+  // Domain only: the local-part adds nothing to research and must not reach the persisted finding.
   if (args.signals.emailDomain) lines.push(`- Email domain: ${args.signals.emailDomain}`);
   lines.push("");
   lines.push(`Identity anchor (from the resolution step — treat as ground truth):`);
@@ -162,20 +142,11 @@ export interface ResearchAspectsArgs {
   signals: ColdStartSignals;
   anchor: IdentityAnchor;
   runId?: string;
-  /** Stable per-run key; each aspect derives its own from this + aspect id. */
+  /** Each aspect derives its own key from this and its id. */
   idempotencyKey?: string;
 }
 
-/**
- * Fan the aspect set out concurrently with PER-ASPECT isolation: each aspect
- * catches its own failure and degrades to an explicit-empty finding, so one
- * transient casualty (a web_search 429, a provider hiccup, a single model
- * error) can't take down its siblings. These facets are independent
- * best-effort research, not coupled billable work — there is deliberately no
- * shared abort scope, so one aspect's failure never cancels the others. Empty
- * findings still flow through to synthesis, preserving cold-start's best-effort
- * contract.
- */
+/** Run all aspects at once. A failed aspect becomes an empty finding and does not cancel the others. */
 export async function researchAspects(args: ResearchAspectsArgs): Promise<AspectFinding[]> {
   return Promise.all(
     selectAspects(args.signals).map(async (aspect) => {
@@ -188,8 +159,6 @@ export async function researchAspects(args: ResearchAspectsArgs): Promise<Aspect
           idempotencyKey: args.idempotencyKey,
         });
       } catch {
-        // Isolate this aspect's failure — degrade to an empty finding rather
-        // than rethrow, so siblings keep running.
         return emptyAspectFinding(aspect);
       }
     }),

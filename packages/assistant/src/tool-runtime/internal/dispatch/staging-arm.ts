@@ -3,36 +3,26 @@ import type { ToolStagingPolicy } from "../registry";
 import type { PriorRejectionStatus } from "./staging-store";
 
 /**
- * What the staged path does differently per staging arm. The dispatcher's
- * routing switch returns for `join` and `fast_path` before the staged path, so
- * those two arms carry no gated policy. Every arm that reaches the staged path
- * names its whole difference here, so a fifth arm is one row, not a search for
- * every `tool.staging === ...` branch (ADR-0099).
+ * What the staged path does differently per arm, so a new arm is one row (ADR-0099).
+ * `join` and `fast_path` return before the staged path.
  */
 export interface GatedArmPolicy {
-  /**
-   * Park on approval whatever the policy mode and risk tier say. A `question`
-   * always parks: a question the user never sees is not a question.
-   */
+  /** Park on approval whatever policy and tier say. */
   forcesApproval: boolean;
   /**
-   * Row statuses the retry-suppression check matches for a byte-identical
-   * repeat of the same input in the same run. A write matches `rejected` only,
-   * so an expired write stays re-proposable. A question also matches `expired`,
-   * because a re-asked question would park the turn on the same silence.
+   * Statuses that suppress an identical retry in the same run. A question also
+   * matches `expired`, because a re-ask would meet the same silence.
    */
   priorRejectionStatuses: readonly PriorRejectionStatus[];
-  /** The `hil` wake kind the parked turn waits on. Written once, on the wake. */
+  /** The `hil` wake kind, written once on the wake. */
   approvalKind: ApprovalKind;
   wakePrompt(toolName: ToolName): string;
   /**
-   * How a `rejected` or `expired` row reads back to the model. A `rejection`
-   * is a vetoed action the model must not retry. An `unanswered` result is a
-   * question with no answer, which the model continues past on a stated
-   * assumption; it is not a failed call anywhere downstream.
+   * How a `rejected` or `expired` row reads back. `unanswered` lets the model go on
+   * with a stated assumption and is never a failed call.
    */
   settled: "rejection" | "unanswered";
-  /** Trace reason for a `rejected` row that carries no reason of its own. */
+  /** Trace reason for a `rejected` row with no reason. */
   rejectedWithoutReason: string;
 }
 

@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-// Internal-by-intent helpers dropped from the `knowledge` barrel (item 15) —
-// contract tests read them from their owning file directly.
+// Internal helpers, not in the `knowledge` barrel.
 import {
   authoredByUser,
   type AuthorshipDocument,
@@ -12,29 +11,9 @@ import { accumulateDoc, type ContactAggregate } from "@alfred/assistant/knowledg
 import { gmailSenderAdapter } from "@alfred/assistant/triage/gmail-sender-adapter";
 
 /**
- * Characterization pin for campaign knowledge-settings-phase4 item 04
- * ("Break `memory → triage`: email sender parsing out of knowledge").
- *
- * `memory` currently reaches into `triage` for three pieces of email-specific
- * parsing (the `memory ↔ triage` cycle this campaign removes):
- *
- *   - `fact-policy.ts` → `triage/sent-mail.isSentGmailMetadata` (Gmail SENT-flag
- *     authorship inside `authoredByGmail`),
- *   - `fact-policy.ts` → `triage/sender-context.extractSenderContext` (the
- *     `From:`-header → normalized `senderAddress` used by `authoredByGmail`),
- *   - `team-graph.ts` → `triage/sender-context.{extractSenderContext,
- *     isHumanLikeSender}` (the human-rescue that keeps a real person on a
- *     service domain in the team graph).
- *
- * These tests pin the OBSERVABLE outcome of that parsing through memory's own
- * public seams (`authoredByUser`, `accumulateDoc`) — the authorship verdict, the
- * normalized address, and team-graph inclusion/exclusion. Post-refactor
- * (ADR-0089) the parse lives in `triage/gmail-sender-adapter.ts`; these tests
- * now build the injected observation with `gmailSenderAdapter` from the SAME raw
- * metadata and feed it into memory's seams, so every verdict below stays
- * byte-identical to before the move. Characterization only: today's behavior,
- * quirks included. The quirks are called out so a "cleanup" during the move does
- * not silently change them.
+ * Pins sender parsing as seen through memory's seams (`authoredByUser`, `accumulateDoc`).
+ * The parse lives in `triage/gmail-sender-adapter.ts` (ADR-0089).
+ * Characterization: quirks are pinned on purpose, so a cleanup cannot change them silently.
  */
 
 const self: SelfIdentity = {
@@ -46,8 +25,7 @@ function gmailDoc(
   metadata: Record<string, unknown> | null,
   accountId: string | null,
 ): AuthorshipDocument {
-  // Build the injected authorship observation from the SAME raw metadata the
-  // triage adapter would parse in production — the whole point of the seam.
+  // Parse with the production adapter, as the seam does.
   return {
     source: "gmail",
     metadata,
@@ -70,8 +48,7 @@ describe("[campaign-04 seam] authoredByGmail — SENT-flag authorship via isSent
   });
 
   test("SENT flag short-circuits BEFORE the From/account check — a third-party From still passes", () => {
-    // isSentGmailMetadata is consulted before any From parsing: a SENT-labelled
-    // doc is the user's own even when From is a foreign address.
+    // SENT wins over From: a sent doc is the user's even with a foreign From.
     const r = authoredByUser(
       gmailDoc({ isSent: true, from: "Sandro <sandro@maglione.dev>" }, "acc_work"),
       self,
@@ -82,9 +59,7 @@ describe("[campaign-04 seam] authoredByGmail — SENT-flag authorship via isSent
   });
 
   test("QUIRK: the SENT labelId match is case-sensitive — 'Sent'/'sent' do NOT count", () => {
-    // isSentGmailMetadata compares `label === "SENT"` exactly, so a differently
-    // cased label is not a sent signal. With no From it falls through to the
-    // missing-author verdict rather than authorship.
+    // Quirk: the label match is exact, so "Sent" is not a sent signal.
     for (const label of ["Sent", "sent", "Sent Mail"]) {
       const r = authoredByUser(gmailDoc({ labelIds: [label] }, "acc_work"), self);
       assert.equal(r.authoredByUser, false, `labelIds ["${label}"] must not be sent`);
@@ -93,8 +68,7 @@ describe("[campaign-04 seam] authoredByGmail — SENT-flag authorship via isSent
   });
 
   test("QUIRK: isSent is matched with strict === true — truthy non-true values do NOT count", () => {
-    // Only the literal boolean true is a sent signal (`meta.isSent === true`),
-    // so 1 / "true" are NOT sent and, absent a From, are missing_author_identity.
+    // Quirk: only boolean `true` is a sent signal.
     for (const isSent of [1, "true", "SENT", {}] as const) {
       const r = authoredByUser(gmailDoc({ isSent }, "acc_work"), self);
       assert.equal(r.authoredByUser, false, `isSent=${JSON.stringify(isSent)} must not be sent`);
@@ -134,9 +108,7 @@ describe("[campaign-04 seam] authoredByGmail — From-header normalization via e
   });
 
   test("QUIRK: a Gmail +tag is NOT stripped — 'yash+work@gmail.com' ≠ self 'yash@gmail.com'", () => {
-    // extractSenderContext lowercases but keeps the +tag (unlike
-    // canonicalizeEmailForMatch, which strips it). A refactor that swaps in a
-    // plus-stripping normalizer would wrongly attribute this to the user.
+    // Keeps the +tag, unlike canonicalizeEmailForMatch. Stripping it would make this the user's mail.
     const r = authoredByUser(gmailDoc({ from: "Yash+Work@GMAIL.com" }, null), self);
     assert.equal(r.authoredByUser, false);
     assert.equal(!r.authoredByUser && r.reason, "identity_mismatch");
@@ -163,9 +135,6 @@ describe("[campaign-04 seam] accumulateDoc — team-graph human rescue via isHum
   const t1 = new Date("2026-06-10T00:00:00.000Z");
   const SELF = "me.user@acme.com";
 
-  // Feed accumulateDoc the observation the triage adapter parses from raw
-  // metadata — the human-rescue now lives in the adapter, its outcome is pinned
-  // here through the same seam.
   function keysFor(meta: Record<string, unknown>): string[] {
     const c = new Map<string, ContactAggregate>();
     accumulateDoc(c, gmailSenderAdapter.correspondents(meta), t1, SELF);
@@ -199,14 +168,12 @@ describe("[campaign-04 seam] accumulateDoc — team-graph human rescue via isHum
   });
 
   test("does NOT rescue a bare single-token local on a service domain (no human signal)", () => {
-    // "karthik@github.com" alone: service domain, no first.last, no person-like
-    // display name → dropped. The rescue needs a positive human signal.
+    // A service-domain sender with no human signal is dropped.
     assert.deepEqual(keysFor({ from: "karthik@github.com", isSent: false }), []);
   });
 
   test("QUIRK: an automated-envelope local part is never rescued, even behind a human display name", () => {
-    // isHumanLikeSender rejects STRONG_SERVICE_LOCAL / service-prefix locals up
-    // front, so a person-looking display name cannot rescue a noreply@ envelope.
+    // A person-like display name cannot rescue a noreply@ local part.
     assert.deepEqual(keysFor({ from: "John Smith <noreply@acme.com>", isSent: false }), []);
   });
 
@@ -219,10 +186,7 @@ describe("[campaign-04 seam] accumulateDoc — team-graph human rescue via isHum
   });
 
   test("QUIRK: team-graph's own isSent is `meta.isSent === true` — a SENT labelId does NOT flip direction", () => {
-    // Unlike fact-policy, accumulateDoc reads `meta.isSent === true` directly and
-    // ignores labelIds. So a received-shaped doc carrying only a SENT label is
-    // still treated as inbound: the From is counted as the correspondent, not
-    // skipped as an outbound-from-self.
+    // Unlike fact-policy, the team graph ignores labelIds, so a SENT label alone stays inbound.
     const c = new Map<string, ContactAggregate>();
     accumulateDoc(
       c,

@@ -1,34 +1,13 @@
 /**
- * Smoke test for m13 Phase 4 — brief-only execution end-to-end.
+ * End-to-end smoke for a brief-only run: the run completes, Calendar tools
+ * activate mid-run, stagings land, one `api_call_log` row per boss turn
+ * (ADR-0026), and the output has a summary.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-brief-execution.ts
  *
  * Pre-reqs:
- *   - A server process running (`pnpm dev`) so the agent worker picks up
- *     the run. This script does not start a worker itself; it polls the
- *     run row and auto-approves any pending action_stagings inline,
- *     exercising both the autonomy and gated-resume dispatch paths.
- *   - At least one user with Google connected (gmail + calendar scopes).
- *     The smoke seeds exact Gmail tools from `@gmail` in the brief while
- *     Calendar starts inactive, exercising exact-tool activation mid-run.
- *
- * What this verifies end-to-end (Phase 4 acceptance):
- *   1. createRun resolves the user-authored sentinel workflow without
- *      registering it, preserves the user-authored slug on the run row.
- *   2. boss-turn ↔ dispatch-tools ping-pong reaches `status='completed'`.
- *   3. Calendar's exact tool schema lands in `agent_runs.state.activeTools`
- *      before the corrected call executes on a subsequent boss turn.
- *   4. action_stagings rows land for the gmail/calendar tools the boss
- *      exercised, regardless of policy mode.
- *   5. One `api_call_log` row per `boss-turn` step (ADR-0026: one
- *      turn = one round-trip = one logged call).
- *   6. The run's final output carries a non-empty user-facing summary.
- *
- * What this does NOT verify:
- *   - Quality of the LLM summary (qualitative, requires human review).
- *   - Compaction (Phase 7, not yet built).
- *   - Sub-agent fan-out beyond what the boss happens to invoke
- *     (covered by smoke-sub-agents.ts at the plumbing level).
+ *   - A server process running (`pnpm dev`). This script auto-approves pending stagings.
+ *   - A user with Google connected (gmail + calendar scopes).
  */
 
 import { randomUUID } from "node:crypto";
@@ -55,8 +34,6 @@ const WORKFLOW_SLUG = "smoke-brief-execution";
 const SMOKE_BRIEF =
   "@gmail — Read my most recent inbox email and summarize it in one sentence. Then tell me what's on my calendar tomorrow morning.";
 
-// The boss may iterate a few times: search_tools → load_tool → gmail.search →
-// calendar.list_events → final summary. Five minutes is comfortable.
 const POLL_INTERVAL_MS = 500;
 
 const POLL_TIMEOUT_MS = 5 * 60_000;
@@ -145,11 +122,8 @@ async function findPendingApprovals(runId: string): Promise<PendingStaging[]> {
 }
 
 async function autoApprove(staging: PendingStaging): Promise<void> {
-  // Mirror the approvals route's transaction shape: flip the row, then
-  // wake the parked run. enqueueRun re-claims a runnable row for the
-  // worker pool. Skip signal mismatch reporting — the run may have
-  // moved on between our SELECT and UPDATE; the next poll will catch
-  // any remaining pending rows.
+  // Like the approvals route: flip the row, then wake the run. A missed signal
+  // is fine; the next poll retries.
   const now = new Date();
   await db()
     .update(actionStagings)
@@ -254,11 +228,7 @@ function isStringArray(v: unknown): v is string[] {
 
 async function main(): Promise<void> {
   await warmPool();
-  // Workflow + tool registration runs inside the server process that
-  // owns the agent worker. We register here too so any direct calls
-  // (e.g. signalRun) and the resolver's DB-fallback path resolve
-  // cleanly inside this script's process. registerBuiltinWorkflows
-  // also seeds registerBuiltinTools via the bootstrap.
+  // Register here too, so direct calls like signalRun resolve in this process.
   registerBuiltinWorkflows();
 
   const target = await pickGoogleConnectedUser();

@@ -7,7 +7,7 @@ import { BriefingLink, BriefingRef } from "./briefing-link";
 
 type RemarkPlugin = NonNullable<ComponentProps<typeof ReactMarkdown>["remarkPlugins"]>[number];
 
-/** Minimal mdast shape we touch — avoids pulling `mdast`/`unified` into web. */
+/** The mdast fields we touch, so web needs no `mdast`/`unified` import. */
 interface MdNode {
   type: string;
   value?: string | undefined;
@@ -16,29 +16,19 @@ interface MdNode {
 }
 
 /**
- * Briefing markdown is regular GFM with one extension: the composer's opaque
- * `[[<kind>:<id>]]` reference tokens (ADR-0049). The rail and email renderers
- * resolve those against the row's synced `gather`; this plugin does the same
- * inside react-markdown so the detail page renders true markdown (headings,
- * lists, emphasis, links) AND keeps references as interactive entity chips —
- * instead of dumping the raw prose as plain text.
- *
- * Tokens are alphanumeric and never contain inline-markdown delimiters, so each
- * `[[…]]` stays inside a single mdast `text` node. We split every text node
- * through the shared contracts resolver — one resolution truth, three renderers
- * — and swap matched references for a custom `briefing-ref` element that
- * {@link briefingMarkdownComponents} maps to `EntityChip`.
+ * Turn the composer's `[[<kind>:<id>]]` tokens (ADR-0049) into `briefing-ref`
+ * elements, which {@link briefingMarkdownComponents} renders as `EntityChip`.
+ * Tokens never contain markdown delimiters, so each stays in one `text` node.
+ * Uses the shared contracts resolver, like the rail and email renderers.
  */
 export function briefingRefsPlugin(gather: BriefingGather | null): RemarkPlugin {
   const plugin = () => (tree: MdNode) => {
     if (!gather) return;
-    // SAFETY: mdast's visit wants its own tree generic; the briefing remark
-    // tree is structurally that AST.
+    // SAFETY: the briefing tree is structurally the mdast tree `visit` expects.
     visit(tree as never, "text", (node: MdNode, index, parent: MdNode | undefined) => {
       if (!parent?.children || index === undefined || node.value === undefined) return;
       const { segments } = resolveBriefingReferences(node.value, gather);
 
-      // Whole node is one plain span — nothing to expand.
       if (segments.length === 1 && segments[0]?.kind === "text") return;
 
       const replacement: MdNode[] = segments.map((segment) =>
@@ -46,8 +36,7 @@ export function briefingRefsPlugin(gather: BriefingGather | null): RemarkPlugin 
           ? { type: "text", value: segment.text }
           : {
               type: "briefingRef",
-              // mdast-util-to-hast renders an unknown node carrying `data.hName`
-              // as that element, with `hProperties` becoming its React props.
+              // mdast-util-to-hast renders an unknown node with `data.hName` as that element.
               data: {
                 hName: "briefing-ref",
                 hProperties: {
@@ -61,22 +50,17 @@ export function briefingRefsPlugin(gather: BriefingGather | null): RemarkPlugin 
 
       parent.children.splice(index, 1, ...replacement);
 
-      // Resume past the nodes we just inserted.
       return index + replacement.length;
     });
   };
 
-  // SAFETY: the transformer above has the remark-plugin signature; the alias
-  // names that structural fact.
+  // SAFETY: the transformer above has the remark-plugin signature.
   return plugin as RemarkPlugin;
 }
 
-/** Component overrides for briefing markdown: entity chips + glyphed links. */
 export const briefingMarkdownComponents: Components =
-  // SAFETY: `briefing-ref` is a custom element outside react-markdown's
-  // intrinsic tag typing; every other member maps an intrinsic tag.
+  // SAFETY: `briefing-ref` is a custom element outside react-markdown's intrinsic tag typing.
   {
-    // Custom element — outside react-markdown's intrinsic-tag typing, so cast.
     "briefing-ref": BriefingRef,
     a: BriefingLink,
   } as Components;

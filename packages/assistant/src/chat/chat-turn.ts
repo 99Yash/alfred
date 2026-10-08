@@ -86,11 +86,7 @@ import { isStreamTimeoutAbort } from "./stream-timeout";
 import { createTurnStopController } from "./turn-stop-controller";
 import { emitTurnPhaseThermometer, type TurnPhaseOutcome } from "./turn-thermometer";
 
-/**
- * One run services one user turn end-to-end: the model streams, tools dispatch,
- * and the assistant message persists to `chat_messages`. Owner: this file.
- * History: ADR-0077, ADR-0026. Glossary: `docs/reference/glossary.md`.
- */
+/** One run serves one user turn: stream the model, dispatch tools, persist the reply (ADR-0077). */
 export { CHAT_TURN_WORKFLOW_SLUG };
 
 const CHAT_TOOL_RUN_CONTEXT = {
@@ -98,7 +94,7 @@ const CHAT_TOOL_RUN_CONTEXT = {
   interaction: "live_chat",
 } as const satisfies ToolRunContext;
 
-/** Shared with the future pre-call context guard; never reserve a different output shape. */
+/** Warn when the input estimate undercounts billed input by more than this ratio. */
 const CHAT_INPUT_ESTIMATE_WARN_UNDERSHOOT_RATIO = 0.1;
 
 const ARTIFACT_MUTATION_TOOL_NAMES = [
@@ -110,11 +106,8 @@ const ARTIFACT_MUTATION_TOOL_NAMES = [
 
 const ARTIFACT_MUTATION_TOOLS: ReadonlySet<string> = new Set(ARTIFACT_MUTATION_TOOL_NAMES);
 
-// ADR-0077: charter, not a rulebook. Keep mission + capabilities + judgment
-// principles here; `buildChatSystemPrompt` appends the ADR-0053 connected
-// catalog last so the strongest tool-grounding anchor still sits at the end of
-// the prompt. "Now" is not in this prompt at all — it rides the ephemeral
-// runtime_context line (#410), the single source of the current date and time.
+// A charter, not a rulebook (ADR-0077). The connected catalog goes last, as the strongest anchor.
+// "Now" is not here: it rides the ephemeral runtime_context line (#410).
 const CHAT_SYSTEM_PROMPT_BASE = [
   "You are Alfred, the user's personal assistant. You're chatting with them directly — be warm, concise, and direct: answer the question and don't pad.",
   [
@@ -169,12 +162,8 @@ const CHAT_SYSTEM_PROMPT_BASE = [
 ].join("\n\n");
 
 /**
- * Invariant artifact edit rules (#896). Constant across threads and turns, so
- * they sit in the cached system prefix — including on threads with no
- * artifact. Per-thread facts (ids, selection, index) change on every mutation
- * and ride the ephemeral per-turn block instead (`artifactThreadFacts`), where
- * they add no new cache invalidation. Not exported: the prompt builder inlines
- * it, so no caller can swap or omit it.
+ * Constant artifact edit rules, so they stay in the cached prefix (#896).
+ * Per-thread facts change on each edit, so they ride `artifactThreadFacts`.
  */
 const ARTIFACT_SYSTEM_GUIDANCE = [
   "For an edit, use system.update_artifact on the selected id; do not create a replacement artifact.",
@@ -187,27 +176,13 @@ export function buildChatSystemPrompt(
   connectedSummary: string,
   selfIdentity: string,
 ): string {
-  // The chat path passes no `grounding` date: its "now" (date and time both)
-  // rides the single re-anchorable `formatRuntimeTimeGrounding` line in the
-  // transcript. A date pinned into this cached prefix would go stale when a
-  // parked run resumes across midnight. The chat workflow persists a hash of
-  // this prompt because its AlfredAgent instance is minted per model step; that
-  // durable guard, not AlfredAgent's instance-local pin, enforces stability.
-  // A non-chat caller (or an eval) may still supply a date for a single-turn,
-  // non-parking context.
+  // Chat passes no date: a date in the cached prefix goes stale when a parked run
+  // resumes after midnight. Its "now" rides `formatRuntimeTimeGrounding` instead.
+  // Evals and other single-turn callers may still pass one.
   const dateLine = grounding ? `The current date is ${grounding}.` : "";
 
-  // The artifact edit rules and the design-system block
-  // (`@alfred/artifacts-design`) are identical every turn, so they sit right
-  // after the constant base — the largest possible cache-stable prefix (#223) —
-  // and ahead of the catalog so the connected catalog stays the last, strongest
-  // anchor (ADR-0077). The deployment identity block (`selfIdentityGrounding`)
-  // sits between them: constant per process, snapshotted into run state like
-  // the catalog, so a redeploy under a new hostname cannot trip the
-  // system-prompt stability pin mid-run. The design block teaches the boss the
-  // house shell contract, the `art-*` vocabulary, archetypes, theme voice, and
-  // authoring rules; without it artifact styling is reconstructed from memory
-  // and drifts (the "vibes" gap behind the resume shitshow — see artifacts/read.ts).
+  // Order is for the cache (#223): constant rules first, the catalog last (ADR-0077).
+  // `selfIdentity` is snapshotted into run state, so a redeploy cannot break the prompt pin.
   return composeAgentInstructions({
     purpose: "assistant_response",
     role: CHAT_SYSTEM_PROMPT_BASE,
@@ -218,14 +193,7 @@ export function buildChatSystemPrompt(
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-/**
- * Publish one mid-turn `chat.message` phase, best-effort.
- *
- * Best-effort is the point: every caller is a progress signal beside the real
- * work, so a failed publish must not fail the turn it describes. Shared by the
- * compaction phases and by `capacity_retry` rather than copied, because both
- * want the same swallow-and-log rule.
- */
+/** Publish a mid-turn `chat.message` phase. A failed publish logs and never fails the turn. */
 async function publishChatPhase(args: {
   userId: string;
   runId: string;
@@ -265,28 +233,16 @@ async function publishChatPhase(args: {
 
 const chatTurnStep: Step<ChatRunState> = {
   id: "chat-turn",
-  // The streaming boss turn is bounded by the stream circuit-breaker
-  // (`DEFAULT_TURN_STREAM_TIMEOUT.totalMs`), but the default 60s stale window is
-  // far tighter than that cap, so a slow-but-healthy generation could be
-  // reclaimed mid-turn → a duplicate full-price model call. Derive the window
-  // from the stream ceiling (+60s for tool-execution/dispatch overhead) so the
-  // relation holds structurally: the stream guard, not the lease, ends a
-  // genuinely wedged turn. This lease-reclaim duration is unrelated to runtime
-  // grounding freshness, which is keyed to actual park/resume lifecycle events.
+  // The default 60s lease would reclaim a slow healthy stream and pay for a second
+  // model call. Outlast the stream timeout, so the stream guard ends a wedged turn.
   staleAfterMs: DEFAULT_TURN_STREAM_TIMEOUT.totalMs + 60_000,
   async run(ctx) {
     const state: ChatRunState = { ...ctx.state, turnCount: ctx.state.turnCount + 1 };
 
-    // A finalize-guard park (`guardSpawnedChildren`) interrupts THIS step, so
-    // its wake lands here and not in `dispatch-tools`. Close the park out here
-    // too: otherwise its wall-clock is attributed to whichever dispatch round
-    // runs next (#902), and its grounding anchor never expires (#410).
+    // A finalize-guard park wakes in this step, not `dispatch-tools`, so close it here (#902, #410).
     foldResumedPark(state, Date.now());
-    // Phase thermometer (#902). The step body outside the model stream is
-    // "other" — hydration, guards, persistence; it is never bracketed, only
-    // derived at emit time as the residual of `stepWallMs`. The stream bracket
-    // below folds into `generationMs` exactly once per attempt (including an
-    // aborted one, so a timed-out retry still pays its generation cost).
+    // Phase thermometer (#902). "Other" time is the residual of `stepWallMs`.
+    // Generation folds once per attempt, aborted attempts too.
     const stepStartedMs = Date.now();
     let generationStartMs: number | null = null;
     let generationFolded = false;
@@ -298,10 +254,8 @@ const chatTurnStep: Step<ChatRunState> = {
       state.generationMs += Math.max(0, Date.now() - generationStartMs);
     };
 
-    // Close both brackets exactly once, on every exit. Anything that *reads*
-    // the accumulators before leaving — a thermometer emission or a bounded
-    // retry (whose planner snapshots the state) — must call this first, since
-    // the `finally` below otherwise runs after those readers.
+    // Idempotent. Call before anything reads the accumulators (an emit, a retry
+    // planner), because the `finally` runs after them.
     const closeBrackets = (): void => {
       if (stepWallFolded) return;
       stepWallFolded = true;
@@ -319,33 +273,18 @@ const chatTurnStep: Step<ChatRunState> = {
       });
     };
 
-    // Own cancellation for the whole step body, created before the `try` so
-    // the terminal catch below can read it: a capacity failure is only
-    // retryable when no stop landed, and the backoff wait must abort on one.
-    // (Polling still starts beside the guard, where the stop window opens.)
+    // Outside the `try` so the catch can see it: the capacity retry must honor Stop.
     const stop = createTurnStopController(ctx.runId);
 
-    // The turn's retry planners, bound once the pre-turn transcript is final
-    // (see below). `let`, not `const`, so the terminal catch can plan a
-    // capacity retry from the same handle the try body used — `const`
-    // declarations inside the `try` block are invisible to its `catch`.
-    // Undefined when the failure came before the binding (guard phase); those
-    // failures keep today's terminal behavior.
+    // Step-scoped so the catch can plan a capacity retry. Undefined if the guard phase failed.
     let retries: ChatTurnRetries | undefined;
 
-    // This turn's pre-model transcript. `let` at step scope for the same reason
-    // as `retries` above: the terminal catch ends a stopped backoff on it, and
-    // a `const` inside the `try` is invisible there. Assigned first thing in
-    // the try; `ctx.transcript` until then.
+    // Step-scoped so the catch can end a stopped backoff on it.
     let transcript: AgentTranscriptMessage[] = ctx.transcript;
 
     try {
-      // The tool-loop cap lands the turn instead of failing it: at the cap the
-      // model runs once more with no tools and a note to report what got done,
-      // and every later turn (retry, guard regeneration, park resume) is issued
-      // by a spender with its own bound. `chatTurnCapVerdict` explains why
-      // there is no hard fuse past that point. Judged on the turns this run
-      // has completed (`ctx.state.turnCount`), which is what the log reports.
+      // At the cap the model answers once more with no tools, instead of failing.
+      // See `chatTurnCapVerdict` for why there is no hard fuse after that.
       const capVerdict = chatTurnCapVerdict(state.tier, ctx.state.turnCount);
       const landing = capVerdict !== "loop";
 
@@ -363,18 +302,13 @@ const chatTurnStep: Step<ChatRunState> = {
         );
       }
 
-      // The note enters the durable transcript exactly once, on the `land`
-      // turn; a step retry of that turn re-runs from the checkpoint without the
-      // note, and every later turn continues from a transcript that carries it.
+      // The note enters the transcript once: a retry of the `land` turn starts from the checkpoint.
       transcript =
         capVerdict === "land"
           ? appendSystemNote(ctx.transcript, CHAT_TURN_CAP_LANDING_NOTE)
           : [...ctx.transcript];
 
-      // Signal "started" before any pre-stream work (transcript hydration fetches
-      // every image's bytes from storage, which is slow on image-heavy threads).
-      // Firing the poke first lets the client paint the "Thinking…" indicator
-      // immediately instead of staring at a dead composer while we hydrate.
+      // Publish "started" before hydration, which is slow on image-heavy threads.
       if (!state.startedAt) {
         state.startedAt = new Date().toISOString();
         await publishEvent({
@@ -394,8 +328,6 @@ const chatTurnStep: Step<ChatRunState> = {
         state.timezone = await resolveTimezone(ctx.userId);
       }
 
-      // Persisted state carries the zone as a plain string, so re-establish it as
-      // a zone once per step rather than at each reading below.
       const timezone = parseIanaTimezone(state.timezone);
       const availability = await readIntegrationAvailability(ctx.userId);
 
@@ -418,9 +350,7 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       if (state.selfIdentity === undefined) {
-        // A pre-identity checkpoint can already have a pinned system prompt.
-        // Keep its original prompt for the rest of the run; adding a block
-        // would fail the hash check on resume. New runs snapshot the live block.
+        // An older checkpoint already pinned a prompt without this block; adding it fails the hash.
         state.selfIdentity = state.systemPromptHash === undefined ? selfIdentityGrounding() : "";
       }
 
@@ -438,10 +368,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
       const { transcript: hydratedTranscript } = await hydrateTranscriptForModel(transcript);
 
-      // First model step of the run: inherit the tools the thread's previous
-      // turn loaded before the prompt-ranked preload adds its own. Gated on the
-      // same flag the preload uses, so a step retry repeats it harmlessly. A
-      // landing turn offers no tools, so neither seeding step runs for it.
+      // First step: inherit the previous turn's tools. A step retry repeats this harmlessly.
       if (!state.preloadApplied && !landing) {
         const carryover = await carryForwardThreadTools({
           userId: ctx.userId,
@@ -454,9 +381,7 @@ const chatTurnStep: Step<ChatRunState> = {
         });
 
         state.activeTools = carryover.activeTools;
-        // Carried names entered the surface without a model step, which is what
-        // `preloadedTools` records, so #414 accounting measures whether the
-        // carry-over paid off the same way it measures the prompt preload.
+        // Count carried tools as preloaded, so #414 measures them like the preload.
         state.preloadedTools = uniqueToolNames([...state.preloadedTools, ...carryover.carried]);
 
         if (carryover.carried.length > 0) {
@@ -473,16 +398,9 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       if (!landing) await tools.preload(state, hydratedTranscript);
-      // Budget the guide before compaction, then admit it to both transcripts
-      // after the guard so it cannot replace the real user's replay boundary.
+      // Budget the guide before compaction. Admit it after the guard, so it cannot move the replay boundary.
       const pendingGuidance = admitPdfDesignGuide(state);
-      // No date in the system prompt: a stable cached prefix cannot carry a
-      // "now" that stays fresh across a park. Both date and time ride the one
-      // ephemeral runtime line below. The anchor stays stable throughout a
-      // contiguous execution slice, and across a short park too — it re-stamps
-      // when the local day moved or the park outlived the cache (#410).
-      // #896: the artifact edit rules are a constant inside this cached prefix;
-      // the per-thread facts ride the ephemeral block below.
+      // The anchor re-stamps only when the local day moved or a park outlived the cache (#410).
       const systemPrompt = buildChatSystemPrompt("", state.connectedSummary, state.selfIdentity);
       assertStableChatSystem(state, systemPrompt);
 
@@ -501,23 +419,13 @@ const chatTurnStep: Step<ChatRunState> = {
         .filter((value) => value.length > 0)
         .join("\n\n");
 
-      // A landing turn offers no tools at all: the model must answer, and the
-      // dispatcher never sees another round from this run.
       const sdkTools = landing ? {} : tools.forModel(state.activeTools);
       const chatRoute = route(state.tier);
       const chatModel = chatRoute.model();
 
-      // Own cancellation before the context guard: compaction can make billable
-      // model calls too, so Stop must cover it as well as the streamed answer.
-      // Created once at function scope above; polling still starts here, where
-      // the stop window opens.
-
-      // Canonical run transcript excludes the ephemeral artifact reference. The
-      // reference is composed only for the provider request so it cannot
-      // duplicate on each tool-loop turn. The guard owns its own gate (turn 1 or
-      // a within-run tool burst) and no-ops otherwise; poll the stop flag while
-      // it runs (it has no stream loop to poll from), and finalize if Stop landed
-      // there rather than propagating the abort as a fault.
+      // Compaction makes billable calls, so Stop covers the guard too. A Stop here
+      // finalizes as stopped, not as a fault. The ephemeral reference stays out of
+      // the stored transcript, so it cannot repeat on each tool-loop turn.
       let continuationTranscript: AgentTranscriptMessage[] = transcript;
       let guardedModelTranscript: AgentTranscriptMessage[] = hydratedTranscript;
       const disposeStopPoll = stop.startPolling();
@@ -571,18 +479,15 @@ const chatTurnStep: Step<ChatRunState> = {
         disposeStopPoll();
       }
 
-      // Bind the turn's retries to the transcript as it stands right now —
-      // before the model call, so `nextTranscript` (which appends the response,
-      // and whose empty assistant message Anthropic 400s on) does not exist yet
-      // and cannot be handed to a retry. The planners below take state only.
+      // Bind retries before the model call. `nextTranscript` can end in an empty
+      // assistant message, which Anthropic rejects with a 400.
       retries = openChatTurnRetries(continuationTranscript);
       const modelTranscript = withEphemeralReference(guardedModelTranscript, ephemeralReference);
 
       const requestEstimate = await estimateChatRequestTokens({
         systemPrompt,
         tools: sdkTools,
-        // SAFETY: AgentTranscriptMessage is the persisted superset view of the
-        // SDK's ModelMessage transcript.
+        // SAFETY: AgentTranscriptMessage is the persisted superset of ModelMessage.
         transcript: modelTranscript as ModelMessage[],
         outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
       });
@@ -593,12 +498,9 @@ const chatTurnStep: Step<ChatRunState> = {
         tools: () => sdkTools,
         model: chatModel,
         maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
-        // Ask the model to expose its thinking so the turn streams
-        // `reasoning-delta` parts → the chat UI's "Thinking…" accordion.
-        // Tier-aware: `deep` escalates Anthropic adaptive-thinking effort.
+        // Streams reasoning for the "Thinking…" accordion. `deep` raises the effort.
         providerOptions: chatRoute.providerOptions(),
-        // `sessionId: threadId` groups every turn of this conversation (each its
-        // own run/trace) under one Langfuse session (#226).
+        // One Langfuse session per thread (#226).
         attribution: {
           kind: "llm",
           userId: ctx.userId,
@@ -607,14 +509,11 @@ const chatTurnStep: Step<ChatRunState> = {
         },
       });
 
-      // User-initiated stop (composer stop button → Redis flag). Polled while
-      // draining the stream; on stop we abort the provider call, keep whatever
-      // streamed, and finalize through the normal completion path.
       generationStartMs = Date.now();
 
       const stream = await agent.streamTurn({
         ctx,
-        // SAFETY: same persisted-superset view as the generateTurn call above.
+        // SAFETY: same persisted-superset view as the estimate above.
         transcript: modelTranscript as ModelMessage[],
         attribution: {
           stepId: ctx.idempotencyKey,
@@ -628,12 +527,7 @@ const chatTurnStep: Step<ChatRunState> = {
         abortSignal: stop.signal,
       });
 
-      // Drain the live stream: coalesce reply text → `chat.delta`, reasoning →
-      // `chat.reasoning`, tool calls → `chat.tool` started cards, and a document
-      // artifact's `markdown` argument → live `artifact.delta`. Mutates the
-      // stream-owned slice of `state` in place. While a reissue is pending (#407)
-      // the reply flush is withheld; `releaseWithheldReply` is handed to the
-      // finalize boundary below, which is what clears the flag and calls it.
+      // During a #407 reissue the reply is withheld. The finalize boundary releases it.
       const { releaseWithheldReply } = await streamModelTurn({
         stream,
         state,
@@ -642,16 +536,10 @@ const chatTurnStep: Step<ChatRunState> = {
       });
 
       if (stop.stopped) {
-        // User hit stop: persist whatever streamed and complete the run.
-        // Skip `stream.toolCalls/finishReason/response` — after an abort those
-        // promises may never settle. An empty partial persists as an empty
-        // assistant row (renders as nothing), which is honest: the user
-        // stopped before the model said anything.
+        // Do not await `stream.toolCalls/finishReason/response`: after an abort they may never settle.
         await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
         closeBrackets();
         emitPhases("stopped");
-        // The transcript's assistant turn should reflect everything the model
-        // said this turn — earlier narration segments plus the current one.
         const stoppedText = fullAssistantText(state);
 
         const stoppedTranscript =
@@ -678,24 +566,12 @@ const chatTurnStep: Step<ChatRunState> = {
       try {
         finalStep = await stream.finalStep;
       } catch (err) {
-        // The streaming circuit-breaker aborted this turn: it ran past the
-        // total (180s) or chunk-gap (30s) ceiling, so the SDK aborted the
-        // provider call and rejected `finalStep` with a `TimeoutError` (see
-        // isStreamTimeoutAbort). The pre-turn transcript is unchanged — no step
-        // committed — so regenerate from it, the same recovery the user's
-        // manual resend performs today. Auto-retry only when nothing
-        // user-visible streamed this turn (the over-thinking case): if a
-        // partial answer already streamed, keep it (finalizeFailedMessage
-        // salvages `state.assistantText`) rather than regenerating over the top
-        // of deltas the client has already rendered. A user stop is not a
-        // timeout (unnamed AbortError, and `stopRequested`), so it never enters
-        // here; the throw falls through to the terminal-failure path below.
+        // Stream timeout: retry from the unchanged pre-turn transcript, but only if
+        // nothing visible streamed. A partial answer is kept, not overwritten.
         if (isStreamTimeoutAbort(err) && !stop.stopped && state.assistantText.trim().length === 0) {
           const retry = retries.afterStreamTimeout(state);
 
           if (retry) {
-            // Close the brackets before the planner snapshots the state, so
-            // this aborted attempt's partial wall-clock rides the retry (#902).
             closeBrackets();
             console.warn(
               `[chat-turn] stream timeout abort; retry ` +
@@ -709,8 +585,6 @@ const chatTurnStep: Step<ChatRunState> = {
         throw err;
       }
 
-      // The stream settled: everything from the `streamTurn` call to here is
-      // generation wall-clock (#902) — token streaming and the drain overlap.
       foldGeneration();
       const { toolCalls, finishReason, response, warnings, usage } = finalStep;
       const billedInputTokens = usage.inputTokens;
@@ -736,11 +610,7 @@ const chatTurnStep: Step<ChatRunState> = {
         }
       }
 
-      // Surface provider warnings — most importantly the Anthropic
-      // "cacheControl breakpoint limit" warning, which signals that the
-      // 4-breakpoint cap was exceeded and a cache block (the tool definitions)
-      // was silently dropped. Without this, that cost regression is invisible
-      // at runtime. See decorateTranscript / buildSummaryMessage (#223).
+      // Anthropic warns here when the 4-breakpoint cap silently drops a cache block (#223).
       if (warnings && warnings.length > 0) {
         console.warn(
           `[chat-turn] provider warnings (run ${ctx.runId}):`,
@@ -748,32 +618,14 @@ const chatTurnStep: Step<ChatRunState> = {
         );
       }
 
-      // Our tools are execute-less: the `dispatch-tools` step is the SOLE author
-      // of tool results (see `toolResultMessage`). The SDK normally emits only
-      // `tool-call` parts here — but when the model hands a tool schema-invalid
-      // input, it synthesizes its own `role: "tool"` result message for that
-      // call. Keeping it would duplicate the dispatcher's result for the same
-      // `toolCallId`; Anthropic then 400s ("each tool_use must have a single
-      // result"), where Gemini silently tolerated the dup.
-      //
-      // Drop only the synthesized dups — tool messages whose results all target
-      // a call THIS step just produced (the dispatcher will author those). A
-      // `role: "tool"` message referencing some other call id would be an
-      // SDK/provider-executed result outside our dispatch path; preserve it
-      // rather than silently dropping it (today there are none, but a future
-      // provider-side tool shouldn't lose its result to this filter).
+      // On schema-invalid input the SDK writes its own tool result, which duplicates
+      // the dispatcher's and makes Anthropic 400. Drop only results for this step's calls.
       const stepCallIds = new Set(toolCalls.map((c) => c.toolCallId));
 
-      // Continue from the storage-safe transcript underlying the model request
-      // (the ephemeral artifact reference and hydrated image bytes stay out of
-      // the checkpoint). On the first turn the foreground guard may have
-      // replaced unbounded raw history with a persisted conversation summary +
-      // replay tail; appending to the loaded pre-guard transcript would silently
-      // resurrect the overflow on the next tool-loop turn.
+      // Append to the guarded transcript. The pre-guard one would bring back the compacted overflow.
       const nextTranscript = appendModelResponseMessages(
         continuationTranscript,
-        // SAFETY: response.messages is the SDK's transcript output; the agent
-        // transcript message type is its persisted view.
+        // SAFETY: AgentTranscriptMessage is the persisted view of the SDK's response messages.
         response.messages as AgentTranscriptMessage[],
         stepCallIds,
       );
@@ -785,12 +637,7 @@ const chatTurnStep: Step<ChatRunState> = {
       });
 
       if (outcome.kind === "empty") {
-        // Retryable empty completion: a clean stream finish (or provider error)
-        // with no text and no tool calls — the anomaly the Anthropic→Gemini quota
-        // fallback throws. `withFallback` can't catch it (the SDK call succeeded
-        // with an empty stream), so degrade here: regenerate the turn up to a
-        // bounded budget, then fail loudly. The client keeps showing "Thinking…"
-        // across the retry (no `started` re-poke, no committed delta).
+        // No text and no tool calls. `withFallback` cannot see it, because the call succeeded.
         const retry = retries.afterEmptyCompletion(state);
 
         if (retry) {
@@ -807,8 +654,7 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       if (outcome.kind === "tool-calls") {
-        // Productive turn — refresh the retry budgets so they count retries of a
-        // single stuck turn, not one per tool-loop step.
+        // Budgets count retries of one stuck turn, not one per tool-loop step.
         resetChatTurnRetryBudgets(state);
 
         if (state.inFlightTailStart === 0) {
@@ -821,42 +667,23 @@ const chatTurnStep: Step<ChatRunState> = {
           input: call.input,
           segmentIndex: state.segmentIndex,
         }));
-        // Close the current narration segment: the text the model wrote this
-        // step was a lead-in to these tools, not the answer. Stash it (if any)
-        // and advance so the next step's text — and the eventual answer — lands
-        // in a fresh segment. `assistantText` thus always holds just the latest
-        // segment, which at turn's end is the final reply. When this turn is an
-        // internal reissue of just-auto-activated tools (#407) the lead-in text
-        // is machinery ("tools warming up, retrying") and is dropped instead —
-        // its live deltas were already withheld by the `flush` gate below.
         closeLeadInNarration(state);
 
         return { kind: "next", state, transcript: nextTranscript, nextStep: "dispatch-tools" };
       }
 
       if (state.assistantText.trim().length === 0) {
-        // Empty text that a retry can't clear — a `content-filter` (safety block)
-        // or `length` (budget exhausted) finish, which `classifyStreamFinish`
-        // deliberately excludes from the `empty` (retryable) outcome. Nothing
-        // useful to regenerate from, so fail the run once and persist a legible
-        // failed assistant message for the client. (A retryable empty `stop`/
-        // `error` is handled by the `outcome.kind === "empty"` branch above.)
+        // A `content-filter` or `length` finish: a retry would not help.
         throw new Error("Assistant finished without producing a response.");
       }
 
-      // This turn produced user-visible text, so it may finalize — once it has
-      // crossed the finalize boundary, which owns the whole pre-completion
-      // protocol: release a reply the #407 reissue gate withheld, refresh the
-      // retry budgets a regenerated turn would need, then run every guard in
-      // its declared order. A guard that takes over owns the result — a park,
-      // or a regenerated informed/honest answer.
+      // A guard can take over the result: a park or a regenerated answer.
       const takeover = await crossFinalizeBoundary(ctx, state, nextTranscript, {
         releaseWithheldReply,
       });
 
       if (takeover) return takeover;
 
-      // final → persist the assistant message and complete.
       await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
       closeBrackets();
       emitPhases("completed");
@@ -868,15 +695,8 @@ const chatTurnStep: Step<ChatRunState> = {
         output: { messageId: state.messageId },
       };
     } catch (err) {
-      // Capacity retries: a 429/408/5xx that failed BEFORE anything streamed
-      // is worth waiting for, not terminating over. The gateway budget refills
-      // at single digits per minute, so the ladder's four attempts inside ~3s
-      // could never land — spacing the same attempts over ~60s converts the
-      // termination into latency. Gated like the stream-timeout retry (no stop,
-      // nothing user-visible streamed) plus the structural capacity check, so
-      // billing 4xx, timeouts (own budget), and caller aborts never enter.
-      // Per ADR-0072 this error is not terminal while a retry is planned, so
-      // it must not reach `finalizeFailedMessage` on that path.
+      // A 429/408/5xx before anything streamed is worth a slow wait: the gateway
+      // refills at single digits per minute. Not terminal while a retry is planned (ADR-0072).
       if (
         !stop.stopped &&
         !isStreamTimeoutAbort(err) &&
@@ -892,17 +712,12 @@ const chatTurnStep: Step<ChatRunState> = {
             ] ?? CAPACITY_RETRY_DELAYS_MS[0];
 
           const delayMs = base + Math.floor(Math.random() * CAPACITY_RETRY_JITTER_MS);
-          // Close the brackets before the wait so this failed attempt's
-          // wall-clock rides the retry, matching the timeout path above.
           closeBrackets();
           console.warn(
             `[chat-turn] capacity error; retry ` +
               `${retry.attempt}/${retry.max} after ${delayMs}ms (run ${ctx.runId})`,
           );
-          // Tell the client BEFORE the silence, not after it. The backoff runs
-          // up to ~35s and the client arms a 45s stall watchdog on every frame,
-          // so a wait with no frame in it paints "Connection stalled" over a
-          // turn that is healthy and waiting on purpose.
+          // Publish before the wait: the backoff runs up to 35s and the client's stall watchdog is 45s.
           await publishChatPhase({
             userId: ctx.userId,
             runId: ctx.runId,
@@ -911,18 +726,10 @@ const chatTurnStep: Step<ChatRunState> = {
             phase: "capacity_retry",
           });
 
-          // `stop.wait` owns its own poller for the duration. Waiting on
-          // `stop.signal` alone cannot work here: the guard's poller was
-          // disposed when the guard block exited, and nothing else drives the
-          // Redis read that calls `abort()`, so the signal would stay unarmed
-          // for the whole backoff.
+          // Use `stop.wait`, not `stop.signal`: no poller runs now, so the signal would never fire.
           if ((await stop.wait(delayMs)) === "elapsed") return retry.step;
 
-          // Stop landed inside the backoff. End the turn as STOPPED, the same
-          // ending the guard block and the stream loop give: nothing streamed
-          // and nothing faulted, so falling through to `finalizeFailedMessage`
-          // would persist a failed row and show the user an error they did not
-          // earn for pressing Stop.
+          // Stop during the backoff ends as stopped, not failed.
           await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
           emitPhases("stopped");
 
@@ -935,17 +742,10 @@ const chatTurnStep: Step<ChatRunState> = {
         }
       }
 
-      // Any terminal failure (stream error, turn-cap, preview overflow, a down
-      // provider) must still close the loop for the client: persist a failed
-      // assistant row + emit `chat.message completed` so the streaming bubble
-      // reconciles instead of blinking forever. Rethrow so the executor records
-      // the run failure for audit.
+      // Persist a failed row so the client bubble ends, then rethrow for the executor.
       await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
       throw err;
     } finally {
-      // Close the step's wall-clock bracket on every exit — done, retry,
-      // park-adjacent `next`, or throw. Idempotent: exits that already read
-      // the accumulators closed them first.
       closeBrackets();
     }
   },
@@ -959,22 +759,17 @@ const dispatchToolsStep: Step<ChatRunState> = {
       pendingToolCalls: [...ctx.state.pendingToolCalls],
       activeTools: [...ctx.state.activeTools],
       toolCallsLog: [...ctx.state.toolCallsLog],
-      // Recomputed from this round's results below; reset so it reflects only
-      // the round about to run, never a stale value carried across turns.
+      // Set again from this round's results.
       reissuePending: false,
     };
 
     let transcript = [...ctx.transcript];
 
-    // Phase thermometer (#902). A resumed run re-enters this step after a
-    // park; fold the parked wall-clock into its bucket before the round
-    // re-runs, then bracket the round itself as dispatch time.
+    // A resumed run re-enters here after a park; fold the park first (#902).
     foldResumedPark(state, Date.now());
     const stepStartedMs = Date.now();
     let stepWallFolded = false;
 
-    // Close the step's wall-clock bracket exactly once; anything reading the
-    // accumulators before leaving (the stop-path emission) calls it first.
     const closeBrackets = (): void => {
       if (stepWallFolded) return;
       stepWallFolded = true;
@@ -995,10 +790,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
       const calls = state.pendingToolCalls;
 
       if (calls.length > 0) {
-        // User hit stop before the batch went out: drop the pending calls and
-        // finalize with whatever streamed so far. Checked once up front — the
-        // batch dispatches concurrently below, so there's no mid-loop point to
-        // bail at (and a per-call check would race the in-flight dispatches).
+        // Checked once: the batch runs concurrently, so a per-call check would race.
         if (await isChatStopRequested(ctx.runId)) {
           await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
           closeBrackets();
@@ -1045,30 +837,18 @@ const dispatchToolsStep: Step<ChatRunState> = {
           const { call } = completion;
 
           if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && completion.execution === "completed") {
-            // The next model step must not see a stale pre-edit body/hash. Re-read
-            // the per-thread facts and reference after create/update commits.
-            // Facts ride the ephemeral block and the PDF guide enters the
-            // transcript on the next chat step. Neither changes the system pin.
+            // Re-read on the next step, so the model never sees a stale body or hash.
             state.artifactThreadFacts = undefined;
             state.artifactReference = undefined;
           }
 
-          // ADR-0070: the boundary sanitizer's verdict rides the dispatch
-          // envelope; it lands on the durable tool-call log *and* the live
-          // event so a scrubbed result is flagged the same way live and on
-          // reload (otherwise the durable card looks pristine). `nonExecution`
-          // flags a never-executed schema/tool-name rejection so the honesty
-          // guard can tell a self-corrected malformed call apart from a real
-          // failed side effect. Both are derived by the shared helper, which a
-          // spawned sub-agent's nested cards also publish through.
+          // `sanitized` goes to both the log and the live event, so live and reload agree (ADR-0070).
           const outcome = toolEventOutcome(completion);
 
           const { status, resultPreview, resultTruncated, sanitized, nonExecution, connectNudge } =
             outcome;
 
-          // Bind an executed artifact tool's toolCallId to its row id, so a live
-          // artifact stream (keyed by toolCallId — all create_artifact has before
-          // it runs) can adopt the durable synced row once it lands.
+          // A live artifact stream is keyed by toolCallId; this lets it adopt the synced row.
           const artifactId = (() => {
             if (
               !ARTIFACT_MUTATION_TOOLS.has(call.toolName) ||
@@ -1090,19 +870,12 @@ const dispatchToolsStep: Step<ChatRunState> = {
             ...(resultTruncated ? { resultTruncated } : {}),
             ...(sanitized ? { sanitized } : {}),
             ...(nonExecution ? { nonExecution } : {}),
-            // A connection-health bounce carries the repair (#378 item 3) so
-            // it survives into the durable row's trail; every other
-            // non-execution stays filtered out at persistence time.
+            // Keep the repair hint on the durable trail (#378).
             ...(connectNudge ? { connectNudge } : {}),
             segmentIndex: call.segmentIndex,
           });
 
-          // ADR-0073: a successful `await_sub_agent` already handed the boss the
-          // child's real outcome in-transcript, so the finalization guard must
-          // treat that child as accounted for — otherwise it re-folds it and
-          // injects a false "finished without you awaiting it" note, demoting the
-          // boss's answer and burning another turn. (A still-running await parks
-          // and never reaches this commit pass, so only resolved awaits land here.)
+          // The boss already saw this child's outcome, so the finalize guard must not fold it again (ADR-0073).
           if (call.toolName === AWAIT_SUB_AGENT_TOOL && completion.execution === "completed") {
             const childRunId = awaitedChildRunId(call.input);
 
@@ -1126,23 +899,16 @@ const dispatchToolsStep: Step<ChatRunState> = {
 
         transcript = round.transcript;
         state.pendingToolCalls = [];
-        // If this round auto-activated any tool via an inactive-tool bounce
-        // (#407), the next chat-turn is an internal reissue — mark it so its
-        // lead-in narration ("tools warming up, retrying") is withheld.
+        // A #407 auto-activation makes the next turn a reissue; withhold its lead-in.
         state.reissuePending = round.reissue;
       }
 
       return { kind: "next", state, transcript, nextStep: "chat-turn" };
     } catch (err) {
-      // Mirror chatTurnStep: an unexpected fault during dispatch still closes
-      // the loop for the client instead of stranding the streaming bubble.
       await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
       throw err;
     } finally {
-      // Close the step's wall-clock bracket on every exit — including the
-      // park (`interruptChatRun`), whose gap is attributed separately by
-      // `foldResumedPark` on resume (#902). The interrupt result holds this
-      // same `state` object, so the fold lands in what the executor commits.
+      // The park result holds this same `state`, so the fold reaches the commit.
       closeBrackets();
     }
   },
@@ -1166,8 +932,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
 
     const messageId = isNonEmptyString(assistantMessageIdValue)
       ? assistantMessageIdValue
-      : // `kickId` is the legacy alias for `startId`; keep it as fallback for
-        // runs persisted before the rename so the hash stays stable.
+      : // `kickId` is the old name of `startId`; old runs still carry it.
         `msg_${Math.abs(hashString(`${threadId}:${input.userId}:${isNonEmptyString(startIdValue) ? startIdValue : isNonEmptyString(kickIdValue) ? kickIdValue : ""}`))}`;
 
     const tier: ChatModelTier = metadata.tier === "deep" ? "deep" : "standard";
@@ -1211,7 +976,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       streamTimeoutRetries: 0,
       capacityRetries: 0,
       startedAt: undefined,
-      // Phase thermometer (#902) accumulators.
+      // Phase thermometer (#902).
       generationMs: 0,
       dispatchMs: 0,
       stepWallMs: 0,
@@ -1240,11 +1005,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       .where(and(eq(chatMessages.userId, input.userId), eq(chatMessages.threadId, threadId)))
       .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
 
-    // Fold in any uploaded attachments (ADR-0065). Only `ready` rows enter the
-    // model context, and only as text + images — the raw bytes are never sent.
-    // Phase 1 carries images straight through (object bytes → image part);
-    // degraded modalities (Phase 2/3) contribute their `degradedText` +
-    // keyframe images instead.
+    // Only `ready` attachments enter, as text and images; raw bytes never do (ADR-0065).
     const threadContext = await loadChatThreadContext(input.userId, threadId, ex);
     const assembled = assembleChatContext({ messages: rows, context: threadContext });
     const verbatimMessageIds = new Set(assembled.verbatimMessageIds);
@@ -1264,21 +1025,15 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       const atts = attachmentsByMessage.get(r.id) ?? [];
       const content = atts.length > 0 ? buildStoredContentParts(r.content, atts) : r.content;
 
-      // Drop turns that produced nothing renderable. Guarding on the *produced*
-      // content (not `atts.length`) also covers the Phase-2 case where an
-      // attachment degrades to no parts — `content.length === 0` works for both
-      // the string and the content-parts array.
+      // Check the produced content, not `atts`: an attachment can degrade to no parts.
       if (content.length === 0) continue;
       out.push({ role: r.role, content } satisfies AgentTranscriptMessage);
     }
 
     return out;
   },
-  // Singleton on the client-minted user message id: a double-submit / retry /
-  // strict-mode double-invoke of the same turn collides on the partial unique
-  // index instead of spawning a second run (and a second streaming reply).
-  // Failed/cancelled runs are excluded from the index, so a genuinely failed
-  // turn stays retryable.
+  // A double submit of one user message hits the unique index, not a second run.
+  // Failed and cancelled runs leave the index, so a failed turn stays retryable.
   dedupKey(input) {
     const id = input.metadata?.userMessageId;
 
@@ -1289,28 +1044,14 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     "dispatch-tools": dispatchToolsStep,
   },
   stateSchema: chatRunStateSchema,
-  // A run that goes terminal outside the step body never reaches the in-step
-  // catch that finalizes the chat message. Without this hook the client's
-  // streaming bubble waits forever — it only completes on `chat.message
-  // completed` (use-chat-stream.ts). Both finalizers below are idempotent on
-  // messageId, so this is safe even if a step-body finalize already landed.
-  //
-  // The two branches are NOT interchangeable, which is why the hook's context is
-  // a union: handling only one of them would compile as a complete
-  // implementation, and that omission is the bug this hook exists for.
+  // Ends the client bubble for runs that go terminal outside a step body.
+  // Both finalizers are idempotent on messageId.
   closure: {
     kind: "client",
     async onTerminal(ctx) {
       switch (ctx.outcome) {
-        // A failure (ADR-0070 §1.4 backstop, a post-deploy step-resolution
-        // failure) writes a `status:"failed"` row, which the client renders as an
-        // error with a retry affordance.
         case "failed":
-          // Phase thermometer (#902): failures and cancels emit here — the one
-          // chokepoint every non-completed ending passes through. The reading
-          // is the last-*committed* state, so the faulted step's uncommitted
-          // brackets are lost; that undercount is accepted over re-plumbing
-          // emission into every throw path.
+          // Last committed state, so the faulted step's time is lost. Accepted (#902).
           emitTurnPhaseThermometer({
             runId: ctx.runId,
             startedAt: ctx.state.startedAt ? new Date(ctx.state.startedAt) : undefined,
@@ -1321,21 +1062,8 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
           await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
 
           return;
-        // A cancel (the approvals `cancel_run` decision) is a deliberate stop, so
-        // it persists a normal complete row rather than an error one: rendering
-        // "something went wrong, retry?" for an action the user took on purpose
-        // would be a lie, and the retry would re-run a turn they just ended.
-        //
-        // It is NOT the success finalizer. `ctx.state` here is the run's
-        // last-*committed* state, so a cancel that lands mid-step renders the
-        // previous step boundary, not the in-flight step's uncommitted text. And a
-        // cancelled turn arms none of the success tail — see
-        // `finalizeCancelledMessage`.
-        //
-        // `ctx.reason` is deliberately unused: it is cancel bookkeeping
-        // (`user_stopped`), not something to show as an error.
+        // A cancel is deliberate, so it persists a normal row, not an error.
         case "cancelled":
-          // Same chokepoint as `failed` above (#902).
           emitTurnPhaseThermometer({
             runId: ctx.runId,
             startedAt: ctx.state.startedAt ? new Date(ctx.state.startedAt) : undefined,
@@ -1355,7 +1083,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   },
 };
 
-/** Deterministic 31-bit hash for a fallback assistant message id. */
+/** Deterministic 32-bit hash for a fallback assistant message id. */
 function hashString(s: string): number {
   let h = 0;
 

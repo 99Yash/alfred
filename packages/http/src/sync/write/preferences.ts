@@ -2,15 +2,7 @@ import { deletePreferenceRow, upsertPreference } from "@alfred/assistant/setting
 import type { PrefDeleteArgs, PrefSetArgs } from "@alfred/sync";
 import type { DbTransaction } from "@alfred/db";
 
-/**
- * Upsert a preference. Last-write-wins per `(user_id, key)`; bumps
- * `row_version` so the next pull patches the client.
- *
- * Routed through `settings.upsertPreference` against `tx` rather than the
- * `setPreference()` gateway (which opens its own `db()` handle) so the write
- * commits inside the push handler's outer transaction. Awaited bare — no
- * `RETURNING` — so the emitted SQL is identical to the former inline.
- */
+/** Last write wins. Uses `upsertPreference` on `tx`, not `setPreference()`, which opens its own `db()`. */
 export async function prefSet(tx: DbTransaction, args: PrefSetArgs, userId: string): Promise<void> {
   await upsertPreference(tx, {
     userId,
@@ -20,7 +12,6 @@ export async function prefSet(tx: DbTransaction, args: PrefSetArgs, userId: stri
   });
 }
 
-/** Delete a preference. No-op if missing. */
 export async function prefDelete(
   tx: DbTransaction,
   args: PrefDeleteArgs,

@@ -5,15 +5,10 @@ import { frameThreadId, type EventStreamFrame } from "~/lib/events/frame";
 import { markChatTimingByAssistant } from "./timing";
 
 /**
- * The client-side state machine for the in-flight assistant turn, split out of
- * `useChatStream` so its rules are executable rather than commented.
- *
- * The turn is a function of the SSE frames it has seen: `applyChatFrame` is the
- * only transition, `tickDrip` is the only projection, and both take the ref cell
- * explicitly. Nothing here touches React or the DOM, so the two invariants
- * ADR-0073 names by name — *a sub-agent frame may address an in-flight turn but
- * never create one*, and *a terminal tool card is absorbing* — are testable
- * under `node:test` without a browser.
+ * State machine for the in-flight assistant turn. No React, no DOM.
+ * `applyChatFrame` is the only transition and `tickDrip` the only projection.
+ * ADR-0073: a sub-agent frame may address a turn but never create one,
+ * and a terminal tool card never changes again.
  */
 
 export interface StreamingToolCall {
@@ -26,100 +21,59 @@ export interface StreamingToolCall {
   resultTruncated?: boolean | undefined;
   /** ADR-0070: non-text bytes were stripped from this result before storage. */
   sanitized?: boolean | undefined;
-  /** Narration segment this call follows, ordering it against the narration trail. */
+  /** Narration segment this call follows. */
   segmentIndex: number;
-  /**
-   * Client clock at the first event seen for this call, and at its terminal
-   * event (null while in flight) — the duration chip on the card. Measured at
-   * event *receipt*, not on the server: it is honest about what the user
-   * watched elapse, which is the only thing the chip claims.
-   */
+  /** Client clock at the first and terminal events, for the duration chip. Null while in flight. */
   startedTs: number;
   endedTs: number | null;
 }
 
 /**
- * A spawned sub-agent's own tool calls, nested under the spawn card.
- *
- * Keyed on `parentToolCallId` alone, which is only sound because the server
- * spawns **exactly one child per `(parentRunId, parentToolCallId)`**: see
- * `packages/assistant/src/execution/sub-agents.ts` — `findExistingSubAgentRun`,
- * the sub-agent `dedupKey` unique index, and the 23505 fold-into-already-spawned
- * path. ADR-0073 is the addressing half of this (a child publishes into the
- * parent's address); the uniqueness half lives in that index, not in the ADR.
- *
- * If that guarantee ever stopped holding, a second child for the same
- * `parentToolCallId` would merge into the first child's trail: `subId` and
- * `childRunId` are write-once at trail creation (below), so the trail would keep
- * the first child's identity while accumulating the second's tool calls, and no
- * client comparison would notice — `streamSnapshotsEqual` deliberately does not
- * compare them (see its own note).
+ * A sub-agent's tool calls, nested under its spawn card.
+ * Keyed on `parentToolCallId` alone. That is sound only because the server spawns
+ * one child per `(parentRunId, parentToolCallId)` (the `dedupKey` unique index in
+ * `execution/sub-agents.ts`). A second child would merge into the first trail unnoticed.
  */
 export interface SubAgentTrail {
-  /** The parent's `system.spawn_sub_agent` call this nests under. */
+  /** The parent's `system.spawn_sub_agent` call. */
   parentToolCallId: string;
-  /** Write-once at trail creation; a later frame for the same parent call keeps it. */
+  /** Write-once at trail creation. */
   subId: string;
-  /** Write-once at trail creation; see `subId`. */
+  /** Write-once at trail creation. */
   childRunId: string;
   tools: StreamingToolCall[];
   startedTs: number;
   endedTs: number | null;
-  /** Terminal outcome once the child run reports one; null while running. */
   outcome: "completed" | "failed" | "cancelled" | null;
-  /**
-   * The child parked — it is waiting on the user (an approval) or on a signal,
-   * not working. Non-terminal: the run is still live and will reach a real
-   * `outcome`. The clock keeps running (the wait is honestly part of the wall
-   * time); what this corrects is the *state*, so the card stops claiming the
-   * child is busy while it is actually blocked on a human.
-   */
+  /** The child is parked on an approval or signal. Not terminal; the clock keeps running. */
   waiting: boolean;
 }
 
 export interface StreamingMessage {
   messageId: string;
   runId: string;
-  /**
-   * Drip-buffered text of the current (latest) segment — the live reply,
-   * eased toward the full received text for smooth typing. Closed narration
-   * segments move into `narration` as later segments begin.
-   */
+  /** Eased text of the live segment. Closed segments move into `narration`. */
   text: string;
-  /** Closed narration segments to interleave with the tool cards in the trail. */
   narration: SyncedChatNarration[];
-  /** Drip-buffered reasoning — the model's thinking, shown in the accordion. */
+  /** Eased reasoning text. */
   reasoning: string;
-  /** True while thinking is still arriving (reply hasn't started) — drives the shimmer. */
+  /** Thinking still arrives and the reply has not started. */
   reasoningActive: boolean;
-  /** Frozen once thinking ends, in ms — drives the "Thought for Ns" label. */
+  /** Thinking duration, frozen at the first reply token. */
   reasoningMs: number | null;
   tools: StreamingToolCall[];
-  /**
-   * Repair offers from connection-health bounces this turn (#378 item 3),
-   * deduped by integration. Separate from `tools` because the bounced call
-   * itself is retracted — the offer is what survives on screen.
-   */
+  /** Repair offers from connection-health bounces, one per integration. The bounced call is retracted. */
   connectNudges: ChatConnectNudge[];
-  /**
-   * Live trails for sub-agents spawned this turn, keyed for the client by the
-   * `spawn_sub_agent` call they nest under. Separate from `tools` so a child's
-   * steps never flatten into the boss's own trail.
-   */
+  /** Kept apart from `tools` so a child's steps do not join the boss's trail. */
   subAgents: SubAgentTrail[];
-  /** A write action is parked awaiting the user's approval. */
   awaitingApproval: boolean;
   /** Context is being condensed before the next provider call. */
   compacting: boolean;
-  /**
-   * The turn hit a capacity error before anything streamed and is waiting out
-   * a backoff. Distinct from `compacting`: nothing is being done to the turn,
-   * it is queued behind the provider's budget.
-   */
+  /** A capacity error hit before any output; the turn waits out a backoff. */
   awaitingCapacity: boolean;
-  /** The turn finished; the durable synced message will replace this shortly. */
+  /** The synced message replaces this soon. */
   done: boolean;
-  /** Client-side stream failure (SSE disconnect, watchdog) — shown inline. */
+  /** Client-side stream failure (SSE disconnect, watchdog). */
   error: string | null;
 }
 
@@ -130,42 +84,29 @@ interface SubAgentTrailRef extends Omit<SubAgentTrail, "tools"> {
 interface StreamRef {
   messageId: string;
   runId: string;
-  /**
-   * The outbox serial of the frame that mounted this turn — write-once at mount.
-   * `ensureStreamRef` refuses to replace this ref with a *different* turn whose
-   * frame carries a lower id, so a `Last-Event-ID` reconnect that replays an
-   * older turn's frames (in their original id order) cannot blank a turn still
-   * streaming. It is a plain number; nothing type-level stops a caller passing a
-   * stale id, so the seam test is the enforcement.
-   */
+  /** Outbox serial of the frame that mounted this turn. A replayed older turn cannot replace it. */
   mountId: number;
-  /** Received text per narration segment (full, pre-easing). */
+  /** Full received text per narration segment. */
   segments: Map<number, string>;
-  /** Highest segment index seen — the current/answer segment. */
+  /** Highest segment index seen. */
   currentSegment: number;
-  /** Eased chars shown for the current segment; reset when the segment advances. */
+  /** Eased chars shown of `shownSegment`. */
   shown: number;
-  /** Segment `shown` is counting against — guards the reset on segment change. */
   shownSegment: number;
   reasoning: string;
   reasoningShown: number;
   reasoningStartTs: number | null;
   reasoningMs: number | null;
-  /** Reply text has begun — thinking for the final answer is over. */
   replyStarted: boolean;
-  /** Last appended server seq for reply text; guards against replay duplicates. */
+  /** Last applied seq; drops replay duplicates. */
   deltaSeq: number;
-  /** Last appended server seq for reasoning text; guards against replay duplicates. */
   reasoningSeq: number;
   tools: Map<string, StreamingToolCall>;
-  /** Repair offers from connection-health bounces, keyed by integration slug. */
+  /** Keyed by integration slug. */
   connectNudges: Map<string, ChatConnectNudge>;
-  /** Keyed by the parent's `spawn_sub_agent` toolCallId — one trail per child. */
+  /** Keyed by the parent's `spawn_sub_agent` toolCallId. */
   subAgents: Map<string, SubAgentTrailRef>;
-  /**
-   * childRunId → parentToolCallId, so an `agent.run` lifecycle frame (which
-   * carries only the child's run id) can close the right trail.
-   */
+  /** childRunId to parentToolCallId. `agent.run` frames carry only the child's run id. */
   subAgentRuns: Map<string, string>;
   awaitingApproval: boolean;
   compacting: boolean;
@@ -173,50 +114,25 @@ interface StreamRef {
   done: boolean;
   error: string | null;
   /**
-   * The user hit stop locally. We flip to done immediately and ignore any late
-   * SSE frames for this run, so the bubble freezes the instant they click
-   * instead of waiting on the worker's Redis-flag poll (~400ms) to round-trip a
-   * `completed` event. The durable synced message still reconciles afterward.
+   * The user hit stop locally. Freeze now and drop late frames for this run,
+   * so the bubble does not wait on the worker's ~400ms stop-flag poll.
    */
   stopped: boolean;
 }
 
-/**
- * The mutable cell holding at most one in-flight turn — a plain object so tests
- * need no React.
- *
- * The cell names the thread it is for, fixed at construction: `applyChatFrame`
- * checks every frame against `cell.threadId` rather than against an argument, so
- * no call site can supply the wrong thread per frame, and a cell whose lifetime
- * is one subscription cannot carry a previous thread's turn across a thread
- * change. Being an interface, `{ threadId, current: null }` still satisfies it —
- * this makes the mistake require constructing a cell that lies about itself,
- * once, rather than threading a string through every call.
- *
- * `StreamRef` is deliberately not exported: naming it here is enough for the
- * hook to declare the cell, while keeping any second consumer from declaring
- * turn state of its own. It does not make the fields unreachable through
- * `cell.current`, so this buys concentration, not enforcement.
- */
+/** Holds at most one in-flight turn for one thread. Frames for other threads are dropped. */
 export interface ChatStreamCell {
-  /** The thread every frame applied to this cell must name. Set at construction. */
   readonly threadId: string;
   current: StreamRef | null;
 }
 
-/** The cell for one thread's subscription — empty until a frame mounts a turn. */
 export function createChatStreamCell(threadId: string): ChatStreamCell {
   return { threadId, current: null };
 }
 
 /**
- * Whether a sub-agent's `chat.tool` event belongs to the turn currently on
- * screen. It must be able to *address* the in-flight turn but never *create*
- * one: a child outlives its parent turn (a spawn need never be awaited, and a
- * cancel reaches a child cooperatively — it cascades, but the child keeps
- * running until its own fence check), so a late child event can arrive while a
- * completely different turn is streaming. Mounting a fresh
- * stream ref for it would blank that turn's bubble and reset its delta seq.
+ * Whether a sub-agent event belongs to the turn on screen. It never mounts one:
+ * a child can outlive its parent turn, and a fresh mount would blank the live turn.
  */
 export function subAgentEventAddressesStream<
   T extends { messageId: string; runId: string; stopped: boolean },
@@ -226,13 +142,7 @@ export function subAgentEventAddressesStream<
   return current.messageId === event.messageId && current.runId === event.runId;
 }
 
-/**
- * Fold one `chat.tool` event into a turn's tool-card map.
- *
- * `now` is required for the reason `applyChatFrame` gives below: the `startedTs`
- * and `endedTs` this writes are measured at frame *receipt*, so a default would
- * let a caller silently substitute a wall-clock read for the frame's own clock.
- */
+/** Fold one `chat.tool` event into a turn's tool cards. `now` is the frame receipt time. */
 export function applyStreamingToolEvent(
   tools: Map<string, StreamingToolCall>,
   event: EventPayload<"chat.tool">,
@@ -246,10 +156,7 @@ export function applyStreamingToolEvent(
 
   const previous = tools.get(event.toolCallId);
 
-  // A terminal card is absorbing. `started` can arrive *after* it — the same
-  // batch is re-dispatched on resume/reclaim and republishes its `started`, and
-  // SSE frames are not ordered — and un-freezing the card would restart the
-  // clock and flip a finished step back to a spinner.
+  // A terminal card stays terminal. Resume or reclaim republishes `started`, and SSE is unordered.
   if (event.status === "started" && previous && previous.endedTs !== null) return;
   tools.set(event.toolCallId, {
     toolCallId: event.toolCallId,
@@ -261,49 +168,25 @@ export function applyStreamingToolEvent(
     sanitized: event.sanitized ?? previous?.sanitized,
     segmentIndex: event.segmentIndex ?? previous?.segmentIndex ?? 0,
     startedTs: previous?.startedTs ?? now,
-    // A terminal event freezes the clock; a repeated terminal event (replay)
-    // keeps the first one so the chip doesn't drift upward on reconnect.
+    // A replayed terminal event keeps the first end time.
     endedTs: event.status === "started" ? null : (previous?.endedTs ?? now),
   });
 }
 
 /**
- * Return the in-flight stream state for `messageId`, mounting it if needed, or
- * `null` when the mount is refused.
- *
- * The `chat.message` "started" event normally mounts this, but on a fresh
- * thread the navigation `/chat` → `/chat/<id>` reopens the SSE stream and
- * "started" can fire in that gap (the bus has no replay). Initializing from
- * the first event of any kind — reasoning, delta, or tool — keeps the turn
- * from rendering blank when "started" is missed. A different `messageId`
- * or `runId` means a new turn, so we mount fresh.
- *
- * `frameId` is the outbox serial of the frame asking to mount. A mount that
- * *replaces* a live ref is refused when the frame names a **different** turn and
- * carries an id *below* the live ref's `mountId`: a `Last-Event-ID` reconnect
- * replays an older turn's frames in their original id order, and without this a
- * replayed older `started` (or its trailing `delta`) would blank a turn still
- * streaming. A refusal returns `null`; the caller must read that as "drop this
- * frame," **not** "use the live ref," since applying an old frame's payload to
- * the live ref would corrupt it. A same-turn frame reuses the ref regardless of
- * id, so a replayed frame for the live turn is not a mount at all.
- */
-/**
- * Retire the approval wait, because the frame the caller just accepted proves
- * the run is moving again. Mirrors the sub-agent trail's `waiting` clear.
- *
- * Called only from an arm that goes on to return `true`. Mounting used to clear
- * the flag, which put the write ahead of that arm's `stopped` and seq-dedup
- * guards: a replayed frame retired the wait and then returned `false`, so the
- * projection never ran and the composer stayed disabled over a run that had
- * already resumed. Without a clear the flag only ever fell on `completed`,
- * which left the composer and the stall watchdog reading "parked" for the rest
- * of the turn — so the write has to happen, just past the guards.
+ * An accepted frame proves the run moves again. Call only after the `stopped`
+ * and seq guards, in an arm that returns `true`, or the composer stays disabled.
  */
 function clearApprovalWait(ref: StreamRef): void {
   ref.awaitingApproval = false;
 }
 
+/**
+ * Return the turn's ref, mounting it on the first frame of any kind, because
+ * "started" can fire while `/chat` navigates to `/chat/<id>`.
+ * Returns `null` for a different turn with a frame id below the live `mountId`
+ * (a `Last-Event-ID` replay). The caller must drop that frame.
+ */
 function ensureStreamRef(
   cell: ChatStreamCell,
   frameId: number,
@@ -349,33 +232,10 @@ function ensureStreamRef(
 }
 
 /**
- * Apply one validated SSE frame to the turn.
- *
- * Returns whether the view must be re-projected — exactly the branches that
- * scheduled an animation frame when this lived inside the hook. A branch that
- * drops a frame (a stale seq, a child event addressed to a turn that has since
- * been replaced, an `agent.run` for a run we never mapped) returns `false`, so
- * the caller can leave the rAF loop parked instead of spinning at 60fps through
- * an approval wait.
- *
- * The union is wider than the six kinds a chat turn reads, so the unhandled
- * kinds (`inbox.updated`, `artifact.delta`, …) fall through to `false` by
- * design; this is not an exhaustiveness gap.
- *
- * The thread check is hoisted above the kind dispatch and runs unconditionally,
- * so an arm added later inherits it instead of having to remember it. It covers
- * *every* kind whose payload carries a `threadId`, derived from the payload
- * schemas by `frameThreadId` rather than from the `chat.` name prefix — so a
- * foreign-thread `artifact.delta` is gated here and *then* dropped by the bottom
- * `return false`, and an arm for it would inherit a check it never spells. The
- * kinds that name no thread (`agent.run`, `approval.requested`) pass the check
- * and then resolve only against a ref that already exists — they cannot mount
- * one.
- *
- * `now` is required and deliberately has no default: the durations this records
- * (`startedTs`, `endedTs`, `reasoningMs`) are measured at frame *receipt*, so the
- * turn stays a function of the frames it has seen. Defaulting to `Date.now()`
- * would let a caller that omits it silently swap in wall-clock time.
+ * Apply one validated SSE frame. Returns whether the view must re-project;
+ * `false` lets the rAF loop stay parked. Kinds a turn does not read return `false`.
+ * The thread check runs before the dispatch, so a new arm gets it for free.
+ * `now` has no default: durations are measured at frame receipt.
  */
 export function applyChatFrame(
   cell: ChatStreamCell,
@@ -390,21 +250,8 @@ export function applyChatFrame(
     const p = frame.payload;
     const r = cell.current;
 
-    // The freeze applies to the ref this frame *names*, exactly as in the five
-    // arms below — but it cannot be hoisted above the kind dispatch the way the
-    // thread check is. Four arms can *mount*: `started` just below, plus
-    // `chat.reasoning`, `chat.delta` and `chat.tool`'s boss arm, each of which
-    // calls `ensureStreamRef` before testing `stopped` so that a frame naming a
-    // new `(messageId, runId)` replaces a stopped ref. A
-    // blanket `cell.current?.stopped` above the dispatch would drop whichever of
-    // those four opens the next turn, and that turn would never render. Those
-    // three inherit the identity comparison from `ensureStreamRef`; this arm has
-    // to spell it out, because `compaction_*`/`completed` may not mount and so
-    // have no `ensureStreamRef` return value to test the flag on.
-    //
-    // The recency rule that keeps a replayed *older* turn from blanking a live
-    // one lives inside `ensureStreamRef` (a cross-identity mount below the live
-    // ref's `mountId` returns `null`), so this arm neither reads nor restates it.
+    // Drop frames for a stopped ref only when they name it. A global `stopped`
+    // check would also drop the frame that mounts the next turn.
     if (r !== null && r.stopped && r.messageId === p.messageId && r.runId === p.runId) return false;
 
     if (p.phase === "started") {
@@ -421,9 +268,7 @@ export function applyChatFrame(
 
     if (p.phase === "compaction_started" || p.phase === "compaction_finished") {
       r.compacting = p.phase === "compaction_started";
-      // Compaction is the turn moving again, so it retires the capacity wait.
-      // The two labels are mutually exclusive by construction, which is why no
-      // renderer has to order them.
+      // Compaction means the turn moves again. The two labels never show together.
       r.awaitingCapacity = false;
 
       return true;
@@ -450,10 +295,7 @@ export function applyChatFrame(
       return true;
     }
 
-    // `phase` is a closed four-member enum, so this is unreachable — the payload
-    // was parsed by this build's own schema. It is here so that adding a member
-    // (`failed`, `cancelled`, …) fails to compile rather than falling into the
-    // completion branch and silently tearing down a live bubble.
+    // A new phase must fail to compile, not fall into the completion branch.
     const _exhaustive: never = p.phase;
 
     return _exhaustive;
@@ -461,9 +303,7 @@ export function applyChatFrame(
 
   if (frame.kind === "chat.reasoning") {
     const p = frame.payload;
-    // Mount before the stop check so it applies to the ref this frame names:
-    // a late frame for a stopped run is dropped, a frame for a new
-    // (messageId, runId) is a new turn and mounts fresh.
+    // Mount before the stop check, so a new turn can replace a stopped one.
     const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
 
     if (r === null || r.stopped) return false;
@@ -500,7 +340,7 @@ export function applyChatFrame(
     clearApprovalWait(r);
     r.deltaSeq = p.seq;
 
-    // First reply token: thinking for the answer is over — freeze its duration.
+    // The first reply token freezes the thinking duration.
     if (!r.replyStarted) {
       r.replyStarted = true;
 
@@ -509,9 +349,7 @@ export function applyChatFrame(
       }
     }
 
-    // Append to this delta's segment. A higher segment means the prior
-    // segment just closed (the model wrote it before a tool step) — it
-    // drops into the narration trail and this becomes the live reply.
+    // A higher segment closes the prior one into the narration trail.
     const segment = p.segmentIndex ?? 0;
     r.segments.set(segment, (r.segments.get(segment) ?? "") + p.text);
 
@@ -540,21 +378,12 @@ export function applyChatFrame(
   if (frame.kind === "chat.tool") {
     const p = frame.payload;
 
-    // A spawned sub-agent's call nests under the `spawn_sub_agent` card that
-    // started it rather than joining the boss's own trail. The event
-    // deliberately carries the parent's runId/messageId (see
-    // `chatToolSubAgentSchema`) — but it resolves against the turn already
-    // on screen and never mounts one, because a child can outlive its
-    // parent turn and must not hijack whatever is streaming now.
+    // A sub-agent call nests under its spawn card and never mounts a turn.
     if (p.subAgent) {
       const current = cell.current;
 
       if (!subAgentEventAddressesStream(current, p)) return false;
-      // A connection-health bounce carries the repair (#378 item 3). It
-      // belongs to the turn, not to one trail, and records even when there is
-      // no card left to attach it to — a child whose only event is the bounce
-      // has no trail, and dropping the repair with the retracted card would
-      // hide it forever.
+      // The repair belongs to the turn, so keep it even when the child has no trail.
       let nudged = false;
 
       if (p.connectNudge) {
@@ -565,8 +394,7 @@ export function applyChatFrame(
       const { parentToolCallId, subId, childRunId } = p.subAgent;
       const existing = current.subAgents.get(parentToolCallId);
 
-      // A bounce retracts a card; with no trail there is nothing to retract,
-      // and drawing an empty container for it would be worse than silence.
+      // Do not draw an empty trail for a retraction.
       if (!existing && p.nonExecution) return nudged;
 
       const trail = existing ?? {
@@ -590,24 +418,18 @@ export function applyChatFrame(
     const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
 
     if (r === null || r.stopped) return false;
-    // Every arm below this line returns `true`, so the clear and the
-    // re-projection that shows it land on the same frame.
+    // Every arm below returns `true`.
     clearApprovalWait(r);
     applyStreamingToolEvent(r.tools, p, now);
 
     if (p.connectNudge) {
-      // The bounced call is retracted above; the repair is what the user sees
-      // instead (#378 item 3). Set, never cleared: connection state cannot
-      // heal mid-turn, and a replayed frame re-set is a no-op. Last write
-      // wins — the rule splitPersistedToolCalls applies on reload, so the
-      // two dedupe homes cannot disagree.
+      // Never cleared mid-turn. Last write wins, as in `splitPersistedToolCalls` on reload.
       r.connectNudges.set(p.connectNudge.integration, p.connectNudge);
 
       return true;
     }
 
-    // A retraction changed the trail, so the view still has to re-project —
-    // it just has no timing mark to record.
+    // A retraction still re-projects, with no timing mark.
     if (p.nonExecution) return true;
     markChatTimingByAssistant(
       p.messageId,
@@ -626,13 +448,7 @@ export function applyChatFrame(
   }
 
   if (frame.kind === "agent.run") {
-    // A child run's own lifecycle. `chat.tool` says what a sub-agent did but
-    // never that it is finished or that it stalled, so both come from here —
-    // the executor already publishes these for every run, children included.
-    // Frames for the parent run and for unrelated background runs fall
-    // through: only a runId we mapped from a child's tool event reaches a
-    // trail. The payload carries no `threadId` at all, which is what makes it
-    // structurally incapable of mounting a turn.
+    // A child's finish or park comes only from here. Only runIds mapped from a child's tool event match.
     const p = frame.payload;
     const r = cell.current;
 
@@ -642,7 +458,7 @@ export function applyChatFrame(
     if (!parentToolCallId) return false;
     const trail = r.subAgents.get(parentToolCallId);
 
-    // Terminal is absorbing: a later frame for a landed child changes nothing.
+    // A finished child never changes again.
     if (!trail || trail.outcome !== null) return false;
 
     if (p.phase === "completed" || p.phase === "failed" || p.phase === "cancelled") {
@@ -654,18 +470,12 @@ export function applyChatFrame(
     }
 
     if (p.phase === "interrupted") {
-      // The child parked — most often on an approval, so the time from here
-      // is the user's, not the agent's. The card stops claiming it is busy.
       trail.waiting = true;
 
       return true;
     }
 
-    // Any other frame from a parked child means it is moving again. Note
-    // `resumed` is in the enum but nothing publishes it: a resuming run
-    // emits `step_started`, so this clears on activity rather than on a
-    // phase name. A non-terminal phase for a child that was never parked
-    // changes nothing on screen.
+    // Any other phase unparks the child. Nothing publishes `resumed`; a resumed run emits `step_started`.
     if (!trail.waiting) return false;
     trail.waiting = false;
 
@@ -691,13 +501,7 @@ export function applyChatFrame(
   return false;
 }
 
-/**
- * Shared freeze logic for any terminal turn transition (optimistic stop or
- * transport failure): anchor the eased counter to the live segment, slice both
- * buffers at what is shown, and mark the turn done+stopped so late SSE frames
- * are dropped and the composer recovers. Centralized so a third terminal reason
- * does not copy the 4-line freeze a third time (axis 1 — Repetition).
- */
+/** Cut both buffers at what is shown and mark the turn done and stopped. */
 function freezeAndFinalizeTurn(ref: StreamRef, error: string | null): void {
   const eased = anchorEasedSegment(ref);
   ref.segments.set(eased.segment, eased.text.slice(0, eased.shown));
@@ -712,28 +516,9 @@ function freezeAndFinalizeTurn(ref: StreamRef, error: string | null): void {
 }
 
 /**
- * Optimistic stop: freeze the eased buffers at what is currently shown and flip
- * to done, so the composer swaps back to the send button this frame. `stopped`
- * makes `applyChatFrame` drop any further frames for this run, so the bubble
- * doesn't keep typing while the server finalizes in the background.
- *
- * Returns whether anything changed — `false` when nothing is in flight or the
- * turn was already stopped. The truncation and the `done` flip live here
- * together so the freeze and the state it freezes cannot drift. The freeze has
- * to re-anchor before it slices, or a delta that advanced the segment since the
- * last animation frame leaves it cutting the live segment to the *previous*
- * segment's length; `anchorEasedSegment` hands back the segment, its text and
- * its counter as one matched triple, so the slice below can only be written
- * with all three in step. Reaching past it to `ref.shown` still compiles — see
- * that function's own note.
- *
- * A segment the deltas already closed stays in the projected `narration` in
- * full: closing it was the delta's doing, not the stop's. So a stop landing in
- * that window freezes the live bubble at zero characters with the prose the
- * user saw carried in `narration` instead. That prose does reach the screen:
- * `ToolCallGroup` draws the trail from both channels and its callers gate on
- * neither, so a stopped turn with no tool cards still shows its closed
- * segments.
+ * Optimistic stop: freeze at what is shown and drop later frames for this run.
+ * Returns `false` when nothing is in flight or it was already stopped.
+ * Closed segments stay in `narration` in full.
  */
 export function applyOptimisticStop(cell: ChatStreamCell): boolean {
   const r = cell.current;
@@ -744,23 +529,13 @@ export function applyOptimisticStop(cell: ChatStreamCell): boolean {
   return true;
 }
 
-/**
- * Client-side stream failure: the SSE transport died (EventSource CLOSED or
- * watchdog timeout) while a turn was still in flight. Like `applyOptimisticStop`
- * it freezes the eased buffers and flips to done so the composer recovers from
- * the stop-button state, but it also records an `error` string that the UI
- * renders inline so the failure is not silent. `stopped` still drops late
- * frames for this run, and a new `(messageId, runId)` can still mount fresh
- * via `ensureStreamRef` — the next turn is not blocked by a failed one.
- */
+/** The SSE transport died mid-turn. Freeze like a stop and record `error` to show inline. */
 export function applyStreamError(cell: ChatStreamCell, message: string): boolean {
   const r = cell.current;
 
   if (!r || r.stopped) return false;
 
-  // `done` already true means the turn completed normally before the error
-  // arrived (a late CLOSED after `completed`); do not overwrite a successful
-  // finish with a failure.
+  // A late CLOSED after `completed` must not turn a finish into a failure.
   if (r.done) return false;
   freezeAndFinalizeTurn(r, message);
 
@@ -772,28 +547,16 @@ function ease(shown: number, full: number): number {
   return shown < full ? Math.min(full, shown + Math.max(2, Math.ceil((full - shown) / 8))) : shown;
 }
 
-/**
- * Re-anchor the eased counter to the live segment and hand back the segment it
- * now describes, its received text, and the chars already shown of it.
- *
- * `shown` counts against `shownSegment` only, and `applyChatFrame` advances
- * `currentSegment` without touching either — so between a segment-advancing
- * delta and the next animation frame, `shown` describes a strictly earlier
- * segment. Both readers (`tickDrip`, `applyOptimisticStop`) take the counter
- * off the return value; the write-back in `tickDrip` is the only other mention
- * of `ref.shown` in the file, so no read of it is currently unanchored. That is
- * a property of the two call sites, not something a type enforces — a third
- * reader that helps itself to `ref.shown` compiles fine and is wrong in the
- * same invisible window. When the segment advances the counter restarts at 0:
- * the new segment eases in from the start, the prior one having moved into the
- * narration trail.
- */
 interface EasedSegment {
   segment: number;
   text: string;
   shown: number;
 }
 
+/**
+ * Reset the eased counter to 0 when the segment advanced, then return them together.
+ * Read the counter from here, not `ref.shown`: after a new delta it can describe an older segment.
+ */
 function anchorEasedSegment(ref: StreamRef): EasedSegment {
   if (ref.shownSegment !== ref.currentSegment) {
     ref.shownSegment = ref.currentSegment;
@@ -808,16 +571,8 @@ function anchorEasedSegment(ref: StreamRef): EasedSegment {
 }
 
 /**
- * Advance the drip buffers one animation frame, then project the view.
- *
- * There is no way to obtain a `StreamingMessage` without the easing having run
- * first — that ordering used to be a comment. `caughtUp` is true once both
- * eased counters have reached their received text, which is the caller's signal
- * to stop scheduling frames: later SSE frames restart the loop.
- *
- * Returns `null` when nothing is mounted, so the caller never has to read
- * `cell.current` to find out — the cell's identity stays the only thing about it
- * a consumer needs to know.
+ * Ease the buffers one animation frame, then project the view. `null` when nothing is mounted.
+ * `caughtUp` tells the caller to stop scheduling frames.
  */
 export function tickDrip(
   cell: ChatStreamCell,
@@ -863,14 +618,8 @@ export function tickDrip(
 }
 
 /**
- * Whether two projections would render identically — the push gate for the
- * animation loop, so it runs on every frame and only compares what can move.
- *
- * A trail's `subId`, `childRunId` and `startedTs` are deliberately excluded:
- * they are write-once at trail creation and never change, so comparing them is
- * dead work 60 times a second. That is sound only because the server spawns
- * exactly one child per `(parentRunId, parentToolCallId)` — see `SubAgentTrail`
- * for the guarantee and for what a second child would silently do here.
+ * Whether two projections render the same. Runs every frame, so it skips
+ * write-once fields (`subId`, `childRunId`, `startedTs`). See `SubAgentTrail`.
  */
 export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): boolean {
   if (!a) return false;
@@ -927,12 +676,7 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
   return toolListsEqual(a.tools, b.tools);
 }
 
-/**
- * Field-wise comparison of two tool lists. `startedTs` is deliberately excluded
- * — it is assigned once on first sight and never changes, so comparing it would
- * only cost cycles; `endedTs` moves exactly once (with `status`) and is covered
- * by the status check.
- */
+/** Skips `startedTs` (write-once) and `endedTs` (changes with `status`). */
 function toolListsEqual(a: StreamingToolCall[], b: StreamingToolCall[]): boolean {
   if (a.length !== b.length) return false;
 

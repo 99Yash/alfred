@@ -9,12 +9,7 @@ import { db } from "@alfred/db";
 import { briefings, type Briefing, type NewBriefing } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 
-/**
- * The DB row minus the lifecycle dates, which `rowToBriefing` doesn't surface.
- * Every column is already branded on the table via `.$type<T>()`, so no field
- * needs re-narrowing — this is `Briefing` ($inferSelect) with two columns
- * dropped.
- */
+/** `Briefing` without the lifecycle dates. */
 export type BriefingRow = Omit<Briefing, "createdAt" | "updatedAt">;
 
 export type BeginBriefingResult =
@@ -109,14 +104,9 @@ export async function markBriefingComposed(args: {
   model: string;
   composeFallback: boolean;
   /**
-   * The frozen gather-window end this prose covers. Stashed on the (non-terminal)
-   * composed row so a crash-then-resume can advance the watermark to exactly this
-   * instant instead of `now` — otherwise the reused prose ships while the cursor
-   * jumps past docs that arrived after compose, skipping them for the slot (#158).
-   * Safe to set pre-terminal: `fetchLatestWatermark` and the watermark index both
-   * read only `sent`/`suppressed` rows, so it isn't consumed until send promotes
-   * the row. Omit it to leave the column untouched (the watermark-less briefing
-   * path sets it at send time instead).
+   * The frozen window end this prose covers, so a resume stops the watermark here, not at now (#158).
+   * Safe before send: watermark reads only see `sent` and `suppressed` rows.
+   * Omit to leave the column alone.
    */
   watermarkAt?: Date | null;
 }): Promise<BriefingRow> {
@@ -136,12 +126,8 @@ export async function markBriefingSent(args: {
   watermarkAt: Date;
   gateReason?: string | null;
   /**
-   * Pre-send guard correction: the delivered email carries less than the
-   * composed row (a send-time downgrade dropped sentences), so patch the
-   * persisted prose and citations to match what actually went out. Sections
-   * and source panels the row already holds are preserved — only the
-   * headline, the markdown body, and the continuity ids move. Without this
-   * the next slot would treat a dropped item as delivered and suppress it.
+   * After a send-time downgrade, patch the headline, body, and citations to what went out.
+   * Sections and panels stay. Otherwise the next slot treats a dropped item as delivered.
    */
   downgraded?: {
     breakingSummary: string;

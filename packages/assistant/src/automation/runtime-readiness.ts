@@ -25,13 +25,11 @@ export function runtimeReadinessDisposition(
 ): "ready" | "deferred" | "blocked" {
   if (problems.length === 0) return "ready";
 
-  // `trigger_degraded` describes delivery health that time or an operator can
-  // restore, not a definition the user must change, so the run waits instead
-  // of blocking (#976).
+  // Only `trigger_degraded` left: time or an operator fixes it, so wait, do not block (#976).
   return problems.every((problem) => problem.code === "trigger_degraded") ? "deferred" : "blocked";
 }
 
-/** Recheck one run's exact pinned revision against mutable provider state. */
+/** Recheck a run's pinned revision against current provider state. */
 export async function checkWorkflowRunReadiness(args: {
   runId: string;
   userId: string;
@@ -55,7 +53,7 @@ export async function checkWorkflowRunReadiness(args: {
 
   if (!row) throw new Error(`[workflows:readiness] run not found: ${args.runId}`);
 
-  // Built-ins and sub-agents do not pin a user-authored revision.
+  // Built-ins and sub-agents pin no revision.
   if (!row.run.workflowRevisionId) return { kind: "ready" };
 
   if (!row.workflow || !row.revision) {
@@ -136,10 +134,8 @@ export async function checkWorkflowRunReadiness(args: {
   const newlyBlocked =
     generation !== (recorded.before ? workflowBlockedGeneration(recorded.before) : null);
 
-  // #561: a blocker the owner has not seen yet owes them one email. The job id
-  // is keyed by the blocker generation, and the worker re-checks `notifiedAt`,
-  // so a re-observed blocker never sends twice. Scheduling returns a status
-  // string and never throws, so the readiness verdict is unaffected.
+  // #561: one email per new blocker. The job id uses the blocker generation and the worker
+  // checks `notifiedAt`, so it never sends twice. Scheduling never throws.
   if (newlyBlocked && generation) {
     await scheduleWorkflowBlockedNotificationJob({
       workflowId: row.workflow.id,

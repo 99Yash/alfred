@@ -4,14 +4,8 @@ import { faviconFor } from "~/lib/favicon";
 import { cn } from "~/lib/utils";
 
 /**
- * A site favicon in a small rounded chip, with a graceful fallback. The
- * DuckDuckGo CDN (see {@link faviconFor}) returns a transparent image rather
- * than 404ing for unknown domains, so most misses render as a blank chip; the
- * `onError` path additionally swaps in a neutral globe when the request truly
- * fails (offline, blocked), so a browsing card never shows a broken image.
- *
- * Shared by the tool-call cards (the site Alfred is reading), the web-search
- * result list, and the standalone `SourcesStrip` — one chip everywhere.
+ * A site favicon chip. DuckDuckGo ({@link faviconFor}) returns a blank image for unknown domains.
+ * A real load failure shows a globe.
  */
 export function Favicon({
   domain,
@@ -22,10 +16,7 @@ export function Favicon({
   size?: number | undefined;
   className?: string | undefined;
 }) {
-  // Re-attempt the load when the domain changes (a card can be reused for a
-  // different URL as a streaming run reissues), clearing a prior failure. This
-  // resets during render off a prev-prop comparison rather than in an effect,
-  // so the stale failure never flashes for a frame after the domain swaps.
+  // A card can get a new domain mid-run. Reset the failure during render, so it does not flash.
   const [failed, setFailed] = useState(false);
   const [prevDomain, setPrevDomain] = useState(domain);
 

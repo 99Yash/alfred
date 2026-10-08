@@ -24,88 +24,37 @@ import type { ThreadMessageContext } from "@alfred/assistant/triage/thread-state
 import { llmJudgeScorer } from "./lib/llm-judge";
 
 /**
- * Behavioral eval for the email-triage classifier (ADR-0051 / ADR-0055).
- *
- * Runs the REAL `classifyEmail` sequence (cheap-model first pass → conditional
- * second pass → override floor) against the cheap model, then evaluates both the
- * category AND the rail-todo mint decision — the two outputs we keep hand-tuning
- * the rubric for. Four scorers, three deterministic + one LLM judge:
- *   1. Category match            — deterministic. Set membership, not equality:
- *                                  `Expected.category` is always a LIST of the
- *                                  categories that score 1, and `Expected.guards`
- *                                  additionally pins WHICH branch decided
- *                                  (`+spamfloor`, `+2pass`) for a case whose
- *                                  subject is a deterministic guard.
- *   2. Todo mint decision        — did a rail todo mint? deterministic, mirrors
- *                                  production (resolveTodoSuggestion + the
- *                                  structural suppression guard).
- *   3. CollabActivity match      — deterministic, and only for a case that
- *                                  asserts `collabActivity`: compares the
- *                                  PARTITION, not the literal kind.
- *   4. Classification defensible — LLM judge grading rationale soundness (the
- *                                  subjective dimension a deterministic check
- *                                  can't see). See ./lib/llm-judge.ts.
- *
- * The dataset is the DEV tier (small, hardest cases) per the eval-tier model:
- * golden positives + the documented real misses the prompt's own exemplars were
- * written against (the Sakshi-ownership bug, the ClickUp bot-"Done" burying a
- * live assignment, the LinkedIn senior-IC nicety, pre-merge PR advisory, the
- * freemium upsell). When the Loop-2 corrections table (`rejected_inferences`,
- * ADR-0056) is wired, its `cause='user'` rows become the regression tier — see
- * ./README.md.
- *
- * Run locally with GOOGLE_GENERATIVE_AI_API_KEY in env: `pnpm --filter
- * @alfred/assistant eval`. That one key covers the whole suite — the classifier
- * under test and the judge both run on `route("cheap")` (Gemini Flash-Lite).
+ * Eval for the email-triage classifier (ADR-0051, ADR-0055). Runs the real `classifyEmail`
+ * on the cheap model and scores category, todo mint, collabActivity, and (by judge) the rationale.
+ * Cases are the hardest known misses. Run with apps/server/.env populated:
+ * `pnpm --filter @alfred/assistant eval`.
  */
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
-// Pin "now" so relative-date resolution in the todo path is stable: Wed 10 June 2026.
-// classifyEmail manages its own per-call model timeout internally.
+// Fixed "now", so relative todo dates stay stable.
 const NOW = new Date("2026-06-10T12:00:00Z");
 
 const USER = { name: "Yash", email: "yash@example.com" };
 
 interface Expected {
   /**
-   * The SET of categories that score 1 — ALWAYS a list, never a bare label, even
-   * when the set has one member. The list-only shape is the enforcement: under a
-   * `TriageCategory | list` union the compiler still accepts
-   * `output.category === expected.category`, a template interpolation and a
-   * spread, so the union would have caught none of this file's readers. A list
-   * makes that equality a hard `TS2367` and leaves membership as the only thing
-   * that compiles. Cases whose correct answer genuinely is a set — a spam-filed
-   * promo is right as any passive tag and wrong only in a demand lane — then pin
-   * the set instead of a coin flip between `marketing` and `fyi`.
+   * The categories that score 1. Always a list: a `TriageCategory | list` union would still
+   * compile `output.category === expected.category`; a list makes it a TS2367 error.
    */
   category: readonly [TriageCategory, ...TriageCategory[]];
   /**
-   * WHOLE tags from `classifyEmail`'s assembled `model` tag string that MUST be
-   * present. The scorer splits that string on `+` and compares whole tags, so a
-   * prefix never matches its longer sibling: `+2pass` does NOT match a row that
-   * only ran `+2pass_failed`. Write one full tag per entry, leading `+` included.
-   *
-   * Six tags exist. Two come from this module's own passes, in
-   * `classify.ts:1162-1165`: `+2pass` (the re-ask completed) and `+2pass_failed`
-   * (the re-ask THREW — `classify.ts` sets this tag only in the `catch` arm, so
-   * there is no second answer at all; the first pass is kept instead). Four come from the floor
-   * fold, one per floor, in `floors/index.ts:140,155,160,172`: `+floor`
-   * (override escalate), `+kindfloor`, `+spamfloor` and `+meetingfloor` (each a
-   * demote). A floor that keeps the classification contributes no tag.
-   *
-   * This is what makes a case pin a DETERMINISTIC guard rather than the prompt:
-   * a category that the first pass already gets right scores 1 whether the floor
-   * fires or is deleted, because the accept set holds both answers. Naming the
-   * tag here reddens the row when the branch that was supposed to decide never
-   * ran. Omit it when the case is only pinning the rubric.
+   * Whole tags from `classifyEmail`'s `model` string that must be present, like `+2pass` or `+spamfloor`.
+   * Matched as whole tags: `+2pass` does not match `+2pass_failed`.
+   * Name the tag when a deterministic guard must decide the case. The accept set alone
+   * often holds both answers, so it still scores 1 when the guard is deleted.
    */
   guards?: readonly string[];
   /** Whether a rail todo should mint. */
   todo: "mint" | "suppress";
-  /** Expected model-emitted collaboration activity kind when the case exercises rule 19. */
+  /** Set when the case exercises rule 19. */
   collabActivity?: CollabActivityKind | null;
-  /** Human note on the decision — context for the judge and the reader. */
+  /** Context for the judge and the reader. */
   note: string;
 }
 
@@ -118,56 +67,36 @@ interface Case {
   labelIds?: string[];
   persona?: AccountPersona;
   knownContact?: boolean;
-  /**
-   * Rendered Sender relationship descriptor (ADR-0059) for a human sender —
-   * set directly here so the rubric's person-waiting gate is exercised
-   * deterministically without a populated graph. `undefined` → no line.
-   */
+  /** Sender relationship line (ADR-0059), set here so no graph is needed. `undefined` = no line. */
   senderRelationship?: string | null;
-  /**
-   * Typed rule-16b cold-contact flag (what `resolveSenderRelationship` derives in
-   * prod) — set alongside the prose so the deterministic cold-sender todo gate is
-   * exercised through the production mint path. Defaults to `false`.
-   */
+  /** Rule-16b cold-contact flag, as `resolveSenderRelationship` derives it in prod. */
   isColdContact?: boolean;
   /** Prior-key + histogram for senders that should carry a prior (services/bulk). */
   senderKey?: string | null;
   senderPrior?: Record<string, number>;
   lastCategory?: TriageCategory;
-  /** Prior thread messages (newest first) — drives follow_up/done/ownership reads. */
+  /** Newest first. */
   recentMessages?: ThreadMessageContext[];
   messageCount?: number;
   newestDirection?: "sent" | "received";
-  /** When the user last replied on the thread — drives rule 18 (own reply closes the loop). */
+  /** Rule 18: the user's own reply closes the loop. */
   lastUserReplyAt?: Date | null;
-  /** Active user-model projection signal; set when an eval must exercise sender-kind floors. */
+  /** Set when a case must exercise the sender-kind floors. */
   senderKind?: Observations["senderKind"];
   /**
-   * Hand-set `SenderContext`, for a case whose sender shape is scene-setting
-   * rather than the thing under test. OMIT it to DERIVE the context from `from`,
-   * `subject` and `body` through the production `extractSenderContext` — which is
-   * what a case must do when the envelope parse IS the fix it pins. A hard-coded
-   * `{ fromKind: "service" }` on such a case asserts its own precondition and
-   * stays green after the parse that produces it is reverted.
+   * Omit to derive it from the headers through `extractSenderContext`. A case that pins the
+   * envelope parse must omit it, or it asserts its own precondition and stays green after a revert.
    */
   sender?: SenderContext;
   /**
-   * Inject both cheap-model passes instead of calling the model. Only for a case
-   * whose subject is a DETERMINISTIC guard downstream of the model: a floor that
-   * only fires on a demand lane cannot be reached from a prompt the model is
-   * meant to answer passively, so the canned pass hands the floor the input it
-   * exists for. A case that leaves this unset runs the real classifier, which is
-   * still what every rubric case does.
+   * Canned cheap-model passes, only for a case that pins a deterministic floor.
+   * A floor that fires only on a demand lane cannot be reached through a passive prompt.
    */
   runPass?: RunPass;
   authoredAt?: Date;
   expected: Expected;
 }
 
-/**
- * The `SenderContext` a case classifies under: its own when it sets one, else the
- * production parse of its `From:` header. See `Case.sender`.
- */
 function senderContextFor(c: Case): SenderContext {
   return (
     c.sender ??
@@ -397,21 +326,8 @@ const CASES: Case[] = [
     },
   },
   {
-    // Pins the `linkedin.com` entry of `KNOWN_SERVICE_DOMAINS` ALONE. `invitations`
-    // is not a strong or weak service local and matches neither the prefix nor the
-    // `…-noreply` suffix rule, so the domain entry is the only door to `service`
-    // here: drop the entry and this envelope parses `unknown`. NO hand-set
-    // `sender` — the parse is the thing under test. See `linkedin-invite-reminder-
-    // relay` (the prod miss, either door) and `circle-relay-noreply-suffix` (the
-    // suffix rule alone).
-    //
-    // That is a claim about the PARSE, not a promise that this row reddens. The
-    // only scorer here reads `output.category`, and the system prompt already
-    // names this envelope in an exemplar (`classify.ts:338`,
-    // `invitations@linkedin.com → fyi`) that never reads `SenderContext`. So a
-    // dropped domain entry most probably still scores 1 here. Of the two rows,
-    // only `circle-relay-noreply-suffix` has a MEASURED revert proxy: its
-    // envelope flips to `person`, which disarms rule 8a.
+    // Pins the `linkedin.com` entry of `KNOWN_SERVICE_DOMAINS` alone: without it this envelope parses
+    // `unknown`. The row may still score 1 after that revert, because a prompt exemplar names this envelope.
     label: "linkedin-senior-ic-connect",
     from: "LinkedIn <invitations@linkedin.com>",
     subject: "Ankur Singh wants to connect",
@@ -497,11 +413,7 @@ const CASES: Case[] = [
     },
   },
   {
-    // Rule 18 — the user's own reply closes the loop. The re-eval re-keys on the
-    // inbound ask (the document under triage), but thread state shows the user
-    // already replied (latest message is the user's send). The user owes nothing
-    // further → done, NOT awaiting_reply. This is the #360 / #282-follow-up case,
-    // mirrored from the live prod ShortLoop thread (2026-06-30).
+    // Rule 18: the user already replied, so this is done, not awaiting_reply (#360).
     label: "recruiter-ask-user-already-replied",
     from: '"Sanjay (Shortloop)" <sanjay@shortloop.dev>',
     subject: "Re: Founding Engineer Role @ ShortLoop",
@@ -551,10 +463,8 @@ const CASES: Case[] = [
     },
   },
 
-  // ── ADR-0059 directional significance — the Sender relationship gate.
-  // Cases 1/2/6 prove relationship disambiguates the person-waiting stake;
-  // cases 3/5 are the over-correction guardrail (intrinsic stakes survive a
-  // cold sender); case 4 proves the 16a title carve-out is deleted.
+  // ── ADR-0059 Sender relationship gate. Cases 3 and 5 check that intrinsic stakes survive a cold
+  // sender; case 4 checks that the 16a title carve-out is gone.
   {
     label: "cold-recommendation-seeker",
     from: "Rahul Mehta <rahul@unknownstartup.io>",
@@ -571,11 +481,7 @@ const CASES: Case[] = [
     },
   },
   {
-    // The HyperNexus prod leak (thread 19f639e4c5bb290c, 2026-07-15): an
-    // AI-generated cold sales follow-up from a personal-gmail "sales team" with
-    // no prior contact. flash-lite tagged awaiting_reply and PROPOSED a todo
-    // while writing note `cold_sender:` — the self-contradiction the backstop +
-    // deterministic cold-sender floor now catch.
+    // Prod leak: a cold AI sales follow-up got awaiting_reply and a todo, with a `cold_sender:` note.
     label: "cold-outreach-sales-followup",
     from: "HyperNexus Sales Team <pelloni.robert@gmail.com>",
     subject: "Re: TormentNexus for 99Yash -- Thoughts?",
@@ -755,10 +661,7 @@ const CASES: Case[] = [
     },
   },
   {
-    // Prod misses 1a0b21d242456b1b (urgent) and 1a0b21c6768a0e22 (action_needed):
-    // both tagged off the vendor's "if you didn't do this" boilerplate alone. This
-    // is the BOUNDARY exemplar for rule 15a — the loudest wording the rule must
-    // still hold against — not the rule itself.
+    // Prod misses: tagged off the "if you didn't do this" boilerplate. The boundary exemplar for rule 15a.
     label: "vendor-self-echo-password-changed-boilerplate-fyi",
     from: "Wellfound <team@wellfound.com>",
     subject: "Your Wellfound password was changed",
@@ -772,13 +675,8 @@ const CASES: Case[] = [
     },
   },
   {
-    // Floor pin, not a prompt exemplar. `token` is still in the override floor's
-    // noun set and `compromised` is still an exposure verb, so before #1165 this
-    // body matched noun+verb inside the 100-char window and the floor forced
-    // `urgent` at 0.85 — with the under-classification re-ask suppressed, because
-    // `floorMatches` gates it. Deleting `password` from the noun set did not
-    // reach this body. The fix blanks the rule-15a hedge before the predicate
-    // runs. If the floor ever reads that hedge again, this row goes red.
+    // Floor pin: before #1165, `token` + `compromised` in the rule-15a hedge forced `urgent`.
+    // If the override floor reads that hedge again, this row goes red.
     label: "vendor-self-echo-otp-token-boilerplate-fyi",
     from: "LinkedIn <security-noreply@linkedin.com>",
     subject: "Your verification code is 419283",
@@ -792,9 +690,7 @@ const CASES: Case[] = [
     },
   },
   {
-    // Second floor pin, on the other shape the old predicate reached: a reset
-    // LINK, where `token=` is a query parameter rather than a word. Same hedge,
-    // same 100-char window, same forced `urgent` before #1165.
+    // Same as above, with `token=` as a query parameter in a reset link.
     label: "vendor-self-echo-reset-link-token-param-fyi",
     from: "Supabase <noreply@mail.app.supabase.io>",
     subject: "Reset your password",
@@ -821,23 +717,13 @@ const CASES: Case[] = [
     },
   },
   {
-    // Prod miss #1097: tagged `awaiting_reply` off the reminder copy alone.
-    // `senderKind` stays null ON PURPOSE — an unscored projection keeps the
-    // sender-kind floor silent, so nothing but rule 8a and the third conflict
-    // net stands between this envelope and the miss.
+    // Prod miss #1097. `senderKind` stays null on purpose, so the sender-kind floor stays silent.
     label: "linkedin-invite-reminder-relay",
     from: "Vaibhav Sharma (via LinkedIn) <messages-noreply@linkedin.com>",
     subject: "Reminder: Vaibhav Sharma invited you to connect",
     body: "Vaibhav Sharma: Hi Yash, I'm still waiting for your response. Accept my invitation to connect on LinkedIn.",
-    // NO hand-set `sender`: the LinkedIn half of #1097 lives entirely in
-    // `extractSenderContext`, so writing `{ fromKind: "service" }` here would
-    // assert the precondition the fix produces and stay green after the fix is
-    // reverted. Derived instead. This EXACT envelope carries BOTH new rules — the
-    // `…-noreply` suffix and the `linkedin.com` domain — and `classifyFromKind`
-    // tests the suffix first, so this row proves their OR and neither one alone.
-    // That is on purpose: it is the prod envelope, kept verbatim. The two rows
-    // that separate the rules are `linkedin-senior-ic-connect` (domain alone) and
-    // `circle-relay-noreply-suffix` (suffix alone).
+    // No hand-set `sender`: the fix lives in `extractSenderContext`. This prod envelope hits both the
+    // `…-noreply` suffix and the `linkedin.com` domain; other rows test each alone.
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -845,12 +731,8 @@ const CASES: Case[] = [
     },
   },
   {
-    // Pins the `…-noreply` SUFFIX rule alone: a platform relay on a domain that is
-    // NOT in `KNOWN_SERVICE_DOMAINS`, so `hasServiceWordSuffix` is the only door to
-    // `service`. Rename the local to `community-digest@` and the same header
-    // parses `person` — measured against the production function. Generalizes the
-    // #1097 fix past LinkedIn: every relay platform sends reminder copy in the
-    // first person from an envelope it owns. NO hand-set `sender`.
+    // Pins the `…-noreply` suffix rule alone: the domain is not in `KNOWN_SERVICE_DOMAINS`.
+    // As `community-digest@` the same header parses `person`. No hand-set `sender`.
     label: "circle-relay-noreply-suffix",
     from: "Rhea Kapoor (via Circle) <community-noreply@circle-community-mail.com>",
     subject: "Reminder: Rhea Kapoor is waiting for your reply in Build Club",
@@ -862,9 +744,7 @@ const CASES: Case[] = [
     },
   },
   {
-    // Prod miss #1097: tagged `awaiting_reply` off "Would love your thoughts!".
-    // Person-shaped ON PURPOSE — no service envelope and no sender prior help
-    // here, so the case proves the Gmail SPAM label alone carries the outcome.
+    // Prod miss #1097. Person-shaped on purpose, so only the Gmail SPAM label decides.
     label: "spam-filed-cold-promo",
     from: "Arjun Mehta <arjun@growthloop-outreach.com>",
     subject: "A quick idea for your onboarding funnel",
@@ -878,18 +758,8 @@ const CASES: Case[] = [
     },
   },
   {
-    // The spam floor's DEMOTE branch, which `spam-filed-cold-promo` cannot reach:
-    // that case's accept set holds both `marketing` (the first pass's own answer,
-    // floor silent) and `fyi` (the floor's answer), so its row scores 1 whether
-    // `applySpamDemotionFloor` fires or is deleted. Nothing else in the repo runs
-    // the demote branch. So this case CANS both passes into `awaiting_reply` and
-    // asserts the tag: `+spamfloor` disappears and the category reverts to
-    // `awaiting_reply` the moment the floor stops demoting.
-    //
-    // A REPLY lane, not the `urgent` this case used to inject, because #1098
-    // narrowed the floor to `awaiting_reply`/`follow_up`. The shape is the
-    // measured prod true positive: a spam-filed event pitch whose "thoughts?"
-    // copy the cheap model reads as an owed reply.
+    // Pins the spam floor's demote branch. `spam-filed-cold-promo` scores 1 with or without the floor,
+    // so this case cans both passes into `awaiting_reply` and asserts `+spamfloor`.
     label: "spam-filed-reply-lane-demotes",
     from: "Mira Sethi <mira@agentbuild-summit.com>",
     subject: "Re: AgentBuild Summit <> Yash!",
@@ -913,25 +783,9 @@ const CASES: Case[] = [
     },
   },
   {
-    // The other half of the narrowed floor (#1098): a spam-filed DEMAND lane is
-    // now the final answer to keep. It injects both passes like the row above,
-    // so the prompt is out of the path entirely and only the floor decides — the
-    // category reverts to `fyi` and `+spamfloor` appears the moment the floor
-    // goes back to gating all four demand lanes.
-    //
-    // Everything else about the pair DIFFERS, and the difference is the point:
-    // that row injects `awaiting_reply` behind a person envelope (the lane the
-    // floor still gates), this one injects `urgent` behind a service envelope
-    // (the lane it released). One canned shape either side of the new gate line.
-    //
-    // `+spamfloor` is asserted by ABSENCE, through the category: `Expected.guards`
-    // has no negative form, and it needs none here. A fired floor lands on `fyi`,
-    // which is not in this accept set.
-    //
-    // Deliberately the PHISH body, not a genuine ask, because that is the cost
-    // #1098 accepted: Gmail's verdict is fallible, so a spam-filed `urgent` now
-    // reaches the rail on the model's word. DEMOTE, NEVER BURY cuts the other way
-    // here — a false `urgent` is dismissible, a buried rotation ask is not.
+    // The other half of #1098: a spam-filed demand lane keeps the model's answer.
+    // A fired floor lands on `fyi`, which is outside this accept set, so no negative guard is needed.
+    // The phish body is deliberate: #1098 accepted a dismissible false `urgent` over a buried real ask.
     label: "spam-filed-phish-keeps-model-answer",
     from: "Billing Support <secure-billing@acme-invoices-verify.com>",
     subject: "URGENT: your account will be suspended in 24 hours",
@@ -955,36 +809,10 @@ const CASES: Case[] = [
     },
   },
   {
-    // Acceptance criterion 2, and the only row in the file that can prove rule
-    // 20's EXCEPTION: a spam-filed mail carrying an obligation the USER already
-    // owns keeps its demand lane. The shape is the prod miss of 2026-09-16 — a
-    // recruiter asking the user to finish a job application the USER opened,
-    // filed `SPAM` by Gmail, one of five spam-labelled documents in ten days.
-    //
-    // NO `runPass` and NO hand-set `sender`, on purpose. The rule-20 prose IS the
-    // thing under test, so the real classifier must answer it, and the envelope
-    // must derive `person` through the production parse. Revert the rule-20
-    // exception and this row reddens: the old text said a spam-filed mail is
-    // NEVER a demand lane, and the model obeyed it.
-    //
-    // READ THIS ROW'S WARRANT NARROWLY. The subject, the sender and the domain
-    // match nothing in the system prompt, which is why the row is a support
-    // ticket rather than the prod recruiter mail it is modelled on. But the
-    // OBLIGATION does match: the worked example at classify.ts:338 — added by
-    // this same PR — names "a case or ticket the user opened themselves", and
-    // this row is ticket HD-4471. So the row instantiates the arm the example
-    // names. It proves COMPLIANCE inside rule 20's rubric, not generalization
-    // past it; a row that generalizes needs an obligation shape the example
-    // does not name. Keep that distinction when this row is cited as proof —
-    // a strengthened prompt masking the rule beneath it is the third instance
-    // of this class in the campaign, see
-    // .lessons/a-strengthened-prompt-masks-the-deterministic-branch-under-it.md.
-    //
-    // The discriminator against `spam-filed-phish-keeps-model-answer` above is
-    // whether the demand survives WITHOUT trusting the sender. This ticket is
-    // the user's own; the phish deadline exists only in the sender's claim. The
-    // ask is an upload rather than a written answer, so rule 3's reply-shape
-    // preference does not pull it into the lane the floor still gates.
+    // Pins rule 20's exception: a spam-filed mail with an obligation the user already owns keeps its
+    // demand lane. No `runPass` and no hand-set `sender`, so the real classifier answers.
+    // A prompt exemplar names "a ticket the user opened", so this proves compliance, not generalization.
+    // See .lessons/a-strengthened-prompt-masks-the-deterministic-branch-under-it.md.
     label: "spam-filed-owned-ticket-keeps-demand-lane",
     from: "Deepa Raman <deepa.raman@northbeam-support.com>",
     subject: "Ticket HD-4471 needs your diagnostics upload before Friday",
@@ -997,23 +825,9 @@ const CASES: Case[] = [
     },
   },
   {
-    // Pins conflict net C (over-classification C) ALONE, the way
-    // `spam-filed-reply-lane-demotes` pins the spam floor. Every other relay row
-    // reaches `fyi` on the FIRST pass, because rule 8a already answers a relayed
-    // invitation — so deleting net C leaves all of them green and the net
-    // unpinned. A canned first pass removes the prompt from the path entirely.
-    //
-    // The row satisfies every net-C gate deterministically: `awaiting_reply`,
-    // no exposed-secret match (`floorMatches` is `matchesExposedSecret` only),
-    // not Gmail IMPORTANT, `senderKind` null (no `senderKey`, so the projection
-    // never scored this sender), `effectiveAuthor: "service"` DERIVED from the
-    // `…-noreply` suffix, and no ownership `collabActivity`. Delete the net and
-    // the first pass persists: the category reverts to `awaiting_reply` and
-    // `+2pass` disappears. A double red, measured, with no classifier tokens.
-    //
-    // On the Circle envelope, not a LinkedIn one, because `classify.ts:338`
-    // names the LinkedIn reminder verbatim — a LinkedIn row would prove the
-    // exemplar as much as the net.
+    // Pins conflict net C alone. Other relay rows reach `fyi` on the first pass, so they stay green without it.
+    // A canned `awaiting_reply` first pass meets every net-C gate; delete the net and the category and
+    // `+2pass` both go red. Circle, not LinkedIn, because a prompt exemplar names the LinkedIn reminder.
     label: "circle-relay-net-c-reask",
     from: "Rhea Kapoor (via Circle) <community-noreply@circle-community-mail.com>",
     subject: "Rhea Kapoor is still waiting for your reply in Build Club",
@@ -1052,12 +866,8 @@ const CASES: Case[] = [
 interface TaskOutput {
   category: TriageCategory;
   /**
-   * `classifyEmail`'s assembled model-tag string: the base model id followed, in
-   * sequence order, by `+2pass` / `+2pass_failed` and one tag per floor that
-   * fired. It is the ONLY place a caller can read WHICH branch decided the
-   * category — the classification itself looks identical whether the first pass
-   * answered `fyi` or a floor demoted a demand lane into it. `Expected.guards`
-   * asserts against this, and every row renders it.
+   * The base model id plus `+2pass` / `+2pass_failed` and one tag per fired floor.
+   * The only way to see which branch decided the category.
    */
   model: string;
   confidence: number;
@@ -1070,21 +880,13 @@ interface TaskOutput {
   context: string;
   email: { from: string; subject: string; body: string };
   /**
-   * True when the cheap model AND its configured fallback were both overloaded and
-   * the case couldn't be classified — see `isTransientOverload`. Such a case
-   * scores 0 (evalite has no per-case exclude), but with the fallback in
-   * place this is rare; a run with many skips is a provider outage, not a
-   * classifier regression, and the skip warnings in the log say so.
+   * The cheap model and its fallback were both overloaded. Scores 0, because evalite cannot
+   * exclude a case. Many skips mean a provider outage, not a regression.
    */
   skipped: boolean;
 }
 
-/**
- * Recognize a transient provider-capacity error (Gemini/Anthropic "high
- * demand"/overloaded, 429, 503). These are NOT classifier defects — when both
- * the cheap model and its fallback are saturated, retrying for minutes only
- * blows the CI job's wall-clock budget, so the eval skips the case instead.
- */
+/** A provider capacity error (overloaded, 429, 503). Retrying would only blow the CI time budget. */
 function isTransientOverload(err: unknown): boolean {
   const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 
@@ -1094,14 +896,8 @@ function isTransientOverload(err: unknown): boolean {
 }
 
 /**
- * An empty-output failure from `generateObject`: the provider returns a 200 with
- * no parseable object, so the AI SDK throws `AI_NoOutputGeneratedError` /
- * `AI_NoObjectGeneratedError`. These fire ABOVE the model layer that
- * `route`'s `withFallback` wraps — ai-retry only sees the raw provider
- * call *succeed*, so the flash-lite→flash fallback never engages. They are
- * transient (a fresh attempt almost always parses), and a Gemini blip would
- * otherwise skip a chunk of the suite and redden the gate with no code defect —
- * so the task retries before giving up. See `classifyWithRetry`.
+ * A 200 with no parseable object. The SDK throws above the layer `withFallback` wraps,
+ * so the fallback never engages. A fresh attempt almost always parses.
  */
 function isEmptyOutput(err: unknown): boolean {
   const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
@@ -1111,13 +907,7 @@ function isEmptyOutput(err: unknown): boolean {
   );
 }
 
-/**
- * Classify with a bounded retry on empty-output failures. `withFallback` can't
- * catch these (wrong layer — see `isEmptyOutput`), so the recovery lives here.
- * A genuine provider outage still surfaces: after every attempt empty-outputs
- * we rethrow and the case skips (scores 0), so "many skips" stays a real outage
- * signal rather than being silently masked.
- */
+/** Retries empty output. If every attempt is empty, it rethrows, so a real outage still shows as skips. */
 const EMPTY_OUTPUT_ATTEMPTS = 3;
 
 async function classifyWithRetry(
@@ -1132,7 +922,6 @@ async function classifyWithRetry(
       lastErr = err;
 
       if (!isEmptyOutput(err) || attempt === EMPTY_OUTPUT_ATTEMPTS) throw err;
-      // Brief escalating backoff so the flash-lite pool can drain between tries.
       await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
     }
   }
@@ -1175,35 +964,23 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     },
     senderContext: senderContextFor(c),
     observations,
-    // Spread rather than assigned: `exactOptionalPropertyTypes` is on, so a
-    // literal `runPass: undefined` is not the same as an absent key.
+    // `exactOptionalPropertyTypes`: `runPass: undefined` is not the same as an absent key.
     ...(c.runPass ? { runPass: c.runPass } : {}),
-    // Fail fast to the configured fallback under provider overload instead of burning
-    // three exponential-backoff cycles per case. Without this, a CI run during a
-    // sustained-throttle window blows the eval job's wall-clock budget. Prod
-    // leaves this unset (SDK default).
+    // Fail fast to the fallback under overload, so a throttled CI run stays inside its time budget.
     maxRetries: 1,
-    // No hedging in the eval (#436). Hedging buys tail latency on a live
-    // mailbox; here it would only double the request volume against the same
-    // flash-lite pool this suite is already throttled by — the exact pressure
-    // `maxRetries: 1` above exists to relieve. Precision is unaffected either
-    // way (both draws are `temperature: 0` over the same schema).
+    // No hedging (#436): it would double load on the same throttled pool.
     hedgeDelayMs: 0,
   };
 }
 
 function renderJudgeContext(c: Case, sender: SenderContext): string {
   const lines: string[] = [
-    // The RESOLVED context, not `c.sender` — a case that derives its sender from
-    // the `From:` header has no `c.sender` to print, and the judge grades the
-    // rationale against what the classifier actually saw.
+    // The resolved context, not `c.sender`: that is what the classifier saw.
     `SenderContext: ${JSON.stringify(sender)}`,
     `Known contact: ${c.knownContact ? "yes" : "no"}`,
   ];
 
-  // The classifier reads the Gmail label set (SPAM/TRASH/IMPORTANT/CATEGORY_*),
-  // so the judge must see it too — otherwise a rationale that cites Gmail's own
-  // spam verdict looks like a fabricated cue and grades D.
+  // The classifier reads Gmail labels, so the judge must too, or a cited spam verdict looks invented.
   if (c.labelIds) {
     lines.push(`Gmail labels: ${c.labelIds.join(", ")}`);
   }
@@ -1260,14 +1037,8 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
     try {
       ({ classification, model } = await classifyWithRetry(args));
     } catch (err) {
-      // The task must NEVER throw: a classifier-QUALITY regression shows up as a
-      // wrong category (which still scores), whereas a THROW here is always an
-      // infra/provider/SDK failure — a transient overload, or the AI SDK's
-      // `Output.object` parse intermittently rejecting valid JSON. Letting it
-      // propagate aborts the whole eval file AND trips an evalite-beta reporter
-      // bug (`renderErrorsSummary` → "reading 'pool'") that hangs the process
-      // until the CI job's wall-clock timeout. So skip the case (scores 0) and
-      // log it loudly — many skips mean a provider/SDK outage, not a regression.
+      // Never throw: a quality regression still scores, so a throw is always infra.
+      // It aborts the file and trips an evalite-beta reporter bug that hangs until the CI timeout.
       const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 
       const kind =
@@ -1293,8 +1064,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
 
     const authoredAt = input.authoredAt ?? NOW;
 
-    // Fixtures carry no user, so the anchor zone is fixed at UTC — the assist
-    // dates the cases assert are relative to that.
+    // Fixtures have no user, so the zone is UTC.
     const resolved = resolveTodoSuggestion(classification, {
       sentAt: authoredAt,
       timezone: DEFAULT_USER_TIMEZONE,
@@ -1327,11 +1097,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
   },
   scorers: [
     {
-      // The hard signal: did the classifier land the right category — AND, when
-      // the case names one, did the guard that was supposed to decide it run?
-      // The second half is not decoration: a case whose accept set holds both the
-      // first pass's answer and a floor's answer scores 1 with the floor deleted,
-      // which is how the spam floor came to have no net at all.
+      // When the case names a guard, it must have run. Without that check the spam floor had no test.
       name: "Category match",
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
@@ -1340,11 +1106,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
 
         const categoryOk = expected.category.includes(output.category);
 
-        // Whole-tag match, never a substring: `model` is one CONCATENATED tag list
-        // (`<base>+2pass+spamfloor`), and one tag is a prefix of another —
-        // `"+2pass_failed".includes("+2pass")` is true, so a substring test would
-        // score a discarded re-ask as a completed one. Split on the separator the
-        // assembler joins with and compare whole tags.
+        // Whole tags, not substrings: `"+2pass_failed".includes("+2pass")` is true.
         const ranTags = new Set(
           output.model
             .split("+")
@@ -1367,9 +1129,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       },
     },
     {
-      // Mirrors production: would this email actually put a todo on the rail?
-      // Evaluated through resolveTodoSuggestion + the structural suppression
-      // guard, the same path the email-triage tail step runs.
+      // The same path the email-triage tail step runs.
       name: "Todo mint decision",
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
@@ -1408,12 +1168,9 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
         };
       },
     },
-    // The subjective dimension a deterministic check can't see: is the
-    // classifier's stated reasoning actually sound and grounded in the email?
     llmJudgeScorer<Case, TaskOutput, Expected>({
       name: "Classification defensible",
       rubric: RATIONALE_RUBRIC,
-      // Don't spend a judge call grading a case we couldn't classify.
       skipWhen: ({ output }) => (output.skipped ? "skipped (provider overload)" : null),
       prompt: ({ output, expected }) =>
         [
@@ -1429,10 +1186,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
           `- category: ${output.category}`,
           `- rationale: ${output.rationale}`,
           "",
-          // The WHOLE accept set, not its first member: on the one path a
-          // set-valued case exists to catch — the floor fires and the answer
-          // moves to `fyi` — naming only the primary would score the row 1 on
-          // `Category match` and have the judge grade the same row down.
+          // The whole accept set: naming only the first member makes the judge grade down a correct floor answer.
           expected
             ? `For reference, the expected category is any of ${expected.category.map((c) => `"${c}"`).join(", ")} because: ${expected.note}`
             : "",

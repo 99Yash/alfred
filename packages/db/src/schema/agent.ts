@@ -28,30 +28,15 @@ export { agentRunTriggerSchema };
 
 export type { AgentRunTrigger };
 
-/**
- * Name of the partial unique index that enforces one non-terminal chat turn
- * per (user, thread). Exported so the turn start catch can match the exact
- * constraint name on a 23505 and distinguish a "thread busy" collision from a
- * same-user-message double-submit (which trips the dedup index instead). See
- * the index definition below and issue #488.
- */
+/** One non-terminal chat turn per (user, thread). A 23505 here means "thread busy", not a double-submit. */
 export const CHAT_THREAD_ACTIVE_RUN_INDEX = "agent_runs_chat_thread_active_idx";
 
-/**
- * Name of the partial unique index that enforces one non-terminal run per
- * inbound event identity. Exported so `emitEvent`'s catch can match the exact
- * constraint name on a 23505 and count the losing insert as a dropped duplicate
- * rather than a failure. See the index definition below and issue #531.
- */
+/** One non-terminal run per inbound event identity. A 23505 here is a dropped duplicate. */
 export const EVENT_ACTIVE_RUN_INDEX = "agent_runs_event_active_idx";
 
 /**
- * Name of the partial unique index behind `Workflow.dedupKey` (singleton runs).
- * Exported for the same reason as the two above: a caller that owns several
- * unique invariants has to know WHICH one collided. An event dispatch can trip
- * this one instead of {@link EVENT_ACTIVE_RUN_INDEX} whenever the target
- * workflow also declares a dedup key, and both mean "a run for this already
- * exists" — not "the dispatch failed".
+ * The index behind `Workflow.dedupKey`. An event dispatch can trip this one
+ * instead of {@link EVENT_ACTIVE_RUN_INDEX}; both mean "a run already exists".
  */
 export const RUN_DEDUP_KEY_INDEX = "agent_runs_dedup_key_idx";
 
@@ -60,14 +45,8 @@ export const MANUAL_REQUEST_RUN_INDEX = "agent_runs_manual_request_idx";
 export const OCCURRENCE_RUN_INDEX = "agent_runs_occurrence_idx";
 
 /**
- * The `agent_runs` unique indexes whose constraint name a caller has to *branch
- * on*, i.e. the ones with more than one 23505 in reach.
- *
- * `agent_runs_sub_agent_dedup_idx` is deliberately absent: its one caller
- * (`spawnSubAgent`) matches any 23505 and then re-reads the winning row, so it
- * never needs to know which constraint fired. Adding a fourth index that a
- * caller *does* discriminate means adding it here — and then declaring its
- * collision meaning below becomes a build requirement.
+ * Unique indexes whose name a caller branches on after a 23505.
+ * `agent_runs_sub_agent_dedup_idx` is absent: its caller re-reads the winner on any 23505.
  */
 export const AGENT_RUN_UNIQUE_INDEXES = [
   OCCURRENCE_RUN_INDEX,
@@ -80,41 +59,10 @@ export const AGENT_RUN_UNIQUE_INDEXES = [
 export type AgentRunUniqueIndex = (typeof AGENT_RUN_UNIQUE_INDEXES)[number];
 
 /**
- * What a 23505 on each index *means* to the losing writer, and therefore what it
- * owes the caller:
- *
- * - `duplicate` — "a run for this already exists"; the losing write is dropped
- *   silently and counted, not reported as a failure.
- * - `busy` — "the resource is occupied by a different request"; the loser is a
- *   distinct request that must be surfaced, never swallowed.
- *
- * Declared as data and checked exhaustively, for the same reason `RUN_STATUS_KIND`
- * is: a `readonly string[]` set plus a prose note about which index is
- * deliberately excluded gives a fourth index zero prompting, and `.includes(typo)`
- * compiles when the element type is `string`. Getting this wrong is not loud — an
- * event dispatch onto a workflow that ALSO declares a `dedupKey` can collide on
- * either index depending on which write loses, and a caller that checks only one
- * of them logs an error for a benign outcome (#530/#531 review, D7).
- *
- * The axis is whether the colliding key identifies the *request* or the
- * *resource*:
- *
- * - {@link EVENT_ACTIVE_RUN_INDEX} is the inbound event's identity — a webhook
- *   and its retry are the same request by construction.
- * - {@link RUN_DEDUP_KEY_INDEX} is request identity too, and the workflow itself
- *   declared it: the key is whatever its `dedupKey(input)` returns. A singleton
- *   like cold-start-research returns a constant, so two dispatches carrying
- *   *different* events really are one request by that workflow's own definition
- *   ("run me once, whatever wakes me") — the dropped event is intended, not lost.
- *   That is the semantic, and `emitEvent` counting the drop as `skippedDuplicate`
- *   is correct rather than a mislabel. Its partial predicate agrees: it keeps
- *   `completed` rows blocking (unlike the other two), because the answer it gives
- *   is "already done", not "busy right now".
- * - {@link CHAT_THREAD_ACTIVE_RUN_INDEX} is resource occupancy, and no workflow
- *   asked for it — the key is the thread, and the two turns contending for it are
- *   genuinely different requests with different `userMessageId`s. Dropping the
- *   loser as a duplicate would swallow a message the user typed, so it surfaces
- *   as a typed "thread busy" instead (#488).
+ * What a 23505 on each index means to the losing writer.
+ * `duplicate`: the key names the request, so drop the loser silently.
+ * `busy`: the key names a resource held by a different request, so surface it.
+ * A chat loser is a new user message, so dropping it would lose what the user typed.
  */
 const AGENT_RUN_UNIQUE_INDEX_MEANING = {
   [OCCURRENCE_RUN_INDEX]: "duplicate",
@@ -124,74 +72,38 @@ const AGENT_RUN_UNIQUE_INDEX_MEANING = {
   [CHAT_THREAD_ACTIVE_RUN_INDEX]: "busy",
 } as const satisfies Record<AgentRunUniqueIndex, "duplicate" | "busy">;
 
-/**
- * Does this 23505's constraint mean "a run for this already exists, drop the
- * loser"? Derived from {@link AGENT_RUN_UNIQUE_INDEX_MEANING}, so the set and the
- * reasoning behind it cannot drift apart.
- *
- * Takes the constraint name as `string | null` because that is what
- * `uniqueViolationConstraint` returns, and narrows — so a caller gets the
- * null-check and the membership test in one call instead of hand-writing both.
- */
+/** True when this 23505 constraint means "a run already exists, drop the loser". */
 export function isDuplicateRunIndex(constraint: string | null): constraint is AgentRunUniqueIndex {
   return (
     constraint !== null &&
     constraint in AGENT_RUN_UNIQUE_INDEX_MEANING &&
-    // SAFETY: the `in` check above proves constraint is one of the record's
-    // own keys, so this indexed read sees exactly an AgentRunUniqueIndex.
+    // SAFETY: the `in` check above proves constraint is a key of the record.
     AGENT_RUN_UNIQUE_INDEX_MEANING[constraint as AgentRunUniqueIndex] === "duplicate"
   );
 }
 
 /**
- * `status NOT IN (<terminal statuses>)` — the one non-terminal run predicate.
- *
- * Four sites need it: the two partial indexes below, `hasNonTerminalEventRun`,
- * and the chat active-run read. Two of those (the event index and the query it
- * backs) have to agree exactly or the index quietly stops being the race-safe
- * boundary, and none of them can be checked by the type system. Built from
- * `TERMINAL_RUN_STATUSES`, which is derived from the same exhaustive map as
- * `isTerminalStatus`, so a new run status reaches every one of them at once.
- *
- * The cost of rendering it into DDL: this function's *output text* is what
- * drizzle-kit diffs a partial index on, and the list order it interpolates is
- * `runStatusSchema`'s declaration order. Adding a terminal status, or reordering
- * that enum, rewrites the predicate of both partial indexes below and
- * regenerates them as DROP/CREATE. Append to the enum, never permute it — and
- * when the predicate does have to change, read the generated migration before
- * applying it rather than assuming the diff is empty.
+ * `status NOT IN (<terminal statuses>)`. The partial indexes and the queries they
+ * back must use this one predicate, or the index stops enforcing the query.
+ * The output renders into index DDL in `runStatusSchema` order. Append to that enum, never reorder it.
  */
 export function runIsNotTerminal(status: SQLWrapper): SQL {
-  // Inlined as SQL literals rather than bound parameters: this fragment also
-  // renders into partial-index DDL, and drizzle-kit emits `$1, $2, $3` there
-  // with nothing to bind them to. Safe to inline because every value is a
-  // static member of `runStatusSchema`, never caller input.
+  // Literals, not parameters: index DDL has nothing to bind `$1` to. Values are static enum members.
   const statuses = TERMINAL_RUN_STATUSES.map((s) => `'${s}'`).join(", ");
 
   return sql`${status} NOT IN (${sql.raw(statuses)})`;
 }
 
-/**
- * Slug of the interactive chat-turn workflow. Owned here, not in the chat
- * package, because {@link CHAT_THREAD_ACTIVE_RUN_INDEX} renders it into DDL and
- * every thread query must spell it the same way.
- */
+/** Lives here because {@link CHAT_THREAD_ACTIVE_RUN_INDEX} renders it into DDL. */
 export const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
 
-/** The `agent_runs` columns a chat thread's runs are identified by. */
 interface ChatThreadRunColumns {
   userId: SQLWrapper;
   workflowSlug: SQLWrapper;
   metadata: SQLWrapper;
 }
 
-/**
- * The chat-turn workflow keeps its thread id in `metadata.threadId`. This one
- * expression is both the second key column of
- * {@link CHAT_THREAD_ACTIVE_RUN_INDEX} and the thread half of every thread
- * query, so the two cannot drift (the same rule `EVENT_RUN_IDENTITY_PARTS`
- * applies to the event index).
- */
+/** Thread id expression shared by {@link CHAT_THREAD_ACTIVE_RUN_INDEX} and every thread query. */
 function chatThreadIdExpr(t: Pick<ChatThreadRunColumns, "metadata">): SQL {
   return sql`(${t.metadata} ->> 'threadId')`;
 }
@@ -201,14 +113,7 @@ function isChatTurnRun(t: Pick<ChatThreadRunColumns, "workflowSlug">): SQL {
   return sql`${t.workflowSlug} = ${sql.raw(`'${CHAT_TURN_WORKFLOW_SLUG}'`)}`;
 }
 
-/**
- * WHERE for "the chat-turn runs of this user's thread", generated from the same
- * expressions as {@link CHAT_THREAD_ACTIVE_RUN_INDEX}. Every reader of a
- * thread's runs composes this: turn admission adds {@link runIsNotTerminal} to
- * get exactly the index's predicate (`= value` implies the index's
- * `IS NOT NULL`); the tool carry-over reads every run, terminal or not, and
- * walks `agent_runs_workflow_history_idx` for the order.
- */
+/** WHERE for the chat-turn runs of one thread, built from the same expressions as the index. */
 export function chatThreadRunMatch(
   t: ChatThreadRunColumns,
   identity: { userId: string; threadId: string },
@@ -223,18 +128,16 @@ export function chatThreadRunMatch(
   );
 }
 
-/** The dedup identity of an inbound event's run (#531). */
 export interface EventRunIdentity {
   userId: string;
   workflowSlug: string;
   source: EventSource;
   type: EventType;
   eventId: string;
-  /** Absent for an original delivery; set for a re-key (e.g. the #282 reply re-eval). */
+  /** Set only to re-key a delivery as a new event, e.g. a reply re-eval. */
   reason?: string | undefined;
 }
 
-/** The `agent_runs` columns an event identity is read from. */
 interface EventRunIdentityColumns {
   userId: SQLWrapper;
   workflowSlug: SQLWrapper;
@@ -243,21 +146,10 @@ interface EventRunIdentityColumns {
 }
 
 /**
- * The ordered parts of an event run's identity — the single definition that
- * generates BOTH {@link EVENT_ACTIVE_RUN_INDEX}'s key and the identity half of
- * `hasNonTerminalEventRun`'s WHERE. The index only enforces what the query
- * looks for if the two are expression-for-expression identical; writing the
- * tuple out twice and asserting "keep these byte-identical" in a comment is
- * exactly the index-vs-query drift this list removes. Trigger construction is a
- * separate boundary, validated by `agentRunTriggerSchema`; this list does not
- * generate that object.
- *
- * Every jsonb part is `coalesce`d to `''`. `agentRunTriggerSchema` marks
- * `source`/`type` optional (tolerant reads of pre-ADR-0047 rows), and a unique
- * index treats NULLs as distinct — so a bare `->> 'source'` key column would
- * hand any trigger written without them *zero* enforcement, silently. The one
- * uncoalesced part is `eventId`, and the index predicate excludes NULL eventIds
- * outright, so no shape reaches the index unenforced.
+ * Event run identity. Builds both {@link EVENT_ACTIVE_RUN_INDEX}'s key and the
+ * matching query, so the two cannot drift.
+ * Parts are `coalesce`d to `''` because a unique index treats NULLs as distinct.
+ * `eventId` is not: the index predicate already excludes a NULL eventId.
  */
 const EVENT_RUN_IDENTITY_PARTS: readonly {
   expr: (t: EventRunIdentityColumns) => SQL;
@@ -274,7 +166,6 @@ const EVENT_RUN_IDENTITY_PARTS: readonly {
   },
 ];
 
-/** Index-key expressions for {@link EVENT_ACTIVE_RUN_INDEX}, in key order. */
 function eventRunIdentityKey(t: EventRunIdentityColumns): [SQL, ...SQL[]] {
   const [first, ...rest] = EVENT_RUN_IDENTITY_PARTS.map((part) => part.expr(t));
 
@@ -283,11 +174,7 @@ function eventRunIdentityKey(t: EventRunIdentityColumns): [SQL, ...SQL[]] {
   return [first, ...rest];
 }
 
-/**
- * WHERE for "this user already has a non-terminal run for this exact event" —
- * the read `emitEvent` uses as its fast path, generated from the same parts as
- * the index that enforces it.
- */
+/** WHERE for "a non-terminal run for this exact event exists". */
 export function eventRunIdentityMatch(t: EventRunIdentityColumns, identity: EventRunIdentity): SQL {
   return sql.join(
     [
@@ -300,47 +187,8 @@ export function eventRunIdentityMatch(t: EventRunIdentityColumns, identity: Even
 }
 
 /**
- * Trigger that caused an `agent_runs` row to be inserted (ADR-0027).
- *
- * Mirrors `workflows.trigger`'s shape at the union level but carries the
- * concrete firing context: a cron tick stamps `scheduledFor`, an event
- * dispatch stamps `eventId` (used by callers as a per-event idempotency
- * key), a manual "Run now" carries no payload, an on-signal dispatch
- * names the signal.
- *
- * All four kinds funnel through one `createRun` primitive — no per-kind
- * execution paths. Old call-sites that stamped `metadata.triggeredBy`
- * migrate to populating this column directly; `metadata` is reserved for
- * diagnostic breadcrumbs (e.g. which webhook delivery id fanned out).
- */
-
-/**
- * One row per durable agent run.
- *
- * `state` is the workflow-defined snapshot persisted between steps; the
- * runtime treats it as opaque jsonb. `current_step` names the step the
- * executor will pick up next. `wake_condition` parks an interrupted run
- * (HIL approval, timer, or named signal) until something flips it back
- * to `runnable`.
- *
- * Status semantics:
- *  - `pending`     — enqueued, never picked up
- *  - `runnable`    — ready to execute the next step
- *  - `running`     — a worker holds the lease (heartbeat in `last_checkpoint_at`)
- *  - `waiting`     — parked on `wake_condition`; resume signal flips to runnable
- *  - `deferred`    — readiness retry is parked until `deferred_until`
- *  - `blocked`     — terminal readiness failure; user recovery is required
- *  - `completed`   — terminal success
- *  - `failed`      — terminal error
- *  - `cancelled`   — terminal user-initiated stop
- */
-
-/**
- * Failure detail written to a run's or a step's `error` column. This is a
- * producer-side shape only: `.$type` gives insert/update type-checking, not
- * read validation, so it must stay wide enough for every writer. `message`
- * is always present. A step failure adds `step` + `attempt`; a lease reclaim
- * adds `reason`. `cancelledBy` is a legacy field retained for older rows.
+ * Writer shape for a run or step `error`. `.$type` does not validate reads,
+ * so keep it wide enough for every writer. `cancelledBy` exists only on old rows.
  */
 export type AgentError = {
   message: string;
@@ -360,13 +208,7 @@ export const agentRuns = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     workflowSlug: text("workflow_slug").notNull(),
-    /**
-     * The `workflow_revisions.id` this run pinned when its occurrence was
-     * claimed (#555). The run keeps executing that definition even after the
-     * user edits the workflow, so a long unattended run can never change
-     * contract mid-flight. Null for built-ins, chat turns, and every row
-     * written before revisions existed.
-     */
+    /** Pinned revision, so a user edit cannot change a run mid-flight. Null for built-ins and chat turns. */
     workflowRevisionId: text("workflow_revision_id"),
     brief: text("brief"),
     status: text("status").notNull().default("pending"),
@@ -379,46 +221,23 @@ export const agentRuns = pgTable(
       .default(sql`'[]'::jsonb`),
     currentStep: text("current_step").notNull(),
     attempt: integer("attempt").notNull().default(0),
-    /**
-     * Monotonic cancellation fence (workflows-v1 #559b). `cancelRunInTx`
-     * increments it; the executor refuses a stale step commit whose captured
-     * generation no longer matches, and the tool-runtime dispatch gate re-reads
-     * it before each effect so a cancel landing mid-step stops new dispatches.
-     * Zero is the never-cancelled value.
-     */
+    /** Cancel fence. A cancel bumps it; a step commit or dispatch with an older value is refused. */
     cancellationGeneration: integer("cancellation_generation").notNull().default(0),
     wakeCondition: jsonb("wake_condition"),
     error: jsonb("error").$type<AgentError>(),
-    /**
-     * Typed terminal verdict for workflow runs (#561). Written beside the
-     * terminal status in the same transaction; null for internal runs. Reads
-     * still parse it with `workflowRunOutcomeSchema`.
-     */
+    /** Written with the terminal status. Reads still parse it with `workflowRunOutcomeSchema`. */
     outcome: jsonb("outcome").$type<WorkflowRunOutcome>(),
     output: jsonb("output"),
     metadata: jsonb("metadata")
       .notNull()
       .default(sql`'{}'::jsonb`),
-    /**
-     * What caused this row to be inserted (ADR-0027). Discriminated by
-     * `kind`; see `agentRunTriggerSchema`. Nullable for legacy rows
-     * inserted before this column existed — new `createRun` calls always
-     * populate it.
-     */
+    /** What caused the run (ADR-0027). Replaces `metadata.triggeredBy`. Null only on legacy rows. */
     trigger: jsonb("trigger").$type<AgentRunTrigger>(),
-    /** Durable identity of one cron, event, manual/test, or replay occurrence (#558). */
+    /** Identity of one cron, event, manual, or replay occurrence. */
     occurrenceKey: text("occurrence_key"),
-    /** Original run when this occurrence is an explicit replay. */
     replayOfRunId: text("replay_of_run_id").references((): AnyPgColumn => agentRuns.id),
-    /** Earliest instant a deferred readiness check may be leased again. */
     deferredUntil: timestamp("deferred_until", { withTimezone: true }),
-    /**
-     * Optional workflow-declared singleton key. When non-null and the run
-     * is not in a terminal-failure state, no second row with the same
-     * (user_id, workflow_slug, dedup_key) can exist — see the partial
-     * unique index below. Used by lifetime-once workflows like
-     * cold-start-research; left null by everything else.
-     */
+    /** Workflow-declared singleton key, enforced by `RUN_DEDUP_KEY_INDEX`. */
     dedupKey: text("dedup_key"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
@@ -445,71 +264,32 @@ export const agentRuns = pgTable(
       .on(t.deferredUntil)
       .where(sql`${t.status} = 'deferred'`),
     uniqueIndex(OCCURRENCE_RUN_INDEX).on(t.userId, t.occurrenceKey),
-    // Enforces "at most one active run per (user, workflow, dedup_key)."
-    // Excludes failed/cancelled so a transient outage doesn't permanently
-    // lock a workflow out — a later trigger can produce a fresh attempt.
-    // Workflows opt in by declaring `dedupKey` on their definition; rows
-    // with a null dedup key are unaffected (most workflows).
+    // `completed` still blocks ("already done").
+    // Failed/cancelled do not, so an outage cannot lock a workflow out.
     uniqueIndex(RUN_DEDUP_KEY_INDEX)
       .on(t.userId, t.workflowSlug, t.dedupKey)
       .where(sql`${t.dedupKey} IS NOT NULL AND ${t.status} NOT IN ('failed', 'cancelled')`),
-    // Sub-agent spawns are idempotent per parent tool call, including after a
-    // child terminal-fails. The general dedup index deliberately excludes
-    // failed/cancelled rows so chat turns stay retryable; this narrower index
-    // keeps duplicate `system.spawn_sub_agent` side effects from creating a
-    // second child for the same parent call once the first child has already
-    // left the active-index predicate.
+    // One child per parent tool call, even after that child fails. The general index lets failed rows retry.
     uniqueIndex("agent_runs_sub_agent_dedup_idx")
       .on(t.userId, t.workflowSlug, t.dedupKey)
       .where(sql`${t.workflowSlug} = '__user-authored-brief__' AND ${t.dedupKey} LIKE 'sub:%'`),
-    // The child lookup a cancel cascade (#559b) and `listSpawnedChildRuns` both
-    // run: "which runs point at this parent". Indexes the `subAgent.parentRunId`
-    // jsonb pointer with the leading `user_id`, so the cascade's
-    // `user_id = $1 AND parentRunId = $2` predicate is an Index Scan rather than
-    // a Filter over every row of the user (the table grows forever).
+    // Finds the children of a parent run, for cancel cascades and child listing.
     index("agent_runs_sub_agent_parent_idx")
       .on(t.userId, sql`(${t.metadata} -> 'subAgent' ->> 'parentRunId')`)
       .where(sql`(${t.metadata} -> 'subAgent' ->> 'parentRunId') IS NOT NULL`),
-    // Manual/test retries remain one occurrence after every terminal outcome.
-    // The general dedup index intentionally permits failed/cancelled retries;
-    // caller-supplied manual request ids do not, because they identify the same
-    // occurrence rather than a request to try the workflow again.
+    // A manual request id is one occurrence, so it blocks a rerun even after failure.
     uniqueIndex(MANUAL_REQUEST_RUN_INDEX)
       .on(t.userId, t.workflowSlug, t.dedupKey)
       .where(sql`(${t.trigger} ->> 'kind') = 'manual' AND ${t.dedupKey} LIKE 'manual:%'`),
-    // Enforces "at most one non-terminal run per (user, workflow, event
-    // identity)" (#531). The duplicate check is a read followed by an insert,
-    // so two
-    // concurrent dispatches of the same event (a webhook and its retry, or a
-    // webhook and a poll) both read zero matches and both create a run —
-    // duplicate triage/brief, duplicate model spend, duplicate side effects.
-    // The general dedup index can't catch it: event-triggered runs return a
-    // null `dedup_key`, and that index only fires on non-null. This is the
-    // race-safe boundary, mirroring how the chat path uses
-    // CHAT_THREAD_ACTIVE_RUN_INDEX: the losing insert hits a 23505 and
-    // `emitEvent` drops it as a duplicate. Both the key and the query it
-    // enforces come from EVENT_RUN_IDENTITY_PARTS — including `reason`, which
-    // deliberately makes an outbound-reply re-eval (#282) a *different* event
-    // from the original delivery. The NULL eventId exclusion is what lets the
-    // key's one uncoalesced part be safe (see the parts list).
+    // The read-then-insert check races (a webhook and its retry both read zero).
+    // This index is the race-safe boundary. Event runs have a null `dedup_key`,
+    // so the index above misses them.
     uniqueIndex(EVENT_ACTIVE_RUN_INDEX)
       .on(...eventRunIdentityKey(t))
       .where(
         sql`(${t.trigger} ->> 'kind') = 'event' AND (${t.trigger} ->> 'eventId') IS NOT NULL AND ${runIsNotTerminal(t.status)}`,
       ),
-    // Enforces "at most one non-terminal chat turn per (user, thread)" (#488).
-    // The chat-turn workflow keeps its thread id in `metadata.threadId`, so this
-    // indexes that jsonb expression. The dedup index above is keyed on
-    // `userMessageId` and only stops an *exact* double-submit; a genuinely new
-    // turn (fresh userMessageId) on a thread whose prior run is still in flight
-    // slips past it. This index is the race-safe boundary the turn start relies
-    // on: two concurrent starts with different user messages both try to insert,
-    // one wins, the loser hits a 23505 on THIS constraint and is translated to a
-    // typed "thread busy" response. `completed` is excluded (unlike the dedup
-    // index) so the next turn is admitted once the prior run reaches any
-    // terminal state.
-    // Key and predicate come from `chatThreadIdExpr` / `isChatTurnRun`, the
-    // same expressions `chatThreadRunMatch` queries with.
+    // The dedup index stops only an exact double-submit. This one stops a new turn while the prior turn runs.
     uniqueIndex(CHAT_THREAD_ACTIVE_RUN_INDEX)
       .on(t.userId, chatThreadIdExpr(t))
       .where(
@@ -519,14 +299,9 @@ export const agentRuns = pgTable(
 );
 
 /**
- * Per-attempt step record. `(run_id, step_id, attempt)` is the idempotency
- * key passed to billable downstream calls (LLM/Voyage/Slack/etc.) so
- * retries dedupe at the provider edge per ADR-0014.
- *
- * A step row is inserted *before* the step body runs (status='running')
- * and updated to 'completed' / 'failed' / 'interrupted' at commit. If the
- * worker dies mid-step, recovery sees a stale 'running' row and creates
- * a new attempt rather than rewriting it.
+ * One row per step attempt. `(run_id, step_id, attempt)` is the idempotency key
+ * for billable calls (ADR-0014). Inserted as `running` before the body runs;
+ * recovery from a stale `running` row adds a new attempt.
  */
 export const agentSteps = pgTable(
   "agent_steps",
@@ -550,13 +325,7 @@ export const agentSteps = pgTable(
   ],
 );
 
-/**
- * Outbound effects staged inside a step's commit transaction (ADR-0014:
- * "action staging for outbound effects"). A separate dispatcher worker
- * (added alongside real integrations in m7) reads `pending` rows and
- * fires them with the staged idempotency key. Until then, rows are
- * inert — proving the runtime can stage but not yet act.
- */
+/** Outbound effects staged in a step's commit transaction (ADR-0014). No dispatcher reads them yet. */
 export const pendingActions = pgTable(
   "pending_actions",
   {
@@ -588,31 +357,9 @@ export const pendingActions = pgTable(
 );
 
 /**
- * Durable, structured "why this decision" records (PR-A of #219).
- *
- * The motivating incidents (#210/#211/#212) were each found by a manual prod
- * SQL audit — self-ingestion ran ~9 days before a human noticed. The full
- * structured context that explains a triage tag already exists, but it was
- * `JSON.stringify`'d into an untyped `agent.progress` event payload instead of
- * a first-class queryable row. This table is where it lands: one row per traced
- * decision, queryable where the audits already run.
- *
- * Kind-agnostic by design — the runtime persists `(kind, decision_key, trace)`
- * without inspecting the payload; the typed surface is `ctx.trace`, generic
- * over the `DecisionTraceRegistry` in `@alfred/assistant`. Domain stores may also
- * insert the same keyed trace inside a domain-row transaction when row+trace
- * atomicity matters; the unique key makes the later executor insert a no-op.
- * `trace` is plain `jsonb` (matching the variable-shape
- * `pending_actions.payload` / `agent_run_context.value`, not the fixed-shape
- * `transcript`).
- *
- * Forensic, not aggregate: drift metrics read the source-of-truth tables and
- * raise the flag; these rows explain it when an operator drills in. A retried
- * attempt writes distinct rows (the `attempt` is part of the unique key), while
- * `decision_key` separates multiple decisions of the same kind inside one step.
- * A re-run within the same trace slot is `onConflictDoNothing`. No retention
- * machinery v1 (volume ~3k rows/mo; CASCADE cleans up on run/user delete) —
- * revisit if volume grows.
+ * One queryable "why this decision" record per traced decision.
+ * The runtime does not read `trace`; `ctx.trace` types it per kind.
+ * A domain store may insert the same keyed trace first; the unique key makes the executor's insert a no-op.
  */
 export const agentDecisionTraces = pgTable(
   "agent_decision_traces",
@@ -621,19 +368,16 @@ export const agentDecisionTraces = pgTable(
     runId: text("run_id")
       .notNull()
       .references(() => agentRuns.id, { onDelete: "cascade" }),
-    /** Denormalized from the run for user-scoped drift slices without a join. */
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** Denormalized from the run to filter traces by workflow. */
     workflowSlug: text("workflow_slug").notNull(),
     stepId: text("step_id").notNull(),
     attempt: integer("attempt").notNull(),
-    /** Registry discriminator, e.g. `triage.classification`. */
+    /** e.g. `triage.classification`. */
     kind: text("kind").notNull(),
-    /** Stable per-step discriminator for multiple traces of the same kind. */
+    /** Separates several traces of one kind in one step. */
     decisionKey: text("decision_key").notNull(),
-    /** The structured record (typed per-kind at the `ctx.trace` producer). */
     trace: jsonb("trace").notNull(),
     decidedAt: timestamp("decided_at", { withTimezone: true }).defaultNow().notNull(),
     ...lifecycle_dates,
@@ -652,14 +396,8 @@ export const agentDecisionTraces = pgTable(
 );
 
 /**
- * Boss/sub-agent shared state per ADR-0016 namespaced scratchpad.
- * Schema-only at m5 — boss/sub-agent topology lands in m13. Including
- * the table now keeps a future migration small and lets steps read/write
- * it via a thin helper without reshaping the runtime later.
- *
- * Keys are dotted: `shared.user_facts`, `scratch.{sub_id}.summary`.
- * The dispatcher (not the model) enforces that sub-agents only write to
- * their own `scratch.{sub_id}.*` zone.
+ * Boss and sub-agent scratchpad (ADR-0016). Keys are dotted, e.g. `scratch.{sub_id}.summary`.
+ * The dispatcher, not the model, keeps a sub-agent inside its own `scratch.{sub_id}.*` zone.
  */
 export const agentRunContext = pgTable(
   "agent_run_context",

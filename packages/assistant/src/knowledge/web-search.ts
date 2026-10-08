@@ -1,17 +1,7 @@
 /**
- * Live web search for the boss / sub-agents (ADR-0022, amended 2026-06-12).
- * Backed by grounded Gemini 2.5 Flash via `route("webSearch").model()` +
- * `googleSearchGroundingTools()` — the model runs Google Search server-side
- * and returns a short, citation-grounded answer rather than a raw SERP, so the
- * boss can fold it straight into its turn. (Swapped off Perplexity Sonar Pro
- * when that account lost billing; Gemini grounding rides the key we already
- * hold.)
- *
- * Every call routes through `meteredGenerateText` with
- * `attribution.kind = 'web_search'` so `api_call_log` rollups bucket the spend
- * apart from ordinary LLM turns. Cold-start's bounded research loops call this
- * same function (see `cold-start/web-tool.ts`) so their searches meter the same
- * way.
+ * Live web search for the boss and sub-agents (ADR-0022): grounded Gemini via
+ * `route("webSearch")`, which returns a short cited answer, not a SERP. Each call
+ * meters as `web_search`, apart from ordinary LLM turns.
  */
 
 import { route, googleSearchGroundingTools, meteredGenerateText } from "@alfred/ai";
@@ -20,58 +10,35 @@ import { getPath, isNonEmptyString, isRecord } from "@alfred/contracts";
 export interface WebSearchArgs {
   query: string;
   userId: string;
-  /** Optional — attribution columns are nullable; omit rather than pass "". */
+  /** Omit rather than pass "". */
   runId?: string | undefined;
   stepId?: string | undefined;
-  /** Stable per-call key — the tool passes the model's tool_call_id. */
+  /** The tool passes the model's tool_call_id. */
   idempotencyKey?: string;
   abortSignal?: AbortSignal | undefined;
 }
 
 interface WebSearchSource {
-  /**
-   * The link to follow. For Gemini grounding this is a `vertexaisearch.cloud.
-   * google.com` redirect that resolves to the real publisher when opened — it
-   * is *not* a clean publisher URL, so don't derive a display domain from it.
-   */
+  /** A `vertexaisearch.cloud.google.com` redirect. Do not derive a display domain from it. */
   url: string;
-  /**
-   * The publisher's name as grounding reports it — usually the bare domain
-   * ("cloudflare.com", "en.wikipedia.org"). Present for grounded results;
-   * absent only when the metadata is malformed. Prefer this for display and
-   * favicon lookup, since {@link url} is an opaque redirect.
-   */
+  /** Publisher name, usually the bare domain. Use this for display and favicons. */
   title?: string | undefined;
 }
 
 interface WebSearchHit {
-  /** The URL the caller can open with `system.fetch_url`. */
+  /** Open with `system.fetch_url`. */
   url: string;
-  /** Grounding's publisher/page label, when available. */
   title?: string;
-  /**
-   * Raw snippets are not exposed by Gemini grounding in the metadata we receive.
-   * Keep this optional so future providers can fill it without inventing text.
-   */
+  /** Gemini grounding gives no snippets; left for future providers. */
   snippet?: string;
 }
 
 export interface WebSearchResult {
   answer: string;
   citations: WebSearchSource[];
-  /**
-   * Grounding sources as an explicit result list for agents that need to decide
-   * what to drill with `fetch_url`. Today this is title+URL only; snippets are
-   * optional because Gemini grounding does not expose SERP snippets here.
-   */
+  /** Grounding sources, so an agent can pick what to `fetch_url`. */
   results: WebSearchHit[];
-  /**
-   * The Google Search queries the grounded model actually ran server-side
-   * (`groundingMetadata.webSearchQueries`), when it reports them. Surfaced so a
-   * caller can see how its question was interpreted and vary the angle on a
-   * follow-up instead of repeating the same search. Best-effort — empty when
-   * grounding didn't report it.
-   */
+  /** The queries Google actually ran, so a follow-up can vary its angle. Empty when not reported. */
   searchQueries: string[];
 }
 
@@ -90,11 +57,7 @@ function buildPrompt(query: string): string {
   ].join("\n");
 }
 
-/**
- * Pull the actual Google Search queries out of the grounding metadata
- * (`providerMetadata.google.groundingMetadata.webSearchQueries`). Best-effort,
- * same as {@link extractCitations} — tolerate missing/wrong-shape data.
- */
+/** Best effort: tolerates missing or wrong-shape data. */
 function extractSearchQueries(providerMetadata: unknown): string[] {
   const queries = getPath(providerMetadata, "google", "groundingMetadata", "webSearchQueries");
 
@@ -104,18 +67,8 @@ function extractSearchQueries(providerMetadata: unknown): string[] {
 }
 
 /**
- * Pull `{ url, title }` sources out of the AI SDK result. Gemini grounding
- * surfaces them two ways, both of which we read and dedupe by url (order-
- * preserving):
- *   1. `result.sources` — the standard `url`-typed source parts the SDK
- *      lifts out of grounding chunks (each carries `url` + `title`).
- *   2. `providerMetadata.google.groundingMetadata.groundingChunks[].web`
- *      — the raw grounding payload (`uri` + `title`), in case the SDK didn't
- *      lift a chunk.
- * Both report the same shape: the `url`/`uri` is a vertex redirect and the
- * `title` is the real publisher domain — so we keep the title for display.
- * Extraction is best-effort — tolerate missing or wrong-shape data gracefully
- * (it's observability, not correctness).
+ * `{ url, title }` sources from `result.sources` and the raw `groundingChunks`,
+ * deduped by url in order. Best effort: this is observability, not correctness.
  */
 function extractCitations(
   sources: ReadonlyArray<{ url?: string; title?: string }> | undefined,
@@ -152,15 +105,10 @@ export async function runWebSearch(args: WebSearchArgs): Promise<WebSearchResult
   const result = await meteredGenerateText(
     {
       model: route("webSearch").model(),
-      // Google runs the search server-side inside this single generation —
-      // there's no client-side tool round trip to step through, so the
-      // grounded answer lands directly in `result.text`.
+      // Google searches server-side in this one generation; no tool round trip.
       tools: googleSearchGroundingTools(),
       prompt: buildPrompt(args.query),
-      // ~2.5k gives room to list a few candidate matches with what each source
-      // says (the old 1.5k pushed the model to collapse to a one-line verdict —
-      // the "no confident match" punt this tool used to return), while still
-      // holding a single interactive lookup cheap.
+      // 1.5k pushed the model to a one-line "no confident match" verdict.
       maxOutputTokens: 2_500,
       temperature: 0,
       ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),

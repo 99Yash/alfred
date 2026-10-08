@@ -1,16 +1,7 @@
 /**
- * Chat action-approval picker — the successor to the composer's binary
- * "Review / Autopilot" badge. Mirrors the {@link ModelTierPicker} shape (a
- * compact pill trigger opening a frosted popover of icon + label + description
- * rows), so the composer's two controls read as siblings rather than a picker
- * next to a toggle.
- *
- * Alfred's approval model is binary — `user_action_policies.defaultMode` is
- * either `gated` (pause for approval) or `autonomy` (act freely) — so there are
- * two rows, not ChatGPT's three. This is a *global* switch: it governs triage,
- * briefing and workflows too, and per-integration rules in Settings still
- * override it. The trigger stays interactive while the composer is disabled by a
- * pending approval, so flipping to Autopilot lets a parked run continue.
+ * Approval-mode picker, same shape as {@link ModelTierPicker}.
+ * `user_action_policies.defaultMode` is `gated` or `autonomy`, a global switch; Settings rules override it.
+ * Stays usable while a pending approval disables the composer, so Autopilot can release a parked run.
  */
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Check, ChevronDown } from "lucide-react";
@@ -25,17 +16,15 @@ export function ApprovalModePicker({
   disabled,
   onToggle,
 }: {
-  /** True when Autopilot (autonomy) is active. */
+  /** Autopilot (autonomy) is on. */
   on: boolean;
   disabled?: boolean | undefined;
-  /** Flip the mode. There are only two, so selecting the other one is a toggle. */
+  /** Two modes, so selecting the other one toggles. */
   onToggle: () => void;
 }) {
   const listboxId = useId();
   const [open, setOpen] = useState(false);
-  // The popover portals out of the `.app` subtree, so stamp the resolved theme
-  // on the content directly (context still flows through the portal). Same
-  // pattern as ModelTierPicker / AppSelect.
+  // The popover portals out of `.app`, so stamp the theme on the content.
   const themeCtx = use(AppThemeContext);
 
   const dataTheme =
@@ -63,14 +52,12 @@ export function ApprovalModePicker({
               "app-focus",
               on
                 ? cn(
-                    // Autopilot on — the lit green pill carries the "acting
-                    // freely" signal, same language as the integrations policy
-                    // card and the old toggle.
+                    // Autopilot: lit green pill.
                     "text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)]",
                     "[background:radial-gradient(130%_140%_at_18%_120%,color-mix(in_srgb,var(--app-green-3)_28%,transparent)_0%,transparent_68%),var(--app-green-1)]",
                   )
                 : cn(
-                    // Review — neutral raised frosted pill, matching the model pill.
+                    // Review: neutral pill, like the model pill.
                     "bg-linear-to-b from-app-bg-1 to-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated)",
                     "enabled:hover:text-app-fg-4 enabled:hover:shadow-(--app-shadow-elevated-hover)",
                     "data-[state=open]:text-app-fg-4 data-[state=open]:shadow-(--app-shadow-elevated-hover)",
@@ -127,9 +114,7 @@ export function ApprovalModePicker({
                     "app-press flex w-full items-start gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
                     "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
                     "active:bg-app-bg-a3",
-                    // Selected holds a step-stronger fill than hover, so a
-                    // hovered row never reads as the active mode — the Codex
-                    // list keeps the same distinction via its check + highlight.
+                    // Selected is a step stronger than hover, so hover never looks selected.
                     checked && "bg-app-bg-a3",
                   )}
                 >

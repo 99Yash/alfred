@@ -9,23 +9,9 @@ import type { RetryPolicy } from "../shared/retry";
 import { readVercelTeamId } from "./credential";
 
 /**
- * The one door to Vercel's REST API (https://vercel.com/docs/rest-api) on a
- * user's behalf — the curated read surface plus `redeploy`, plus the transport
- * profile the general read-only passthrough tier (ADR-0074) sends through.
- *
- * Two things are Vercel-specific and both are settled in one place here:
- *
- *   1. Bearer auth from the active bearer credential, unwrapped only at the
- *      headers ({@link Redacted} everywhere above that).
- *   2. `?teamId=` — required on EVERY call when the integration was installed on
- *      a team rather than a personal account. It rides as `fixedQuery`, so it is
- *      merged after a caller's own `query` and cannot be overridden, and it is
- *      read through {@link readVercelTeamId} so the persisted key has one
- *      spelling. Both matter because a missing team scope is not an error: see
- *      `./credential` for why it surfaces as a confident empty list.
- *
- * Base URL, transient retry, error classification and JSON parsing are the
- * shared `defineProviderClient` seam, not restated here.
+ * Vercel REST client (https://vercel.com/docs/rest-api).
+ * A team install needs `?teamId=` on every call. Without it Vercel returns an empty
+ * list, not an error (see `./credential`).
  */
 
 const VERCEL_API = "https://api.vercel.com";
@@ -36,28 +22,16 @@ export interface VercelProject {
   framework: string | null;
   latestDeploymentState: string | null;
   /**
-   * The `owner/repo` this project is Git-linked to, or `null` when it is not
-   * linked or Vercel sent only half the pair.
-   *
-   * `null` is deliberately NOT "no repository": it also covers an unlinked
-   * project, and a caller that treats it as a wildcard (the verified pull does,
-   * because a project it cannot place may still hold the target's deployments)
-   * must not read it as an empty string. A project linked to a DIFFERENT repo is
-   * the case that rules a project out.
+   * `owner/repo`, or `null` when the project is not linked or Vercel sent half the pair.
+   * `null` is not "no repo": the verified pull treats it as a wildcard.
    */
   linkedRepo: string | null;
 }
 
 /**
- * A deployment's own claim about which commit it built.
- *
- * Resolved from Vercel's two spellings here rather than at the call site:
- * `githubCommit*` describes the commit that was built and `github*` the
- * repository the project links to, and for a deployment triggered by a fork or
- * a manual redeploy the two disagree. Which one to believe is a fact about
- * Vercel's API, so it belongs beside the API. `ref` is its own field because a
- * deployment can name a repository without naming a branch, and a caller has to
- * be able to tell those apart.
+ * The commit a deployment built. `githubCommit*` names the built commit and `github*`
+ * the linked repo; they differ for a fork or a manual redeploy.
+ * `ref` is separate because a deployment can name a repo without a branch.
  */
 export interface VercelDeploymentGit {
   org: string;
@@ -87,7 +61,6 @@ export interface VercelDeployment {
   state: string | null;
   target: string | null;
   createdAt: number | null;
-  /** The commit this deployment built, or `null` when it names no repository. */
   git: VercelDeploymentGit | null;
 }
 
@@ -129,39 +102,19 @@ export interface VercelRedeployResult {
   state: string | null;
 }
 
-/** Resolves fresh bearer auth per call; the client stores this, not a credential. */
 export interface VercelAuthResolver {
   (): Promise<{ token: Redacted<string>; teamId: string | null }>;
 }
 
 export interface VercelClientOptions {
   resolveAuth: VercelAuthResolver;
-  /**
-   * Transient-retry envelope for this client's retry-safe requests, or `"none"`.
-   * Required — see `ProviderBindOptions.retry`. `redeploy` is a POST and is
-   * excluded by method regardless of what this says.
-   */
+  /** `redeploy` is a POST, so it never retries, whatever this says. */
   retry: RetryPolicy | "none";
 }
 
-/**
- * A Vercel REST client bound to an auth *resolver*. Prefer
- * {@link vercelClientForUser} at call sites; this constructor takes the resolver
- * directly so tests can inject a fixed token without touching credentials.
- *
- * `resolveAuth` is called once per request, here and through
- * {@link vercelClientForUser} alike — there is no second entry point with
- * different freshness semantics, so a client is safe to hold for as long as its
- * resolver is.
- */
+/** Takes the resolver directly so tests can inject a token. Call sites use {@link vercelClientForUser}. */
 export function createVercelClient(options: VercelClientOptions) {
-  /**
-   * The one place a Vercel credential becomes a header. Both the curated reads
-   * (via `resolve`) and the passthrough capability go through it, so the authority
-   * a raw passthrough call carries is the same authority — origin, bearer, pinned
-   * team scope — that `projects()` carries, and a change cannot reach one and miss
-   * the other.
-   */
+  /** The curated reads and the passthrough share this, so both carry the same authority. */
   const authContext = async (): Promise<ProviderRequestContext> => {
     const { token, teamId } = await options.resolveAuth();
 
@@ -176,9 +129,7 @@ export function createVercelClient(options: VercelClientOptions) {
     baseUrl: VERCEL_API,
     resolve: authContext,
     retry: options.retry,
-    // Vercel returns a structured `{error: {code, message}}` that is prod-safe
-    // after bounding + secret redaction, and it is the only thing that explains a
-    // 403 on a team-scoped read. Stated, not inherited.
+    // The `{error: {code, message}}` body is the only explanation of a team-scope 403.
     bodyPolicy: "summarize",
   });
 
@@ -189,12 +140,7 @@ export function createVercelClient(options: VercelClientOptions) {
   });
 
   return {
-    /**
-     * Transport profile for the general read-only passthrough tier (ADR-0074):
-     * pinned authority as data, so the passthrough tool never holds a credential.
-     * The gate that proves a request is a *read* is deliberately not here — that
-     * is policy owned by `@alfred/assistant` (`assertReadableRestRequest`).
-     */
+    /** Read-only passthrough profile (ADR-0074). The read gate lives in `@alfred/assistant`. */
     passthrough,
 
     async projects(args?: { limit?: number }): Promise<VercelProject[]> {
@@ -236,20 +182,15 @@ export function createVercelClient(options: VercelClientOptions) {
           state: d.state ?? d.readyState ?? null,
           target: d.target ?? null,
           createdAt: d.createdAt ?? d.created ?? null,
-          // Half a repository is no repository: `org` without `repo` (or the
-          // reverse) cannot name a target, and reporting it as a partial claim
-          // would let a caller build an `owner/` target out of it.
+          // Half a repo is no repo: it would build an `owner/` target.
           git: org && repo ? { org, repo, ref: d.meta?.githubCommitRef ?? null } : null,
         };
       });
     },
 
     /**
-     * Re-deploy an existing deployment. Deliberately NOT marked `idempotent`: it
-     * is a POST with `forceNew=1`, so a retry after a timeout that actually
-     * reached Vercel would ship a second deploy. The shared client's
-     * method-eligibility gate keeps it un-retried by default; this comment exists
-     * so nobody "fixes" that by opting in.
+     * Do not mark this `idempotent`: it is a POST with `forceNew=1`, so a retry after a
+     * timeout can ship a second deploy.
      */
     async redeploy(args: {
       deploymentId: string;
@@ -269,8 +210,7 @@ export function createVercelClient(options: VercelClientOptions) {
         }),
       );
 
-      // A 2xx carrying neither id nor uid would otherwise mask as a "successful"
-      // redeploy with an unusable handle — surface it as a failure instead.
+      // A 2xx with no id is a failure, not a success with no handle.
       const uid = json.uid ?? json.id;
 
       if (!uid) throw new Error("[vercel] redeploy returned no deployment id");
@@ -282,17 +222,7 @@ export function createVercelClient(options: VercelClientOptions) {
 
 export type VercelClient = ReturnType<typeof createVercelClient>;
 
-/**
- * The ergonomic call-site entry: a Vercel client for a user, reading as
- * `vercel.projects({ limit })` with no credential in sight.
- *
- * The resolver reads the active bearer credential, wraps the token as
- * {@link Redacted}, and takes the team scope from the credential metadata. It runs
- * per request rather than once per bind: the saving would be one indexed
- * `integration_credentials` read, and the cost would be a client whose token is
- * only as fresh as the moment it was first touched — a lifetime rule no type can
- * state. Rotate the credential and the very next call picks it up.
- */
+/** Reads the credential per request, so a rotated token applies on the next call. */
 export function vercelClientForUser(options: ProviderBindOptions): VercelClient {
   const { userId, retry } = options;
 

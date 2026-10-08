@@ -6,7 +6,7 @@ import { useBriefings } from "~/lib/replicache/use-briefings";
 import { briefingPlainText } from "./briefing-prose-utils";
 import { formatDayHeading, slotLabel } from "./briefing-utils";
 
-/** Group the (already newest-first, morning-before-evening) rows by day, preserving order. */
+/** Rows arrive newest-first; group by day, keeping order. */
 function groupByDate(briefings: SyncedBriefing[]): { date: string; slots: SyncedBriefing[] }[] {
   const groups: { date: string; slots: SyncedBriefing[] }[] = [];
 
@@ -20,7 +20,7 @@ function groupByDate(briefings: SyncedBriefing[]): { date: string; slots: Synced
   return groups;
 }
 
-/** One-line gist of a slot for the timeline; falls back to a status note. */
+/** One-line gist, or a status note. */
 function slotGist(b: SyncedBriefing): string {
   if (b.breakingSummary) return briefingPlainText(b.breakingSummary, b.gather);
 
@@ -29,12 +29,7 @@ function slotGist(b: SyncedBriefing): string {
   return "Not composed yet.";
 }
 
-/**
- * Reverse-chronological timeline of the synced briefings (ADR-0049). Reads the
- * Replicache 30-day window only — an honest boundary line sits at the bottom;
- * the >30-day archive route is deferred. Each day links to its detail; an empty
- * account shows a calm first-run state.
- */
+/** Briefings timeline over the 30-day Replicache window (ADR-0049); no older archive yet. */
 export function BriefingsPage() {
   const { briefings, loading, error, retry } = useBriefings();
   const days = groupByDate(briefings);

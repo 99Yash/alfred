@@ -1,11 +1,8 @@
 /**
- * Smoke test for the m5 durable agent runtime.
+ * Smoke test for the durable agent runtime. A running server executes the steps;
+ * this script creates the run, signals the approval, and checks the output.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-agent.ts
- *
- * The server (also reading from the same Postgres + Redis) is what
- * actually runs the steps; this script just creates a run, watches it
- * progress, signals the HIL approval, and asserts the final output.
  */
 import { randomUUID } from "node:crypto";
 import { getStringPath } from "@alfred/contracts";
@@ -60,8 +57,7 @@ async function pollUntil(
 
 async function main() {
   await warmPool();
-  // Register so createRun's requireWorkflow doesn't complain in this process.
-  // The server process has its own registration; both sides see the same DB.
+  // So createRun's requireWorkflow resolves in this process.
   registerBuiltinWorkflows();
 
   const userId = await findOrCreateSmokeUser();
@@ -86,8 +82,7 @@ async function main() {
     throw new Error(`expected waiting, got ${parked.status}`);
   }
 
-  // SAFETY: agent_runs.wakeCondition is jsonb written by the park path with
-  // this envelope.
+  // SAFETY: the park path writes agent_runs.wakeCondition with this shape.
   const wake = parked.wakeCondition as { kind: string; approvalId: string };
   console.log(`[smoke] interrupted; wake=${JSON.stringify(wake)}`);
 
@@ -116,7 +111,7 @@ async function main() {
 
   console.log(`[smoke] completed; output=${JSON.stringify(output)}`);
 
-  // Sanity: every step row landed and idempotency keys are unique.
+  // Every step row landed, with unique idempotency keys.
   const stepRows = await db()
     .select()
     .from(agentSteps)

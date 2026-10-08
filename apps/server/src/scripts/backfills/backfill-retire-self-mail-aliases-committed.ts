@@ -1,43 +1,14 @@
 /**
- * COMMITTED self-mail retirement backfill — HISTORICAL ALIASES (issue #266).
+ * Retire self-mail sent from historical Alfred aliases (#266). The #211 script
+ * matched only the current `RESEND_FROM_EMAIL`, so it missed old briefings and
+ * approvals from `yash@croisillies.xyz`. This one matches the current address plus the aliases.
  *
- * The #211 backfill (`backfill-retire-self-mail-committed.ts`) retired only mail
- * from the CURRENT `RESEND_FROM_EMAIL`. But Alfred's earlier briefings shipped
- * from an OLDER envelope — `yash@croisillies.xyz` — before the address changed,
- * and the daily-briefing / HIL-approval rows sent from that alias survived on the
- * personal account (`yashgouravkar@gmail.com`), still tagged into the demanding
- * lanes and inflating the `urgent` count (#210). The current-address filter can
- * never catch them, so this pass matches the current self address PLUS an
- * explicit historical-alias list.
+ * For a purely self-authored thread it deletes the `email_triage` row and the
+ * self-authored `documents` (chunks cascade). A mixed thread stays intact: a deleted
+ * doc under a kept triage row drops the whole thread from briefings.
+ * It matches the exact parsed address, not only the `LIKE`, because the delete is destructive.
  *
- * NOTE ON THE FORWARD DROP: no code change is needed to stop NEW self-mail — all
- * Alfred outbound (briefing AND HIL approval) ships through one path
- * (`notify.ts` → `from: RESEND_FROM_EMAIL`), and `isSelfAuthored` already drops
- * that envelope (locked by
- * `packages/integrations/test/self-authored-drop.test.ts`). This
- * script is purely a one-off cleanup of the pre-existing rows from the OLD alias.
- *
- * What it removes, scoped to the target user(s) — only for threads that are
- * PURELY self-authored (Alfred sends each briefing/approval as its own thread):
- *   1. The `email_triage` row for the thread.
- *   2. The self-authored `documents` rows in it (chunks cascade via FK).
- * A thread that ALSO carries a real inbound message is left FULLY intact — both
- * its self-docs and its triage row. Deleting a self-doc while keeping the
- * thread's triage row would dangle `email_triage.document_id` (nullable, and
- * briefing/gather INNER-joins triage→documents on it), silently dropping the
- * whole thread — real email included — from every future briefing. (Same guard
- * and rationale as the #211 script.)
- *
- * Matching mirrors the ingestion guard (`isSelfAuthored`): a coarse `LIKE`
- * candidate filter per address, then an EXACT parsed-address match against the
- * self-set — so this destructive pass retires exactly self-authored mail, never
- * mail that merely mentions one of the addresses in display text.
- *
- * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
- * `node dist/scripts/backfills/backfill-retire-self-mail-aliases-committed.js`.
- *
- * Dry by default — counts + lists but writes nothing. Pass `--commit`
- * to delete.
+ * Bundled for prod. Dry by default; `--commit` deletes.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfills/backfill-retire-self-mail-aliases-committed.js
@@ -54,7 +25,6 @@ import { documents, emailTriage, user as userTable } from "@alfred/db/schemas";
 import { selfSenderEmail } from "@alfred/integrations/google";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 
-/** CLI list parser shared by `--emails` / `--aliases`. */
 function parseListFlag(flag: string, fallback: string): string[] {
   const arg = process.argv.find((a) => a.startsWith(`${flag}=`));
   const raw = arg ? arg.slice(`${flag}=`.length) : fallback;
@@ -67,9 +37,7 @@ function parseListFlag(flag: string, fallback: string): string[] {
 
 const TARGET_EMAILS = parseListFlag("--emails", "yashgouravkar@gmail.com");
 
-// Historical Alfred send-from aliases the CURRENT `RESEND_FROM_EMAIL` no longer
-// matches. `yash@croisillies.xyz` is the envelope the 05-21 → 06-01 briefings on
-// the personal account shipped from (issue #266 evidence).
+// Old send-from aliases that `RESEND_FROM_EMAIL` no longer matches (#266).
 const ALIAS_INPUT = parseListFlag("--aliases", "yash@croisillies.xyz");
 
 const COMMIT = process.argv.includes("--commit");
@@ -82,9 +50,7 @@ async function processUser(
 
   const addrList = [...selfAddrs];
 
-  // Candidate self-docs: coarse substring filter on `metadata.from` (OR across
-  // every self address), then an EXACT parsed-address match — the LIKE alone
-  // over-matches display text, and this delete is destructive.
+  // LIKE finds candidates; the exact parsed match below decides. LIKE also hits display text.
   const candidates = await db()
     .select({
       id: documents.id,
@@ -119,8 +85,7 @@ async function processUser(
 
   const threadIds = [...new Set(selfDocs.map((d) => d.threadId).filter((t): t is string => !!t))];
 
-  // Classify each candidate thread PURE (every message self-authored) vs MIXED
-  // (also carries a real inbound message), using the same exact-address set.
+  // A thread is mixed if any message is not self-authored.
   const threadDocs = threadIds.length
     ? await db()
         .select({
@@ -146,9 +111,7 @@ async function processUser(
   const pureThreadIds = threadIds.filter((t) => !mixedSet.has(t));
   const pureThreadSet = new Set(pureThreadIds);
 
-  // Only delete self-docs safe to remove: those in a purely-self thread (whose
-  // triage row we also delete), or standalone (no thread → no triage to orphan).
-  // Self-docs in a MIXED thread are skipped entirely (see header).
+  // Delete only docs in a pure thread or with no thread. Skip mixed threads.
   const deletableDocs = selfDocs.filter((d) => !d.threadId || pureThreadSet.has(d.threadId));
   const skippedMixedDocs = selfDocs.length - deletableDocs.length;
   const docIds = deletableDocs.map((d) => d.id);
@@ -206,10 +169,7 @@ async function processUser(
 async function main() {
   await warmPool();
 
-  // Build the self-set: the CURRENT send address (so this is a superset of the
-  // #211 pass and stays idempotent) ∪ the historical aliases. Each alias is run
-  // through the SAME parser the runtime guard uses, so the exact-match set below
-  // is normalized identically.
+  // Current address plus aliases, parsed like the runtime guard parses them.
   const selfAddrs = new Set<string>();
   const current = selfSenderEmail();
 
@@ -251,7 +211,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

@@ -1,31 +1,10 @@
 /**
- * Tool schemas — the single source of truth for every tool's cross-boundary
- * argument shape, plus any result shape that has become a web/model-visible
- * contract. Defined here (in the web-safe contracts package) rather than next
- * to each server handler so that BOTH consumers can read them:
+ * Tool input schemas, plus result shapes that web or model code depends on.
+ * The dispatcher parses with them and the web approval view derives its form
+ * from them (`tool-fields.ts`). `system.spawn_sub_agent` stays server-side.
  *
- *   - the server dispatcher validates a proposed call with `.parse()` and
- *     infers the handler's input type via `z.infer`;
- *   - the web approval surface derives typed form controls from the same
- *     schema (see `tool-fields.ts`), so the editor and read-only display can
- *     never drift from what the server actually accepts.
- *
- * Schemas are pure zod (no server imports), so they bundle cleanly into the
- * web app. The one exception — `system.spawn_sub_agent` — stays server-side
- * because its schema references sub-agent internals; the approval UI falls
- * back to a raw-JSON view for it, which is fine (it's a no_risk system tool).
- *
- * Keys of `TOOL_INPUT_SCHEMAS` / `TOOL_OUTPUT_SCHEMAS` are type-checked
- * against `ToolName`, so they can't drift from the real tool surface.
- *
- * Numeric arguments use `z.coerce.number()`, never a bare `z.number()`. LLMs
- * (Claude included) routinely serialize an integer argument as a string —
- * dispatch traces show the boss emitting `pull_number: "305"` and retrying it
- * verbatim until it gives up. Coercion accepts the stringified form while
- * emitting the *identical* `{type:"integer"}` JSON schema to the model, so the
- * surface the model is told about is unchanged — only the server gets more
- * tolerant. Without it, required numeric ids hard-fail and cosmetic `.catch()`
- * caps silently degrade to their default on a stringified value.
+ * Numbers use `z.coerce.number()`: models often send `pull_number: "305"`.
+ * The JSON schema the model sees is still `{type:"integer"}`.
  */
 
 import { z } from "zod";
@@ -56,13 +35,7 @@ import {
 } from "./tool-constants";
 import { type ToolName } from "./tools";
 
-/**
- * Zod's built-in email validator emits negative-lookahead assertions in JSON
- * Schema. OpenAI's Responses API rejects regex lookaround in tool parameters,
- * so model-facing email fields use the same practical address grammar without
- * lookaround. Runtime parsing and the model-visible schema still share this
- * single validator.
- */
+/** Zod's email check emits lookahead, which OpenAI rejects in tool parameters. */
 const MODEL_TOOL_EMAIL_PATTERN =
   /^[A-Za-z0-9_'+-]+(?:\.[A-Za-z0-9_'+-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/;
 
@@ -71,55 +44,18 @@ function modelToolEmail() {
 }
 
 /**
- * Boundary-tolerance pipeline overview.
- *
- * A model's tool call is made lenient in a fixed two-layer order before the
- * strict schema sees it, so every wrapper below knows where it slots in:
- *
- *   Layer 1 — dispatch (`packages/assistant`, `normalizeToolInputKeys`): generic,
- *     all-tools casing/underscore canonicalization. Renames a model key to a
- *     schema key that differs only in case or `_`/`-` (`max_results` →
- *     `maxResults`). Mechanical and lossless, so it is safe to generalize over
- *     every tool; it never touches genuine synonyms. Runs FIRST.
- *   Layer 2 — schema preprocess wrappers (this file), applied inner→outer and
- *     running before the `.strict()` object validates:
- *       • withQueryAlias        — q ⇄ query search-field spelling
- *       • withKeyAliases        — curated 1:1 synonyms (body→bodyText, limit→perPage)
- *       • blankFieldToOmitted   — empty optional string → omitted
- *       • coerceJsonArrayFields — JSON-stringified array → real array
- *       • wrapScalarRecipients  — gmail: bare recipient string → [string]
- *       • promoteWindowSynonym  — calendar: any window-valued key → window
- *       • padDatetimeSeconds    — calendar: minute-precision datetime → :00 seconds
- *       • promoteDriveBareQuery — drive: bare term → a valid query clause
- *       • withGithubItemUrl     — github: url/slug/number-synonym → owner/repo/<n>
- *
- * These are curated and per-tool (lossy or tool-specific), so they must NOT be
- * generalized the way Layer 1 is; the package boundary also forbids contracts
- * importing dispatch. In every case `z.toJSONSchema(schema, { io: "input" })`
- * unwraps the wrappers, so the model and the approval UI still see only the
- * canonical surface — only the server gets more tolerant. A new mechanism slots
- * into Layer 2 here.
+ * Input tolerance runs in two layers before strict validation:
+ * 1. Dispatch `normalizeToolInputKeys`: lossless case and `_`/`-` key fixes for all tools.
+ * 2. The per-tool preprocess wrappers in this file (aliases, blank fields, JSON-string
+ *    arrays, scalar recipients, calendar windows and seconds, Drive bare terms, GitHub URLs).
+ * `z.toJSONSchema(schema, { io: "input" })` unwraps them, so the model and the
+ * approval view see only the canonical fields.
  */
 
-/**
- * Canonical form of a key for case/underscore-insensitive matching: lower-cased
- * with `_`/`-` stripped. Mirrors dispatch's `normalizeToolInputKeys` canon so a
- * curated alias folds the same cased/underscored variants the generic pass does.
- */
+/** Same canon as dispatch's `normalizeToolInputKeys`: lowercase, no `_` or `-`. */
 export const canonicalParamKey = (key: string): string => key.toLowerCase().replace(/[_-]/g, "");
 
-/**
- * Search tools split on the query field name: `drive`/`gmail` use `q` (the
- * Google API param) while `github`/`notion` use `query`. The boss pattern-
- * matches across tools and routinely sends the off-name spelling — dispatch
- * traces show `gmail.search({ query })` hard-failing on the missing `q`. Fold
- * the alias into the canonical field before validation so either spelling
- * parses. The model-facing JSON schema (and the approval UI, which both read
- * `z.toJSONSchema(schema, { io: "input" })`) still advertise only the canonical
- * field, so nothing about the surface the model is told about changes — only
- * the server gets more tolerant. Applied to the `q`-named tools, which the
- * model is likeliest to call with the more common `query`.
- */
+/** Accept `query` for `q` and the reverse: models mix up the two across tools. */
 function withQueryAlias<S extends z.ZodType<any>>(canonical: "q" | "query", schema: S) {
   const alias = canonical === "q" ? "query" : "q";
 
@@ -138,34 +74,10 @@ function withQueryAlias<S extends z.ZodType<any>>(canonical: "q" | "query", sche
 }
 
 /**
- * Rename model-supplied parameter *synonyms* to the canonical field before
- * validation. Generalizes {@link withQueryAlias} for the measured cross-tool
- * fumbles where the model reaches for a natural name the strict schema doesn't
- * accept but whose intent is unambiguous — `gmail.send_draft({ body })` for
- * `bodyText`, `github.search({ limit })` for `perPage`. An alias is a
- * hand-curated synonym that is NOT itself an accepted schema key, so it is
- * always removed: folded into the canonical field when that field is absent, or
- * dropped as redundant when the model set the canonical too (the explicit
- * canonical wins — a rare, pathological both-present call is resolved silently
- * rather than bounced, since bouncing a recognizable fumble is exactly what this
- * pass exists to avoid). Wrapped at the object level like the other
- * boundary-tolerance wrappers, so `z.toJSONSchema(schema, { io: "input" })` — and
- * the approval UI — still advertise only the canonical field; only the server
- * gets more tolerant.
- *
- * This is a high-confidence 1:1 synonym map. Pure casing/underscore variants of
- * a *canonical* field (`max_results` → `maxResults`) are handled generically at
- * the dispatch boundary by `normalizeToolInputKeys`, which is deliberately more
- * conservative (it leaves an ambiguous both-present pair for strict validation)
- * because its fuzzy canonical match spans every field, not a curated set. That
- * generic pass only canonicalizes toward *accepted* keys, and an alias is never
- * accepted, so a cased variant of the alias itself (`Limit`, `Body`) would
- * otherwise fall through both layers and re-open the very bounce this wrapper
- * exists to close — so the alias is matched case/underscore-insensitively here.
- *
- * The alias *targets* are constrained to the wrapped object's own keys, so a
- * typo or a renamed field (`perPage` → `perPageCount`) fails to compile rather
- * than silently reintroducing the fumble.
+ * Rename curated 1:1 synonyms (`body` to `bodyText`, `limit` to `perPage`). The
+ * alias is always removed; if the canonical key is also set, the canonical wins.
+ * Matches the alias case-insensitively: dispatch only normalizes toward accepted
+ * keys, so `Limit` would get through. Targets must be the object's own keys.
  */
 function withKeyAliases<S extends z.ZodObject>(
   aliases: Record<string, keyof S["shape"] & string>,
@@ -176,9 +88,6 @@ function withKeyAliases<S extends z.ZodObject>(
     let next = value;
 
     for (const [alias, canonical] of Object.entries(aliases)) {
-      // Match the alias case/underscore-insensitively (`Limit` → `limit`): the
-      // dispatch normalizer only canonicalizes toward accepted keys, and an
-      // alias is never accepted, so a cased variant reaches here untouched.
       const key =
         alias in next
           ? alias
@@ -188,9 +97,7 @@ function withKeyAliases<S extends z.ZodObject>(
 
       if (next === value) next = { ...value };
 
-      // An alias is never itself an accepted key, so always remove it: fold it
-      // into the canonical field when that's absent, else drop it as redundant
-      // (the explicit canonical wins rather than the call bouncing).
+      // Fold into the canonical field when absent; else the canonical wins.
       if (!(canonical in next)) next[canonical] = next[key];
       delete next[key];
     }
@@ -200,20 +107,9 @@ function withKeyAliases<S extends z.ZodObject>(
 }
 
 /**
- * Treat an empty/whitespace-only string in the named optional fields as
- * "omitted". LLMs routinely emit `query: ""` for an optional argument they
- * intend to skip; a bare `.min(1).optional()` then hard-fails the empty string
- * with `too_small` instead of taking the optional path — dispatch traces show
- * `notion.search` bouncing on `query: ""`, then succeeding on the omit-retry
- * one step later. Drop the blank field before validation so the optional branch
- * takes over. Wrapped at the object level (like `withQueryAlias`) rather than on
- * the field, so `z.toJSONSchema(schema, { io: "input" })` still reports the
- * field as the optional string it is — a field-level `z.preprocess` would
- * instead mark it `required`, telling the model the wrong contract. Only the
- * server gets more tolerant; the surface the model is told about is unchanged.
- * Use only for genuinely-optional fields — a required search box (gmail `q`,
- * web_search `query`) should still reject the empty string rather than silently
- * search for nothing.
+ * Treat a blank string as omitted: models send `query: ""` to skip an optional
+ * field. Wrapped at the object level, because a field-level preprocess would
+ * mark the field required in the JSON schema. Do not use it on a required field.
  */
 function blankFieldToOmitted<S extends z.ZodType<any>>(fields: readonly string[], schema: S) {
   return z.preprocess((value) => {
@@ -232,19 +128,9 @@ function blankFieldToOmitted<S extends z.ZodType<any>>(fields: readonly string[]
 }
 
 /**
- * Parse a JSON-stringified array in the named fields back into a real array
- * before validation. LLMs — Haiku especially — serialize an array-of-arrays or
- * array-of-objects argument as a JSON *string* (`values: "[[\"a\"],[\"b\"]]"`)
- * instead of the structured array. The field's `z.array(...)` then hard-fails
- * with `invalid_type: expected array, received string`; dispatch trace
- * run_9ff8bcw13vba shows the boss bouncing `sheets.update_values`,
- * `sheets.append_values`, and `sheets.batch_update` four times on this exact
- * mistake, then giving up and falsely telling the user the sheet was populated.
- * Mirrors `z.coerce.number()` (stringified ints) and `blankFieldToOmitted`:
- * wrapped at the object level so `z.toJSONSchema(schema, { io: "input" })` still
- * advertises a plain array — only the server gets more tolerant. A string that
- * doesn't JSON-parse to an array is left untouched, so it still fails strict
- * validation and surfaces the enriched dispatcher error.
+ * Parse JSON-string arrays (`values: "[[\"a\"]]"`) into arrays. Models do this,
+ * and a sheets call once failed four times, then claimed success. A string that
+ * is not a JSON array is left for strict validation.
  */
 export function coerceJsonArrayFields<S extends z.ZodType<any>>(
   fields: readonly string[],
@@ -269,9 +155,7 @@ export function coerceJsonArrayFields<S extends z.ZodType<any>>(
           if (next === value) next = { ...value };
           next[field] = parsed;
         }
-      } catch {
-        // Not valid JSON — leave it for the array schema to reject normally.
-      }
+      } catch {}
     }
 
     return next;
@@ -308,44 +192,22 @@ const calendarListEventsObject = z
       .describe(
         "Optional narrowing for today/tomorrow. Omit for full day. morning=06:00-12:00, afternoon=12:00-17:00, evening=17:00-22:00.",
       ),
-    // Result-count cap — cosmetic, never affects correctness. An out-of-range
-    // value falls back to the default instead of bouncing a validation error
-    // back to the model (same cosmetic behavior as github.search maxResults).
+    // Cosmetic cap: an out-of-range value falls back to the default.
     maxResults: z.coerce.number().int().min(1).max(50).default(10).catch(10),
   })
   .strict();
-// NOTE: explicit bounds and a relative window are NOT mutually exclusive at the
-// schema level. The model routinely over-specifies both — 11/11 observed
-// `calendar.list_events` failures were the kitchen-sink shape
-// `{ timeMin, timeMax, window, partOfDay, maxResults }`, with the model's own
-// hand-computed bounds being sloppy (a noon-to-noon window for "today"). A
-// mutual-exclusion refine here just bounced those and burned a boss turn. Both
-// fields now validate; `resolveCalendarListWindow` resolves the precedence — a
-// present `window` value can only come from a relative request, so it wins over
-// the redundant bounds and the server resolves it correctly in the user's
-// timezone (see the handler for the full rationale).
+// Bounds and `window` can both be set: models over-specify, and rejecting that
+// cost a turn. `resolveCalendarListWindow` lets `window` win.
 
-// The model reliably emits the right relative *value* ("today") but keeps
-// guessing the *key* — `timeframe`, `range`, `time_range`, … — instead of
-// `window` (observed across traces run_wdtn451w1zp0 / run_w648c33jvwxo /
-// run_bwo3shcjqp84). A fixed synonym allowlist is whack-a-mole, so promote
-// value-first: if `window` is unset, any key carrying a real window value gets
-// renamed to `window`. This is unambiguous because the window values
-// (today/tomorrow/next_7_days) are disjoint from every other field's value
-// space — partOfDay is morning/…, the bounds are RFC3339 strings, maxResults is
-// a number — so no legitimate field can hold one. A synonym carrying a
-// non-window value (e.g. `range:"this month"`) is left to fail strict
-// validation, surfacing the enriched "valid parameters: …" dispatcher message.
+// Models send the right window value under the wrong key (`timeframe`, `range`).
+// Rename any key that holds a window value to `window`. Safe, because no other
+// field accepts those values. A non-window value fails strict validation.
 function promoteWindowSynonym(value: unknown): unknown {
   if (!isRecord(value)) return value;
-  // The preprocessor deliberately hands back an untyped record for the schema
-  // to validate, so build it as a plain record rather than a literal.
   const obj = Object.assign({}, value);
 
   if (obj.window !== undefined) return obj;
-  // SAFETY: CALENDAR_WINDOW_VALUES is the closed const table of window
-  // literals; widening it to readonly string[] only types the receiver of
-  // .includes so a candidate field value can be tested against the table.
+  // SAFETY: widening only types the `.includes` receiver.
   const windowValues = CALENDAR_WINDOW_VALUES as readonly string[];
 
   for (const [key, val] of Object.entries(obj)) {
@@ -359,29 +221,13 @@ function promoteWindowSynonym(value: unknown): unknown {
   return obj;
 }
 
-// `z.toJSONSchema` unwraps the preprocess and serializes the inner object, so
-// the model still sees the clean { timeMin, timeMax, window, partOfDay,
-// maxResults } surface — the synonyms are an accepted-input convenience, not
-// advertised parameters. `.shape` is not available on the wrapper; read it from
-// `calendarListEventsObject` if you need the field map.
+// `.shape` is not on the wrapper: read it from `calendarListEventsObject`.
 export const calendarListEventsInput = z.preprocess(promoteWindowSynonym, calendarListEventsObject);
 
 /**
- * A zoned datetime that omits seconds (`2026-08-29T14:00+05:30`) is padded to
- * `:00` seconds before validation. Zod accepted minute precision through 4.4.3;
- * 4.5.0 tightened `z.iso.datetime()` to the RFC 3339 grammar, which makes the
- * seconds field mandatory. Models routinely write the minute-precision form,
- * because that is how a person writes a meeting time — so without this shim a
- * `calendar.create_event` call that worked before the upgrade starts failing
- * `invalid_format`, and there is no tool-input repair loop to recover it.
- *
- * The zone suffix is REQUIRED to match, so this only ever rewrites a value the
- * old validator already accepted: a bare `2026-08-29T14:00` has no offset, so
- * `datetime({ offset: true })` rejected it before and still rejects it after.
- * The shim widens nothing; it restores the previously-accepted input set.
- * Wrapped at the object level, so `z.toJSONSchema(schema, { io: "input" })`
- * still advertises a plain datetime string — only the server gets more
- * tolerant.
+ * Pad minute-precision datetimes (`14:00+05:30`) to `:00` seconds. Zod 4.5 made
+ * seconds mandatory and models write minutes. The zone is required to match, so
+ * this accepts nothing that Zod 4.4 rejected.
  */
 const MINUTE_PRECISION_DATETIME_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/;
 
@@ -443,7 +289,7 @@ export const calendarCreateEventInput = padDatetimeSeconds(
 
 export type CalendarCreateEventInput = z.infer<typeof calendarCreateEventInput>;
 
-/** Whether creating this event asks Google Calendar to notify external attendees. */
+/** True when Google Calendar will notify external attendees. */
 export function calendarCreateEventSendsInvitations(
   input: Pick<CalendarCreateEventInput, "attendees">,
 ): boolean {
@@ -463,19 +309,9 @@ export const docsGetDocumentInput = z
 const driveFileId = z.string().min(1).max(200).describe("The Drive file id.");
 
 /**
- * The one genuine Drive-DSL fumble class (rare): the model passes a bare search
- * *term* instead of a Drive query clause. `q=resume` and `q=*` are not valid
- * Drive query syntax — Drive returns a 400, wasting a boss turn. A valid clause
- * always carries an operator (`name contains 'x'`, `mimeType = '...'`, a date
- * comparison), so a token of only word chars / `.` / `-` (no operator, quote,
- * space, or `=`) can never be a real query. Rewrite such a bare term into a
- * name-or-fullText contains clause so it executes and finds the file the model
- * was reaching for; drop a lone `*` (Drive rejects it) so the call lists recent
- * files. Only rewrites inputs Drive would reject anyway — a well-formed clause
- * is left untouched. fullText is included deliberately: when the model resorts
- * to a bare term it is uncertain what it's looking for, so matching file bodies
- * as well as names maximizes recall; a confident name-only search already writes
- * `name contains '…'` itself.
+ * A bare term (`q=resume`) or `*` is not Drive query syntax, and Drive returns 400.
+ * Rewrite a bare term to a name or fullText `contains` clause, and drop a lone `*`.
+ * A real clause always has an operator, so it is never touched.
  */
 const DRIVE_BARE_TERM_RE = /^[\w.-]+$/;
 
@@ -494,9 +330,7 @@ function promoteDriveBareQuery(value: unknown): unknown {
   }
 
   if (DRIVE_BARE_TERM_RE.test(trimmed)) {
-    // The regex admits only word chars / `.` / `-`, so `trimmed` can never carry
-    // a quote or backslash — it's safe to interpolate into the single-quoted
-    // Drive query value without escaping.
+    // The regex allows no quote or backslash, so interpolation needs no escaping.
     return Object.assign({}, value, {
       q: `name contains '${trimmed}' or fullText contains '${trimmed}'`,
     });
@@ -521,7 +355,7 @@ export const driveSearchInput = withQueryAlias(
             .describe(
               "Drive query, e.g. `name contains 'budget'` or `mimeType = 'application/vnd.google-apps.document'`. Omit to list recent files.",
             ),
-          // Result-count cap — cosmetic; fall back to the default rather than error.
+          // Cosmetic cap: fall back to the default.
           pageSize: z.coerce.number().int().min(1).max(100).default(25).catch(25),
           pageToken: z.string().optional().describe("Cursor from a previous page's nextPageToken."),
           orderBy: z
@@ -538,13 +372,8 @@ export const driveSearchInput = withQueryAlias(
 export const driveGetFileInput = z.object({ fileId: driveFileId }).strict();
 
 /**
- * The only MIME types `drive.export_file` will export to (ADR-0071 honest
- * read-in). This tool exists to pull a Google-native file's **text** into the
- * agent's context to reason over — never to produce a downloadable binary
- * (PDF/PPTX/XLSX). A binary export streamed through `res.text()` returns
- * mojibake carrying NUL bytes that poison the result persist (#267), so binary
- * MIME types are rejected with a teaching redirect rather than attempted.
- * Single source of truth — the tool's runtime guard reads this same set.
+ * Text exports only (ADR-0071). A binary export read through `res.text()` carries
+ * NUL bytes that poison the stored result (#267).
  */
 export const DRIVE_TEXT_EXPORT_MIME_TYPES: ReadonlySet<string> = new Set([
   "text/plain",
@@ -564,9 +393,7 @@ export const driveExportFileInput = z
       .min(1)
       .max(100)
       .optional()
-      // Normalize at parse so the value forwarded downstream is exactly the one
-      // that was validated — otherwise `" Text/Plain "` passes the refine
-      // (which lower-cases+trims) but reaches the Drive API raw and fails there.
+      // Normalize here, so the value sent to Drive is the one the refine checked.
       .transform((m) => (m === undefined ? undefined : m.toLowerCase().trim()))
       .refine((m) => m === undefined || DRIVE_TEXT_EXPORT_MIME_TYPES.has(m), {
         message: `mimeType must be a text export type — one of: ${[...DRIVE_TEXT_EXPORT_MIME_TYPES].join(", ")}. This tool reads a Google file's text into context; producing a downloadable PDF/slides/spreadsheet is a separate capability it does not have.`,
@@ -586,46 +413,18 @@ const githubOwnerRepo = {
   repo: z.string().min(1).max(100).describe("Repository name."),
 };
 
-/**
- * A github.com issue/PR URL — `github.com/<owner>/<repo>/(pull|issues)/<n>`.
- * Issues and PRs share one number namespace per repo, so the segment
- * (`pull` vs `issues`) doesn't have to match the tool: the owner/repo/number it
- * yields is correct for both `get_pull_request` and `get_issue`, and GitHub's
- * own API 404s if the number is the wrong kind.
- */
+/** `pull` or `issues` both work: issues and PRs share one number space per repo. */
 const GITHUB_ITEM_URL_RE = /github\.com\/([^/\s]+)\/([^/\s]+)\/(?:pull|issues)\/(\d+)/i;
 
 /**
- * `github.get_pull_request` / `get_issue` take `owner` + `repo` + the REST-named
- * number, but the model overwhelmingly holds the wrong *shape*. Three fumbles,
- * all measured on the search→fetch step (`github.search` hands back a `url` and
- * an `owner/repo` slug, and the natural next step is "fetch that"):
- *
- *   1. a full github.com **URL** (the single biggest fumble — `url` ×11);
- *   2. a combined **`owner/repo` slug** in the `repo` field (GitHub's own
- *      notation) with no separate `owner` — observed live: `{ repo:
- *      "99Yash/alfred", pullRequestNumber: "503" }`;
- *   3. a **number synonym** — bare `number`, or `pullRequestNumber` / `prNumber`
- *      / `issueNumber` — instead of the REST-named `pull_number`/`issue_number`.
- *
- * None validate against the strict schema, so the fetch dead-ends and burns a
- * turn. Decompose the URL, split the slug, and fold the number synonym into the
- * REST key — each only when the canonical field is absent, so an explicit
- * owner/repo/number always wins. The number synonym is matched against a closed
- * allowlist (`GITHUB_ITEM_NUMBER_SYNONYMS`), NOT an open-ended `endsWith(
- * "number")` test: the latter would fold an unrelated numeric field such as
- * `comment_number` into the item number and silently fetch the WRONG entity — a
- * failure strictly worse than a bounce, which self-corrects. `z.toJSONSchema`
- * unwraps the preprocess, so the model is still told the clean
- * owner/repo/<numberKey> surface; only the server is tolerant. `numberKey` is
- * tied to the wrapped object's keys, so it can't drift from the schema.
+ * Fix the shapes models send to the GitHub fetch tools: a github.com URL, an
+ * `owner/repo` slug in `repo`, or a number synonym (`number`, `prNumber`).
+ * Each applies only when the canonical field is absent. The synonym list is closed:
+ * `endsWith("number")` would fold `comment_number` and fetch the wrong item.
  */
 const GITHUB_OWNER_REPO_SLUG_RE = /^([^/\s]+)\/([^/\s]+)$/;
 
-/**
- * Canonical forms (see {@link canonicalParamKey}) of the number synonyms the model
- * actually reaches for. Kept a closed set on purpose — see the wrapper's note.
- */
+/** Canonical forms (see {@link canonicalParamKey}). Closed on purpose. */
 const GITHUB_ITEM_NUMBER_SYNONYMS: ReadonlySet<string> = new Set([
   "number",
   "prnumber",
@@ -645,7 +444,6 @@ function withGithubItemUrl<S extends z.ZodObject>(
       if (next === value) next = { ...value };
     };
 
-    // 1. Decompose a full github.com URL the model was handed by github.search.
     if (typeof next.url === "string") {
       const match = GITHUB_ITEM_URL_RE.exec(next.url);
 
@@ -661,8 +459,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
       }
     }
 
-    // 2. Split a combined `owner/repo` slug in `repo` when `owner` is absent —
-    //    a real repo name never contains a slash, so this can only be the slug.
+    // A real repo name has no slash, so this can only be a slug.
     if (typeof next.repo === "string" && !("owner" in next)) {
       const slug = GITHUB_OWNER_REPO_SLUG_RE.exec(next.repo.trim());
 
@@ -673,7 +470,6 @@ function withGithubItemUrl<S extends z.ZodObject>(
       }
     }
 
-    // 3. Fold whatever number synonym the model reached for into the REST key.
     if (!(numberKey in next)) {
       for (const key of Object.keys(next)) {
         if (key === "owner" || key === "repo") continue;
@@ -690,12 +486,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
   }, schema);
 }
 
-/**
- * One `*WithinDays` field. N=1 means today in the user's timezone, 7 means the
- * past week. Only the event differs between the four, so the rest of the
- * sentence is written once here — a per-field paragraph is how the same rule
- * ended up restated four times.
- */
+/** One `*WithinDays` field. N=1 means today in the user's zone. */
 function windowDays(event: string) {
   return z.coerce
     .number()
@@ -709,20 +500,15 @@ function windowDays(event: string) {
 }
 
 export const githubSearchInput = withKeyAliases(
-  // The model invents `limit` for the result cap; the field is `perPage`. The
-  // alias target `perPage` is now tied to the object's keys at compile time, so
-  // the wrapper must receive the plain `.strict()` object (not the refined
-  // schema); the query sanitizer runs as a `.superRefine` on the wrapper below.
+  // `limit` to `perPage`. This needs the plain `.strict()` object, so the query
+  // sanitizer runs as `.superRefine` on the wrapper below.
   { limit: "perPage" },
   z
     .object({
       type: z
         .enum(["issue", "pr", "both"])
-        // No schema default: the query builder treats an omitted `type` as `pr`
-        // (its `?? "pr"`), but keeping it OPTIONAL here lets the sanitizer tell a
-        // deliberate `type:'pr'` apart from "unset". A free-typed `is:issue` with
-        // an unset type then resolves to `issue` instead of silently widening to
-        // `both` (which an applied default would have caused).
+        // No default: the sanitizer must tell an explicit `pr` from unset, so a
+        // free-typed `is:issue` resolves to `issue`, not `both`.
         .optional()
         .describe(
           "What to search: `pr` (pull requests, the default when omitted), `issue` (issues only), or `both`. GitHub's search spans issues and PRs; this owns the is:pr/is:issue clause.",
@@ -731,12 +517,8 @@ export const githubSearchInput = withKeyAliases(
         .string()
         .min(1)
         .max(100)
-        // No schema default. An applied `@me` default forces every search to be
-        // author-scoped, which silently narrows a repo/org search ("open issues in
-        // repo:X") to ones the user authored. The query builder defaults author to
-        // `@me` only for an otherwise-unscoped search (a bare "my PRs"); a query
-        // that names a repo/org/person is left author-unfiltered unless the model
-        // sets this. Set `@me` explicitly to force your own items even in a repo.
+        // No default: an `@me` default would narrow a repo or org search to the user's
+        // own items. The query builder adds `@me` only for an unscoped search.
         .optional()
         .describe(
           "Author login, or `@me` for the connected user. Omit to leave the search author-unscoped — an otherwise-unscoped search defaults to your items, but a repo-/org-scoped search is left unfiltered by author unless you set `@me`.",
@@ -747,10 +529,8 @@ export const githubSearchInput = withKeyAliases(
         .describe(
           "State filter. `closed` includes merged PRs; `merged` is merged-only (PRs). Issues are never `merged`.",
         ),
-      // The four window fields differ only in which date event they name, so
-      // they share one `.describe` sentence plus the event. `activeWithinDays`
-      // is the one to reach for: it expands to every event the search can
-      // observe, which is why no field has to teach how windows combine.
+      // `activeWithinDays` covers every event the search can observe, so no field
+      // has to explain how windows combine.
       activeWithinDays: windowDays(
         "did anything — was created, merged, or closed — within the last N calendar days",
       ),
@@ -774,19 +554,14 @@ export const githubSearchInput = withKeyAliases(
         .min(1)
         .max(100)
         .default(30)
-        // The count is always exact regardless of list size, so an out-of-range
-        // perPage (e.g. the model passing 0 to mean "count only") shouldn't burn a
-        // turn on a validation error — fall back to the default instead of throwing.
+        // The count is always exact, so a bad perPage (0 for "count only") falls back.
         .catch(30)
         .describe("Max items to return in the list (the total count is always exact)."),
     })
     .strict(),
 )
-  // Sanitize-and-merge first (fold colliding author:/state:/is:/date qualifiers
-  // into the structured fields), then reject only the residue that has no safe
-  // auto-fix: invented qualifiers (the silent zero-count `merged-by:` trap),
-  // malformed date values, and contradictory field combinations (ADR-0071).
-  // Runs on the wrapper output (post key-alias fold), so it sees canonical keys.
+  // Sanitize first, then reject what cannot be fixed (ADR-0071). Runs after the
+  // key-alias fold, so it sees canonical keys.
   .superRefine((value, ctx) => {
     const { sanitized } = sanitizeGithubSearchQuery(value);
 
@@ -796,18 +571,9 @@ export const githubSearchInput = withKeyAliases(
   });
 
 /**
- * `github.search` result shape, mirroring the tool's execute return (exact
- * `totalCount` plus the matching `items`). Web-visible consumers — follow-up
- * suggestions, the evidence panel's "+N more" — depend on that pair, so it is
- * pinned here beside `gmail.search` rather than re-derived per caller.
- *
- * Lenient on purpose: `.catchall(z.unknown())` tolerates the producer's
- * conditional extras (`note` when the index timed out, `incompleteResults`)
- * and any future field, while the required core (`totalCount`, and each
- * item's identity fields) is what every search execution always emits — and
- * what preview pruning never drops (hits carry 10 keys; the tightest prune
- * tier keeps 16). A pruned or historical preview that lost a core field fails
- * closed: the consumer shows no count rather than a wrong one.
+ * `github.search` result. The UI depends on `totalCount` and the item identity
+ * fields. Loose for extras like `note`. A preview missing a core field fails
+ * closed: no count rather than a wrong count.
  */
 export const githubSearchHitSchema = z
   .object({
@@ -837,20 +603,15 @@ export const githubGetPullRequestInput = withGithubItemUrl(
   z
     .object({
       ...githubOwnerRepo,
-      // Named to match GitHub's own REST path param (`/pulls/{pull_number}`) so
-      // the model passes the field it already knows.
+      // GitHub's own REST name (`/pulls/{pull_number}`), which the model knows.
       pull_number: z.coerce.number().int().min(1).describe("Pull request number."),
     })
     .strict(),
 );
 
 /**
- * The batch form of `github.get_pull_request` (#935). One call fetches the diff
- * stats of every PR a search returned, so the model never has to fan out one
- * call per hit. Each item is the single-PR input, preprocess included, so a
- * pasted URL or an `owner/repo` slug is decomposed per item exactly as it is
- * for the single fetch. The cap bounds one tool call to one page of search
- * results; a larger set is two calls, not a hidden truncation.
+ * `github.get_pull_requests` batch cap (#935): one page of search results.
+ * Each item uses the single-PR preprocess.
  */
 export const GITHUB_PULL_REQUEST_BATCH_MAX = 25;
 
@@ -872,7 +633,7 @@ export const githubGetIssueInput = withGithubItemUrl(
   z
     .object({
       ...githubOwnerRepo,
-      // Matches GitHub's REST path param (`/issues/{issue_number}`).
+      // GitHub's REST name (`/issues/{issue_number}`).
       issue_number: z.coerce.number().int().min(1).describe("Issue number."),
     })
     .strict(),
@@ -897,12 +658,7 @@ export type GmailSearchHit = z.infer<typeof gmailSearchHitSchema>;
 
 export const gmailSearchResultSchema = z
   .object({
-    /**
-     * The Gmail query that produced these hits, echoed back. The chat UI drops
-     * `argsPreview` when it persists a turn, so a reload can only name what a
-     * search looked for if the result carries the query itself. The model also
-     * reads it as a reminder of what it asked for across a long tool loop.
-     */
+    /** Echoed back: persisted turns drop `argsPreview`, so a reload needs the query here. */
     query: z.string(),
     messages: z.array(gmailSearchHitSchema),
     nextPageToken: z.string().nullable(),
@@ -931,7 +687,7 @@ export const gmailSearchInput = withQueryAlias(
         .min(1)
         .max(GMAIL_SEARCH_MAX_RESULTS)
         .default(GMAIL_SEARCH_DEFAULT_RESULTS)
-        // Result-count cap — cosmetic; fall back to the default rather than error.
+        // Cosmetic cap: fall back to the default.
         .catch(GMAIL_SEARCH_DEFAULT_RESULTS)
         .describe(
           `Cap on results returned to the model (Gmail allows up to 500; we cap at ${GMAIL_SEARCH_MAX_RESULTS}).`,
@@ -942,26 +698,9 @@ export const gmailSearchInput = withQueryAlias(
 );
 
 /**
- * Recipient fields are `z.array(email)`, but the model routinely emits a single
- * recipient as a bare string (`to: "user@example.com"`) instead of a one-element
- * array — dispatch traces run_4tvphr6ymih7 / run_daol4yqz8919 show every
- * first-try `gmail.send_draft` bouncing `invalid_input` on `to: expected array,
- * received string`, then self-correcting on the resend (one wasted boss turn + a
- * spurious "Some steps failed" card per email). Wrap a bare recipient string as a
- * single-element array before validation. Runs after `coerceJsonArrayFields`,
- * which has already turned a JSON-array *string* into a real array, so a string
- * reaching here is a plain address; a `[`-prefixed string is a malformed JSON
- * array `coerceJsonArrayFields` declined and is left for strict validation to
- * reject rather than double-wrapped. The scalar is passed through verbatim (no
- * trim), so a padded address fails `modelToolEmail` exactly as it would inside an
- * explicit array — this is a shape fix, not content normalization.
- *
- * Recipient-specific by design: wrapping a bare scalar into `[scalar]` is
- * sensible for an address list but NOT for e.g. sheets `values` (an array *of
- * arrays*), so this is a `send_draft`-local preprocess and is NOT folded into the
- * shared `coerceJsonArrayFields`. `z.toJSONSchema(schema, { io: "input" })` still
- * advertises an array, so the model and approval UI see the canonical shape —
- * only the server gets more tolerant.
+ * Wrap a bare recipient string (`to: "a@b.com"`) in an array. Runs after
+ * `coerceJsonArrayFields`, so a `[`-prefixed string is a bad JSON array and is
+ * left to fail. No trim: this fixes shape, not content. Recipients only.
  */
 const GMAIL_RECIPIENT_FIELDS = ["to", "cc", "bcc"] as const;
 
@@ -974,8 +713,6 @@ function wrapScalarRecipients(value: unknown): unknown {
 
     if (typeof raw !== "string") continue;
 
-    // A `[`-prefixed string is a malformed JSON array coerceJsonArrayFields
-    // already declined; leave it to fail strict validation, don't wrap it.
     if (raw.trim().startsWith("[")) continue;
 
     if (next === value) next = { ...value };
@@ -987,12 +724,8 @@ function wrapScalarRecipients(value: unknown): unknown {
 
 export const gmailSendDraftInput = coerceJsonArrayFields(
   GMAIL_RECIPIENT_FIELDS,
-  // A single recipient arrives as a bare string as often as an array; wrap it
-  // before validation (after the JSON-array-string coercion above).
   z.preprocess(
     wrapScalarRecipients,
-    // The model reaches for `body` (the plain-English name); the field is
-    // `bodyText`. Fold the synonym before validation.
     withKeyAliases(
       { body: "bodyText" },
       z
@@ -1008,11 +741,7 @@ export const gmailSendDraftInput = coerceJsonArrayFields(
               message: "subject must not contain line breaks",
             }),
           bodyText: z.string().min(1).max(50_000),
-          /**
-           * Optional `In-Reply-To` / `References` thread anchor — the dispatcher
-           * surfaces this on the approval card so the user can confirm what
-           * thread Alfred is replying into.
-           */
+          /** Shown on the approval card so the user can confirm the thread. */
           threadId: z.string().optional(),
         })
         .strict(),
@@ -1051,11 +780,8 @@ export const gmailReadMessageInput = z
   .refine((value) => Boolean(value.documentId || value.messageId || value.id), {
     message: "documentId or messageId is required",
   })
-  // Fold the legacy `id` alias into `messageId` so consumers read one field.
-  // Omit the key the caller did not supply rather than writing it as
-  // `undefined`: the dispatcher persists the parsed input as a `JsonValue`,
-  // and a record with an `undefined` value is not JSON, so an explicit key
-  // would throw at the staging boundary before the tool ever executes.
+  // Fold legacy `id` into `messageId`. Omit absent keys: an `undefined` value is
+  // not JSON and would throw at the staging boundary.
   .transform((value) => {
     const messageId = value.messageId ?? value.id;
 
@@ -1067,7 +793,7 @@ export const gmailReadMessageInput = z
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
 
-/** A single cell on write: string, number, boolean, or null (blank). */
+/** `null` is a blank cell. */
 const cellValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
 const cellGrid = z
@@ -1251,13 +977,8 @@ export const notionAppendBlocksInput = z
   .strict();
 
 /**
- * The shared REST general-passthrough (ADR-0074) request shape for every
- * REST-transport integration (`github.request`, `notion.request`,
- * `vercel.request`, …). One schema, not one per provider: the request surface
- * is identical (method + namespace-relative path + query + optional read-via-POST
- * body); the per-provider read gate and honest envelope live in `@alfred/assistant`.
- * Not `.strict()` on purpose — a mistaken write method reaches the *gate* (a
- * visible rejection the boss can self-correct), not a hidden Zod failure.
+ * The shared REST passthrough request for every REST integration (ADR-0074).
+ * Not `.strict()`: a write method should reach the read gate, which explains the rejection.
  */
 export const restPassthroughInput = restPassthroughRequestSchema;
 
@@ -1335,10 +1056,8 @@ export const recoverWorkflowInput = z
   })
   .strict();
 
-// Activation receives the server-canonical proposal returned by authoring. It
-// does not repeat the full tool-name enum for every nested definition field.
-// The model only copies these server-produced names; runtime parsing still uses
-// the narrowed contract schema inside `activateWorkflowDefinition`.
+// The model copies these names from the server's proposal, so the full tool-name
+// enum is not repeated here. `activateWorkflowDefinition` still parses strictly.
 const copiedWorkflowCapabilitySchema = workflowRequiredCapabilitySchema.extend({
   tool: z.string().min(1).max(200),
 });
@@ -1424,12 +1143,8 @@ export const readUserContextInput = coerceJsonArrayFields(
   ),
 );
 
-// A model-facing tool `input_schema` MUST be a JSON Schema object with a
-// top-level `type: "object"`; Anthropic rejects a top-level union (a
-// `discriminatedUnion` serializes to a typeless `oneOf`) with
-// `tools.N.custom.input_schema.type: Field required`. So this stays a single
-// object with `mode` as the discriminant and the per-mode fields optional,
-// enforced by refinements — the same shape as `createArtifactInput`.
+// Tool `input_schema` needs a top-level `type: "object"`, and a union serializes
+// to a typeless `oneOf`. So one object, `mode` as the discriminant, refinements.
 export const readChatHistoryInput = z
   .object({
     mode: z
@@ -1473,7 +1188,6 @@ export const readChatHistoryInput = z
     path: ["kind"],
   });
 
-/** A resolved sender email as `system.remember` accepts it, in both its single and batch forms. */
 const rememberSenderEmail = z.string().trim().toLowerCase().max(320);
 
 const rememberSenderLabel = z
@@ -1497,7 +1211,6 @@ const rememberScope = z
       "mail-service host falls back to `sender`.",
   );
 
-/** Per-entry override of the top-level `scope`. Same values, shorter prose. */
 const rememberEntryScope = z
   .enum(["sender", "domain"])
   .optional()
@@ -1573,21 +1286,10 @@ export const rememberInput = coerceJsonArrayFields(
     .strict(),
 );
 
-/**
- * List the user's active standing instructions so the model can reference a
- * specific one (by `factId`) before changing or removing it, and detect when a
- * request is ambiguous (matches several) or conflicts with an existing one.
- * No arguments — the server returns a bounded newest-first page with
- * `totalActive` / `truncated` metadata.
- */
+/** No arguments. Returns a bounded newest-first page. */
 export const listInstructionsInput = z.object({}).strict();
 
-/**
- * Remove a standing instruction the user explicitly asked to drop. Targets one
- * row by its `factId` (from `list_instructions`) so the model never deletes by
- * a fuzzy guess. Non-destructive: the row is marked `rejected`, not hard
- * deleted — reversible and auditable.
- */
+/** Targets one row by `factId`. Marks it `rejected`, so it can be undone. */
 export const forgetInstructionInput = z
   .object({
     factId: z
@@ -1605,16 +1307,8 @@ export const forgetInstructionInput = z
   .strict();
 
 /**
- * Reframe an existing standing instruction — update its directive wording
- * and/or display label without changing what it targets. Supersedes the old
- * row with a new one (the old row is kept, linked, and reversible). To retarget
- * a different sender, `forget_instruction` the wrong one and `remember` the
- * right one instead.
- *
- * A row whose target is a DOMAIN takes neither edit: its sentence is written
- * from the domain and its target carries no display label. Such a call answers
- * `unchanged` (or `edited`, when it rewrites a stale sentence) and lists every
- * ignored field under `droppedInputs`.
+ * Change the directive or label, not the target: supersedes the row. A domain row
+ * takes neither edit and lists the ignored fields in `droppedInputs`.
  */
 export const editInstructionInput = z
   .object({
@@ -1702,10 +1396,7 @@ export const fetchUrlInput = z
       .trim()
       .min(1)
       .max(2_048)
-      // Validate the URL shape here so a malformed string bounces back to the
-      // model with a clear message rather than failing deep in the fetch. The
-      // scheme + host safety checks (ADR-0071 honest read-in) run server-side in
-      // the handler, since they need URL parsing the web bundle shouldn't carry.
+      // Shape only. The scheme and host safety checks run in the server handler (ADR-0071).
       .url()
       .refine((u) => /^https?:\/\//i.test(u), {
         message: "url must be an http(s) URL.",
@@ -1729,21 +1420,8 @@ export const corpusSearchInput = z
   .strict();
 
 /**
- * `system.search_context` input (epic #422; ADR-0101). The model supplies the
- * query envelope; the server binds `userId` from the call context, exactly as
- * `searchContext` expects. Derived from the boundary's own
- * {@link contextSearchRequestSchema} by dropping the server-owned fields and
- * tightening the object to `.strict()`, so the model-facing shape cannot drift
- * from the envelope the boundary parses — there is one set of bounds and one
- * cap.
- *
- * Three fields are dropped. `userId` is the caller's identity, which the model
- * never states. `expand` (#1077) and `maxSourceCost` (#1078) are latency and
- * money budgets: whether the read may pay for live provider round trips is the
- * server's call, not a knob the model can price, and exposing either would cost
- * schema bytes on a kernel tool for a choice the model cannot reason about. The
- * boundary's defaults (expansion on, every declared cost affordable) therefore
- * apply to every model-issued read.
+ * `system.search_context` input (ADR-0101): {@link contextSearchRequestSchema}
+ * without `userId` and the server-owned budgets `expand` and `maxSourceCost`.
  */
 export const searchContextInput = coerceJsonArrayFields(
   ["objects"],
@@ -1785,24 +1463,13 @@ export const suggestTodoInput = coerceJsonArrayFields(
 
 /* ── artifacts (ADR-0075) ─────────────────────────────────────────────── */
 
-/**
- * The kinds the boss can actually author. `spreadsheet` is reserved (no v1
- * tool/renderer) and `external_file` is minted server-side when the agent
- * surfaces an unreadable file (#287), never authored — both excluded here,
- * derived from {@link artifactKindSchema} so this can't drift from the source
- * enum.
- */
+/** `spreadsheet` has no renderer yet, and the server mints `external_file` (#287). */
 const authorableArtifactKindSchema = artifactKindSchema.exclude(["spreadsheet", "external_file"]);
 
 /**
- * `markdown` and `format` are optional, but the boss fills every declared field
- * anyway: dispatch traces run_hs9s7ss11hak and run_bfs3827cdfek show the
- * semantically correct deck call `{kind:"pages", format:"slides", markdown:""}`
- * bouncing on the pages-take-no-markdown refine because `""` is not
- * `undefined`. The model reads that rejection as "pages is broken", retries
- * `document` with `format:"slides"`, and finally ships a document instead of
- * the deck the user asked for. Blank strings mean "omitted" here, so drop them
- * before the refines run (see {@link blankFieldToOmitted}).
+ * The model fills every field, so `{kind:"pages", markdown:""}` failed the
+ * no-markdown refine and it shipped a document instead of a deck.
+ * Blank strings mean omitted here.
  */
 export const createArtifactInput = blankFieldToOmitted(
   ["markdown", "format"],
@@ -1881,8 +1548,7 @@ export const appendArtifactSectionInput = z
 
 export const updateArtifactInput = coerceJsonArrayFields(
   ["pages"],
-  // A blank `markdown` beside a `pages` list means "no markdown", not a
-  // document body — same fill-every-field habit as `createArtifactInput`.
+  // A blank `markdown` beside `pages` means none.
   blankFieldToOmitted(
     ["title", "markdown"],
     z
@@ -1919,26 +1585,18 @@ export const updateArtifactInput = coerceJsonArrayFields(
   ),
 );
 
-/**
- * The list bounds of a `system.ask_user` call. One table, read by the schema
- * bounds and by every prose string that quotes them, so the tool description
- * and the field descriptions cannot disagree with what the parser accepts.
- */
+/** One table for the schema bounds and the prose that quotes them. */
 export const ASK_USER_LIMITS = {
-  /** Questions per call. */
   questions: { min: 1, max: 4 },
-  /** Options per question. Past four, the choice is too open for a card (#1019). */
+  /** More than four is too open for a card (#1019). */
   options: { min: 2, max: 4 },
   /**
-   * Characters of free text per answer. The card reads it too: it caps the
-   * textarea at this number, because the draft is re-parsed against
-   * `askUserAnswerSchema` on every keystroke and a longer paste would fail
-   * that parse and replace the card with a raw-JSON editor mid-edit.
+   * The card caps its textarea here: it re-parses the draft on every keystroke,
+   * and a longer paste would swap the card for a raw-JSON editor.
    */
   customAnswer: { max: 4_000 },
 } as const;
 
-/** One option the user can pick for a `system.ask_user` question. */
 const askUserOptionSchema = z
   .object({
     label: z
@@ -1955,7 +1613,6 @@ const askUserOptionSchema = z
   })
   .strict();
 
-/** One question inside a `system.ask_user` call. */
 export const askUserQuestionSchema = z
   .object({
     question: z
@@ -1985,12 +1642,8 @@ export const askUserQuestionSchema = z
       .describe("True when the user may pick several options at once."),
   })
   .strict()
-  // The label IS the option's identity: an answer carries labels, and the card
-  // keys each row on its label and marks it selected by membership. Two options
-  // sharing a label therefore render as one selection and un-toggle together.
-  // "Distinct choices" was prose in a `.describe()`, which the model may read
-  // and no boundary enforced; this makes the duplicate a validation error the
-  // dispatcher hands back with the repair.
+  // The label is the option's identity in answers and in the card, so duplicates
+  // would toggle together. Reject them here, not in prose.
   .refine((v) => new Set(v.options.map((option) => option.label)).size === v.options.length, {
     message: "options must carry distinct labels",
     path: ["options"],
@@ -1999,16 +1652,8 @@ export const askUserQuestionSchema = z
 export type AskUserQuestion = z.infer<typeof askUserQuestionSchema>;
 
 /**
- * The user's answer to one question, in question order. `selectedOptions`
- * carries option labels; `customAnswer` is the free-text answer, or null.
- *
- * `customAnswer` is deliberately NOT trimmed. The question card holds its
- * draft as the tool input and re-reads it through this schema on every
- * keystroke, so a trim here deleted the space the user had just typed and made
- * the free-text field unable to accept a space at all. The labels in
- * `selectedOptions` are still trimmed: the card writes them from the question,
- * so no one ever types them. The card decides emptiness for itself, and the
- * model reads prose, so no boundary needs the whitespace removed.
+ * Answers in question order. `customAnswer` is not trimmed: the card re-parses
+ * its draft on every keystroke, and a trim deleted each typed space.
  */
 export const askUserAnswerSchema = z
   .object({
@@ -2019,11 +1664,7 @@ export const askUserAnswerSchema = z
 
 export type AskUserAnswer = z.infer<typeof askUserAnswerSchema>;
 
-/**
- * The fields of a `system.ask_user` call that the model writes. Kept
- * unwrapped so the three schemas below can each add their own tolerance
- * wrapper and their own rules on top of one field list.
- */
+/** The model's fields, unwrapped so each schema below adds its own wrapper and rules. */
 const askUserFields = z.object({
   context: z
     .string()
@@ -2042,58 +1683,33 @@ const askUserFields = z.object({
     ),
 });
 
-/**
- * The user's half, added by the decision route and never by the model.
- */
+/** Written by the decision route, never by the model. */
 const askUserAnswersField = z
   .array(askUserAnswerSchema)
   .optional()
   .describe("Filled by the user, never by the model. One entry per question, in the same order.");
 
 /**
- * The half of `system.ask_user` the model may write (ADR-0099): the framing
- * paragraph and the questions. It has no `answers` key at all, and it is the
- * schema the tool surface advertises, so the model cannot answer its own
- * question. Slice 1 shipped one schema for both halves; the model then read
- * the optional `answers` key as a field to fill, and the two rules that guard
- * it contradicted each other on every retry. See {@link askUserInput}.
+ * What the model may write (ADR-0099). No `answers` key, so it cannot answer
+ * itself: an optional `answers` once read to the model as a field to fill.
  */
 export const askUserModelInput = coerceJsonArrayFields(["questions"], askUserFields.strict());
 
 export type AskUserModelInput = z.infer<typeof askUserModelInput>;
 
-/**
- * The whole sheet: the model's questions plus the user's answers. Named once
- * because the two schemas below must stay byte-identical apart from the
- * pairing rule — "the same shape plus one rule" is only true while one
- * expression states the shape.
- */
+/** Shared, so the two schemas below differ only by the pairing rule. */
 const askUserAnswerSheet = askUserFields.extend({ answers: askUserAnswersField }).strict();
 
 /**
- * `system.ask_user` (ADR-0099) as the tool runtime validates it. The chat turn
- * parks on a `question` approval, the decision route writes the user's
- * `answers` into the row's decided input, and the dispatcher's ordinary
- * "re-validate the decided input against the tool schema" path carries the
- * answer back to the tool's `execute`. So this schema accepts `answers` while
- * {@link askUserModelInput} hides it.
- *
- * It holds no cross-field rule on purpose. A stray `answers` on a fresh call
- * must reach the dispatcher's question arm, which names the one repair ("send
- * only context and questions"); a length rule here would answer first and tell
- * the model to fill the field instead. {@link askUserDecidedInput} adds the
- * rule at the one boundary that writes answers.
+ * The runtime schema (ADR-0099). Accepts `answers`, which the decision route
+ * writes into the decided input. No length rule on purpose: a stray `answers`
+ * must reach the dispatcher's question arm, which names the right repair.
  */
 export const askUserInput = coerceJsonArrayFields(["questions", "answers"], askUserAnswerSheet);
 
 export type AskUserInput = z.infer<typeof askUserInput>;
 
-/**
- * The answer sheet the decision route accepts (ADR-0099). Same shape as
- * {@link askUserInput} plus the pairing rule, so a wrong-length answer list is
- * a 400 the question card shows instead of a failed row and a generic
- * `tool_input_invalid` the model re-asks past.
- */
+/** Adds the pairing rule, so a wrong-length answer list is a 400 the card can show. */
 export const askUserDecidedInput = coerceJsonArrayFields(
   ["questions", "answers"],
   askUserAnswerSheet.refine(
@@ -2108,21 +1724,14 @@ export const askUserDecidedInput = coerceJsonArrayFields(
 export type AskUserDecidedInput = z.infer<typeof askUserDecidedInput>;
 
 /**
- * Why the user's answers did not arrive. `dismissed` and `expired` come from
- * the dispatcher, which synthesizes the result from the parked row's status
- * without running the tool. `no_answers` comes from the tool itself when the
- * row was approved with no edit, so the decided input carries no `answers`.
+ * The dispatcher sets `dismissed` and `expired` without running the tool.
+ * The tool sets `no_answers` when the row was approved with no edit.
  */
 export const askUserUnansweredReasonSchema = z.enum(["dismissed", "expired", "no_answers"]);
 
 export type AskUserUnansweredReason = z.infer<typeof askUserUnansweredReasonSchema>;
 
-/**
- * What the model sees after a `system.ask_user` park settles. One shape for
- * the tool's own `execute` and for the dispatcher's synthesized results, so the
- * two cannot drift. The dispatcher adds its envelope fields (`toolName`,
- * `retryPolicy`) on top of the `unanswered` variant.
- */
+/** Shared by `execute` and the dispatcher's synthesized results. */
 export const askUserResultSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("answered"),
@@ -2141,12 +1750,7 @@ export type AskUserResult = z.infer<typeof askUserResultSchema>;
 
 export type AskUserUnansweredResult = Extract<AskUserResult, { status: "unanswered" }>;
 
-/**
- * Every tool whose input shape lives here, keyed by `ToolName`. The dispatcher
- * resolves the schema from the owning module (which re-exports these); this
- * map exists so the web layer can look a schema up by name without importing
- * server code. `system.spawn_sub_agent` is intentionally absent.
- */
+/** By `ToolName`, so the web can find a schema without server code. `system.spawn_sub_agent` is absent on purpose. */
 export const TOOL_INPUT_SCHEMAS = {
   "calendar.list_events": calendarListEventsInput,
   "calendar.create_event": calendarCreateEventInput,
@@ -2213,12 +1817,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "mcp.inspect_tool": mcpToolInspectInputSchema,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
 
-/**
- * Tool result schemas that are intentionally part of the cross-boundary
- * contract. Most tool outputs are still free-form `execute_result` JSON; add
- * entries here when web/model-visible consumers depend on a stable result
- * shape.
- */
+/** Result shapes that web or model code depends on. Most results stay free-form JSON. */
 export const TOOL_OUTPUT_SCHEMAS = {
   "gmail.search": gmailSearchResultSchema,
   "github.search": githubSearchResultSchema,

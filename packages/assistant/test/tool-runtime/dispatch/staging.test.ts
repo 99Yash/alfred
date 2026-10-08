@@ -17,35 +17,10 @@ import { runStagingStoreContract, type StagingStoreHarness } from "./staging-sto
 import { dbBackedSkip } from "../../support/db-backed";
 
 /**
- * DB-backed regression tests for the dispatcher's idempotency contract and the
- * `(run_id, tool_call_id)` upsert it rests on — the two load-bearing claims
- * behind concurrent batch dispatch + the staged/resume re-dispatch path
- * (perf/191-195). Specifically:
- *
- *   1. `dispatchToolCall` is idempotent on `(runId, toolCallId)`: re-dispatching
- *      an already-`executed` call returns the STORED result without running the
- *      tool a second time. This is precisely what makes "re-dispatch the whole
- *      batch on resume" safe — already-executed siblings must not re-fire.
- *   2. The single upsert's `xmax = 0` flag distinguishes a fresh insert from a
- *      conflict, and its no-op `SET row_version = row_version` returns the
- *      existing row VERBATIM — it must never clobber a decision/result column,
- *      because the resume path reads `status` / `decided_input` off that row.
- *
- * The dispatcher drives the `system.*` integration through the autonomy path
- * (no policy lookup, no approval gate, no Redis), so these stay DB-only.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated
- * Postgres; skipped otherwise so the pure-function suite still runs without a
- * database. Seeds throwaway `test-dispatch-*` users and cascades them away on
- * teardown (action_stagings + agent_runs both `onDelete: cascade` from user).
- *
- * The gate's *status machine* no longer lives behind this gate — see the DB-free
- * sibling `staging-machine.test.ts`, which drives the same `dispatchToolCall`
- * over the in-memory `StagingStore`. What stays here is what a fake structurally
- * cannot prove: the `xmax = 0` insert-vs-conflict flag, the no-op
- * `SET row_version = row_version`, and (at the bottom) the Postgres half of the
- * shared store contract. Both halves of that contract must run, or the fake
- * stops being evidence about the real adapter.
+ * DB-backed tests for what the in-memory store cannot prove: idempotent
+ * re-dispatch on `(runId, toolCallId)`, the upsert's `xmax = 0` insert flag,
+ * and the no-op `SET row_version = row_version` that must not clobber a decision.
+ * Skipped without `DATABASE_URL`. The status machine lives in `staging-machine.test.ts`.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -53,13 +28,10 @@ const ID_PREFIX = "test-dispatch-";
 
 const createdUserIds: string[] = [];
 
-// Bumped every time the registered `load_tool` double actually runs, so
-// a test can prove a re-dispatch did NOT re-execute (count stays put).
+// Proves a re-dispatch did not re-execute.
 let executeCount = 0;
 
-// The raw URL the `fetch_url` double actually received in `execute`, so a test
-// can prove the dispatcher hands the tool the unredacted input even though the
-// persisted `proposed_input` is scrubbed (#293).
+// The tool gets the raw URL even though the persisted `proposed_input` is scrubbed.
 let lastFetchUrlExecuteUrl: string | null = null;
 
 async function seedUserAndRun(): Promise<{ userId: string; runId: string }> {
@@ -94,11 +66,8 @@ async function stagingRowsFor(runId: string, toolCallId: string) {
 
 describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
-    // The tool registry is process-local and starts empty in the test runner
-    // (production tools self-register at server boot, which we never trigger).
-    // Register controlled `system.*` doubles: `load_tool` counts its
-    // executions; `spawn_sub_agent` exists only so a toolName-mismatch can be
-    // dispatched against a real, known name.
+    // The registry starts empty in tests. `spawn_sub_agent` exists only as a known name for the
+    // mismatch test.
     clearToolRegistryForTests();
     registerTool(
       liveTool({
@@ -116,12 +85,8 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
 
           executeCount += 1;
 
-          // The `poison` sentinel returns a NUL byte the dispatch-boundary
-          // sanitizer must strip (ADR-0070 §1.1) — used to prove the sanitize
-          // verdict is persisted and replayed. Written as the `\x00` ESCAPE,
-          // never a literal NUL byte (a literal one turns this file binary
-          // to rg/grep/git — see the round-10 distinctRecipientCount lesson
-          // in user-model.test.ts).
+          // A NUL the sanitizer must strip (ADR-0070 §1.1). Keep the `\x00` escape: a literal
+          // NUL makes git treat the file as binary.
           if (input.slug === "poison") {
             return { ok: true, note: "tail\x00end", call: executeCount };
           }
@@ -173,9 +138,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
 
-    // Staging a call publishes to the action-policy channel, which opens a
-    // tracked Redis connection (#546). Without this the socket stays
-    // ESTABLISHED and the test child process never exits.
+    // Staging opens a Redis connection. Without this the test process never exits.
     await closeRedis();
     await closeConnections();
   });
@@ -222,11 +185,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("a sanitized result keeps its honesty flag on idempotent re-dispatch", async () => {
-    // ADR-0070 §1.1 review finding: the first execution returns `sanitized:
-    // true` in-memory, but the idempotent `executed` replay re-reads the row.
-    // Unless the verdict is persisted, the model sees the scrubbed result a
-    // second time WITHOUT the "may be incomplete" notice. The result NUL is
-    // stripped at the boundary, so both dispatches must flag `sanitized`.
+    // The replay re-reads the row, so the sanitize verdict must be persisted (ADR-0070 §1.1).
     const { userId, runId } = await seedUserAndRun();
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
 
@@ -319,7 +278,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         riskTier: "no_risk",
         proposedInput: { slug: "github" },
         proposedInputHash: "invalid-edit-test",
-        // #559a: the ledger's NOT NULL effect identity and canonical request hash.
+        // NOT NULL ledger columns.
         effectKey: `eff:${runId}:${toolCallId}`,
         attemptKey: `eff:${runId}:${toolCallId}:1`,
         requestHash: "req_invalid_edit_test",
@@ -374,15 +333,12 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       fence: { generation: 0 },
     });
 
-    // execute() ran against the RAW url (idempotency + the in-tool credential
-    // block both depend on the real value).
+    // The in-tool credential block needs the real value.
     assert.equal(result.kind, "executed");
     assert.equal(lastFetchUrlExecuteUrl, rawUrl, "execute receives the unredacted url");
 
-    // ...but the persisted proposed_input is scrubbed (system tools are
-    // autonomous, so they always take the redact branch), and the display
-    // projection is scrubbed alongside it (#374 — the two columns are written
-    // as a pair whatever the gate decided).
+    // Autonomous calls persist a scrubbed `proposed_input`. `display_input` is always scrubbed
+    // with it.
     const rows = await db()
       .select({
         proposedInput: actionStagings.proposedInput,
@@ -436,9 +392,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
     });
-    // Same (runId, toolCallId), different toolName → the model emitted two
-    // tools under one call id. The dispatcher must throw rather than silently
-    // execute the new tool against the original row's audit trail.
+    // Two tools under one call id must throw, not run against the first row's audit trail.
     await assert.rejects(
       dispatchToolCall({
         runId,
@@ -460,9 +414,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     const { userId, runId } = await seedUserAndRun();
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
 
-    // Exactly the upsert `dispatchToolCall` issues, run in isolation so the
-    // `xmax = 0` insert-vs-conflict flag and the no-op SET are exercised
-    // directly — independent of the tool registry.
+    // The same upsert `dispatchToolCall` issues, run without the registry.
     const upsert = (status: "pending" | "approved") =>
       db()
         .insert(actionStagings)
@@ -476,7 +428,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
           riskTier: "no_risk",
           proposedInput: { slug: "github" },
           proposedInputHash: "hash-fixed",
-          // #559a: the ledger's NOT NULL effect identity and canonical request hash.
+          // NOT NULL ledger columns.
           effectKey: `eff:${runId}:${toolCallId}`,
           attemptKey: `eff:${runId}:${toolCallId}:1`,
           requestHash: "req_hash_fixed",
@@ -498,15 +450,13 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     assert.equal(inserted[0]?.wasInserted, true, "first upsert is a genuine insert");
     assert.equal(inserted[0]?.status, "pending");
 
-    // Simulate the user approving + editing between dispatch and resume: flip
-    // the row to a decided state the resume path must read back verbatim.
+    // The user approves and edits between dispatch and resume.
     await db()
       .update(actionStagings)
       .set({ status: "approved", decidedInput: { slug: "edited" }, rowVersion: 7 })
       .where(eq(actionStagings.id, inserted[0]!.id));
 
-    // The resume re-dispatch sends `status: "pending"` + the original proposed
-    // input again. The conflict path must NOT overwrite the approval decision.
+    // Resume re-sends `pending`. The conflict path must not overwrite the decision.
     const conflicted = await upsert("pending");
     assert.equal(conflicted[0]?.wasInserted, false, "re-upsert on conflict is not an insert");
     assert.equal(
@@ -526,10 +476,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     assert.equal(rows[0]?.rowVersion, 7, "no-op SET rewrites row_version to itself, not the seed");
   });
 
-  // The Postgres half of the shared store contract. Its memory twin runs in
-  // `staging-machine.test.ts`. Nested inside this describe so the parent's
-  // `before`/`after` (registry setup, user cleanup, connection teardown) cover
-  // it, and so the seeded users land in `createdUserIds`.
+  // Postgres half of the store contract. Nested so the parent's setup and user cleanup cover it.
   runStagingStoreContract("postgres", (): StagingStoreHarness => {
     return {
       store: postgresStagingStore,
@@ -554,8 +501,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         return { userId, runId };
       },
       async decide(stagingId, decision) {
-        // Out-of-band, exactly as the approval API writes it — not through the
-        // store, because deciding a row is not the store's job.
+        // Written out-of-band, like the approval API. Deciding a row is not the store's job.
         await db()
           .update(actionStagings)
           .set({

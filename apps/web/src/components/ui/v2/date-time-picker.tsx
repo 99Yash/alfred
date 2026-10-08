@@ -1,13 +1,6 @@
 /**
- * App-grammar date-time picker.
- *
- * Replaces the native `<input type="datetime-local">` — same h-9 pill trigger
- * as `AppInput`, opening a popover with a month calendar and styled time
- * controls (hour / minute dropdowns + AM·PM toggle). All custom chrome, no
- * native browser picker. Built on `@radix-ui/react-popover`.
- *
- * Values cross the boundary as ISO strings (what the tool schemas expect) and
- * are presented in the viewer's local timezone, matching `formatDateTime`.
+ * Date-time picker on a Radix popover, replacing `datetime-local`.
+ * Values are ISO strings, shown in the viewer's local zone like `formatDateTime`.
  */
 
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -20,7 +13,7 @@ import { AppThemeContext } from "./theme";
 
 interface AppDateTimePickerProps {
   id?: string | undefined;
-  /** ISO 8601 string, or undefined when unset. */
+  /** ISO 8601, or undefined when unset. */
   value: string | undefined;
   onChange: (value: string | undefined) => void;
   disabled?: boolean | undefined;
@@ -46,15 +39,13 @@ export function AppDateTimePicker({
 }: AppDateTimePickerProps) {
   const [open, setOpen] = useState(false);
   const dayRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  // Portal content sits outside the `.app` subtree — stamp the theme so the
-  // tokens resolve (same trick as AppSelect / the toast).
+  // The portal leaves `.app`; stamp the theme so tokens resolve.
   const themeCtx = use(AppThemeContext);
 
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
 
   const selected = useMemo(() => parseDate(value), [value]);
-  // The visible month — seeded from the value, advanced via the chevrons.
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(selected ?? todayLocal()));
 
   const minuteOptions = useMemo(() => buildMinuteOptions(selected), [selected]);
@@ -72,8 +63,7 @@ export function AppDateTimePicker({
     if (selected) setViewMonth(startOfMonth(selected));
   }, [selected]);
 
-  // Time edits are only meaningful after a date exists; empty optional fields
-  // should not materialize "today 09:00" just because a time control was touched.
+  // A time edit with no date must not create "today 09:00".
   const commit = (mutate: (d: Date) => void) => {
     if (!selected) return;
     const base = new Date(selected);
@@ -327,7 +317,7 @@ function NavButton({
   );
 }
 
-/* ── date helpers (all local-time) ─────────────────────────────────────── */
+/* Date helpers, all local time */
 
 function parseDate(value: string | undefined): Date | null {
   if (!value) return null;
@@ -342,7 +332,7 @@ function todayLocal(): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-/** A sensible default when the field starts empty: today at 09:00 local. */
+/** Today at 09:00 local. */
 function defaultDateTime(): Date {
   const d = todayLocal();
   d.setHours(9, 0, 0, 0);
@@ -358,7 +348,7 @@ function addMonths(d: Date, delta: number): Date {
   return new Date(d.getFullYear(), d.getMonth() + delta, 1);
 }
 
-/** 6 weeks covering the month, padded with adjacent days. */
+/** Six weeks covering the month, padded with adjacent days. */
 function monthGrid(month: Date): Date[][] {
   const first = startOfMonth(month);
   const start = new Date(first);

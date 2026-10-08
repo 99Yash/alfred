@@ -5,10 +5,7 @@ function advisoryLockIdentity(storageKey: string): string {
   return `chat-storage:${storageKey}`;
 }
 
-/**
- * Serialize durable attachment creation and orphan cleanup for exact storage keys.
- * Sorted acquisition prevents two multi-key operations from deadlocking each other.
- */
+/** Serialize attachment creation and orphan cleanup per key. Sorted order prevents deadlock. */
 export async function lockChatStorageKeys(
   tx: DbTransaction,
   storageKeys: readonly string[],
@@ -23,10 +20,8 @@ export async function lockChatStorageKeys(
 }
 
 /**
- * Serialize one storage-key operation without holding an open transaction
- * during object-store I/O. Session and transaction advisory locks share the
- * same PostgreSQL namespace, so uploads still coordinate with turn admission
- * and orphan cleanup across every replica.
+ * Lock one key without an open transaction during object-store I/O. Session and
+ * transaction advisory locks share one namespace, so this still excludes admission and cleanup.
  */
 export async function withChatStorageKeyLock<T>(
   storageKey: string,

@@ -128,19 +128,10 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
 }
 
 /**
- * Dispatch one round's calls with the approval gate read first.
- *
- * Calls the gate hint marks as free run at once; calls that share an
- * `executionLane` run in model order inside that lane; calls the hint marks as
- * gated run one at a time after the rest, so a round can stage at most one
- * approval card (ADR-0040). A `parked` or `staged` result leaves the batch
- * uncommitted and the whole batch re-dispatches on resume, where the finished
- * siblings short-circuit on `(runId, toolCallId)` idempotency.
- *
- * Every caller takes this path. `interaction` decides tool eligibility
- * (`requiresLiveChat`) and the surface cache key, not the dispatch order: the
- * gate hint and the staging decision read only `(userId, toolName)`, so the
- * schedule is as safe for a sub-agent brief as for a chat turn (#937).
+ * Free calls run at once, same-lane calls run in model order, and gated calls run
+ * one at a time last, so a round stages at most one approval card (ADR-0040).
+ * On resume the whole batch re-dispatches; finished calls short-circuit on
+ * `(runId, toolCallId)`.
  */
 async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
   calls: readonly Call[],
@@ -195,48 +186,19 @@ async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
   return results;
 }
 
-/**
- * How one tool's result names a tool to activate, if it does.
- *
- * A tool result is `unknown`, so this is a parse at the round's boundary rather
- * than a type: the name it yields is still filtered by `restoreSurface` against
- * the live registry, and the dispatcher still refuses anything the run's
- * envelope forbids. Returns the name as a plain string precisely so nothing
- * here has to assert a cast to `ToolName` to hand it over.
- */
+/** Reads a tool name to activate from a result. `restoreSurface` validates it. */
 type SurfaceActivator = (result: unknown, run: ToolCallRun) => string | undefined;
 
-/**
- * One tool whose result activates a tool, and the `runtime.tool_load` source the
- * round records for a name it adds. `null` when the tool's own handler already
- * records the load span, so the round does not count one load twice.
- */
+/** `loadSource` is `null` when the tool's handler records its own load span. */
 interface SurfaceActivation {
   activate: SurfaceActivator;
   loadSource: RoundToolLoadSource | null;
 }
 
 /**
- * The two tools whose *result* changes the next turn's active surface.
- *
- * Keyed by plain `string` because that is what a proposed call carries: the
- * lookup is what proves the name is one of ours, and the name a key yields goes
- * back out as a plain string for `restoreSurface` to check.
- *
- * `system.search_tools` resolves a capability the model cannot call yet, and
- * resolving it is the expensive part: the model was paying a full sequential
- * round-trip purely to activate a tool it had just been handed the name of. So
- * the best curated hit it can already run is activated here, and the model can
- * call it directly on the next turn.
- *
- * Surface membership is not an authority boundary: the dispatcher decides
- * approval for every call from the tool's risk tier, and `system.load_tool` can
- * already activate any available registered tool. So a high-risk hit such as
- * `gmail.send_draft` may fold. `mcp.call` is excluded by scope, not for safety:
- * the model copies the hit's ref fields from the search result either way, so
- * folding it would save the same round-trip, and no safety reason remains for
- * the exclusion. The fold stays on curated hits on purpose until the curated/MCP
- * split of real searches is measured.
+ * The tools whose result changes the next turn's surface. Search folds its best
+ * runnable curated hit in, which saves the model a load round-trip.
+ * Surface membership is not an authority boundary: dispatch still gates each call.
  */
 const SURFACE_ACTIVATIONS: ReadonlyMap<string, SurfaceActivation> = new Map([
   [
@@ -262,18 +224,13 @@ const SURFACE_ACTIVATIONS: ReadonlyMap<string, SurfaceActivation> = new Map([
 
           const name = getStringPath(candidate, "name");
 
-          // `name`, not `ref`: the curated `mcp.call` entry exists and carries no
-          // ref, so a ref test would let it fold.
+          // Test `name`, not `ref`: the curated `mcp.call` entry has no ref.
           if (name === undefined || name === "mcp.call") continue;
 
-          // `searchAvailableTools` ranks unavailable matches in on purpose (so the
-          // model can say "Gmail isn't connected"), so an unfiltered first hit is
-          // routinely a tool this run cannot execute.
+          // Search also ranks unavailable matches, so skip them.
           if (getStringPath(candidate, "availability") !== "available") continue;
 
-          // An absent envelope means unrestricted; a present one is a hard list,
-          // and folding past it would grow a surface the dispatcher can only
-          // refuse.
+          // An absent envelope means unrestricted.
           if (
             run.allowedTools !== undefined &&
             !run.allowedTools.some((allowed) => allowed === name)

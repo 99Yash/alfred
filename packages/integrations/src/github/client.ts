@@ -9,42 +9,17 @@ import { getInstallationTokenForUser } from "./credentials";
 import { GITHUB_API, githubHeaders } from "./rest";
 
 /**
- * The one door to GitHub's REST API — the curated read surface (ADR-0071) plus
- * the transport profile the general read-only passthrough tier (ADR-0074) sends
- * through. Nothing outside this file talks to `api.github.com` on a user's
- * behalf, which is what lets the security posture below be a property of the
- * code rather than a convention.
- *
- * The thesis lives in three properties:
- *
- *   1. The client holds a *credential resolver*, never a credential, and the
- *      resolve runs on EVERY request through the real path
- *      (`getInstallationTokenForUser` → `getInstallationToken`, whose in-process
- *      cache re-mints a few minutes before expiry). Nothing here memoizes on top
- *      of that: an installation token expires in an hour, so a memo with no
- *      expiry would save one indexed credential-row read per call and buy a
- *      client that 401s forever once it is held too long — where "too long" is a
- *      rule about the caller rather than a property of the code. Freshness lives
- *      in the one cache that knows the expiry.
- *   2. The resolved token is a {@link Redacted} and is unwrapped in exactly one
- *      place — `githubHeaders` in `./rest`, at the wire. It cannot reach a log or
- *      a thrown error by any default path, and no caller of this module ever
- *      holds a token at all.
- *   3. Base URL, headers, error classification and transient retry are baked in
- *      once, so a call site reads `github.search({ q })` — intent, not plumbing.
+ * GitHub REST client: curated reads (ADR-0071) and the read-only passthrough (ADR-0074).
+ * The token resolves on every request. `getInstallationToken`'s cache owns the 1h expiry,
+ * so a held client never 401s. The token is unwrapped only in `githubHeaders`.
  */
 
-/** Resolves a fresh installation token per call; the client stores this, not a token. */
 export interface GithubTokenResolver {
   (): Promise<{ token: Redacted<string>; accountLogin: string | null }>;
 }
 
 export interface GithubClientOptions {
   resolveToken: GithubTokenResolver;
-  /**
-   * Transient-retry envelope for the read requests (all GETs, so retry-safe), or
-   * `"none"`. Required — see `ProviderBindOptions.retry`.
-   */
   retry: RetryPolicy | "none";
 }
 
@@ -79,7 +54,7 @@ const issueSchema = z.object({
   repository_url: z.string().optional(),
 });
 
-/** Hard cap on an inlined issue body so a huge issue can't blow up the caller's context. */
+/** Cap so a huge issue body cannot flood the caller's context. */
 const MAX_ISSUE_BODY_CHARS = 20_000;
 
 const pullRequestSchema = z.object({
@@ -110,11 +85,7 @@ export interface GithubSearchHit {
   repository: string;
   createdAt: string;
   closedAt: string | null;
-  /**
-   * When the PR merged, or `null` for an issue and for an unmerged PR. A
-   * multi-window search returns a superset, so the boss reads this to tell
-   * which event put an item in the result (see `buildGithubSearchQuery`).
-   */
+  /** `null` for an issue or an unmerged PR. A multi-window search reads this to see why an item matched. */
   mergedAt: string | null;
 }
 
@@ -125,7 +96,6 @@ export interface SearchResult {
   items: GithubSearchHit[];
 }
 
-/** How many PR detail reads one batch call keeps in flight at once. */
 const PULL_REQUEST_BATCH_CONCURRENCY = 5;
 
 export interface PullRequestBatchFailure {
@@ -138,7 +108,7 @@ export interface PullRequestBatchFailure {
 export interface PullRequestBatch {
   items: PullRequestDetail[];
   failed: PullRequestBatchFailure[];
-  /** Summed over `items` only — a failed item is absent from every total. */
+  /** Sums `items` only; failed items are not counted. */
   totals: Pick<PullRequestDetail, "additions" | "deletions" | "changedFiles" | "commits">;
 }
 
@@ -154,7 +124,7 @@ export interface PullRequestDetail {
   createdAt: string;
   closedAt: string | null;
   mergedAt: string | null;
-  /** Diff stats search cannot return (the #222 LOC need). */
+  /** Diff stats, which search does not return. */
   additions: number;
   deletions: number;
   changedFiles: number;
@@ -175,13 +145,7 @@ export interface IssueDetail {
   body: string;
 }
 
-/**
- * `https://api.github.com/repos/owner/name` → `owner/name`.
- *
- * Returns `undefined` when absent or unparseable so each caller supplies its
- * own fallback once: search has no target context and keeps `""`, while
- * `getIssue` knows the addressed `${owner}/${repo}`.
- */
+/** `https://api.github.com/repos/owner/name` to `owner/name`. Each caller picks its own fallback. */
 function repositoryFromUrl(repositoryUrl: string | undefined): string | undefined {
   if (repositoryUrl === undefined) return undefined;
   const marker = "/repos/";
@@ -190,26 +154,14 @@ function repositoryFromUrl(repositoryUrl: string | undefined): string | undefine
   return idx >= 0 ? repositoryUrl.slice(idx + marker.length) : undefined;
 }
 
-/**
- * A GitHub REST client bound to a token *resolver*. Prefer
- * {@link githubClientForUser} at call sites; this constructor takes the resolver
- * directly so tests can inject a fixed token without touching credentials.
- *
- * `resolveToken` is called once per request, here and through
- * {@link githubClientForUser} alike — there is no second entry point with
- * different freshness semantics, so a client is safe to hold for as long as its
- * resolver is.
- */
+/** Takes the resolver directly so tests can inject a token. Call sites use {@link githubClientForUser}. */
 export function createGithubClient(options: GithubClientOptions) {
   const client = defineProviderClient({
     provider: "github",
     baseUrl: GITHUB_API,
-    // Fresh installation token per request; unwrapped only here, at the headers.
     resolve: async () => ({ headers: githubHeaders((await options.resolveToken()).token) }),
     retry: options.retry,
-    // GitHub's error bodies are prod-safe once bounded and secret-redacted, and
-    // the message ("Validation Failed", a rate-limit note) is what makes a failed
-    // tool call diagnosable. Stated, not inherited.
+    // The body ("Validation Failed", a rate-limit note) is what explains a failed call.
     bodyPolicy: "summarize",
   });
 
@@ -254,24 +206,12 @@ export function createGithubClient(options: GithubClientOptions) {
   }
 
   return {
-    /** The connected login (for resolving `author:@me`), resolved alongside the token. */
+    /** For resolving `author:@me`. */
     async connectedLogin(): Promise<string | null> {
       return (await options.resolveToken()).accountLogin;
     },
 
-    /**
-     * Transport profile for the general read-only passthrough tier (ADR-0074):
-     * the pinned REST authority + App-installation auth, as data.
-     *
-     * It lives here rather than beside the App code so the passthrough tool never
-     * holds a token — it asks for a profile and hands it to the gate. The auth
-     * header is built by the same `githubHeaders` unwrap the curated reads use, so
-     * there is one place a GitHub credential becomes a header, not two.
-     *
-     * The gate that proves a request is a *read* is deliberately NOT here: it is
-     * policy owned by `@alfred/assistant` (`assertReadableRestRequest`), and this
-     * profile carries authority only.
-     */
+    /** Read-only passthrough profile (ADR-0074). The read gate lives in `@alfred/assistant`. */
     passthrough,
 
     async search(args: {
@@ -298,9 +238,7 @@ export function createGithubClient(options: GithubClientOptions) {
         incompleteResults: json.incomplete_results,
         query: args.q,
         items: json.items.map((it) => {
-          // GitHub's `merged_at` IS the merge signal, so it is read once and
-          // `merged` derives from it. Two independent reads of one field can
-          // report a merged PR as unmerged.
+          // `merged` derives from `merged_at` so the two cannot disagree.
           const mergedAt = it.pull_request?.merged_at ?? null;
 
           return {
@@ -322,13 +260,8 @@ export function createGithubClient(options: GithubClientOptions) {
     getPullRequest,
 
     /**
-     * Fetch several pull requests in one call (#935). GitHub has no batch REST
-     * read for PR detail, so this fans out the single fetch under a bounded
-     * concurrency; the installation token comes from the in-process cache after
-     * the first request. Best-effort on purpose: one 404 (a renumbered or
-     * deleted PR) must not hide the other stats, so a failed item lands in
-     * `failed` with its message and the rest still return (ADR-0071 honesty —
-     * the caller sees exactly which items are missing from the totals).
+     * GitHub has no batch PR read, so fan out. Best effort: a 404 lands in `failed`
+     * and the rest still return.
      */
     async getPullRequests(
       items: ReadonlyArray<{ owner: string; repo: string; number: number }>,
@@ -346,7 +279,7 @@ export function createGithubClient(options: GithubClientOptions) {
           }
         },
       );
-      // Keep the caller's order; drop the slots a failure left empty.
+      // Keep the caller's order.
       const ok = fetched.filter((pr): pr is PullRequestDetail => pr !== undefined);
 
       return {
@@ -364,7 +297,7 @@ export function createGithubClient(options: GithubClientOptions) {
       };
     },
 
-    /** Fetch one issue by number — returns the body and comment count search omits. */
+    /** Returns the body and comment count, which search omits. */
     async getIssue(args: { owner: string; repo: string; number: number }): Promise<IssueDetail> {
       const { owner, repo, number } = args;
       const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`;
@@ -373,8 +306,7 @@ export function createGithubClient(options: GithubClientOptions) {
         await client.json(path, { label: `repos/${owner}/${repo}/issues/${number}` }),
       );
 
-      // GitHub returns labels as objects, but older payloads (and some search
-      // shapes) use bare strings — accept both and drop anything unnamed.
+      // Labels come as objects or bare strings.
       const labels = (issue.labels ?? [])
         .map((label) => (typeof label === "string" ? label : (label.name ?? "")))
         .filter((label) => label.length > 0);
@@ -398,16 +330,6 @@ export function createGithubClient(options: GithubClientOptions) {
 
 export type GithubClient = ReturnType<typeof createGithubClient>;
 
-/**
- * The ergonomic call-site entry: a GitHub client for a user, reading as
- * `github.search({ q })` with no credential in sight.
- *
- * The resolver wraps the existing `getInstallationTokenForUser` mint/cache path
- * and hands back a {@link Redacted}. It is the whole difference from
- * {@link createGithubClient} — there is no bind-scoped memo layered on top, so
- * this client carries no lifetime rule for a caller to violate and holding one
- * past the request that made it cannot produce a stale token.
- */
 export function githubClientForUser(options: ProviderBindOptions): GithubClient {
   const { userId, retry } = options;
 

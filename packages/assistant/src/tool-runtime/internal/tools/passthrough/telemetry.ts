@@ -1,18 +1,6 @@
 /**
- * Passthrough "thermometer" telemetry (ADR-0074, PRD User Story 17).
- *
- * When a passthrough result is clipped, the shaper attaches a {@link
- * PassthroughTruncation} to the `http` outcome (the `handleEligible` marker).
- * This module turns that marker into the structured signal the operator reads in
- * Langfuse to *measure* when the raw firehose starts hurting real workflows —
- * the evidence gate for building the object-handle layer (L0). It is emitted, not
- * enforced: crossing a threshold triggers an operator review, never an automatic
- * architecture switch.
- *
- * Pure + shape-defensive: the tool result reaches the dispatcher as `unknown`
- * (the span wrapper is generic over every tool), so this narrows the passthrough
- * shape by hand rather than trusting a cast — a non-passthrough or
- * non-truncated result returns `null` and emits nothing.
+ * Truncation telemetry for passthrough results (ADR-0074). Operators read it in
+ * Langfuse to decide when to build the object-handle layer. It never enforces anything.
  */
 
 import {
@@ -22,20 +10,12 @@ import {
   type PassthroughTruncation,
 } from "@alfred/contracts";
 
-/**
- * The structured thermometer signal folded onto the tool span's metadata and
- * mirrored to a structured log line. Carries the exact fields the L0-trigger
- * review needs (PRD "Thermometer"): which integration/tool, the truncation
- * causes, returned vs. original approximate bytes, the dropped totals by kind,
- * the run id, and whether the HTTP call otherwise succeeded (a truncated success
- * is the interesting case; a truncated error body less so).
- */
 export interface PassthroughTruncationTelemetry {
   handleEligible: true;
   integration: string;
   toolName: string;
   runId: string;
-  /** Whether the underlying HTTP call otherwise succeeded (2xx, no GraphQL errors). */
+  /** 2xx with no GraphQL errors. */
   succeeded: boolean;
   returnedBytes: number;
   originalBytesApprox: number;
@@ -55,7 +35,6 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-/** Narrow the `causes` array off an untrusted truncation record, dropping anything malformed. */
 function readCauses(value: unknown): PassthroughTruncation["causes"] {
   if (!Array.isArray(value)) return [];
   const causes: PassthroughTruncation["causes"] = [];
@@ -73,12 +52,7 @@ function readCauses(value: unknown): PassthroughTruncation["causes"] {
   return causes;
 }
 
-/**
- * Build the thermometer signal from a tool result, or `null` when the result is
- * not a truncated passthrough `http` outcome. Shape-defensive by design: reads
- * only through guards so a non-passthrough tool's result (or a passthrough
- * result that wasn't clipped) is silently skipped.
- */
+/** `null` unless the result is a truncated passthrough `http` outcome. Reads only through guards. */
 export function passthroughTruncationTelemetry(
   toolName: string,
   runId: string,
@@ -115,11 +89,10 @@ export function passthroughTruncationTelemetry(
   };
 }
 
-/** Tool name → integration slug, tolerant of a malformed name (telemetry must never throw). */
+/** Never throws: telemetry must not fail the call. */
 function integrationFromToolNameSafe(toolName: string): string {
   try {
-    // SAFETY: integrationFromToolName validates its own argument and throws on
-    // an unknown name; the catch below is that path.
+    // SAFETY: integrationFromToolName throws on an unknown name; the catch handles it.
     return integrationFromToolName(toolName as Parameters<typeof integrationFromToolName>[0]);
   } catch {
     return toolName.slice(0, toolName.indexOf(".")) || toolName;

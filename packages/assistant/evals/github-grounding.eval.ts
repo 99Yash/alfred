@@ -16,18 +16,10 @@ import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
-// GROUND / #213 / ADR-0071: behavioral guard that the boss answers GitHub
-// questions through the STRUCTURED fields (type + state + *WithinDays) instead
-// of hand-writing GitHub search syntax into the free-form `query`, that it
-// searches ISSUES when asked about issues, and that it does not BAIL or
-// silently drop a requirement (the #222 LOC give-up). The prod bugs: the boss
-// free-typed `merged-by:@me` (silent zero) and `closed:>` (non-deterministic
-// counts), and on "total LOC across my PRs" it dropped the requirement instead
-// of fanning out to get_pull_request. We expose the real github tools with no
-// `execute` so the model stops at the first call, then assert on its args.
-//
-// Run locally with apps/server/.env populated (ANTHROPIC_API_KEY +
-// GOOGLE_GENERATIVE_AI_API_KEY, matching serverEnv): `pnpm --filter @alfred/assistant eval`.
+// ADR-0071: the boss must use the structured GitHub fields, not free-typed search syntax.
+// Free-typed `merged-by:@me` returned zero results, and `closed:>` gave unstable counts.
+// The tools have no `execute`, so the run stops at the first call and we check its args.
+// Run with apps/server/.env populated: `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
@@ -80,7 +72,7 @@ const CASES: Case[] = [
     expected: { type: "pr", state: "closed", windowField: "closedWithinDays", windowValue: 7 },
   },
   {
-    // ADR-0071: issues are searchable too — must not be forced through is:pr.
+    // Issues must not be forced through is:pr.
     input: "list my open github issues",
     expected: { type: "issue", state: "open" },
   },
@@ -93,8 +85,6 @@ function runFirstCall(input: string) {
     prompt: input,
     temperature: 0,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    // Both github tools, execute-less so the run halts on the first tool call
-    // and we can inspect the args the model chose.
     tools: {
       [SEARCH_TOOL]: tool({
         description:
@@ -119,8 +109,7 @@ evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding
 
     return {
       toolName: call?.toolName ?? null,
-      // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
-      // tolerates absence via ??.
+      // SAFETY: diagnostic view of the tool-call input; `??` covers absence.
       args: (call?.input as Record<string, unknown> | undefined) ?? null,
       text: result.text,
     };
@@ -137,8 +126,6 @@ evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding
       }),
     },
     {
-      // The core regression: type matches, and recency comes from a structured
-      // *WithinDays field with the specific field/value implied by the prompt.
       name: "Uses the expected structured filters",
       scorer: ({ output, expected }) => {
         const args = output.args ?? {};
@@ -159,8 +146,6 @@ evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding
       },
     },
     {
-      // The free-form query (after sanitize-and-merge) must carry no invented
-      // qualifiers (merged-by:) and no residual contradictions.
       name: "No invented or contradictory free-form qualifiers",
       scorer: ({ output }) => {
         const args = output.args ?? {};
@@ -197,11 +182,8 @@ evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding
   ],
 });
 
-// ADR-0071 / #222: asked to total lines changed across PRs, the boss must NOT
-// bail or silently drop the requirement — its first move is github.search to
-// find the PRs (the diff stats come from get_pull_request fan-out afterward).
-// With no execute the run stops after the first call, which is the point: we
-// only assert it didn't give up at the gate.
+// Asked to total lines changed across PRs, the boss once dropped the requirement (#222).
+// Its first move must be github.search; the line stats come later from get_pull_request.
 evalite<string, GroundingTaskOutput, null>("Agent GitHub LOC — no give-up", {
   data: () => [
     { input: "how many lines of code did i change across my merged PRs this week", expected: null },
@@ -213,8 +195,7 @@ evalite<string, GroundingTaskOutput, null>("Agent GitHub LOC — no give-up", {
 
     return {
       toolName: call?.toolName ?? null,
-      // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
-      // tolerates absence via ??.
+      // SAFETY: diagnostic view of the tool-call input; `??` covers absence.
       args: (call?.input as Record<string, unknown> | undefined) ?? null,
       text: result.text,
     };

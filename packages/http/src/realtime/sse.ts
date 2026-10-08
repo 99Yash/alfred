@@ -1,54 +1,19 @@
 /**
- * The Server-Sent Events framing every SSE route in this package shares.
- *
- * Two routes push over SSE — `/api/events` and `/api/replicache/events` — and
- * both had written the same six things by hand: a `TextEncoder`, an enqueue
- * that swallows the throw from a stream the client already dropped, the
- * `": connected"` prelude, a 30 s heartbeat comment, the headers that make a
- * response a stream, and the `cancel()` -> teardown wiring. Only the frames
- * differ, so only the frames stay in the routes.
- *
- * The primitive owns the whole transport-visible surface: a route names the
- * PARTS of a frame (`id`, `event`, `data`) and never spells the wire format,
- * and there is no door for caller-supplied response headers, so no route can
- * replace `Content-Type` or diverge on the proxy-buffering posture below.
+ * Shared SSE framing for `/api/events` and `/api/replicache/events`.
+ * Routes pass frame parts, never wire text or headers.
  */
 
 import { toMessage, unrefTimer } from "@alfred/contracts";
 import type { EventKind } from "@alfred/contracts/events";
 
-/** How often a stream writes a comment frame to keep the connection warm. */
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
-/**
- * Sent by the server as soon as the stream opens, before the route writes
- * anything. A comment frame, so no `EventSource` listener sees it — it exists
- * to flush response headers through any intermediary that buffers until the
- * first byte.
- */
+/** A comment frame sent first, to flush headers through a proxy that waits for the first byte. */
 const CONNECTED_PRELUDE = ": connected\n\n";
 
 /**
- * The response headers that make a body an event stream. Four fixed names, so
- * this is the closed set rather than a dictionary a caller could extend.
- *
- * `Headers` and not a record: header names are case-insensitive and the
- * platform type is the one that knows it. A record hands `new Response` a
- * shape whose keys it must fold, which is how a differently-cased entry
- * becomes a second entry and then one comma-joined value.
- *
- * A fresh instance per response, because `Headers` is mutable: one shared
- * instance would let anything that touched a response leak the edit into every
- * later one.
- *
- * `X-Accel-Buffering` is here because nginx and friends buffer a response body
- * by default, which holds every frame until the buffer fills. No SSE route can
- * ever WANT that — buffering is the thing SSE exists to defeat — so the posture
- * is stated once here rather than per route, where it could only ever be set
- * wrong. It is read by nothing in the current deployment: the API service is
- * not behind this repository's `Caddyfile`, which serves the web SPA only, and
- * Railway's own edge proxy is what fronts the API. It is defence against an
- * intermediary that does not exist yet.
+ * A fresh `Headers` per response, because `Headers` is mutable.
+ * `X-Accel-Buffering: no` stops nginx-style proxies from holding frames.
  */
 function createSseHeaders(): Headers {
   return new Headers({
@@ -60,108 +25,33 @@ function createSseHeaders(): Headers {
 }
 
 /**
- * Every event name any route in this package may send. Closed on purpose.
- *
- * The set is closed per PACKAGE, not per stream. The two live streams are two
- * URLs with disjoint client listener sets, so this is the union of what both of
- * them send, and no single route sends all of it.
- *
- * An SSE frame ends at a blank line, so a name holding a line break would
- * terminate the frame early and let the payload write a second frame of its own.
- * A closed union of literals cannot express such a name, so the compiler rejects
- * a literal like that at the call site and `frame()` needs no check of its own —
- * which is what lets `frame()` throw for no input at all. `SseConnection.frame`
- * is called from inside a bus listener (`realtime/events.ts`), where a throw
- * would abort the dispatch and take the other subscribers with it.
- *
- * This alias supplies one gate, the compiler, and TypeScript erases it. At run
- * time the guarantee comes from `@alfred/assistant`, which validates every
- * `EventFrame.kind` with `isKnownEventKind` at three doors: `isFrame` for a
- * Redis message (`realtime/user-events-bus.ts`), `realtime/replay.ts` for a
- * replayed row, and `realtime/outbox-relay.ts` for an outbox row. Those three
- * doors are the run-time guard; the type is not. `EventFrame.kind` is
- * `z.custom<EventKind>`, whose annotation and predicate are independent, so a
- * writer who drops the predicate keeps every call site here compiling while an
- * arbitrary string flows through.
- *
- * The two members come from the two live producers: `EventKind` covers every
- * `EventFrame.kind` that `realtime/events.ts` forwards, and `"poke"` is the
- * literal `sync/replicache.ts` sends. A future route that wants a name outside
- * this set must ADD its literal here, or re-open sanitisation deliberately. It
- * must not widen the field back to `string`, which is the door this union exists
- * to close.
- *
- * Package-internal: `src/index.ts` re-exports nothing from this module.
+ * Every event name a route here may send. Keep it closed, never `string`:
+ * a name with a line break would end the frame and inject a second one.
+ * At run time, `isKnownEventKind` in `@alfred/assistant` realtime is the real guard.
  */
 export type SseEventName = EventKind | "poke";
 
 /** One SSE frame, as its parts rather than as wire text. */
 export interface SseFrame {
-  /**
-   * Advances the client's `Last-Event-ID`. Omitted frames leave it alone.
-   *
-   * `| undefined` and not the narrow optional: `frame()` branches on
-   * `!== undefined`, so an absent field and a present `undefined` mean the same
-   * thing here. The narrow form is for a field whose ABSENCE is load-bearing,
-   * and it would push the first route holding an `id: number | undefined` into
-   * a conditional spread that buys nothing.
-   */
+  /** Advances the client's `Last-Event-ID`. */
   id?: number | undefined;
-  /**
-   * Selects the client listener. Omitted frames go to the `message` listener.
-   * A closed union rather than `string`, so no frame can carry a name that ends
-   * the frame early — see `SseEventName`.
-   */
+  /** Selects the client listener. Omitted frames go to `message`. */
   event?: SseEventName | undefined;
-  /** The payload. Newlines are re-emitted as SSE continuation lines. */
   data: string;
 }
 
-/** The stream, as the route that opened it sees it. */
 export interface SseConnection {
   /**
-   * Write one frame. The wire format is not the caller's problem: this emits
-   * `id:` and `event:` only when they are present, splits `data` across
-   * continuation lines when it contains a line break, and always terminates
-   * the frame with the blank line that makes a client dispatch it.
-   *
-   * `frame`, `cursor` and `close` throw for no value their types admit. A
-   * stream the client has already dropped is a no-op, because a poke or a
-   * heartbeat that races the disconnect is normal and must not become an
-   * unhandled rejection. That matters most to one caller: `realtime/events.ts`
-   * writes frames from inside a bus listener, where any throw would abort the
-   * dispatch for every other subscriber on that emit.
-   *
-   * The claim is scoped to those three methods, and to values their types admit.
-   * Two throw paths remain on this interface, both older than the `event` union
-   * and neither reachable from a route today. `defer` runs a late `cleanup()`
-   * outside any `try`, so a late handler that throws reaches its caller even
-   * though the docstring below promises the handler is logged. And a `data` that
-   * is a string only to the compiler reaches `data.split`: `lib.d.ts` declares
-   * `JSON.stringify()` as returning `string` while it returns `undefined` for an
-   * `undefined` input.
-   *
-   * A name that would end the frame early also cannot reach the wire, but this
-   * signature is not the reason. `SseEventName` names the three run-time doors
-   * that carry that half.
+   * Write one frame. Never throws: `realtime/events.ts` calls it inside a bus listener,
+   * where a throw aborts every other subscriber. A dropped stream is a no-op.
+   * Trap: `JSON.stringify(undefined)` is typed `string` but returns `undefined`.
    */
   frame(frame: SseFrame): void;
-  /**
-   * Write an id-only frame. This advances the client's `Last-Event-ID` and
-   * dispatches NO event, which is what a route wants after skipping rows it
-   * chose not to send: the reconnect asks for the next page instead of the
-   * same one forever.
-   */
+  /** Advance `Last-Event-ID` without an event, so a reconnect skips rows the route chose not to send. */
   cursor(id: number): void;
   /**
-   * Register teardown — unsubscribing a bus listener, typically. A function
-   * registered while the stream is still open runs exactly once, whether the
-   * client cancelled, the route called `close()`, or `open` threw or rejected,
-   * and never twice. One registered after teardown has already run — an `open`
-   * that awaits a subscribe, and a client that disconnects inside that await —
-   * runs immediately instead, so a late registration cannot strand its
-   * subscription. A handler that throws is logged and does not stop the
-   * others.
+   * Register teardown. It runs exactly once on any exit. A handler registered after
+   * teardown runs now, outside the try, so a throw there reaches the caller.
    */
   defer(cleanup: () => void): void;
   /** Run teardown, then close the stream. Idempotent. */
@@ -169,32 +59,14 @@ export interface SseConnection {
 }
 
 /**
- * Build an SSE `Response`. `open` receives the connection and writes frames to
- * it; it may be async, and the heartbeat is already armed before it runs, so a
- * slow open does not stall the keep-alive.
- *
- * Teardown runs on every exit from `open`, including both throw shapes. The
- * two shapes differ in what the CLIENT sees, and only in that:
- *
- *   - `open` throws synchronously: the throw leaves `new ReadableStream` and
- *     this function, reaching the route handler and so the error middleware.
- *     The client gets 500 and no stream.
- *   - `open` REJECTS: the response headers are already committed by then, so
- *     the client gets 200 with a body that errors immediately. Awaiting `open`
- *     before returning would restore the 500 and is deliberately not done — it
- *     would hold the headers until the route finished its replay, which is
- *     exactly what `CONNECTED_PRELUDE` exists to prevent.
- *
- * The heartbeat timer is `unref`'d: a per-connection ref'd interval holds the
- * Node event loop open for as long as a browser tab is open, which delays
- * every graceful shutdown by up to one heartbeat per live client.
+ * Build an SSE `Response`. Teardown runs on every exit from `open`.
+ * A sync throw from `open` becomes a 500. A rejection gives a 200 whose body errors:
+ * awaiting `open` first would hold the headers until replay ends.
+ * The heartbeat is unref'd so open tabs do not delay a graceful shutdown.
  */
 export function sseResponse(open: (conn: SseConnection) => void | Promise<void>): Response {
   const encoder = new TextEncoder();
-  // Assigned by `start`, read by `cancel`. It must be declared above the
-  // stream: `new ReadableStream(...)` runs `start` synchronously, so a
-  // declaration below the constructor is read inside its own temporal dead
-  // zone and throws.
+  // Declare above the stream: `new ReadableStream` runs `start` synchronously.
   let teardown: (() => void) | undefined;
 
   const stream = new ReadableStream({
@@ -222,9 +94,7 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
         clearInterval(heartbeat);
 
         for (const fn of cleanups) {
-          // One route's failing unsubscribe must not strand the next route's.
-          // The whole reason teardown is a LIST is that a later adopter
-          // registers a second handler beside the first.
+          // One failing handler must not skip the rest.
           try {
             fn();
           } catch (err) {
@@ -243,9 +113,7 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
 
           if (event !== undefined) text += `event: ${event}\n`;
 
-          // A raw line break inside `data` would end the field, so each line
-          // gets its own `data:`. The client rejoins them with `\n`. CR, LF and
-          // CRLF are all line terminators to an SSE reader.
+          // Each line gets its own `data:`. SSE treats CR, LF and CRLF as line ends.
           for (const line of data.split(/\r\n|\r|\n/)) text += `data: ${line}\n`;
           write(`${text}\n`);
         },
@@ -253,10 +121,7 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
           write(`id: ${id}\n\n`);
         },
         defer(cleanup) {
-          // Registering after teardown has run would put the handler on a list
-          // nothing iterates again: the bus listener would never be removed and
-          // the per-user refcount behind it would never decrement, so the
-          // subscription leaks for the life of the process. Run it now instead.
+          // Late registration: nothing iterates the list again, so run it now or the subscription leaks.
           if (tornDown) {
             cleanup();
 
@@ -278,12 +143,7 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
 
       write(CONNECTED_PRELUDE);
 
-      // The two throw windows, which answer differently. A synchronous throw is
-      // still inside `new ReadableStream`, so re-throwing it here propagates
-      // out of `sseResponse` to the error middleware; a rejection is not, and
-      // can only error the body. Both run teardown, which is the half that
-      // matters: a rejected `start` moves the stream to `errored`, and that
-      // transition never invokes the underlying source's `cancel`.
+      // Both paths run teardown: an errored stream never calls `cancel`.
       let opened: void | Promise<void>;
 
       try {
@@ -293,15 +153,7 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
         throw err;
       }
 
-      // `Promise.resolve` and not `opened instanceof Promise`: `Promise<T>` is
-      // a structural type and `instanceof` is a prototype-chain test, so the
-      // two disagree on a promise from another realm or from a library class
-      // that only implements the interface. Such a value type-checks here, and
-      // the prototype test would route it down the synchronous path, where the
-      // rejection handler is never attached: no teardown, and an orphaned
-      // heartbeat. Neither shipped adopter can produce one, but the guarantee
-      // this seam exists to give must not depend on that. The uniform form
-      // costs one microtask on the synchronous path, which nothing reads.
+      // Not `instanceof Promise`: a thenable from another realm would skip teardown.
       return Promise.resolve(opened).then(
         () => undefined,
         (err: unknown) => {

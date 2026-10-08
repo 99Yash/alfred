@@ -7,14 +7,7 @@ import {
   type AuthedFetchProfile,
 } from "../src/shared/authed-fetch";
 
-/**
- * `authedFetch` is the curated-tier transport core the four vendor clients
- * (Vercel, Notion, GitHub, Railway) collapsed onto — the mechanism they had each
- * copied inline. These pin the wire contract the vendors now depend on: headers
- * spread from the profile, `Content-Type` added only for a body, JSON encoding,
- * default GET, default-follow redirect, and the shared timeout signal. It stubs
- * the global `fetch` and captures the `RequestInit`, so it runs offline.
- */
+/** The wire contract of `authedFetch`, the shared transport for the curated provider clients. */
 
 interface RecordedFetchCalls {
   calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }>;
@@ -22,7 +15,6 @@ interface RecordedFetchCalls {
 
 const realFetch = globalThis.fetch;
 
-/** Swap in a fetch stub that records the (input, init) it was called with. */
 function stubFetch(response: Response = new Response(null, { status: 200 })): RecordedFetchCalls {
   const calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }> = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
@@ -52,7 +44,6 @@ describe("authedFetch", () => {
     assert.equal(init?.method, "GET");
     assert.deepEqual(init?.headers, { Authorization: "Bearer tok", Accept: "application/json" });
     assert.equal(init?.body, undefined);
-    // A read carries no Content-Type — it is added only when a body is sent.
     assert.equal("Content-Type" in (init!.headers as Record<string, string>), false);
   });
 
@@ -75,7 +66,7 @@ describe("authedFetch", () => {
 
   test("body presence, not method, drives Content-Type (a false-y body still counts)", async () => {
     const { calls } = stubFetch();
-    // `null` / `0` / `""` are defined bodies — only `undefined` means no body.
+    // Only `undefined` means no body.
     await authedFetch(
       { headers: {} },
       { url: "https://api.example.com/x", method: "POST", body: null },
@@ -101,18 +92,13 @@ describe("authedFetch", () => {
     const { calls } = stubFetch();
     await authedFetch({ headers: {} }, { url: "https://api.example.com/a" });
     assert.ok(calls[0]!.init?.signal instanceof AbortSignal);
-    // Sanity-check the single-sourced default is a real positive duration.
     assert.equal(typeof INTEGRATION_FETCH_TIMEOUT_MS, "number");
     assert.ok(INTEGRATION_FETCH_TIMEOUT_MS > 0);
   });
 
   test("a profile cannot shorten the shared timeout", async () => {
     const { calls } = stubFetch();
-    // The negative half of the test above: `INTEGRATION_FETCH_TIMEOUT_MS` is the
-    // ONLY timeout, so a profile carrying a per-provider override is inert. Built
-    // with `Object.assign` rather than an object literal so the assertion survives
-    // the field's absence from `AuthedFetchProfile` — a literal would be an
-    // excess-property error and a cast would only prove the cast compiles.
+    // `timeoutMs` is not on the profile type. `Object.assign` avoids both an excess-property error and a cast.
     const profile: AuthedFetchProfile = { headers: {} };
     await authedFetch(Object.assign({}, profile, { timeoutMs: 1 }), {
       url: "https://api.example.com/a",
@@ -120,7 +106,6 @@ describe("authedFetch", () => {
 
     const { signal } = calls[0]!.init!;
     assert.ok(signal instanceof AbortSignal);
-    // Well past the override, nowhere near the shared 30s: still live.
     await new Promise((resolve) => setTimeout(resolve, 40));
     assert.equal(signal.aborted, false, "profile timeoutMs must not shorten the shared timeout");
   });

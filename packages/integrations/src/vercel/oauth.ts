@@ -4,11 +4,8 @@ import { z } from "zod";
 import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
 
 /**
- * Vercel integration OAuth (https://vercel.com/docs/integrations/sign-in).
- * The "authorize" step is the integration install URL; Vercel redirects back
- * with a `code` we exchange for a non-expiring access token (no refresh
- * token). A team install also returns `team_id`, which every subsequent API
- * call must echo as `?teamId=`.
+ * Vercel integration OAuth (https://vercel.com/docs/integrations/sign-in). The install URL
+ * is the authorize step. Tokens never expire. A team install returns `team_id`.
  */
 
 const VERCEL_TOKEN_URL = "https://api.vercel.com/v2/oauth/access_token";
@@ -52,7 +49,7 @@ export function isVercelConfigured(): boolean {
   }
 }
 
-/** The integration install URL. Vercel appends `code`/`configurationId`/`teamId` on the callback. */
+/** Vercel adds `code`, `configurationId`, and `teamId` to the callback. */
 export function buildVercelInstallUrl(state: string): string {
   const cfg = getVercelOAuthConfig();
   const url = new URL(`https://vercel.com/integrations/${cfg.appSlug}/new`);
@@ -69,11 +66,6 @@ export interface VercelTokenResult {
   teamId: string | null;
 }
 
-/**
- * Vercel's token-exchange response. External payload, so it is validated at
- * this boundary instead of asserted — a malformed body fails the exchange
- * loudly rather than persisting `undefined` token fields.
- */
 const tokenResponseSchema = z.object({
   access_token: z.string().min(1),
   token_type: z.string().optional(),

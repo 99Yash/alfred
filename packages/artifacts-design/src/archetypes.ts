@@ -1,30 +1,19 @@
 /**
- * Layout archetypes for the Alfred house theme (pristine-artifacts Phase 1).
- *
- * Each archetype is a body-level HTML exemplar — exactly the shape the authoring
- * model is asked to produce: content composed from the shell's `art-*` primitive
- * vocabulary, with NO `<html>/<head>/<body>` and NO page-dimension styles (the
- * shell owns those). They serve two purposes: named guidance the prompt points
- * at ("pick one archetype per page"), and in-package fixtures the shell/tests
- * render against. Full exemplars stay here rather than being dumped into the
- * prompt, keeping the authoring prompt lean.
- *
- * These are Alfred-original layouts built on the app's own light grammar — not
- * copied from any external deck library.
+ * Body-level slide layouts built from the shell's `art-*` classes.
+ * The prompt names them; the full HTML stays here to keep the prompt small.
  */
 
 export interface Archetype {
-  /** Stable id used by the prompt and tests. */
+  /** Stable id. */
   readonly id: string;
-  /** Human name shown in guidance. */
+  /** Name shown in the prompt. */
   readonly name: string;
-  /** One-line description of when to reach for it. */
+  /** When to use it. */
   readonly description: string;
-  /** Body-level HTML exemplar. */
   readonly html: string;
 }
 
-/** Cover / opening page: eyebrow, oversized title, supporting line, footer meta. */
+/** Cover page. */
 const title: Archetype = {
   id: "title",
   name: "Title",
@@ -43,7 +32,7 @@ const title: Archetype = {
 </div>`,
 };
 
-/** Section divider: a large index number + section name to break up a deck. */
+/** Section divider with a large number. */
 const section: Archetype = {
   id: "section",
   name: "Section divider",
@@ -59,7 +48,7 @@ const section: Archetype = {
 </div>`,
 };
 
-/** Content-split: a heading + prose on the left, a supporting card on the right. */
+/** Text on the left, a card on the right. */
 const contentSplit: Archetype = {
   id: "content-split",
   name: "Content split",
@@ -83,7 +72,7 @@ const contentSplit: Archetype = {
 </div>`,
 };
 
-/** Bulleted list: a heading + an accent-marked list of points. */
+/** Heading and a bulleted list. */
 const list: Archetype = {
   id: "list",
   name: "Bulleted list",
@@ -114,7 +103,7 @@ const list: Archetype = {
 </ul>`,
 };
 
-/** Stat / CSS chart: a headline metric row plus a pure-CSS bar chart. */
+/** Metric row and a CSS bar chart. */
 const stat: Archetype = {
   id: "stat",
   name: "Stat / chart",
@@ -146,7 +135,7 @@ const stat: Archetype = {
 </div>`,
 };
 
-/** Quote / pull-out: a large centered statement with attribution. */
+/** Large centered quote. */
 const quote: Archetype = {
   id: "quote",
   name: "Quote",
@@ -161,10 +150,10 @@ const quote: Archetype = {
 </div>`,
 };
 
-/** The house archetype set, in a sensible authoring order. */
+/** All slide archetypes. */
 export const archetypes: readonly Archetype[] = [title, section, contentSplit, list, stat, quote];
 
-/** Look up an archetype by id (used by tests / tooling). */
+/** Find an archetype by id. */
 export function archetypeById(id: string): Archetype | undefined {
   return archetypes.find((a) => a.id === id);
 }

@@ -6,13 +6,13 @@ import {
 import { z } from "zod";
 import type { ObjectStateDelta } from "./store";
 
-/** The one synthetic event an owner-reviewed MCP health pull may fold. */
+/** The only synthetic event an owner-reviewed MCP health pull may fold. */
 export const MCP_APPROVED_HEALTH_EVENT_TYPE = "mcp.approved_health";
 
-/** One fixed object kind serves every owner-approved MCP connection. */
+/** One object kind for every approved MCP connection. */
 export const MCP_APPROVED_HEALTH_KIND = "connection_health";
 
-/** Exact keys only; a provider identity is never abbreviated by this lane. */
+/** Exact keys only. */
 export const MCP_APPROVED_HEALTH_KEY_KIND = "approved_loop_key";
 
 const MAX_CONNECTION_ID_LENGTH = 128;
@@ -30,9 +30,7 @@ const mcpApprovedHealthPayloadSchema = z
   .strict();
 
 /**
- * Namespace a generic loop key by the approved connection that produced it.
- * Two accounts for the same service therefore cannot collide, and two services
- * that happen to return `ENG-123` remain separate objects.
+ * Namespace a loop key by its connection, so two services that both return `ENG-123` stay separate.
  */
 export function approvedMcpHealthExternalId(input: {
   connectionId: string;
@@ -53,13 +51,8 @@ export function approvedMcpHealthExternalId(input: {
 }
 
 /**
- * Generic reducer for owner-reviewed MCP health reads.
- *
- * The caller has already boundary-validated the remote result against the
- * owner's reviewed mapping and translated an exact provider token into the
- * canonical state vocabulary. This reducer validates the synthetic payload at
- * the store boundary, then emits the ordinary `ObjectStateDelta`; every unknown
- * kind/token, absorption, and recency decision remains inside `objectStateStore`.
+ * Reducer for owner-reviewed MCP health reads. The caller already mapped the remote token to a
+ * canonical state; this validates the synthetic payload, and the store decides the rest.
  */
 export function reduceMcpEvent(
   eventType: string,

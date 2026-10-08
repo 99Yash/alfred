@@ -10,67 +10,31 @@ import { integrationCredentials, type IntegrationCredential } from "@alfred/db/s
 import { and, desc, eq } from "drizzle-orm";
 
 /**
- * Shared persistence layer for providers whose access is a single long-lived
- * bearer token — Notion (OAuth, non-expiring access token), Vercel (OAuth,
- * non-expiring), and Sentry (a pasted API token). None of them need
- * Google's refresh-on-demand machinery, so the whole layer is "store one
- * bearer token, read it back." Google and GitHub keep their bespoke modules
- * (refresh rotation / installation-token minting); this is the third pattern.
+ * Storage for single long-lived bearer tokens (Notion, Vercel, Sentry). Tokens are
+ * sealed on write and opened only where a caller needs a usable token (#453).
  *
- * Known v1 limitation — staleness is discovered lazily: a token revoked on the
- * provider side stays `status: 'active'` here until the next tool call fails
- * authz (surfaced as a fan-out `failure` or a thrown connect-me error). Nothing
- * proactively flips a dead token to a needs-reauth state, so the settings UI
- * shows "Connected" for a revoked token until something tries to use it. Fine at
- * single-user scale; a background health-check that demotes failing credentials
- * is the obvious follow-up.
- *
- * One of the three owners of credential encryption at rest (#453). The bearer
- * tokens here are the ones a leaked row would hurt most — a broadly scoped
- * team token cannot be scoped down — so they are sealed on write and opened only in
- * the two functions that exist to hand a caller a usable token.
- */
-
-/**
- * The providers this module is FOR are the registry entries whose credential
- * shape is `"bearer"` (`INTEGRATIONS[slug].credential.shape` in
- * `@alfred/contracts`, ADR-0093); {@link BearerSlug} is that derived subset.
- * Which providers they are was previously prose in the docstring above while
- * the signatures took a bare `string`, so
- * `getActiveBearerCredential(userId, "gmail")` — a provider whose tokens this
- * store cannot serve — compiled fine and failed at runtime as a "connect gmail"
- * error for an already-connected account. It was then a hand-written tuple here,
- * which fixed that but left the same taxonomy spelled again in the web
- * connectedness probe. Deriving both from the one record means a new
- * integration cannot be added without declaring how its credential works.
+ * Known gap: a token revoked at the provider stays `active` until a call fails.
+ * Nothing marks it for reauth, so settings shows "Connected" until then.
  */
 
 export interface UpsertBearerCredentialArgs {
   userId: string;
-  /** `integration_credentials.provider`, narrowed to the bearer-token providers. */
   provider: BearerSlug;
-  /** Provider-side stable id (workspace id, team/user id, account id). */
+  /** Provider-side stable id (workspace, team, or account). */
   accountId: string;
   accountLabel?: string | null | undefined;
   accessToken: string;
-  /** Most bearer providers issue none; kept for parity with the column. */
   refreshToken?: string | null | undefined;
-  /** Null for non-expiring tokens (the common case here). */
   expiresAt?: Date | null | undefined;
   scopes?: string[] | undefined;
   metadata?: JsonObject | undefined;
 }
 
-/**
- * Insert or replace the credential row for `(user, provider, account)`. The
- * unique index makes a re-connect of the same account a clean in-place update
- * rather than a duplicate, exactly like the Google/GitHub upserts.
- */
+/** A reconnect of the same account updates the row in place. */
 export async function upsertBearerCredential(
   args: UpsertBearerCredentialArgs,
 ): Promise<{ id: string }> {
   const vault = credentialVault();
-  // Sealed once and reused by both the insert and the on-conflict update.
   const sealedAccessToken = vault.seal(args.accessToken);
   const sealedRefreshToken = args.refreshToken ? vault.seal(args.refreshToken) : null;
 
@@ -116,14 +80,8 @@ export async function upsertBearerCredential(
 }
 
 /**
- * Delete one credential row, scoped to its owner and provider. Returns the
- * deleted id, or `null` when nothing matched (wrong owner, already gone, or a
- * provider mismatch) so callers can turn that into a 404. Generic across every
- * provider — Google/GitHub rows live in the same table, so a disconnect is the
- * same scoped row delete regardless of how the token was originally minted. That
- * is why this one takes {@link CredentialProvider} — the column's whole
- * vocabulary — and not {@link BearerSlug}: the breadth is deliberate, and it
- * says so in the type rather than only in this sentence.
+ * Returns `null` when nothing matched, so callers can 404.
+ * Takes any {@link CredentialProvider}, not only {@link BearerSlug}: all providers share this table.
  */
 export async function deleteIntegrationCredential(args: {
   userId: string;
@@ -148,20 +106,13 @@ export type ActiveBearerCredential = Pick<
   IntegrationCredential,
   "id" | "accountId" | "accountLabel" | "metadata"
 > & {
-  /**
-   * The **opened** bearer token, usable against the provider. Deliberately not
-   * derived from the column: `integration_credentials.access_token` is a sealed
-   * envelope, and one `string` type naming both representations is how a caller
-   * ends up sending ciphertext to Notion.
-   */
+  /** The opened token. The column holds a sealed envelope, so this type is not derived from it. */
   accessToken: string;
 };
 
 /**
- * List active bearer credentials, newest-updated first (capped at `limit`).
- *
- * @internal Credential boundary for provider clients and non-tool background
- * callers that do not have a ToolExecuteContext.
+ * Newest first.
+ * @internal For provider clients and background callers with no ToolExecuteContext.
  */
 export async function listActiveBearerCredentials(
   userId: string,
@@ -194,11 +145,6 @@ export async function listActiveBearerCredentials(
   return rows.map((row) => ({ ...row, accessToken: vault.open(row.accessToken) }));
 }
 
-/**
- * What an inbound descriptor needs from the credential that owns a delivery:
- * the user the receipt is filed under, the credential id, and the provider-side
- * account the receipt names. Both owner lookups below project exactly this.
- */
 export type CredentialOwnerRef = Pick<IntegrationCredential, "id" | "userId" | "accountId">;
 
 const ownerRefColumns = {
@@ -208,37 +154,22 @@ const ownerRefColumns = {
 };
 
 /**
- * The inbound sources whose deliveries carry no per-account identity and are
- * attributed by the shared signing secret instead ({@link findSoleActiveCredential}).
- * Sentry is the one member: an internal-integration token cannot read
- * `/organizations/{slug}/sentry-app-installations/` (Sentry resolves that
- * endpoint's organization through the caller's memberships, and the
- * integration's proxy user has none, so it answers 404; verified live
- * 2026-09-06), so the connect flow never learns the `installation.uuid` a
- * delivery names.
+ * Sources whose deliveries are matched to a credential by the signing secret.
+ * Sentry only: its token cannot read `sentry-app-installations` (404, checked
+ * 2026-09-06), so the connect flow never learns the `installation.uuid`.
  */
 export type SecretAttributedProvider = Extract<CredentialProvider & InboundEventSource, "sentry">;
 
 /**
- * The providers whose credential row names a provider-side installation: the
- * inbound sources whose delivery names the installation and nothing else, so
- * `installation_id` is the join. The secret-attributed sources are excluded.
- * Narrower than {@link CredentialProvider} so that a lookup for a provider that
- * never writes the column (`notion`, `sentry`) is a compile error, not a query
- * that always returns `null`.
+ * Sources joined by `installation_id`. Narrow, so a lookup for a provider that
+ * never writes the column is a compile error.
  */
 export type InstallationProvider = Exclude<
   CredentialProvider & InboundEventSource,
   SecretAttributedProvider
 >;
 
-/**
- * Resolve the active credential that owns one provider-side installation — the
- * join from an inbound webhook delivery (which carries only the installation id)
- * back to a user and the account the receipt is filed under. The id space is
- * the provider's, so the lookup is always scoped by `provider`. Returns the
- * most-recently-updated active match.
- */
+/** Map a webhook's installation id to its credential. Newest active match wins. */
 export async function findActiveCredentialByInstallationId(args: {
   provider: InstallationProvider;
   installationId: string;
@@ -260,13 +191,8 @@ export async function findActiveCredentialByInstallationId(args: {
 }
 
 /**
- * The one active credential for a provider across all users: the owner of an
- * inbound delivery that carries no per-account identity and is attributed by
- * the shared signing secret instead. One secret belongs to one provider-side
- * app, so a verified delivery can only be that app's, and the only open
- * question is which credential row owns it. With one active row the answer is
- * that row. With none there is no owner. With more than one the deployment has
- * outgrown a single secret, and the caller must refuse rather than pick.
+ * The owner of a secret-attributed delivery. With more than one active row,
+ * one secret no longer identifies an owner, so the caller must refuse.
  */
 export type SoleActiveCredential =
   | { kind: "one"; credential: CredentialOwnerRef }
@@ -297,15 +223,8 @@ export async function findSoleActiveCredential(args: {
 }
 
 /**
- * Resolve the most-recently-updated active bearer credential for a provider.
- * Throws a connect-me error when none exists — tool code surfaces that to the
- * boss so it asks the user to connect rather than inventing an answer.
- *
- * Provider clients use this internally. Tool code enters through
- * `ctx.integrations.<provider>` and never receives the returned token.
- *
- * @internal Credential boundary for provider clients and non-tool background
- * callers that do not have a ToolExecuteContext.
+ * Newest active credential, or throw a connect-me error that tells the boss to ask the user.
+ * @internal For provider clients and background callers with no ToolExecuteContext.
  */
 export async function getActiveBearerCredential(
   userId: string,
@@ -321,7 +240,5 @@ export async function getActiveBearerCredential(
     );
   }
 
-  // `row` is already an ActiveBearerCredential (the list query selects exactly
-  // these columns), so no re-map is needed.
   return row;
 }

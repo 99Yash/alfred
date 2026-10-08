@@ -13,12 +13,8 @@ const optionalIdentifierField = z.string().min(1).nullable().optional();
 const optionalFormatField = contentFormatSchema.optional();
 
 /**
- * The shared, persisted Gmail projection stored in `documents.metadata`.
- *
- * The metadata column is an additive JSON bag, so this schema preserves keys
- * owned by other Gmail ingestion features. Direct schema use is strict so an
- * invalid writer fails at its owning seam. The parser below is lenient for
- * legacy rows: it drops an invalid known field without discarding valid peers.
+ * Gmail fields in `documents.metadata`. Loose, so other writers' keys survive.
+ * The schema is strict for writers; the parser below drops a bad field on a legacy row.
  */
 export const gmailDocumentMetadataSchema = z.looseObject({
   from: nullableStringField,
@@ -27,9 +23,9 @@ export const gmailDocumentMetadataSchema = z.looseObject({
   snippet: nullableStringField,
   labelIds: labelIdsField,
   isSent: isSentField,
-  /** Gmail's provider-authored millisecond timestamp; absent on legacy rows. */
+  /** Gmail's millisecond timestamp. Absent on legacy rows. */
   internalDate: z.string().min(1).nullable().optional(),
-  /** Canonical first-carrier identity for a `gmail_attachment` row. */
+  /** The message that first carried a `gmail_attachment` row. */
   messageId: optionalIdentifierField,
   attachmentId: optionalIdentifierField,
   threadId: optionalIdentifierField,
@@ -66,7 +62,7 @@ export function parseGmailDocumentMetadata(raw: unknown): GmailDocumentMetadata 
 
 const SENT_LABEL = "SENT";
 
-/** Canonical JavaScript predicate for authenticated Gmail sent direction. */
+/** True when the metadata marks an authenticated sent message. */
 export function isSentGmailMetadata(metadata: unknown): boolean {
   const parsed = parseGmailDocumentMetadata(metadata);
 
@@ -74,12 +70,9 @@ export function isSentGmailMetadata(metadata: unknown): boolean {
 }
 
 /**
- * Read the carrier that first persisted a `gmail_attachment` row. A row
- * written before the metadata carried `accountId`/`threadId` falls back to
- * the row's own columns, which the same insert wrote. `messageId` and
- * `attachmentId` stay null on a row older than those keys. Ingest (to decide a
- * backfill) and the document-ask reducer (to grant evidence) both read the
- * identity here, so the two cannot disagree about which mail carried a file.
+ * Read the mail that first carried a `gmail_attachment` row. Older rows fall back
+ * to the row's own columns, and `messageId`/`attachmentId` stay null.
+ * Ingest and the document-ask reducer share this so they agree.
  */
 export function readGmailAttachmentFirstCarrier(row: {
   accountId: string | null;

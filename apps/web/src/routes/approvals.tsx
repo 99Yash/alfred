@@ -4,17 +4,10 @@ import { pageMeta } from "~/lib/page-meta";
 import { ApprovalsRoute } from "./-approvals/approvals-route";
 
 /**
- * Live `/approvals` surface. Subscribes to pending `action_stagings` via
- * Replicache and posts approve / reject / cancel decisions through the Eden
- * decision API (`POST /api/approvals/:stagingId/decision`).
- *
- * Auth is gated centrally: `AppShell`'s guard redirects signed-out visitors to
- * `/login` before this route renders, so we only handle the session-pending
- * window here (the loader below) and then assume an authed user. The pending
- * state renders outside the themed app chrome (see `AppShell`'s `showChrome`),
- * so it uses plain grammar like `routes/debug.events.tsx` rather than `app-*`.
+ * Live `/approvals`. `AppShell` redirects signed-out users, so this route only
+ * handles the session-pending window, which renders outside the themed chrome.
  */
-/** Normalize a search value to a string[] (single value or repeated key). */
+/** A single value or repeated key, as a string[]. */
 function toStringArray(value: unknown): string[] | undefined {
   const arr = coerceStringArray(value);
 
@@ -24,9 +17,9 @@ function toStringArray(value: unknown): string[] | undefined {
 }
 
 export interface ApprovalsSearch {
-  /** Selected integration facet values; absent = no integration filter. */
+  /** Absent means no filter. */
   integration?: string[] | undefined;
-  /** Selected risk-tier facet values; absent = no risk filter. */
+  /** Absent means no filter. */
   risk?: string[] | undefined;
 }
 

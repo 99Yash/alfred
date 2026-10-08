@@ -4,11 +4,7 @@ import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { CapabilityChip } from "./capability-chip";
 import { SectionHeading } from "./section-heading";
 
-/**
- * Humanize the registry's tier breakdown into a scannable summary like
- * "3 tools · 1 high, 1 medium, 1 no-risk". Tiers are ordered high→no-risk
- * (most-sensitive first) and zero-count tiers are dropped.
- */
+/** For "3 tools · 1 high, 1 medium, 1 no-risk": most sensitive first, zero counts dropped. */
 const TIER_ORDER: ReadonlyArray<{ key: keyof RiskTierCounts; label: string }> = [
   { key: "high", label: "high" },
   { key: "medium", label: "medium" },

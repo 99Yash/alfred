@@ -22,22 +22,10 @@ import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assis
 import { dbBackedSkip } from "../../support/db-backed";
 
 /**
- * DB-backed regression for the ADR-0074 per-run passthrough ceiling. A runaway
- * pagination loop reads as *forward progress* (each page is a materially-changed
- * request), so it slips past the ADR-0070 non-progress backstop. The dispatcher's
- * cumulative cap is the dedicated guard: at or over the ceiling it commits a
- * VISIBLE `budget_exhausted` envelope as a normal executed result and does NOT
- * run the tool — the boss reads the notice and stops paginating, never a silent
- * cut-off.
- *
- * The tool must reach the execute branch to exercise the guard, so this drives a
- * real `github.request` double through the full non-`system` path: the policy is
- * seeded to `autonomy` (a read tool + autonomy ⇒ no approval gate) and the
- * default-OFF passthrough preference is turned ON so the kill-switch recheck
- * doesn't short-circuit first.
- *
- * Opt-in on a reachable migrated Postgres (same gate as staging.test.ts); the
- * pure envelope/routing assertions live in test/tools/passthrough/budget.test.ts.
+ * DB-backed test of the per-run passthrough ceiling (ADR-0074). Pagination looks like
+ * progress, so the ADR-0070 backstop misses it. At the ceiling the dispatcher commits a
+ * visible `budget_exhausted` result and does not run the tool.
+ * The pure assertions live in `tools/passthrough/budget.test.ts`.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -45,8 +33,7 @@ const ID_PREFIX = "test-pt-budget-";
 
 const createdUserIds: string[] = [];
 
-// Bumped every time the github.request double actually executes, so a test can
-// prove the ceiling PREVENTED a real execution (count stays put).
+// Proves the ceiling prevented a real execution.
 let executeCount = 0;
 
 async function seedUser(): Promise<{ userId: string; runId: string }> {
@@ -55,14 +42,9 @@ async function seedUser(): Promise<{ userId: string; runId: string }> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
-  // Autonomy so a no_risk read executes without an approval gate.
   await db().insert(userActionPolicies).values({ userId, defaultMode: "autonomy" });
-  // `github` is a loadable slug, so `evaluateSnapshotGates` gates the tool on
-  // connection *health* AFTER the passthrough kill switch — a turned-on tier on a
-  // disconnected integration is still unavailable, by design. Without a row here the
-  // snapshot reports `health: null` and the dispatch answers `not_allowed` before it
-  // ever reaches the ceiling this file exists to test. The registry's `github_app`
-  // rule (`credentialSatisfies`) needs an active row WITH an installation id.
+  // Without a healthy connection the dispatch answers `not_allowed` before the ceiling.
+  // `credentialSatisfies` for `github_app` needs an active row with an installation id.
 
   await db()
     .insert(integrationCredentials)
@@ -70,15 +52,13 @@ async function seedUser(): Promise<{ userId: string; runId: string }> {
       userId,
       provider: "github",
       accountId: `${userId}-gh`,
-      // Deliberate unsealed write (#453). Nothing in this file opens the token —
-      // the row exists so `evaluateSnapshotGates` sees a healthy connection — so
-      // sealing it would only pull the whole `serverEnv()` fixture block in here.
+      // Unsealed on purpose: nothing opens the token, and sealing needs the `serverEnv()` fixtures.
       // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
       accessToken: "test-token" as unknown as SealedCredentialSecret,
       installationId: "1",
       status: "active",
     });
-  // Default-OFF passthrough tier: turn github ON so the kill-switch recheck passes.
+  // The passthrough tier is off by default.
   await db()
     .insert(userPreferences)
     .values({ userId, key: "feature.passthrough.github", value: true });
@@ -94,7 +74,7 @@ async function seedUser(): Promise<{ userId: string; runId: string }> {
   return { userId, runId };
 }
 
-/** Seed `count` already-executed passthrough rows for the run, as a prior loop would. */
+/** Seed `count` executed passthrough rows, as a prior loop would. */
 async function seedExecutedPassthroughCalls(
   userId: string,
   runId: string,
@@ -114,7 +94,7 @@ async function seedExecutedPassthroughCalls(
         riskTier: "no_risk" as const,
         proposedInput: { method: "GET", path: `/repos/x/y/commits?page=${i}` },
         proposedInputHash: `seed-hash-${i}`,
-        // #559a: the ledger's NOT NULL effect identity and canonical request hash.
+        // NOT NULL ledger columns.
         effectKey: `eff:${runId}:seed_${i}`,
         attemptKey: `eff:${runId}:seed_${i}:1`,
         requestHash: `req_seed_${i}`,
@@ -143,10 +123,7 @@ function dispatchGithubRequest(userId: string, runId: string, page: number) {
 describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
     clearToolRegistryForTests();
-    // A github.request double standing in for the real passthrough tool: same
-    // identity (github.request), same passthrough marker + read schema, but a
-    // controllable execute that counts its runs so we can prove the ceiling
-    // blocked one.
+    // Same identity and passthrough marker as the real tool, with a counting execute.
     registerTool(
       liveTool({
         integration: "github",

@@ -2,38 +2,22 @@ import { envFieldValue } from "@alfred/env/server";
 import { selfSenderEmail } from "@alfred/integrations/google";
 
 /**
- * Alfred's own deployment identity: the names under which Alfred exists in the
- * outside world. Read from the runtime configuration once per process, so the
- * value follows the deployment. When the hosted domain changes, every prompt
- * that grounds on this block changes with it and nothing in the repo has to
- * name the domain.
- *
- * Why this exists (2026-09-06): the evening briefing surfaced Google's
- * "alfred.beauty was granted access to your Google Account" alert as a stranger
- * to revoke, minutes after the user connected Alfred on production. The model
- * had the connected catalog (ADR-0053) but no fact that said "alfred.beauty is
- * you". The first slice of runtime capability awareness
- * (`docs/plans/runtime-capability-awareness-decision-map.md`, #1 and #5) is
- * therefore the cheapest one: tell every prose builder and the triage
- * classifier who Alfred is, from configuration.
- *
- * Reads go through `envFieldValue` (single-field, never throws) rather than
- * `serverEnv()`: a booted process has already validated the whole environment,
- * and a bare test run without an env file still gets a truthful block for the
- * fields that are set (`CORS_ORIGIN` has a default) instead of a throw.
+ * Alfred's own hostnames and addresses, from env, so prompts never hardcode a domain.
+ * Without it, the model flagged Google's "alfred.beauty was granted access" alert as a stranger.
+ * Uses `envFieldValue`, which never throws, so a run without an env file still works.
  */
 export interface SelfIdentity {
-  /** Public web origin, no trailing slash (`CORS_ORIGIN`). */
+  /** `CORS_ORIGIN`, no trailing slash. */
   webOrigin: string;
-  /** Hostname of {@link SelfIdentity.webOrigin}, e.g. `alfred.beauty`. */
+  /** e.g. `alfred.beauty`. */
   webHost: string;
-  /** Public API origin (`BETTER_AUTH_URL`), no trailing slash; null when unset. */
+  /** `BETTER_AUTH_URL`, no trailing slash. */
   apiOrigin: string | null;
-  /** Hostname of {@link SelfIdentity.apiOrigin}, e.g. `api.alfred.beauty`. */
+  /** e.g. `api.alfred.beauty`. */
   apiHost: string | null;
-  /** Bare address Alfred sends mail from (`RESEND_FROM_EMAIL`); null when unset. */
+  /** Bare address from `RESEND_FROM_EMAIL`. */
   sendAddress: string | null;
-  /** GitHub App slug the user installs (`GITHUB_APP_SLUG`); null when unset. */
+  /** `GITHUB_APP_SLUG`. */
   githubAppSlug: string | null;
 }
 
@@ -41,7 +25,7 @@ function stripTrailingSlash(origin: string): string {
   return origin.replace(/\/+$/, "");
 }
 
-/** Hostname of a URL-ish string; the raw string when it does not parse as a URL. */
+/** The raw string when it does not parse as a URL. */
 function hostOf(origin: string): string {
   try {
     return new URL(origin).hostname;
@@ -52,7 +36,7 @@ function hostOf(origin: string): string {
 
 let _identity: SelfIdentity | undefined;
 
-/** Alfred's deployment identity, resolved once per process. */
+/** Resolved once per process. */
 export function resolveSelfIdentity(): SelfIdentity {
   if (_identity) return _identity;
   const webOrigin = stripTrailingSlash(envFieldValue("CORS_ORIGIN") ?? "");
@@ -70,30 +54,17 @@ export function resolveSelfIdentity(): SelfIdentity {
   return _identity;
 }
 
-/** Public web origin, no trailing slash. The one place deep links start from. */
+/** Deep links start here. */
 export function webOrigin(): string {
   return resolveSelfIdentity().webOrigin;
 }
 
-/**
- * Absolute URL of the logo every Alfred email renders in its shell. Raster PNG,
- * not SVG: Gmail and Outlook drop an inline SVG `<img>` to its alt text.
- *
- * It sits here, beside {@link webOrigin} it derives from, so a sender reaches
- * it without importing another sender's module graph. `origin` exists for the
- * one sender that accepts a caller-supplied origin; every other caller wants
- * this deployment's own, which is the default.
- */
+/** PNG, not SVG: Gmail and Outlook show an SVG `<img>` as its alt text. */
 export function emailLogoUrl(origin: string = webOrigin()): string {
   return `${stripTrailingSlash(origin)}/images/logo/alfred-logo-email.png`;
 }
 
-/**
- * System-prompt block that tells the model who it is in this deployment. Pure
- * over {@link SelfIdentity}, so a caller can render a fixture. Configuration
- * identifies Alfred; it does not prove that the user initiated an access event.
- * Constant per process, so it sits in the cache-stable part of a prompt.
- */
+/** Prompt block naming Alfred's hosts. Constant per process, so put it in the cached prompt prefix. */
 export function formatSelfIdentityGrounding(identity: SelfIdentity): string {
   const names = [identity.webHost, identity.apiHost].filter(
     (host): host is string => typeof host === "string" && host.length > 0,
@@ -127,7 +98,6 @@ export function formatSelfIdentityGrounding(identity: SelfIdentity): string {
   return lines.join("\n");
 }
 
-/** {@link formatSelfIdentityGrounding} over the live {@link resolveSelfIdentity}. */
 export function selfIdentityGrounding(): string {
   return formatSelfIdentityGrounding(resolveSelfIdentity());
 }

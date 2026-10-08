@@ -65,7 +65,7 @@ async function pickReplyExpectedTriageRow() {
       model: emailTriage.model,
     })
     .from(emailTriage)
-    // `document_id` is a soft pointer that a purge can null; the run needs a document.
+    // A purge can null `document_id`, and the run needs a document.
     .where(
       and(
         inArray(emailTriage.category, [...REPLY_EXPECTED_TRIAGE_CATEGORIES]),

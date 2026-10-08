@@ -1,14 +1,7 @@
 /**
- * Inbound ingress registry (ADR-0097): the typed source descriptors behind
- * `POST /webhooks/inbound/:source`, the per-source subscription health that
- * trigger readiness reads.
- *
- * This door is light on purpose. `connections/event-source-health.ts` imports
- * it for `readInboundTriggerHealth`, and that fold feeds both workflow trigger
- * readiness and the inbound delivery alert, so nothing here may reach the
- * BullMQ queue or the trigger bus. The receive path (the queue's producer) and the
- * `ingress.deliver` job body live in `../ingestion`, beside the queue they use;
- * the HTTP route imports `receiveInboundDelivery` from that door.
+ * Inbound webhook descriptors and their subscription health (ADR-0097).
+ * Keep it light: readiness and alerts import it, so it must not reach BullMQ or the trigger bus.
+ * The receive path lives in `../ingestion`.
  */
 export type {
   EventDeliveryCause,

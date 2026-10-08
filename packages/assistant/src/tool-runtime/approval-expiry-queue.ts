@@ -1,18 +1,6 @@
 /**
- * Approval expiry queue (m13 Phase 5e / ADR-0034) — scheduling side.
- *
- * A gated `action_stagings` row that nobody ever decides would otherwise
- * park its run forever. When such a row is staged, the dispatcher sets
- * `expires_at` and schedules a delayed `staging-expire:<id>` job here
- * (mirroring the `staging-notify` debounce). The decision API removes
- * the queued job when a human acts first (`removeApprovalExpiryJob`), so
- * the common path never fires.
- *
- * This file deliberately holds ONLY the queue + scheduling helpers and
- * imports nothing from `../agent`: the dispatcher imports it, and the
- * dispatcher already sits underneath `../agent` (the agent executor calls
- * `dispatchToolCall`). The worker side that needs `signalRun`/`enqueueRun`
- * lives in `expiry-worker.ts`, imported only at server boot.
+ * Schedules approval expiry (ADR-0034), so an undecided gated row cannot park its run
+ * forever. A decision removes the job. The worker is `execution/approval-expiry-worker.ts`.
  */
 
 import { Queue } from "bullmq";
@@ -32,8 +20,7 @@ export type ApprovalExpiryJobData = z.infer<typeof approvalExpiryJobDataSchema>;
 let _queue: Queue<ApprovalExpiryJobData> | undefined;
 
 export function approvalExpiryJobId(stagingId: string): string {
-  // BullMQ custom job ids cannot contain `:`, so this mirrors the
-  // plan's `staging-expire:<id>` logical id with a dot separator.
+  // BullMQ custom job ids cannot contain `:`.
   return `staging-expire.${stagingId}`;
 }
 
@@ -62,15 +49,8 @@ export async function scheduleApprovalExpiryJob(args: {
   try {
     const queue = getApprovalExpiryQueue();
     const jobId = approvalExpiryJobId(args.stagingId);
-    // BullMQ `add` is a no-op when a job with this id already exists —
-    // and `removeOnComplete.age` keeps a *completed* expiry job around for
-    // up to an hour. If a crash/resume re-dispatch re-parks the same
-    // staging row inside that window, the bare `add` would silently skip
-    // and leave the row without a live expiry timer. Drop any lingering
-    // terminal job first so the re-add always installs a fresh delayed
-    // job. (A still-`delayed` job is left untouched — `add` no-ops on it,
-    // which is the intended idempotency; an `active` job is mid-expiry and
-    // must not be removed out from under the worker.)
+    // `add` no-ops on an existing id, and a finished job lingers for an hour. Remove a
+    // finished job so a resumed re-park gets a live timer. Leave delayed and active jobs.
     const existing = await queue.getJob(jobId);
 
     if (existing) {

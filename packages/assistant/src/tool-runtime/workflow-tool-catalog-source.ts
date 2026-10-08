@@ -7,14 +7,7 @@ import {
 } from "./workflow-tool-catalog";
 import { evaluateToolAvailability, listRegisteredTools } from "./internal/registry";
 
-/**
- * The tools-owned source behind the `workflowToolCatalog()` read. It projects
- * every registered tool to the narrow `WorkflowToolFacts` a workflow readiness,
- * authoring, or revision decision needs, and binds each entry's availability
- * verdict to the exact registered tool. `workflows` reads this projection
- * through the `tool-runtime` seam and never imports the tools registry
- * (ADR-0089).
- */
+/** Projects each registered tool to `WorkflowToolFacts`, so workflows never import the registry (ADR-0089). */
 const workflowToolCatalogSource: WorkflowToolCatalogSource = {
   catalog(): WorkflowToolCatalog {
     const entries = new Map<ToolName, WorkflowToolFacts>();
@@ -33,7 +26,6 @@ const workflowToolCatalogSource: WorkflowToolCatalogSource = {
   },
 };
 
-/** Install the tools-backed workflow catalog source behind the tool-runtime seam. */
 export function registerWorkflowToolCatalog(): () => void {
   return registerWorkflowToolCatalogSource(workflowToolCatalogSource);
 }

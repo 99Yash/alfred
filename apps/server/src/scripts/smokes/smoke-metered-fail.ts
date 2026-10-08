@@ -1,6 +1,6 @@
 /**
- * Verifies the failure path of `metered()`: an SDK error must land an
- * api_call_log row (cost_usd=0, error column populated) and rethrow.
+ * Failure path of `metered()`: an SDK error logs an api_call_log row with
+ * cost_usd=0 and the error, then rethrows.
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-metered-fail.ts
  */
@@ -54,8 +54,7 @@ async function main() {
 
   if (Number(row.costUsd) !== 0)
     throw new Error(`expected cost_usd=0 on failure, got ${row.costUsd}`);
-  // SAFETY: agent_runs.error is jsonb written by the executor with a message
-  // field for failed runs.
+  // SAFETY: metered() writes api_call_log.error with a message on failure.
   const err = row.error as { message?: string } | null;
 
   if (err?.message !== "synthetic failure for smoke test") {

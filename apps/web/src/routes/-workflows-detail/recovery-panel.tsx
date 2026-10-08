@@ -73,8 +73,7 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
                 variant="primary"
                 size="sm"
                 onClick={() => {
-                  // Authorization opens in a new tab so the workflow draft
-                  // stays in place; Recheck picks up the new grant on return.
+                  // New tab keeps the draft in place; Recheck picks up the grant.
                   openAuthorizationTab(`${API_URL}${recoveryNavigation.path}`);
                 }}
               >

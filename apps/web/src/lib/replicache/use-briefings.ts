@@ -5,7 +5,7 @@ import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
 import { useReplicacheSubscription } from "./use-replicache-subscription";
 
-/** Rank for sort: morning (0) before evening (1); unknown slots sort last. */
+/** Morning before evening; unknown slots last. */
 const SLOT_ORDER = {
   morning: 0,
   evening: 1,
@@ -16,19 +16,14 @@ function compareSlots(a: SyncedBriefing, b: SyncedBriefing): number {
 }
 
 export interface BriefingsState {
-  /** All synced briefing rows, newest day first; morning above evening within a day. */
+  /** Newest day first; morning above evening. */
   briefings: SyncedBriefing[];
   loading: boolean;
   error: string | null;
   retry: () => void;
 }
 
-/**
- * Live, reverse-chronological view of the synced briefings (ADR-0049). Reads
- * the Replicache 30-day window only (≈60 rows at two slots/day); the workflow
- * is the sole writer, so there are no mutators here. Rows that fail schema
- * validation are dropped rather than crashing the page.
- */
+/** Synced briefings (ADR-0049), a 30-day window. Read-only: the workflow is the only writer. */
 export function useBriefings(): BriefingsState {
   const { loadError, retry } = useReplicacheStatus();
   const query = useCallback((tx: ReadTransaction) => SYNC_MODEL.briefing.scan(tx), []);
@@ -55,18 +50,14 @@ export function useBriefings(): BriefingsState {
 }
 
 export interface BriefingDayState {
-  /** The day's slot rows (morning above evening). Empty when no row is synced. */
+  /** Morning above evening. */
   slots: SyncedBriefing[];
   loading: boolean;
   error: string | null;
   retry: () => void;
 }
 
-/**
- * Live view of a single day's briefing(s) by `YYYY-MM-DD`. Prefix-scans
- * `briefing/{date}/` so both the morning and evening slot rows arrive together
- * and render stacked (ADR-0049). Read-only.
- */
+/** Both slots of one `YYYY-MM-DD` day. */
 export function useBriefing(date: string): BriefingDayState {
   const { loadError, retry } = useReplicacheStatus();
 

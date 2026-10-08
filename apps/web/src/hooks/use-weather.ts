@@ -3,17 +3,12 @@ import { useState } from "react";
 import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
 import { fetchWeather, type WeatherSnapshot } from "~/lib/weather";
 
-/** Cache window — survives reloads and gates refetches. */
+/** Cache TTL; also the query's stale time. */
 const WEATHER_TTL_MS = 30 * 60 * 1000;
 
 const CACHE_KEY = "alfred.weather.cache";
 
-/**
- * Read the last snapshot if it's still within the TTL. Returns `null` on a
- * miss (empty cache reads as `fetchedAt: 0`, i.e. always stale) — the caller
- * falls through to a fresh fetch. Validation/SSR/private-mode are handled by
- * the storage layer.
- */
+/** The cached snapshot if still within the TTL, else `null`. */
 function readCache(): { data: WeatherSnapshot; fetchedAt: number } | null {
   const cached = getLocalStorageItem(CACHE_KEY);
 
@@ -27,15 +22,8 @@ function writeCache(data: WeatherSnapshot): void {
 }
 
 /**
- * React Query wrapper around `fetchWeather`, backed by a localStorage
- * cache so the rail has data on the first paint after a reload — no
- * loading flash, no layout shift, no redundant geolocation/API hit.
- *
- * The persisted snapshot seeds React Query's `initialData`; because its
- * timestamp is within `staleTime`, the query is considered fresh and
- * skips the network entirely until the TTL lapses. We don't retry
- * aggressively — the weather line reserves its row while loading and
- * hides only on a hard error.
+ * Weather query seeded from a localStorage cache, so the rail has data on the
+ * first paint after a reload and skips the network until the TTL lapses.
  */
 export function useWeather() {
   const [cached] = useState(() => readCache());
@@ -52,10 +40,8 @@ export function useWeather() {
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,
-    // Seed only on a cache hit. React Query's `initialData` overload is what
-    // fixes `data` as non-undefined, so handing it an explicit `undefined`
-    // (rejected under exactOptionalPropertyTypes) would also collapse the
-    // inference every consumer of `data` depends on.
+    // Seed only on a hit: an explicit `undefined` is rejected under
+    // exactOptionalPropertyTypes and breaks the `initialData` overload's typing.
     ...(cached ? { initialData: cached.data, initialDataUpdatedAt: cached.fetchedAt } : {}),
   });
 }

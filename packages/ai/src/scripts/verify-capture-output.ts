@@ -1,17 +1,6 @@
 /**
- * Live verification for the lossy-generation fix (captureOutput).
+ * Live check that a tool-call turn with no text still records its tool call as the trace output.
  *
- * Before: a tool-call turn captured `result.text` only — empty on a no-prose
- * tool call — so the generation's `output` landed NULL and a replay lost what
- * the model decided to call. This drives a REAL `meteredGenerateText` with
- * `toolChoice: 'required'` (guarantees a no-prose tool-call turn), flushes to
- * Langfuse, and asserts the generation output now carries the tool call.
- *
- * Reads go through `GET /api/public/v2/observations` (filtered by trace id)
- * because the self-hosted `events_only` write mode serves reads from the v2
- * observations API and 404s the legacy `GET /api/public/traces/:id`.
- *
- * Run from packages/ai (needs a cheap-model key + LANGFUSE_* in env):
  *   ./node_modules/.bin/tsx --env-file=../../apps/server/.env \
  *     src/scripts/verify-capture-output.ts
  */
@@ -46,10 +35,6 @@ const weather = tool({
   }),
 });
 
-// `tool()` returns `Tool<INPUT>`, which under `exactOptionalPropertyTypes` is no
-// longer assignable to the SDK's own `ToolSet`: bare `Tool` fixes `INPUT` to
-// `never`, and the flag removes the optional-property slack that used to let the
-// two unify. The cast is that SDK variance gap, not a claim about this tool.
 // eslint-disable-next-line anti-slop/no-chained-type-assertions -- tool() Tool<INPUT> no longer unifies with the SDK ToolSet under exactOptionalPropertyTypes (INPUT fixed to never)
 const tools = { weather } as unknown as ToolSet;
 
@@ -90,7 +75,7 @@ async function main() {
   );
   await flushLangfuse();
 
-  // Poll the trace until the generation observation materializes.
+  // Ingestion is async, so poll.
   let gen: LangfuseObservation | undefined;
 
   for (let attempt = 1; attempt <= 20; attempt++) {

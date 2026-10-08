@@ -25,14 +25,11 @@ import { useBioFact } from "~/lib/replicache/use-bio-fact";
 import { toast } from "~/lib/toast";
 import { SettingCard } from "./setting-card";
 
-/** Quiet period after the last keystroke before the bio auto-saves. */
 const BIO_SAVE_DEBOUNCE_MS = 900;
 
 type CommunicationChannel = "email" | "slack" | "imessage" | "mobile";
 
-/** Apple Messages green bubble — no brand asset in the integration set, so
- * inline. Filled to sit alongside the multicolor Gmail/Slack marks rather
- * than reading as a thin lucide outline. */
+/** Messages bubble, inline because the integration set has no asset for it. */
 function MessagesGlyph({ size = 14 }: { size?: number }) {
   return (
     <svg
@@ -74,21 +71,16 @@ export function UserSection() {
   const [revokingOthers, setRevokingOthers] = useState(false);
   const navigate = useNavigate();
 
-  // Background: `draft === null` means "mirror the synced value"; once the user
-  // types, the draft takes over so an incoming pull can't clobber their edit.
-  // Edits auto-save on a trailing debounce — no explicit Save button.
+  // `draft === null` mirrors the synced value; once the user types, a pull cannot clobber it.
   const { value: bio, loading: bioLoading, saveBio } = useBioFact();
   const [bioDraft, setBioDraft] = useState<string | null>(null);
   const [bioSaving, setBioSaving] = useState(false);
   const bioValue = bioDraft ?? bio;
 
-  // The newest edit the debounce has not written yet. The unmount flush is its
-  // only reader; a completed save clears it.
+  // The edit the debounce has not saved yet, for the unmount flush.
   const unsavedBioRef = useRef<string | null>(null);
-  // `saveBio` gets a new identity on every Replicache pull, because it closes
-  // over the synced fact row. Read it through a ref so neither effect below
-  // lists it: as a dependency it restarted the debounce timer on every poke,
-  // which postponed the save for as long as the pokes kept arriving.
+  // `saveBio` changes on every pull. As an effect dependency it restarted the
+  // debounce on every poke, so read it through a ref.
   const saveBioRef = useRef(saveBio);
 
   useEffect(() => {
@@ -96,17 +88,17 @@ export function UserSection() {
   }, [saveBio]);
 
   useEffect(() => {
-    if (bioDraft === null) return; // untouched — nothing to persist
+    if (bioDraft === null) return;
 
     const next = bioDraft.trim();
 
     if (next === bio.trim()) {
-      unsavedBioRef.current = null; // matches synced truth (incl. post-save)
+      unsavedBioRef.current = null;
 
       return;
     }
 
-    if (next === "") return; // don't let a transient empty wipe the bio
+    if (next === "") return; // a transient empty must not wipe the bio
 
     unsavedBioRef.current = next;
 
@@ -127,11 +119,8 @@ export function UserSection() {
     return () => clearTimeout(timer);
   }, [bioDraft, bio]);
 
-  // Flush on unmount. The cleanup above cancels the timer, so a keystroke
-  // inside the debounce window used to be dropped outright whenever the user
-  // left the page before it fired — no click, no error, the edit simply gone.
-  // The mutator writes locally first, so it still lands after this component
-  // goes away.
+  // Flush on unmount, or an edit inside the debounce window is lost.
+  // The mutator writes locally first, so it lands after unmount.
   useEffect(
     () => () => {
       const pending = unsavedBioRef.current;
@@ -157,9 +146,7 @@ export function UserSection() {
     }
   };
 
-  // Keep this recovery action available without a device count. The auth
-  // reference owns the Better Auth freshness behavior that makes a count
-  // unavailable for some valid sessions. See `docs/reference/auth.md`.
+  // No device count gate: Better Auth cannot count some valid sessions (docs/reference/auth.md).
   const onRevokeOtherSessions = async () => {
     setRevokingOthers(true);
 

@@ -35,13 +35,8 @@ import { gmailPushStaleStatus, readGmailDeliveryFacts } from "./ingestion/gmail-
 import { readDeliveryAlerts, toDeliveryAlerts } from "./delivery-alerts";
 
 /**
- * How long a snapshot is reused. Deliberately short: the whole point of the
- * dispatch floor reading availability LIVE is that a grant revoked or a kill
- * switch flipped since the surface was built must bounce the call, so the window
- * in which a stale snapshot could let one through has to be far smaller than the
- * gap it closes (turn start → dispatch, seconds to minutes). Inside the window
- * the worst case is the pre-floor behavior: the call executes and fails with the
- * provider's own auth error.
+ * Short on purpose: the dispatch floor must see a revoked grant. Inside the window,
+ * a stale call just fails with the provider's auth error.
  */
 const AVAILABILITY_MEMO_TTL_MS = 3_000;
 
@@ -53,20 +48,9 @@ interface AvailabilityMemoEntry {
 const availabilityMemo = new Map<string, AvailabilityMemoEntry>();
 
 /**
- * One credential read projected into exact per-integration capability health,
- * memoized per user for {@link AVAILABILITY_MEMO_TTL_MS}.
- *
- * The memo lives HERE, on the read, rather than at each caller: the dispatch
- * floor now resolves availability on every call, so a round of five parallel
- * Gmail calls would otherwise issue ten of these. Callers that used to hand-roll
- * `availability ??= await readIntegrationAvailability(...)` just call it.
- *
- * Caching the promise (not the result) also collapses concurrent callers in the
- * same round onto one query. A rejected read is evicted so the next caller
- * retries instead of inheriting a poisoned entry — same shape as
- * `getResolvedPolicy`, minus its bust protocol: expiry by time means no write
- * site has to know this cache exists, which is the trade for a bounded staleness
- * window rather than an exact one.
+ * Per-integration health, memoized per user for {@link AVAILABILITY_MEMO_TTL_MS}.
+ * The dispatch floor reads it on every call. Caching the promise merges concurrent callers;
+ * a rejected read is evicted. Expiry is by time, so writers need not bust it.
  */
 export function readIntegrationAvailability(
   userId: string,
@@ -76,8 +60,7 @@ export function readIntegrationAvailability(
 
   if (cached && now - cached.readAt < AVAILABILITY_MEMO_TTL_MS) return cached.snapshot;
 
-  // Drop everything already expired while we are here — the map is keyed by user
-  // and entries are never otherwise removed, so this is what bounds it.
+  // Nothing else removes entries, so this sweep bounds the map.
   for (const [key, entry] of availabilityMemo) {
     if (now - entry.readAt >= AVAILABILITY_MEMO_TTL_MS) availabilityMemo.delete(key);
   }
@@ -102,23 +85,10 @@ export async function readFreshIntegrationAvailability(
 }
 
 /**
- * `GET /api/integrations`: the registry joined with the user's credentials and
- * resolved through each entry's connected rule, in the shape the web renders.
- *
- * It reads the rows directly instead of through {@link readIntegrationAvailability}:
- * the web refetches right after a connect or a disconnect, and inside the memo's
- * window it would read back the state the user just changed. The read does not
- * evict the memo either, so for up to {@link AVAILABILITY_MEMO_TTL_MS} after a
- * disconnect the web can say "Connect" while a dispatch already in flight still
- * reads `active`; inside that window the call fails with the provider's own auth
- * error, which is the memo's documented trade. The join lives here, beside the
- * snapshot the dispatch floor reads, so the two consume one row read and one
- * connected rule ({@link resolveIntegrationAvailability}) and cannot disagree on
- * which rows count.
+ * `GET /api/integrations`. Skips the memo: the web refetches right after a
+ * connect or disconnect and must see the change.
  */
 export async function readIntegrationStatus(userId: string): Promise<IntegrationStatus> {
-  // The rows come first because the alert read runs on them; the two reads that
-  // need nothing from each other still go together.
   const byProvider = await loadCredentialRowsByProvider(userId);
 
   const [gmailDelivery, deliveryAlerts] = await Promise.all([
@@ -146,9 +116,7 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
     };
   });
 
-  // A provider appears iff it holds an `active` row. Each row carries the
-  // provider's live slugs whose rule it fails: the Google scopes the user
-  // unchecked, or the GitHub App installation a classic-OAuth row never had.
+  // Only providers with an `active` row. `missing` lists the live slugs each row fails.
   const providers: IntegrationStatus["providers"] = {};
 
   for (const provider of CREDENTIAL_PROVIDERS) {
@@ -169,22 +137,9 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
 }
 
 /**
- * The delivery alerts for the status body (ADR-0100), or none when the health
- * read fails.
- *
- * It runs on the rows this read already loaded, so it issues no credential
- * query of its own and cannot disagree with the tiles beside it about which
- * rows exist.
- *
- * It is caught here on purpose. This read is the source of every integration
- * tile in the app, and the web polls it; a health check that throws must cost
- * the user one missing banner, not a page that reports every integration
- * disconnected.
- *
- * Not a pure fold over the rows: Gmail's verdict also reads the ingestion
- * state, so this repeats the `readGmailDeliveryFacts` select that the `pushStale`
- * column above makes. That is one indexed read per status poll, and the price of
- * keeping the generic health reader free of a Gmail-shaped parameter.
+ * Delivery alerts (ADR-0100), or none on failure. A throw here must not blank
+ * every integration tile. Gmail's facts are read twice per poll, to keep the
+ * health reader free of a Gmail parameter.
  */
 async function readWireDeliveryAlerts(
   userId: string,
@@ -201,19 +156,10 @@ async function readWireDeliveryAlerts(
   }
 }
 
-/**
- * A {@link ProviderAvailability} row plus the timestamp the web shows as
- * "connected at". Distinct from the `CredentialRow` of
- * `@alfred/integrations/google`, which is that provider's token row.
- */
+/** Not the `CredentialRow` of `@alfred/integrations/google`, which is a token row. */
 type AvailabilityRow = ProviderAvailability & Pick<IntegrationCredential, "createdAt">;
 
-/**
- * Every credential row of one user, grouped by `integration_credentials.provider`
- * and ordered oldest first (`created_at`, then `id` for two rows in one instant).
- * The one row read both the availability snapshot and the web status consume, so
- * "the first row" means the same row to both: the account connected first.
- */
+/** Oldest first, so "the first row" is the first connected account for every reader. */
 async function loadCredentialRowsByProvider(
   userId: string,
 ): Promise<Map<CredentialProvider, AvailabilityRow[]>> {
@@ -236,10 +182,7 @@ async function loadCredentialRowsByProvider(
   const byProvider = new Map<CredentialProvider, AvailabilityRow[]>();
 
   for (const row of rows) {
-    // The column's type is the CHECK constraint's promise, and this is the one
-    // read that consumes the value (every other read filters on it). A miss is
-    // registry-versus-migration drift, so it fails loud instead of dropping the
-    // row and reading a connected provider as absent.
+    // A miss is registry-versus-CHECK drift. Fail loud; do not hide a connected provider.
     if (!isCredentialProvider(row.provider)) {
       throw new Error(
         `[availability] integration_credentials.provider ${JSON.stringify(row.provider)} is not a registry provider; the CHECK constraint and the registry disagree`,
@@ -263,12 +206,7 @@ async function loadCredentialRowsByProvider(
   return byProvider;
 }
 
-/**
- * The entry's connected rule (ADR-0093) over its provider's rows: `null` health
- * with no rows, `active` when one row satisfies the rule, `needs_reauth` when
- * rows exist but none does, so a legacy GitHub row without an installation reads
- * `needs_reauth` here as it does on the web.
- */
+/** The connected rule (ADR-0093): no rows is `null`, rows that all fail it are `needs_reauth`. */
 function resolveIntegrationAvailability(
   spec: CredentialSpec,
   providerRows: readonly ProviderAvailability[],
@@ -300,8 +238,7 @@ async function loadIntegrationAvailability(
   const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));
   const passthroughEnabled = new Map<SupportedPassthroughSlug, boolean>();
 
-  // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedPassthroughSlug
-  // with string preference keys, so Object.entries yields exactly these tuples.
+  // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedPassthroughSlug with string values.
   for (const [slug, key] of Object.entries(PASSTHROUGH_PREFERENCE_KEYS) as [
     SupportedPassthroughSlug,
     string,
@@ -318,7 +255,5 @@ async function loadIntegrationAvailability(
     );
   }
 
-  // The rows carry `createdAt` past the `ProviderAvailability` the snapshot
-  // declares: structural widening, read by nothing on the dispatch side.
   return { integrations: availability, providers: byProvider, passthroughEnabled };
 }

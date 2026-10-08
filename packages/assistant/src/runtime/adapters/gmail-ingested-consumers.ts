@@ -20,22 +20,9 @@ import {
 } from "@alfred/assistant/connections/ingestion";
 
 /**
- * Composition adapters for the `gmail.documents_ingested` batch fact (ADR-0089).
- *
- * `queue.ts` publishes one fact per completed Gmail insert job and imports none
- * of these reactions; each independent downstream (corpus embed, user-model
- * capture, inbox rail, triage post-insert) subscribes here as a registered
- * trigger consumer. This inverts the old direct fan-out so the connection layer
- * only states the fact and every reacting module owns its own policy.
- *
- * `publishToConsumers` would fail the ingestion job if a reaction's `accept`
- * rejected, so all four register with `mode: "best-effort"` and the seam swallows
- * their non-boot rejections — the swallow rule now lives once at the seam as data,
- * not re-implemented in each body. Only a boot-wiring failure (a
- * `TriggerConsumerBootError` — the `No*RegisteredError` family) still propagates,
- * so a broken boot path fails the job and retries. The per-item `mapConcurrent`
- * catches and the graceful-fallback catches that remain here are batch/degrade
- * resilience within a reaction, NOT the reaction-level guard the seam replaced.
+ * Consumers of the `gmail.documents_ingested` fact (ADR-0089). The producer
+ * imports none of them. All are `best-effort`, so the seam swallows their
+ * failures. Only a `TriggerConsumerBootError` propagates and fails the job.
  */
 
 const REALTIME_EMIT_CONCURRENCY = 10;
@@ -128,12 +115,9 @@ export function planGmailPostInsertSideEffects(args: {
 }
 
 /**
- * Emit one Gmail message event per freshly-inserted Gmail document. Event-level
- * failures are logged-and-swallowed so trigger dispatch does not fail an
- * ingestion job that successfully wrote the docs. A missing consumer is a
- * runtime-composition failure instead: it rejects so retries and monitoring
- * expose the broken boot path. Strict schema drift stays an event-level failure
- * and warns instead of retrying the completed ingestion write.
+ * One `gmail.message_received` per inserted document. Per-event failures are
+ * logged, so a finished ingestion write never retries. A missing consumer
+ * (`TriggerConsumerBootError`) rethrows to expose the broken boot.
  */
 async function emitGmailMessageEvents(
   userId: string,
@@ -220,16 +204,9 @@ async function runGmailRepairSideEffects(
 }
 
 /**
- * Re-evaluate a thread's triage tag when the user sends an outbound reply
- * (issue #282). Sent mail is ingested + embedded but deliberately never
- * triaged/labeled and never a sender prior (ADR-0051 #7) — so the kept
- * "re-evaluate on reply" contract only ever fired on INBOUND replies, freezing
- * the tag until the counterparty sent again.
- *
- * We preserve both ADR-0051 #7 guardrails by NOT triaging the sent doc: instead
- * we re-key the received-only classify on the thread's newest INBOUND doc and
- * pass `force` so the already-tagged skip guard re-classifies. Best-effort:
- * failures are logged, never bubbled into the ingest result.
+ * Re-triage a thread when the user replies (#282). Sent mail is never triaged
+ * (ADR-0051 #7), so this re-keys the classify on the thread's newest inbound
+ * document with `force`. Best-effort: failures are logged.
  */
 async function resolveReplyReevalRequests(
   userId: string,
@@ -288,9 +265,7 @@ async function resolveReplyReevalRequests(
 
     if (!threadIds.length) return [];
 
-    // Only threads we already triage. A brand-new outbound-first thread has no
-    // triage row to refresh and no inbound doc to key the received-only
-    // classify on.
+    // Only triaged threads. An outbound-first thread has no inbound doc to classify.
     const triagedThreadIds = new Set<string>();
 
     for (const threadIdChunk of chunkArray(threadIds, REPLY_REEVAL_QUERY_CHUNK_SIZE)) {
@@ -412,26 +387,16 @@ function chunkArray<T>(values: readonly T[], size: number): T[][] {
   return chunks;
 }
 
-/**
- * Best-effort `inbox.updated` notification — fires the SSE bus so the chat
- * right-rail can invalidate its `["me","inbox"]` query without polling. We
- * coalesce per-job (one event per N inserts). A missed SSE frame is a missed
- * refresh, not a missed write — the rail's 5-min poll backstops it — so a
- * failure here is swallowed by the seam (the consumer is `best-effort`).
- */
+/** Tell the rail to refetch. A missed event only delays a refresh; the rail also polls every 5 minutes. */
 async function publishInboxUpdate(userId: string, count: number): Promise<void> {
-  // `inboxUpdatedSchema` caps `count` at 10_000; a bulk back-catalog re-ingest
-  // can exceed that. The count is telemetry-only (clients don't act on it), so
-  // clamp instead of letting validation throw and lose the refresh signal.
+  // The schema caps `count` at 10_000, and no client reads it, so clamp.
   const payload = { reason: "ingested", count: Math.min(count, 10_000) } as const;
   await publishEvent({ untransacted: true, userId, kind: "inbox.updated", payload });
 }
 
 /**
- * Embed docs still needing an embed in parallel. Best-effort: failures are
- * logged and left for `gmail.embed_sweep` to retry. Kept off the triage-enqueue
- * critical path so Voyage latency doesn't compound into the user-visible
- * tag-latency budget (ADR-0037).
+ * Best-effort embed. `gmail.embed_sweep` retries failures. Kept off the triage
+ * path so embed latency does not add to tag latency (ADR-0037).
  */
 async function embedDocuments(documentIds: readonly string[]): Promise<void> {
   await mapConcurrent(documentIds, REALTIME_EMBED_CONCURRENCY, async (documentId) => {
@@ -446,7 +411,6 @@ async function embedDocuments(documentIds: readonly string[]): Promise<void> {
   });
 }
 
-/** Narrow a published event to the Gmail batch fact this file reacts to. */
 function parseDocumentsIngested(
   event: DomainEvent,
 ): { userId: string; payload: GmailDocumentsIngestedPayload } | null {
@@ -458,14 +422,7 @@ function parseDocumentsIngested(
   };
 }
 
-/**
- * The four consumers that react to `gmail.documents_ingested`. Registered
- * through `registerTriggerConsumers` (composition), never imported by the
- * producer. Every accept ignores any other event; each declares
- * `mode: "best-effort"` so the seam — not the body — swallows its non-boot
- * rejection and one reaction's failure cannot fail the publish. A boot-wiring
- * failure (a `TriggerConsumerBootError`) still propagates through the seam.
- */
+/** The four consumers of `gmail.documents_ingested`, installed by `registerTriggerConsumers`. */
 export function gmailIngestedTriggerConsumers(): TriggerConsumer[] {
   return [
     {
@@ -519,11 +476,7 @@ export function gmailIngestedTriggerConsumers(): TriggerConsumer[] {
           touchedThreadIds: payload.touchedThreadIds,
         });
 
-        // The two triage reactions target different tables, so run them
-        // concurrently under one abort scope — the same shape the old queue.ts
-        // fan-out used. A non-boot failure in either propagates to the seam,
-        // which swallows it (this consumer is best-effort); a
-        // `TriggerConsumerBootError` propagates through and fails the job.
+        // Different tables, so run both concurrently under one abort scope.
         await runTaskGroup([
           async () => {
             if (plan.triageReason) {

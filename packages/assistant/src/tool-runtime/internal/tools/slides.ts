@@ -1,15 +1,4 @@
-/**
- * Google Slides tools registered into the boss's tool surface.
- *
- * `slides.get_presentation` is a read path; create/add_slide/batch_update
- * mutate the user's Drive and register at a write-grade risk tier. The
- * dispatcher's gate is `user_action_policies`, not the tier (per the
- * registry note / ADR-0034).
- *
- * Almost every Slides mutation flows through `batch_update` with the raw
- * request objects from Google's reference; `add_slide` is the one
- * convenience wrapper, mirroring the client surface.
- */
+/** Google Slides tools. Most edits go through `batch_update`; `add_slide` is the one wrapper. */
 
 import {
   restPassthroughInput,

@@ -2,18 +2,9 @@ import { toMessage } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
- * The contract between `import-probe.ts` (the child program) and
- * `../barrel-load.test.ts` (the driver that spawns one child per advertised subpath).
- *
- * It crosses a process boundary as one line of text, so the driver treats it as protocol
- * data: `parseImportProbeReport` is the owning boundary and every field is validated
- * there. A child that dies mid-write, or that prints a tsx diagnostic instead of a
- * report, must not be able to hand the driver a half-shaped object whose missing `arms`
- * array reads as "this barrel armed no timer".
- *
- * This module has runtime imports (`zod`, `@alfred/contracts`) and the child must load
- * neither before it measures. That holds because the child imports this file with
- * `import type` only, which TypeScript erases — keep it that way.
+ * The report `import-probe.ts` writes and `../barrel-load.test.ts` reads, as protocol data.
+ * A half-written report must fail here, not read as "this barrel armed no timer".
+ * The child imports this file with `import type` only, so `zod` never loads before it measures.
  */
 const importProbeReportSchema = z.object({
   /** Each `setInterval` / `setTimeout` armed across the `await import(...)`, in call order. */
@@ -39,13 +30,7 @@ function excerpt(raw: unknown): string {
   return text.length > RAW_EXCERPT_LIMIT ? `${text.slice(0, RAW_EXCERPT_LIMIT)}…` : text;
 }
 
-/**
- * Validates one line of child stdout.
- *
- * `raw` is `unknown` because it is whatever the spawn produced — the child may have
- * written nothing at all. Throws carrying the raw text, and never returns a partial
- * report: an unreadable child is a test failure, not an absence of findings.
- */
+/** Validate one line of child stdout. Throws with the raw text and never returns a partial report. */
 export function parseImportProbeReport(raw: unknown): ImportProbeReport {
   if (typeof raw !== "string" || raw.trim() === "") {
     throw new Error(`import probe child wrote no report line; got: ${excerpt(raw)}`);

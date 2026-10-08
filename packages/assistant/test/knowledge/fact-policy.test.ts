@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { isSingleValuedKey, isUninformativeRelationshipFact } from "@alfred/assistant/knowledge";
-// Internal-by-intent fact-policy helpers dropped from the `knowledge` barrel
-// (item 15) — this contract test reads them from their owning file directly.
+// Internal helpers, not in the `knowledge` barrel.
 import {
   authoredByUser,
   classifyDocumentFactKey,
@@ -79,7 +78,7 @@ describe("validateFactValueForKey", () => {
   });
 
   test("relationship rejects empty / uninformative values (#491/#492 — empty edge is junk)", () => {
-    // The empty object is no longer a valid "role not yet captured" placeholder.
+    // The empty object is not a valid "role not yet captured" placeholder.
     for (const bad of [{}, { role: "" }, { role: "  ", since: "" }, 42, true, null, "", ["x"]]) {
       assert.deepEqual(validateFactValueForKey("relationship:a@x.com", bad), {
         ok: false,
@@ -189,7 +188,7 @@ describe("SINGLE_VALUED_KEYS", () => {
     assert.equal(isSingleValuedKey("relationship:a@x.com"), false);
     assert.equal(isSingleValuedKey("pref:tone"), false);
     assert.equal(isSingleValuedKey("phone_number"), false);
-    // notable_relations / family_summary are open-ended paragraphs — multi-valued.
+    // notable_relations and family_summary are open-ended paragraphs, so multi-valued.
     assert.equal(isSingleValuedKey("notable_relations"), false);
     assert.ok(SINGLE_VALUED_KEYS.length > 0);
   });
@@ -206,8 +205,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     metadata: Record<string, unknown>,
     accountId: string | null,
   ): AuthorshipDocument {
-    // Inject the authorship observation the triage adapter parses from the same
-    // raw metadata (ADR-0089) — verdicts stay identical to the pre-move parse.
+    // Parse raw metadata with the triage adapter, as production does (ADR-0089).
     return {
       source: "gmail",
       metadata,
@@ -242,7 +240,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
   });
 
   test("gmail inbound From from a third party fails attribution (the bug)", () => {
-    // A contact's signature-block email — the city-leak failure mode.
+    // A contact's signature-block email: the city-leak failure mode.
     const r = authoredByUser(gmailDoc({ from: "Sandro <sandro@maglione.dev>" }, "acc_work"), self);
     assert.equal(r.authoredByUser, false);
     assert.equal(!r.authoredByUser && r.reason, "identity_mismatch");
@@ -291,9 +289,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
   });
 
   test("a source with no author identity is unsupported_source", () => {
-    // `DOCUMENT_SOURCES` no longer holds a provider whose docs carry a
-    // third-party author, so the reject set is attachments, Sentry, and the
-    // missing-document sentinel (#987).
+    // No `DOCUMENT_SOURCES` provider has a third-party author, so this is the full reject set.
     const sources = ["gmail_attachment", "sentry", "unknown"] as const;
 
     for (const source of sources) {

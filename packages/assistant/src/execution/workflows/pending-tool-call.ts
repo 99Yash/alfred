@@ -1,10 +1,8 @@
 import { z } from "zod";
 
 /**
- * The core of a tool call the model has requested but not yet dispatched —
- * shared by the interactive chat turn and the sub-agent brief workflow. The
- * chat turn `.extend()`s this with a `segmentIndex` (the narration segment the
- * call follows); the background brief has no narration and uses the core as-is.
+ * A tool call the model requested but that is not yet dispatched. Chat extends it with
+ * `segmentIndex`.
  */
 export const pendingToolCallSchema = z.object({
   toolCallId: z.string().min(1),

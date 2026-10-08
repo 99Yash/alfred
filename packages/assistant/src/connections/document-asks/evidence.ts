@@ -8,12 +8,7 @@ export interface DocumentAskOccurrence {
   mimeType: string | null;
 }
 
-/**
- * Project one persisted attachment occurrence into positive document-ask
- * evidence. The reducer is the only caller: it reads the stored rows and
- * reclassifies their content, so no queue payload or cache can carry a claim
- * that this projection did not make.
- */
+/** Positive evidence from one stored attachment. The reducer reclassifies stored content, so no payload carries a claim. */
 export function projectDocumentAskEvidence(input: {
   documentId: string;
   content: string;

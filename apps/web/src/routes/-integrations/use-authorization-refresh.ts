@@ -4,11 +4,8 @@ import { INTEGRATION_STATUS_QUERY_KEY } from "~/lib/integrations/use-integration
 import { MCP_CONNECTIONS_QUERY_KEY } from "./helpers";
 
 /**
- * Refresh integration reads when the tab regains focus after an OAuth round
- * trip in another tab. React Query's `refetchOnWindowFocus` only refetches
- * stale queries, so without this a return within `staleTime` leaves the
- * original card showing the pre-authorization state. Mounted by
- * `IntegrationsRoute`, which owns both query keys below.
+ * Refetch integration reads on focus after OAuth in another tab.
+ * `refetchOnWindowFocus` skips fresh queries, so the card would stay stale.
  */
 export function useAuthorizationRefresh(): void {
   const queryClient = useQueryClient();

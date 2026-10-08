@@ -25,21 +25,15 @@ export interface StartProjectionRunArgs {
 export interface StartProjectionRunResult {
   run: ProjectionRun;
   /**
-   * True when a run row already existed for `(user, name, version)` and was
-   * returned as-is. A projection version is SINGLE-ATTEMPT (`projection_runs` is
-   * unique on `(user, name, version)`), so a re-run reuses the row; the caller
-   * must clear the prior attempt's output rows (`DELETE … WHERE projection_run_id
-   * = run.id`) before re-projecting into it.
+   * True when the run row already existed. One attempt per version, so the caller
+   * must delete the prior attempt's output rows before projecting again.
    */
   reused: boolean;
 }
 
 /**
- * Open (or reuse) the `running` projection run for `(user, name, version)`
- * (ADR-0067 D13). Reuses an existing `running`/`failed` attempt at the same
- * version (single-attempt key); refuses to reopen a `completed` one — a
- * completed version is immutable, so a new projection means a new VERSION, not a
- * silent re-run that would diverge from the checksum cutover already trusts.
+ * Open or reuse the run for `(user, name, version)` (ADR-0067 D13). Reuses a
+ * `running` or `failed` attempt; refuses a `completed` one. A new projection needs a new version.
  */
 export async function startProjectionRun(
   args: StartProjectionRunArgs,
@@ -101,7 +95,7 @@ export async function startProjectionRun(
 export interface CompleteProjectionRunArgs {
   runId: string;
   userId: string;
-  /** Determinism checksum over time-invariant components — REQUIRED (the DB CHECK on completed runs). */
+  /** Required: the DB CHECK rejects a completed run without one. */
   checksum: string;
   completedAt: Date;
   rowCounts?: ProjectionRowCounts;
@@ -109,20 +103,9 @@ export interface CompleteProjectionRunArgs {
 }
 
 /**
- * Mark a run `completed` (ADR-0067 D13). A completed run MUST carry a non-empty
- * `checksum` and a `completedAt` (the `projection_runs_completed_*` CHECKs +
- * `projection_runs_completed_at_consistency` enforce it at the DB; this surfaces
- * a clear error before the round-trip). Only completed runs are eligible for
- * activation.
- *
- * Completion is a GUARDED one-way transition: it fires only from `running` /
- * `failed` (a retried `failed` attempt reuses the same run row — see
- * `startProjectionRun`). `completed` is TERMINAL — re-completing would overwrite
- * the `checksum` / `completedAt` / `rowCounts` / `sourceHighWatermark` that the
- * activation cutover already trusts, so a second call is rejected rather than
- * silently mutating an immutable run record. The status predicate lives in the
- * `WHERE` so the guard is atomic (a concurrent completer can't slip past a
- * read-then-write gap); the follow-up read only sharpens the error message.
+ * Mark a run `completed` (ADR-0067 D13). Only from `running` or `failed`:
+ * activation already trusts a completed run's checksum and counts. The status
+ * check is in the `WHERE`, so it is atomic; the follow-up read only improves the error.
  */
 export async function completeProjectionRun(
   args: CompleteProjectionRunArgs,
@@ -179,14 +162,8 @@ export async function completeProjectionRun(
 }
 
 /**
- * Mark a run `failed` (ADR-0067 D13). `completedAt` is optional — `failed` may
- * record when the run gave up, and the consistency CHECK leaves it free.
- *
- * `completed` is TERMINAL: a run that already cut over (or is eligible to) must
- * never be demoted to `failed` after the fact, or the active pointer could name
- * a non-completed run and the cutover invariant would be violated post hoc. The
- * `status <> 'completed'` predicate in the `WHERE` makes the rejection atomic;
- * the follow-up read only sharpens the error.
+ * Mark a run `failed` (ADR-0067 D13). Never from `completed`, or the active
+ * pointer could name a failed run. The `WHERE` makes the check atomic.
  */
 export async function failProjectionRun(
   args: { runId: string; userId: string; completedAt?: Date },
@@ -237,16 +214,8 @@ export interface WriteProjectionCursorArgs {
 }
 
 /**
- * Upsert the per-(run, source) replay cursor that proves no observation is
- * double-counted (ADR-0067 D13). Keyed on `(user, run, source)`; the composite
- * FK binds the cursor's name+version to the run's.
- *
- * Cursors are part of the replay proof the run's checksum certifies, so they
- * share the run's immutability: a cursor may only be written while the run is
- * `running`. Writing one after the run is `completed` / `failed` would mutate
- * the audit trail of an already-sealed (or abandoned) run. The status is read
- * and asserted inside the same transaction as the upsert so the check can't race
- * a concurrent completion.
+ * Upsert the per-(run, source) replay cursor (ADR-0067 D13). Only while the run is
+ * `running`: the checksum certifies the cursors. The status check shares the upsert's transaction.
  */
 export async function writeProjectionCursor(
   args: WriteProjectionCursorArgs,
@@ -299,17 +268,8 @@ export async function writeProjectionCursor(
 }
 
 /**
- * Flip the active projection pointer to a run — the cutover (ADR-0067 D13).
- *
- * THE completed-only ACTIVATION GUARD that the schema explicitly defers to P1
- * (`active_projection_versions` comment: "the completed-only guard stays in the
- * activation helper — a FK can't assert the target row's status"). Activating a
- * still-`running`/`failed` run would point every consumer's active view at a
- * half-built or abandoned projection. So this reads the run, asserts it belongs
- * to this user+projection AND is `completed`, then upserts the `(user, name)`
- * pointer to it (and its version). The 4-column run FK on the pointer
- * independently guarantees the named run/version exists; this adds the status
- * check the FK structurally cannot.
+ * Point the projection at a run (ADR-0067 D13). The pointer's FK proves the run
+ * exists but cannot read its status, so this checks the run is `completed` and belongs to this user.
  */
 export async function activateProjectionVersion(
   args: { userId: string; projectionName: string; runId: string },

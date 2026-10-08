@@ -4,13 +4,7 @@ import {
 } from "@alfred/assistant/connections";
 import type { WorkflowReadinessContext } from "./readiness";
 
-/**
- * Load the complete mutable context required for one workflow readiness
- * decision. The health map is read against the same availability snapshot it
- * is returned with, and the resolver takes the pair as one object, so the
- * account a trigger resolves and the account its health was read for are
- * always the same row.
- */
+/** Read availability and health as one snapshot, so a trigger's account and its health are the same row. */
 export async function readWorkflowReadinessContext(
   userId: string,
 ): Promise<WorkflowReadinessContext> {

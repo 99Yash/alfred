@@ -5,43 +5,25 @@ import { and, eq, ne } from "drizzle-orm";
 import { getResendClient } from "./resend-client";
 import { toMessage, type JsonObject } from "@alfred/contracts";
 
-/**
- * Logical kinds of notification live in the `@alfred/db` schema (the source of
- * truth for `email_sends.kind` and its `CHECK`). Re-exported here so the
- * `notify` surface keeps one import site. Add a new kind in `NOTIFICATION_KINDS`
- * and pick an idempotency-key convention (see `notifications.ts` schema doc).
- */
+/** Add a kind in `NOTIFICATION_KINDS` (`@alfred/db`), with an idempotency-key convention. */
 export type { NotificationKind };
 
 export interface NotifyArgs {
   userId: string;
   kind: NotificationKind;
-  /**
-   * Stable per-(user, kind) key. A second call with the same key on
-   * the same user is a no-op — the unique index on `email_sends`
-   * absorbs duplicates without hitting Resend.
-   */
+  /** A repeat key for the same user is a no-op once sent. */
   idempotencyKey: string;
   subject: string;
   html: string;
-  /** Plain-text alternate body. Required — Resend penalises HTML-only sends. */
+  /** Required: Resend penalizes HTML-only sends. */
   text: string;
-  /**
-   * Render input retained on the row so a failed send can be replayed
-   * or debugged later. Not used for delivery itself.
-   */
+  /** Stored for replay and debugging, not sent. */
   payload?: JsonObject;
-  /** Optional override; defaults to the user's account email. */
+  /** Defaults to the user's account email. */
   toAddress?: string;
 }
 
-/**
- * The subject plus both MIME bodies a compose verb hands to `notify`. Derived
- * from `NotifyArgs` rather than restated, so the transport's three required
- * body fields are the one source of truth and a compose helper cannot drift.
- * Minters: `composeInboxBriefing` (`briefings/compose.ts`) and
- * `composeSkillDocumentationEmail` (`skills/email.ts`).
- */
+/** What a compose function hands to `notify`. */
 export type ComposedEmail = Pick<NotifyArgs, "subject" | "html" | "text">;
 
 export type NotifyResult =
@@ -50,33 +32,16 @@ export type NotifyResult =
   | { status: "failed"; emailSendId: string; error: string };
 
 /**
- * Send a transactional email through Resend with DB + provider idempotency.
- * Three phases:
- *
- *   1. Insert or reclaim an `email_sends` row (`status='queued'`) for
- *      `(user_id, idempotency_key)`. A sent row short-circuits as duplicate;
- *      queued/failed rows are retried.
- *   2. POST to Resend with the same key as the provider `Idempotency-Key`.
- *   3. Update the row to `'sent'` (with provider id) or `'failed'`
- *      (with truncated error).
- *
- * The two-phase shape matters: a row exists before the network call,
- * so a crash between step 2 and step 3 leaves a `'queued'` row that can be
- * retried. The provider idempotency key makes that retry safe across the
- * "Resend accepted it, DB update did not land" window.
+ * Send through Resend, idempotent in the DB and at the provider.
+ * The row exists before the send, so a crash leaves a `queued` row to retry.
+ * Resend's `Idempotency-Key` makes that retry safe if the send landed.
  */
 export async function notify(args: NotifyArgs): Promise<NotifyResult> {
   const env = serverEnv();
 
   const toAddress = args.toAddress ?? (await resolveUserEmail(args.userId));
 
-  // Insert the row, or re-claim a prior attempt that never delivered. Only an
-  // already-'sent' row is a true duplicate: `setWhere` skips it so a delivered
-  // email is never re-sent, and the empty-returning case is handled below. A
-  // 'queued'/'failed' row (a crash between send + status update, or a transient
-  // Resend failure) is reset to 'queued' with its error cleared and re-sent —
-  // collapsing it to 'duplicate' would permanently lose the email. This single
-  // upsert replaces the old insert-then-select-then-conditional-update path.
+  // Reclaim a `queued` or `failed` row. Only a `sent` row is a duplicate.
   const upserted = await db()
     .insert(emailSends)
     .values({
@@ -100,8 +65,7 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
   if (upserted[0]) {
     emailSendId = upserted[0].id;
   } else {
-    // Empty returning means the conflict hit an already-'sent' row that
-    // `setWhere` skipped — a true duplicate. Look up its id to return it.
+    // Nothing returned: the row is already `sent`.
     const existing = await db()
       .select({ id: emailSends.id })
       .from(emailSends)
@@ -112,8 +76,7 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
     const row = existing[0];
 
     if (!row) {
-      // Race: someone deleted the conflicting row between our upsert and select.
-      // Caller should treat this as a transient and retry.
+      // The row was deleted between the upsert and the select. Transient.
       throw new Error("[notify] idempotency-key conflict but no row found on lookup");
     }
 

@@ -13,18 +13,7 @@ import {
 
 import { todoSourcesOverlap } from "@alfred/assistant/tasks/suggest";
 
-// ---------------------------------------------------------------------------
-// Phase 0 — the source-overlap merge that keeps `suggestTodo` idempotent.
-//
-// `suggestTodo` (modules/todos/suggest.ts) dedups a re-triaged thread against
-// live todos: if any incoming `(provider, kind, id)` already references a live
-// row, it merges the missing refs in instead of inserting a duplicate. That
-// guard is built on `todoSourceKey` + `mergeTodoSources` from @alfred/contracts.
-// Those primitives carry the idempotency contract, so we lock them here (the DB
-// transaction itself has no test harness in this repo). The triage tail step
-// writes one ref — `{ provider:'gmail', kind:'thread', id: sourceThreadId }` —
-// so the same thread re-classified must merge to a no-op, never a second todo.
-// ---------------------------------------------------------------------------
+// `suggestTodo` merges an overlapping ref into a live todo, so a re-triaged thread adds no second todo.
 
 const threadRef: TodoSource = { provider: "gmail", kind: "thread", id: "thread_123" };
 
@@ -45,8 +34,7 @@ describe("mergeTodoSources", () => {
   test("re-merging the same ref is a no-op (idempotent — the re-triage case)", () => {
     const merged = mergeTodoSources([threadRef], [threadRef]);
     assert.deepEqual(merged, [threadRef]);
-    // The guard's "addedSources" is `merged.length - existing.length` → 0 here,
-    // which is exactly what makes a re-triaged thread merge rather than dupe.
+    // `addedSources` is `merged.length - existing.length`.
     assert.equal(merged.length - 1, 0);
   });
 
@@ -94,14 +82,8 @@ describe("todoSourcesOverlap (the REAL predicate suggestTodo's dedup loop runs)"
   });
 });
 
-// ---------------------------------------------------------------------------
-// The resolved-todo re-suggest guard (ADR-0050 same-thread retraction). A
-// `done`/`dismissed` todo suppresses re-suggestion only on an IDENTITY ref, not
-// on the bare Gmail transport `thread`. One thread carries many independent
-// asks, so the retraction of an answered ask must not silence the next one for
-// the 30-day window — the false "doesn't need you" that "demote, never bury"
-// forbids. The DB transaction has no harness, so the predicate is locked here.
-// ---------------------------------------------------------------------------
+// A resolved todo blocks re-suggestion only on an identity ref, not a bare thread (ADR-0050).
+// One thread carries many asks, so an answered ask must not silence the next one.
 
 describe("todoSourcesShareIdentityOverlap", () => {
   const prRef: TodoSource = { provider: "github", kind: "pull_request", id: "owner/repo#7" };
@@ -134,13 +116,8 @@ describe("todoSourcesShareIdentityOverlap", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// #355 — dedup a recurring loop on its real-world entity key, not the Gmail
-// thread. `gmailTodoSources` adds a stable `loop` ref alongside the transport
-// `thread` ref; the same overlap guard above then collapses re-notifications
-// (each arriving on a NEW thread) onto one todo. `boundTodoSources` keeps that
-// merge from growing the row past the sync schema's max(64).
-// ---------------------------------------------------------------------------
+// A recurring loop dedups on a stable `loop` ref, because each re-notification arrives on a new thread.
+// `boundTodoSources` caps the merged refs at `TODO_SOURCES_MAX`.
 
 describe("gmailTodoSources", () => {
   test("carries only the thread ref when no loop key is derivable (human mail — v1 behavior)", () => {
@@ -201,9 +178,7 @@ describe("gmailTodoSources", () => {
   });
 
   test("two re-notifications on DISTINCT threads share the loop ref → overlap → merge (the fix)", () => {
-    // Same PR, two emails, two Gmail threads. Today the thread ids differ so
-    // the guard misses and a duplicate todo is minted; the loop ref collapses
-    // them.
+    // Same PR, two threads: only the loop ref overlaps.
     const first = gmailTodoSources({
       threadId: "thread_A",
       subject: "Re: [owner/repo] Fix flaky test (PR #12)",
@@ -280,11 +255,10 @@ describe("boundTodoSources", () => {
   });
 
   test("evicts the OLDEST thread refs first, keeps identity refs + newest threads", () => {
-    // loop + slack (identity-bearing, always kept) then 5 threads oldest→newest.
+    // Identity refs first, then 5 threads oldest to newest.
     const sources = [loopRef, slackRef, thread(1), thread(2), thread(3), thread(4), thread(5)];
     const bounded = boundTodoSources(sources, 4);
     assert.equal(bounded.length, 4);
-    // Both identity refs survive; only the two newest threads remain.
     assert.deepEqual(bounded, [loopRef, slackRef, thread(4), thread(5)]);
   });
 
@@ -296,14 +270,12 @@ describe("boundTodoSources", () => {
     })) satisfies TodoSource[];
 
     const bounded = boundTodoSources([...many, thread(1)], 4);
-    // The public tool schema rejects this shape, but the lower-level write
-    // helper still returns a sync-valid array by keeping the newest identity refs.
+    // The tool schema rejects this shape; the helper still keeps the newest identity refs.
     assert.deepEqual(bounded, many.slice(2));
     assert.equal(bounded.length, 4);
   });
 
   test("a recurring loop stays bounded across many re-notifications", () => {
-    // Simulate merge accretion: one loop ref + one fresh thread per notification.
     let acc: TodoSource[] = [];
 
     for (let i = 0; i < TODO_SOURCES_MAX + 40; i++) {
@@ -320,7 +292,7 @@ describe("boundTodoSources", () => {
     }
 
     assert.ok(acc.length <= TODO_SOURCES_MAX, `bounded at ${acc.length}`);
-    // The stable loop ref is retained, so future re-notifications still merge.
+    // The loop ref must survive, so later re-notifications still merge.
     assert.ok(
       acc.some(
         (s) => s.provider === "github" && s.kind === "pull_request" && s.id === "owner/repo#7",

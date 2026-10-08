@@ -1,11 +1,6 @@
 /**
- * Slug-keyed tables built from the registry in record order. None is
- * hand-typed. `Object.fromEntries` erases the key set, so each carries one
- * cast that restores it.
- *
- * Every other per-integration fact is read off the entry itself
- * (`INTEGRATIONS[slug].credential`, `.passthrough`, `.status`). A table earns a
- * place here only when a consumer needs the whole slug space at once.
+ * Slug-keyed tables derived from the registry. Add one only when a consumer needs
+ * every slug at once. Otherwise read the field off `INTEGRATIONS[slug]`.
  */
 
 import {
@@ -22,52 +17,35 @@ import {
   type LiveProviderSlug,
 } from "./slugs";
 
-/**
- * Build a record over a derived slug list. Exported for the one consumer outside
- * this module that needs the whole live slug space at once per read: the
- * `GET /api/integrations` body in `@alfred/assistant/connections`.
- */
+/** Build a record over a slug list. */
 export function projectSlugs<K extends string, T>(
   slugs: readonly K[],
   project: (slug: K) => T,
 ): Readonly<Record<K, T>> {
-  // SAFETY: the result has exactly the keys in `slugs`; Object.fromEntries'
-  // string index erases that and this cast restores it. Each caller passes the
-  // derived list its K is defined from.
+  // SAFETY: the keys are exactly `slugs`; Object.fromEntries erases that.
   return Object.fromEntries(slugs.map((slug) => [slug, project(slug)])) as Record<K, T>;
 }
 
-/**
- * Every integration's action tuple under its slug, with each entry's literal
- * types kept, so `ActionSlug<I>` and `ToolName` in `../tools` derive from it.
- */
+/** Literal action tuples by slug. `ActionSlug` and `ToolName` derive from this. */
 export type IntegrationActions = {
   readonly [K in IntegrationSlug]: IntegrationEntryOf<K>["actions"];
 };
 
 export const INTEGRATION_ACTIONS: IntegrationActions =
-  // SAFETY: same key-set restoration as `projectSlugs`, per key rather than
-  // uniform: the value under K is `INTEGRATIONS[K].actions` by construction.
+  // SAFETY: the value under K is `INTEGRATIONS[K].actions` by construction.
   Object.fromEntries(
     INTEGRATION_SLUGS.map((slug) => [slug, INTEGRATIONS[slug].actions]),
   ) as IntegrationActions;
 
-/**
- * The display name of every integration, for prose a user or the model reads
- * (a failure message, a connect nudge). Index it with a typed slug, or call
- * `integrationDisplayName(value)` from `../tools` for an unchecked string.
- */
+/** For an unchecked string, call `integrationDisplayName` from `../tools`. */
 export const INTEGRATION_DISPLAY_NAMES: Readonly<Record<IntegrationSlug, string>> = projectSlugs(
   INTEGRATION_SLUGS,
   (slug) => INTEGRATIONS[slug].displayName,
 );
 
 /**
- * A live entry with its slug and credential provider attached, discriminated by
- * slug. `as const` drops an optional field from the entries that do not set it,
- * so each member is also intersected with `LiveIntegrationEntry`: the `as const`
- * fields stay narrow, and every optional the interface declares is readable on
- * every member without an `in` check.
+ * A live entry plus its slug and provider. The `LiveIntegrationEntry` intersection
+ * puts back the optional fields that `as const` drops, so no `in` check is needed.
  */
 export type LiveProviderEntry = {
   [K in LiveProviderSlug]: {
@@ -77,12 +55,9 @@ export type LiveProviderEntry = {
     LiveIntegrationEntry;
 }[LiveProviderSlug];
 
-/** The live providers in registry order: the one loop the assistant and the web iterate. */
+/** Live providers in registry order. */
 export const LIVE_PROVIDERS: readonly LiveProviderEntry[] = LIVE_PROVIDER_SLUGS.map(
-  // SAFETY: `slug` is drawn from LIVE_PROVIDER_SLUGS and the entry is
-  // `INTEGRATIONS[slug]`, so each element is exactly the member for its own K.
-  // `map` instantiates the callback with the wide union and cannot express
-  // that per-element pairing.
+  // SAFETY: each element is the member for its own slug. `map` cannot express that pairing.
   (slug) =>
     ({ slug, provider: credentialProviderOf(slug), ...INTEGRATIONS[slug] }) as LiveProviderEntry,
 );

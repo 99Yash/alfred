@@ -1,22 +1,6 @@
 /**
- * The tool-registry door on `@alfred/assistant/tool-runtime`.
- *
- * Two things are under test:
- *
- * 1. The barrel publishes the registration door, imported through the
- *    PACKAGE specifier. That spelling is what makes this a red-run detector for
- *    the `exports` seam — a manifest key that stops resolving fails here.
- * 2. The `exports` SELF-REFERENCE, and only that. Built-in definitions and
- *    registration now live in this owner while registry readers stay internal. The last test
- *    registers through the package specifier and reads back through the relative
- *    `../src/tool-runtime/internal/registry` spelling. Be precise about what
- *    that pins: `packages/assistant` has no `node_modules` self-link, so Node
- *    resolves both spellings through this package's own `exports` map to the
- *    IDENTICAL file URL. The assertion therefore pins the manifest key — it goes
- *    red if `"./tool-runtime"` stops resolving to this file — and it CANNOT
- *    detect a module fork, because the two spellings cannot diverge here. The
- *    only real fork detector is at the bundle: exactly one copy of the registry
- *    module in `apps/server/dist`. Campaign item 103 owns that check.
+ * `@alfred/assistant/tool-runtime` publishes the registration door through the package specifier.
+ * Both spellings resolve to the same file here, so this pins the `exports` key; it cannot see a module fork.
  */
 
 import assert from "node:assert/strict";

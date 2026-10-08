@@ -12,103 +12,40 @@ export function isQueueEnabled(): boolean {
 const connections: IORedis[] = [];
 
 /**
- * How a connection behaves when Redis is unreachable, refusing, or accepting
- * but unresponsive. This is the ONLY thing that distinguishes one connection
- * from another here, so it is the parameter rather than a factory name.
+ * What a connection does when Redis is unreachable, refusing, or silent.
  *
- * - `"queue"` — a connection handed to a BullMQ `Queue`/`Worker`/`QueueEvents`
- *   as its `connection:` option. BullMQ hard-requires `maxRetriesPerRequest:
- *   null`, and its blocking reads must survive an outage, so NOTHING on one of
- *   these is bounded. That is not confined to the blocking reads: BullMQ SHARES
- *   the instance it is handed as its non-blocking client, so `queue.add()`'s own
- *   `hset` runs on this connection and an `await queue.add(...)` during an outage
- *   waits indefinitely too. A bound here is not available — BullMQ derives its
- *   blocking client from the same options, and a `commandTimeout` there would
- *   break `BRPOPLPUSH`.
- * - `"command"` — ordinary commands (publish, scratchpad reads and writes, OAuth
- *   state, CVR reads). Keeps the offline queue, so a command issued before the
- *   connection is `ready` still runs once it is, and bounds that wait so the
- *   command always settles. NOT for a connection that subscribes — see below.
- * - `"subscriber"` — a long-lived connection that holds SUBSCRIBE/PSUBSCRIBE
- *   channels. Identical to `"command"` except that it carries no
- *   `commandTimeout` and switches ioredis's auto-resubscribe OFF, because the
- *   command ioredis re-issues for itself after a reconnect is the one command
- *   on the connection that nothing catches, and an uncaught rejection is
- *   `process.exit(1)`: see the `CONNECTION_PROFILES` note below. THE OWNER OF
- *   THE CONNECTION MUST RE-SUBSCRIBE ITSELF on `conn.on("ready")` — a reconnect
- *   drops every server-side subscription and nothing else will re-issue it.
- *   `packages/assistant/src/realtime/replicache-events.ts` is the worked
- *   example.
- * - `"fail-fast"` — the kind with a precondition, so read the cost before the
- *   benefit. `enableOfflineQueue: false` rejects every command issued while the
- *   connection is not yet `ready`, so the FIRST command after each lazy
- *   construction is rejected even by a perfectly healthy Redis. THE DECISION
- *   TEST, and a caller qualifies by EITHER answer:
- *   1. Can this caller answer the same question from another store? Then the
- *      rejection costs nothing, because the caller reads the other store and
- *      moves on. A read-through cache over a Postgres table passes this way.
- *   2. Does this caller read the same key AGAIN on a schedule, and does it fail
- *      OPEN meanwhile, on a path where waiting costs more than missing? Then the
- *      rejection costs one read and the next read corrects it. The chat-stop
- *      poll passes this way: it runs inside the model stream loop, which awaits
- *      it, so a bounded wait would stall streaming for the whole outage where a
- *      rejection stalls nothing.
- *   A throttle claim, a rate counter, a ONE-SHOT flag read and a health probe
- *   all fail BOTH tests — the Redis key IS their source of truth and they get no
- *   second read, so `"fail-fast"` silently drops the first request of every
- *   process. Those callers take `"command"`, which waits for `ready` and still
- *   bounds the wait. Read the CALLER, never the verb or the key: one key can
- *   carry a one-shot reader and a polling reader, and they take different kinds
- *   (`packages/assistant/src/chat/stop-signal.ts` is the worked
- *   example). Do not read "caches, throttles, and probes" as a list of eligible
- *   shapes; two of those three were wrong here (#127).
+ * - `"queue"`: for BullMQ `connection:`. Nothing is bounded. BullMQ requires
+ *   `maxRetriesPerRequest: null`, and it shares this connection for its own
+ *   writes, so `await queue.add(...)` also waits through an outage.
+ *   A `commandTimeout` would break its `BRPOPLPUSH`.
+ * - `"command"`: ordinary commands. Keeps the offline queue, so a command sent
+ *   before `ready` still runs, and bounds the wait. Do not subscribe on it.
+ * - `"subscriber"`: holds SUBSCRIBE channels. Like `"command"` but with no
+ *   `commandTimeout` and with auto-resubscribe off. The owner must re-subscribe
+ *   on `conn.on("ready")` (see `packages/assistant/src/realtime/replicache-events.ts`).
+ * - `"fail-fast"`: rejects every command sent before `ready`, so the first
+ *   command after a lazy construction fails even on a healthy Redis. Use it only
+ *   if the caller can get the answer from another store, or reads the key again
+ *   on a schedule and fails open meanwhile. A throttle, a rate counter, a one-shot
+ *   flag, or a health probe must use `"command"`. Judge the caller, not the key
+ *   (see `packages/assistant/src/chat/stop-signal.ts`).
  */
 export type RedisConnectionKind = "queue" | "command" | "subscriber" | "fail-fast";
 
 /**
- * The whole failure matrix, in one place. Measured against ioredis 5.11.1:
+ * Measured against ioredis 5.11.1:
  *
- * - `commandTimeout` is armed in `sendCommand` BEFORE the writable check and
- *   before the offline-queue push, so it bounds a command from the moment the
- *   command is issued — including while the command sits in the offline queue,
- *   and including on a zombie socket that stays writable and never replies.
- *   That is what lets `"command"` keep `enableOfflineQueue: true` and still be
- *   bounded.
- * - `maxRetriesPerRequest` flushes the queues with `MaxRetriesPerRequestError`
- *   from the `close` handler only, and only when it is a NUMBER. With `null`
- *   the queues are never flushed, so an unreachable Redis leaves a command
- *   pending forever — neither resolved nor rejected — and every `try/catch`
- *   around it is dead code. The two options cover disjoint failure shapes:
- *   `maxRetriesPerRequest` gives the accurate typed diagnosis for a
- *   disconnected Redis, `commandTimeout` covers the zombie that never closes.
- * - `enableOfflineQueue: false` rejects whenever the connection is not
- *   writable, and writable requires `status === "ready"`. A command issued in
- *   the same tick as the constructor is ALWAYS not-writable, so `"fail-fast"`
- *   rejects the first command of a lazily-constructed handle even against a
- *   healthy Redis. That is correct for a cache and wrong for everything else,
- *   which is why `"command"` exists as a separate kind.
- * - `autoResubscribe` is the reason `"subscriber"` exists as a fourth kind.
- *   After a reconnect, `readyHandler` re-issues the previous SUBSCRIBE,
- *   PSUBSCRIBE and SSUBSCRIBE with NO `.catch` — unlike the
- *   `readonly().catch(noop)` a few lines above it in the same function. That is
- *   the only command on such a connection that no module owns, so ANY rejection
- *   of it is an unhandled rejection, and `apps/server/src/index.ts` turns one of
- *   those into `process.exit(1)`. Two measured routes reach that rejection, and
- *   removing either one alone leaves the other: (1) a `commandTimeout` times the
- *   re-issued command out — and a `commandTimeout` is also what lets a
- *   connection to a peer that accepts and never replies reach `ready` in the
- *   first place, because it ends the `CLIENT SETINFO` handshake ioredis sends on
- *   every connect; (2) a numeric `maxRetriesPerRequest` flushes the re-issued
- *   command with `MaxRetriesPerRequestError` when the peer then refuses —
- *   `prevCommandQueue = self.commandQueue` in the close handler is an ALIAS, not
- *   a move, and only a TCP `connect` calls `resetCommandQueue()`, which a
- *   refusing peer never emits. `"subscriber"` therefore drops the
- *   `commandTimeout` AND sets `autoResubscribe: false`, which deletes the
- *   uncaught command itself rather than the two ways it can fail. The cost is
- *   that re-subscription becomes the connection owner's job on `ready`.
+ * - `commandTimeout` starts when the command is sent, so it also bounds time in
+ *   the offline queue and on a socket that never replies.
+ * - `maxRetriesPerRequest` flushes pending commands on `close` only when it is a
+ *   number. With `null`, a command to a dead Redis never settles.
+ * - `enableOfflineQueue: false` rejects until `status === "ready"`.
+ * - Auto-resubscribe re-sends SUBSCRIBE after a reconnect with no `.catch`. If it
+ *   rejects (from `commandTimeout`, or from a numeric `maxRetriesPerRequest` when
+ *   the peer refuses), the unhandled rejection exits the process
+ *   (`apps/server/src/index.ts`). So `"subscriber"` turns it off.
  *
- * `enableReadyCheck: false` is shared: Alfred's Redis is never a replica
- * loading a dataset, and the ready check only delays `ready`.
+ * `enableReadyCheck: false`: Alfred's Redis is never a replica that loads a dataset.
  */
 const CONNECTION_PROFILES = {
   queue: {
@@ -125,13 +62,7 @@ const CONNECTION_PROFILES = {
   subscriber: {
     maxRetriesPerRequest: 3,
     enableOfflineQueue: true,
-    // Deliberately no `commandTimeout`, and ioredis's own re-subscribe switched
-    // off — see the fourth note above. Two costs, stated rather than hidden:
-    // (a) a subscribe or unsubscribe issued against a peer that accepts and
-    // never replies is unbounded on this kind (a refusing or unreachable peer,
-    // which is the shape that hung boot and shutdown, still rejects through
-    // `maxRetriesPerRequest`); (b) the owner MUST re-subscribe on `ready`,
-    // because nothing else does now.
+    // No `commandTimeout`, so a subscribe to a silent peer is unbounded.
     autoResubscribe: false,
     enableReadyCheck: false,
   },
@@ -143,52 +74,21 @@ const CONNECTION_PROFILES = {
   },
 } satisfies Record<RedisConnectionKind, RedisOptions>;
 
-/**
- * An ioredis client with the subscribe verbs taken away.
- *
- * Holding a subscription on a connection whose profile carries a
- * `commandTimeout` and ioredis's auto-resubscribe is the exact mistake that
- * ends in `process.exit(1)` (see the note above), and it is a mistake nothing
- * used to catch: the factory handed back the same `IORedis` for every kind, so
- * `.subscribe()` sat in autocomplete on a `"command"` handle. All three
- * subscriber handles in this repo were written that way first, by an author
- * holding the whole design, and `pnpm check`, `pnpm check-types` and two
- * mutation probes all passed over it. Removing the verbs from the type turns
- * that into TS2339 at the call site.
- */
+/** An ioredis client without the subscribe verbs. A subscription on a bounded profile can exit the process. */
 export type BoundedRedis = Omit<IORedis, "subscribe" | "psubscribe" | "ssubscribe">;
 
 /**
- * An ioredis client reduced to the one verb {@link incrementExpiringCounter}
- * needs, named as a port rather than as `Pick<BoundedRedis, "eval">`: ioredis
- * declares `eval` across many overloads, so a test double can satisfy this and
- * cannot satisfy the picked type without a cast. Any handle from
- * {@link createRedisConnection} fits — the assignment at a call site is the
- * compile-time check, so an ioredis release that changes `eval` fails
- * `check-types` instead of reaching production.
+ * The one verb the scripts below need. Not `Pick<BoundedRedis, "eval">`, because
+ * the `eval` overloads make a test double impossible without a cast.
  */
 export type EvalRedis = {
   eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
 };
 
 /**
- * Increment a counter and set its TTL, as ONE atomic step.
- *
- * The naive spelling — `INCR`, then `EXPIRE` when the count says the key is
- * new — has a crash window between the two commands: a process that dies
- * there leaves a counter with no TTL. For a window-indexed key the next
- * window heals it, but for a bare key the leak is permanent. The Lua body
- * runs both halves inside Redis, so no client-side gap exists.
- *
- * The `EXPIRE` lands when the increment created the key (`count == amount`)
- * OR when the key already stands without a TTL (`TTL == -1`). The second
- * clause heals a key leaked by an older code path and cannot extend a live
- * one: a key whose TTL is already set keeps it, so a fixed window stays fixed
- * rather than sliding on every request.
- *
- * Both known callers want this shape rather than their own copy of it: the
- * auth rate limit (`packages/auth/src/rate-limit.ts`) and the attachment
- * upload quota (`packages/assistant/src/chat/attachment-upload-quota.ts`).
+ * Increment a counter and set its TTL in one atomic step, so a crash cannot
+ * leave a key with no TTL. Sets the TTL only on a new key or a key without a TTL,
+ * so a fixed window does not slide.
  */
 const INCR_WITH_TTL_SCRIPT = `local count = redis.call("INCRBY", KEYS[1], ARGV[1])
 if count == tonumber(ARGV[1]) or redis.call("TTL", KEYS[1]) == -1 then
@@ -208,45 +108,16 @@ export async function incrementExpiringCounter(
 }
 
 /**
- * Reserve the next slot in a paced queue, and say how long to wait for it.
+ * GCRA pacing. A counter says "may I go now?"; this says "when may I go?", so
+ * an over-limit caller waits instead of failing.
  *
- * This is GCRA (the leaky-bucket form a rate limiter usually hides), and it
- * differs from {@link incrementExpiringCounter} in the question it answers.
- * A counter answers "may I go NOW?", so a caller over the line can only fail.
- * This answers "WHEN may I go?", so a caller over the line waits instead —
- * which is the whole point when the limit belongs to an upstream that charges
- * a failed turn rather than a queued one.
+ * The key holds the time the queue is empty again (TAT). Each reservation moves
+ * it one `intervalMs` later. An idle bucket lets `burst + 1` callers go at once.
+ * A caller whose wait is past `maxWaitMs` does not move the TAT. If it did, the
+ * mark would run ahead of a queue that no longer exists.
  *
- * The key holds one number, the theoretical arrival time (TAT): the moment the
- * queue would be empty again. Each reservation pushes it one `intervalMs`
- * further out. A caller may start `burst * intervalMs` AHEAD of that mark, so
- * an idle bucket serves `burst + 1` callers with no delay at all and only a
- * sustained stream gets paced to one per interval. That is deliberate: a short
- * burst is the common case and must stay fast.
- *
- * Every reservation is granted, up to the caller's ceiling. The return value
- * is the wait in milliseconds, and the caller owns the sleep — so an abort
- * during the wait costs the slot, not the caller's error budget. A caller
- * whose wait exceeds `maxWaitMs` goes early; it forfeits the guarantee, and
- * — load-bearing — the TAT is NOT advanced for it. Advancing the mark for a
- * slot nobody waits for lets the queue diverge permanently once the backlog
- * passes the cap: every later caller then waits the maximum for a queue that
- * no longer exists.
- *
- * `PX` on every write, so an idle bucket disappears rather than pinning a
- * stale TAT forever. The TTL must outlive the burst window plus the longest
- * wait the caller will honor (`maxWaitMs`) plus slack for a pause between the
- * write and the next read. The caller passes its own ceiling so the two
- * constants stay linked by value — a comment cannot hold a cross-package
- * invariant.
- *
- * "Now" is READ FROM REDIS, never sent by the caller. The TAT is shared across
- * processes, so one process with a fast clock would otherwise push the mark
- * into the future and send every other process to its maximum wait. Reading the
- * clock here makes the bucket the single authority on both numbers it holds.
- * `TIME` is non-deterministic, which is fine on Redis 5 and later — scripts
- * replicate by effect there — and a caller on anything older gets an error it
- * already handles by pacing locally.
+ * "Now" comes from Redis `TIME`, so a process with a fast clock cannot push the
+ * shared mark forward. `PX` on every write lets an idle bucket expire.
  */
 const RESERVE_SLOT_SCRIPT = `local interval = tonumber(ARGV[1])
 local burst = tonumber(ARGV[2])
@@ -263,10 +134,8 @@ redis.call("SET", KEYS[1], tat + interval, "PX", ttlMs)
 return math.floor(wait)`;
 
 /**
- * Milliseconds the caller must sleep before using the slot it just reserved.
- * Zero means go now. Past `maxWaitMs` the wait is returned WITHOUT reserving
- * — the caller is refused, consumes no slot, and the shared mark stays where
- * it is. See {@link RESERVE_SLOT_SCRIPT} for the model.
+ * Milliseconds to sleep before using the reserved slot. Zero means go now.
+ * A wait past `maxWaitMs` comes back without a reservation.
  */
 export async function reserveRateSlot(
   redis: EvalRedis,
@@ -275,11 +144,7 @@ export async function reserveRateSlot(
   burst: number,
   maxWaitMs: number,
 ): Promise<number> {
-  // The burst window plus the longest wait the caller honors, plus a minute of
-  // slack past that for a long pause between the write and the next read.
-  // Anything past `maxWaitMs` is a slot no caller reserved, because a wait
-  // that long is refused rather than honored, so expiring it drops nothing a
-  // caller is waiting on.
+  // Burst window plus the longest honored wait, plus a minute of slack.
   const ttlMs = intervalMs * (burst + 1) + maxWaitMs + 60_000;
 
   const result = await redis.eval(RESERVE_SLOT_SCRIPT, 1, key, intervalMs, burst, ttlMs, maxWaitMs);
@@ -288,27 +153,9 @@ export async function reserveRateSlot(
 }
 
 /**
- * The one door to an ioredis client. `new IORedis(...)` appears nowhere else in
- * the repo and `pnpm check` fails on a second one, so every connection in the
- * process carries one of the profiles above.
- *
- * `kind` is required rather than defaulted: a default would let a call site
- * inherit a failure profile it never chose, which is the defect this signature
- * exists to close.
- *
- * The bounded kinds return {@link BoundedRedis}, so a handle that must not
- * subscribe cannot. The third overload exists for a caller that holds the kind
- * as a VALUE rather than a literal — only the test fixtures do — and it is the
- * reason this lever is tier 1 for every real call site and tier 3 for those:
- * overload resolution takes the first match, so a literal `"command"` can never
- * reach it.
- *
- * Every connection this returns is pushed onto the list `closeRedis()` drains.
- * There used to be a `{ tracked: false }` opt-out for a one-shot probe that
- * closed itself in a `finally`; its only caller was `/ready`, which now holds
- * one long-lived connection instead of building one per request (#127). An
- * untracked connection is a connection shutdown cannot close, so the opt-out is
- * deleted rather than left available.
+ * The only way to build an ioredis client (`pnpm check` rejects `new IORedis`).
+ * `kind` has no default, so each call site picks its outage behavior.
+ * Every connection is tracked so `closeRedis()` can close it.
  */
 export function createRedisConnection(kind: "command" | "fail-fast"): BoundedRedis;
 export function createRedisConnection(kind: "queue" | "subscriber"): IORedis;
@@ -321,18 +168,11 @@ export function createRedisConnection(kind: RedisConnectionKind): IORedis {
   return conn;
 }
 
-/**
- * How long `closeRedis()` waits for a graceful `QUIT` before pulling the socket
- * down. A `QUIT` issued on a disconnected connection whose offline queue is
- * EMPTY resolves immediately, but one issued behind a queued command inherits
- * that command's wait — unbounded on a `"queue"` connection. Shutdown must not
- * be able to hang on a Redis that is already gone.
- */
+/** A `QUIT` behind a queued command waits as long as that command, so shutdown caps it. */
 const QUIT_TIMEOUT_MS = 1_000;
 
 async function closeConnection(conn: IORedis): Promise<void> {
-  // Settled eagerly so the graceful path never leaves an unhandled rejection
-  // behind when the timeout wins the race below.
+  // Settle now so a lost race leaves no unhandled rejection.
   const quit = conn.quit().then(
     () => true,
     () => false,
@@ -348,12 +188,7 @@ async function closeConnection(conn: IORedis): Promise<void> {
       }),
     ]);
 
-    // `disconnect()` tears the socket down. It does NOT reliably settle the
-    // command the `QUIT` was stuck behind: the queues are flushed from the
-    // socket's `close` event, and a connection sitting in `reconnecting` has no
-    // live socket to emit one. That is deliberate rather than overlooked — only
-    // a `"queue"` connection can hold an unbounded command, the process is on
-    // its way out, and shutdown bounding ITSELF is the property that matters.
+    // This may leave a stuck `"queue"` command unsettled. Shutdown only needs to finish.
     if (!quitFinished) conn.disconnect();
   } finally {
     if (timer) clearTimeout(timer);

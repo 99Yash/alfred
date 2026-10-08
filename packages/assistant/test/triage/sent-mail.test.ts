@@ -4,16 +4,9 @@ import { describe, test } from "node:test";
 import { isSentGmailMetadata, mayBeUnflaggedSentMail } from "@alfred/assistant/triage/sent-mail";
 
 /**
- * The classify-time sent guard (#306) used to do a live Gmail `getMessage` on
- * every document whose stored metadata wasn't already `SENT` — which for
- * received mail is every document, putting a network round trip in front of
- * every classify (#439).
- *
- * `mayBeUnflaggedSentMail` is the disproof that lets most of those be skipped:
- * every message the #306 gap can mis-flag is one the *user sent*, so a `From`
- * that is demonstrably a third party can never become the user's sent mail. The
- * two halves both matter — skipping too much silently reopens #306, skipping too
- * little gives the latency back — so both are pinned here.
+ * `mayBeUnflaggedSentMail` lets classify skip the live Gmail sent check.
+ * A third-party `From` can never be the user's sent mail. Skipping too much
+ * mis-flags sent mail (#306); skipping too little brings back the latency (#439).
  */
 
 const ACCOUNT = "yash@oliv.ai";
@@ -72,11 +65,8 @@ describe("mayBeUnflaggedSentMail", () => {
   });
 
   test("a second mailbox's own address is what it's compared against, not the primary", () => {
-    // The reason this predicate takes `identity.mailboxAddress` and not
-    // `identity.email`: the latter falls back to the user's primary app email
-    // when a credential carries no `accountLabel`. Feed it that fallback and a
-    // secondary account's genuine sent mail reads as third-party — the #306
-    // guard would go silently off for every message in that mailbox.
+    // Use `mailboxAddress`, not `email`: `email` can fall back to the primary app email,
+    // and then a secondary mailbox's sent mail reads as third-party.
     const SECONDARY = "yash@personal.example";
 
     assert.equal(
@@ -97,8 +87,7 @@ describe("mayBeUnflaggedSentMail", () => {
   });
 
   test("the documented residual gap: a send-as alias skips the live check", () => {
-    // Accepted, not fixed — see `mayBeUnflaggedSentMail`. Pinned so the day
-    // alias sending becomes a feature, this test is what fails first.
+    // Accepted gap; see `mayBeUnflaggedSentMail`. This fails first if alias sending ships.
     assert.equal(
       mayBeUnflaggedSentMail({ fromHeader: "Yash <yash@alias.example>", mailboxAddress: ACCOUNT }),
       false,
@@ -106,9 +95,7 @@ describe("mayBeUnflaggedSentMail", () => {
   });
 
   test("the predicate is only consulted for stored-not-sent docs", () => {
-    // Guards the ordering in `sentDocumentStatusAtClassifyTime`: an already-SENT
-    // document short-circuits on stored metadata and never reaches the gate, so
-    // the gate never has to reason about the user's own outbound mail.
+    // `sentDocumentStatusAtClassifyTime` returns early for a stored SENT doc, so the gate never sees it.
     assert.equal(isSentGmailMetadata({ labelIds: ["SENT"] }), true);
     assert.equal(isSentGmailMetadata({ isSent: true }), true);
     assert.equal(isSentGmailMetadata({ labelIds: ["INBOX"] }), false);

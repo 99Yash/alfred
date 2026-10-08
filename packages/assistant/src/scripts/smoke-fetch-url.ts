@@ -1,21 +1,13 @@
 /**
- * Live smoke for `system.fetch_url` (#286). Exercises the real network +
- * connect-time SSRF pinning that the unit tests stub out. No DB / server needed.
+ * Live smoke for `system.fetch_url` (#286): real network and connect-time SSRF pinning,
+ * which unit tests stub. No DB or server needed.
  *
  *   $ pnpm --filter @alfred/assistant exec tsx src/scripts/smoke-fetch-url.ts
  *
- * Expectations:
- *   - a real public page reads in as text with a title;
- *   - a compressed text response is transparently decoded before sniffing;
- *   - a name that *resolves to loopback* (127.0.0.1.nip.io) is BLOCKED — proves
- *     the pin validates the resolved IP, not just the hostname string;
- *   - IANA special-use IPv4 literals are BLOCKED before the socket path;
- *   - an IPv4-mapped IPv6 literal is BLOCKED;
- *   - an IPv4-compatible IPv6 literal is BLOCKED;
- *   - a redirect into cloud-metadata space is BLOCKED at the hop;
- *   - a client-rendered SPA (x.com) reads back empty_content, not a silent
- *     ok:chars:0 (#509) — and escalates to the Firecrawl renderer when a key is
- *     set (#510). With no FIRECRAWL_API_KEY the honest empty_content stands.
+ * Expects: a public page reads with a title; compressed text decodes; a name that resolves
+ * to loopback, special-use IPv4, IPv4-mapped and IPv4-compatible IPv6, and a redirect to
+ * cloud metadata are all blocked; an SPA (x.com) returns `empty_content`, or renders when
+ * FIRECRAWL_API_KEY is set (#509, #510).
  */
 
 import { getPath, getStringPath } from "@alfred/contracts";
@@ -33,9 +25,7 @@ interface Case {
 const CASES: Case[] = [
   { label: "public page reads as text", url: "https://www.yashk.xyz", expect: "ok" },
   {
-    // #509/#510: with no Firecrawl key this is empty_content; with a key it flips
-    // to ok (rendered bio). Either is a pass for the honesty contract — a silent
-    // ok:chars:0 is the failure this guards against.
+    // Either result passes; a silent ok with 0 chars fails (#509, #510).
     label: "x.com is empty_content (or rendered when FIRECRAWL_API_KEY is set)",
     url: "https://x.com/thdxr",
     expect: process.env.FIRECRAWL_API_KEY ? "ok" : "empty_content",
@@ -68,7 +58,7 @@ const CASES: Case[] = [
   },
   {
     label: "redirect into metadata is blocked",
-    // The redirector 302s to the target; our manual re-validation must refuse the hop.
+    // The redirector 302s to metadata; our re-validation must refuse the hop.
     url: "https://nghttp2.org/httpbin/redirect-to?url=http://169.254.169.254/latest/meta-data",
     expect: "blocked",
   },

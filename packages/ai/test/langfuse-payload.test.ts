@@ -32,31 +32,18 @@ import {
 import type { MeteredMeta } from "../src/metering/metered";
 
 /**
- * The Langfuse envelope (#216/#226) is the code most likely to regress
- * silently, so this file carries two layers of proof:
- *
- *   1. pure builders — the payload shapes the v5 call sites still consume;
- *   2. a real v5 emission test — the isolated `BasicTracerProvider` exports
- *      through a `LangfuseSpanProcessor` into an in-memory exporter, so the
- *      span name and attributes are asserted end to end (run trace /
- *      generation / tool span / dispatch rejection / runtime span). This is
- *      also where the no-leak guarantee is pinned: the trace attributes must
- *      land on the Langfuse span and never on a non-Langfuse active span.
- *
- * `@langfuse/tracing`'s `propagateAttributes` reads the OTel active context, so
- * the emission tests install the standard context manager the SDK expects.
+ * Langfuse payloads regress silently. Tests the pure builders, then real span emission end to end.
+ * Trace attributes must never land on a non-Langfuse active span.
+ * `propagateAttributes` reads the OTel active context, so install a context manager.
  */
 otelContext.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
 
-// `serverEnv()` validates the whole schema on first read, and the span helpers
-// call `shouldCaptureIo()`. Seed the required slots so the suite runs with no
-// `--env-file` (the CI `ai-unit-tests` job supplies none). Mirrors
-// `packages/integrations/test/self-mail-label.test.ts`.
+// `serverEnv()` validates the whole schema on first read, so seed it to run without `--env-file`.
 const SERVER_ENV_FIXTURES = {
   DATABASE_URL: "postgres://user:pass@localhost:5432/test",
   REDIS_URL: "redis://localhost:6379",
   BETTER_AUTH_SECRET: "test better auth secret with length",
-  // #453: `serverEnv()` requires a 32-byte credential KEK in every environment.
+  // A 32-byte KEK is required in every environment.
   OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
   BETTER_AUTH_URL: "http://localhost:3001",
   ALFRED_ALLOWED_EMAIL: "test@example.com",
@@ -96,9 +83,7 @@ describe("traceTags", () => {
   });
 
   test("normalizes the briefing cost bucket to its llm shape + a cost_kind tag", () => {
-    // Both briefing call sites (agent kind:'briefing', compose kind:'briefing')
-    // must be reachable by a `call_kind:llm` filter, with the cost bucket on a
-    // separate dimension (#226 review).
+    // Briefing calls must match a `call_kind:llm` filter; the cost bucket is a separate tag.
     assert.deepEqual(traceTags({ ...baseMeta, role: "briefing", kind: "briefing" }), [
       "role:briefing",
       "call_kind:llm",
@@ -112,8 +97,7 @@ describe("traceTags", () => {
   });
 
   test("returns undefined when neither role nor kind is present", () => {
-    // kind is required on MeteredMeta, so exercise the empty path via a cast to
-    // the attribution-only shape the builder actually guards against.
+    // `kind` is required on MeteredMeta, so cast to reach the guarded empty path.
     // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
     assert.equal(traceTags({ provider: "x", model: "y" } as unknown as MeteredMeta), undefined);
   });
@@ -139,13 +123,11 @@ describe("resolveTraceId / resolveTraceName", () => {
 
 describe("buildTracePayload", () => {
   test("sets sessionId only when the caller supplies a real one", () => {
-    // Chat passes threadId → grouped session.
     const chat = buildTracePayload({ ...baseMeta, runId: "run_1", sessionId: "thread_42" });
 
     assert.equal(chat.sessionId, "thread_42");
 
-    // Background/job run with no session → sessionless (NOT runId), so the
-    // Sessions view isn't polluted with one-trace "sessions" (#226 review).
+    // Not `runId`: that fills the Sessions view with one-trace sessions.
     const job = buildTracePayload({ ...baseMeta, runId: "run_1" });
     assert.equal(job.sessionId, undefined);
   });
@@ -480,11 +462,7 @@ describe("v5 emission shape (in-memory exporter)", () => {
   });
 
   test("a tool span carries the run's trace attributes from the generation that preceded it", async () => {
-    // The defect this pins: `withTraceAttributes` seeds OTel context for the
-    // duration of one call, so a span opened later — every tool span, since they
-    // run in the dispatch step after the generation returned — had no way to
-    // learn the run's session. Filter a trace by `role:boss` or by session and
-    // the tool work vanished.
+    // Regression: tool spans open after the generation's OTel context ends, so they lost the session.
     const meta: MeteredMeta = {
       ...baseMeta,
       role: "boss",
@@ -514,7 +492,6 @@ describe("v5 emission shape (in-memory exporter)", () => {
   });
 
   test("a span for a run with no generation carries no invented identity", async () => {
-    // A miss must degrade to today's behaviour, not fabricate attributes.
     const closer = startToolSpan({
       runId: "run_never_ran",
       toolName: "system.current_time",
@@ -550,7 +527,7 @@ describe("v5 emission shape (in-memory exporter)", () => {
     assert.equal(span.attributes[A.OBSERVATION_TYPE], "span");
     assert.equal(span.attributes[`${A.OBSERVATION_METADATA}.kind`], "tool");
     assert.equal(span.attributes[`${A.OBSERVATION_METADATA}.toolCallId`], "tc_1");
-    // Merge semantics: update() keeps the open-time metadata and adds the end one.
+    // update() merges with the open-time metadata.
     assert.equal(span.attributes[`${A.OBSERVATION_METADATA}.truncated`], "true");
     // I/O capture is off by default, so neither payload is exported.
     assert.equal(span.attributes[A.OBSERVATION_INPUT], undefined);
@@ -600,8 +577,7 @@ describe("v5 emission shape (in-memory exporter)", () => {
   });
 
   test("does not write trace attributes onto a non-Langfuse active span", () => {
-    // Stand in for Sentry's process-global provider: a recording provider whose
-    // span is active while a Langfuse generation is emitted.
+    // Stands in for Sentry's process-global provider.
     const globalExporter = new InMemorySpanExporter();
 
     const globalProvider = new BasicTracerProvider({

@@ -45,22 +45,14 @@ export interface ActiveSuppressionInstruction {
 export interface SenderSuppressionLookup {
   senderEmail: string | null | undefined;
   accountId?: string | null;
-  /**
-   * Audit echo only — membership is derived at read time, so this never
-   * filters. An active suppression for the sender binds every consumer.
-   * Kept so traces can name which consumer asked.
-   */
+  /** Audit echo only: an active suppression binds every consumer, so this never filters. */
   effect: SuppressionEffect;
 }
 
 export type SenderSuppressionMatch = ActiveSuppressionInstruction & {
   matchedEmail: string;
   effect: SuppressionEffect;
-  /**
-   * Which target kind decided the match — the one field that tells a trace
-   * whether a domain target ever fires in production. An address match and a
-   * domain match are otherwise indistinguishable downstream.
-   */
+  /** Which target kind matched. The only trace of whether a domain target ever fires. */
   matchedVia: StandingInstructionTargetKind;
 };
 
@@ -71,10 +63,7 @@ export const rememberSenderSuppressionArgsSchema = z.object({
   accountId: z.string().nullable().optional(),
   directive: z.string().nullish(),
   phrasing: z.string().nullish(),
-  /**
-   * How wide the instruction binds. `"sender"` (the default) binds the one
-   * address. `"domain"` binds every address at that address's domain.
-   */
+  /** `"sender"` (default) binds one address; `"domain"` binds every address at its domain. */
   scope: z.enum(["sender", "domain"]).optional(),
   source: memorySourceSchema.optional(),
 });
@@ -87,57 +76,19 @@ export type RememberSenderSuppressionResult =
       status: "remembered" | "already_exists";
       factId: string;
       instruction: StandingInstructionValue;
-      /**
-       * The address this write resolved, whatever the target kind stores.
-       * Reporting echo for the model reply — the todo dismissal sweeps
-       * `instruction.target`, never this field.
-       */
+      /** Echo for the model reply. The todo sweep reads `instruction.target`, not this. */
       resolvedSenderEmail: string;
       /**
-       * Every active instruction whose sender-and-account scope STRICTLY
-       * contains or is strictly contained by the stored target, drawn from the
-       * same row snapshot that decided `status`. ADR-0060 micro-decision 6 asks
-       * the write to report a subset or superset; at v1 both rows carry
-       * `suppress`, so the overlap contradicts nothing and ADR-0060 §8 already
-       * elects one of them at apply time. Reporting it is what stops a second
-       * row from looking like a bug.
-       *
-       * SNAPSHOT-SCOPED ON BOTH AXES. A concurrent nesting write can be
-       * absent from this list whichever axis it nests on, for three separate
-       * reasons. The advisory lock this write takes is keyed on
-       * `standingInstructionTargetKey`, which reads the sender and NOT
-       * `accountId`, so two writes at different sender kinds — a domain and an
-       * address under it — take different keys and never block each other. Two
-       * writes at the SAME key do serialize, but the lock orders them by the
-       * instant each takes it, while `activeStandingInstructionsWhere` filters
-       * on `now()` — `transaction_timestamp()`, which Postgres freezes at
-       * `BEGIN` and which also defaults the inserted row's `valid_from`. So a
-       * transaction that began later can take the lock first, and the other
-       * one's freshness filter then hides the winner's row. And the
-       * `already_exists` fast path returns before the lock runs at all.
-       * Campaign item 46 owns the timestamp half.
-       *
-       * The promise runs the other way: every instruction named here was in
-       * the snapshot that decided `status`.
-       *
-       * Capped at {@link STANDING_INSTRUCTION_OVERLAP_LIMIT}; `overlapCount`
-       * carries the true total.
+       * Active rows whose scope strictly contains or is contained by the target (ADR-0060 micro-decision 6).
+       * Drawn from the snapshot that decided `status`, so it can miss a concurrent write:
+       * the lock key ignores `accountId` and sender kind, and `now()` freezes at BEGIN.
+       * Capped at {@link STANDING_INSTRUCTION_OVERLAP_LIMIT}; `overlapCount` has the total.
        */
       overlaps: readonly StandingInstructionOverlap[];
       overlapCount: number;
-      /**
-       * Non-null when the caller asked for `scope:"domain"` and the rail stored
-       * a `sender_email` target instead. Without it the caller cannot tell that
-       * it asked for a class and got one address.
-       */
+      /** Set when the caller asked for `scope:"domain"` but the rail stored one address. */
       scopeNarrowing: StandingInstructionScopeNarrowing | null;
-      /**
-       * Inputs this call sent that the write could not store, because the
-       * stored target names a class of senders: a `directive` the domain
-       * sentence supersedes, a `senderLabel` the domain arm has no field for.
-       * Empty when the write stored everything it was given. Without it the
-       * caller reads a row that silently disagrees with its own request.
-       */
+      /** Inputs a class target cannot store: a `directive` or a `senderLabel`. */
       droppedInputs: readonly StandingInstructionDroppedInput[];
     }
   | {
@@ -158,33 +109,20 @@ export async function rememberSenderSuppression(
   const label = normalizeOptionalLabel(parsed.senderLabel);
   const accountId = normalizeOptionalLabel(parsed.accountId);
 
-  // A caller that did not ask to widen gets no narrowing reason, because it
-  // was never narrowed: `scopeNarrowing` answers "you asked for a class and
-  // got one address", and an unasked question has no answer.
+  // An unasked widening gets no narrowing reason.
   const widening = parsed.scope === "domain" ? widenToDomain(email) : null;
   const domain = widening?.domain ?? null;
   const scopeNarrowing = widening?.narrowing ?? null;
 
   const target = buildStandingInstructionTarget({ email, domain, label, accountId });
 
-  // A domain rule covers senders the label does not name, so the stored
-  // sentence is derived from the TARGET alone: a model-supplied `directive`
-  // is ignored for the domain kind, and the target carries no label. Silent
-  // derivation keeps the write flowing (precedent: the 01r1 default branch
-  // below). `renderStandingInstructionDirective` is the single home of both
-  // wordings, so this sentence and every read-back agree by construction.
+  // A domain rule covers senders the label does not name, so its sentence comes from the target alone.
   const modelDirective = normalizeOptionalLabel(parsed.directive);
 
   const directive =
     domain || modelDirective === null ? renderStandingInstructionDirective(target) : modelDirective;
 
-  // Say what the write refused. The domain branch above supersedes a supplied
-  // `directive` and the domain arm has no field for a supplied `senderLabel`,
-  // so a caller that sent either reads back a row that disagrees with its own
-  // request. Reported, not thrown: silent derivation keeps the write flowing
-  // (precedent: the 01r1 default branch), and this is the half that keeps it
-  // honest. Read from the NORMALIZED values, so whitespace the write would
-  // have dropped for any target kind is not reported as a class rule's doing.
+  // Report what the domain branch ignored. Read the normalized values, so dropped whitespace is not reported.
   const droppedInputs: StandingInstructionDroppedInput[] = [];
 
   if (domain) {
@@ -200,12 +138,7 @@ export async function rememberSenderSuppression(
     action: "suppress",
     surface: "open_loop",
     target,
-    // Legacy write snapshot, stamped for schema compat: readers derive
-    // membership at read time (any active suppression binds its sender for
-    // every consumer), so this array is never branched on. Stated, not
-    // hidden: the `system.remember` tool description discloses the category
-    // prior, and the user can narrow or drop the instruction via
-    // list/edit/forget.
+    // Legacy write snapshot for schema compat. Readers derive membership and never branch on it.
     effects: [...SUPPRESSION_EFFECTS],
     directive,
     phrasing: normalizeOptionalLabel(parsed.phrasing) ?? directive,
@@ -214,16 +147,8 @@ export async function rememberSenderSuppression(
   if (!candidate.success) return senderClarification();
   const instruction = candidate.data;
 
-  // Identity, not coverage: a second remember collapses only onto an
-  // instruction with THIS EXACT target. The sender matcher answered a
-  // different question (does anything already cover this sender?), and a
-  // domain instruction that covers the sender must not block the user from
-  // also pinning the address.
-  //
-  // Identity is BOTH halves. `findInstructionByTarget` compares the per-kind
-  // key from `standingInstructionTargetKey` AND `accountId`, because that key
-  // reads the sender and never the account. Two instructions for one sender
-  // scoped to two mailboxes are two distinct rows, not a duplicate.
+  // Identity, not coverage: collapse only onto a row with this exact target and `accountId`.
+  // A domain row that covers the sender must not block pinning the address.
   const active = await listActiveSuppressionInstructions(parsed.userId);
   const existing = findInstructionByTarget(active, instruction.target);
 
@@ -232,13 +157,10 @@ export async function rememberSenderSuppression(
       ok: true,
       status: "already_exists",
       factId: existing.factId,
-      // Rendered, not raw: this path collapses onto a row it never rewrites,
-      // so a pre-derivation domain row would otherwise echo its stored
-      // personal sentence forever.
+      // Rendered: this path never rewrites the row, so an old domain row would echo personal prose.
       instruction: readStandingInstruction(existing.value),
       resolvedSenderEmail: email,
-      // Reported from the snapshot THIS path decided on — the unlocked outer
-      // read. No path may report an overlap set its own write never saw.
+      // Report from the snapshot this path decided on.
       ...findTargetOverlaps(active, instruction.target),
       scopeNarrowing,
       droppedInputs,
@@ -246,24 +168,13 @@ export async function rememberSenderSuppression(
   }
 
   const row = await db().transaction(async (tx) => {
-    // Serialize concurrent remembers for the same (user, sender): without
-    // this, two runs can both pass the `existing` check above and insert
-    // duplicate active rows. Same per-key advisory-lock pattern as
-    // `proposeFact`/`confirmFact` in `facts.ts`.
-    //
-    // The key TEXT is a deploy-compatibility value, not a style choice. This
-    // file uses two shapes — `<userId>:standing_instruction:<targetKey>` here
-    // on the write path, and `standing_instruction:<userId>:<factId>` on the
-    // edit and delete paths. Rewriting either text leaves the old and new
-    // builds hashing to different keys, so one rolling-deploy window runs
-    // unserialized. Both shapes stay as they are.
+    // Serialize concurrent remembers for the same (user, sender), else both insert.
+    // Do not change the lock key text: a rolling deploy would then run unserialized.
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`${parsed.userId}:standing_instruction:${standingInstructionTargetKey(instruction.target)}`}, 0))`,
     );
 
-    // Re-check inside the lock: the outer `existing` read raced with a
-    // concurrent inserter, so a duplicate found here collapses to
-    // `already_exists` instead of a second active row.
+    // Re-check inside the lock: the outer read raced with other inserters.
     const rivals = await tx
       .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
       .from(userFacts)
@@ -277,17 +188,8 @@ export async function rememberSenderSuppression(
           candidate !== null && candidate.value.action === "suppress",
       );
 
-    // The locked read is the snapshot both remaining paths report from, so it
-    // travels out of the transaction beside the row they decided. The lock
-    // orders the duplicate check on one sender key. It does NOT make this
-    // overlap report complete, on either axis. A write at another sender kind
-    // takes a different key and never blocks. A write at the SAME key does
-    // serialize, but the lock orders the two by the instant each takes it,
-    // while the filter below reads `now()` — `transaction_timestamp()`, frozen
-    // at BEGIN, and the same default the inserted row's `valid_from` takes. So
-    // a transaction that began later can take the lock first, and this read
-    // then drops the winner's row as not yet valid. That timestamp is why the
-    // duplicate check below can miss as well; campaign item 46 owns it.
+    // The locked read is the snapshot both remaining paths report from.
+    // It can still miss a concurrent row: `now()` freezes at BEGIN, so lock order is not time order.
     const overlaps = findTargetOverlaps(locked, instruction.target);
     const rival = findInstructionByTarget(locked, instruction.target);
 
@@ -330,8 +232,7 @@ export async function rememberSenderSuppression(
       ok: true,
       status: "already_exists",
       factId: row.id,
-      // Same reason as the unlocked echo above: the locked re-check found a
-      // rival row and returned it without a write.
+      // Same reason as the unlocked echo above.
       instruction: readStandingInstruction(row.instruction),
       resolvedSenderEmail: email,
       ...row.overlaps,
@@ -354,11 +255,7 @@ export async function rememberSenderSuppression(
   };
 }
 
-/**
- * Identity read: the active instruction whose target names exactly this thing,
- * or null. `standingInstructionTargetKey` carries the per-kind match key, so a
- * new target kind needs no edit here.
- */
+/** The active instruction whose target is exactly this one, or null. */
 function findInstructionByTarget(
   instructions: readonly ActiveSuppressionInstruction[],
   target: StandingInstructionTarget,
@@ -377,30 +274,13 @@ function findInstructionByTarget(
 }
 
 /**
- * Two rails keep a domain target from growing too wide, and both make the bad
- * target unrepresentable rather than merely unlikely:
- *   1. The caller never supplies a domain. The server derives it from an
- *      address the caller already resolved, so `co.in` cannot become a
- *      target — no sender has that address.
- *   2. Only a `corporate_domain` widens. `classifyBareDomain` is the one
- *      place that answers "is this domain one organization's", and it also
- *      rejects consumer mailboxes, school and alumni domains, shared-hosting
- *      and disposable hosts, and mail-infrastructure hosts — every class
- *      where one domain carries unrelated senders. It reads the BARE domain,
- *      never a connected account: the account form demands a verified hosted
- *      domain the sender side never has, so it would answer `ambiguous_domain`
- *      for every real sender and no instruction would ever widen.
- *
- * Rail 2 reads a domain the SHARED grammar accepts, which is the stricter of
- * the two grammars this path crosses: the sender was normalized by zod's email
- * pattern, which admits hosts `domainSchema` rejects. So the grammar is tested
- * here, before the class question — `classifyBareDomain` answers `null` for
- * both an invalid domain and an unclassifiable one, and a caller told that
- * `ab-.com` "is not a single organization" has been told something false.
- *
- * Either rail refusing is a NARROWED write, not a plain address write, and the
- * caller has to be told which one refused. The return is a discriminated pair,
- * so a fall back to the address cannot be built without a reason.
+ * Two rails keep a domain target narrow:
+ *   1. The server derives the domain from a resolved address, never from caller input.
+ *   2. Only a `corporate_domain` from `classifyBareDomain` widens. It reads the bare
+ *      domain, because the account form needs a verified hosted domain no sender has.
+ * The grammar check runs first: zod's email pattern admits hosts `domainSchema` rejects,
+ * and `classifyBareDomain` returns `null` for both invalid and unclassifiable domains.
+ * A refusal is a narrowed write and must carry its reason.
  */
 type DomainWidening =
   | { domain: string; narrowing: null }
@@ -418,34 +298,19 @@ function widenToDomain(email: string): DomainWidening {
   return { domain: candidateDomain.data, narrowing: null };
 }
 
-/**
- * How many overlaps one result carries. A prompt-budget bound, not a
- * correctness one: a domain remember in a mailbox with fifty address rows
- * would otherwise put fifty directives of up to 1,000 characters into the
- * model's context. `overlapCount` still reports the true total.
- */
+/** A prompt-budget cap, not a correctness one. `overlapCount` keeps the true total. */
 const STANDING_INSTRUCTION_OVERLAP_LIMIT = 10;
 
-/**
- * The overlap half of a successful write result. Named so the two `already_exists`
- * paths and the insert path spread ONE shape and cannot disagree about it.
- */
+/** Shared by both `already_exists` paths and the insert path. */
 interface TargetOverlapReport {
   overlaps: StandingInstructionOverlap[];
   overlapCount: number;
 }
 
 /**
- * The active instructions whose scope strictly contains, or is strictly
- * contained by, `target`. STRICT on purpose: two targets that cover each other
- * are the same target, so the identity row this write collapsed onto never
- * appears in its own overlap list.
- *
- * The cut is total — `validFrom` descending, then `factId` descending — so it
- * never depends on Postgres's ordering of two rows written in the same
- * millisecond. `validFrom` is compared at `Date` millisecond resolution
- * because `Date.getTime()` drops the microseconds Postgres stores, which is
- * why `factId` sits below it.
+ * Active rows whose scope strictly contains, or is strictly contained by, `target`.
+ * Strict, so the identity row never lists itself. Sorted by `validFrom` then `factId`,
+ * because `Date` drops the microseconds Postgres stores.
  */
 function findTargetOverlaps(
   instructions: readonly ActiveSuppressionInstruction[],
@@ -485,12 +350,7 @@ function findTargetOverlaps(
   };
 }
 
-/**
- * Every active `suppress` instruction for this user. There is deliberately NO
- * effect parameter: membership is derived at read time, so an active
- * suppression binds its sender for every consumer. A caller that wants one
- * effect filters the result itself, and cannot believe a filter ran here.
- */
+/** Every active `suppress` instruction. No effect filter: a suppression binds every consumer. */
 export async function listActiveSuppressionInstructions(
   userId: string,
 ): Promise<ActiveSuppressionInstruction[]> {
@@ -521,17 +381,9 @@ export async function findActiveSenderSuppression(
 }
 
 // ─── Management (user-driven: list / forget / edit) ─────────────────────────
-//
-// These are the chat-surface operations that let the user reshape Alfred's
-// durable instructions in conversation. They are deliberately NOT reachable
-// from background inference: extraction/triage call the fact layer's
-// propose/supersede paths directly and never these — so a passive workflow can
-// never destructively edit or delete what the user told Alfred to remember.
-// "Delete" here is a soft reject (the row is marked `rejected`, never hard
-// deleted); "edit" supersedes the old row with a new one (reversible chain).
-// Each successful mutation also appends a `user_standing_instruction`
-// observation in the same transaction so ADR-0067's observation log can replay
-// this surface even while `user_facts` remains the live projection.
+// Chat-only. Background inference never calls these, so it cannot edit or delete what
+// the user said. Forget is a soft reject; edit supersedes. Each mutation appends a
+// `user_standing_instruction` observation in the same transaction (ADR-0067).
 
 /** One active standing instruction, flattened for the model to reference by `factId`. */
 export interface StandingInstructionSummary {
@@ -561,12 +413,7 @@ export type EditStandingInstructionResult =
       factId: string;
       previousFactId: string;
       instruction: StandingInstructionValue;
-      /**
-       * Edits this call asked for that the row could not take, because its
-       * target names a class of senders. Empty on an address row, which takes
-       * both. Without it `edited` and `unchanged` both answer a dropped
-       * request with no reason.
-       */
+      /** Edits a class row cannot take. Empty on an address row. */
       droppedInputs: readonly StandingInstructionDroppedInput[];
     }
   | {
@@ -574,7 +421,7 @@ export type EditStandingInstructionResult =
       status: "unchanged";
       factId: string;
       instruction: StandingInstructionValue;
-      /** Same reading as the `edited` arm: edits the row could not take. */
+      /** Edits the row could not take. */
       droppedInputs: readonly StandingInstructionDroppedInput[];
     }
   | { ok: false; status: "not_found" };
@@ -589,7 +436,7 @@ export const editStandingInstructionArgsSchema = z.object({
 
 export type EditStandingInstructionArgs = z.infer<typeof editStandingInstructionArgsSchema>;
 
-/** Currently-active standing instructions for model management, newest first and capped. */
+/** Active standing instructions, newest first, capped. */
 export async function listStandingInstructions(
   userId: string,
 ): Promise<StandingInstructionListResult> {
@@ -617,12 +464,7 @@ function summarizeStandingInstruction(
   };
 }
 
-/**
- * The sentence the model reads for a stored row. A class row renders from its
- * target, so a pre-fix row whose stored prose names one address still reads
- * back as a class rule; a mailbox row keeps its stored (possibly reframed)
- * prose, which names exactly the one address it binds.
- */
+/** A class row renders from its target, so an old row's address prose still reads as a class rule. */
 function readStandingInstructionDirective(value: StandingInstructionValue): string {
   return targetNamesOneMailbox(value.target)
     ? value.directive
@@ -630,13 +472,8 @@ function readStandingInstructionDirective(value: StandingInstructionValue): stri
 }
 
 /**
- * The same rule at value level, for a path that hands the model a whole
- * stored row rather than one field. `already_exists` echoes the row it
- * collapsed onto, and that row can predate the derivation — it never writes,
- * so it also never self-heals. Without this the echo carries the personal
- * sentence while `overlaps[]` in the same result carries the class one.
- * Returns the input unchanged when nothing renders, so an address row stays
- * reference-equal.
+ * The same rule for a whole row. `already_exists` echoes a row it never rewrites.
+ * Returns the input unchanged for an address row.
  */
 function readStandingInstruction(value: StandingInstructionValue): StandingInstructionValue {
   const directive = readStandingInstructionDirective(value);
@@ -644,12 +481,7 @@ function readStandingInstruction(value: StandingInstructionValue): StandingInstr
   return directive === value.directive ? value : { ...value, directive };
 }
 
-/**
- * Active lookup by id. Returns null when the id is unknown, belongs to another
- * user, points at a non-instruction fact, or is already retired — so the
- * management tools only ever touch the current standing instruction the model
- * saw in `list_instructions`, never an arbitrary/stale `user_facts` row.
- */
+/** Null for an unknown, foreign, non-instruction, or retired id. */
 async function loadOwnedStandingInstruction(
   userId: string,
   factId: string,
@@ -666,7 +498,6 @@ async function loadOwnedStandingInstruction(
   return parsed.success ? { value: parsed.data } : null;
 }
 
-/** Soft-remove a standing instruction the user explicitly asked to drop. */
 export async function forgetStandingInstruction(args: {
   userId: string;
   factId: string;
@@ -674,10 +505,7 @@ export async function forgetStandingInstruction(args: {
   source?: MemorySource | undefined;
 }): Promise<ForgetStandingInstructionResult> {
   const forgotten = await db().transaction(async (tx) => {
-    // Per-row serialization: the `status = 'confirmed'` guard below is the
-    // concurrency control (`row_version` is Replicache sync state, never
-    // compared). The lock orders concurrent forget/edit callers on this
-    // factId so the loser deterministically observes the retired row.
+    // The `status = 'confirmed'` guard is the concurrency control; the lock lets the loser see the retired row.
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${args.userId}:${args.factId}`}, 0))`,
     );
@@ -739,7 +567,7 @@ export async function forgetStandingInstruction(args: {
   return { ok: true, status: "forgotten", factId: args.factId, instruction: forgotten };
 }
 
-/** Reframe an instruction's directive/label, superseding the old row with a new one. */
+/** Reframe a directive or label by superseding the row. */
 export async function editStandingInstruction(
   args: EditStandingInstructionArgs,
 ): Promise<EditStandingInstructionResult> {
@@ -750,25 +578,15 @@ export async function editStandingInstruction(
 
   const target = existing.value.target;
 
-  // Both edits this tool offers turn on ONE question — does the target name a
-  // mailbox or a class — so every site below asks `targetNamesOneMailbox` and
-  // none of them re-spells a kind. A class row's sentence is derived from its
-  // target, so a model-supplied `directive` re-derives to the same sentence
-  // and the edit reads `unchanged` unless the target itself changed. A
-  // `senderLabel` on a class row is a no-op: the arm carries no personal
-  // label. The mailbox arm keeps both edits — reframe prose and relabel —
-  // exactly as before.
+  // A class row derives its sentence from its target and has no label. So a `directive`
+  // edit reads `unchanged`, and a `senderLabel` edit is a no-op. Address rows take both.
   const requestedDirective = normalizeOptionalLabel(parsed.directive);
 
   const nextDirective = targetNamesOneMailbox(target)
     ? requestedDirective
     : renderStandingInstructionDirective(target);
 
-  // What the caller asked for and the row refused. A class row's sentence is
-  // its target's, so a supplied `directive` reaches nothing; the class arm
-  // has no label field, so a supplied `senderLabel` reaches nothing either.
-  // Both still reach the RESULT, because an edit that answers `edited` or
-  // `unchanged` with no reason reads as if the request went through.
+  // Report the refused edits, else `edited` or `unchanged` reads as if they applied.
   const droppedInputs: StandingInstructionDroppedInput[] = [];
 
   if (!targetNamesOneMailbox(target)) {
@@ -777,9 +595,7 @@ export async function editStandingInstruction(
     if (parsed.senderLabel !== undefined) droppedInputs.push("senderLabel");
   }
 
-  // `phrasing` is verbatim user provenance — a reframe of the directive never
-  // rewrites it. The label is editable, including clearing it (null), and only
-  // the mailbox arm has one to edit.
+  // `phrasing` is the user's verbatim words; an edit never rewrites it.
   const nextValue = standingInstructionValueSchema.parse({
     ...existing.value,
     directive: nextDirective ?? existing.value.directive,
@@ -830,12 +646,7 @@ export async function editStandingInstruction(
   };
 }
 
-/**
- * The single supersede body behind `editStandingInstruction`: close the active
- * row (`edited`), insert the successor (`supersedesId`), and append the
- * `user_standing_instruction` observation in one transaction so the edit stays
- * auditable and reversible.
- */
+/** Close the active row, insert the successor, and append the observation in one transaction. */
 async function supersedeStandingInstruction(args: {
   userId: string;
   factId: string;
@@ -844,11 +655,7 @@ async function supersedeStandingInstruction(args: {
   source?: MemorySource | undefined;
 }): Promise<{ id: string } | null> {
   return db().transaction(async (tx) => {
-    // Per-row serialization, same contract as `forgetStandingInstruction`:
-    // concurrent superseders order here; the loser matches zero rows on the
-    // `status = 'confirmed'` guard and reports `not_found` (stale id, never
-    // retried blindly — the caller re-lists). `row_version` bumps for the
-    // Replicache changelog only.
+    // Same contract as `forgetStandingInstruction`: the loser reports `not_found`.
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${args.userId}:${args.factId}`}, 0))`,
     );
@@ -900,16 +707,8 @@ async function supersedeStandingInstruction(args: {
 }
 
 /**
- * ADR-0060 micro-decision 8, made total: the more specific target wins, then
- * the newer `validFrom`, then the greater `factId`. `factId` is the primary
- * key, so two distinct rows never compare equal and the election is a function
- * of the row set alone, never of the caller's array order.
- *
- * `accountId` is a gate, not a rank dimension: the caller filters on it before
- * this comparison, so two matches here are already scoped to the same mailbox.
- * `validFrom` is compared at `Date` millisecond resolution because
- * `Date.getTime()` drops the microseconds Postgres stores — which is exactly
- * why `factId` is needed below it.
+ * ADR-0060 micro-decision 8, made total: the more specific target wins, then the newer `validFrom`,
+ * then the greater `factId`. Callers already filtered on `accountId`.
  */
 function isStrongerSuppressionMatch(
   candidate: ActiveSuppressionInstruction,
@@ -945,50 +744,22 @@ export function findSenderSuppression(
   let best: ActiveSuppressionInstruction | null = null;
 
   for (const instruction of instructions) {
-    // Match `listActiveSuppressionInstructions`: only a `suppress` action is a
-    // suppression. `STANDING_INSTRUCTION_ACTIONS` has one member today, so
-    // `ActiveSuppressionInstruction` cannot carry another action and this
-    // guard is unreachable — it closes the door the day a second action lands,
-    // without moving the filter to the six consumers.
+    // Unreachable while `suppress` is the only action; it guards the day a second one lands.
     if (instruction.value.action !== "suppress") continue;
 
     const { target } = instruction.value;
 
-    // Derived membership: an active suppression binds its sender for every
-    // consumer. The stored `effects` array is never consulted — it is a
-    // write-time snapshot, not a decision. `lookup.effect` is echoed on the
-    // match for audit only.
-    //
-    // Deterministic: a string comparison per instruction, no model call and no
-    // database read. `@alfred/contracts` owns the per-kind rule — including
-    // how a domain comes off the address and the `accountId` scope gate — so
-    // this loop never restates what a target kind means.
+    // An active suppression binds every consumer; the stored `effects` array is not read.
     if (!targetMatchesSender(target, email, accountId)) continue;
 
-    // ADR-0060 micro-decision 8: several instructions can match one sender, and
-    // the MOST SPECIFIC target wins; `isStrongerSuppressionMatch` breaks a tie
-    // by recency, then by `factId`. `sender_domain` made this reachable: the
-    // user can mute a domain and still pin one address inside it, which
-    // `rememberSenderSuppression` allows on purpose (see the identity-not-
-    // coverage duplicate check above). A pure first-match-wins scan would let
-    // the newer domain mute defeat that pin.
+    // ADR-0060 micro-decision 8: the most specific target wins, so a pinned address beats a newer domain mute.
     if (best === null || isStrongerSuppressionMatch(instruction, best)) best = instruction;
   }
 
   if (!best) return null;
 
-  // Rendered for the same reason every other read site renders, NOT because
-  // the triage prompt shows it. It does not: `triage/classify.ts` renders
-  // `phrasing` only and says why it omits `directive`, and the field's one
-  // reader (`triage/workflow-operations.ts`) puts it where no renderer and no
-  // event column reads it. So this line is unobservable today and cheap, and
-  // it is here so a future reader that DOES render the field gets the class
-  // sentence rather than a pre-fix domain row's stored personal prose. The
-  // sentence a model actually reads today rides the `system.remember`,
-  // `system.edit_instruction`, and `system.list_instructions` results.
-  // An address row keeps its stored prose, which names exactly the one
-  // address it binds. `phrasing` is untouched on both kinds: it is the user's
-  // verbatim words, and a domain capture can still name one person in it.
+  // Nothing renders `directive` from here today; rendering keeps a future reader on the class sentence.
+  // `phrasing` stays as stored: it is the user's verbatim words.
   const value = targetNamesOneMailbox(best.value.target)
     ? best.value
     : { ...best.value, directive: renderStandingInstructionDirective(best.value.target) };

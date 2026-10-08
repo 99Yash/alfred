@@ -5,7 +5,7 @@ import { BriefRow } from "./brief-row";
 export function ShowcasePanel() {
   return (
     <div className="relative hidden items-center justify-center overflow-hidden border-l border-app-bg-a1 lg:flex">
-      {/* Quiet ambient wash — pulls the purple accent across the right half */}
+      {/* Purple ambient wash */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
@@ -30,7 +30,7 @@ export function ShowcasePanel() {
         </div>
 
         <div className="relative">
-          {/* Stacked card hint — second card peeks from behind */}
+          {/* A second card peeks from behind */}
           <div
             aria-hidden
             className={cn(

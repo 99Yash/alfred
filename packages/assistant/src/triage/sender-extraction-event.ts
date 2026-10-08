@@ -13,138 +13,65 @@ import type { SenderContextResult } from "./sender-context";
 import type { TriageSenderKindSignal } from "./sender-kind";
 import type { SenderSuppressionMatch } from "../knowledge";
 
-/**
- * How one floor's audit lands on the flat trace record, registered under that
- * floor's name and typed against that floor's OWN audit — the same registration
- * shape `FLOOR_SEQUENCE` uses for a floor's model-id tag. `null` is the
- * audit-less path (the fallback classification, where no floor ran), so each
- * projection states its own "did not fire" value instead of the assembly
- * guessing one per field.
- */
+/** One floor's audit as flat trace fields. `null` means no floor ran (the fallback path). */
 type FloorTraceProjection<K extends keyof FloorAudits> = (
   audit: FloorAudits[K] | null,
 ) => JsonObject;
 
 /**
- * Every floor's contribution to the trace, keyed by floor name and EXHAUSTIVE
- * over {@link FloorAudits}. This is the seam a fourth floor would otherwise slip
- * through: registering it in `FLOOR_SEQUENCE` reaches the in-memory audit and the
- * `model` tag on its own, but the persisted `agent_decision_traces` row — the
- * only one of the three the over-tag audits (#210/#354) can query — used to be
- * hand-flattened, so a new floor could demote in production with nothing in the
- * record naming it. A missing key here is now a type error.
- *
- * Flat rather than a nested `floors` object because ad-hoc SQL groups on these
- * keys in the trace's jsonb and the names predate the floor registry (the
- * override floor's fields are still `floorMatched`/`floorForced`). The
- * projection is where that historical name meets the derived shape.
- *
- * Exported for the runtime twin of that type error in `floors.test.ts` — the
- * case where a fourth floor's author widens this annotation instead of adding
- * the entry.
+ * Each floor's trace fields, exhaustive over {@link FloorAudits}, so a new floor
+ * cannot demote without a trace field. Flat because ad-hoc SQL groups on these
+ * keys. Exported for `floors.test.ts`.
  */
 export const FLOOR_TRACE_PROJECTIONS = {
   override: (audit) => ({
-    /** True when the override floor's exposed-secret signal matched at all. */
+    /** The exposed-secret signal matched. */
     floorMatched: audit?.matched ?? false,
-    /** True when it also had to force the category to `urgent`. */
+    /** It also forced `urgent`. */
     floorForced: audit?.verdict.kind === "escalate",
   }),
   senderKind: (audit) => ({
-    /** True when the sender-kind floor demoted the final category → `fyi` (#210). */
     senderKindDemotedCategory: audit?.verdict.kind === "demote",
-    /** Structured reason for a sender-kind category demotion, if one fired. */
     senderKindDemotionReason: audit?.reason ?? null,
   }),
   meeting: (audit) => ({
-    /** True when the meeting-gate floor demoted `meeting` → `fyi`. */
     meetingDemotedCategory: audit?.verdict.kind === "demote",
-    /** Structured reason for a meeting-gate demotion, if one fired. */
     meetingDemotionReason: audit?.reason ?? null,
   }),
   spam: (audit) => ({
-    /** True when the spam floor demoted a REPLY lane → `fyi` (rule 20). */
+    /** A reply lane went to `fyi` (rule 20). */
     spamDemotedCategory: audit?.verdict.kind === "demote",
     /**
-     * What the spam floor concluded: `"demoted_reply_lane"` when it demoted,
-     * `"held_demand_lane"` when Gmail filed the mail as spam and the final
-     * category was still `urgent`/`action_needed` — the softened path (#1098),
-     * where the floor deliberately did not move the answer. `null` when the
-     * floor was inert. An over-tag audit reads THIS to tell a softened spam
-     * apart from a sender-kind demotion.
-     *
-     * `spamFloorOutcome`, not `…DemotionReason`, because one of its two values
-     * means "no demotion": an audit counting the floor's demotions must query
-     * `= 'demoted_reply_lane'`, and `IS NOT NULL` over-counts it. TWO of the
-     * three sibling floors keep the `<floor>DemotionReason` convention —
-     * `senderKind` and `meeting`; `override` projects `floorMatched`/
-     * `floorForced` instead. This floor breaks only the `DemotionReason` half
-     * and still projects `spamDemotedCategory` above. The break is SILENT to a
-     * cross-floor audit:
-     * `trace->>'spamDemotionReason'` reads as SQL NULL rather than failing, and
-     * the conventional query reports ZERO spam-floor activity with no error.
-     * The key an audit of this floor must read is `spamFloorOutcome`.
-     *
-     * `held_demand_lane` does not name WHO chose the lane — the floor cannot
-     * observe that. ONE join answers it on this same flat row:
-     * `floorForced = true`, the override floor's forced `urgent`. Exact.
-     *
-     * `floorForced` is the whole answer FROM #1188 FORWARD. A second-pass throw
-     * once escalated a passive first pass to `action_needed`; #1188 deleted that
-     * producer, and the failure now resolves to the model's own first pass in
-     * both conflict directions. Rows written BEFORE that deploy keep the old
-     * producer and never age out, so a historical audit also joins
-     * `secondPassFailure IS NOT NULL AND conflict = 'under_classification' AND
-     * firstPassCategory IN ('fyi','done','newsletter','marketing')` on the same
-     * flat row — see `floors/spam.ts` for the dated form. At or after the
-     * cutover, a row that does not match `floorForced` is the model's own
-     * judgment, whatever `secondPassFailure` holds.
+     * `demoted_reply_lane`, `held_demand_lane` (spam stayed urgent, #1098), or null.
+     * Not named `spamDemotionReason`: a query on that key silently reads NULL.
+     * Count demotions with `= 'demoted_reply_lane'`; `IS NOT NULL` over-counts.
+     * Who held the lane: `floorForced = true` means the override floor; before #1188
+     * see `floors/spam.ts`.
      */
     spamFloorOutcome: audit?.outcome ?? null,
   }),
 } satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
 
-/**
- * Collapse a union of object types into one. Local to this file: it exists only
- * to merge the projections' field groups into {@link FloorTraceFields}.
- */
 type UnionToIntersection<U> = (U extends unknown ? (of: U) => void : never) extends (
   of: infer I,
 ) => void
   ? I
   : never;
 
-/**
- * A registered floor, by name. Read off the registry rather than off
- * {@link FloorAudits} so an unregistered fourth floor produces exactly ONE error
- * — the missing key above, which is the edit — instead of cascading through
- * everything downstream that indexes by floor name.
- */
+/** Read off the registry, so a missing floor fails once, at the registry. */
 type ProjectedFloorName = keyof typeof FLOOR_TRACE_PROJECTIONS;
 
-/** The floor half of {@link SenderExtractionEvent}, derived from {@link FLOOR_TRACE_PROJECTIONS}. */
 type FloorTraceFields = UnionToIntersection<
   ReturnType<(typeof FLOOR_TRACE_PROJECTIONS)[ProjectedFloorName]>
 >;
 
-/**
- * Project the floor outcome onto its flat trace fields — or `null` on the
- * audit-less fallback path, where every projection reports its own "did not
- * fire" values. Folding the registry rather than spreading its three entries by
- * hand is what makes registration the only edit a fourth floor needs.
- */
 function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
   const fields: JsonObject = {};
 
   // SAFETY: FLOOR_TRACE_PROJECTIONS is keyed by ProjectedFloorName, so its
   // keys enumerate exactly those names.
   for (const name of Object.keys(FLOOR_TRACE_PROJECTIONS) as ProjectedFloorName[]) {
-    // Localized casts: `name` and the projection it indexes are correlated by
-    // construction, which the compiler cannot follow through the key union. The
-    // registry's `satisfies` already checked each entry against its own floor's
-    // audit type, and neither widening reaches a caller.
-    // SAFETY: name came from the table's own key list, so the indexed entry is
-    // that projection.
+    // SAFETY: name came from the table's own keys; `satisfies` checked each entry.
     const project = FLOOR_TRACE_PROJECTIONS[name] as FloorTraceProjection<ProjectedFloorName>;
     Object.assign(fields, project(floors?.[name] ?? null));
   }
@@ -154,24 +81,8 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
 }
 
 /**
- * Flattened observation summary + classify audit for a single classification
- * decision (ADR-0051; durable decision-trace PR-A of #219,
- * `kind = "triage.classification"`). Enough to debug a bad tag without the raw
- * email body. Persisted into `agent_decision_traces` through the normal
- * `ctx.trace` seam, with triage also inserting the same keyed row inside the
- * canonical row transaction so a tag cannot commit without its trace.
- *
- * Lives in `@alfred/assistant` (not `@alfred/contracts`) because every field type it
- * composes — `Observations`, `ClassifyAudit`, `SenderContextResult` — is a
- * triage-internal type defined alongside it here; moving it up would drag that
- * whole leaf tree with it. triage declares its own `"triage.classification"`
- * decision-trace kind against execution's open registry at the bottom of this
- * file, so execution never imports this triage-internal type (item 06 removed
- * that last `agent -> triage` edge).
- *
- * Its floor half is NOT declared here: those fields come from
- * {@link FLOOR_TRACE_PROJECTIONS}, so the floor sequence and the persisted record
- * cannot drift apart.
+ * The `triage.classification` decision trace: enough to debug a bad tag without
+ * the email body. Written in the same transaction as the triage row.
  */
 export interface SenderExtractionEvent extends FloorTraceFields {
   fromKind: SenderContext["fromKind"];
@@ -185,9 +96,7 @@ export interface SenderExtractionEvent extends FloorTraceFields {
   senderPriorKey: string | null;
   senderPriorCounts: Record<string, number>;
   knownContact: boolean;
-  /** Rendered Sender relationship descriptor (ADR-0059), or null for non-human senders — logged for rubric tuning. */
   senderRelationship: string | null;
-  /** Active user-model projection kind that demoted person treatment, if any. */
   senderKind: TriageSenderKindSignal["kind"] | null;
   senderKindConfidence: number | null;
   senderKindEvidenceCodes: string[];
@@ -196,7 +105,6 @@ export interface SenderExtractionEvent extends FloorTraceFields {
   threadNewest: Observations["thread"]["newestDirection"];
   gmailImportant: boolean;
   gmailCategories: string[];
-  /** Gmail filed the message as spam (`SPAM` labelId) — the spam floor's trigger. */
   gmailSpam: boolean;
   contentFlags: Observations["content"];
   firstPassCategory: TriageCategory | null;
@@ -213,65 +121,25 @@ export interface SenderExtractionEvent extends FloorTraceFields {
   standingInstructionSuppressedTodo: boolean;
   standingInstructionFactId: string | null;
   standingInstructionEffect: string | null;
-  /**
-   * Which target kind matched the sender — `sender_email` or `sender_domain`;
-   * null when nothing matched. This is how production says whether a
-   * domain-scoped instruction ever fires, which no other field can show: a
-   * domain match and an address match produce the same suppression.
-   */
+  /** The only field that shows whether a domain-scoped instruction ever fires. */
   standingInstructionMatchedVia: StandingInstructionTargetKind | null;
   standingInstructionReadFailed: boolean;
   /**
-   * A standing instruction was in the prompt for this
-   * mail. DISTINCT from the three fields above, which report the post-classify
-   * todo read: this one fires before the model runs and is the only standing
-   * field that can explain `finalCategory`. A null here is two-way ambiguous
-   * on its own — "no instruction" vs "the read threw" — so read it with its
-   * flag: `readFailed = true` means "unknown"; false means "no instruction".
-   * A row with a fact id and a demand lane is the
-   * model declining the prior, not a missing read.
+   * The instruction in the prompt. The fields above report the later todo read;
+   * only this one can explain `finalCategory`. Read with its `ReadFailed` flag.
    */
   standingInstructionCategoryFactId: string | null;
-  /**
-   * The pre-classify standing-instruction read failed, so a null
-   * `standingInstructionCategoryFactId` means "unknown", not "no instruction".
-   * DISTINCT from `standingInstructionReadFailed`, which reports the
-   * post-classify todo read.
-   */
   standingInstructionCategoryReadFailed: boolean;
   /**
-   * The classify prompt carried a cold-start prior for this mail. Projected
-   * from the same `obs.userContext !== null` that the render branches on (the
-   * `if (obs.userContext)` block in `triage/classify.ts`). Nothing binds the
-   * two sites, so a change to that branch must change this projection too.
-   *
-   * Read it WITH {@link SenderExtractionEvent.userContextReadFailed}: false +
-   * false is "this user has no cold-start chunk", false + true is "the read
-   * threw". Without this member a healthy read that found a line and a healthy
-   * read that found nothing project the same row.
+   * Mirrors the `if (obs.userContext)` render branch in `classify.ts`. Change both together.
+   * With `userContextReadFailed`: present (T, F), absent (F, F), failed (F, T).
    */
   userContextPresent: boolean;
-  /**
-   * The pre-classify cold-start read failed, so this classification ran with no
-   * user-context prior in the prompt for a reason OTHER than the common one.
-   * Without it a total read failure and "this user has no cold-start chunk"
-   * project the same row, and the deploy cannot be measured.
-   *
-   * Completes {@link SenderExtractionEvent.userContextPresent}. The two give
-   * three states: present is (true, false), absent is (false, false) and a
-   * failed read is (false, true).
-   */
   userContextReadFailed: boolean;
-  /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
   todoOutcome: string | null;
   todoNote: string | null;
 }
 
-/**
- * Flatten the observation summary + classify audit into a single structured
- * record (`triage.classification`, ADR-0051 → #219 PR-A). Enough to debug a
- * bad tag without the raw email body.
- */
 export function senderExtractionEvent(args: {
   senderContextResult: SenderContextResult;
   observations: Observations;
@@ -304,7 +172,7 @@ export function senderExtractionEvent(args: {
     senderKindConfidence: obs.senderKind?.confidence ?? null,
     senderKindEvidenceCodes: obs.senderKind?.evidenceCodes ?? [],
     senderKindDemotedPersonTreatment: Boolean(obs.senderKind),
-    // floors — one field group per registered floor, `null` when no floor ran
+    // floors
     ...floorTraceFields(audit?.floors ?? null),
     threadMessages: obs.thread.messageCount,
     threadNewest: obs.thread.newestDirection,
@@ -332,8 +200,6 @@ export function senderExtractionEvent(args: {
     standingInstructionReadFailed: args.standingSuppressionReadFailed,
     standingInstructionCategoryFactId: obs.standingInstruction?.factId ?? null,
     standingInstructionCategoryReadFailed: obs.standingInstructionReadFailed,
-    // Same condition the classify render branches on, so the row says
-    // whether the prompt carried the prior. See `userContextPresent`.
     userContextPresent: obs.userContext !== null,
     userContextReadFailed: obs.userContextReadFailed,
     todoOutcome: args.classification.todoDecision?.outcome ?? null,
@@ -341,14 +207,7 @@ export function senderExtractionEvent(args: {
   };
 }
 
-// Register triage's decision-trace kind against execution's open registry
-// (`modules/agent/decision-traces.ts`) from inside the triage boundary. This
-// keeps `ctx.trace("triage.classification", …)` tier-1 — a record whose shape
-// does not match {@link SenderExtractionEvent} still fails to compile — while
-// leaving execution with no static reference to any triage type (the edge item
-// 06 removed). Module augmentation, not an `import`, so it adds no module graph
-// edge; it applies program-wide because this file is part of the compilation
-// and is already imported by the sole producer (`triage/workflow-operations.ts`).
+// Module augmentation, not an import: `ctx.trace` stays typed and execution never imports triage.
 declare module "@alfred/assistant/execution/decision-traces" {
   interface DecisionTraceRegistry {
     "triage.classification": SenderExtractionEvent;

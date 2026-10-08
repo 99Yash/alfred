@@ -11,20 +11,8 @@ import { setPreference } from "@alfred/assistant/settings";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed integration test for `briefing.resolveBriefingPreferences` — the
- * briefing-delivery zone resolver. Pins that briefing reads the ADR-0082 zone
- * precedence from the same key-set/order end-to-end as `settings.resolveTimezone`
- * (both map `TIMEZONE_PREFERENCE_KEYS` through the shared `firstValidTimezone`),
- * so a legacy `briefing.timezone`-only user can never silently regress to UTC
- * (the #229 bug): the resolved zone is the canonical `timezone` preference, then
- * the legacy `briefing.timezone` fallback. This mirrors
- * `test/settings/resolve-timezone.test.ts` on the briefing side — the report
- * gate's "identical precedence at both sites."
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable Postgres with the
- * migrated schema (the local dev DB). Skipped otherwise so the pure-function
- * suite still runs without a database. It seeds throwaway `test-briefing-tz-*`
- * users and deletes them (cascade clears their preferences) on teardown.
+ * `resolveBriefingPreferences` uses the same zone order as `settings.resolveTimezone` (ADR-0082):
+ * `timezone`, then legacy `briefing.timezone`. Regression #229: a legacy-only user fell back to UTC.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -47,7 +35,7 @@ describe(
   { skip: SKIP },
   () => {
     before(async () => {
-      // Clear any rows a previously-crashed run left behind.
+      // Clear rows a crashed run left behind.
       await db()
         .delete(user)
         .where(like(user.id, `${ID_PREFIX}%`));

@@ -20,7 +20,6 @@ const PAGE_SIZE_OPTIONS = [
   { value: "50", label: "50" },
 ];
 
-/** A model chip: provider mark (brand tint) + short label. */
 function ModelChip({ model }: { model: string }) {
   const provider = providerOf(model);
   const Icon = provider?.Icon;
@@ -35,7 +34,6 @@ function ModelChip({ model }: { model: string }) {
   );
 }
 
-/** Category pill matching the cards' tint. */
 function CategoryPill({ category, label }: { category: UsageRunCategory; label: string }) {
   return (
     <span
@@ -92,19 +90,14 @@ interface ActivityTableProps {
   categories: ReadonlyArray<UsageRunCategory>;
 }
 
-/**
- * Per-run activity table. Rows are agent runs (grouped from `api_call_log`),
- * filtered by the shared category selection, sorted by recency or cost, and
- * paginated server-side. Page resets whenever the filter or window changes
- * (the documented "adjust state during render on prop change" pattern).
- */
+/** Agent runs from `api_call_log`, filtered, sorted, and paged on the server. */
 export function ActivityTable({ start, end, categories }: ActivityTableProps) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(USAGE_ACTIVITY_DEFAULT_PAGE_SIZE);
   const [sortField, setSortField] = useState<UsageSortField>("createdAt");
   const [sortDir, setSortDir] = useState<UsageSortDir>("desc");
 
-  // Reset to page 1 when the filter or window changes, without an effect.
+  // Reset to page 1 when the filter or window changes, during render.
   const resetKey = `${start}|${end}|${categories.toSorted().join(",")}`;
   const [prevResetKey, setPrevResetKey] = useState(resetKey);
 

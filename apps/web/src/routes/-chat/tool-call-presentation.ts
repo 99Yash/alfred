@@ -12,11 +12,7 @@ import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { asString, parseJsonRecord } from "~/lib/json-record";
 import { brandlessToolIcon } from "./animated-tool-icons";
 
-/**
- * The second rung of the tool ladder. Its card is the one place a tool name
- * the model chose becomes user-facing copy, so it reads its target out of the
- * call rather than saying "a tool".
- */
+/** Its card names the tool the model loaded, read from the call. */
 const LOAD_TOOL = "system.load_tool" satisfies ToolName;
 
 export interface ToolCallView {
@@ -25,58 +21,43 @@ export interface ToolCallView {
   status: "started" | "succeeded" | "failed";
   argsPreview?: string | undefined;
   resultPreview?: string | undefined;
-  /**
-   * `preview()` pruned `resultPreview` to fit its cap. A pruned preview still
-   * parses, so any reader that re-reads it as the record it came from must
-   * check this before trusting the shape (#1018 review, S2).
-   */
+  /** `preview()` pruned the preview. It still parses, so check this before trusting its shape. */
   resultTruncated?: boolean | undefined;
-  /** ADR-0070: non-text bytes were stripped from this result before storage. */
+  /** ADR-0070: non-text bytes were stripped before storage. */
   sanitized?: boolean | undefined;
-  /** Narration segment this call follows — orders it against the narration trail. */
+  /** The narration segment this call follows. */
   segmentIndex?: number | undefined;
 }
 
 export interface ToolPresentation {
   brand?: IntegrationBrand | undefined;
   fallbackIcon: LucideIcon;
-  /** Label shown while the call is in flight. */
   running: string;
-  /** Label shown once it lands. */
   done: string;
-  /** Label shown when the call fails. Falls back to `${done} failed`. */
+  /** Falls back to `${done} failed`. */
   failed?: string | undefined;
-  /** Human-readable secondary line (brief, target, etc.) — not raw JSON. */
+  /** Readable secondary line, not raw JSON. */
   detail?: string | undefined;
   /**
-   * The successful result is bookkeeping, not evidence — `load_tool` answers
-   * `{"ok":true,"name":"github.search"}`, which the row's own copy already
-   * states in words. The card hides the expandable panel for such a call, so a
-   * run that climbed the tool ladder four times does not offer four dead
-   * chevrons. A FAILED call still expands: the reason is real information.
+   * The result is bookkeeping, not evidence (`load_tool` returns `{"ok":true,…}`), so hide the panel.
+   * A failed call still expands.
    */
   suppressResult?: boolean | undefined;
 }
 
-/** The tool's action segment: `"google_calendar.list_events"` → `"list_events"`. */
+/** `"google_calendar.list_events"` → `"list_events"`. */
 function actionSegment(toolName: string): string {
   return toolName.includes(".") ? toolName.slice(toolName.lastIndexOf(".") + 1) : toolName;
 }
 
-/**
- * Fallback for a tool not in the co-located registry (e.g. a future or
- * web-scoped tool): `"google_calendar.list_events"` → `"list events"`.
- */
+/** For a tool not in the registry: `"google_calendar.list_events"` → `"list events"`. */
 function humanizeTool(toolName: string): string {
   return actionSegment(toolName).replace(/_/g, " ");
 }
 
 export type { ToolCategory };
 
-// Verbs that change the world. Anything else — a read verb, or a verb we don't
-// recognize — is treated as a source, so a stray read never miscounts as a
-// write. (A matching source-verb list would be redundant: it and the default
-// both resolve to `"source"`.)
+// Verbs that change the world. Anything else counts as a source, so a read never counts as a write.
 const ACTION_VERBS = new Set([
   "send",
   "create",
@@ -95,11 +76,8 @@ const ACTION_VERBS = new Set([
 ]);
 
 /**
- * Classify a tool for the group headline: `"source"` (gathered information),
- * `"action"` (changed something), or `"system"` (plumbing like loading a tool
- * or spawning a sub-agent — excluded from the "searched / did" tally so it never
- * inflates the count). The registry ({@link toolCategoryOf}) is the source of
- * truth; the leading-verb guess only covers an unregistered name.
+ * `"source"`, `"action"`, or `"system"` (plumbing, left out of the headline tally).
+ * The registry ({@link toolCategoryOf}) decides; the verb guess covers unregistered names.
  */
 export function toolCategory(toolName: string): ToolCategory {
   return (
@@ -108,12 +86,7 @@ export function toolCategory(toolName: string): ToolCategory {
   );
 }
 
-/**
- * Turn a raw tool call into something a person can read: the integration's
- * own logo instead of a generic wrench, a present-tense phrase instead of a
- * snake_case symbol, and the meaningful argument (brief, integration name)
- * instead of a `{"slug":"…"}` blob.
- */
+/** A readable tool call: integration logo, present-tense phrase, and the meaningful argument. */
 export function presentTool(tool: ToolCallView): ToolPresentation {
   const args = parseJsonRecord(tool.argsPreview);
 
@@ -135,12 +108,10 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
     };
   }
 
-  // Every registered tool gets its verbs from the co-located registry; the
-  // fallback only fires for an unregistered name (e.g. a web-scoped tool).
+  // The fallback is only for unregistered names.
   const label = toolLabel(tool.toolName);
   const failed = label ? `Couldn't ${label.title}` : undefined;
-  // A brandless tool draws its own glyph (see `brandlessToolIcon`); the wrench
-  // is the last resort for a name this build does not know.
+  // The wrench is for names this build does not know.
   const fallbackIcon = brandlessToolIcon(tool.toolName) ?? Wrench;
 
   if (tool.toolName === LOAD_TOOL) return presentLoadTool(tool, fallbackIcon);
@@ -180,16 +151,9 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
 }
 
 /**
- * The `load_tool` card. Left generic it says "Loaded a tool" beside a wrench,
- * which is the least informative row in a run that may hold four of them — the
- * one fact the user wants is WHICH capability Alfred just reached for, and the
- * call carries it.
- *
- * The target name is read from the args while the turn streams and from the
- * result echo after a reload (`load_tool` returns the name it resolved), so
- * the row keeps its meaning across a refresh. An unresolvable target — a
- * pruned preview, or a name this build's registry does not carry — falls back
- * to the registry's generic copy rather than inventing a target.
+ * The `load_tool` card names which capability Alfred loaded.
+ * The name comes from the args while streaming and the result echo after reload.
+ * If neither resolves, use the registry's generic copy.
  */
 function presentLoadTool(tool: ToolCallView, fallbackIcon: LucideIcon): ToolPresentation {
   const args = parseJsonRecord(tool.argsPreview);
@@ -214,9 +178,7 @@ function presentLoadTool(tool: ToolCallView, fallbackIcon: LucideIcon): ToolPres
     };
   }
 
-  // The registry's `title` is an infinitive phrase written for exactly this
-  // position ("search issues and pull requests"), so it completes "Ready to…"
-  // without a second field of copy per tool.
+  // The registry `title` is an infinitive phrase, so it completes "Ready to…".
   return {
     brand: provider?.brand,
     fallbackIcon,

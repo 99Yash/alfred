@@ -11,8 +11,7 @@ import { StagedApprovalCard } from "~/components/approvals/staged-approval-card"
 import { decideApproval } from "~/components/approvals/decide-approval";
 import { brandForIntegration } from "~/lib/integrations/integrations";
 
-/** How many cards to render before "Show more" — windowing over the bounded
- * (24h-expiring) synced queue, not server pagination (ADR-0034 amendment). */
+/** Cards shown before "Show more". Client windowing over the 24h-expiring synced queue. */
 const WINDOW = 20;
 
 const RISK_LABEL = {
@@ -37,7 +36,7 @@ interface Facet<T extends string> {
   count: number;
 }
 
-/** Count rows by a key, preserving first-seen order, for present-in-queue facets. */
+/** Counts by key in first-seen order. */
 function buildFacets<T extends string>(
   rows: SyncedActionStaging[],
   pick: (r: SyncedActionStaging) => T,
@@ -54,15 +53,8 @@ function buildFacets<T extends string>(
 }
 
 /**
- * Live `/approvals` queue. Reads pending action stagings straight from
- * Replicache (`useActionStagings`) and posts decisions back through the Eden
- * decision API. A successful decision flips the row out of `pending`
- * server-side; the resulting poke pulls the card off the list — so there is
- * no optimistic local removal here.
- *
- * Filtering (integration + risk) and "pagination" (windowing) run entirely
- * client-side over the synced, bounded set; filter state lives in URL search
- * params so a filtered view is shareable and survives reload.
+ * Live `/approvals` queue from Replicache. A decision's poke removes the card,
+ * so there is no optimistic removal. Filters live in the URL.
  */
 export function ApprovalsPage() {
   const { rows, loading, error, retry } = useActionStagings();
@@ -179,7 +171,7 @@ export function ApprovalsPage() {
           </AppPill>
         </header>
 
-        {/* Facet bar — only render facets present in the queue. */}
+        {/* Only facets present in the queue */}
         {rows.length > 0 && (integrationFacets.length > 1 || riskFacets.length > 1) ? (
           <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2">
             {integrationFacets.length > 1 ? (
@@ -327,7 +319,7 @@ function FacetChip({
   count: number;
   active: boolean;
   dotClass?: string | undefined;
-  /** Brand glyph rendered in place of the text label (integration facets). */
+  /** Replaces the text label. */
   icon?: React.ReactNode | undefined;
   onClick: () => void;
 }) {

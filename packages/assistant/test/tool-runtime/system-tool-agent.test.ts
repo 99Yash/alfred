@@ -17,9 +17,7 @@ import {
 } from "@alfred/assistant/tool-runtime";
 
 function typecheckSafeParkCapability(): void {
-  // A raw signal name is not evidence that execution scheduled the dead-man
-  // wake. This negative type pin fails if the adapter port becomes structurally
-  // constructible again.
+  // A raw signal name does not prove the dead-man wake was scheduled.
   const unprovenPark: AwaitSubAgentDispatchResult = {
     kind: "parked",
     // @ts-expect-error plain strings are not safe-to-park capabilities
@@ -31,12 +29,7 @@ function typecheckSafeParkCapability(): void {
 
 void typecheckSafeParkCapability;
 
-// The seam owns no behavior: it forwards each op to the registered adapter and
-// returns its result unchanged. These tests pin exactly that — a missing
-// registration fails loud, a registered adapter receives the exact args and its
-// result is handed straight back. Chat-history retrieval left this port in the
-// chat module; it now has its own seam (see
-// system-tool-chat-history.test.ts).
+// The seam only forwards to the registered adapter. A missing registration throws.
 
 const spawnArgs: SpawnSubAgentRequest = {
   parentRunId: "run_parent",
@@ -163,7 +156,6 @@ describe("system-tool agent seam with a registered adapter", () => {
 
     unregister = registerSystemToolAgentAdapter(adapter);
 
-    // Same object identity out as the adapter returned — the seam adds nothing.
     assert.equal(await spawnSubAgent(spawnArgs), spawnResult);
     assert.equal(await readChildRunOutcome(childArgs), childResult);
     assert.equal(await resolveAwaitSubAgent(childArgs), joinResult);
@@ -171,7 +163,6 @@ describe("system-tool agent seam with a registered adapter", () => {
     assert.equal(await writeScratch(scratchWriteArgs), undefined);
     assert.equal(await promoteScratch(scratchPromoteArgs), scratchPromoteResult);
 
-    // Same object identity in — the seam forwards, it does not reshape.
     assert.equal(seen.spawn, spawnArgs);
     assert.equal(seen.child, childArgs);
     assert.equal(seen.join, childArgs);
@@ -208,7 +199,6 @@ describe("system-tool agent seam with a registered adapter", () => {
     assert.throws(() => registerSystemToolAgentAdapter({ ...first }), {
       message: "A system-tool agent adapter is already registered",
     });
-    // Re-registering the SAME adapter is idempotent, not an error.
     assert.doesNotThrow(() => registerSystemToolAgentAdapter(first));
   });
 });

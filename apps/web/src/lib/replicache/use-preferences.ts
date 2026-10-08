@@ -5,11 +5,9 @@ import { useReplicacheStatus } from "./context";
 import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 export interface PreferenceMap {
-  /** Live `key → value` map of the synced `pref/{key}` rows; absent keys are unset. */
+  /** An absent key is unset. */
   values: Record<string, PreferenceValue>;
-  /** True once the first subscription result has arrived. */
   loaded: boolean;
-  /** Optimistically write a preference row; the next server pull rebases it. */
   setPref: (key: string, value: PreferenceValue) => Promise<void>;
   loadError: string | null;
   retry: () => void;
@@ -17,14 +15,7 @@ export interface PreferenceMap {
 
 const EMPTY_PREFERENCE_VALUES: Record<string, PreferenceValue> = {};
 
-/**
- * Live view of the synced preference table (`pref/{key}` rows, ADR-0012).
- *
- * Scans the model once and keeps a `key → value` map. The model owns row parsing.
- * and keeps a `key → value` map. Domain hooks (feature flags, briefing
- * schedule, …) interpret the values for their own surface; this hook owns only
- * the scan/parse/write machinery so it stays identical across those views.
- */
+/** The synced preferences (ADR-0012) as a key-value map. Domain hooks read their own keys. */
 export function usePreferenceMap(): PreferenceMap {
   const { rep, loadError, retry } = useReplicacheStatus();
   const query = useCallback((tx: ReadTransaction) => SYNC_MODEL.pref.scan(tx), []);

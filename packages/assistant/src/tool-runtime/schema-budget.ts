@@ -1,11 +1,4 @@
-/**
- * Tool-schema budget estimator (#414, PRD #405, User Story 15).
- *
- * Lazy loading is only useful when it shrinks the model-visible payload. This
- * deterministic proxy mirrors the provider envelope but is not a byte-exact
- * provider count; it exists to detect regressions in the same direction and at
- * about the same scale as the real payload.
- */
+/** Estimates the model-visible tool payload. A proxy for regressions, not an exact provider count. */
 
 import { APPROXIMATE_CHARS_PER_TOKEN } from "@alfred/ai";
 import { z } from "zod";
@@ -28,15 +21,10 @@ export type ToolSchemaDefinition = Pick<
   "name" | "description" | "modelInputSchema"
 >;
 
-// Registered definitions are write-once after boot. The definition, not its
-// schema, owns the cache entry because name and description also affect size.
+// Keyed on the definition, because name and description also count.
 const schemaSizeCache = new WeakMap<ToolSchemaDefinition, ToolSchemaSize>();
 
-/**
- * Estimate one model-visible tool envelope. Schema conversion failure keeps the
- * name-and-description estimate instead of failing telemetry; the boot-time
- * object-schema guard should make this a defence-in-depth path only.
- */
+/** A schema that fails to convert still counts its name and description. */
 export function toolSchemaSize(tool: ToolSchemaDefinition): ToolSchemaSize {
   const cached = schemaSizeCache.get(tool);
 
@@ -45,8 +33,6 @@ export function toolSchemaSize(tool: ToolSchemaDefinition): ToolSchemaSize {
   let inputSchema: unknown;
 
   try {
-    // The budget measures what the model is sent, so it reads the model-facing
-    // schema rather than the wider one the runtime validates against.
     inputSchema = z.toJSONSchema(tool.modelInputSchema, { io: "input" });
   } catch {
     inputSchema = undefined;

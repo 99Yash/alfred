@@ -22,24 +22,14 @@ export interface ResolvedWorkflowForRun {
 }
 
 /**
- * Map a run's `workflow_slug` to the workflow body that executes it.
- *
- * Lives in its own module rather than in `service.ts` because three unrelated
- * layers need it — `createRun`, the executor's step resolution, and
- * terminal-run closure — and routing the last of those through `service.ts`
- * would make `service` ↔ `terminal-closure` a cycle.
- *
- * A registered slug resolves to its own definition. A slug that is only in the
- * `workflows` table is user-authored: it keeps its DB slug on `agent_runs` but
- * executes the shared user-authored-brief body. A builtin slug missing from the
- * registry is a deploy mismatch, not a user-authored run, so it throws.
+ * A slug only in the `workflows` table is user-authored and runs the shared brief workflow.
+ * A builtin slug missing from the registry is a deploy mismatch, so it throws.
  */
 export async function resolveWorkflowForRun(args: {
   userId: string;
   workflowSlug: string;
-  /** Exact immutable revision selected by the occurrence dispatcher. */
   workflowRevisionId?: string | undefined;
-  /** Delayed occurrences must not fall forward to a newer published revision. */
+  /** A delayed occurrence must not move to a newer published revision. */
   requireSelectedRevision?: boolean | undefined;
   tx?: AgentDbExecutor;
 }): Promise<ResolvedWorkflowForRun> {
@@ -112,8 +102,7 @@ export async function resolveWorkflowForRun(args: {
   }
 
   return {
-    // SAFETY: the registry stores workflows type-erased to Workflow<unknown>;
-    // the typed definition is erased once at this storage seam.
+    // SAFETY: workflows are stored type-erased to Workflow<unknown>.
     workflow: userAuthoredBriefWorkflow as Workflow<unknown>,
     workflowSlug: args.workflowSlug,
     userAuthoredRow: {

@@ -18,18 +18,7 @@ import {
 import { authMacro } from "../middleware/auth";
 import { requireOnboarded } from "../middleware/onboarding";
 
-/**
- * Vercel integration OAuth routes. The connect step sends the user to the
- * integration install URL; Vercel redirects back with a `code` (plus
- * `teamId`/`configurationId` for team installs) which we exchange for a
- * non-expiring access token, stored via the shared bearer-credential layer.
- *
- *   GET    /api/integrations/vercel/connect     → 302 to the Vercel install URL
- *   GET    /api/integrations/vercel/callback     ← Vercel redirects with code + state
- *   DELETE /api/integrations/vercel/:id          → disconnect
- *
- * Connection state is read from `GET /api/integrations` (`../integrations.ts`).
- */
+/** Vercel install flow. The `code` becomes a non-expiring bearer token. */
 const PROVIDER = "vercel" satisfies CredentialProvider;
 
 export const vercelIntegrationRoutes = new Elysia({
@@ -94,8 +83,7 @@ export const vercelIntegrationRoutes = new Elysia({
       }
 
       const tokens = await exchangeVercelCode(query.code);
-      // Personal installs have no team; key on the team id when present so a
-      // team install and a personal install are distinct credential rows.
+      // Team and personal installs must be separate credential rows.
       const accountId = tokens.teamId ?? tokens.userId ?? tokens.installationId ?? "vercel";
       const label = tokens.teamId ? `team ${tokens.teamId}` : (tokens.userId ?? accountId);
       await upsertBearerCredential({
@@ -104,8 +92,7 @@ export const vercelIntegrationRoutes = new Elysia({
         accountId,
         accountLabel: label,
         accessToken: tokens.accessToken,
-        // Built by the integrations package, which also owns the reader — the two
-        // had drifted on the `team_id` spelling once.
+        // The integrations package owns both the writer and the reader of this shape.
         metadata: vercelCredentialMetadata({
           tokens,
           configurationId: query.configurationId ?? null,

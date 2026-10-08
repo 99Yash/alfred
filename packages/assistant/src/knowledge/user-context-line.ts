@@ -4,44 +4,22 @@ import { and, desc, eq } from "drizzle-orm";
 import { holdsResearchPrior } from "./cold-start/no-profile";
 
 /**
- * A bounded prior drawn from the user's cold-start research chunk (ADR-0050 D1,
- * first slice; permitted by the ADR-0051 amendment §6 as "a single deterministic
- * fact fed as a hint, not a rewrite").
- *
- * WHY this and not `readUserContext(userId, { include: ["recent_memory"] })`:
- * that reader orders `memory_chunks` by recency and caps at six rows, so six
- * newer `thread_summary` rows evict the cold-start chunk with no error. It also
- * returns 900 characters per chunk against this budget and runs five queries the
- * classifier does not need. A cold-start reader must ask for the chunk BY KIND.
- *
- * WHY it is not a memory search: the triage classifier runs once per inbound
- * email, and #435 owns that latency budget. `readUserContextLine` takes no query
- * argument, so no search is expressible on this path — the bound holds by the
- * signature, not by a comment.
+ * A one-line prior from the cold-start research chunk (ADR-0050 D1, ADR-0051 §6).
+ * Not `readUserContext`: it orders chunks by recency, so newer summaries evict
+ * this one. Not a memory search: triage runs per email, so there is no query parameter.
  */
 
 /** One indexed row, collapsed to a single line. */
 export interface UserContextLine {
-  /**
-   * Prompt-ready prose on ONE line. NOT capped here, deliberately: the byte
-   * budget belongs to the prompt, so it is applied by the render site
-   * (`triage/classify.ts`, `USER_CONTEXT_LINE_MAX_CHARS`). A cap applied here
-   * would be a claim this module cannot keep — `UserContextLine` is a plain
-   * exported interface, so any caller can build an uncapped literal and reach
-   * the same prompt. Capping where the prompt is built holds on every path.
-   */
+  /** One line, not capped: the render site (`triage/classify.ts`) owns the byte budget. */
   text: string;
-  /** When the cold-start run wrote the chunk, so a reader can say how old the prior is. */
+  /** When the chunk was written, so a reader can tell its age. */
   recordedAt: Date;
 }
 
 /**
- * Read the user's most recent cold-start research chunk as a one-line prior.
- * `null` when the user has no such chunk, or when the chunk holds no readable
- * content. The prompt cap is the render site's job, not this reader's.
- *
- * ONE point read on `memory_chunks_user_kind_idx` (`user_id, kind, created_at`).
- * No embedding, no model, no query parameter.
+ * The latest cold-start chunk as one line, or `null`. One point read on
+ * `memory_chunks_user_kind_idx`; no embedding, no model.
  */
 export async function readUserContextLine(userId: string): Promise<UserContextLine | null> {
   const [row] = await db()
@@ -57,17 +35,9 @@ export async function readUserContextLine(userId: string): Promise<UserContextLi
 }
 
 /**
- * Collapse one stored chunk to a single line, or reject it. The newline collapse
- * is not cosmetic: the value is rendered inside a `===`-delimited observations
- * block, and a chunk with a blank line would otherwise forge a section header
- * above the derived signals — the same defense `renderObservations` applies to a
- * standing-instruction phrasing.
- *
- * Two refusals, both in `holdsResearchPrior`: a line with no letter and no digit
- * is a research header, and a line that only reports "no confident public
- * profile was found" is a prior about nothing. The render site pays ~1069 B for
- * a line plus its handling rule, so a content-free chunk must reach it as
- * `null`, not as a sentence that happens to hold letters.
+ * Fold the chunk to one line, or refuse it. One line matters: a blank line
+ * could forge a section header in the `===`-delimited observations block.
+ * `holdsResearchPrior` refuses headers and "no public profile" lines.
  */
 function buildUserContextLine(content: string, recordedAt: Date): UserContextLine | null {
   const collapsed = content.replace(/\s+/g, " ").trim();

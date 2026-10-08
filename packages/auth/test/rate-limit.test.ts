@@ -5,15 +5,8 @@ import { ensureAuthTestEnv } from "./support/env";
 import { authIpAddress, authRateLimit, createAuthRateLimitStorage } from "../src/rate-limit";
 
 /**
- * Coverage for #458 — the auth rate limit counts in Redis, not in one process.
- *
- * The cases split three ways. The counter itself is exercised against a fake
- * Redis, including the outage path, because the property that matters is which
- * commands are issued and what the storage answers. The configuration cases
- * read `auth().options`, because a store that is never wired in is a store that
- * limits nothing. The trusted-proxy case exists because Better Auth only WARNS
- * on a malformed entry and then ignores it, so a typo there silently returns
- * the limiter to one shared bucket for every request.
+ * The auth rate limit counts in Redis, not in one process.
+ * Config cases read `auth().options`, because a store not wired in limits nothing.
  */
 
 const RULE = { window: 10, max: 2 };
@@ -45,7 +38,7 @@ function fakeRedis() {
   };
 }
 
-/** Silences the outage warning so a deliberate failure does not read as one. */
+/** Silences the outage warning during a deliberate failure. */
 async function withoutWarnings<T>(run: () => Promise<T>): Promise<{ result: T; warnings: number }> {
   const original = console.warn;
   let warnings = 0;
@@ -86,10 +79,7 @@ describe("auth rate limit storage (#458)", () => {
     await storage.consume("203.0.113.7|/sign-in/social", RULE);
     await storage.consume("203.0.113.7|/sign-in/social", RULE);
 
-    // The Lua script runs INCR + EXPIRE atomically. The second call still
-    // issues EXPIRE but the TTL clause in the script (`TTL == -1`) does not
-    // fire because the first call already set it — so the window stays fixed.
-    // We verify the script was called twice and the TTL was set once.
+    // The script sets a TTL only on a new key, so the window does not slide.
     assert.equal(redis.evalCalls.length, 2);
     const ttlEntries = [...redis.values.entries()].filter(([k]) => k.endsWith(":ttl"));
     assert.equal(ttlEntries.length, 1, "EXPIRE must set TTL exactly once");
@@ -106,10 +96,7 @@ describe("auth rate limit storage (#458)", () => {
 
     const [key] = [...redis.values.keys()];
     assert.ok(key, "no key was written");
-    // One of the two, because the clock can cross a window between the call and
-    // the read. Both spellings are the same claim: the window index is IN the
-    // key, so the next window reads a different counter even if `EXPIRE` was
-    // never applied.
+    // Either index: the clock can cross a window between the call and the read.
     assert.ok(
       key === `rate:auth:203.0.113.7|/sign-in/social:${before}` ||
         key === `rate:auth:203.0.113.7|/sign-in/social:${after}`,
@@ -130,8 +117,7 @@ describe("auth rate limit storage (#458)", () => {
       await storage.consume("203.0.113.7|/sign-in/social", RULE),
     ]);
 
-    // Degraded, not disabled, and not closed: an outage must neither lift the
-    // limit nor lock the only user out of the one path that has no other way in.
+    // An outage must neither lift the limit nor lock out the only user.
     assert.equal(result[0]?.allowed, true);
     assert.equal(result[1]?.allowed, true);
     assert.equal(result[2]?.allowed, false);
@@ -148,14 +134,12 @@ describe("auth rate limit configuration (#458)", () => {
     assert.ok(rateLimit.customStorage, "auth falls back to the in-memory store");
     assert.equal(typeof rateLimit.window, "number", "auth leaves the window implicit");
     assert.equal(typeof rateLimit.max, "number", "auth leaves the max implicit");
-    // Better Auth's own stricter rules for /sign-in, /sign-up, /change-password
-    // and /change-email apply only while no custom rule claims those paths.
+    // Better Auth's stricter built-in path rules apply only with no custom rules.
     assert.equal(rateLimit.customRules, undefined, "auth overrides a stricter default");
   });
 
   test("the limiter is on in production and off in a dev or test run", () => {
-    // Stated rather than left to Better Auth's default, so a release that moves
-    // that default cannot turn the limiter off on a deploy.
+    // Explicit, so a changed Better Auth default cannot turn it off.
     assert.equal(authRateLimit("production").enabled, true);
     assert.equal(authRateLimit("development").enabled, false);
     assert.equal(authRateLimit("test").enabled, false);
@@ -178,8 +162,7 @@ describe("auth rate limit configuration (#458)", () => {
       const slash = entry.lastIndexOf("/");
       const address = slash === -1 ? entry : entry.slice(0, slash);
       const family = isIP(address);
-      // Better Auth logs and DROPS an entry it cannot parse, so a typo here
-      // costs the whole trusted-proxy walk with nothing failing loudly.
+      // Better Auth silently drops an entry it cannot parse.
       assert.notEqual(family, 0, `not an IP address: ${entry}`);
 
       if (slash === -1) continue;

@@ -125,11 +125,7 @@ async function credentialsForAuthority(
   return scoped.map(({ id, accountId, accountLabel }) => ({ id, accountId, accountLabel }));
 }
 
-/**
- * Configured Google APIs over a fresh-token resolver. A method still names the
- * selected credential because a user may connect several Google accounts, but
- * the access token is resolved and consumed entirely inside this package.
- */
+/** Methods take a credential id because a user can connect several Google accounts. */
 export function createGoogleClient(
   tokenFor: GoogleTokenResolver,
   retry: RetryPolicy | "none" = "none",
@@ -247,10 +243,7 @@ export function createGoogleClient(
   };
 }
 
-/**
- * Google APIs bound to one Alfred user. Ownership is revalidated on every
- * request before the fresh-token boundary accepts a credential id.
- */
+/** Checks ownership of the credential id on every request. */
 export function googleClientForUser(options: ProviderBindOptions) {
   const client = createGoogleClient(async (credentialId, authority) => {
     const owned = (await listCredentials(options.userId, "google")).some(

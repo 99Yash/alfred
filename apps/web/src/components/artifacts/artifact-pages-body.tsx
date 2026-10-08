@@ -6,13 +6,8 @@ import { cn } from "~/lib/utils";
 import { ArtifactCenteredState } from "./artifact-centered-state";
 
 /**
- * The reader for a `pages` artifact: a thumbnail strip that picks the page, one
- * large scaled page, and a click that hands the page to a presentation overlay.
- *
- * Both artifact surfaces render this — the chat sidebar in its narrow column and
- * the library viewer full-screen — so a deck behaves the same in either place.
- * The caller owns `pageIndex`, because the strip, the header's present button,
- * and the overlay must all agree on which page the user is looking at.
+ * Reader for a `pages` artifact, used by the chat sidebar and the library viewer.
+ * The caller owns `pageIndex` so the strip, present button, and overlay agree.
  */
 export function ArtifactPagesBody({
   pages,
@@ -29,13 +24,12 @@ export function ArtifactPagesBody({
   generating: boolean;
   pageIndex: number;
   onPageIndexChange: Dispatch<SetStateAction<number>>;
-  /** Opens the presentation overlay. Null drops the zoom affordance. */
+  /** Null removes the zoom control. */
   onPresent: (() => void) | null;
   className?: string | undefined;
-  /** Width cap for the large page. The chat column wants the full width. */
   pageClassName?: string | undefined;
 }) {
-  // Clamp when the page list shrinks (e.g. an `update_artifact` replace).
+  // Clamp when the list shrinks (an `update_artifact` replace).
   const safeIndex = pages.length === 0 ? 0 : Math.min(pageIndex, pages.length - 1);
   const current = pages[safeIndex];
 
@@ -63,9 +57,7 @@ export function ArtifactPagesBody({
 
             return (
               <button
-                // `ArtifactPage` carries no id, so key by content (title + body
-                // length): stable when an `update_artifact` replace reorders the
-                // list, unlike the position index.
+                // No page id, so key by content; stable when a replace reorders the list.
                 key={`${page.title}:${page.html.length}`}
                 type="button"
                 aria-current={active ? "true" : undefined}

@@ -34,18 +34,9 @@ export function createId(prefix?: string, { length = 12, separator = "_" } = {})
 }
 
 /**
- * Render a set of string literals as a comma-separated SQL list for an
- * `IN (...)` clause — e.g. ``sql`${t.status} IN (${inList(TODO_STATUSES)})` ``.
- * Shared by the enum `CHECK` constraints so the closed-set idiom lives once.
- * `values` are trusted enum constants (never user input), so raw interpolation
- * is safe.
- *
- * The output is SORTED, so the rendered SQL depends on the SET of values and
- * not on the order the constant happens to declare them in. Without this, a
- * cosmetic reorder of a source constant — or of a record `inList` derives from,
- * such as `EVENT_SOURCE_ENTRIES` behind `DOCUMENT_SOURCES` — changes the CHECK
- * text and `check:constraint-snapshot` then demands a no-op DROP/ADD migration.
- * `IN` is order-independent, so sorting changes no semantics.
+ * Render enum constants as a raw SQL list for `IN (...)`. Never pass user input.
+ * Sorted, so reordering the source constant does not change the CHECK text
+ * and make `check:constraint-snapshot` demand a no-op migration.
  */
 export const inList = (values: readonly string[]): SQL =>
   sql.raw(
@@ -55,11 +46,7 @@ export const inList = (values: readonly string[]): SQL =>
       .join(", "),
   );
 
-/**
- * Escape the LIKE/ILIKE wildcards in a value that is a literal, not a pattern.
- * A raw `%` or `_` from user text (or from a key value) silently widens the
- * match; `\\` is escaped first so it cannot re-enable the other two.
- */
+/** Make a literal value safe inside LIKE/ILIKE. Escape `\` first, then `%` and `_`. */
 export function escapeLike(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
@@ -96,42 +83,19 @@ function base32(bytes: Buffer): string {
   return out;
 }
 
-/**
- * Minimum namespace-secret length, mirroring `ENTITY_ID_NAMESPACE`'s `serverEnv`
- * policy (`optionalLongSecret`, min 32). Enforced HERE — at the only API that
- * actually mints ids — because the env field is `optional` (P0 has no writer
- * yet), so nothing stops a future P1 caller from doing
- * `serverEnv().ENTITY_ID_NAMESPACE ?? ""` and silently shipping HMAC-with-a-
- * blank-key ids, which are no harder to guess than the raw SHA the HMAC exists
- * to avoid (D2). Fail closed at the chokepoint, not in every caller.
- */
+/** Same minimum as `ENTITY_ID_NAMESPACE`. That env field is optional, so the mint checks again. */
 const MIN_ENTITY_ID_SECRET_LENGTH = 32;
 
 /**
- * Stable, content-addressed entity id (ADR-0067 D2). HMAC-keyed (NOT raw SHA:
- * emails/logins are guessable and these ids surface in client sync + logs),
- * derived from a single normalized hard identity + the user. Deterministic, so
- * a cold replay re-mints the same id; the canonical winner on merge is chosen
- * by anchor rank (see `identityAnchorRank`), never by re-hashing.
- *
- * `secret` is the server-held namespace key (from `serverEnv`); callers pass it
- * in so this stays a pure function and `@alfred/db` keeps no env dependency.
- * Throws on a blank/short secret so a missing or mis-wired `ENTITY_ID_NAMESPACE`
- * fails closed instead of minting guessable public ids. Never seed from display
- * name, kind, significance, or a random id.
+ * Mint the permanent `ent_*` id for one identity of one user (ADR-0067 D2).
+ * HMAC, not plain SHA: emails and logins are guessable, and these ids reach the client.
+ * Throws on bad input instead of fixing it, because a wrong id is permanent.
  */
 export function computeStableEntityId(
   secret: string,
   input: { userId: string; identityKind: IdentityKind; normalizedValue: string },
 ): string {
-  // Validate and HMAC the SAME bytes: the prior check measured `secret.trim()`
-  // but the digest below keyed off the raw `secret`, so a value with accidental
-  // surrounding whitespace (a quoted `.env` line, ` abc… `) passed the length
-  // gate yet silently produced a DIFFERENT digest than the trimmed value — i.e.
-  // a stray space would remint every content-addressed `ent_*` id. Reject
-  // surrounding whitespace outright (these ids are permanent; a misconfigured
-  // namespace must fail loud, not normalize behind the operator's back) so the
-  // raw `secret` HMAC'd below is provably the value that cleared validation.
+  // A padded secret passes a trimmed length check but HMACs to different ids.
   if (secret !== secret.trim() || secret.length < MIN_ENTITY_ID_SECRET_LENGTH) {
     throw new Error(
       `computeStableEntityId: namespace secret must be at least ${MIN_ENTITY_ID_SECRET_LENGTH} chars ` +
@@ -140,15 +104,7 @@ export function computeStableEntityId(
     );
   }
 
-  // The id inputs are as load-bearing as the secret. An empty or whitespace-
-  // padded `userId`/`normalizedValue` would mint a deterministic `ent_*` anchor
-  // that every "unknown" identity collapses onto — exactly the bad anchor that
-  // merges unrelated identities forever. `identityRefSchema` enforces
-  // `value.min(1)` at the app boundary, but this helper is the mint chokepoint
-  // and is reached directly from `@alfred/db`, so fail closed here too. Reject
-  // surrounding whitespace for the same reason as the secret: these ids are
-  // permanent and must not be whitespace-sensitive (normalizing the value is
-  // the caller's job, not ours to silently paper over).
+  // An empty input would mint one id that every unknown identity merges onto.
   for (const [field, value] of [
     ["userId", input.userId],
     ["normalizedValue", input.normalizedValue],
@@ -161,14 +117,7 @@ export function computeStableEntityId(
     }
   }
 
-  // The value must already be CANONICAL for its kind (lowercased email/domain/
-  // github handle, etc.). The id is content-addressed from this exact string, so
-  // `Person@x.com` and `person@x.com` would mint two permanent anchors for one
-  // identity — the split-brain D2 exists to kill. Canonicalizing here is the
-  // reducer's job (`canonicalizeIdentityValue`); the mint refuses a value that
-  // isn't already canonical rather than fold it silently (same fail-loud posture
-  // as the whitespace check — these ids are permanent, so a non-canonical anchor
-  // must surface as a bug, not get normalized behind the caller's back).
+  // `Person@x.com` and `person@x.com` must not mint two ids. The caller canonicalizes.
   if (
     input.normalizedValue !== canonicalizeIdentityValue(input.identityKind, input.normalizedValue)
   ) {
@@ -179,12 +128,7 @@ export function computeStableEntityId(
     );
   }
 
-  // The value must also be a legal FORMAT for its kind (a real email, a numeric
-  // github id, an `owner/repo`, …). Canonical-but-malformed (`{ kind: "email",
-  // value: "not-an-email" }`, `{ kind: "github_user_id", value: "abc" }`) would
-  // otherwise mint a permanent `ent_*` anchor from garbage no later real value can
-  // reconcile with. Mirror the `identityRefSchema` boundary refine here — this
-  // helper is the mint chokepoint and is reached directly from `@alfred/db`.
+  // A malformed value (email "not-an-email") mints an id no real value can match.
   if (!identityValueMatchesKind(input.identityKind, input.normalizedValue)) {
     throw new Error(
       `computeStableEntityId: normalizedValue '${input.normalizedValue}' is not a valid format ` +
@@ -192,7 +136,7 @@ export function computeStableEntityId(
     );
   }
 
-  // Canonical, key-ordered JSON so the digest is stable across call sites.
+  // Fixed key order keeps the digest stable.
   const canonicalInput: StableEntityIdInput = {
     v: STABLE_ENTITY_ID_VERSION,
     userId: input.userId,
@@ -203,42 +147,10 @@ export function computeStableEntityId(
   const canonical = JSON.stringify(canonicalInput);
   const digest = createHmac("sha256", secret).update(canonical).digest();
 
-  // 128 bits (~26 base32 chars) — ample collision resistance, compact id.
+  // 128 bits, 26 base32 chars.
   return `ent_${base32(digest.subarray(0, 16))}`;
 }
 
-/**
- * Build an `entity_nodes` insert whose `id` is GUARANTEED to be the content
- * address of its `canonical_identity` (ADR-0067 D2). The two are stored in
- * independent columns and the DB id-shape CHECK only proves the id is
- * `ent_<base32>`-shaped — NOT that it was HMAC-derived from the stored identity.
- * Nothing else stops a writer from persisting an id minted from `a@x.com` next
- * to `canonicalIdentity: { value: "b@x.com" }`; a later cold replay re-derives
- * the id FROM the identity, computes a different `ent_*`, and silently orphans
- * every FK that bound to the old id — a permanent, spreading corruption of the
- * one surface the whole substrate keys on. The DB can't recompute the HMAC
- * (no secret), so the invariant can only be enforced at the write API: mint
- * both fields from ONE identity here, and a mismatched pair is unrepresentable.
- * Every `entity_nodes` writer (P1+) must go through this rather than hand-
- * assembling the row.
- *
- * `identity` is runtime-PARSED (`identityRefSchema`), not just trusted by its
- * TypeScript type: a coerced `unknown as IdentityRef` (e.g. a reducer reading a
- * provider payload through an `any`) could otherwise mint a node from a kind
- * outside `IDENTITY_KINDS` or a non-canonical value, and the DB id-shape CHECK
- * would not catch it. Parsing fails loud on a bad kind/value here, at the write
- * API, before a permanent id is minted.
- *
- * `firstSeenAt` is REQUIRED (not defaulted) and must be the earliest OBSERVATION
- * timestamp for this node — it is the merge-survivor tie-break (D2) read at the
- * fold, so it must be deterministic across replays. A wall-clock default (write/
- * replay time) would leak build time into merge ordering and break D13 replay
- * determinism, so the caller supplies the observation's `occurredAt` and the
- * write API makes it impossible to forget. (The column is NOT NULL with NO
- * DEFAULT, so a direct insert that bypasses this API and omits the field fails
- * LOUD rather than silently recording wall-clock time — which no P1+ writer is
- * allowed to do.)
- */
 export interface EntityNodeInsert {
   id: string;
   userId: string;
@@ -246,6 +158,12 @@ export interface EntityNodeInsert {
   firstSeenAt: Date;
 }
 
+/**
+ * Build an `entity_nodes` row whose `id` and `canonicalIdentity` come from one identity.
+ * The DB cannot recheck the HMAC, so every writer must use this.
+ * `firstSeenAt` is the earliest observation time, not now: merges break ties on it,
+ * so it must not change on a replay.
+ */
 export function makeEntityNodeInsert(
   secret: string,
   userId: string,
@@ -263,16 +181,7 @@ export function makeEntityNodeInsert(
   return { id, userId, canonicalIdentity: parsed, firstSeenAt };
 }
 
-/**
- * Format a number with just enough precision to round-trip the float32
- * pgvector actually stores. Embedding providers return JS float64s, but
- * pgvector stores vector elements as float32, so 9 significant digits
- * (the round-trip width for float32) is sufficient — sending the full
- * float64 text only wastes bandwidth on writes and query literals.
- *
- * Not the minimal-length form (e.g. the float32 nearest 0.1 renders as
- * "0.100000001", not "0.1"), but trailing-zero trimming keeps it compact.
- */
+/** pgvector stores float32, so 9 significant digits are enough. More only wastes bytes. */
 export function formatFloat32(value: number): string {
   return Number(Math.fround(value).toPrecision(9)).toString();
 }
@@ -281,15 +190,7 @@ export function formatVectorFloat32(values: number[]): string {
   return `[${values.map(formatFloat32).join(",")}]`;
 }
 
-/**
- * pgvector column wrapper. `toDriver` serializes `number[]` as a
- * float32-precision `[a,b,c]` literal pgvector accepts on insert;
- * `fromDriver` parses the same shape back so callers receive
- * `number[]` directly.
- *
- * All embeddings in alfred are 1024-dim (ADR-0021); use this helper
- * for any new vector column.
- */
+/** pgvector column that reads and writes `number[]`. */
 export const vectorColumn = (name: string, dimensions: number) =>
   customType<{ data: number[]; driverData: string }>({
     dataType() {
@@ -299,9 +200,7 @@ export const vectorColumn = (name: string, dimensions: number) =>
       return formatVectorFloat32(value);
     },
     fromDriver(value: string): number[] {
-      // SAFETY: the column stores a pg vector literal — toDriver wrote a
-      // number[] through formatVectorFloat32, so parsing it back yields
-      // numbers in array order.
+      // SAFETY: toDriver wrote this `[a,b,c]` literal, so it parses back to numbers.
       return JSON.parse(value) as number[];
     },
   })(name);
@@ -311,25 +210,14 @@ export const vectorColumn = (name: string, dimensions: number) =>
 // ---------------------------------------------------------------------------
 
 /**
- * How long a *transient or systemic* embed failure (a Voyage 5xx/429, a network
- * blip, a rotated key, a quota trip, a whole-provider outage) is tolerated
- * before the row is dead-lettered. Gated on the wall-clock age of the first
- * failure, NOT an attempt count: the embed sweep runs every ~5 minutes, so a
- * small attempt cap would be exhausted by a ~25-minute outage and permanently
- * drop the entire pending backlog (silent data loss). A full day gives the
- * provider (or ops) time to recover while still terminating the retry storm for
- * a genuinely un-embeddable input. Only a *per-input-permanent* error
- * (`HttpError.perInputPermanent`) dead-letters immediately regardless.
- *
- * Shared by every embeddable table (`documents`, `memory_chunks`) so the
- * poison-pill policy is defined once — see `buildEmbedFailureSet`.
+ * How long an embed failure retries before the row is dead-lettered.
+ * Measured from the first failure, not by attempts, so a short provider outage
+ * does not drop the whole backlog.
  */
 export const EMBED_RETRY_WINDOW_HOURS = 24;
 
-/** Cap the persisted failure message; `HttpError` bodies are already bounded + redacted. */
 const MAX_EMBED_ERROR_CHARS = 500;
 
-/** Drizzle columns the embed poison-pill guard reads/stamps on the row it's recording against. */
 export interface EmbedFailureColumns {
   attempts: AnyPgColumn;
   firstFailedAt: AnyPgColumn;
@@ -337,37 +225,16 @@ export interface EmbedFailureColumns {
 }
 
 /**
- * Build the drizzle `.set(...)` payload that records an embed failure and
- * enforces the poison-pill dead-letter policy — the single source of truth
- * shared across every embeddable table (`documents`, `memory_chunks`), so a
- * change to the window, the redaction cap, or the transient/permanent
- * classification is one edit, not N co-varying copies.
- *
- * A per-input-permanent error (`HttpError.perInputPermanent` — the input
- * itself is un-embeddable) dead-letters the row (`failedAt`) immediately;
- * every other failure, INCLUDING a systemic 4xx (401/403/404 — a rotated key,
- * a quota trip, an endpoint change), rides the wall-clock window and only
- * dead-letters once the *first* failure is older than `EMBED_RETRY_WINDOW_HOURS`.
- * `attempts` still counts every failure for diagnostics but no longer gates
- * dead-lettering. Every `sql` expression references the row's PRE-update column
- * values (Postgres evaluates the SET list against the old row), so the
- * `COALESCE(firstFailedAt, now())` first-stamp and the CASE window behave as
- * described no matter how many sweeps have already hit the row.
- *
- * The returned keys are the drizzle property names shared by both tables
- * (`embedAttempts` / `embedFirstFailedAt` / `lastEmbedError` / `embedFailedAt`);
- * the keyed `satisfies` below excess-checks them in-helper so a stray or
- * renamed key is a compile error, not a column that silently never writes.
- * Table-specific concerns (userId scoping, empty-content terminal cases) stay
- * with the caller.
+ * `.set(...)` payload for an embed failure on `documents` or `memory_chunks`.
+ * A per-input-permanent error dead-letters the row now. Any other error
+ * dead-letters it after `EMBED_RETRY_WINDOW_HOURS`.
+ * The SQL reads the pre-update row, because Postgres evaluates SET against old values.
  */
 export function buildEmbedFailureSet(cols: EmbedFailureColumns, err: unknown) {
   const permanent = isHttpError(err) && err.perInputPermanent;
 
   return {
     embedAttempts: sql`${cols.attempts} + 1`,
-    // Stamp the first failure once so the transient gate can measure how long
-    // the failure has persisted (references the pre-update value).
     embedFirstFailedAt: sql`COALESCE(${cols.firstFailedAt}, now())`,
     lastEmbedError: redactSecrets(toMessage(err)).slice(0, MAX_EMBED_ERROR_CHARS),
     embedFailedAt: permanent
@@ -380,14 +247,9 @@ export function buildEmbedFailureSet(cols: EmbedFailureColumns, err: unknown) {
 }
 
 /**
- * The `.set(...)` fields that clear a poison-pill failure streak, so the
- * wall-clock grace is measured PER failure-streak, not for the row's lifetime.
- * Merge into the successful-(re-)embed write (`{ embedding, ...EMBED_SUCCESS_RESET }`).
- *
- * Also the correct way to resurrect a dead-lettered row: nulling `embedFailedAt`
- * alone leaves a days-old `embedFirstFailedAt`, so the CASE above re-dead-letters
- * the row on its very first transient blip (`COALESCE(old, now()) <= now()-24h`
- * is already true). Clear both markers — this const — to genuinely revive it.
+ * `.set(...)` fields that end a failure streak. Spread them into the successful embed write.
+ * To revive a dead-lettered row, clear all of them: with only `embedFailedAt` cleared,
+ * the old `embedFirstFailedAt` dead-letters the row again on its next failure.
  */
 export const EMBED_SUCCESS_RESET = {
   embedAttempts: 0,
@@ -403,77 +265,16 @@ export const EMBED_SUCCESS_RESET = {
 // Query-runner plumbing
 // ---------------------------------------------------------------------------
 
-/**
- * A handle that can run a query: either the root client or an open transaction.
- *
- * Persistence modules take this rather than `DbRoot` so one operation composes
- * inside a caller's larger transaction instead of opening a second, independent
- * one — see `runAtomic` below for what "composes" actually means here. The union
- * was previously re-declared per module under five different local names
- * (`Db`, `Runner`, `Executor`, …); this is the canonical spelling. The import is
- * type-only, so `helpers.ts` gains no runtime dependency on `./index` and the
- * schema modules that import this file keep their evaluation unit unchanged.
- */
+/** The root client or an open transaction. Take this so a write can join the caller's transaction. */
 export type DbRunner = DbRoot | DbTransaction;
 
 /**
- * Run `body` atomically: a fresh transaction when `runner` is the root client, a
- * `SAVEPOINT` inside the caller's when it is already a transaction handle. Both
- * cases are one call, because drizzle spells them the same way — `DbRoot` and
- * `DbTransaction` both carry `transaction`, and `NodePgTransaction` implements
- * the nested call by issuing `SAVEPOINT`.
- *
- * THE CONTRACT WHEN NESTED, decided rather than inherited, and true only under
- * the precondition below. The outermost transaction stays the single commit unit
- * (`txid_current()` is constant through any depth of nesting), and a failing
- * `body` rolls back to its savepoint and leaves the caller's transaction USABLE.
- * drizzle implements that rollback as `ROLLBACK TO SAVEPOINT` and never issues a
- * matching `RELEASE`, so a sequence of failing nested bodies accumulates
- * savepoints until the outer commit — a resource cost, not a correctness change,
- * and only on the failure path.
- * This is NOT transaction reuse. Reuse would leave the writes of a body that
- * throws in JavaScript LIVE in the caller's transaction — with no savepoint there
- * is nothing to roll back to, so its rows survive and commit with the outer
- * transaction — and a body that fails with a SQL error would abort the caller's
- * transaction (`25P02`), making every later statement on that handle, a
- * compensating write included, fail too. The rejection still propagates out of
- * `runAtomic` unchanged, so a caller that wants the abort gets it by not
- * catching; savepoint semantics only add the OPTION to recover.
- *
- * PRECONDITION: one runner is a SEQUENTIAL handle. Do not overlap a `runAtomic`
- * call with any other work on the same `runner` — not with a second `runAtomic`,
- * and not with a direct write of your own: await one before you start the next,
- * and never put two of them in one `Promise.all`. Overlap it and the contract
- * above is false in BOTH directions, silently and with no error — drizzle names
- * every savepoint after depth alone (`sp${nestedIndex + 1}`), and Postgres
- * resolves a duplicate name to the most recent one still alive, so one body's
- * `ROLLBACK TO SAVEPOINT` discards a concurrent sibling's writes — and after
- * that sibling releases its savepoint, a later `ROLLBACK TO SAVEPOINT` of the
- * same name discards even the released work, because the name resolves to the
- * first savepoint again. The caller's own writes on `runner` can vanish the same
- * way, silently: the only error is the one the failing `body` itself rejects
- * with. Fan out over separate root-client transactions instead of over one open
- * one.
- *
- * A runtime guard refuses the concurrent-`runAtomic` case: a second `runAtomic`
- * on a handle whose body is still in flight rejects before any SQL runs (the
- * function is `async`, so the guard's throw is a rejection, not a synchronous
- * throw — consistent with the `Promise<T>` it returns), so that one failure is
- * loud instead of silent. The guard keys a module-level
- * `WeakSet` on the transaction handle and only when `is(runner, PgTransaction)`
- * — the root client is deliberately not guarded, because each root-client call
- * opens a fresh pool session and concurrent ones are safe. An overlapping direct
- * write of the caller's own is still refused by nothing and can still vanish;
- * refusing it would require intercepting the caller's statements, which the
- * helper cannot do.
- *
- * The union stays deliberately undiscriminated at the TYPE level: both members
- * carry `transaction` (drizzle's `PgTransaction` extends `PgDatabase` and
- * re-declares it, `pg-core/session.d.ts`), so an `in` test is always true and
- * narrows nothing; separating them would buy the more dangerous semantics. The
- * runtime guard above reads the actual class with `is` instead, which the type
- * system does not surface. `packages/db/test/run-atomic-nesting.test.ts` pins
- * all of this against a live Postgres.
+ * Transaction handles with a nested `runAtomic` body still running.
+ * A nested body is a savepoint, and drizzle names savepoints by depth only.
+ * Two concurrent bodies on one handle share that name, so one rollback can
+ * silently undo the other's writes. This guard rejects the second body. It
+ * cannot see other writes on the same handle, so do not overlap those either.
+ * The root client is not guarded: each call opens its own transaction.
  */
 const bodiesInFlight = new WeakSet<object>();
 
@@ -505,13 +306,7 @@ export async function runAtomic<T>(
   });
 }
 
-/**
- * Assert an `INSERT ... RETURNING` produced its row. `noUncheckedIndexedAccess`
- * types `const [row] = ...returning()` as `T | undefined`, but an insert without
- * a swallowed conflict always yields exactly one row; a missing one is a bug, not
- * a normal outcome, so this throws rather than propagating `undefined`. `op`
- * names the operation so the thrown message identifies the call site.
- */
+/** Unwrap the row from `INSERT ... RETURNING`. A missing row is a bug, so throw. */
 export function requireRow<T>(row: T | undefined, op: string): T {
   if (row === undefined) throw new Error(`${op}: expected a returned row, got none`);
 

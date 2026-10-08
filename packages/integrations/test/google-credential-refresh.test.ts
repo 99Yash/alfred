@@ -30,7 +30,7 @@ function ensureOAuthTestEnv(): void {
   process.env.GITHUB_APP_PRIVATE_KEY ??= "test";
   process.env.GITHUB_WEBHOOK_SECRET ??= "test";
   process.env.GITHUB_APP_REDIRECT_URI ??= "http://localhost:3001/github/callback";
-  // #453: the vault has no derived default, so the suite supplies a key.
+  // The vault has no default key.
   process.env.OAUTH_CREDENTIAL_KEK ??= Buffer.from(
     "0123456789abcdef0123456789abcdef",
     "utf8",

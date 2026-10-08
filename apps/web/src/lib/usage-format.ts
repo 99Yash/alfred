@@ -1,10 +1,6 @@
-// Shared usage-economics formatters — cost (USD) and token counts. Used by
-// every surface that shows what some work cost: the chat per-turn usage line
-// and the settings → Usage dashboard. Presentation-only and side-effect-free;
-// keep the two surfaces on one implementation so a "3.4M-token" run never
-// renders as "3400.0k" in one place and "3.4M" in another.
+// Cost and token formatters shared by the chat usage line and the Usage page, so they agree.
 
-/** Cost in USD, precision scaling with magnitude so sub-cent runs stay legible. */
+/** USD, with more decimals for small amounts. */
 export function formatCost(usd: number): string {
   if (usd >= 1) return `$${usd.toFixed(2)}`;
 
@@ -15,12 +11,7 @@ export function formatCost(usd: number): string {
   return "$0.00";
 }
 
-/**
- * The `Intl.NumberFormat` fraction digits behind {@link formatCost}, for the
- * animated cost digits (`NumberFlow` takes a numeric value + format, not a
- * pre-rendered string). Same thresholds, so the flow lands on the exact
- * figures the tooltips quote.
- */
+/** `formatCost`'s thresholds as `Intl.NumberFormat` options, for `NumberFlow`. */
 export function costFractionDigits(usd: number) {
   if (usd >= 1) return { minimumFractionDigits: 2, maximumFractionDigits: 2 };
 

@@ -10,22 +10,9 @@ import { readUserContext } from "@alfred/assistant/knowledge";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed integration test for `readUserContext`'s bounded-slice behaviors:
- *   1. entities are ranked by the significance scalar (ADR-0057), NOT
- *      alphabetically, with unscored rows last — so the bounded slice keeps
- *      who-matters;
- *   2. a `subjectEmail` / `query` focus pulls a low-significance contact in
- *      even when it falls below the ranked cap, so a targeted lookup never
- *      silently misses its subject;
- *   3. confirmed facts rank by confidence before recency, and canonical
- *      identity facts are guaranteed into the slice so transactional per-email
- *      noise can never evict the user's authoritative identity (issue #329);
- *   4. `recent_memory` excludes operational `extraction_run` telemetry (#1052).
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable Postgres with the
- * migrated schema (the local dev DB). Skipped otherwise so the pure-function
- * suite still runs in environments without a database. It seeds throwaway
- * `test-uctx-*` users and deletes them (cascade clears their entities) on teardown.
+ * `readUserContext` bounded slice. Needs a migrated `DATABASE_URL`.
+ * Entities rank by significance (ADR-0057), unscored last. A focused lookup pulls in
+ * its subject below the cap. Identity facts always fit, so per-email noise cannot evict them.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -101,7 +88,7 @@ async function seedFacts(userId: string, specs: SeedFact[]): Promise<void> {
     );
 }
 
-/** Insert memory chunks directly — `recent_memory` orders by `createdAt`, no embedding needed. */
+/** Insert memory chunks directly; `recent_memory` orders by `createdAt`, so no embedding is needed. */
 async function seedMemoryChunks(
   userId: string,
   specs: Array<{ kind: string; content: string }>,
@@ -136,8 +123,7 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
 
   test("ranks entities by significance (unscored last), not alphabetically", async () => {
     const userId = await seedUser();
-    // Names are in the REVERSE of significance order, so an alphabetical sort
-    // would invert the expected result.
+    // Names run opposite to significance, so an alphabetical sort fails.
     await seedEntities(userId, [
       { name: "Aaron Aardvark", score: 0.1 },
       { name: "Mallory Mid", score: 0.5 },
@@ -153,16 +139,13 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
       ["Zoe Zenith", "Mallory Mid", "Aaron Aardvark", "Uma Unscored"],
       "entities should be significance-desc with the unscored row last",
     );
-    // Guard against a regression to the old alphabetical ordering.
     assert.notEqual(order[0], "Aaron Aardvark", "must not be ordered alphabetically");
   });
 
   test("guarantees a focused contact (subjectEmail / query) past the ranked cap", async () => {
     const userId = await seedUser();
 
-    // Fill the entire ranked cap (ENTITY_LIMIT = 50) with high-significance
-    // contacts, then add ONE low-significance subject that ranks 51st and would
-    // be truncated out of the ranked slice.
+    // Fill the cap (ENTITY_LIMIT = 50) with high-significance contacts; the subject ranks 51st.
     const fillers: SeedEntity[] = Array.from({ length: 50 }, (_, i) => ({
       name: `Filler ${String(i).padStart(2, "0")}`,
       score: 0.9,
@@ -193,11 +176,8 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
   test("guarantees canonical identity facts survive a flood of recent noise (issue #329)", async () => {
     const userId = await seedUser();
 
-    // Fill the ENTIRE fact cap (FACT_LIMIT = 30) with the most-recent, top-
-    // confidence transactional noise, so identity is BOTH less recent AND no
-    // more confident than every row competing for the slice — the worst case
-    // that recency-only ordering (the bug) and confidence-only ordering both
-    // fail to rescue. Only the identity whitelist can.
+    // Fill the cap (FACT_LIMIT = 30) with newer, equally confident noise.
+    // Neither recency nor confidence ordering can save identity; only the whitelist can.
     const noise: SeedFact[] = Array.from({ length: 30 }, (_, i) => ({
       key: `txn_field_${String(i).padStart(2, "0")}`,
       value: `noise-${i}`,
@@ -207,9 +187,7 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
 
     await seedFacts(userId, [
       ...noise,
-      // Authoritative identity, older and same confidence → ranks ~#31 by
-      // recency and would be evicted from the bounded slice without the guard.
-      // Canonical storage key is `employer` (#330); `current_company` is a read DTO label.
+      // Ranks about 31st by recency. The storage key is `employer`; `current_company` is a read label.
       { key: "employer", value: "Oliv AI", confidence: 1.0, ageMinutes: 10_000 },
     ]);
 
@@ -249,8 +227,7 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     const ctx = await readUserContext(userId, { include: ["profile", "integrations"] });
 
     assert.equal(ctx.confirmedFacts.length, 0, "facts section stays omitted when not requested");
-    // Canonical storage keys (`employer`/`work_summary`) map to the stable DTO
-    // field names (`currentCompany`/`currentWork`) — #330 read-side convergence.
+    // Storage keys `employer`/`work_summary` map to DTO fields `currentCompany`/`currentWork`.
     assert.equal(ctx.profile?.currentCompany, "Oliv AI");
     assert.equal(ctx.profile?.currentWork, "building Alfred");
     assert.equal(ctx.profile?.bioSummary, "Yash works on Alfred at Oliv AI");
@@ -330,7 +307,7 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
   test("orders confirmed facts by confidence before recency", async () => {
     const userId = await seedUser();
     await seedFacts(userId, [
-      // Recent but low confidence — must NOT outrank the older, high-confidence fact.
+      // Recent but low confidence: must not outrank the older, confident fact.
       { key: "rumor", value: "maybe", confidence: 0.86, ageMinutes: 1 },
       { key: "settled", value: "yes", confidence: 0.99, ageMinutes: 500 },
     ]);

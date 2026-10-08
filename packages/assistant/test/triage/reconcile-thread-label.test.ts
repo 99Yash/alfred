@@ -6,12 +6,8 @@ import { reconcileThreadLabel, type ReconcileThreadLabelDeps } from "@alfred/ass
 import type { TriageRow, TriageDocumentContext } from "@alfred/assistant/triage/store";
 
 // ---------------------------------------------------------------------------
-// Fixtures — #277: the relabel path wrote the triage label to the message id
-// stored on `documents.source_id`, which Gmail reassigns/collapses when a sent
-// copy merges into a thread. A dead id 404s the modify; pre-fix the label
-// silently never landed and `applied_label_id` stayed NULL. These tests drive
-// `reconcileThreadLabel` through its injected collaborators so no live Gmail
-// account or DB is needed.
+// Fixtures. Regression: #277. Gmail can retire the stored message id when a sent copy
+// merges into a thread, so a label write to that id 404s and never lands.
 // ---------------------------------------------------------------------------
 
 const USER = "user_1";
@@ -57,12 +53,7 @@ interface Recorder {
   setReconciledCalls: Array<{ documentId: string; appliedLabelId: string }>;
 }
 
-/**
- * Wire injectable deps over a per-message `applyTriageLabel` behaviour and a
- * `documentId -> sourceId` map for `loadTriageContext`. `liveDoc` is what the
- * re-resolution step (`findNewestLiveInbound`) returns; null means "no live
- * inbound message in the thread".
- */
+/** Fake deps. `liveDoc` is what `findNewestLiveInbound` returns; null means no live inbound. */
 interface MadeDeps {
   deps: Partial<ReconcileThreadLabelDeps>;
   rec: Recorder;
@@ -77,9 +68,7 @@ function makeDeps(opts: {
   const rec: Recorder = { applyCalls: [], setAppliedLabelCalls: [], setReconciledCalls: [] };
 
   const deps: Partial<ReconcileThreadLabelDeps> = {
-    // These tests exercise the label-write path, so force the #278 gate on —
-    // the real default is production-only and `NODE_ENV=test` would otherwise
-    // short-circuit every case to `writes-disabled`.
+    // Force the write gate on; under `NODE_ENV=test` it is off and every case ends `writes-disabled`.
     mailboxWritesEnabled: () => true,
     // The reconcile callback ignores the tx arg, so a dummy satisfies the type.
     withThreadLock: ((_u, _t, fn) =>
@@ -132,7 +121,7 @@ describe("reconcileThreadLabel — stale Gmail message id (#277)", () => {
     assert.equal(result.targetDocId, "doc_live");
     // It tried the dead id first, then the re-resolved live id.
     assert.deepEqual(rec.applyCalls, ["msg_dead", "msg_live"]);
-    // Persisted via the combined repoint write, NOT the label-only write.
+    // Persisted via the combined repoint write, not the label-only write.
     assert.deepEqual(rec.setReconciledCalls, [
       { documentId: "doc_live", appliedLabelId: "label_fyi" },
     ]);
@@ -155,7 +144,7 @@ describe("reconcileThreadLabel — stale Gmail message id (#277)", () => {
     assert.ok(!result.applied);
     assert.equal(result.reason, "target-unresolvable");
     assert.equal(result.category, "fyi");
-    // Nothing persisted — the worker logs the non-applied reason as the signal.
+    // Nothing persisted; the worker logs the reason.
     assert.deepEqual(rec.setReconciledCalls, []);
     assert.deepEqual(rec.setAppliedLabelCalls, []);
   });
@@ -227,7 +216,7 @@ describe("reconcileThreadLabel — non-prod mailbox-write gate (#278)", () => {
       liveDoc: "doc_live",
     });
 
-    // Flip the gate off — dev/test sharing the real mailbox with prod.
+    // Gate off: dev shares the real mailbox with prod.
     deps.mailboxWritesEnabled = () => false;
 
     const result = await reconcileThreadLabel({ userId: USER, sourceThreadId: THREAD }, deps);
@@ -237,7 +226,7 @@ describe("reconcileThreadLabel — non-prod mailbox-write gate (#278)", () => {
     assert.equal(result.reason, "writes-disabled");
     // The category is still reported (for logging) from the canonical row...
     assert.equal(result.category, "urgent");
-    // ...but NOTHING touched Gmail or persisted an applied label.
+    // ...but nothing touched Gmail or persisted an applied label.
     assert.deepEqual(rec.applyCalls, []);
     assert.deepEqual(rec.setAppliedLabelCalls, []);
     assert.deepEqual(rec.setReconciledCalls, []);

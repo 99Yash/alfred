@@ -10,12 +10,8 @@ import {
 import type { BriefingGather } from "@alfred/contracts";
 import { EMAIL_LINK_STYLE, EMAIL_P_STYLE, EMAIL_WRAPPER_STYLE } from "./email-styles";
 
-// The pure resolver (resolveBriefingReferences, referencesFromSections,
-// listBriefingReferenceOptions, parseBriefingReference, BriefingSegment, …)
-// relocated to @alfred/contracts so the web surface can resolve synced prose
-// against the synced gather without importing @alfred/api (ADR-0049). Re-export
-// it here so existing @alfred/api consumers keep their import path. The source
-// panels builder and the email HTML renderer stay server-side below.
+// The pure resolver lives in @alfred/contracts so the web can use it (ADR-0049).
+// Re-exported for old import paths. Source panels and email HTML stay here.
 export {
   type BriefingReference,
   type BriefingSegment,
@@ -208,10 +204,7 @@ function compactMetadata(values: Record<string, string | undefined>): Record<str
 }
 
 function integrationSubtitle(provider: string, providerKind: string, relatedRepo?: string): string {
-  // Deliberately a bare underscore-to-space swap, not humanizeSlug: a providerKind
-  // is a dotted `github.pull_request.closed`, and title-casing it would render the
-  // provider name a second time ("Github.Pull Request.Closed") beside the provider
-  // column that already reads "github".
+  // Not humanizeSlug: title-casing `github.pull_request.closed` repeats the provider name.
   const kind = providerKind.replaceAll("_", " ");
 
   return relatedRepo ? `${provider} · ${relatedRepo} · ${kind}` : `${provider} · ${kind}`;

@@ -1,10 +1,11 @@
 /**
- * Smoke test for the LLM-composed daily-briefing workflow.
+ * Smoke test for the daily-briefing workflow: one `dump_briefing` call, a
+ * `briefings` row (`composed` with --no-send, else `sent`), and an `email_sends` row.
  *
  *   # Morning slot only (default):
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-daily-briefing.ts
  *
- *   # Specific slot + skip Resend send (compose only — for prompt iteration):
+ *   # Specific slot, compose only (no Resend send):
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-daily-briefing.ts \
  *       --slot=evening --no-send
  *
@@ -12,26 +13,9 @@
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-daily-briefing.ts \
  *       --email=iamdevyash@gmail.com
  *
- * What this verifies end-to-end:
- *   1. The daily-briefing workflow runs gather → compose → send to
- *      completion.
- *   2. The agent calls dump_briefing exactly once and produces a non-empty
- *      subject (→ headline) + breaking_summary prose.
- *   3. A canonical `briefings` row lands — status='composed' under
- *      --no-send, status='sent' otherwise — with a watermark_at anchored
- *      on the frozen "until" instant.
- *   4. (When --no-send is omitted) An `email_sends` row lands at status='sent'.
- *
- * What this does NOT verify:
- *   - Quality of the composed briefing — qualitative, requires reading
- *     the rendered HTML in a real email client (or against the Dimension
- *     sample HTML files in .tmp-screens/).
- *   - That subsequent runs correctly consume the watermark — exercise by
- *     re-running the script; the second run should see fewer emails.
- *
  * Pre-reqs:
- *   - Server worker running (`pnpm dev`) so the agent run picks up.
- *   - `OPENAI_API_KEY` set; GPT-5.6 Luna is the boss model.
+ *   - Server worker running (`pnpm dev`).
+ *   - `OPENAI_API_KEY` set.
  *   - User row with a deliverable email (only when sending).
  */
 import { randomUUID } from "node:crypto";
@@ -179,7 +163,7 @@ async function main() {
     throw new Error(`run status=${run.status}`);
   }
 
-  // SAFETY: briefing workflow's own committed output shape.
+  // SAFETY: the briefing workflow's own output shape.
   const output = run.output as {
     briefingId?: string;
     emailSendId?: string | null;
@@ -193,8 +177,7 @@ async function main() {
       `status=${output.status ?? "(n/a)"}`,
   );
 
-  // forced runs never suppress, so the terminal row is 'composed' under
-  // --no-send (send short-circuits) and 'sent' otherwise.
+  // A forced run never suppresses.
   const expectedRowStatus = cli.noSend ? "composed" : "sent";
   const row = await fetchBriefing(output.briefingId);
   assert(row, `briefings row not found: ${output.briefingId}`);
@@ -205,9 +188,7 @@ async function main() {
   assert(row.fullBriefing?.headline, "briefings.full_briefing.headline is empty");
   assert(row.breakingSummary, "briefings.breaking_summary is empty");
 
-  // Only terminal (sent/suppressed) rows consume the watermark; a --no-send
-  // 'composed' row intentionally leaves it null so the next real run replays
-  // the same delta.
+  // A --no-send 'composed' row leaves the watermark null, so the next real run replays the delta.
   if (!cli.noSend) assert(row.watermarkAt, "briefings.watermark_at is null");
 
   console.log("\n========================================");

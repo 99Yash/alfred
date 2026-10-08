@@ -219,8 +219,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       })
       .where(eq(mcpInvocation.id, seeded.invocationId));
 
-    // Crash shape: the dispatcher committed `executed/unknown`, the broker never
-    // recorded its settlement on the invocation.
+    // Crash shape: the dispatcher committed `executed/unknown`, but the broker never recorded its settlement.
     const expectedIds = [seeded.invocationId];
 
     for (let index = 1; index < MCP_SETTLEMENT_REPAIR_BATCH_SIZE + 1; index += 1) {
@@ -299,9 +298,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
 
   test("paging is exact when the durable key carries microseconds", async () => {
     const seeded = await seedAmbiguousOperation();
-    // `new Date()` can only produce milliseconds. A raw PostgreSQL timestamp has
-    // microseconds, and every row here shares one such key so the tiebreaker
-    // and the truncation are both exercised at the page boundary.
+    // `new Date()` has only milliseconds. Rows share one microsecond key, so the page boundary tests the tiebreaker.
     const microsecondKey = sql`'2026-08-30T12:00:00.123456Z'::timestamptz`;
     await db()
       .update(mcpInvocation)

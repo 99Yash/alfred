@@ -5,17 +5,9 @@ import { and, eq, notInArray, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
 /**
- * Append a `skill_revisions` row, advance `skills.current_revision_id`,
- * and (optionally) refresh the skill's display name + status — all in
- * one transaction so a partial commit can never leave a skill pointing
- * at a revision that doesn't exist.
- *
- * `kind` discriminates the producer:
- *   - `distilled`  — sync output of `learn-skill`. The first revision
- *                    flips a `draft` skill to `active`.
- *   - `documented` — async output of `skill-documentation`. Updates
- *                    `current_revision_id` but leaves `status` alone.
- *   - `manual`     — direct edit via the markdown editor. No agent run.
+ * Append a `skill_revisions` row and move `skills.current_revision_id`, in one transaction.
+ * `distilled` (from `learn-skill`) flips a `draft` skill to `active` on the first revision.
+ * `documented` (from `skill-documentation`) leaves `status` alone. `manual` is an editor save.
  */
 export interface CommitRevisionArgs {
   userId: string;
@@ -23,9 +15,9 @@ export interface CommitRevisionArgs {
   kind: "distilled" | "documented" | "manual";
   body: string;
   metadata?: JsonObject;
-  /** Pointer to `agent_runs.id`. Required for distilled/documented; null for manual. */
+  /** Required for distilled and documented; null for manual. */
   createdByRunId?: string | null;
-  /** When set, also overwrites `skills.name`. Distill uses this for the auto-title. */
+  /** Also overwrites `skills.name`. */
   newName?: string;
 }
 
@@ -48,15 +40,10 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
 
     const createdByRunId = args.createdByRunId ?? null;
 
-    // Idempotent on (skillId, createdByRunId) via the partial unique
-    // `skill_revisions_run_idx`. A step retry that re-enters commit after the
-    // row already committed hits the conflict and inserts nothing, so we fall
-    // back to the existing row and skip the pointer/rowVersion update below —
-    // re-running that would double-bump `row_version` and defeat optimistic-
-    // concurrency consumers. `manual` edits carry a null run id (outside the
-    // partial index), so they never conflict and always append. The arbiter
-    // `where` must restate the index predicate or Postgres can't match the
-    // partial index for the ON CONFLICT clause.
+    // Idempotent on (skillId, createdByRunId) via `skill_revisions_run_idx`. A retry finds the
+    // row and skips the pointer update, which would double-bump `row_version`.
+    // Manual edits have a null run id and always append.
+    // The `where` must restate the partial index predicate, or ON CONFLICT cannot use it.
     const [revision] = await tx
       .insert(skillRevisions)
       .values({
@@ -74,19 +61,14 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
       .returning({ id: skillRevisions.id });
 
     if (!revision) {
-      // Conflict (createdByRunId is non-null): this run already committed its
-      // revision on a prior attempt. Return the existing pointer untouched —
-      // the first attempt already advanced `current_revision_id` and bumped
-      // `row_version`, so we must not touch the skill row again.
+      // This run already committed on a prior attempt; do not touch the skill row again.
       const [existing] = await tx
         .select({ id: skillRevisions.id })
         .from(skillRevisions)
         .where(
           and(
             eq(skillRevisions.skillId, args.skillId),
-            // SAFETY: this conflict branch is reachable only for a non-manual
-            // revision (manual carries null and never conflicts), so the run id
-            // is a string here.
+            // SAFETY: only a non-manual revision conflicts, and those carry a run id.
             eq(skillRevisions.createdByRunId, createdByRunId as string),
           ),
         )
@@ -101,8 +83,7 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
       return { revisionId: existing.id, skillStatus: skill.status, created: false };
     }
 
-    // First revision flips draft → active. Subsequent revisions only
-    // touch the pointer; documentation / manual edits don't reset state.
+    // Only the first distilled revision changes status.
     const flippingFromDraft = args.kind === "distilled" && skill.status === "draft";
 
     const updatePatch = {
@@ -121,19 +102,13 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
     };
   });
 
-  // The revision and skill pointer are now visible to Replicache pulls. Do not
-  // poke on an idempotent retry that found the run's existing revision.
+  // No poke on a retry that found the existing revision.
   if (result.created) emitReplicachePokes([args.userId], args.skillId);
 
   return { revisionId: result.revisionId, skillStatus: result.skillStatus };
 }
 
-/**
- * Insert / update the per-Learn-click run record. `kind` matches the
- * workflow slug intent (`learn` for `learn-skill`, `document` for
- * `skill-documentation`). Returns the row id; status updates are
- * caller-driven via {@link finalizeSkillRun}.
- */
+/** `kind` is `learn` for `learn-skill` and `document` for `skill-documentation`. */
 export interface RecordSkillRunArgs {
   userId: string;
   skillId: string;
@@ -142,9 +117,7 @@ export interface RecordSkillRunArgs {
 }
 
 export async function recordSkillRun(args: RecordSkillRunArgs): Promise<{ id: string }> {
-  // Idempotent on (agent_run_id) via the unique index. Atomic upsert
-  // matches the pattern used in notify() — a concurrent caller can't
-  // slip between a select-then-insert and trip the unique index.
+  // Atomic upsert on agent_run_id, so concurrent callers cannot both insert.
   const inserted = await db()
     .insert(skillRuns)
     .values({
@@ -176,7 +149,7 @@ export async function recordSkillRun(args: RecordSkillRunArgs): Promise<{ id: st
   return existing;
 }
 
-/** Mark a `skill_runs` row terminal. Idempotent: a second call is a no-op. */
+/** Idempotent: a second call is a no-op. */
 export interface FinalizeSkillRunArgs {
   agentRunId: string;
   status: "completed" | "failed" | "cancelled";

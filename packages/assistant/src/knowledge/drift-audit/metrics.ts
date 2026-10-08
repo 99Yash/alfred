@@ -9,36 +9,27 @@ import { resolveTimezone } from "@alfred/assistant/settings";
 import { DEFAULT_USER_TIMEZONE, inZone } from "@alfred/assistant/time";
 
 /**
- * Drift / invariant health metrics (PR-B of #219).
- *
- * Each metric is a pure query over the *source-of-truth* tables that the
- * #210/#211/#212 incidents were eventually caught in by a manual prod SQL
- * audit. `runDriftHealthCheck` evaluates them all, writes one `drift_metrics`
- * snapshot row per metric (the trend substrate the user-model epic #218 tunes
- * against), and fires a single `health_alert` email per *breached* metric per
- * day. Normal runs are silent — "pushed when it matters," not a routine digest
- * that re-creates the inbox noise these metrics measure.
- *
- * Thresholds are module constants — single-user, so a config table buys
- * nothing. They are the obvious revisit-knob if the inbox shape shifts.
+ * Drift and invariant health metrics (#219). Each run writes a `drift_metrics`
+ * snapshot per metric and sends one `health_alert` email per breached metric
+ * per day. Healthy runs are silent.
  */
 
-/** `urgent`/`action_needed` are the two demanding lanes whose over-tag is #210. */
+/** The two demanding lanes whose over-tagging was #210. */
 const ATTENTION_CATEGORIES = [
   "urgent",
   "action_needed",
 ] as const satisfies readonly TriageCategory[];
 
-/** The ingestor drops self-mail (#211), so any self-doc means the drop regressed. */
+/** The ingestor drops self-mail (#211), so any self doc means a regression. */
 const SELF_INGESTION_THRESHOLD = 0;
 
-/** #210 cited 26% of the inbox in the demanding lanes; 20% is the line. */
+/** #210 found 26% of the inbox in the demanding lanes; 20% is the line. */
 const ATTENTION_SHARE_THRESHOLD = 0.2;
 
-/** Avoid paging on tiny samples like 1 urgent thread out of 1 classified thread. */
+/** Do not page on tiny samples like 1 urgent of 1. */
 const ATTENTION_SHARE_MIN_TOTAL = 10;
 
-/** Informational only — issue cited 41:1. A high bar so it speaks rarely. */
+/** Informational. The issue cited 41:1, so the bar is high. */
 const TODO_DISMISS_DONE_THRESHOLD = 20;
 
 export const DRIFT_METRICS = [
@@ -56,19 +47,16 @@ export interface MetricResult {
   windowLabel: string | null;
   threshold: number;
   breached: boolean;
-  /** Numerator/denominator/sample ids — persisted to the snapshot row. */
+  /** Persisted to the snapshot row. */
   detail: JsonObject;
-  /** One-line human summary, used in the breach email. */
+  /** One line, used in the breach email. */
   summary: string;
 }
 
 /**
- * Count of Alfred's own outbound mail that slipped back into `documents` in the
- * last 7d. The ingestor drops it at the boundary (#211), so this is normally 0;
- * any row means the drop regressed. Coarse `LIKE` in SQL then an exact parsed
- * match in JS (the same two-step the backfill uses) — the `LIKE` alone
- * over-matches mail that merely *mentions* the address in display text.
- * Returns null when Alfred has no parseable send identity (metric uncomputable).
+ * Alfred's own outbound mail that came back into `documents` in the last 7d.
+ * SQL `LIKE` first, then an exact parse: `LIKE` also matches display text.
+ * Null when Alfred has no parseable send identity.
  */
 export async function selfIngestionCount(userId: string): Promise<MetricResult | null> {
   const self = selfSenderEmail();
@@ -104,11 +92,7 @@ export async function selfIngestionCount(userId: string): Promise<MetricResult |
   };
 }
 
-/**
- * Share of threads classified in the last 7d that landed in the demanding
- * lanes (`urgent`/`action_needed`). #210 measured this at 26% and called it
- * structural over-tag. Denominator 0 → value 0, never a breach.
- */
+/** Share of threads classified in the last 7d that landed in a demanding lane. Zero denominator gives 0. */
 export async function attentionShare7d(userId: string): Promise<MetricResult> {
   const rows = await db()
     .select({
@@ -145,12 +129,8 @@ export async function attentionShare7d(userId: string): Promise<MetricResult> {
 }
 
 /**
- * Ratio of dismissed:done Alfred-authored todos over the last 7d — how often
- * Alfred's suggestions get swatted away vs. acted on. Informational (high threshold).
- * `done` is timestamped by `completed_at`; `dismissed` has no dedicated
- * timestamp, so it's windowed on `updated_at` (the status flip bumps it).
- * `done === 0` → value is the raw dismissed count so the ratio still reads
- * sensibly instead of dividing by zero.
+ * Dismissed:done ratio of Alfred's todos over 7d. `dismissed` has no timestamp,
+ * so it uses `updated_at`. With no `done`, the value is the dismissed count.
  */
 export async function todoDismissDoneRatio(userId: string): Promise<MetricResult> {
   const rows = await db()
@@ -178,11 +158,9 @@ export async function todoDismissDoneRatio(userId: string): Promise<MetricResult
 
 export interface DriftHealthCheckResult {
   userId: string;
-  /** Every metric that produced a value this run. */
   metrics: MetricResult[];
-  /** Subset that breached its threshold. */
   breached: MetricResult[];
-  /** Alerts actually sent (deduped breaches that hadn't already pushed today). */
+  /** Alerts sent; a breach already alerted today is skipped. */
   alertsSent: number;
 }
 
@@ -191,23 +169,20 @@ type MetricEvaluator = (userId: string) => Promise<MetricResult | null>;
 type NotifyFn = (args: SendArgs) => Promise<SendResult>;
 
 export interface RunDriftHealthCheckOptions {
-  /** Test seam; production uses wall-clock now. */
+  /** Test seam. */
   now?: Date;
-  /** Test seam; production sends through Resend-backed notify(). */
+  /** Test seam. */
   notifyFn?: NotifyFn;
-  /** Test seam; production evaluates the registered drift metrics. */
+  /** Test seam. */
   metricEvaluators?: readonly MetricEvaluator[];
-  /** Test seam; production resolves the user's configured timezone. */
+  /** Test seam; production resolves the user's timezone. */
   timezone?: IanaTimezone;
 }
 
 /**
- * Evaluate every drift metric for one user, persist a snapshot row each, and
- * push a `health_alert` email per breached metric. Snapshot writes are
- * best-effort per metric (a single bad query never sinks the whole sweep);
- * the alert is idempotency-keyed
- * `health_alert:{userId}:{metric}:{YYYY-MM-DD-in-user-tz}` so a worker retry
- * — or a second check the same local day — never double-mails.
+ * Evaluate each metric, store the snapshots, and alert per breach. A failed
+ * metric does not stop the others. The alert key holds the user's local day,
+ * so a retry the same day does not mail twice.
  */
 export async function runDriftHealthCheck(
   userId: string,
@@ -236,9 +211,7 @@ export async function runDriftHealthCheck(
     }
   }
 
-  // Persist all snapshots in one insert (the trend substrate). Best-effort, but
-  // idempotent by `(user, metric, captureKey)` so alert-send retries do not
-  // inflate the daily trend rows.
+  // One insert, idempotent on `(user, metric, captureKey)`, so retries do not add trend rows.
   if (results.length > 0) {
     try {
       await db()
@@ -323,7 +296,7 @@ export async function runDriftHealthCheck(
   return { userId, metrics: results, breached, alertsSent };
 }
 
-/** Minimal operator-facing breach email. One metric per send. */
+/** One metric per email. */
 interface HealthAlertEmail {
   subject: string;
   html: string;

@@ -11,42 +11,30 @@ import {
 import * as React from "react";
 
 /**
- * The shared email shell. Adapted from Dimension's briefing templates: a
- * single white card holding a logo + arbitrary body content, with a footer
- * carrying the generation timestamp and an optional dark pill CTA button.
- *
- * Every Alfred email (briefing, approval, skill-documented) renders through
- * this shell so brand, spacing, logo placement, and footer stay identical.
- * Bodies differ — markdown prose, a fields table, a preview block — but the
- * frame does not.
- *
- * Inline styles only, no external CSS: email clients (Gmail especially) strip
- * <style> blocks. The one <style> we ship is a mobile media query for the
- * footer — progressive enhancement, safe to drop.
+ * The frame every Alfred email uses: logo, white card, footer with time and an optional CTA.
+ * Use inline styles: Gmail strips `<style>`. The one `<style>` is a mobile
+ * footer tweak that clients may drop.
  */
 
 export interface EmailShellProps {
-  /** Short line shown in the inbox preview / snippet. */
+  /** Inbox preview line. */
   previewText?: string | undefined;
-  /** Absolute URL to the logo image. Hidden when omitted. */
+  /** Absolute logo URL. No logo when omitted. */
   logoUrl?: string | undefined;
-  /** ISO timestamp shown in the footer ("Generated on …"). Defaults to now. */
+  /** ISO time for the footer. Defaults to now. */
   createdAt?: string | undefined;
-  /** IANA timezone (e.g. "America/New_York") for the footer timestamp. Falls back to UTC. */
+  /** IANA zone for the footer time. Defaults to UTC. */
   timezone?: string | undefined;
-  /** When set, renders a pill CTA button in the footer. */
+  /** Adds a footer CTA button. */
   ctaUrl?: string | undefined;
-  /** Label for the CTA button. Defaults to "Open Alfred". */
+  /** Defaults to "Open Alfred". */
   ctaLabel?: string | undefined;
-  /** Card body. */
   children?: React.ReactNode;
 }
 
 /**
- * Shared body styles so non-markdown bodies match the briefing's prose.
- * All values are strings (incl. `fontWeight: "600"`): React inline styles
- * accept strings, and `<Markdown markdownCustomStyles>` (md-to-react-email)
- * runs `value.includes(...)` on every value — a numeric weight crashes it.
+ * Body styles shared with the briefing prose. Keep every value a string:
+ * `<Markdown markdownCustomStyles>` calls `value.includes(...)`, so a number crashes it.
  */
 export const bodyStyles = {
   heading: {
@@ -77,8 +65,6 @@ const formatDate = (iso: string, timeZone?: string): string => {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    // Render in the user's timezone with an explicit label so the footer
-    // isn't silently in the (usually UTC) server timezone. Falls back to UTC.
     timeZone: timeZone ?? "UTC",
     timeZoneName: "short",
   });

@@ -34,34 +34,20 @@ import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
 /**
- * Multi-source user-model substrate (ADR-0067, #218).
+ * User-model substrate (ADR-0067). The append-only `observations` log is the
+ * system of record. Everything else is a replayable projection over it.
  *
- * An append-only `observations` log is the system of record; entities,
- * cross-source identities, relations, the social graph, significance, and facts
- * are deterministic, replayable PROJECTIONS over it. Two contracts (D2/D13/D16):
+ * Stable layer (`entity_nodes`, `entity_identities`): content-addressed ids that
+ * other tables reference, never versioned. A merge leaves a forwarding pointer.
+ * Versioned layer (`entity_profiles`, `entity_edges`, `entity_co_occurrence`):
+ * rebuilt per `projection_version`, then made live by moving the active pointer.
  *
- *   STABLE  layer — `entity_nodes`, `entity_identities`. These carry the
- *           foreign-key identity the rest of Alfred references; their ids are
- *           content-addressed (see `computeStableEntityId`) and NEVER
- *           projection-versioned. Merges leave a forwarding pointer
- *           (`supersedes_entity_id`); reads resolve through it.
- *   VERSIONED layer — `entity_profiles`, `entity_edges`, `entity_co_occurrence`.
- *           Recomputable read models keyed by `projection_version`. Change a
- *           weight / cutoff / classifier and replay into a new version, then
- *           flip the active pointer — without re-minting stable ids.
- *
- * These tables COEXIST with the legacy aggregate graph (`entities`,
- * `entity_relations` in `memory.ts`) through the shadow phase (D10); the legacy
- * tables are dropped only at cutover. Hence the distinct names.
- *
- * `source` / `kind` / `relation_type` columns are `text` (validated at the app
- * boundary against the `@alfred/contracts` registries), not pg enums — same
- * rationale as the rest of the schema. The new substrate-specific behavior
- * (reducers, the fold, active-version views) lands in P1+; P0 is shape only.
+ * The names differ from the legacy `entities` / `entity_relations` in `memory.ts`
+ * because both exist until cutover (D10).
  */
 
 // ---------------------------------------------------------------------------
-// observations — append-only system of record (D1, D4)
+// observations: append-only system of record (D1, D4)
 // ---------------------------------------------------------------------------
 
 export const observations = pgTable(
@@ -73,32 +59,16 @@ export const observations = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** Provider or `user`/`alfred_chat` — see OBSERVATION_SOURCES. */
     source: text("source").$type<ObservationSource>().notNull(),
-    /** Relationship-evidence kind — see OBSERVATION_KINDS (D15). */
     kind: text("kind").$type<ObservationKind>().notNull(),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
-    /** Stable event identity, e.g. `gmail:<message_id>`, `github:pr:<repo>:<number>` (D4). */
+    /** Stable event id, e.g. `gmail:<message_id>` (D4). */
     familyKey: text("family_key").notNull(),
-    /**
-     * Hash over relationship-significant fields only (participants, start, …).
-     * Dedup is the unique `(user_id, family_key, evidence_hash)` below — identical
-     * evidence collides (dedups), changed evidence is a new hash that appends +
-     * supersedes (D4). No separate `family_key:evidence_hash` string is stored;
-     * a denormalized concat would just be a second source of truth a reducer
-     * could compute wrong.
-     */
+    /** Hash of the relationship fields only. Changed evidence appends a superseding row (D4). */
     evidenceHash: text("evidence_hash").notNull(),
-    /**
-     * Who/what the observation is about — a cross-source identity OR the user
-     * themselves (`{kind:'user'}`, see `ObservationSubject`). `source='user'|
-     * 'alfred_chat'` observations and self-facts (timezone/location/standing
-     * instructions) bind to the user subject, which has no `IdentityRef`; column
-     * name kept (renaming jsonb is a migration, widening its `$type` is not).
-     */
+    /** An identity, or the user (`{kind:'user'}`) for self-facts. */
     subjectIdentity: jsonb("subject_identity").$type<ObservationSubject>().notNull(),
     objectIdentity: jsonb("object_identity").$type<IdentityRef | null>(),
-    /** Full participant set + recipientCount + List-Id — the fold derives pairwise edges. */
     participants: jsonb("participants")
       .$type<ObservationParticipants>()
       .notNull()
@@ -110,17 +80,8 @@ export const observations = pgTable(
     schemaVersion: integer("schema_version").notNull().default(1),
     reducerVersion: integer("reducer_version").notNull().default(1),
     /**
-     * Prior active family member this row supersedes (changed evidence, D4).
-     * Bound to the SAME (user_id, family_key) by the composite self-FK below — a
-     * single-column FK on `id` alone only proved the target existed, letting a
-     * row supersede another user's (or another family's) observation. `no action`
-     * (not `set null`) because the FK now spans the NOT NULL `user_id`/`family_key`
-     * columns, which can't be nulled; an append-only log never deletes a
-     * superseded member except via the user cascade (which drops the whole family
-     * together), so `no action` just hardens "don't strand a successor". The
-     * resolver (P1) still owns multi-hop cycle detection — the `<> id` check only
-     * kills the trivial 1-cycle, and the partial-unique index below makes the
-     * chain DB-provably fork-free (≤1 successor per predecessor per family).
+     * The family member this row replaces. The composite self-FK keeps it in the
+     * same user and family. The writer owns multi-hop cycle detection.
      */
     supersedesObservationId: text("supersedes_observation_id"),
     ...lifecycle_dates,
@@ -128,36 +89,17 @@ export const observations = pgTable(
   (t) => [
     uniqueIndex("observations_dedup_idx").on(t.userId, t.familyKey, t.evidenceHash),
     index("observations_source_time_idx").on(t.userId, t.source, t.occurredAt),
-    // No standalone (user_id, family_key) index — it is a left-prefix of both
-    // `observations_dedup_idx` and `observations_family_member_fk_idx`, which the
-    // planner already uses for (user_id, family_key) lookups. An extra btree on an
-    // append/replay-heavy log is pure write tax for no new access path.
+    // No (user_id, family_key) index: both unique indexes below start with it.
     index("observations_supersedes_idx").on(t.supersedesObservationId),
-    // FK target for the family-head + supersession composite FKs: lets a head /
-    // a successor bind (user, family_key, observation id) together so neither can
-    // point at an observation from a different user / family. Unique because `id`
-    // is the PK.
+    // Target for the composite FKs that keep a pointer in one user and family.
     uniqueIndex("observations_family_member_fk_idx").on(t.userId, t.familyKey, t.id),
-    // At most one row may supersede a given predecessor within a family — turns the
-    // supersession chain into a DB-enforced linear history. Two concurrent material
-    // updates that both read prior head A collide here (the second's insert is
-    // rejected) instead of both inserting and forking the chain; the P1 reducer
-    // retries against the new head. Partial so the many non-superseding roots don't
-    // collide on a shared NULL.
+    // One successor per predecessor, so concurrent writers collide and retry
+    // instead of forking the chain.
     uniqueIndex("observations_no_fork_idx")
       .on(t.userId, t.familyKey, t.supersedesObservationId)
       .where(sql`${t.supersedesObservationId} IS NOT NULL`),
-    // At most one ROOT per family — the mirror of `observations_no_fork_idx`.
-    // That index serializes successors (≤1 per predecessor) but is partial on
-    // `IS NOT NULL`, so it says nothing about the chain's HEAD: two rows with
-    // different `evidence_hash` and `supersedes_observation_id IS NULL` are two
-    // independent roots, neither colliding on the dedup index (distinct hashes)
-    // nor on no-fork (both NULL, excluded) — a family forked at the root. That
-    // is the exact race when two writers both see "no head yet" and each inserts
-    // a first member. Pin it: one unsuperseded root per (user, family_key), so a
-    // family is a single linear chain end-to-end, not just below the head. The
-    // second concurrent insert collides here and the P1 reducer retries against
-    // the now-existing head (the same CAS protocol no-fork documents).
+    // One root per family. The no-fork index skips NULL, so two first writers
+    // would otherwise both insert a root.
     uniqueIndex("observations_single_root_idx")
       .on(t.userId, t.familyKey)
       .where(sql`${t.supersedesObservationId} IS NULL`),
@@ -170,24 +112,11 @@ export const observations = pgTable(
       "observations_no_self_supersede",
       sql`${t.supersedesObservationId} IS NULL OR ${t.supersedesObservationId} <> ${t.id}`,
     ),
-    // Versions are 1-based (the column defaults are 1). A 0/negative version is a
-    // reducer bug, never a legal value — pin it so the "numeric invariants have DB
-    // checks" contract (D13) holds for the version columns too, not just weights.
     check("observations_schema_version_positive", sql`${t.schemaVersion} >= 1`),
     check("observations_reducer_version_positive", sql`${t.reducerVersion} >= 1`),
-    // `family_key` and `evidence_hash` are the two idempotency rails: dedup is
-    // `(user_id, family_key, evidence_hash)` and the family/supersession chain is
-    // keyed on `family_key`. An empty OR whitespace-padded string in either is
-    // silent corruption a shape-only `notNull()` can't catch — an empty
-    // `family_key` collapses every such observation into one bogus family, and a
-    // padded one (`" gmail:abc "`) forks a family or dedupes an identity off a
-    // typo since the keys are matched by exact bytes. Both can only come from an
-    // application bug (a real event always has a stable id + a hash), so pin them
-    // non-empty, bounded, and free of ANY edge whitespace at the DB. Use
-    // `[[:space:]]` instead of `btrim()` because Postgres `btrim(text)` only trims
-    // spaces by default, while the contract boundary rejects tabs/newlines too.
-    // The byte caps keep the composite btree keys below Postgres index-tuple
-    // limits; the P1 observation-insert parser will also enforce this above the DB.
+    // Dedup keys match by exact bytes, so an empty or padded key breaks dedup.
+    // `[[:space:]]` instead of `btrim()`, which trims only spaces.
+    // Byte caps keep the composite btree keys under the index tuple limit.
     check(
       "observations_family_key_nonempty",
       sql`length(${t.familyKey}) > 0 AND octet_length(${t.familyKey}) <= 512 AND ${t.familyKey} !~ '^[[:space:]]|[[:space:]]$'`,
@@ -200,22 +129,12 @@ export const observations = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// observation_family_heads — one active head per (user, family_key) (D4)
+// observation_family_heads: one live head per family (D4)
 // ---------------------------------------------------------------------------
 
 /**
- * The single active member of an observation family. The unique `(user_id,
- * family_key)` guarantees exactly one *head pointer* per family and lets the P1
- * reducer `upsert ... ON CONFLICT` it inside the append transaction.
- *
- * This table alone does NOT serialize the supersession chain — two concurrent
- * writers could still insert two rows both superseding prior head A and only
- * then race on the pointer. That fork is prevented one level down, by the
- * partial-unique `observations_no_fork_idx` (≤1 successor per predecessor): the
- * second insert is rejected, so the reducer must re-read the head and retry
- * (the documented CAS protocol, owned by P1; covered by the P1 concurrency
- * test). Observations stay insert-only — this is the only mutable "which one is
- * live" pointer.
+ * The one live observation per family. The writer upserts it in the append
+ * transaction. `observations_no_fork_idx` prevents the fork, not this table.
  */
 export const observationFamilyHeads = pgTable(
   "observation_family_heads",
@@ -227,17 +146,13 @@ export const observationFamilyHeads = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     familyKey: text("family_key").notNull(),
-    /** The currently-live observation for this family — bound to (user, family_key) by the composite FK below. */
     headObservationId: text("head_observation_id").notNull(),
     ...lifecycle_dates,
   },
   (t) => [
     uniqueIndex("observation_family_heads_unique_idx").on(t.userId, t.familyKey),
     index("observation_family_heads_obs_idx").on(t.headObservationId),
-    // The head's (user, family_key, observation id) must all belong to the SAME
-    // observations row — a plain FK on head_observation_id alone proved only that
-    // the observation exists, not that it belongs to this user's family. Cascade so
-    // deleting an observation can't strand a head pointing at it.
+    // Composite, so the head stays in this user's family.
     foreignKey({
       columns: [t.userId, t.familyKey, t.headObservationId],
       foreignColumns: [observations.userId, observations.familyKey, observations.id],
@@ -247,55 +162,31 @@ export const observationFamilyHeads = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// entity_nodes — STABLE node (D2). Content-addressed id, never version-partitioned.
+// entity_nodes: stable nodes (D2)
 // ---------------------------------------------------------------------------
 
 export const entityNodes = pgTable(
   "entity_nodes",
   {
-    /** Content-addressed from the seeding hard identity (`computeStableEntityId`). No random default. */
+    /** Minted by `computeStableEntityId`. No default. */
     id: text("id").primaryKey(),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** The anchor identity this id was seeded from. */
     canonicalIdentity: jsonb("canonical_identity").$type<IdentityRef>().notNull(),
-    /**
-     * Set on the loser of a merge → points at the surviving (best-anchor) node.
-     * Reads resolve through this (D16), so it is the permanent FK safety rail,
-     * not free metadata. Bound to the SAME user by the composite self-FK below —
-     * a single-column FK on `id` alone let a node forward to another user's node.
-     * `no action` (not `set null`) because the FK now spans the NOT NULL
-     * `user_id`; nodes are deleted only via the user cascade (which drops the
-     * whole graph together), so `no action` just hardens "don't strand a
-     * forwarder". The `<> id` check kills self-forwarding.
-     */
+    /** On a merge loser, points at the survivor. Reads resolve through it (D16). */
     supersedesEntityId: text("supersedes_entity_id"),
     /**
-     * Earliest OBSERVATION timestamp for this node — the merge-survivor tie-break
-     * after anchor rank (D2). Read at the fold, so it must be deterministic across
-     * replays: the write API (`makeEntityNodeInsert`) REQUIRES the caller to pass
-     * the observation's `occurredAt`, never a wall clock. NOT NULL with NO DEFAULT
-     * (on purpose): a `defaultNow()` would silently record build/replay wall-clock
-     * time for any writer that bypassed `makeEntityNodeInsert` and forgot the
-     * field — leaking non-deterministic time into merge ordering and breaking D13.
-     * Without a default that same bad write fails LOUD (NOT NULL violation) instead
-     * of corrupting the tie-break. Safe to drop now: the substrate has no rows yet,
-     * and the only legitimate writer (`makeEntityNodeInsert`) always supplies it.
+     * Earliest observation time, the merge tie-break (D2). No default: a
+     * wall-clock value would change on replay, so a missing value must fail.
      */
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
     ...lifecycle_dates,
   },
   (t) => [
-    // No standalone (user_id) index — it is a left-prefix of the unique
-    // `entity_nodes_user_fk_idx` (user_id, id), which serves "all nodes for a
-    // user" scans equally. A second btree would only tax writes.
+    // No (user_id) index: `entity_nodes_user_fk_idx` starts with it.
     index("entity_nodes_supersedes_idx").on(t.supersedesEntityId),
-    // FK target for the (user, entity id) composite FKs on every table that
-    // references a stable node (identities, profiles, edges, co-occurrence) and
-    // for this table's own forwarding self-FK: binds the referencing row's
-    // user_id to the node's own, so a row can't point at a node owned by a
-    // different user. Unique because `id` is the PK.
+    // Target for the (user, entity id) FKs, so no row points at another user's node.
     uniqueIndex("entity_nodes_user_fk_idx").on(t.userId, t.id),
     foreignKey({
       columns: [t.userId, t.supersedesEntityId],
@@ -306,19 +197,13 @@ export const entityNodes = pgTable(
       "entity_nodes_no_self_supersede",
       sql`${t.supersedesEntityId} IS NULL OR ${t.supersedesEntityId} <> ${t.id}`,
     ),
-    // `id` is content-addressed — minted ONLY by `computeStableEntityId`, which
-    // emits `ent_<26 base32 chars>` (HMAC-SHA256 truncated to 128 bits, RFC-4648
-    // lowercase base32: `[a-z2-7]`). It has no DB default and no random fallback,
-    // so a malformed id can only come from an application bug — and since this id
-    // is the FK contract every other substrate table binds to, a bad one is a
-    // permanent, silently-spreading corruption. Pin the shape at the DB so a P1+
-    // writer can never persist an id the projection layer would refuse to re-mint.
+    // Every substrate table binds to this id, so pin the minted shape.
     check("entity_nodes_id_shape", sql`${t.id} ~ '^ent_[a-z2-7]{26}$'`),
   ],
 );
 
 // ---------------------------------------------------------------------------
-// entity_identities — STABLE typed identity keys (D2). Replaces `aliases` jsonb.
+// entity_identities: stable typed identity keys (D2)
 // ---------------------------------------------------------------------------
 
 export const entityIdentities = pgTable(
@@ -330,44 +215,21 @@ export const entityIdentities = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** The stable node this identity belongs to — bound to the same user by the composite FK below. */
     entityId: text("entity_id").notNull(),
-    /**
-     * A kind some reducer registers in `OBSERVATION_REDUCERS[source].identityKinds`
-     * — never a forward kind. The `(kind, source)` pair is validated at the write
-     * boundary by `entityIdentitySourceKindSchema` (#1028), not by a CHECK.
-     */
+    /** The `(kind, source)` pair is checked by `entityIdentitySourceKindSchema`, not a CHECK. */
     kind: text("kind").$type<EntityIdentityKind>().notNull(),
-    /** Normalized identity value (lowercased email, canonical login, …). */
+    /** Canonical value, e.g. a lowercased email. */
     value: text("value").notNull(),
     confidence: real("confidence").notNull().default(1),
     source: text("source").$type<ObservationSource>().notNull(),
-    /**
-     * True for a hard-verified identity (Workspace directory, confirmed bridge).
-     * Gates the tier-2 directory anchor slot in `identityAnchorRank` (D2/D3): a
-     * `google_directory_id` anchors at `directoryVerified` only when verified,
-     * else it falls back to the provider-account tier. NOT a general tie-break.
-     */
+    /** Gates the directory anchor tier in `identityAnchorRank` (D2). Not a general tie-break. */
     verified: boolean("verified").notNull().default(false),
-    /** True when set by an explicit user pin / correction — anchor tier 1 (D2). */
+    /** Set by a user pin or correction. Anchor tier 1 (D2). */
     userPinned: boolean("user_pinned").notNull().default(false),
-    /**
-     * Observation/effective time for this identity. No wall-clock default: a
-     * replay or backfill must supply the semantic time, or fail loud instead of
-     * making merge history depend on when the projection happened to run.
-     */
+    /** No default: a replay must supply the observation time. */
     validFrom: timestamp("valid_from", { withTimezone: true }).notNull(),
     validUntil: timestamp("valid_until", { withTimezone: true }),
-    /**
-     * Prior identity row this one supersedes (re-anchoring on merge). Bound to
-     * the SAME user by the composite self-FK below — a single-column FK on `id`
-     * alone let an identity supersede another user's. `no action` (not `set
-     * null`) because the FK now spans the NOT NULL `user_id`; identities are
-     * deleted only via the user cascade, so `no action` just hardens "don't
-     * strand a successor". The `<> id` check kills self-supersession.
-     */
     supersedesId: text("supersedes_id"),
-    /** Provenance: originating observation ids — typed like the other projection envelopes (not bare jsonb → unknown). */
     provenance: jsonb("provenance")
       .$type<ProjectionProvenance>()
       .notNull()
@@ -375,25 +237,14 @@ export const entityIdentities = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    // Dedup is over the ACTIVE row only (`valid_until IS NULL`), not all history.
-    // The table is temporal (`valid_from`/`valid_until` + `supersedes_id`), and
-    // some kinds are MUTABLE+REUSABLE: a freed `github_login` is reclaimable by
-    // another account, and a `github_repository_full_name` (`owner/repo`) redirect
-    // can be overridden by a new repo taking the old name. When that happens the
-    // old row is closed (`valid_until` stamped) and a NEW row for the SAME
-    // `(kind, value)` must bind to a DIFFERENT entity — a globally-unique index
-    // would force a false cross-entity bridge (or block the legitimate re-anchor)
-    // for exactly the identifiers the temporal columns exist to track. Partial so
-    // at most one LIVE identity holds a `(kind, value)`, while closed history may
-    // repeat it. (Resolution joins read live rows; D2's "dedup index" is the live set.)
+    // Live rows only. A freed `github_login` or a reused `owner/repo` can later
+    // belong to a different entity, so closed history may repeat a value.
     uniqueIndex("entity_identities_active_unique_idx")
       .on(t.userId, t.kind, t.value)
       .where(sql`${t.validUntil} IS NULL`),
     index("entity_identities_entity_idx").on(t.userId, t.entityId),
     index("entity_identities_supersedes_idx").on(t.supersedesId),
-    // FK target for this table's own supersession self-FK: binds (user, id) so a
-    // successor can't point at another user's identity row. Unique because `id`
-    // is the PK.
+    // Target for the supersession self-FK.
     uniqueIndex("entity_identities_user_fk_idx").on(t.userId, t.id),
     foreignKey({
       columns: [t.userId, t.entityId],
@@ -405,15 +256,8 @@ export const entityIdentities = pgTable(
       foreignColumns: [t.userId, t.id],
       name: "entity_identities_supersedes_fk",
     }),
-    // `value` is the live dedup key (it feeds `entity_identities_active_unique_idx`
-    // and is the join target observations resolve through), so an empty or
-    // whitespace-padded value is a merge magnet / split-brain — the exact failure
-    // this substrate exists to prevent. The DB can't enforce per-kind CASE
-    // canonicalization (that needs `kind` + the contract canonicalizer, done at
-    // the write boundary), but it CAN pin the kind-independent floor: non-empty and
-    // no surrounding whitespace, the same posture as the `family_key`/`evidence_hash`
-    // and `entity_nodes.id`-shape rails. The byte cap keeps the live dedup btree key
-    // bounded; per-kind max lengths still belong in the contract/write boundary.
+    // An empty or padded dedup value merges unrelated identities. The write
+    // boundary does the per-kind canonical check.
     check(
       "entity_identities_value_nonempty",
       sql`length(${t.value}) > 0 AND octet_length(${t.value}) <= 1024 AND ${t.value} !~ '^[[:space:]]|[[:space:]]$'`,
@@ -431,12 +275,9 @@ export const entityIdentities = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// projection_runs — one row per (named projection, version) replay run (D13, D17)
-// Declared here (ahead of the bookkeeping section) so the VERSIONED output
-// tables below can FK their rows to the run that produced them.
+// projection_runs (D13, D17). Declared first so the versioned tables can FK to it.
 // ---------------------------------------------------------------------------
 
-/** One row per (named projection, version) replay run — watermarks, checksum, counts, status. */
 export const projectionRuns = pgTable(
   "projection_runs",
   {
@@ -448,36 +289,24 @@ export const projectionRuns = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     projectionName: text("projection_name").notNull(),
     projectionVersion: integer("projection_version").notNull(),
-    /** Per-source high-watermark consumed by this run. */
     sourceHighWatermark: jsonb("source_high_watermark")
       .$type<ProjectionSourceHighWatermark>()
       .notNull()
       .default(sql`'{}'::jsonb`),
-    /** Determinism check: over stable-ordered, rounded, time-invariant components only (D13). */
+    /** Over time-invariant, rounded, stable-ordered components only (D13). */
     checksum: text("checksum"),
     rowCounts: jsonb("row_counts")
       .$type<ProjectionRowCounts>()
       .notNull()
       .default(sql`'{}'::jsonb`),
-    /** running | completed | failed. */
     status: text("status").$type<ProjectionRunStatus>().notNull().default("running"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     ...lifecycle_dates,
   },
   (t) => [
     uniqueIndex("projection_runs_unique_idx").on(t.userId, t.projectionName, t.projectionVersion),
-    // No separate (user_id, projection_name, projection_version) index — that is
-    // EXACTLY the column list of `projection_runs_unique_idx` above, so a
-    // non-unique duplicate buys nothing and only taxes writes.
-    // FK target for BOTH the active-pointer composite FK and the versioned
-    // output tables' run-binding FK: lets `active_projection_versions` /
-    // `entity_profiles` / `entity_edges` / `entity_co_occurrence` bind
-    // (user, name, version, run id) together so a pointer/output row can't name a
-    // run that belongs to a different user / projection / version. Binding the
-    // row's own name+version to the run's is what stops a v1-tagged (or
-    // foreign-projection) row from pointing at a v2 / other-projection run and
-    // being pulled into the wrong active view. Unique because `id` is the PK, so
-    // the name+version prefix keeps it a valid 1:1 FK target.
+    // Target for the run FKs on pointers, cursors, and versioned rows. It binds
+    // name and version too, so a v1 row cannot point at a v2 run.
     uniqueIndex("projection_runs_active_fk_idx").on(
       t.userId,
       t.projectionName,
@@ -485,30 +314,13 @@ export const projectionRuns = pgTable(
       t.id,
     ),
     check("projection_runs_version_positive", sql`${t.projectionVersion} >= 1`),
-    // `projection_name` is a replay/binding identity key (it feeds
-    // `projection_runs_unique_idx` and is the name half every versioned output /
-    // pointer / cursor row binds back to). An empty or whitespace-padded name
-    // collapses unrelated named projections into one unique slot — same merge-
-    // magnet failure as the `entity_identities.value` / `family_key` rails, so it
-    // gets the same kind-independent floor (non-empty + no surrounding whitespace).
     check(
       "projection_runs_name_nonempty",
       sql`length(${t.projectionName}) > 0 AND octet_length(${t.projectionName}) <= 128 AND ${t.projectionName} !~ '^[[:space:]]|[[:space:]]$'`,
     ),
-    // `status` is typed `ProjectionRunStatus` but stored as bare text — the DB
-    // can't see the TS union, so pin the legal set here (a stray status would
-    // otherwise sail past the type at any raw writer).
     check("projection_runs_status_valid", sql`${t.status} IN ('running', 'completed', 'failed')`),
-    // `completed_at` is the terminal-cutover instant the P1 activation guard reads,
-    // so it must agree with `status`: a still-`running` run has no completion time;
-    // a `completed` run MUST have one (the active pointer only cuts over to
-    // completed runs — D13). `failed` is left free (a run may record when it gave
-    // up). Phrased as two forbidden pairings (running-with-time, completed-without)
-    // rather than an allowlist of legal (status, completed_at) tuples so it stays
-    // ORTHOGONAL to `projection_runs_status_valid`: an out-of-enum status trips ONLY
-    // the status rail, not this one too — otherwise a bogus status violates both and
-    // which one Postgres reports is nondeterministic. The completed-only ACTIVATION
-    // guard still lives in the P1 helper (a FK can't read status).
+    // Two forbidden pairs, not an allowlist, so a bad status trips only
+    // `projection_runs_status_valid`. Activation still checks status in code.
     check(
       "projection_runs_completed_at_consistency",
       sql`NOT (${t.status} = 'running' AND ${t.completedAt} IS NOT NULL) AND NOT (${t.status} = 'completed' AND ${t.completedAt} IS NULL)`,
@@ -521,7 +333,7 @@ export const projectionRuns = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// entity_profiles — VERSIONED display/kind/significance components (D6, D7, D13)
+// entity_profiles: versioned display, kind, significance (D6, D7, D13)
 // ---------------------------------------------------------------------------
 
 export const entityProfiles = pgTable(
@@ -533,45 +345,19 @@ export const entityProfiles = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /**
-     * The named projection that produced this row (D13). `projection_runs` is
-     * GENERIC — it tracks every named projection over this log, not just
-     * `user-model` (P4's `user_facts` projection reuses it) — so the output rows
-     * must carry the name and bind it, exactly like `projection_cursors` /
-     * `active_projection_versions` already do. Without it, `projection_version`
-     * is a bare integer shared across projections: a `user_facts` v1 run and a
-     * `user-model` v1 run collide on the `(user, version, entity)` unique slot,
-     * and the run FK (which omitted name) would happily tie this row to a run of
-     * a different projection. The unique index + the 4-column run FK below both
-     * include it; the run FK reuses `projection_runs_active_fk_idx`.
-     */
+    /** `projection_runs` serves many projections, so the version alone is ambiguous. */
     projectionName: text("projection_name").notNull(),
     projectionVersion: integer("projection_version").notNull(),
     /**
-     * The concrete replay run that produced this row — bound to it by the
-     * composite FK below, which spans `projection_name` + `projection_version`
-     * too: the FK target is `projection_runs(user_id, projection_name,
-     * projection_version, id)`, so this row's name + version must equal the
-     * named run's. Without that, the columns are independent and a reducer bug
-     * could write `projection_version = 1` (or a foreign name) on a row whose
-     * `projection_run_id` named a version-2 / differently-named run; a read
-     * filtering by run id would then pull the wrong row into an active view. A
-     * projection version is SINGLE-ATTEMPT: `projection_runs` is unique on
-     * (user, name, version), so a retry reuses that one run row and must clear
-     * the prior attempt's rows before re-projecting (`DELETE ... WHERE user_id =
-     * <user> AND projection_run_id = <run>`, backed by the run index below, or
-     * drop the run row and let this FK cascade).
-     * The binding is provenance: it proves the row came from one concrete run AT
-     * THIS NAME+VERSION, and lets a read assert the active rows are from exactly
-     * the run `active_run_id` names.
+     * A version runs once. A retry reuses the run row and deletes its old rows
+     * by `projection_run_id` first.
      */
     projectionRunId: text("projection_run_id").notNull(),
-    /** Stable node this profile describes — bound to the same user by the composite FK below. */
     entityId: text("entity_id").notNull(),
     displayName: text("display_name").notNull(),
-    /** Kind lives here (versioned) — a better classifier can change it without re-minting the id (D7). */
+    /** Versioned, so a better classifier can change it without a new id (D7). */
     kind: text("kind").$type<EntityNodeKind>().notNull(),
-    /** Time-invariant significance components only; final score = base(components) * recency(asOf) at read time (D6). */
+    /** Time-invariant parts only. Recency is applied at read time (D6). */
     significanceComponents: jsonb("significance_components")
       .$type<SignificanceComponents>()
       .notNull()
@@ -612,7 +398,7 @@ export const entityProfiles = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// entity_edges — VERSIONED typed relations (D5, D13)
+// entity_edges: versioned typed relations (D5, D13)
 // ---------------------------------------------------------------------------
 
 export const entityEdges = pgTable(
@@ -624,12 +410,9 @@ export const entityEdges = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** The named projection that produced this row — bound by the unique index + run FK below (see entity_profiles). */
     projectionName: text("projection_name").notNull(),
     projectionVersion: integer("projection_version").notNull(),
-    /** The concrete replay run that produced this row — bound by the composite FK below (see entity_profiles). */
     projectionRunId: text("projection_run_id").notNull(),
-    /** Stable endpoint nodes — both bound to the same user by the composite FKs below; never equal (self-edge check). */
     fromEntityId: text("from_entity_id").notNull(),
     toEntityId: text("to_entity_id").notNull(),
     relationType: text("relation_type").$type<EntityEdgeType>().notNull(),
@@ -639,11 +422,7 @@ export const entityEdges = pgTable(
       .$type<ProjectionProvenance>()
       .notNull()
       .default(sql`'{}'::jsonb`),
-    /**
-     * Semantic/effective time for this edge. A replay must supply it from the
-     * source observation or projection window; defaulting to `now()` would make
-     * the versioned graph differ across identical replays.
-     */
+    /** No default: `now()` would differ between identical replays. */
     validFrom: timestamp("valid_from", { withTimezone: true }).notNull(),
     validUntil: timestamp("valid_until", { withTimezone: true }),
     ...lifecycle_dates,
@@ -657,9 +436,7 @@ export const entityEdges = pgTable(
       t.fromEntityId,
       t.toEntityId,
     ),
-    // Include projectionName: a version integer is shared across named
-    // projections (user_facts v1 and user-model v1 are both version 1), and
-    // active-view reads filter by (name, version) — matching the unique index.
+    // Versions repeat across projections, so index the name too.
     index("entity_edges_from_idx").on(
       t.userId,
       t.projectionName,
@@ -695,16 +472,13 @@ export const entityEdges = pgTable(
       "entity_edges_valid_window",
       sql`${t.validUntil} IS NULL OR ${t.validUntil} >= ${t.validFrom}`,
     ),
-    // No self-relation: a traversable typed edge from a node to itself
-    // (`reports_to`/`frequent_collaborator`/… self) is meaningless and would let
-    // recursive traversal ingest a 1-cycle. `entity_co_occurrence` gets this for
-    // free from its `a < b` pair-order check; a directed edge needs it spelled out.
+    // A self-edge is a 1-cycle for traversal. Co-occurrence gets this from `a < b`.
     check("entity_edges_no_self_relation", sql`${t.fromEntityId} <> ${t.toEntityId}`),
   ],
 );
 
 // ---------------------------------------------------------------------------
-// entity_co_occurrence — VERSIONED weighted pair projection (D5)
+// entity_co_occurrence: versioned weighted pairs (D5)
 // ---------------------------------------------------------------------------
 
 export const entityCoOccurrence = pgTable(
@@ -716,17 +490,15 @@ export const entityCoOccurrence = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** The named projection that produced this row — bound by the unique index + run FK below (see entity_profiles). */
     projectionName: text("projection_name").notNull(),
     projectionVersion: integer("projection_version").notNull(),
-    /** The concrete replay run that produced this row — bound by the composite FK below (see entity_profiles). */
     projectionRunId: text("projection_run_id").notNull(),
-    /** Ordered pair (a < b) to dedupe the undirected edge — both bound to the same user by the composite FKs below. */
+    /** Ordered pair (a < b), so one undirected edge has one row. */
     aEntityId: text("a_entity_id").notNull(),
     bEntityId: text("b_entity_id").notNull(),
     weight: real("weight").notNull().default(0),
     count: integer("count").notNull().default(0),
-    /** Distinct event families backing the pair — gates promotion (PROMOTION_MIN_FAMILIES). */
+    /** Distinct event families. Gates promotion (`PROMOTION_MIN_FAMILIES`). */
     familyCount: integer("family_count").notNull().default(0),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     ...lifecycle_dates,
@@ -739,8 +511,7 @@ export const entityCoOccurrence = pgTable(
       t.aEntityId,
       t.bEntityId,
     ),
-    // projectionName included for the same reason as entity_edges' secondary
-    // indexes: version collides across named projections; reads filter by name+version.
+    // Name included because versions repeat across projections.
     index("entity_co_occurrence_weight_idx").on(
       t.userId,
       t.projectionName,
@@ -779,12 +550,10 @@ export const entityCoOccurrence = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// projection bookkeeping — the replay safety rail (D13, D17)
-// (`projection_runs` itself is declared earlier, above the versioned tables, so
-// those tables can bind their output rows to the run that produced them.)
+// projection bookkeeping (D13, D17)
 // ---------------------------------------------------------------------------
 
-/** Per-(projection, source) replay cursor proving no observation is double-counted. */
+/** Per-run, per-source replay cursor, so no observation counts twice. */
 export const projectionCursors = pgTable(
   "projection_cursors",
   {
@@ -795,7 +564,6 @@ export const projectionCursors = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     projectionName: text("projection_name").notNull(),
-    /** The replay run this cursor belongs to — its (user, name, version) bound to the run by the composite FK below. */
     projectionRunId: text("projection_run_id").notNull(),
     projectionVersion: integer("projection_version").notNull(),
     source: text("source").$type<ObservationSource>().notNull(),
@@ -808,10 +576,6 @@ export const projectionCursors = pgTable(
   (t) => [
     uniqueIndex("projection_cursors_unique_idx").on(t.userId, t.projectionRunId, t.source),
     index("projection_cursors_version_idx").on(t.userId, t.projectionName, t.projectionVersion),
-    // The cursor's (user, name, version, run id) must all belong to the SAME
-    // projection_runs row — a plain FK on projection_run_id alone proved only that
-    // the run exists, not that its user/name/version match the cursor's. Reuses the
-    // `projection_runs_active_fk_idx` 4-col unique target.
     foreignKey({
       columns: [t.userId, t.projectionName, t.projectionVersion, t.projectionRunId],
       foreignColumns: [
@@ -823,7 +587,6 @@ export const projectionCursors = pgTable(
       name: "projection_cursors_run_fk",
     }).onDelete("cascade"),
     check("projection_cursors_version_positive", sql`${t.projectionVersion} >= 1`),
-    // Replay identity key — same non-empty floor as `projection_runs.projection_name`.
     check(
       "projection_cursors_name_nonempty",
       sql`length(${t.projectionName}) > 0 AND octet_length(${t.projectionName}) <= 128 AND ${t.projectionName} !~ '^[[:space:]]|[[:space:]]$'`,
@@ -831,7 +594,7 @@ export const projectionCursors = pgTable(
   ],
 );
 
-/** The cutover pointer: which version each named projection currently serves (D13). */
+/** Which run each named projection serves now (D13). */
 export const activeProjectionVersions = pgTable(
   "active_projection_versions",
   {
@@ -842,7 +605,6 @@ export const activeProjectionVersions = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     projectionName: text("projection_name").notNull(),
-    /** The concrete run this pointer activates — bound to (user, name, version) by the composite FK below. */
     activeRunId: text("active_run_id").notNull(),
     activeVersion: integer("active_version").notNull(),
     ...lifecycle_dates,
@@ -850,11 +612,7 @@ export const activeProjectionVersions = pgTable(
   (t) => [
     uniqueIndex("active_projection_versions_unique_idx").on(t.userId, t.projectionName),
     index("active_projection_versions_run_idx").on(t.userId, t.activeRunId),
-    // The pointer's (user, name, version, run id) must all belong to the SAME
-    // projection_runs row — a plain FK on active_run_id alone proved only that
-    // the run exists, not that its user/name/version match the pointer's. (The
-    // "completed-only" guard stays in the activation helper, P1 — a FK can't
-    // assert the target row's status.)
+    // An FK cannot read status, so the activation code checks the run is completed.
     foreignKey({
       columns: [t.userId, t.projectionName, t.activeVersion, t.activeRunId],
       foreignColumns: [
@@ -866,7 +624,6 @@ export const activeProjectionVersions = pgTable(
       name: "active_projection_versions_run_fk",
     }),
     check("active_projection_versions_version_positive", sql`${t.activeVersion} >= 1`),
-    // Replay identity key — same non-empty floor as `projection_runs.projection_name`.
     check(
       "active_projection_versions_name_nonempty",
       sql`length(${t.projectionName}) > 0 AND octet_length(${t.projectionName}) <= 128 AND ${t.projectionName} !~ '^[[:space:]]|[[:space:]]$'`,
@@ -875,7 +632,7 @@ export const activeProjectionVersions = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// active projection views — physically pin versioned reads to active_run_id
+// active projection views: read versioned rows only through these
 // ---------------------------------------------------------------------------
 
 export const activeEntityProfiles = pgView("active_entity_profiles", {
@@ -998,10 +755,8 @@ export const activeEntityCoOccurrence = pgView("active_entity_co_occurrence", {
 `);
 
 /**
- * Replicache-visible projection sync state (D17). Stable logical key + a content
- * hash → synthetic `row_version`, so flipping the active projection version
- * produces per-key deltas (unchanged keys keep their version) instead of a
- * delete-all + re-add-all storm.
+ * Replicache sync state per projected row (D17). A content hash drives
+ * `row_version`, so an active-version flip sends only the changed keys.
  */
 export const projectionSyncState = pgTable(
   "projection_sync_state",
@@ -1012,9 +767,7 @@ export const projectionSyncState = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** Which Replicache-visible projection (e.g. `active_user_facts`). */
     syncSlug: text("sync_slug").notNull(),
-    /** Stable logical key the client tracks. */
     stableKey: text("stable_key").notNull(),
     contentHash: text("content_hash").notNull(),
     rowVersion: integer("row_version").notNull().default(0),
@@ -1022,15 +775,8 @@ export const projectionSyncState = pgTable(
   },
   (t) => [
     uniqueIndex("projection_sync_state_unique_idx").on(t.userId, t.syncSlug, t.stableKey),
-    // No standalone (user_id, sync_slug) index — it is a left-prefix of the
-    // unique `projection_sync_state_unique_idx` (user_id, sync_slug, stable_key),
-    // which the planner uses for per-slug scans too.
+    // No (user_id, sync_slug) index: the unique index starts with it.
     check("projection_sync_state_row_version_nonnegative", sql`${t.rowVersion} >= 0`),
-    // `sync_slug` + `stable_key` are the Replicache sync identity (they feed
-    // `projection_sync_state_unique_idx`), and `content_hash` is what the synthetic
-    // `row_version` is derived from. An empty or whitespace-padded value collapses
-    // unrelated sync rows into one slot or hashes distinct content to the same
-    // version — the same merge-magnet floor as the other identity keys.
     check(
       "projection_sync_state_sync_slug_nonempty",
       sql`length(${t.syncSlug}) > 0 AND octet_length(${t.syncSlug}) <= 128 AND ${t.syncSlug} !~ '^[[:space:]]|[[:space:]]$'`,

@@ -33,11 +33,8 @@ export const userActionPolicies = pgTable("user_action_policies", {
     .notNull()
     .default(sql`'{}'::jsonb`),
   approvalNotifyDelayMs: integer("approval_notify_delay_ms").notNull().default(300_000),
-  // Replicache CVR version for the per-integration policy editor (m13 Phase
-  // 8c). The whole row is one synced entity keyed by `user_id`; every policy
-  // mutation bumps this so the client pull patches, and *also* publishes
-  // `policy-bust:u:<userId>` for the dispatcher's in-process cache. Two
-  // invalidation paths, one mutation (ADR-0034 amendment).
+  // Replicache version. A policy write also publishes `policy-bust:u:<userId>`
+  // to clear the dispatcher cache (ADR-0034).
   rowVersion: integer("row_version").notNull().default(1),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
@@ -64,49 +61,29 @@ export const actionStagings = pgTable(
     riskTier: text("risk_tier").$type<ToolRiskTier>().notNull(),
     proposedInput: jsonb("proposed_input").$type<JsonValue>().notNull(),
     proposedInputHash: text("proposed_input_hash").notNull(),
-    // #374: the display-safe projection of `proposed_input`, written alongside
-    // it at birth. `proposed_input` must stay raw for gated rows (it doubles as
-    // the approval-resume payload), so notification sinks — the approval email
-    // and the delivery payload — read this column instead. The approvals card is
-    // intentionally not a notification sink: it syncs raw `proposed_input` as the
-    // edit surface and the resume payload needs it verbatim.
-    // Nullable until the 0107 backfill completes; the notification worker falls
-    // back to `proposed_input` only for pre-column rows.
+    // Display-safe copy of `proposed_input` for notifications. `proposed_input` stays raw
+    // because resume needs it. NULL on old rows, which fall back to `proposed_input`.
     displayInput: jsonb("display_input").$type<JsonValue>(),
     requiresApproval: boolean("requires_approval").notNull(),
     status: text("status").$type<ActionStagingStatus>().notNull().default("pending"),
-    // #559a: the effect dimension, orthogonal to `status`. `status` is the
-    // approval gate machine; `outcome` records what the effect itself did.
-    // Minted with `planned` and advanced as the call moves through the gate and
-    // the provider. `unknown` is the sticky possibly-delivered case — it holds
-    // the ambiguity barrier (see the partial unique index below) and never
-    // auto-retries.
+    // What the effect did, apart from the approval `status`. `unknown` means it may
+    // have been delivered. It never retries and holds the unique index below.
     outcome: text("outcome").$type<EffectOutcome>().notNull().default("planned"),
-    // #559a: one logical tool call keeps one `effect_key` across every retry and
-    // reclaim; `attempt_key` rotates on each retry. `${runId}:${stepId}:${attempt}`
-    // is NOT a safe downstream effect key — it changes on every reclaim.
+    // `effect_key` stays the same across retries. `attempt_key` changes on each retry.
     effectKey: text("effect_key").notNull(),
     attemptKey: text("attempt_key").notNull(),
-    // #559a: canonical tool + args + target account/resource. The ambiguity
-    // barrier keys on `(user_id, request_hash)`, so a fresh tool-call id cannot
-    // bypass an unresolved possibly-delivered write.
+    // Hash of tool, args, and target. Not the tool-call id, so a new id cannot bypass the barrier.
     requestHash: text("request_hash").notNull(),
-    // #559a: provider idempotency key. Equal to `effect_key` when the provider
-    // supports idempotent writes, so a retry re-sends the same key and the
-    // provider dedupes.
+    // Equals `effect_key` when the provider dedupes writes.
     providerKey: text("provider_key"),
-    // #559a: the remote request/object/message id when the provider reports one.
     providerRef: text("provider_ref"),
     decidedInput: jsonb("decided_input").$type<JsonValue>(),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     rejectReason: text("reject_reason"),
     executedAt: timestamp("executed_at", { withTimezone: true }),
     executeResult: jsonb("execute_result").$type<JsonValue>(),
-    // ADR-0070 §1.1: true when the dispatch-boundary sanitizer stripped
-    // persistence-poison (NUL / lone surrogates) from `executeResult` before it
-    // was stored. Persisted so an idempotent `executed` re-dispatch can hand the
-    // model back the same "this result may be incomplete" notice it saw on the
-    // first execution — otherwise the scrubbed payload replays as if pristine.
+    // True when the sanitizer stripped NUL or lone surrogates from `executeResult` (ADR-0070).
+    // A replay must repeat the "may be incomplete" notice.
     executeSanitized: boolean("execute_sanitized").notNull().default(false),
     executeError: jsonb("execute_error").$type<JsonValue>(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
@@ -131,9 +108,7 @@ export const actionStagings = pgTable(
     index("action_stagings_recent_rejections_idx")
       .on(t.userId, t.toolName, t.decidedAt.desc())
       .where(sql`${t.status} = 'rejected'`),
-    // #559a: the ambiguity barrier. One unresolved `unknown` effect per
-    // (user, request). A fresh model tool-call id for the same logical effect
-    // collides here and is blocked until the effect is resolved or superseded.
+    // One unresolved `unknown` effect per (user, request). A retry of it is blocked here.
     uniqueIndex("action_stagings_unknown_effect_idx")
       .on(t.userId, t.requestHash)
       .where(sql`${t.outcome} = 'unknown'`),

@@ -1,6 +1,3 @@
-// One folder per live provider. Google covers Gmail, Calendar, Drive, Docs,
-// Sheets, and Slides; GitHub, Notion, Sentry, and Vercel have their
-// own provider folders. Slack/Linear are catalog/design-only for now.
 export * as google from "./google/index";
 
 export * as github from "./github/index";
@@ -13,10 +10,7 @@ export * as vercel from "./vercel/index";
 
 export * as credentials from "./shared/credentials";
 
-// The user-bound root over the per-provider configured clients:
-// `integrations({ userId }).github.search({ q })`. This is the intended door for
-// provider access inside a tool dispatch. Prefer it to credential functions:
-// tool code should never resolve or carry provider tokens.
+// Tool code uses this, never the credential functions.
 export { integrations, type Integrations } from "./integrations";
 
 export type { ProviderBindOptions } from "./shared/provider";

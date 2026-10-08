@@ -4,60 +4,20 @@ import type { ServerEnv } from "@alfred/env/server";
 import type { BetterAuthOptions } from "better-auth";
 
 /**
- * The rate limit Alfred's Better Auth instance runs on.
- *
- * Better Auth ships a limiter that is ON in production by default, but its
- * default store is a `Map` in the API process: the counter is per-process, it
- * is lost on every deploy and every restart, and a second replica gets its own
- * copy of every bucket. This module moves the counter into the Redis the API
- * already runs, so one bucket holds for the whole deployment (#458).
- *
- * Two things are deliberately NOT configured here.
- *
- * Per-endpoint limits stay Better Auth's own: `/sign-in`, `/sign-up`,
- * `/change-password` and `/change-email` are 3 requests per 10s, and the
- * password-reset and verification-email paths are 3 per 60s. Those are stricter
- * than the defaults below and they apply on top of them, so this file sets no
- * `customRules` — a rule declared here would REPLACE the special rule for that
- * path, which is how a "tightening" edit quietly loosens sign-in to 100/10s.
- *
- * The `rateLimit` database table is not used and not migrated. `customStorage`
- * wins over `storage` in Better Auth's own resolver, so the table-backed
- * backend is never reached.
- *
- * The store is atomic and nothing else. Better Auth 1.7 removed the separate
- * `get`/`set` storage shape, because a read followed by a write cannot hold a
- * distributed limit: N concurrent requests all pass one stale read before any
- * increment lands. `consume` below is the whole interface.
+ * Better Auth's rate limit, counted in Redis so it survives restarts and spans processes (#458).
+ * No `customRules`: one would replace Better Auth's stricter per-path rule, e.g. sign-in 3 per 10s.
+ * The `rateLimit` table is unused because `customStorage` wins.
  */
 
-/**
- * Requests per {@link AUTH_RATE_LIMIT_WINDOW_SECONDS} for a path with no
- * stricter rule of its own. Both numbers restate Better Auth's defaults rather
- * than change them: the point of the issue was to make the store explicit, and
- * an explicit value is also what stops a library default from moving under us.
- */
+/** Better Auth's defaults, restated so a library change cannot move them. */
 const AUTH_RATE_LIMIT_MAX = 100;
 
 const AUTH_RATE_LIMIT_WINDOW_SECONDS = 10;
 
 /**
- * Reverse proxies whose hop in `x-forwarded-for` is not the client.
- *
- * Better Auth resolves the client IP by walking the forwarded chain from the
- * right and taking the first address that is not on this list. With the list
- * EMPTY it instead trusts a single-value header only, so any request carrying
- * its own `x-forwarded-for` resolves to no IP at all and lands in one shared
- * bucket with every other such request — which turns the sign-in limit into a
- * lever anyone can pull against the one real user.
- *
- * Better Auth's own guidance is to name the proxy's address instead of a broad
- * private range. Railway publishes no stable address for its edge, and the
- * container is reachable ONLY through that edge, so every hop between the
- * client and this process is on Railway's internal network. That is the same
- * reasoning, and the same range list, that the web service's `Caddyfile`
- * already uses (`private_ranges` plus `100.0.0.0/8`). If the API ever becomes
- * reachable without going through Railway's proxy, this list must go.
+ * Proxy hops to skip in `x-forwarded-for`. With an empty list, a spoofed header puts
+ * every caller in one bucket, so anyone could lock out the real user.
+ * Safe only while the API is reachable only through Railway's proxy. Matches the `Caddyfile`.
  */
 const TRUSTED_PROXY_RANGES = [
   "10.0.0.0/8",
@@ -73,18 +33,7 @@ type RateLimitOptions = NonNullable<BetterAuthOptions["rateLimit"]>;
 
 type RateLimitStorage = NonNullable<RateLimitOptions["customStorage"]>;
 
-/**
- * The only Redis verbs this module issues, named as a port rather than as
- * `Pick<BoundedRedis, …>`: ioredis declares each of these across many
- * overloads, so a test double can satisfy this and cannot satisfy the picked
- * type without a cast. `getRateLimitRedis` below is what checks a real
- * connection still fits.
- *
- * Drift guard: an ioredis upgrade that changes the `eval` signature breaks the
- * assignment at `getRateLimitRedis` — the only call site — because
- * `BoundedRedis` no longer satisfies this port. The break surfaces at
- * `check-types` time, not in production.
- */
+/** Not `Pick<BoundedRedis, …>`: ioredis overloads stop a test double from matching that. */
 type RateLimitRedis = {
   eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
 };
@@ -92,22 +41,13 @@ type RateLimitRedis = {
 let rateLimitRedis: RateLimitRedis | undefined;
 
 function getRateLimitRedis(): RateLimitRedis {
-  // `"command"`, not `"fail-fast"`: this counter IS the limit, nothing else can
-  // answer for it, and a `"fail-fast"` handle rejects its first command after
-  // construction even against a healthy Redis — see the decision test in
-  // `packages/db/src/redis.ts`.
+  // Not `"fail-fast"`: that handle rejects its first command even when Redis is healthy.
   rateLimitRedis ??= createRedisConnection("command");
 
   return rateLimitRedis;
 }
 
-/**
- * A fixed window, addressed by the window it falls in rather than by a stored
- * timestamp. The bucket index is derived from the clock, so a counter whose
- * `EXPIRE` never landed cannot outlive its window: the next window is a
- * different key. That is the same shape as the attachment upload quota in
- * `packages/assistant/src/chat/attachment-upload-quota.ts`.
- */
+/** The key includes the window index, so a counter whose `EXPIRE` failed still cannot outlive it. */
 function bucketFor(key: string, windowSeconds: number, nowMs: number) {
   const windowMs = windowSeconds * 1000;
   const index = Math.floor(nowMs / windowMs);
@@ -115,15 +55,7 @@ function bucketFor(key: string, windowSeconds: number, nowMs: number) {
   return { key: `rate:auth:${key}:${index}`, endsAtMs: (index + 1) * windowMs };
 }
 
-/**
- * Per-process counters, used only while Redis is unreachable.
- *
- * A rate limiter that switches itself off during an outage is a worse posture
- * than one that degrades, and failing CLOSED here would lock the only user out
- * of their own assistant over a Redis blip on the one path that has no other
- * way in. So a Redis failure falls back to counting in memory, which is exactly
- * the limiter Better Auth would have run without this module.
- */
+/** In-memory counting while Redis is down. Failing closed would lock the only user out. */
 const MAX_FALLBACK_ENTRIES = 10_000;
 
 function createFallbackStore() {
@@ -131,9 +63,7 @@ function createFallbackStore() {
 
   function prune(nowMs: number): void {
     for (const [key, entry] of entries) if (nowMs >= entry.expiresAtMs) entries.delete(key);
-    // A caller with many source addresses can still outrun the window, so the
-    // map is capped as well. Iteration order is insertion order, so this drops
-    // the oldest buckets first.
+    // Cap the map too. Insertion order means the oldest buckets go first.
     let overflow = entries.size - MAX_FALLBACK_ENTRIES;
 
     for (const key of entries.keys()) {
@@ -155,18 +85,10 @@ function createFallbackStore() {
   };
 }
 
-/**
- * One fallback instance is shared across every storage object created in this
- * process, so a reconstruction during an outage does not reset the counter.
- */
+/** Shared, so building a new store during an outage does not reset the count. */
 const sharedFallback = createFallbackStore();
 
-/**
- * The store Better Auth calls. `redis` is a parameter so the outage path can be
- * exercised by a test without an unreachable Redis. `fallback` is shared by
- * default so reconstructed auth storage keeps counting in the same bucket
- * during an outage; a test can supply its own.
- */
+/** `redis` and `fallback` are parameters so tests can drive the outage path. */
 export function createAuthRateLimitStorage(
   redis: () => RateLimitRedis = getRateLimitRedis,
   fallback = sharedFallback,
@@ -176,7 +98,7 @@ export function createAuthRateLimitStorage(
   }
 
   return {
-    /** One request counted, and the answer, in a single step. */
+    /** Count and decide in one atomic step. A read then a write cannot hold a shared limit. */
     consume: async (key, rule) => {
       const nowMs = Date.now();
       const bucket = bucketFor(key, rule.window, nowMs);
@@ -197,16 +119,9 @@ export function createAuthRateLimitStorage(
   };
 }
 
-/**
- * The `rateLimit` block for Alfred's Better Auth instance.
- */
 export function authRateLimit(nodeEnv: ServerEnv["NODE_ENV"]): RateLimitOptions {
   return {
-    // Better Auth's own default, restated so a change to that default cannot
-    // move it. Development and test stay OFF deliberately: a dev loop and a
-    // suite both replay one route far faster than a person does, which is the
-    // exact traffic shape a limiter refuses. The store below is covered by
-    // `test/rate-limit.test.ts` instead of by a local sign-in.
+    // Off in dev and test: both repeat one route faster than a person would.
     enabled: nodeEnv === "production",
     window: AUTH_RATE_LIMIT_WINDOW_SECONDS,
     max: AUTH_RATE_LIMIT_MAX,

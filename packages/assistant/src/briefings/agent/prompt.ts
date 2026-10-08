@@ -1,14 +1,7 @@
 /**
- * System prompt for the daily-briefing agent. Patterned on Dimension's
- * morning + evening briefing outputs (see
- * `.tmp-screens/dimension-briefing-research.md` for the source material
- * and pattern notes).
- *
- * The base prompt encodes tone + structure + tool-use discipline. The
- * slot-specific delta sits at the bottom and is the only thing that
- * varies between morning and evening — keeping the base stable matters
- * for Anthropic prompt caching (the AlfredAgent system block hits a
- * cache breakpoint).
+ * System prompt for the briefing agent, modeled on Dimension's briefings
+ * (`.tmp-screens/dimension-briefing-research.md`). Only the slot delta at the end varies,
+ * so the base stays cacheable.
  */
 
 import { composeAgentInstructions } from "@alfred/ai/voice";
@@ -164,7 +157,7 @@ ${STALE_PR_POLICY}`;
 export function buildSystemPrompt(args: {
   slot: "morning" | "evening";
   recipientFirstName: string | null;
-  /** Deployment identity block (`selfIdentityGrounding`): who Alfred is, from configuration. */
+  /** Who Alfred is, from configuration (`selfIdentityGrounding`). */
   selfIdentity: string;
 }): string {
   const namePart = args.recipientFirstName

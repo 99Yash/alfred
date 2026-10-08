@@ -4,25 +4,22 @@ import { domainOf } from "~/lib/favicon";
 import type { ToolCallView } from "./tool-call-presentation";
 
 export interface Source {
-  /** Publisher name shown on the chip (real domain, or page title). */
+  /** Publisher name: the domain or the page title. */
   label: string;
-  /** Bare hostname used for the favicon lookup. */
+  /** Hostname for the favicon. */
   faviconDomain: string;
-  /** The first URL seen for this publisher — where the chip links. */
+  /** The first URL seen for this publisher. */
   href: string;
 }
 
-/** A bare hostname like "cloudflare.com" — not a page title or a full URL. */
+/** A bare hostname like "cloudflare.com". */
 function looksLikeDomain(value: string): boolean {
   return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value);
 }
 
 /**
- * Normalize one citation into a display source. Web search returns
- * `{ url, title }` where `url` is a vertex grounding redirect and `title` is
- * the real publisher domain — so favicon + label come from `title` when it's
- * present, falling back to the url's host. Tolerates the legacy `string`
- * citation shape persisted on older messages.
+ * One citation as a source. Web search's `url` is a vertex redirect and `title` is the publisher domain,
+ * so prefer `title`. Old messages store a plain string.
  */
 export function toSource(citation: unknown): Source | null {
   if (isNonEmptyString(citation)) {
@@ -45,13 +42,7 @@ export function toSource(citation: unknown): Source | null {
   };
 }
 
-/**
- * Gather every web-search citation a turn produced, deduped by publisher in
- * first-seen order. Web-search tool results land on the client inside each
- * call's `resultPreview` (`{ ok, query, answer, citations }`, pruned to valid
- * JSON server-side). Extraction is best-effort — a missing or odd-shaped
- * preview just yields no sources, never an error.
- */
+/** Every web-search citation in a turn, deduped by publisher in first-seen order. Best-effort. */
 export function collectSources(tools: ToolCallView[]): Source[] {
   const byKey = new Map<string, Source>();
 

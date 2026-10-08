@@ -14,12 +14,7 @@ import {
 
 import { serverMutators } from "../../src/sync/write";
 
-// -------------------------------------------------------------------------
-// Todo lifecycle transitions (ADR-0050). Covers the two new transitions —
-// clear (#297: done → cleared) and complete-from-suggested (#298: suggested →
-// done) — plus the existing accept/dismiss/complete/reopen paths so the
-// lifecycle does not regress.
-// -------------------------------------------------------------------------
+// Todo lifecycle transitions (ADR-0050).
 
 type ClientTx = Parameters<typeof todoCompleteClient>[0];
 
@@ -50,7 +45,7 @@ function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
   return { tx, store };
 }
 
-/** Server `update().set().where()` mock — todo mutators don't call `.returning()`. */
+/** Mock of `update().set().where()`; todo mutators do not call `.returning()`. */
 interface UpdateTxCalls {
   tx: unknown;
   calls: () => { setValue: Record<string, unknown> | undefined; whereCalled: boolean };
@@ -141,7 +136,7 @@ describe("todoCompleteSuggestionClient (#298: suggested → done)", () => {
     assert.equal(value.status, "done");
     assert.equal(typeof value.completedAt, "string");
     assert.equal(value.rowVersion, suggested.rowVersion + 1);
-    // Provenance rides along untouched (#298).
+    // Provenance stays untouched.
     assert.equal(value.createdBy, "agent");
     assert.equal(value.assist, suggested.assist);
     assert.deepEqual(value.sources, suggested.sources);

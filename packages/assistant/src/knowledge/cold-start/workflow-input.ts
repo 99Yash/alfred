@@ -1,34 +1,18 @@
 import { z } from "zod";
 
 /**
- * Public input schema + slug for the cold-start research workflow.
- * Mirrored from the briefing pattern so callers (signup trigger, smoke
- * script) can reach in without touching `apps/server`.
- *
- * Lifetime-once-per-user semantics are enforced at the DB level via the
- * partial unique index on `agent_runs.(user_id, workflow_slug, dedup_key)`
- * — the workflow declares `dedupKey: () => COLD_START_DEDUP_KEY` and a
- * second `createRun` for the same user fails with `23505`. There is no
- * input-level `force` toggle: making bypass caller-controlled would let
- * any authenticated user spam expensive Sonar Deep Research calls via
- * the generic `/api/agent/runs` endpoint. The smoke script bypasses by
- * cancelling the prior row first instead.
+ * Slug and input schema for the cold-start workflow. Once per user: the dedup index
+ * rejects a second run. There is no `force` input, because any user could then spam
+ * expensive research through `/api/agent/runs`.
  */
 
 export const COLD_START_WORKFLOW_SLUG = "cold-start-research";
 
-/**
- * Singleton key for the cold-start workflow — there is at most one
- * logical "cold-start research" per user, so the key is a constant
- * rather than derived from input.
- */
+/** A constant: one cold-start run per user. */
 export const COLD_START_DEDUP_KEY = "cold-start";
 
 export const coldStartWorkflowInputSchema = z.object({
-  /**
-   * `signup` — fired by the OAuth-callback trigger.
-   * `manual` — fired by the smoke script or a future settings re-run button.
-   */
+  /** `signup` from the OAuth callback; `manual` from a script. */
   reason: z.enum(["signup", "manual"]).default("signup"),
 });
 

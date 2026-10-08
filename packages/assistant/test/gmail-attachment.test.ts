@@ -18,7 +18,7 @@ const ID_PREFIX = "test-gmail-att-";
 
 const createdUserIds: string[] = [];
 
-/** Test-only media door: supports PDF only, returns the given extract result. */
+/** Supports PDF only and returns the given extract result. */
 function pdfOnlyMedia(
   extract: Extraction["extract"],
 ): Pick<Extraction, "extract" | "isSupported" | "wouldExceed"> {
@@ -143,8 +143,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.equal(doc.title, "contract.pdf");
     assert.equal(doc.content, "page one text\n\npage two text");
 
-    // SAFETY: documents.metadata is jsonb unknown; test narrows to the
-    // gmail_attachment shape we just wrote.
+    // SAFETY: jsonb; narrows to the gmail_attachment shape written above.
     const meta = doc.metadata as {
       pages?: { page: number; start: number; end: number }[];
       filename: string;
@@ -156,7 +155,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.deepEqual(meta.pages![1], { page: 2, start: 15, end: 28 });
     assert.equal(meta.filename, "contract.pdf");
 
-    // Isolation: a query that filters source=gmail (the inbox reader contract) must not see the attachment row.
+    // A source=gmail query (the inbox reader) must not see the attachment row.
     const gmailRows = await db()
       .select({ id: documents.id, source: documents.source })
       .from(documents)
@@ -168,7 +167,6 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       "inbox reader filter source=gmail must not return gmail_attachment",
     );
 
-    // Insert a normal gmail document and prove the two sources stay disjoint.
     await db()
       .insert(documents)
       .values({
@@ -244,9 +242,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.equal(r1.deduped, 0);
     assert.equal(getAttachmentCalls, 1);
 
-    // Gmail attachmentIds are immutable, so a second ingest of the same
-    // messageId:attachmentId can never produce new content. The row exists,
-    // so the whole download → extract → persist → embed chain must be skipped.
+    // Gmail attachmentIds are immutable, so a known one skips the whole download chain.
     const r2 = await ingestGmailMediaAttachments({
       userId,
       accountId,
@@ -349,7 +345,6 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.equal(doc1.id, doc2.id);
     assert.equal(doc1.contentHash, doc2.contentHash);
 
-    // No duplicate row.
     const count = await db()
       .select()
       .from(documents)
@@ -366,7 +361,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const threadOne = `thr-${randomUUID()}`;
     const threadTwo = `thr-${randomUUID()}`;
 
-    // First arrival: recruiter thread one — this creates the canonical row.
+    // The first arrival creates the canonical row.
     const firstMessage = makeMessage({
       id: `msg-${randomUUID()}`,
       threadId: threadOne,
@@ -407,7 +402,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.equal(first.ingested, 1);
     assert.equal(indexCalls, 1);
 
-    // Second arrival: identical bytes forwarded to recruiter thread two.
+    // Same bytes forwarded to a second thread.
     const attachmentIdTwo = `att-${randomUUID()}`;
 
     const secondMessage = makeMessage({
@@ -437,8 +432,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
     assert.equal(rows.length, 1, "one canonical row per distinct content");
 
-    // SAFETY: documents.metadata is jsonb unknown; test narrows to the
-    // reference shape ingest wrote.
+    // SAFETY: jsonb; narrows to the reference shape ingest wrote.
     const meta = rows[0]!.metadata as { references?: unknown[] };
     assert.ok(Array.isArray(meta.references));
     assert.equal(meta.references!.length, 1);
@@ -453,10 +447,9 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       authoredAt: "2026-08-02T10:00:00.000Z",
     });
 
-    // The canonical row keeps its own provenance: the first carrier thread.
+    // The canonical row keeps the first thread.
     assert.notEqual(rows[0]!.sourceThreadId, threadTwo);
 
-    // Re-running the second occurrence stays idempotent — no stacked entries.
     const again = await ingestGmailMediaAttachments({
       userId,
       accountId,
@@ -481,9 +474,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
   test("reference append keeps entries that lack dedup keys", async () => {
     const userId = await seedUser();
     const documentId = `doc-${randomUUID()}`;
-    // A future writer may store an element without messageId/attachmentId.
-    // The append predicate must keep such elements (IS DISTINCT FROM), not
-    // silently delete them the way `NOT (NULL AND …)` does.
+    // An element without messageId/attachmentId must survive: `NOT (NULL AND …)` would drop it.
     await db()
       .insert(documents)
       .values({
@@ -516,8 +507,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     await appendContentReference(documentId, ref);
 
     const rows = await db().select().from(documents).where(eq(documents.id, documentId));
-    // SAFETY: documents.metadata is untyped jsonb here; the test inspects the raw
-    // persisted element order that appendContentReference wrote.
+    // SAFETY: jsonb; reads the element order appendContentReference wrote.
     const meta = rows[0]!.metadata as { references?: unknown[] };
     assert.equal(meta.references!.length, 3, "malformed entry kept, new entry appended once");
     assert.deepEqual(meta.references![0], { foo: "bar" }, "keyless element must survive");

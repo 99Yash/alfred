@@ -1,16 +1,6 @@
 /**
- * Per-run scratchpad helpers (ADR-0036).
- *
- * Redis is the live store during a run; Postgres receives a per-key
- * snapshot at the executor's terminal step. Keys are produced by the
- * `sharedKey` / `subAgentKey` builders in `@alfred/contracts` so the
- * shape `alfred:scratch:{runId}:{zone}.{path}` is enforced in one place
- * across both writers (here) and the dispatcher's zone gate (Phase 3+).
- *
- * Zone enforcement (boss writes `shared.*`, sub-agent writes its own
- * `scratch.{subId}.*`) lives at the dispatcher — these helpers are
- * primitives. Callers who bypass the dispatcher are trusted to pick the
- * right zone.
+ * Per-run scratchpad (ADR-0036): live in Redis, snapshotted to Postgres when the run ends.
+ * The dispatcher enforces zones; these helpers trust their caller.
  */
 
 import {
@@ -36,9 +26,6 @@ import {
   startScratchSpan,
 } from "./health";
 
-// Re-export the scratch health-span contract so it reaches the
-// `@alfred/assistant/execution` barrel, for the smoke's span-capture seam and for
-// callers that want the stable observation names.
 export {
   RUNTIME_SCRATCH_READ,
   RUNTIME_SCRATCH_WRITE,
@@ -47,11 +34,7 @@ export {
   _setScratchRuntimeSpanStarterForTests,
 } from "./health";
 
-/**
- * Validates the scratch *envelope* on read — `value`'s concrete type is the
- * caller's generic `T` (no runtime info for a type parameter), so a corrupt or
- * stale entry degrades to `null` instead of throwing mid-run.
- */
+/** Checks only the envelope; `value` is the caller's `T`. A bad entry reads as `null`. */
 const scratchEntrySchema = z.object({
   value: z.unknown(),
   zone: z.enum(SCRATCH_ZONES),
@@ -79,12 +62,7 @@ function resolveKey(target: ScratchTargetArgs): string {
     : subAgentKey(target.runId, target.subId, target.path);
 }
 
-/**
- * Serialize an entry and SET it with the scratch TTL. Returns the UTF-8 byte
- * size written, for health metadata. The un-instrumented core shared by
- * `writeScratch` and `promoteScratch` so a promote emits exactly one
- * `runtime.scratch.promote` span rather than nesting a spurious write span.
- */
+/** Returns the bytes written. No span, so a promote emits only its own span. */
 async function putEntry(fullKey: string, entry: ScratchEntry<unknown>): Promise<number> {
   const payload = JSON.stringify(entry);
   await client().set(fullKey, payload, "EX", SCRATCH_TTL_SECONDS);
@@ -92,12 +70,7 @@ async function putEntry(fullKey: string, entry: ScratchEntry<unknown>): Promise<
   return Buffer.byteLength(payload, "utf8");
 }
 
-/**
- * GET + envelope-parse. `raw` (null when the key is absent/expired) drives the
- * read span's hit/miss + byte size; `entry` is the parsed envelope, or null when
- * absent OR corrupt — `readScratch`'s existing degrade-to-null contract. The
- * un-instrumented core shared by `readScratch` and `promoteScratch`.
- */
+/** `entry` is null when the key is absent or corrupt; `raw` tells the two apart. No span. */
 async function fetchEntry(
   fullKey: string,
 ): Promise<{ raw: string | null; entry: ScratchEntry<unknown> | null }> {
@@ -111,11 +84,11 @@ async function fetchEntry(
 export interface WriteScratchArgs<T = unknown> {
   runId: string;
   zone: ScratchZone;
-  /** Required when `zone === 'scratch'`; ignored when `zone === 'shared'`. */
+  /** Required for the `scratch` zone. */
   subId?: string;
   path: string;
   value: T;
-  /** Identity stamped onto the entry; `'boss'` or a sub-agent id. */
+  /** `'boss'` or a sub-agent id. */
   writtenBy: string;
 }
 
@@ -176,16 +149,12 @@ export async function readScratch<T>(args: ReadScratchArgs): Promise<ScratchEntr
       status: "ok",
       metadata: {
         hit,
-        // A present-but-unparseable entry (corrupt/stale envelope) degrades to
-        // null — flag it so a read miss caused by corruption is distinguishable
-        // from a genuinely absent key.
         corrupt: hit && entry === null,
         byteSize: raw === null ? 0 : Buffer.byteLength(raw, "utf8"),
       },
     });
 
-    // SAFETY: entries are written through put() with the same envelope for T,
-    // and a corrupt envelope already degraded to entry === null above.
+    // SAFETY: entries are written with this envelope, and a corrupt one is already null.
     return entry === null ? null : (entry as ScratchEntry<T>);
   } catch (err) {
     span.end({ status: "error", level: "ERROR" });
@@ -198,18 +167,14 @@ export interface PromoteScratchArgs {
   fromSubId: string;
   fromPath: string;
   toSharedPath: string;
-  /** Identity stamped on the new `shared.*` entry; defaults to `'boss'`. */
+  /** Defaults to `'boss'`. */
   writtenBy?: string;
 }
 
 /**
- * Boss-only: copy a sub-agent's `scratch.{subId}.{fromPath}` value into
- * `shared.{toSharedPath}`. Read-then-write — not atomic across the two
- * keys, but the boss is the single writer of `shared.*` so there is no
- * reader/writer contention to worry about.
- *
- * Returns the new `shared.*` entry, or `null` if the source key was
- * missing or expired.
+ * Boss only: copy a sub-agent value into `shared.*`. Not atomic, but the boss is the only
+ * `shared.*` writer.
+ * Returns `null` if the source is missing.
  */
 export async function promoteScratch(
   args: PromoteScratchArgs,
@@ -226,9 +191,6 @@ export async function promoteScratch(
   const toKey = resolveKey(to);
   const writtenBy = args.writtenBy ?? "boss";
 
-  // Read the source and write the destination through the un-instrumented cores
-  // so the promote is a single `runtime.scratch.promote` span, not a promote
-  // wrapping a spurious read+write span pair.
   const span = startScratchSpan(
     buildScratchPromoteSpanInput({
       runId: args.runId,
@@ -266,21 +228,14 @@ export async function promoteScratch(
 }
 
 /**
- * Terminal-step snapshot: SCAN every `alfred:scratch:{runId}:*` key,
- * parse each entry, and upsert into `agent_run_context` keyed by
- * `(run_id, key)`. Idempotent — re-running on the same Redis state
- * produces the same Postgres state.
- *
- * Returns the number of keys persisted.
+ * Upsert every scratch key of the run into `agent_run_context`. Idempotent. Returns the row count.
  */
 export async function snapshotScratchToPostgres(runId: string): Promise<number> {
   const span = startScratchSpan(buildScratchSnapshotSpanInput({ runId, startedAt: new Date() }));
 
   try {
     const persisted = await snapshotScratchToPostgresCore(runId, (counts) => {
-      // Fold the terminal counts onto the span. Entry count is the PRD's headline
-      // durability signal; scanned/corrupt/zone split explain a count that looks
-      // wrong without ever emitting a raw key or value.
+      // Counts only; never a raw key or value.
       span.end({
         status: "ok",
         metadata: {
@@ -301,20 +256,13 @@ export async function snapshotScratchToPostgres(runId: string): Promise<number> 
 }
 
 interface SnapshotCounts {
-  /** Keys with a live value that we attempted to parse. */
   scanned: number;
-  /** Rows upserted into Postgres. */
   persisted: number;
-  /** Present-but-unparseable keys skipped (corrupt/stale envelope). */
   corrupt: number;
   sharedCount: number;
   scratchCount: number;
 }
 
-/**
- * The un-instrumented snapshot body. Invokes `onCounts` with the terminal tally
- * on success so the span closer stays out of the SCAN/upsert logic.
- */
 async function snapshotScratchToPostgresCore(
   runId: string,
   onCounts: (counts: SnapshotCounts) => void,
@@ -330,8 +278,7 @@ async function snapshotScratchToPostgresCore(
   let cursor = "0";
 
   do {
-    // SCAN COUNT is a hint, not a cap; 100 keeps each round small while
-    // limiting the number of round-trips for typical run sizes.
+    // COUNT is a hint, not a cap.
     const [next, batch] = await conn.scan(cursor, "MATCH", match, "COUNT", 100);
     cursor = next;
 
@@ -382,11 +329,7 @@ async function snapshotScratchToPostgresCore(
     return 0;
   }
 
-  // Chunked upsert. Each row carries 6 parameters; Postgres caps bind
-  // params at 65535 (`$1`..`$65535`), so a single VALUES list maxes out
-  // at ~10,922 rows. 1000 rows / 6000 params per chunk is well under
-  // that ceiling and keeps each statement's planning time bounded for
-  // any future high-fanout sub-agent topology.
+  // Postgres allows 65535 bind params per statement; 1000 rows stays well under.
   const CHUNK_SIZE = 1000;
 
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {

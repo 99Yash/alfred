@@ -27,7 +27,6 @@ describe("computeCost", () => {
   });
 
   test("bills uncached input at the input rate and output at the output rate", () => {
-    // 1M input, 0.5M output, no cache
     const cost = computeCost(PRICE, {
       inputTokens: 1_000_000,
       outputTokens: 500_000,
@@ -38,8 +37,7 @@ describe("computeCost", () => {
   });
 
   test("does NOT double-count cache reads: inputTokens already includes them", () => {
-    // inputTokens is the TOTAL prompt (1M), of which 800k are cache reads.
-    // Correct: 200k uncached @ $3 + 800k cached @ $0.30 = 0.6 + 0.24 = 0.84.
+    // inputTokens includes cache reads: 200k @ $3 + 800k @ $0.30 = 0.84.
     const cost = computeCost(PRICE, {
       inputTokens: 1_000_000,
       cachedInputTokens: 800_000,

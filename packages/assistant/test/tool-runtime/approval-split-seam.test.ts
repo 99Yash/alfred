@@ -22,21 +22,9 @@ import {
 } from "@alfred/assistant/execution";
 
 /**
- * Seam guard for the approvals 3-way split (slice 06 / ADR-0034).
- *
- * The approval machinery dissolved from one `approvals` module into three
- * owners: the delayed-job SCHEDULING surface into `tool-runtime` (a sink), the
- * wake/notify WORKERS into `agent` (execution), and workflow-activation into
- * `workflows`. This test pins the two things a move must not silently break:
- *
- *   1. The BullMQ queue IDENTITIES — the queue-name string constants and the
- *      dot-separated job-id format. If a re-spelling slipped in, an in-flight
- *      delayed job at deploy would land on a queue no worker reads and a parked
- *      run would never be woken or notified.
- *   2. Public REACHABILITY through the new owner indexes — the scheduling
- *      helpers resolve from the tool-runtime index, the workers from the agent
- *      index. `expireStaging` needs a live DB, so its transition stays covered
- *      by the `smoke-expiry` exerciser; here we only assert it is reachable.
+ * Approval queue names and job-id formats must not change: a delayed job in flight
+ * at deploy would land on a queue no worker reads. Also checks the owner indexes
+ * export the helpers. `smoke-expiry` covers `expireStaging` against a live DB.
  */
 describe("approvals split — queue identity + owner-index reachability", () => {
   test("queue-name constants are byte-identical to before the split", () => {

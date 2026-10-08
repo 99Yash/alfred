@@ -1,15 +1,8 @@
 /**
- * One-off measurement: how much do the `system.*` tool schemas cost, in tokens,
- * when sent to the model each turn?
- *
- * Uses the repo's OWN production accounting — `toolSchemaSize` from the
- * capability schema budget — the same serialization
- * ({ name, description, inputSchema }) and CHARS_PER_TOKEN estimate that feeds
- * the `runtime.tool_surface` Langfuse span. Bytes are exact; the token column is
- * the chars/4 heuristic the system budgets with.
- *
- * If a *valid* ANTHROPIC_API_KEY is available (env or apps/server/.env), it also
- * prints the real Anthropic `count_tokens` total for the full catalog and kernel.
+ * One-off: what the `system.*` tool schemas cost per turn. Uses production's
+ * `toolSchemaSize`, the same numbers as the `runtime.tool_surface` span. Bytes are exact;
+ * tokens are the chars/4 estimate. With a valid ANTHROPIC_API_KEY (env or
+ * apps/server/.env) it also prints Anthropic's real `count_tokens`.
  *
  * Run: pnpm --filter @alfred/assistant exec tsx src/scripts/count-system-tool-tokens.ts
  */
@@ -86,8 +79,7 @@ async function realCount(
 
     if (!res.ok) return null;
 
-    // SAFETY: Anthropic usage payloads put token counts under `input_tokens`;
-    // this diagnostic counter tolerates absence via `?.` at the caller.
+    // SAFETY: Anthropic puts the count in `input_tokens`; the caller handles absence with `?.`.
     return ((await res.json()) as { input_tokens: number }).input_tokens;
   };
 

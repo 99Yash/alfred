@@ -1,16 +1,9 @@
 /**
- * Smoke test for `withFallback` (ai-retry cascade) + served-model metering.
+ * Smoke test for `withFallback` and served-model metering: a healthy primary serves
+ * and is logged; a bad primary falls back to Gemini and the log names the served
+ * model; `route()` models report the primary's provider and modelId.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-fallback.ts
- *
- * Three checks:
- *   1. Normal path — a `withFallback`-wrapped healthy primary serves from
- *      Anthropic and `api_call_log` attributes anthropic/claude-sonnet-4-6.
- *   2. Fallback path — a primary bound to a nonexistent Anthropic model id
- *      hard-errors, the cascade switches to Gemini, the call still succeeds,
- *      and the log row re-attributes to the served Google model.
- *   3. The dispatchers (`route`/`route`) return retryable
- *      models that proxy provider/modelId to the primary.
  */
 
 import { anthropic } from "@ai-sdk/anthropic";
@@ -22,7 +15,7 @@ import { apiCallLog } from "@alfred/db/schemas";
 import { desc, eq } from "drizzle-orm";
 
 async function lastLogRow(idempotencyKey: string) {
-  // requestMeta.idempotencyKey is inside jsonb; cheap approach: latest llm rows
+  // The key is inside jsonb, so scan the latest llm rows.
   const rows = await db()
     .select()
     .from(apiCallLog)
@@ -36,7 +29,7 @@ async function lastLogRow(idempotencyKey: string) {
 async function main() {
   let failures = 0;
 
-  // --- 3. dispatcher identity proxying -------------------------------------
+  // 3. dispatcher identity proxying
   const boss = route("boss").model();
   const chatDeep = route("deep").model();
   console.log(`boss model       → ${boss.provider}/${boss.modelId}`);
@@ -47,7 +40,7 @@ async function main() {
     failures++;
   }
 
-  // --- 1. normal path -------------------------------------------------------
+  // 1. normal path
   const okKey = `smoke-fallback-ok-${process.pid}`;
   const okModel = withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-flash-lite"));
 
@@ -58,7 +51,7 @@ async function main() {
 
   console.log(`normal path      → text=${JSON.stringify(ok.text.trim())}`);
 
-  // --- 2. fallback path -----------------------------------------------------
+  // 2. fallback path
   const fbKey = `smoke-fallback-switch-${process.pid}`;
 
   const fbModel = withFallback(
@@ -74,7 +67,7 @@ async function main() {
   console.log(`fallback path    → text=${JSON.stringify(fb.text.trim())}`);
   console.log(`fallback served  → response.modelId=${fb.response?.modelId}`);
 
-  // give the fire-and-forget log writes a beat to land
+  // Let the fire-and-forget log writes land.
   await new Promise((r) => setTimeout(r, 1_500));
 
   const okRow = await lastLogRow(okKey);

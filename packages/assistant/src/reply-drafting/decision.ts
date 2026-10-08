@@ -5,15 +5,9 @@ import { eq } from "drizzle-orm";
 import { normalizeDecisionTraceKey } from "@alfred/assistant/execution";
 
 /**
- * Durable record of one reply-drafting decision (ADR-0098).
- *
- * Inside the `reply-drafting` workflow every terminal step calls
- * `ctx.trace("reply_drafting.decision", result)` and the executor persists it
- * with the step. The post-triage gate has no step of its own — it runs inside
- * triage's `classify` step, in another module's run — so its `no_draft` verdict
- * is written here, directly, under that triage run. Both paths land in
- * `agent_decision_traces` with the same kind, so "why did Alfred not draft a
- * reply to this thread" is one SQL query regardless of where it was decided.
+ * Durable record of a reply-drafting decision (ADR-0098). The workflow traces it per step;
+ * the post-triage gate has no step, so its `no_draft` is written here under the triage run.
+ * Both land in `agent_decision_traces` with one kind, so one query answers "why no draft".
  */
 export const REPLY_DRAFT_DECISION_TRACE_KIND = "reply_drafting.decision";
 
@@ -57,10 +51,8 @@ export async function recordReplyDraftDecision(args: {
     .onConflictDoNothing();
 }
 
-// Register the reply-drafting trace kind against execution's open registry from
-// inside this module's boundary (same mechanism as triage's
-// `sender-extraction-event.ts`). `ctx.trace("reply_drafting.decision", …)` now
-// accepts only a `ReplyDraftResult`; execution gains no import of this module.
+// Register the trace kind from this module, like triage's `sender-extraction-event.ts`,
+// so execution needs no import of it.
 declare module "@alfred/assistant/execution/decision-traces" {
   interface DecisionTraceRegistry {
     "reply_drafting.decision": ReplyDraftResult;

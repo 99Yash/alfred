@@ -11,11 +11,8 @@ import { shouldPublishToolStarted } from "@alfred/assistant/execution/workflows/
 import type { StepContext } from "@alfred/assistant/execution";
 
 /**
- * Unit tests for the #346 honesty guard. The invariant: a turn whose mutating
- * tool calls failed cannot finalize while still claiming success — the guard
- * injects a corrective note and forces a regeneration, exactly once per failure
- * (so it can't loop). Reads never fire. The tool classifier and event bus are
- * injected for most tests so no live registry or Redis is needed.
+ * A turn whose mutating tool call failed cannot finalize claiming success. The
+ * guard adds a note and regenerates once per failure, so it cannot loop. Reads never fire.
  */
 
 const RUN_ID = "run_1";
@@ -96,7 +93,6 @@ describe("guardUnreportedToolFailures", () => {
     assert.equal(result.kind, "next");
     assert.equal(result.kind === "next" ? result.nextStep : undefined, "chat-turn");
 
-    // Corrective [system] note appended, naming the failed tool.
     const transcript = result.kind === "next" ? result.transcript : undefined;
     assert.ok(transcript, "guard should append a corrective note to the transcript");
     const last = transcript.at(-1)!;
@@ -105,10 +101,9 @@ describe("guardUnreportedToolFailures", () => {
     assert.match(String(last.content), /sheets\.append_values/);
     assert.match(String(last.content), /did not complete/i);
 
-    // Failure recorded so the regenerated turn won't re-fire (no loop).
+    // Recorded, so the regenerated turn does not fire again.
     assert.deepEqual(state.notedFailureToolCallIds, ["tc_1"]);
 
-    // Premature false-success answer closed into narration + client advanced.
     assert.equal(state.assistantText, "");
     assert.equal(state.segmentIndex, 1);
     assert.deepEqual(
@@ -147,10 +142,7 @@ describe("guardUnreportedToolFailures", () => {
   });
 
   test("ignores a self-corrected invalid_input failure when a later call succeeded", async () => {
-    // The #346 follow-up bug: a first `gmail.send_draft` failed schema
-    // validation (never executed), the model corrected it and the resend was
-    // approved + executed. The guard must NOT fire — otherwise it denies a send
-    // that actually went through.
+    // The failed call never executed and the corrected resend did. Firing would deny a real send.
     const state = baseState({
       assistantText: "Done. Email sent.",
       toolCallsLog: [
@@ -423,11 +415,8 @@ describe("guardUnreportedToolFailures", () => {
 });
 
 /**
- * The chat boss is *told* DEFAULT_VOICE_PROMPT ("No em-dashes") but a prompt is
- * not a guarantee, so `sanitizeChatMessageFields` mechanically enforces it on
- * the two fields that are Alfred's own final prose — `content` and each
- * `narration` segment — the same way briefing's `compose.ts` does. Reasoning
- * (internal chain-of-thought) and tool previews (raw tool data) stay verbatim.
+ * A prompt is not a guarantee, so voice is enforced on `content` and `narration`.
+ * Reasoning and tool previews stay verbatim.
  */
 describe("sanitizeChatMessageFields — voice enforcement", () => {
   test("strips em-dashes from the final content", () => {

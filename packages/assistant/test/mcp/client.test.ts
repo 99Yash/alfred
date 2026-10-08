@@ -636,12 +636,8 @@ describe("McpRawClient catalog", () => {
       },
     ]);
 
-    // The refusal is scoped to the era that ACTS on the keyword: the SDK mirrors
-    // an `x-mcp-header` declaration into a `Mcp-Param-*` request header only in
-    // the modern era, so that is where a declaration is a header channel and
-    // where Alfred refuses it (ADR-0095). The legacy era makes the same
-    // declaration inert, which is what lets a pinned built-in read GitHub's
-    // catalog at all — 21 of its 28 read-only tools declare the keyword.
+    // Only the modern era mirrors `x-mcp-header` into a `Mcp-Param-*` header, so only it refuses (ADR-0095).
+    // The legacy era makes the declaration inert, which lets a pinned built-in read GitHub's catalog.
     modelSelectedHeader.negotiated = {
       ...modelSelectedHeader.negotiated,
       protocolEra: "post_2026_07_28",
@@ -718,11 +714,8 @@ describe("McpRawClient catalog", () => {
   });
 
   test("refuses $id/$anchor so a server cannot poison the shared validator cache", async () => {
-    // Ajv caches compiled validators by `$id`. A permissive schema registered
-    // under `$id: "x"` would otherwise be returned for any later tool reusing
-    // that `$id`, validating strict tools against the lenient cached schema and
-    // bypassing the exact-schema gate. Both tools declare the same `$id`, so the
-    // catalog must fail closed before either schema is compiled.
+    // Ajv caches validators by `$id`, so a lenient schema could validate a later strict tool with that `$id`.
+    // The catalog must fail closed before either schema compiles.
     const idCollision = new FakeProtocol([
       {
         tools: [
@@ -765,9 +758,7 @@ describe("McpRawClient catalog", () => {
   });
 
   test("orders tools by code point, not locale collation, for a portable revision", async () => {
-    // `localeCompare` is ICU/locale-dependent; code-point order is not. Names
-    // that collate ambiguously across locales ("Z" vs "a") must produce a fixed
-    // array order so the revision hash is stable across hosts.
+    // `localeCompare` depends on the locale; code-point order does not. The revision hash must match across hosts.
     const upperZ = tool("Zebra", { type: "object", properties: {} });
     const lowerA = tool("apple", { type: "object", properties: {} });
     const protocol = new FakeProtocol([{ tools: [lowerA, upperZ] }]);
@@ -1131,8 +1122,7 @@ describe("McpRawClient calls", () => {
     );
 
     const protocol = new FakeProtocol([{ tools: [outputTool] }]);
-    // Structured content that violates the declared schema → invalid_output,
-    // thrown AFTER the response crossed the wire.
+    // Output that violates the declared schema throws `invalid_output` after the response arrived.
     protocol.callResult = {
       content: [{ type: "text", text: "bad" }],
       structuredContent: { count: "not-a-number" },
@@ -1159,9 +1149,7 @@ describe("McpRawClient calls", () => {
       );
 
     assert.ok(err instanceof McpClientError && err.code === "invalid_output");
-    // The census rides on the error so the broker can persist provenance for an
-    // otherwise-ambiguous outcome (#541); `outputSchemaValidated: false` is the
-    // fact that explains the failure.
+    // The census rides on the error so the broker can persist provenance. `outputSchemaValidated: false` explains it.
     assert.deepEqual(err.provenance, {
       isError: false,
       hasStructuredContent: true,
@@ -1187,7 +1175,7 @@ describe("McpRawClient calls", () => {
     );
 
     const protocol = new FakeProtocol([{ tools: [outputTool] }]);
-    // Mixed content kinds — a returned resource_link is counted, never fetched.
+    // Mixed content: a returned resource_link is counted, never fetched.
     protocol.callResult = {
       content: [
         { type: "text", text: "hi" },
@@ -1245,8 +1233,7 @@ describe("McpRawClient calls", () => {
     );
 
     assert.equal(result.outcome, "tool_error");
-    // isError is captured, the output validator is skipped for a tool error, and the
-    // bounded model projection is flagged truncated on the provenance envelope.
+    // isError is captured, a tool error skips the output validator, and the truncated projection is flagged.
     assert.equal(result.provenance.isError, true);
     assert.equal(result.provenance.outputSchemaValidated, false);
     assert.equal(result.provenance.truncated, true);

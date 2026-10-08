@@ -1,14 +1,6 @@
 /**
- * User-events Pub/Sub fan-out.
- *
- * Pairs with the outbox relay: the relay publishes onto Redis on
- * `user-events:u:<userId>`; this module subscribes (refcounted per user on
- * this replica) and delivers frames to local SSE listeners through an
- * EventEmitter so multiple browser tabs sharing a server replica share one
- * Redis channel.
- *
- * Mirrors the structure of `replicache-events.ts` deliberately — same
- * subscribe/publish/refcount discipline so future maintainers see one pattern.
+ * Redis fan-out of outbox frames to local SSE listeners, one channel per user.
+ * Same subscribe and refcount rules as `replicache-events.ts`.
  */
 import { EventEmitter } from "node:events";
 import type IORedis from "ioredis";
@@ -38,12 +30,7 @@ let subscriber: IORedis | undefined;
 
 const userRefCounts = new Map<string, number>();
 
-/**
- * Which users this replica actually holds a Redis subscription for, tracked
- * apart from the listener refcount — see the same pair in
- * `replicache-events.ts` for why conflating the two made a single failed
- * SUBSCRIBE permanently deaf.
- */
+/** Confirmed subscriptions, kept apart from the refcount (see `replicache-events.ts`). */
 const subscribed = new Set<string>();
 
 const subscribing = new Set<string>();
@@ -69,13 +56,7 @@ function ensureSubscribed(userId: string): void {
   );
 }
 
-/**
- * Re-subscribe every user this replica still has listeners for — see the same
- * function in `replicache-events.ts` for why the connection owner has to do
- * this. In short: the `"subscriber"` kind sets `autoResubscribe: false` because
- * ioredis's own re-subscribe is uncaught and exits the process, and a rejected
- * subscribe has no other recovery point.
- */
+/** Runs on `ready`: the `"subscriber"` kind turns off ioredis auto-resubscribe. */
 function resubscribeAll(): void {
   subscribed.clear();
   subscribing.clear();
@@ -106,9 +87,7 @@ export async function initUserEventsBus(): Promise<void> {
 
   try {
     publisher = createRedisConnection("command");
-    // `"subscriber"`, not `"command"` — mirrors `replicache-events.ts`;
-    // ioredis's uncaught re-subscribe on a subscribing connection is a
-    // process-killer, so the kind removes it and this module re-subscribes.
+    // `"subscriber"`: ioredis's own resubscribe has no `.catch`, so `ready` does it instead.
     subscriber = createRedisConnection("subscriber");
 
     subscriber.on("ready", resubscribeAll);
@@ -123,9 +102,7 @@ export async function initUserEventsBus(): Promise<void> {
 
         if (!isFrame(parsed)) return;
         emitter.emit(eventFor(userId), parsed);
-      } catch {
-        // malformed JSON — drop
-      }
+      } catch {}
     });
 
     console.info("[user-events] Redis pub/sub bus initialized");
@@ -152,7 +129,7 @@ export async function closeUserEventsBus(): Promise<void> {
   subscriber = undefined;
 }
 
-/** Called by the outbox relay after marking a row published. */
+/** The outbox relay calls this before it marks the row published. */
 export async function publishFrameToUser(userId: string, frame: EventFrame): Promise<void> {
   const body = JSON.stringify(frame);
 
@@ -162,7 +139,7 @@ export async function publishFrameToUser(userId: string, frame: EventFrame): Pro
     return;
   }
 
-  // Single-replica fallback — still deliver to local SSE listeners.
+  // No Redis: deliver to local listeners only.
   emitter.emit(eventFor(userId), frame);
 }
 

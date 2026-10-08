@@ -3,14 +3,7 @@ import { useMemo, type ComponentType, type ReactNode } from "react";
 import { AppButton, AppCard, AppSelect, type AppSelectOption } from "~/components/ui/v2";
 import { useBriefingSchedule } from "~/lib/replicache/use-briefing-schedule";
 
-/**
- * Briefing delivery schedule — timezone + morning/evening hour pickers.
- *
- * Writes the canonical `timezone` preference plus the briefing-hour rows
- * (`briefing.delivery_hour`, `briefing.evening_hour`).
- * Lives under the background-agent toggles since "when" only matters once a
- * briefing slot is switched on.
- */
+/** Timezone and morning/evening hour pickers for briefing delivery. */
 export function BriefingScheduleSection() {
   const {
     timezone,
@@ -32,9 +25,7 @@ export function BriefingScheduleSection() {
     [],
   );
 
-  // `resolvedOptions().timeZone` is the browser's IANA zone — offer a one-tap
-  // fix when the stored value is still the server default (UTC) or otherwise
-  // differs, since the default is almost never what the user wants.
+  // Offer a one-tap fix when the stored zone differs from the browser's (often the UTC default).
   const deviceTimezone = useMemo(() => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
@@ -190,7 +181,7 @@ function ScheduleRow({
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
-// Static icons passed as props — hoisted so they aren't reallocated each render.
+// Hoisted so the props stay stable.
 const retryIcon = <RefreshCw size={13} aria-hidden />;
 
 const clockIcon = <Clock size={14} aria-hidden />;
@@ -202,14 +193,14 @@ const HOUR_FORMAT = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
-/** "7:00 AM", "6:00 PM" — a stable label for an hour-of-day 0–23. */
+/** "7:00 AM" for hour 7. */
 function hourLabel(hour: number): string {
   const d = new Date(Date.UTC(2000, 0, 1, hour, 0, 0));
 
   return HOUR_FORMAT.format(d);
 }
 
-/** Compact display label for an IANA zone: "Asia/Kolkata · GMT+5:30". */
+/** "Asia/Kolkata · GMT+5:30" */
 function labelForZone(zone: string): string {
   const pretty = zone.replace(/_/g, " ");
   const offset = shortOffset(zone);
@@ -217,7 +208,7 @@ function labelForZone(zone: string): string {
   return offset ? `${pretty} · ${offset}` : pretty;
 }
 
-/** Just the short zone token for inline helper text ("IST", "GMT+5:30", "UTC"). */
+/** "IST", "GMT+5:30", or "UTC". */
 function shortZone(zone: string): string {
   return shortOffset(zone) ?? zone;
 }
@@ -235,10 +226,7 @@ function shortOffset(zone: string): string | null {
   }
 }
 
-/**
- * Full IANA zone list for the picker. `Intl.supportedValuesOf` omits the
- * "UTC" alias (the very gap that broke briefings), so prepend it explicitly.
- */
+/** All IANA zones. `Intl.supportedValuesOf` omits "UTC", so we prepend it. */
 function useTimezoneOptions(): ReadonlyArray<AppSelectOption> {
   return useMemo(() => {
     let zones: string[];

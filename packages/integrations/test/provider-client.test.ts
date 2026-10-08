@@ -6,19 +6,8 @@ import { defineProviderClient } from "../src/shared/provider-client";
 import { isRetrySafeMethod } from "../src/shared/retry";
 
 /**
- * `defineProviderClient` is the configured-client seam every provider builds on.
- * These pin the two hazards it absorbs — hazards a shared seam must enforce in
- * its types rather than describe in its docstring:
- *
- *   1. transient retry follows the METHOD, not the provider's retry envelope, so
- *      a POST is never silently re-sent;
- *   2. `bodyPolicy` is a REQUIRED config field, so a body-sensitive provider joins
- *      by stating its posture rather than hand-rolling the omit one — and cannot
- *      inherit a leak by omitting the field.
- *
- * Plus the mechanics the seam owns: fresh auth per request, pinned query that a
- * caller cannot override, and JSON parsed as `unknown`. It stubs the global
- * `fetch`, so it runs offline.
+ * Retry follows the method, so a POST is never re-sent. `bodyPolicy` is required, so no provider inherits a leak.
+ * Also: fresh auth per request, a pinned query the caller cannot override, and JSON as `unknown`.
  */
 
 const realFetch = globalThis.fetch;
@@ -52,7 +41,6 @@ function client(overrides: Partial<Parameters<typeof defineProviderClient>[0]> =
     provider: "example",
     baseUrl: "https://api.example.com",
     resolve: async () => ({ headers: { Authorization: "Bearer tok" } }),
-    // A zero backoff keeps the retry assertions fast without changing the count.
     retry: { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 0 },
     bodyPolicy: "summarize",
     ...overrides,

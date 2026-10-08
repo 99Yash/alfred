@@ -5,23 +5,12 @@ import { fetchWithRetry, type RetryPolicy } from "../shared/retry";
 import { googleJson } from "./http";
 
 /**
- * Thin Google Drive v3 REST client. Same shape as `gmail.ts` /
- * `calendar.ts` — direct JSON calls, no `googleapis` dependency.
- *
- * The granted scope is now full `drive` (see `GOOGLE_SCOPE.drive.full` in `@alfred/contracts`),
- * but this client's surface is still read-only: "find a file" (search by
- * Drive query), "what is this file" (metadata), and "read its contents" —
- * `exportFile` for Google-native types (Docs/Sheets/Slides → text) and
- * `downloadFile` for already-textual uploads (alt=media). Write tools ride
- * a separate registration (ADR-0043); the broadened scope just unblocks them.
- *
- * Callers pass an already-fresh access token — get it from
- * `getFreshAccessToken(credentialId)` first.
+ * Drive v3 client, read-only: search, metadata, and text contents.
+ * Callers pass a token from `getFreshAccessToken(credentialId)`.
  */
 
 const API_BASE = "https://www.googleapis.com/drive/v3/files";
 
-/** Fields we ask Drive to return per file — keeps the payload tight and predictable. */
 const FILE_FIELDS = "id,name,mimeType,modifiedTime,size,webViewLink,iconLink,owners(emailAddress)";
 
 const fileSchema = z.object({
@@ -29,7 +18,7 @@ const fileSchema = z.object({
   name: z.string().optional(),
   mimeType: z.string().optional(),
   modifiedTime: z.string().optional(),
-  /** Bytes, as a string (Drive returns int64 as a string). Absent for Google-native files. */
+  /** Bytes as a string (Drive sends int64 as a string). Absent for Google-native files. */
   size: z.string().optional(),
   webViewLink: z.string().optional(),
   iconLink: z.string().optional(),
@@ -45,17 +34,12 @@ const listFilesResponseSchema = z.object({
 
 export interface ListFilesArgs {
   accessToken: string;
-  /**
-   * Drive query string, e.g. `name contains 'budget'` or
-   * `mimeType = 'application/vnd.google-apps.document'`. Omit to list
-   * recent files. See https://developers.google.com/drive/api/guides/search-files.
-   */
+  /** Drive query, e.g. `name contains 'budget'`. Omit to list recent files. */
   q?: string | undefined;
   pageSize?: number | undefined;
   pageToken?: string | undefined;
-  /** e.g. `modifiedTime desc` (the default), `name`, `folder`. */
+  /** Default `modifiedTime desc`. */
   orderBy?: string | undefined;
-  /** Caller-driven abort (collect/expansion deadline). Combined with the transport timeout. */
   signal?: AbortSignal | undefined;
 }
 
@@ -64,7 +48,6 @@ export interface ListFilesResult {
   nextPageToken?: string | undefined;
 }
 
-/** Search/list files the user can see. */
 export async function listFiles(
   args: ListFilesArgs,
   retry: RetryPolicy | "none" = "none",
@@ -77,7 +60,7 @@ export async function listFiles(
   if (args.pageToken) url.searchParams.set("pageToken", args.pageToken);
   url.searchParams.set("orderBy", args.orderBy ?? "modifiedTime desc");
   url.searchParams.set("fields", `nextPageToken,files(${FILE_FIELDS})`);
-  // Cover shared drives too, not just "My Drive".
+  // Include shared drives.
   url.searchParams.set("supportsAllDrives", "true");
   url.searchParams.set("includeItemsFromAllDrives", "true");
 
@@ -95,11 +78,9 @@ export async function listFiles(
 export interface GetFileArgs {
   accessToken: string;
   fileId: string;
-  /** Caller-driven abort (collect/expansion deadline). Combined with the transport timeout. */
   signal?: AbortSignal | undefined;
 }
 
-/** Fetch one file's metadata. */
 export async function getFile(
   args: GetFileArgs,
   retry: RetryPolicy | "none" = "none",
@@ -111,15 +92,14 @@ export async function getFile(
   return getJson(fileSchema, url.toString(), args.accessToken, retry, args.signal);
 }
 
-/** Hard cap on inlined file contents so a large file can't blow up the caller's context. */
+/** Cap so a large file cannot flood the caller's context. */
 const MAX_CONTENT_BYTES = 200_000;
 
 export interface ExportFileArgs {
   accessToken: string;
   fileId: string;
-  /** Export MIME type, e.g. `text/plain`, `text/csv`, `text/markdown`. Defaults to `text/plain`. */
+  /** Default `text/plain`. */
   mimeType?: string | undefined;
-  /** Caller-driven abort (collect/expansion deadline). Combined with the transport timeout. */
   signal?: AbortSignal | undefined;
 }
 
@@ -127,14 +107,10 @@ export interface FileContentResult {
   fileId: string;
   mimeType: string;
   text: string;
-  /** True when the content was cut off at {@link MAX_CONTENT_BYTES}. */
   truncated: boolean;
 }
 
-/**
- * Export a Google-native file (Doc/Sheet/Slide) to a text MIME type.
- * Fails for binary uploads — use {@link downloadFile} for those.
- */
+/** Google-native files (Docs, Sheets, Slides) only. Use {@link downloadFile} for uploads. */
 export async function exportFile(
   args: ExportFileArgs,
   retry: RetryPolicy | "none" = "none",
@@ -150,15 +126,10 @@ export async function exportFile(
 export interface DownloadFileArgs {
   accessToken: string;
   fileId: string;
-  /** Caller-driven abort (collect/expansion deadline). Combined with the transport timeout. */
   signal?: AbortSignal | undefined;
 }
 
-/**
- * Download a non-native file's bytes as text (`alt=media`). Meaningful only
- * for textual uploads (.txt, .csv, .json, …); binary files come back as
- * mojibake. Capped at {@link MAX_CONTENT_BYTES}.
- */
+/** Textual uploads only (`alt=media`); a binary file comes back as mojibake. */
 export async function downloadFile(
   args: DownloadFileArgs,
   retry: RetryPolicy | "none" = "none",
@@ -177,7 +148,6 @@ export async function downloadFile(
   return { fileId: args.fileId, mimeType: mimeType ?? "application/octet-stream", text, truncated };
 }
 
-/** GET and parse at the seam — a raw response cannot reach a caller. */
 const getJson = <T>(
   schema: z.ZodType<T>,
   url: string,

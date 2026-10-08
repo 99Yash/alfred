@@ -6,45 +6,18 @@ import { getActiveBearerCredential } from "../shared/credentials";
 import { SENTRY_API } from "./client";
 
 /**
- * Fresh provider-state confirmation for a Sentry issue (ADR-0103) — the proof
- * behind `INTEGRATION_OBJECT_DEFS.sentry.issue.closesAskFrom`.
- *
- * The store orders by OBSERVATION time and the lifecycle payload carries no
- * transition version, so stored `resolved` alone may never suppress an ask: a
- * delayed `issue_resolved` arriving after an `issue_unresolved` would falsely
- * restore it. This read kills that hazard structurally — closure stops
- * depending on delivery order and depends on live truth instead. The one
- * consumer is the briefing drop (`dropClosedLoops` in
- * `@alfred/assistant/briefings`). A synchronous reader cannot call this, which
- * is exactly why the kind declares `closesAskFrom: "live_confirmation"`: the
- * registry then reads as closing nothing for such a reader, instead of leaving
- * it to assert a closure it has no proof of.
- *
- * The read goes UNDER the stored org slug, never `GET /organizations/` (no
- * slug): an internal-integration token cannot list organizations (see the
- * module comment in `./client`).
+ * Live check that a Sentry issue is closed (ADR-0103), behind `closesAskFrom: "live_confirmation"`.
+ * Webhooks carry no version, so a late `issue_resolved` can arrive after `issue_unresolved`.
+ * Stored state alone must never close an ask.
  */
 
 /**
- * Sentry's REST issue statuses. This is NOT the webhook lifecycle vocabulary
- * the object-state reducer writes: REST says `ignored` where the webhook says
- * `archived`, so a pass-through would leave the reducer's `archived` arm dead
- * on this path and make a live `ignored` indistinguishable from a read
- * failure.
- *
- * A `z.enum` rather than `z.string()` for the reason that matters to the
- * caller: if Sentry ever renames a status, the boundary parse FAILS and the
- * briefing's keep-on-failure path keeps the ask and warns. A `z.string()`
- * would instead map the unknown token to "not closed", so the feature would
- * close nothing, forever, with no signal.
+ * REST says `ignored` where the webhook says `archived`.
+ * A `z.enum`, so a renamed status fails the parse and the briefing keeps the ask.
  */
 const SENTRY_REST_STATUSES = ["resolved", "unresolved", "ignored"] as const;
 
-/**
- * REST status to stored native token, stated one member at a time. `satisfies`
- * over the REST vocabulary, so a status added to the list above does not
- * compile until this map says which lifecycle token it means.
- */
+/** `satisfies` forces a mapping for every REST status. */
 const NATIVE_STATE_BY_REST_STATUS = {
   resolved: "resolved",
   unresolved: "unresolved",
@@ -56,11 +29,7 @@ const liveSentryIssueSchema = z.object({
   status: z.enum(SENTRY_REST_STATUSES),
 });
 
-/**
- * One live issue, in the vocabulary the object-state registry reads. The REST
- * status is translated here, at the boundary that owns the REST payload, so no
- * consumer holds both vocabularies at once.
- */
+/** Uses the stored lifecycle vocabulary, not the REST one. */
 export interface LiveSentryIssue {
   id: string;
   nativeState: SentryIssueNativeState;
@@ -74,9 +43,7 @@ export async function readLiveSentryIssue(args: {
 }): Promise<LiveSentryIssue> {
   const cred = await getActiveBearerCredential(args.userId, "sentry", args.accountRef);
 
-  // The org slug the connect flow stored (`sentry-routes.ts`); the token is
-  // scoped to this one organization, so it is the only namespace this read
-  // may run under.
+  // The token is scoped to this org and cannot list organizations.
   const organization = cred.accountLabel?.trim();
 
   if (!organization) {
@@ -95,10 +62,7 @@ export async function readLiveSentryIssue(args: {
 
   const issue = liveSentryIssueSchema.parse(raw);
 
-  // A syntactically valid response for a different issue is ambiguous, not a
-  // reading of the requested one. Keep the identity check at the provider
-  // boundary so every caller fails closed instead of borrowing another issue's
-  // lifecycle state.
+  // Fail closed rather than borrow another issue's state.
   if (issue.id !== args.issueId) {
     throw new Error("[sentry.issue-read] response issue id did not match the requested issue");
   }

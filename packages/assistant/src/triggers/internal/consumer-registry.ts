@@ -4,11 +4,8 @@ import type { DomainEvent, PublishedEvent, TriggerConsumer } from "..";
 const consumers = new Map<string, TriggerConsumer>();
 
 /**
- * A registered handler or the consumer registry itself was missing at dispatch
- * time — a boot-wiring failure, not a runtime reaction failure. It must fail the
- * publish even from a `best-effort` consumer, so a broken boot path surfaces on
- * retry instead of being silently swallowed. Boot errors that flow through this
- * seam extend this base; the seam recognizes them by `instanceof`.
+ * A boot-wiring failure, not a reaction failure: a handler or the registry was missing.
+ * It fails the publish even for `best-effort`, so it shows up on retry. The seam checks `instanceof`.
  */
 export abstract class TriggerConsumerBootError extends Error {}
 
@@ -50,10 +47,7 @@ export async function publishToConsumers(event: DomainEvent): Promise<PublishedE
       continue;
     }
 
-    // A `best-effort` consumer's own failure must never fail the publish (and so
-    // the job that awaited it) — EXCEPT a boot-wiring failure, which must still
-    // reject so a broken boot path surfaces on retry. A `propagate` consumer's
-    // failure is collected and re-thrown exactly as any consumer error always was.
+    // `best-effort` failures never fail the publish, except a boot error. `propagate` failures rethrow.
     if (consumer?.mode === "best-effort" && !(outcome.reason instanceof TriggerConsumerBootError)) {
       acceptedConsumers += 1;
       console.warn(

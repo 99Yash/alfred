@@ -10,20 +10,7 @@ import { inArray, like } from "drizzle-orm";
 import { resolveFeatureFlags, setPreference } from "../src/settings";
 import { dbBackedSkip } from "./support/db-backed";
 
-/**
- * DB-backed integration test for feature-flag resolution after it folded into
- * the `settings` module (campaign item 02). Pins the invariant the move
- * preserves: given the four `feature.*` preference keys, `resolveFeatureFlags`
- * returns the same four booleans the deleted `features` module returned —
- * UNSET means ON, and only an explicit `false` / `"false"` / `0` means OFF —
- * and the resolver is reachable only through the `settings` interface
- * (`../src/settings`), never a deep `../features/flags` path.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable Postgres with the
- * migrated schema (the local dev DB). Skipped otherwise so the pure-function
- * suite still runs without a database. It seeds throwaway `test-flags-*` users
- * and deletes them (cascade clears their preferences) on teardown.
- */
+/** `resolveFeatureFlags`: an unset flag is on; only `false`, `"false"`, or `0` turns it off. */
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-flags-";
@@ -42,7 +29,7 @@ async function seedUser(): Promise<string> {
 
 describe("settings feature flags (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
-    // Clear any rows a previously-crashed run left behind.
+    // Clear rows a crashed run left behind.
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
@@ -73,7 +60,7 @@ describe("settings feature flags (DB-backed)", { skip: SKIP }, () => {
     await setPreference({ userId, key: FEATURE_FLAG_KEYS.morningBriefing, value: false });
     await setPreference({ userId, key: FEATURE_FLAG_KEYS.eveningRecap, value: "false" });
     await setPreference({ userId, key: FEATURE_FLAG_KEYS.emailTagging, value: 0 });
-    // actionItems is left UNSET and must stay ON.
+    // actionItems is unset, so it stays on.
 
     const flags = await resolveFeatureFlags(userId);
     assert.deepEqual(flags, {

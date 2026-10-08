@@ -1,22 +1,6 @@
 /**
- * Compactor system prompt (ADR-0035).
- *
- * Load-bearing constraints encoded here:
- *   - 2000-token output cap (also enforced via `maxOutputTokens` on the call).
- *   - Drop verbatim text; keep IDs, decisions, every approved/rejected/failed
- *     action with its outcome, every sub-agent finding.
- *   - Preserve mid-run user intent statements VERBATIM under `<user_directives>`.
- *     This is the load-bearing slot: without it, the boss re-asks for approval
- *     after every compaction. Superseded directives stay in chronological order
- *     with metadata marking the stale one; the quoted text remains untouched.
- *   - Each `<action>` is one short line (one element per tool call, attributes
- *     only — no nested text).
- *
- * The XML schema mirrors ADR-0035 exactly; reordering or renaming sections
- * here will silently break any downstream tooling that reads the handoff
- * (currently: none; eventually: a future audit/replay surface).
- *
- * The section names are guarded by the compaction handoff smoke/unit checks.
+ * Compactor system prompt (ADR-0035). `<user_directives>` keeps the user's words verbatim;
+ * without it the boss asks for approval again after each compaction.
  */
 export const COMPACTOR_SYSTEM_PROMPT = `You are the transcript compactor for the Alfred boss agent.
 

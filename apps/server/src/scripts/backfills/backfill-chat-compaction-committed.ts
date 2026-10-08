@@ -1,14 +1,10 @@
 /**
- * One-time existing-thread scan for chat compaction (#370).
+ * Scan chat threads that predate live compaction scheduling (#370). Without it, an
+ * old thread stays uncompacted until the user writes in it again.
  *
- * New successful turns maintain replay estimates and enqueue compaction in the
- * live workflow. Threads that predate that wiring need one bounded scan or they
- * remain unprotected until the user talks in them again.
- *
- * Dry by default. `--commit` requires an explicit `--user-id=...` and
- * invokes the production scheduler, which writes the replay estimate and only
- * enqueues threads above its canonical threshold. Work is rate-limited with
- * `--delay-ms` (default 250) and bounded with `--limit` (default 250).
+ * Dry by default. `--commit` requires `--user-id=...` and calls the prod scheduler,
+ * which writes the replay estimate and enqueues only threads above its threshold.
+ * `--delay-ms` (default 250) and `--limit` (default 250) bound the work.
  *
  *   node dist/scripts/backfills/backfill-chat-compaction-committed.js --user-id=user_123
  *   node dist/scripts/backfills/backfill-chat-compaction-committed.js --user-id=user_123 --commit

@@ -40,13 +40,9 @@ export default function AuthedAppShell({
   sidebarMode,
   threadViewModel,
 }: AuthedAppShellProps) {
-  // Single per-session SSE connection that drives React Query invalidations
-  // (inbox.updated -> ["me","inbox"]). Mounted in the authenticated shell so
-  // public routes do not import the event or sync graph.
+  // Here, not in AppShell, so public routes do not load the event and sync code.
   useEventBridge();
 
-  // Live chat threads (Replicache-synced), grouped by recency for the sidebar
-  // and flattened into "Recent chats" rows for the ⌘K palette.
   const chatThreads = useChatThreads();
   const realThreads = useMemo(() => groupChatThreads(chatThreads), [chatThreads]);
   const realRecentThreads = useMemo(() => recentThreadsForPalette(chatThreads), [chatThreads]);
@@ -55,10 +51,7 @@ export default function AuthedAppShell({
   const sidebarApprovalsBadge = threadViewModel?.approvalsBadge;
   const paletteRecentThreads = threadViewModel?.recent ?? realRecentThreads;
 
-  /* Rename / pin / delete run as Replicache mutators (optimistic patch, then
-   * the next pull confirms), through the same hook the chat header uses.
-   * Wired only on real routes — a preview row is an inert demo id that no
-   * mutator should touch, so the whole surface goes inert instead. */
+  /* Not on preview routes: their rows are demo ids no mutator should touch. */
   const realThreadActions = useThreadActions(activeThread);
   const threadActions = threadViewModel ? undefined : realThreadActions;
 
@@ -83,10 +76,7 @@ export default function AuthedAppShell({
               "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
             )}
           >
-            {/* Floating notice layer: tucked just under the header (h-14 = 56px)
-             * with an extra 8px gap (top-16 = 64px) so the card shadow does not
-             * clip the header border. Pointer-transparent so it overlays the chat
-             * surface without shifting its layout; only the cards catch clicks. */}
+            {/* Notices sit 8px under the header; only the cards take clicks. */}
             <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex flex-col items-center gap-2 px-3">
               <ScopeGapBanner />
               <GithubReconnectBanner />
@@ -106,15 +96,7 @@ export default function AuthedAppShell({
   );
 }
 
-/**
- * Bucket synced chat threads into the sidebar's Pinned / Today / Yesterday /
- * Earlier groups. Pinned threads float into their own group regardless of age;
- * the rest fall into date buckets by last activity (falling back to creation
- * time for a thread with no messages yet). `useChatThreads` already sorts
- * newest-first, so each bucket preserves that order. Empty buckets render
- * nothing (the group block skips itself), so a user with no threads gets a
- * clean sidebar.
- */
+/** Pinned, Today, Yesterday, Earlier, by last activity, else creation time. */
 function groupChatThreads(threads: ReadonlyArray<SyncedChatThread>) {
   const newEntries = (): ThreadEntry[] => [];
 
@@ -153,14 +135,9 @@ function groupChatThreads(threads: ReadonlyArray<SyncedChatThread>) {
   return groups;
 }
 
-/** How many threads the ⌘K palette surfaces before the user starts typing. */
 const PALETTE_THREAD_LIMIT = 12;
 
-/**
- * Flatten the newest threads into the palette's "Recent chats" rows with a
- * relative `when` label (Today / Yesterday / "May 30"). `useChatThreads`
- * already sorts newest-first, so a plain slice keeps the most recent.
- */
+/** The newest threads as palette rows. The input is already sorted newest first. */
 function recentThreadsForPalette(threads: ReadonlyArray<SyncedChatThread>): RecentThread[] {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);

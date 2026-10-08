@@ -18,18 +18,8 @@ import {
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * Retention for `events_outbox` (#533), asserted against a real database.
- *
- * Two properties carry the whole contract, and the seeded rows are built so
- * that each row differs from another in exactly one dimension:
- *
- *   - age decides deletion (old vs. fresh, both published), and
- *   - `published_at IS NULL` vetoes deletion whatever the age (old published
- *     vs. old unpublished).
- *
- * An assertion on a global count would prove neither, because the reaper is not
- * user-scoped and a shared database holds other rows. Every case reads back the
- * seeded ids by name.
+ * `events_outbox` retention (#533): age decides deletion, and an unpublished row is never deleted.
+ * Read back seeded ids, not a global count: the reaper is not user-scoped.
  */
 
 const SKIP = dbBackedSkip("database");
@@ -42,7 +32,7 @@ interface Seeded {
   oldUnpublished: number;
 }
 
-/** One row per case, differing from its counterpart in a single dimension. */
+/** Each row differs from its counterpart in one dimension. */
 async function seed(userId: string, now: Date): Promise<Seeded> {
   const expired = new Date(now.getTime() - OUTBOX_RETENTION_MS - HOUR_MS);
   const inWindow = new Date(now.getTime() - OUTBOX_RETENTION_MS + HOUR_MS);
@@ -50,11 +40,11 @@ async function seed(userId: string, now: Date): Promise<Seeded> {
   const rows = await db()
     .insert(eventsOutbox)
     .values([
-      // Past the cutoff and published — the only row that may be deleted.
+      // The only deletable row.
       { userId, kind: "chat.delta", payload: {}, createdAt: expired, publishedAt: expired },
-      // Published like the first row; younger than the cutoff by two hours.
+      // Two hours younger than the cutoff.
       { userId, kind: "chat.delta", payload: {}, createdAt: inWindow, publishedAt: inWindow },
-      // The same age as the first row, but never delivered.
+      // Same age, never published.
       { userId, kind: "chat.delta", payload: {}, createdAt: expired, publishedAt: null },
     ])
     .returning({ id: eventsOutbox.id });
@@ -68,16 +58,7 @@ async function seed(userId: string, now: Date): Promise<Seeded> {
   };
 }
 
-/**
- * A signal that reports "not aborted" for its first `reads` reads and aborted
- * after.
- *
- * A plain `AbortController` cannot express "abort between batch 1 and batch 2"
- * without a race, and the placement of the check is precisely what is under
- * test: a check placed *before* the loop, or omitted, changes how many rows the
- * pass deletes. Only `aborted` is overridden, so every other member still
- * behaves like the real signal it proxies.
- */
+/** Not aborted for the first `reads` reads, then aborted. An `AbortController` would race. */
 function signalAbortingAfterReads(reads: number): AbortSignal {
   const controller = new AbortController();
   let seen = 0;
@@ -164,9 +145,7 @@ describe("events_outbox retention", { skip: SKIP }, () => {
     const userId = await seedUser();
     const seeded = await seed(userId, now);
 
-    // Same rows, but a clock two hours later puts `freshPublished` past the
-    // cutoff too. If the cutoff were a hard-coded date, or `now` were ignored,
-    // this row would survive and the case would fail.
+    // A clock two hours later puts `freshPublished` past the cutoff, so `now` must be honored.
     await reapOutboxOnce(new Date(now.getTime() + 2 * HOUR_MS));
 
     const alive = await survivors([seeded.freshPublished, seeded.oldUnpublished]);
@@ -174,21 +153,12 @@ describe("events_outbox retention", { skip: SKIP }, () => {
     assert.equal(alive.has(seeded.oldUnpublished), true);
   });
 
-  /**
-   * The paging bounds — the property the module docstring leads with, and the one
-   * that had no coverage.
-   *
-   * `batchSize` and `maxBatches` are lowered here rather than seeded around: at
-   * production values the cap only becomes observable at 100,001 rows. The bounds
-   * being parameters is what makes these cases cheap; the defaults are still the
-   * contract, and the case below pins them.
-   */
+  /** Small bounds here, because the production cap shows only at 100,001 rows. */
   test("a pass stops at maxBatches * batchSize and leaves the rest for the next pass", async () => {
     const now = new Date();
     const userId = await seedUser();
     const expired = new Date(now.getTime() - OUTBOX_RETENTION_MS - HOUR_MS);
 
-    // 10 deletable rows, and a pass allowed to take only 6 of them.
     const rows = await db()
       .insert(eventsOutbox)
       .values(
@@ -209,24 +179,20 @@ describe("events_outbox retention", { skip: SKIP }, () => {
     assert.equal(deleted, 6, "3 batches of 2 must stop at 6, not drain all 10");
     const alive = await survivors(ids);
     assert.equal(alive.size, 4, "the remainder must survive the capped pass");
-    // Oldest-first, because the page is ordered by id. A backlog must drain in
-    // insertion order rather than leaving arbitrary holes.
+    // Oldest first: a backlog drains in insertion order.
     assert.deepEqual(
       [...alive].sort((a, b) => a - b),
       ids.slice(6),
     );
 
-    // The next pass picks up where this one stopped — that is what makes the cap
-    // a spread rather than a leak.
+    // The next pass continues, so the cap spreads the work instead of leaking rows.
     const second = await reapOutboxOnce(now, { batchSize: 2, maxBatches: 3 });
     assert.equal(second, 4);
     assert.equal((await survivors(ids)).size, 0);
   });
 
   test("the shipped bounds are 5,000 rows over 20 batches", () => {
-    // A pass caps at 100,000 rows an hour. If either constant moves, the pool
-    // note and the timing claim in the module docstring need re-checking, so the
-    // numbers are pinned rather than merely read from the export.
+    // Pinned: a change needs a recheck of the module docstring's pool and timing notes.
     assert.equal(REAP_BATCH_SIZE, 5_000);
     assert.equal(MAX_BATCHES_PER_PASS, 20);
   });
@@ -251,16 +217,12 @@ describe("events_outbox retention", { skip: SKIP }, () => {
 
     const ids = rows.map((r) => r.id);
 
-    // Aborted before the first batch: nothing may be deleted at all.
     const upfront = new AbortController();
     upfront.abort();
     assert.equal(await reapOutboxOnce(now, { batchSize: 2, signal: upfront.signal }), 0);
     assert.equal((await survivors(ids)).size, 6, "an already-aborted pass must not delete");
 
-    // Aborted *after* the first batch. `reapOutboxOnce` reads `signal.aborted`
-    // once per iteration, so a signal that reports false exactly once proves the
-    // check sits between batches — the thing whose absence made the reaper's
-    // documented shutdown protection false.
+    // One false read proves the abort check sits between batches.
     const deleted = await reapOutboxOnce(now, {
       batchSize: 2,
       signal: signalAbortingAfterReads(1),
@@ -275,9 +237,7 @@ describe("events_outbox retention", { skip: SKIP }, () => {
     const userId = await seedUser();
     const seeded = await seed(userId, now);
 
-    // Both calls start before either awaits a round trip, so the guard is
-    // exercised deterministically. Without it both passes would select the same
-    // id page and the loser would hold a pool connection to delete nothing.
+    // Both calls start before any await, so the guard is hit every time.
     const [first, second] = await Promise.all([reapOutboxOnce(now), reapOutboxOnce(now)]);
 
     assert.equal(second, 0, "the second caller must yield — the guard is on the entrypoint");
@@ -295,8 +255,7 @@ describe("events_outbox retention", { skip: SKIP }, () => {
     await stopOutboxReaper();
     assert.equal(isOutboxReaperRunning(), false);
 
-    // A restart must work: the process-level bridge starts and stops this on
-    // every boot, and an AbortSignal cannot be un-aborted.
+    // The bridge restarts this, and an AbortSignal cannot be un-aborted.
     startOutboxReaper();
     assert.equal(isOutboxReaperRunning(), true);
     await stopOutboxReaper();

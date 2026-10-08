@@ -1,18 +1,6 @@
 /**
- * The localStorage schema registry — the single, easily-accessed place that
- * declares every known key and its shape. The engine (`lib/storage`) reads from
- * here; features import the typed accessors from `lib/storage`, not this file.
- *
- * One home per schema:
- *   - A schema that describes a *domain entity* (used beyond storage) lives in
- *     its domain module and is *referenced* here — e.g. `weatherSnapshotSchema`
- *     from `lib/weather`. That module must not import `lib/storage`, or the
- *     registry → domain → storage chain becomes an import cycle.
- *   - A schema for a value that exists *only* as a persisted preference
- *     (theme, auth hint, sound) has no other home — it's declared inline here.
- *
- * Every schema MUST carry a `.default(...)` so reads have a guaranteed fallback
- * and never return `undefined`.
+ * Every localStorage key and its schema. Each schema needs a `.default(...)`.
+ * A domain schema imported here must not import `lib/storage`, or it makes a cycle.
  */
 
 import { chatModelTierSchema } from "@alfred/contracts";
@@ -20,7 +8,6 @@ import { z } from "zod";
 import { replayStateSchema } from "~/lib/events/replay-state";
 import { weatherSnapshotSchema } from "~/lib/weather";
 
-/** Runtime names for every registered localStorage entry. */
 export const LOCAL_STORAGE_KEY = {
   APP_THEME: "app-theme",
   CHAT_TIER: "alfred.chat.tier",
@@ -38,71 +25,35 @@ export const LOCAL_STORAGE_KEY = {
 } as const;
 
 export const LOCAL_STORAGE_SCHEMAS = {
-  /** App theme preference (see `components/ui/v2/theme`). */
   [LOCAL_STORAGE_KEY.APP_THEME]: z.enum(["system", "dark", "light"]).default("system"),
-  /**
-   * Chat model-tier preference (Auto vs Deep), sticky across reloads and thread
-   * switches. Single-user, so it's a local preference — no synced user-row field
-   * yet (a multi-device follow-up). Derives its shape from the contract's
-   * `chatModelTierSchema` so it can never drift from the server-side tier union.
-   */
+  /** Chat tier (Auto or Deep). Local only; not synced across devices. */
   [LOCAL_STORAGE_KEY.CHAT_TIER]: chatModelTierSchema.default("standard"),
-  /**
-   * Best-effort "is the visitor signed in" hint for first paint. A UX hint,
-   * never a security boundary. `AppShell` mirrors the resolved session here;
-   * `/` and the login page read it to avoid flashing a marketing or sign-in
-   * screen at a returning user. The `false` default is the safe, fast choice
-   * for the common signed-out visitor, and for SSR and private mode.
-   */
+  /** First-paint "signed in" hint. Not a security boundary. */
   [LOCAL_STORAGE_KEY.MAYBE_AUTHED]: z
     .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())
     .default(false),
-  /**
-   * Best-effort "this user has finished onboarding" hint for first paint, so a
-   * returning user's authed routes render immediately instead of blanking
-   * behind the session → onboarding round-trip chain. A UX hint, never a
-   * security boundary — `AppShell` both writes and reads it. The `false`
-   * default keeps the column blank until the query answers, which is the
-   * correct behavior for a genuinely new user.
-   */
+  /** First-paint "onboarded" hint. Not a security boundary. */
   [LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE]: z
     .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())
     .default(false),
-  /** User ID for which the onboarding hint above is valid — prevents stale
-   * `true` from a previous account (DB wipe → new signup) from keeping a
-   * genuinely new user out of `/onboarding`. */
+  /** The user the onboarding hint belongs to. */
   [LOCAL_STORAGE_KEY.ONBOARDING_USER_ID]: z.string().nullable().default(null),
-  /**
-   * Replay state for the SSE event stream. `cursor` advances monotonically;
-   * active chat runs retain their own earlier recovery barriers. The numeric
-   * preprocess in `replayStateSchema` migrates the original scalar anchor.
-   */
+  /** SSE replay cursor and run barriers. */
   [LOCAL_STORAGE_KEY.EVENT_REPLAY_STATE]: replayStateSchema,
-  /** When the run-complete chime plays (see `lib/chat/use-run-complete`). */
   [LOCAL_STORAGE_KEY.CHAT_SOUND_PREFERENCE]: z
     .enum(["always", "unfocused", "mute"])
     .default("unfocused"),
-  /**
-   * Has the user seen the one-time "Alfred can notify you when a reply lands"
-   * card? Shown once on the first finished turn, then never again (see
-   * `lib/chat/use-run-complete`).
-   */
+  /** The one-time chime hint was shown. */
   [LOCAL_STORAGE_KEY.CHAT_NOTIFY_ONBOARDED]: z
     .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())
     .default(false),
-  /** Inline chat artifact panel width in px (see `routes/-chat/use-artifact-panel`). */
+  /** Width in px. */
   [LOCAL_STORAGE_KEY.ARTIFACT_PANEL_WIDTH]: z.number().default(460),
-  /** Expanded app sidebar width in px (see `lib/shell/app-sidebar`). */
+  /** Width in px. */
   [LOCAL_STORAGE_KEY.SIDEBAR_WIDTH]: z.number().default(264),
-  /** Whether the inline app sidebar is collapsed to the icon rail. */
   [LOCAL_STORAGE_KEY.SIDEBAR_MINIMIZED]: z.boolean().default(false),
-  /** Collapsed thread group labels in the app sidebar. */
   [LOCAL_STORAGE_KEY.SIDEBAR_COLLAPSED_GROUPS]: z.array(z.string()).default([]),
-  /**
-   * Last weather snapshot, cached across reloads so the rail paints without a
-   * fetch (see `hooks/use-weather`). `fetchedAt` is epoch-ms; the default's `0`
-   * reads as already-stale, so an empty cache resolves to "no snapshot".
-   */
+  /** `fetchedAt` is epoch ms; the default `0` reads as stale. */
   [LOCAL_STORAGE_KEY.WEATHER_CACHE]: z
     .object({ data: weatherSnapshotSchema.nullable(), fetchedAt: z.number() })
     .default({ data: null, fetchedAt: 0 }),

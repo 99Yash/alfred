@@ -10,19 +10,8 @@ import { resolveTimezone, setPreference } from "../src/settings";
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
- * DB-backed integration test for `settings.resolveTimezone` — the single
- * preference-reading zone resolver, relocated out of the pure `time`
- * (`timezone`) module. Pins the ADR-0082 canonical-first precedence at its new
- * home so a legacy `briefing.timezone`-only user can never silently regress to
- * UTC (the #229 bug): the resolved zone is the canonical `timezone` preference,
- * then the legacy `briefing.timezone` fallback, then `DEFAULT_USER_TIMEZONE`
- * (UTC). This is the same precedence `briefing.resolveBriefingPreferences`
- * applies, because both call the one shared `firstValidTimezone` primitive.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable Postgres with the
- * migrated schema (the local dev DB). Skipped otherwise so the pure-function
- * suite still runs without a database. It seeds throwaway `test-resolve-tz-*`
- * users and deletes them (cascade clears their preferences) on teardown.
+ * `settings.resolveTimezone` order (ADR-0082): `timezone`, then legacy `briefing.timezone`,
+ * then `DEFAULT_USER_TIMEZONE`. Regression #229: a legacy-only user fell back to UTC.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -42,7 +31,7 @@ async function seedUser(): Promise<string> {
 
 describe("settings.resolveTimezone (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
-    // Clear any rows a previously-crashed run left behind.
+    // Clear rows a crashed run left behind.
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));

@@ -13,25 +13,11 @@ import {
 } from "./store";
 
 /**
- * Triage-tag write surface (rfc-triage-tags.md).
- *
- * The user-override write itself is a Replicache server mutator (see
- * `serverMutators.triageTagOverride`) — it commits inside the push
- * transaction. This module owns the two pieces that must NOT live in that
- * transaction:
- *
- *  - {@link reconcileThreadLabel} — the ONE Gmail label-writer (Invariant 6).
- *    It is the extracted body of the `email-triage` workflow's `apply-label`
- *    step: hold the per-thread advisory lock, read the now-canonical
- *    `email_triage` row, apply its category to the thread's canonical message,
- *    strip every sibling's alfred label, persist `applied_label_id`. Both the
- *    classifier workflow and the override relabel job call this, so the two
- *    writers can never drift.
- *  - {@link enqueueTriageRelabel} — fire-and-forget enqueue of the relabel job,
- *    called AFTER the push transaction commits (mirrors `POLICY_BUST_MUTATORS`).
+ * The Gmail side of triage tags (`docs/rfc-triage-tags.md`). The user override is
+ * a Replicache mutator; Gmail writes cannot run inside its push transaction, so
+ * {@link reconcileThreadLabel} is the one Gmail label writer (Invariant 6).
  */
 
-/** Outcome of a single thread relabel — the closed result the job logs. */
 export type ReconcileResult =
   | {
       applied: true;
@@ -51,15 +37,11 @@ export type ReconcileResult =
 export interface ReconcileThreadLabelArgs {
   userId: string;
   sourceThreadId: string;
-  /** Workflow-only fallback for legacy rows with no canonical document pointer. */
+  /** Workflow only: for legacy rows with no document pointer. */
   fallbackDocumentId?: string;
 }
 
-/**
- * The collaborators {@link reconcileThreadLabel} reaches for. Defaulted to the
- * real store/integration functions; the relabel test overrides them to drive
- * the stale-message-id (404) path without a live Gmail account or DB.
- */
+/** Tests override these to drive the 404 path without Gmail or a DB. */
 export interface ReconcileThreadLabelDeps {
   getTriage: typeof getTriage;
   loadTriageContext: typeof loadTriageContext;
@@ -69,7 +51,6 @@ export interface ReconcileThreadLabelDeps {
   setAppliedLabelId: typeof setAppliedLabelId;
   setReconciledTarget: typeof setTriageReconciledTarget;
   withThreadLock: typeof withTriageThreadLock;
-  /** #278 gate: skip the Gmail label write entirely in non-prod / when disabled. */
   mailboxWritesEnabled: typeof gmailMailboxWritesEnabled;
 }
 
@@ -86,12 +67,8 @@ const DEFAULT_DEPS: ReconcileThreadLabelDeps = {
 };
 
 /**
- * Converge the thread's Gmail label to its current `email_triage.category`,
- * under the per-thread advisory lock. Idempotent: re-reads the row and
- * reproduces the same single tag regardless of caller ordering.
- *
- * Shared by the workflow's `apply-label` step and the async relabel job so
- * classifier tags and user overrides cannot drift.
+ * Converge the thread's Gmail label to the row's category, under the thread lock.
+ * Idempotent. Used by both the classify workflow and the override relabel job.
  */
 export async function reconcileThreadLabel(
   args: ReconcileThreadLabelArgs,
@@ -99,10 +76,7 @@ export async function reconcileThreadLabel(
 ): Promise<ReconcileResult> {
   const d = withDefaults(DEFAULT_DEPS, deps);
 
-  // #278: dev and prod share one real Gmail account. A non-prod instance must
-  // not mutate the mailbox (writing/stripping labels), or it fights prod over
-  // the shared thread state. The canonical `email_triage` row is already
-  // committed by the classify step — only the outbound Gmail write is skipped.
+  // Dev and prod share one Gmail account, so non-prod must not write labels (#278).
   if (!d.mailboxWritesEnabled()) {
     const row = await d.getTriage(args.userId, args.sourceThreadId);
 
@@ -129,9 +103,7 @@ export async function reconcileThreadLabel(
       return { applied: false, reason: "document-not-found", category: row.category };
     }
 
-    // Apply the row's category to one Gmail message and collapse the thread to a
-    // single tag (strip alfred labels off every sibling). Returns the applied
-    // label + the sibling count for the result.
+    // Label one message and strip alfred labels from its siblings.
     const labelTarget = async (ctx: TriageDocumentContext) => {
       const siblings = await d.findThreadSiblings({
         credentialId: ctx.credentialId,
@@ -156,12 +128,8 @@ export async function reconcileThreadLabel(
     try {
       outcome = await labelTarget(target);
     } catch (err) {
-      // Gmail reassigns/collapses message ids when a sent copy merges into a
-      // thread, so the stored `documents.source_id` can be dead — the modify
-      // 404s and (pre-#277) the triage label silently never landed. Re-resolve
-      // to the newest live inbound message in the thread and retry once.
-      // (Sibling 404s are already swallowed inside applyTriageLabel, so a 404
-      // surfacing here is the *target* message.)
+      // A sent copy merging into the thread can kill the stored message id (#277).
+      // Retry once on the newest live inbound. Sibling 404s never reach here.
       if (!isHttpError(err) || err.status !== 404) throw err;
 
       const [live] = await d.findNewestLiveInbound({
@@ -176,9 +144,7 @@ export async function reconcileThreadLabel(
           : null;
 
       if (!liveTarget) {
-        // Nothing live to fall back to — surface a durable signal (the worker
-        // logs this at error level) rather than leaving applied_label_id
-        // silently NULL and the thread looking untagged (#277).
+        // Log loudly rather than leave the thread silently untagged (#277).
         console.error(
           `[triage.relabel] thread=${args.sourceThreadId} target message ` +
             `${target.document.sourceId} is gone (Gmail 404) and no live inbound ` +
@@ -190,16 +156,13 @@ export async function reconcileThreadLabel(
 
       target = liveTarget;
       repointed = true;
-      // A second 404 here (e.g. the live message died in a race) bubbles to the
-      // job for a normal BullMQ retry rather than being swallowed.
+      // A second 404 goes to the job for a normal BullMQ retry.
       outcome = await labelTarget(liveTarget);
     }
 
     const appliedDocId = target.document.id;
 
     if (repointed) {
-      // Persist BOTH the re-resolved document pointer and the applied label so
-      // the row reflects the message that was actually labeled (#277).
       await d.setReconciledTarget(
         args.userId,
         args.sourceThreadId,

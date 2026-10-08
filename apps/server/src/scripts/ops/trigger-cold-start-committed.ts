@@ -1,21 +1,9 @@
 /**
- * COMMITTED cold-start trigger (one-off, 2026-06-12).
+ * Start a `cold-start-research` run for a user whose signup cold-start produced
+ * nothing. It enqueues onto the prod BullMQ queue, so the prod worker runs it like a signup.
  *
- * Fires the v2 `cold-start-research` workflow for a target user whose original
- * signup cold-start never produced data (the v1 Sonar path died with the
- * Perplexity billing). Enqueues a real run onto the SAME BullMQ queue the prod
- * `server` worker consumes, so the boss-seed → parallel web_search aspects →
- * synthesis → extract → persist pipeline executes in the worker exactly as a
- * signup would. Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod
- * with plain `node dist/scripts/ops/trigger-cold-start-committed.js` — the prod
- * image has no `tsx`/loose `@alfred/*` sources.
- *
- * Lifetime-once is enforced by the partial unique index on
- * `agent_runs.dedup_key`; failed/cancelled rows are excluded, so a dead v1 run
- * doesn't block this. We still cancel any *active* prior cold-start run first so
- * a re-invocation (or a stuck row) can't trip `23505`.
- *
- * Dry by default. Pass `--commit` to actually cancel-prior + enqueue.
+ * The unique index on `agent_runs.dedup_key` allows one active run, so this cancels
+ * an active prior run first. Bundled for prod. Dry by default; `--commit` cancels and enqueues.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/ops/trigger-cold-start-committed.js
@@ -36,7 +24,7 @@ import { registerBuiltinWorkflows } from "~/builtins";
 import { toMessage } from "@alfred/contracts";
 import { closeScriptResources } from "../script-runtime";
 
-/** Mailboxes to (re-)research. Override with `COLD_START_EMAILS` (comma-sep). */
+/** Override with comma-separated `COLD_START_EMAILS`. */
 const TARGET_EMAILS = (process.env.COLD_START_EMAILS ?? "yashgouravkar@gmail.com")
   .split(",")
   .map((s) => s.trim())
@@ -47,7 +35,6 @@ const COMMIT = process.argv.includes("--commit");
 async function processUser(u: { userId: string; email: string }): Promise<void> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
 
-  // Inspect any prior cold-start runs so the preview is informative.
   const prior = await db()
     .select({ id: agentRuns.id, status: agentRuns.status })
     .from(agentRuns)
@@ -68,8 +55,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     return;
   }
 
-  // Clear any ACTIVE prior run so the partial unique index admits the insert.
-  // (Failed/cancelled rows are already excluded from the index.)
+  // Cancel an active prior run, or the unique index rejects the insert.
   if (active.length > 0) {
     const stomped = await db()
       .update(agentRuns)
@@ -101,7 +87,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 async function main() {
   await warmPool();
   registerBuiltinWorkflows(); // createRun resolves builtins from the in-process registry
-  registerReplicachePokeAdapter(); // enqueued runs may emit pokes; adapter must be registered
+  registerReplicachePokeAdapter(); // enqueued runs may emit pokes
 
   console.log(
     `# Committed cold-start trigger — mode=${COMMIT ? "COMMIT" : "DRY"} | targets=${TARGET_EMAILS.join(", ")}`,
@@ -125,11 +111,11 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })
   .finally(async () => {
-    // Flush + close so enqueued BullMQ jobs are durably persisted before exit.
+    // Close the queue so enqueued jobs are persisted before exit.
     await closeScriptResources(closeAgentQueue);
   });

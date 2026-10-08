@@ -13,19 +13,10 @@ import {
   type GuardedFetchRequester,
 } from "../hosted-endpoint";
 
-/**
- * The two columns an authorization reads, typed as the server-definition row
- * projection so a caller passes `connection.server` (or its `Pick`) and cannot
- * swap the URL and the origin. The endpoint is a fact of the server definition,
- * not of the connection instance.
- */
+/** The server-definition columns an authorization reads. */
 export type McpEndpointConnection = Pick<McpServer, "endpointUrl" | "endpointOrigin">;
 
-/**
- * What the owner of a connection is willing to wait for one request. The raw
- * client passes its `requestTimeoutMs` limit so the socket-level policy of the
- * pinned dispatcher cannot undercut the deadline the client declares.
- */
+/** The client's `requestTimeoutMs`, so the dispatcher cannot cut a request off earlier. */
 export interface McpEndpointNetworkPolicy {
   requestTimeoutMs: number;
 }
@@ -68,33 +59,15 @@ export interface McpAuthorizedProtocol {
 export interface McpAuthorizedEndpoint {
   readonly oauth: McpAuthorizedOAuth;
   readonly protocol: McpAuthorizedProtocol;
-  /**
-   * Release the socket boundary. Every owner closes its protocol client BEFORE
-   * this, so nothing legitimate is in flight when it runs, and it must never
-   * wait on a stream the owner has already abandoned.
-   */
+  /** Owners close the protocol client first, so this never waits on an abandoned stream. */
   close(): Promise<void>;
 }
 
-/**
- * An owner-supplied API key as the transport reads it: the placement is read
- * once when the authorization is built, and the secret is opened once per
- * request and never cached by Alfred.
- *
- * Named "reader" to stay distinct from the contract's wire credential
- * `McpApiKeyAuth` (`@alfred/contracts`), which carries the plaintext value
- * exactly once at the create door. This is the per-request transport seam a
- * persisted connection gets instead: it opens the sealed row on demand.
- */
+/** A stored API key for the transport. Not `McpApiKeyAuth`, which carries plaintext once at create. */
 export interface McpApiKeyCredentialReader {
-  /** Placement, read once when the endpoint authorization is built. Not secret. */
+  /** Read once per authorization. Not secret. */
   placement(): Promise<McpApiKeyPlacement>;
-  /**
-   * The opened secret, carried as a {@link Redacted} so the default string paths
-   * (interpolation, `JSON.stringify`, a log) cannot expose it; read once per
-   * HTTP request, never cached by Alfred. The only `.unwrap()` is at the wire,
-   * where the placement is set.
-   */
+  /** Opened once per request and never cached. Unwrapped only at the wire. */
   secret(): Promise<Redacted<string>>;
 }
 
@@ -129,14 +102,7 @@ export interface HostedMcpEndpointAuthorizerDependencies {
   requester?: GuardedFetchRequester;
 }
 
-/**
- * The guard stack for a URL with no stored origin behind it: a brand-new
- * endpoint the owner supplied (#1004), or an OAuth discovery hop.
- *
- * Exported because the generic add door applies exactly this stack before it
- * writes a row, and a second copy there is a second thing to keep in step with
- * the pinned rules every later connect enforces.
- */
+/** Guards for a URL with no stored origin: a new owner endpoint or an OAuth discovery hop. */
 export function validatePublicHttpsEndpoint(input: unknown): URL {
   return validatePinnedHttpsEndpoint(input, null);
 }
@@ -237,9 +203,7 @@ function createAuthorizedOAuth(
       );
     }
 
-    // The SDK's OAuth flow has no deadline of its own and the shared dispatcher
-    // no longer bounds body time (the protocol stream needs it off), so the
-    // request budget is applied here, where the request is one-shot.
+    // The SDK OAuth flow has no deadline and the dispatcher has no body timeout, so bound it here.
     return guardedFetch(input, withRequestDeadline(init, network.requestTimeoutMs));
   };
 
@@ -254,23 +218,9 @@ function createAuthorizedOAuth(
 }
 
 /**
- * Wrap one requester so an owner-supplied API key rides every protocol request
- * in its configured placement.
- *
- * The placement is resolved once, here, when the authorization is built; only
- * the secret is read per request. The wrapper runs where `createGuardedFetch`
- * calls its requester — that is, AFTER the per-hop `validate(...)` on the
- * request URL — so the URL the guard checks is the owner's URL and never
- * Alfred's injected parameter. The two arms place the secret differently and
- * neither mutates the guard's own `Headers`: the header arm clones them, and the
- * query arm rewrites only the URL.
- *
- * BOTH arms attach only when the request already targets the pinned origin.
- * `createGuardedFetch` pins protocol traffic to that origin, so an off-origin hop
- * is refused before this runs; the shared check keeps the key off any future
- * caller that wires this wrapper without that pin. It is one test ABOVE the arm
- * split, so a later arm inherits it rather than having to remember it — the same
- * check on the query arm alone left the header arm attaching unconditionally.
+ * Add the API key to each protocol request. Runs after the guard validates the URL,
+ * so the guard sees the owner's URL. The key attaches only on the pinned origin,
+ * checked once above both placement arms.
  */
 async function withApiKey(
   requester: GuardedFetchRequester,
@@ -309,11 +259,8 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
   ): Promise<McpAuthorizedEndpoint> {
     const endpoint = validatePinnedHttpsEndpoint(connection.endpointUrl, connection.endpointOrigin);
 
-    // Headers and connect are bounded by the connection's own request budget.
-    // Body time is deliberately unbounded: the SDK holds a long-lived
-    // list-change stream on this dispatcher, and undici's body timeout measures
-    // silence between chunks, so any finite value here kills an idle
-    // subscription and marks a healthy connection failed.
+    // No body timeout: undici measures silence between chunks, which would kill
+    // the idle list-change stream.
     const dispatcher = createPinnedDispatcher({
       ...(this.dependencies.lookup ? { lookup: this.dependencies.lookup } : {}),
       timeouts: {
@@ -325,9 +272,7 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
 
     const requester = this.dependencies.requester ?? dispatcherRequester(dispatcher);
 
-    // Only the PROTOCOL requester is wrapped. OAuth discovery below builds its
-    // own guarded fetch from the unwrapped requester, so the key can never ride
-    // a discovery or token request to the authorization server.
+    // Only protocol requests get the key; OAuth requests use the unwrapped requester.
     const protocolRequester = apiKey
       ? await withApiKey(requester, apiKey, endpoint.origin)
       : requester;
@@ -348,9 +293,7 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
           expectedOrigin: endpoint.origin,
         }),
       }),
-      // `destroy`, not `close`: a graceful close waits for in-flight requests,
-      // and with body time unbounded a stuck stream would hold `disconnect()`
-      // forever. Owners close the protocol first, so nothing legitimate remains.
+      // `destroy`, not `close`: with no body timeout, a stuck stream would block `close` forever.
       close: () => (closeFlight ??= dispatcher.destroy()),
     });
   }
@@ -358,17 +301,7 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
 
 let sharedAuthorizer: HostedMcpEndpointAuthorizer | undefined;
 
-/**
- * The one endpoint authorizer for the process.
- *
- * It carries no per-connection state, but it does build an undici dispatcher
- * and a pinned DNS lookup on every `authorize` call, and every MCP door needs
- * one: the live client factory, the OAuth start/callback routes, and the
- * generic add probe. One lazy instance instead of one `new` per module.
- *
- * It sits here rather than in `runtime.ts` because `runtime.ts` imports
- * `manager.ts`, and `manager.ts` is one of the callers.
- */
+/** The process-wide authorizer. Lives here, not in `runtime.ts`, to avoid a cycle with `manager.ts`. */
 export function getMcpEndpointAuthorizer(): HostedMcpEndpointAuthorizer {
   return (sharedAuthorizer ??= new HostedMcpEndpointAuthorizer());
 }

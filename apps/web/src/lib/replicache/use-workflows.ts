@@ -6,19 +6,13 @@ import type { ReplicacheSnapshot } from "./client";
 import { useReplicacheStatus } from "./context";
 
 export interface WorkflowsState {
-  /** All synced workflows (built-in + user-authored), name-sorted. */
+  /** Built-in and user-authored, sorted by name. */
   workflows: SyncedWorkflow[];
   loading: boolean;
   error: string | null;
   retry: () => void;
 }
 
-/**
- * Live view of the user's workflows (m13 Phase 8). Built-ins and
- * user-authored rows both sync; the caller decides which to show where.
- * Rows that fail schema validation are dropped rather than crashing the
- * page.
- */
 export function useWorkflows(): WorkflowsState {
   const { rep, loadError, retry } = useReplicacheStatus();
   const [snapshot, setSnapshot] = useState<ReplicacheSnapshot<SyncedWorkflow[]> | null>(null);
@@ -47,14 +41,13 @@ export function useWorkflows(): WorkflowsState {
 
 export interface WorkflowState {
   workflow: SyncedWorkflow | null;
-  /** Persist an edit; the server confirms on the next pull. */
+  /** No-op until the row has synced, because it needs `rowVersion`. */
   updateWorkflow: (args: Omit<WorkflowUpdateArgs, "slug" | "expectedRowVersion">) => Promise<void>;
   loading: boolean;
   error: string | null;
   retry: () => void;
 }
 
-/** Live view of a single workflow by slug, with an update mutator bound to it. */
 export function useWorkflow(slug: string): WorkflowState {
   const { rep, loadError, retry } = useReplicacheStatus();
 

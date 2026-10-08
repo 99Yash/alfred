@@ -1,15 +1,6 @@
 /**
- * Every event source's delivery health for one user (#976, ADR-0097 item 5,
- * ADR-0100).
- *
- * It sits in `connections/`, beside the credential rows and the ingestion state
- * that every verdict is read from, and not in `automation/`, where its first
- * reader lives. Two readers want it now: workflow trigger readiness, and the
- * inbound delivery alert that rides the integration-status read. `automation ->
- * connections` is an edge the module graph already carries, and the reverse is
- * not, so a fold placed in `automation/` would have forced the alert reader to
- * fold a strict subset of the sources instead. That subset is exactly how
- * Gmail's lapsed watch went unread.
+ * Delivery health for every event source of one user (#976, ADR-0097 item 5, ADR-0100).
+ * Lives in `connections/` so both readiness and the delivery alert can import it.
  */
 
 import {
@@ -30,19 +21,8 @@ import { readInboundTriggerHealth } from "./ingress/health";
 import type { EventDeliveryHealth } from "./ingress/descriptor";
 
 /**
- * Delivery health for one event source, at the grain its `EVENT_SOURCE_ENTRIES`
- * entry declares (#976).
- *
- * - `source`: one verdict per user.
- * - `account`: `healthOf(row)` answers for one connected account of
- *   `accounts.integration`. It is a function of the row, not a map keyed by
- *   account id, so the resolver's lookup cannot miss: the resolver selects the
- *   row from the same credential rows the reader received, and a row the
- *   reader never saw still gets that reader's verdict for "no delivery state".
- *
- * The grain sits on the value, so the reader of the map handles both; a
- * `(source, accountRef)` key would need a sentinel ref for every source-grain
- * entry.
+ * Health at the grain the source's entry declares.
+ * `healthOf` is a function of the row, not a map by account id, so a lookup cannot miss.
  */
 export type EventSourceHealth =
   | { grain: "source"; health: EventDeliveryHealth }
@@ -52,10 +32,8 @@ export type EventSourceHealth =
       healthOf(row: ProviderAvailability): EventDeliveryHealth;
     };
 
-/** One entry per `EventSource`, as `readEventSourceHealth` fills it. */
 export type EventSourceHealthMap = Readonly<Record<EventSource, EventSourceHealth>>;
 
-/** Read one account's delivery verdict from the state the reader gathered. */
 export type AccountDeliveryHealthReader = (
   userId: string,
   rows: CredentialRowsByProvider,
@@ -69,16 +47,11 @@ type SourceDeliveryHealthReader = (
 ) => Promise<EventDeliveryHealth>;
 
 /**
- * What the reader table may hold for one in-process source, decided by the
- * grain its entry declares. `healthy_by_construction` is the explicit claim
- * that this process publishes the source's events and there is no subscription
- * to lose; it is only admissible at source grain, and every in-process source
- * must claim one of the shapes, so a new source with a watch that can lapse
- * cannot read healthy by omission.
+ * `healthy_by_construction`: this process publishes the events, so nothing can lapse.
+ * Only allowed at source grain. Every in-process source must pick a shape.
  */
 type InProcessHealthReader<S extends InProcessEventSource> =
-  // Distributive on purpose: `InProcessHealthReader<InProcessEventSource>` must be
-  // the union of each source's own admissible shapes, not one shape for the union.
+  // Distributive on purpose: a union of per-source shapes.
   S extends InProcessEventSource
     ? EventSourceEntryOf<S>["delivery"]["grain"] extends "account"
       ? { grain: "account"; accounts: EventDeliveryAccounts; read: AccountDeliveryHealthReader }
@@ -89,8 +62,7 @@ function accountGrain<S extends AccountGrainEventSource & InProcessEventSource>(
   source: S,
   read: AccountDeliveryHealthReader,
 ): InProcessHealthReader<S> {
-  // SAFETY: `S` is constrained to account-grain sources, so the conditional
-  // resolves to the account arm; TypeScript does not reduce it while `S` is a parameter.
+  // SAFETY: `S` is account-grain, so this is the account arm; TS cannot reduce a generic conditional.
   return {
     grain: "account",
     accounts: eventDeliveryAccounts(source),
@@ -113,13 +85,7 @@ function inProcessReader(
 
 const HEALTHY: EventDeliveryHealth = { healthy: true };
 
-/**
- * One delivery-health entry per `EventSource` for one user (#976, ADR-0097
- * item 5). Inbound sources come from their descriptors' `subscription.health`
- * at source grain; in-process sources come from the reader table above. A new
- * inbound source appears here with its descriptor and no edit to readiness; a
- * new in-process source does not compile until the table names its reader.
- */
+/** Inbound sources read their descriptor; in-process sources read `IN_PROCESS_HEALTH`. */
 export async function readEventSourceHealth(
   userId: string,
   rows: CredentialRowsByProvider,
@@ -148,20 +114,11 @@ export async function readEventSourceHealth(
     }),
   );
 
-  // SAFETY: `Object.fromEntries` types its keys as `string`; the pairs are built
-  // from EVENT_SOURCES, so the keys are exactly EventSource.
+  // SAFETY: the keys come from EVENT_SOURCES.
   return Object.fromEntries(entries) as Record<EventSource, EventSourceHealth>;
 }
 
-/**
- * The rows an account-grain source may deliver from: the ones that prove its
- * integration connected (ADR-0093's rule, {@link credentialSatisfies}).
- *
- * One helper for both readers of {@link EventSourceHealthMap}. Workflow
- * readiness asks which row a trigger's `accountRef` resolves against; the
- * delivery alert asks every row whose delivery could have stopped. A second
- * copy of the filter would let one surface count a row the other ignores.
- */
+/** Rows that pass the connected rule (ADR-0093). Readiness and alerts share it, so they count the same rows. */
 export function eventDeliveryRows(
   rows: CredentialRowsByProvider,
   accounts: EventDeliveryAccounts,

@@ -36,15 +36,8 @@ export interface McpProtocolPage {
 }
 
 /**
- * The one catalog of SDK era, Alfred era, and admitted protocol revision. A new
- * SDK era is a compile error here, and every downstream union/allowlist derives
- * from this table instead of restating the correlation.
- *
- * `mirrorsParamHeaders` records the one era-dependent BEHAVIOR Alfred's
- * admission rule turns on: whether the SDK mirrors an `x-mcp-header` schema
- * declaration into a `Mcp-Param-*` request header (ADR-0095). It lives here so
- * the fact has one home and a new era must declare it, instead of the client
- * comparing an inline era literal and a reader having to know which era acts.
+ * Every supported protocol era; a new SDK era fails to compile here.
+ * `mirrorsParamHeaders`: the SDK copies `x-mcp-header` args into `Mcp-Param-*` headers (ADR-0095).
  */
 const MCP_PROTOCOL_PROFILES = {
   legacy: {
@@ -86,11 +79,7 @@ type McpServerFacts = Omit<McpProtocolServer, "protocolEra" | "protocolVersion">
 
 export type McpNegotiatedServer = McpServerFacts & McpProtocolProfile;
 
-/**
- * The small protocol surface Alfred consumes. Keeping this interface below
- * the execution broker prevents SDK/session details from leaking into the
- * model-facing registry and makes the trust boundary deterministic to test.
- */
+/** The narrow protocol surface Alfred uses, so SDK details stay below the broker. */
 export interface McpProtocolClient {
   connect(trace?: McpTraceContext): Promise<McpProtocolServer>;
   close(terminateSession: boolean): Promise<void>;
@@ -114,21 +103,7 @@ export interface SdkMcpProtocolClientOptions {
   authProvider?: AuthProvider;
   requestTimeoutMs: number;
   schemaValidator: NonNullable<ClientOptions["jsonSchemaValidator"]>;
-  /**
-   * Refuse the modern era for this connection and negotiate `2025-11-25`.
-   *
-   * The modern era is what turns a server-authored `x-mcp-header` declaration
-   * into a real header channel: the SDK mirrors the declared argument values
-   * into `Mcp-Param-*` request headers, and it gates that behavior on the
-   * negotiated era alone. Pinning the legacy era therefore makes the keyword
-   * inert, which is the whole reason a built-in may ask for it (ADR-0095).
-   *
-   * Alfred implements both eras — `MCP_PROTOCOL_PROFILES` names them — so this
-   * is a choice between two supported profiles, not a fallback.
-   *
-   * Absent and an explicit `undefined` mean the same thing to the one reader
-   * below, so the declaration says so (`exactOptionalPropertyTypes`).
-   */
+  /** Negotiate only `2025-11-25`, where `x-mcp-header` is inert (ADR-0095). */
   pinLegacyProtocol?: boolean | undefined;
 }
 
@@ -145,8 +120,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
 
   constructor(options: SdkMcpProtocolClientOptions) {
     const authProvider = options.authProvider;
-    // Empty capabilities are intentional: Alfred does not offer roots,
-    // sampling, or elicitation to an untrusted remote server.
+    // No roots, sampling, or elicitation for an untrusted server.
     this.#client = new Client(
       { name: "alfred", version: "1" },
       {
@@ -168,9 +142,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     );
     const fetchFn = options.authorization.fetch;
     this.#transport = new StreamableHTTPClientTransport(options.authorization.endpoint, {
-      // Token reads are safe before each request. Transport-owned recovery is
-      // not: both 401 refresh and insufficient-scope step-up resend the same
-      // JSON-RPC message below Alfred's invocation ledger.
+      // Transport 401 refresh and scope step-up would resend the message below the ledger.
       ...(authProvider ? { authProvider: { token: () => authProvider.token() } } : {}),
       onInsufficientScope: "throw",
       fetch: (input, init) => {
@@ -201,16 +173,10 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     this.#closing = false;
     this.#connectTrace = trace;
 
-    // Third-party variance gap, not a claim about our types: the MCP SDK's own
-    // transport classes declare `sessionId?: string | undefined` / `onclose?:
-    // (() => void) | undefined` while its `Transport` interface declares those
-    // keys narrow, so under `exactOptionalPropertyTypes` the SDK's class does
-    // not structurally satisfy the SDK's own interface. Nothing on our side can
-    // reconcile the two.
     try {
       await this.#client.connect(
-        // SAFETY: our transport implements the MCP Transport interface; the
-        // SDK ships its own wider nominal type for the same members.
+        // SAFETY: under `exactOptionalPropertyTypes` the SDK's transport class does
+        // not satisfy its own `Transport` interface (optional `| undefined` members).
         this.#transport as Transport,
         requestOptions(this.#requestTimeoutMs, undefined, trace),
       );
@@ -224,11 +190,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     const protocolVersion = this.#client.getNegotiatedProtocolVersion();
 
     if (!protocolEra || !protocolVersion) {
-      // Reachable if a pinned era stops being on offer: `mode: "legacy"` asks
-      // for `2025-11-25` alone, so a server that drops it leaves the SDK with
-      // no negotiated era. Name the cause here — the connection row records
-      // `lastError`, and "connected without a negotiated era" alone sends the
-      // reader looking for a transport bug (ADR-0095).
+      // A server that drops the pinned legacy era leaves no negotiated era. Say so in `lastError`.
       throw new McpClientError(
         "unsupported_protocol_version",
         this.#pinLegacyProtocol
@@ -277,8 +239,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       try {
         await this.#transport.terminateSession();
       } catch {
-        // Session deletion is optional in the protocol. Closing the transport
-        // must still succeed when a server returns 405 or is already gone.
+        // Session deletion is optional; a 405 or a gone server must not fail close.
       }
     }
 
@@ -290,9 +251,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     signal?: AbortSignal,
     trace?: McpTraceContext,
   ): Promise<McpProtocolPage> {
-    // `Client.listTools(undefined)` auto-aggregates and caches every page. Use
-    // the request primitive so Alfred alone owns pagination, bounds, and the
-    // immutable catalog that later calls are allowed to consume.
+    // `Client.listTools` aggregates and caches every page. Alfred owns paging and bounds.
     const result = await this.#client.request(
       {
         method: "tools/list",
@@ -326,8 +285,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       },
       {
         ...requestOptions(this.#requestTimeoutMs, signal, trace),
-        // This exact, Alfred-admitted descriptor bypasses the SDK list cache
-        // and disables its HEADER_MISMATCH refetch-and-replay branch.
+        // Pass the admitted descriptor: skips the SDK cache and its HEADER_MISMATCH replay.
         toolDefinition: tool,
       },
     );
@@ -392,19 +350,12 @@ function traceMeta(trace: McpTraceContext) {
 }
 
 function requestOptions(timeout: number, signal?: AbortSignal, trace?: McpTraceContext) {
-  // `maxTotalTimeout === timeout` deliberately collapses the SDK's progress-based
-  // timeout EXTENSION: a server streaming progress notifications can otherwise
-  // keep a `tools/call` alive past `timeout`, blurring the delivery boundary the
-  // broker's ambiguity ledger depends on. Capping total time keeps a single
-  // attempt from silently outliving its window. Replay is separately disabled
-  // at the transport and `callTool` boundaries above.
+  // `maxTotalTimeout === timeout` stops progress notifications from extending a call past `timeout`.
   return {
     timeout,
     maxTotalTimeout: timeout,
     ...(signal ? { signal } : {}),
-    // Connect negotiation has no public params hook. The same controlled W3C
-    // context rides HTTP headers there; ordinary MCP requests also carry it in
-    // `_meta` through `traceMeta`.
+    // Connect has no params hook, so trace context rides HTTP headers. Other requests use `_meta`.
     ...(trace
       ? {
           headers: {

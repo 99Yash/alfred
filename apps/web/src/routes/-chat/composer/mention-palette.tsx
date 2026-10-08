@@ -20,33 +20,27 @@ export function MentionPalette({
   options: ReadonlyArray<MentionOption>;
   activeIdx: number;
   connections: MentionConnectionLookup;
-  /** Unconnected-but-connectable option picked from the list — swaps the
-   * rows for an inline connect CTA instead of inserting a dead chip. */
+  /** An unconnected option was picked: show a connect prompt instead of inserting a dead chip. */
   connectPrompt: MentionOption | null;
   onHover: (i: number) => void;
   onPick: (option: MentionOption) => void;
-  /** Commit the drill-in's primary action (dismiss + provider connect flow).
-   * Owned by the controller so Enter and this button share one path. */
+  /** The controller owns it, so Enter and this button share one path. */
   onConnect: () => void;
   onBackFromConnect: () => void;
   onClose: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  // Click outside the palette closes it. Pointerdown beats pointerup so the
-  // click never lands on whatever's underneath.
+  // Close on outside pointerdown, so the click never lands underneath.
   useEffect(() => {
     const handler = (e: PointerEvent) => {
       const root = rootRef.current;
 
       if (!root) return;
-      // SAFETY: DOM events carry an EventTarget-or-null on `target`; Node is
-      // the base of every target the pointerdown can deliver here.
+      // SAFETY: every pointerdown target here is a Node.
       const target = e.target as Node | null;
 
-      // Don't close on clicks inside the palette, or inside the composer
-      // form (the textarea is the trigger surface — clicking it should
-      // keep the palette open so the user can continue typing).
+      // The composer form is the trigger surface; clicks there keep the palette open.
       if (target && (root.contains(target) || root.closest("form")?.contains(target))) {
         return;
       }
@@ -59,12 +53,8 @@ export function MentionPalette({
     return () => document.removeEventListener("pointerdown", handler);
   }, [onClose]);
 
-  // Scroll the active row into view as soon as React attaches its DOM node.
-  // Wiring this through a ref callback (instead of a useEffect on activeIdx)
-  // means the scroll fires from the same render that swapped the active
-  // option — no extra render-then-effect step — and only when the active
-  // node identity actually changes. `block: "nearest"` is a no-op once the
-  // row is visible, so the list doesn't twitch on hover.
+  // A ref callback scrolls in the same render that changes the active row.
+  // `block: "nearest"` does nothing once visible, so hover does not twitch.
   const scrollActiveIntoView = useCallback((el: HTMLButtonElement | null) => {
     if (el) el.scrollIntoView({ block: "nearest" });
   }, []);
@@ -78,12 +68,7 @@ export function MentionPalette({
         "absolute inset-x-0 bottom-full z-20 mb-2",
         "app-elevated rounded-2xl bg-app-bg-1 p-1.5",
         "max-h-72 overflow-y-auto",
-        // Materialize from the composer edge rather than fading in place:
-        // scale + blur + fade anchored at origin-bottom, the palette's edge
-        // nearest its trigger. Same popover language as the model tier
-        // picker; `motion-safe:` degrades to an instant appear under
-        // reduced motion (the global reduce block doesn't cover arbitrary
-        // animations).
+        // Grows from the composer edge. `motion-safe:` is needed: the global reduce block skips arbitrary animations.
         "origin-bottom",
         "motion-safe:animate-[app-popover-in_180ms_cubic-bezier(0.22,1,0.36,1)]",
       )}
@@ -102,15 +87,9 @@ export function MentionPalette({
           labelledById={labelId}
         />
       ) : (
-        /* `role="menu"` rather than `role="listbox"` here is a deliberate
-         * compromise: react-doctor's prefer-tag-over-role maps listbox →
-         * <datalist> (no rich rows possible) and <ul role="listbox"> trips
-         * no-noninteractive-element-to-interactive-role. Semantically the
-         * palette is a popup the user picks one item from — `menu` /
-         * `menuitem` cover that and don't conflict with either rule. */
-        // The fade replays whenever this subtree remounts — i.e. on return
-        // from the connect panel — so both directions of the list ↔ panel
-        // swap move, not just the way in.
+        /* `role="menu"`, not listbox: react-doctor maps listbox to <datalist>, and
+         * <ul role="listbox"> trips no-noninteractive-element-to-interactive-role. */
+        // The fade replays on return from the connect panel.
         <div role="menu" aria-labelledby={labelId} className="app-fade-in">
           {options.map((opt, i) => (
             <MentionRow
@@ -130,7 +109,6 @@ export function MentionPalette({
   );
 }
 
-/** Presentation overrides for one mention-row connection state. */
 interface MentionRowPresentation {
   icon?: string;
   label?: string;
@@ -138,18 +116,12 @@ interface MentionRowPresentation {
   tag?: { srText: string; label: string; className: string };
 }
 
-/**
- * Exhaustive over `MentionConnection`, so a new state cannot ship unstyled.
- */
+/** Exhaustive over `MentionConnection`, so a new state cannot ship unstyled. */
 type RowPresentationTable = { [State in MentionConnection]: MentionRowPresentation };
 
 /**
- * Per-state row presentation, keyed exhaustively over `MentionConnection` so
- * a new state cannot ship unstyled — adding one is a compile error here, not
- * a silently healthy-looking row. `loading` renders like a plain usable row
- * on purpose: rows stay stateless during load and never flash "Connect".
- * An integration you can't use yet sits visually behind the ones you can —
- * quiet dimming, not removal, so the catalog stays discoverable.
+ * `loading` looks like a usable row, so rows never flash "Connect".
+ * Unusable integrations dim but stay listed.
  */
 const ROW_PRESENTATION: RowPresentationTable = {
   internal: {},
@@ -177,7 +149,6 @@ const ROW_PRESENTATION: RowPresentationTable = {
   },
 };
 
-/** The brand glyph (or fallback icon) for a mention option. */
 function OptionAvatar({
   option,
   className,
@@ -231,9 +202,7 @@ function MentionRow({
       onClick={() => onPick(option)}
       className={cn(
         "app-press flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left",
-        // Background and transform together so the app-press scale
-        // interpolates instead of snapping — same row recipe as the model
-        // tier picker.
+        // Both together so the press scale interpolates.
         "transition-[background-color,transform]",
         isActive ? "bg-app-bg-a2" : "hover:bg-app-bg-a2",
         "outline-none",
@@ -261,8 +230,7 @@ function MentionRow({
       {presentation.tag ? (
         <>
           <span className="sr-only">{presentation.tag.srText}</span>
-          {/* Fades in rather than popping so a tag arriving when credential
-           * queries settle mid-session doesn't jolt the row layout. */}
+          {/* Fades in so a tag that arrives after load does not jolt the row. */}
           <span className={cn("app-fade-in", presentation.tag.className)}>
             {presentation.tag.label}
           </span>
@@ -277,12 +245,7 @@ function MentionRow({
   );
 }
 
-/**
- * The drill-in a picked unconnected integration lands on: name the fix, one
- * primary action into the provider's connect flow, and a way back. Replaces
- * the list in place so the panel never moves — spatial continuity with the
- * row the user just chose.
- */
+/** Connect prompt for a picked unconnected integration. It replaces the list in place. */
 function ConnectPanel({
   option,
   onBack,

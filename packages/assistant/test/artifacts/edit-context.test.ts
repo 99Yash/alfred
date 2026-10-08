@@ -205,17 +205,14 @@ test("ephemeral run context is inserted before the request without entering the 
 });
 
 test("chat's prod system prompt states no date — the runtime line is the single 'now' (#410)", () => {
-  // The chat path builds its prompt with no date grounding, so the one
-  // re-anchorable runtime_context line is the sole statement of "now". A date
-  // pinned into this cached prefix would go stale when a parked run resumes
-  // across midnight — and re-stamping it here would trip assertStableSystem.
+  // A date in the cached prefix goes stale when a parked run resumes after midnight.
   const connected = "Connected: none";
   const prompt = buildChatSystemPrompt("", connected, "");
   assert.doesNotMatch(prompt, /current date/i);
-  // Connected summary still anchors the end of the prompt (ADR-0077).
+  // The connected summary ends the prompt (ADR-0077).
   assert.ok(prompt.trimEnd().endsWith(connected));
 
-  // The single source rides the transcript, right before the user turn.
+  // The date rides the transcript, just before the user turn.
   const [reference] = withEphemeralReference(
     [{ role: "user" as const, content: "anything on for tomorrow?" }],
     formatRuntimeTimeGrounding("Asia/Calcutta", new Date("2026-07-14T02:50:11.451Z")),

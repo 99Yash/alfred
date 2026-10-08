@@ -11,16 +11,9 @@ import {
 import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 
 /**
- * The declared tool contract is enforced at the dispatch floor, by the ONE
- * availability evaluator — not by `if (toolName === …)` branches the dispatcher
- * keeps in step with the registrations by hand. These pin the properties that
- * make that true: a permission declared on the registration is refused at the
- * floor for a tool the dispatcher has never heard of, and the refusal arrives
- * before any input parsing, staging row, or execute.
- *
- * The credential-health half of the same evaluator is covered without a database
- * in `tools/passthrough/availability.test.ts`; here every fixture is a `system.*`
- * tool precisely because those resolve from the registration alone.
+ * The availability evaluator enforces the registration's contract at the dispatch floor,
+ * for any tool, before parsing, staging, or execute. Fixtures are `system.*` because those
+ * resolve from the registration alone. `passthrough-availability.test.ts` covers credential health.
  */
 
 let restoreTraceSinks: (() => void) | undefined;
@@ -47,7 +40,7 @@ const baseDispatch = {
   fence: { generation: 0 } as const,
 };
 
-/** A boss-only tool — the shape of the sub-agent join tools (ADR-0073). */
+/** Shaped like the sub-agent join tools (ADR-0073). */
 function bossOnlyTool(onExecute: () => void) {
   return liveTool({
     integration: "system",
@@ -65,7 +58,7 @@ function bossOnlyTool(onExecute: () => void) {
   });
 }
 
-/** A thread-only tool — the shape of `system.read_chat_history`. */
+/** Shaped like `system.read_chat_history`. */
 function threadOnlyTool(onExecute: () => void) {
   return liveTool({
     integration: "system",
@@ -174,8 +167,8 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
     const result = await dispatchToolCall({
       ...baseDispatch,
       toolName: "system.promote",
-      // Input the schema would reject — the caller gate must still win, or the
-      // model would be told to fix its arguments for a call it may never make.
+      // Bad input: the caller gate must win, or the model fixes arguments for a call it cannot
+      // make.
       input: { nonsense: true },
       activeTools: ["system.promote"],
       caller: { subId: "sub_a" },
@@ -189,9 +182,8 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
   });
 
   test("an unavailable tool is refused even when it is on the active surface", async () => {
-    // The surface is built at turn start and a tool can also be auto-activated by
-    // an inactive bounce (#407) without ever passing an availability check, so
-    // active-surface membership must not be treated as authorization.
+    // An inactive bounce can activate a tool with no availability check. Being active is not
+    // authorization.
     let executions = 0;
     registerTool(bossOnlyTool(() => executions++));
 

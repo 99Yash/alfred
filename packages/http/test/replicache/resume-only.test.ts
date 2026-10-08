@@ -128,10 +128,7 @@ const SERVER_ENV_FIXTURES = {
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
 } satisfies Record<string, string>;
 
-// The fixtures must land before the first `serverEnv()` call in a test body,
-// and `serverEnv()` memoizes. So this stays at module scope. It sets neither
-// DATABASE_URL nor REDIS_URL, so it cannot hide an absent service from the
-// guard below.
+// `serverEnv()` memoizes, so seed at module scope. No service URL here, so the guard still skips.
 for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
   process.env[key] ??= value;
 }

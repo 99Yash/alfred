@@ -2,13 +2,7 @@ import { useCallback, useState } from "react";
 import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
 import type { ChatModelTier } from "@alfred/contracts";
 
-/**
- * Model-tier selection (Auto vs Deep) persisted to localStorage, so the choice
- * is sticky across reloads and thread switches. Single-user, so this is a plain
- * local preference — no synced user-row field yet (a multi-device follow-up).
- * Backed by the typed `alfred.chat.tier` key in the storage registry, so the
- * value is schema-validated on read/write and can't drift from the tier union.
- */
+/** Auto/Deep tier in the typed `alfred.chat.tier` localStorage key, sticky across reloads and threads. */
 export function useModelTier(): [ChatModelTier, (tier: ChatModelTier) => void] {
   const [tier, setTierState] = useState<ChatModelTier>(() =>
     getLocalStorageItem("alfred.chat.tier"),

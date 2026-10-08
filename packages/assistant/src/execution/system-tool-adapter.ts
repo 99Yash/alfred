@@ -30,13 +30,8 @@ async function resolveAwaitSubAgent(
 }
 
 /**
- * The agent-owned implementation of the `SystemToolAgentAdapter` seam. The
- * system tools (`system.spawn_sub_agent` / `system.await_sub_agent`) call the
- * seam; this adapter forwards to the agent operations that read and write
- * agent-owned state. It lives in execution so tool-runtime never imports
- * execution (ADR-0089: the runtime composes tools, not the reverse). The
- * chat-history half of the old combined port now lives in
- * `chat/system-tool-adapter.ts`. Composition installs it at boot.
+ * Spawn and await for the system tools; installed at boot so tool-runtime does not import execution
+ * (ADR-0089).
  */
 const agentSystemToolAdapter: SystemToolAgentAdapter = {
   spawnSubAgent,
@@ -47,12 +42,6 @@ const agentSystemToolAdapter: SystemToolAgentAdapter = {
   promoteScratch: promoteScratchEntry,
 };
 
-/**
- * Install the agent-behavior handler behind the tool-runtime seam. The
- * composition root calls this after `registerBuiltinTools`, so a system tool
- * that reaches the seam finds a registered adapter rather than the boot-order
- * throw.
- */
 export function registerAgentSystemToolAdapter(): () => void {
   return registerSystemToolAgentAdapter(agentSystemToolAdapter);
 }
