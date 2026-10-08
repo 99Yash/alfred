@@ -18,28 +18,14 @@ import {
 import type { CacheTtl } from "./request-projection";
 import { codecForProvider } from "./tool-name-codec";
 
-// ── Re-exports preserving the public seam ──────────────────────────────────
 export { attachProviderTurnPolicy } from "./request-projection";
 
 export type { CacheTtl } from "./request-projection";
 
-/**
- * Provider-neutral reasoning ceiling a product route selects. The concrete
- * provider package maps or clamps it for the model that actually serves
- * (`@ai-sdk/anthropic` thinking budgets/effort, `@ai-sdk/google` thinking
- * levels/budgets, `@ai-sdk/openai` reasoning effort). Alfred keeps no parallel
- * effort vocabulary of its own.
- */
+/** Provider-neutral reasoning level. Each provider package maps it to its own options. */
 export type RouteReasoning = NonNullable<LanguageModelV4CallOptions["reasoning"]>;
 
-/**
- * The provider factory's known model-id union with its `(string & {})` escape
- * hatch stripped. The SDK keeps that hatch so a caller can pass a preview id it
- * has not catalogued yet; Alfred does not want it, because it also admits a typo
- * that should fail at compile time. Distributing the conditional drops the
- * `string`-accepting member to `never` and keeps every literal. Deriving from
- * the installed factory, so a provider upgrade moves the accepted ids with it.
- */
+/** The factory's model-id literals without the `(string & {})` escape, so a typo fails to compile. */
 type KnownModelId<T> = T extends string ? (string extends T ? never : T) : never;
 
 type AnthropicModelId = KnownModelId<Parameters<AnthropicProvider>[0]>;
@@ -48,10 +34,7 @@ type GoogleModelId = KnownModelId<Parameters<GoogleProvider>[0]>;
 
 type OpenAiModelId = KnownModelId<Parameters<OpenAIProvider["responses"]>[0]>;
 
-// ── Provider projections ───────────────────────────────────────────────────
-// Each provider owns only the Alfred policy its package does not: cache
-// placement for Anthropic; envelope removal is provider-neutral and happens
-// before the projection runs.
+// Only Anthropic needs its own projection, for cache placement.
 type RequestProjection = (
   params: LanguageModelV4CallOptions,
   cacheTtl: CacheTtl | undefined,
@@ -74,7 +57,7 @@ function middlewareFor(provider: ProviderId): LanguageModelV4Middleware {
   };
 }
 
-// ── Provider-boundary name transform ───────────────────────────────────────
+// Tool names are encoded on the way to the provider and decoded on the way back.
 type GenerateResult = Awaited<ReturnType<NonNullable<LanguageModelV4Middleware["wrapGenerate"]>>>;
 
 type ContentPart = GenerateResult["content"][number];
@@ -197,31 +180,9 @@ function toolNameMiddleware(
 }
 
 /**
- * Stamp the leg's own model id onto a result the provider left unstamped.
- *
- * Without this, served-model attribution cannot fire on any Google leg, which
- * is every degrade leg Alfred has. `@ai-sdk/google` fills `response` with
- * `{ id }` alone — its source carries a literal `// TODO timestamp, model id` —
- * and its stream emits `response-metadata` with `{ id }` for the same reason.
- * `ai` then resolves the step as `result.response?.modelId ?? stepModel.modelId`,
- * and on a composed route `stepModel` is the facade, frozen at the PRIMARY leg
- * (see {@link routeLegProviders}). So a degraded call reported the primary's
- * id, the meter saw no divergence, and the turn was priced against the wrong
- * `model_prices` row.
- *
- * Alfred owns this seam per leg and knows which model the leg is, so it fills
- * the gap the provider left. A provider that reports its own id keeps it,
- * including a dated alias echo — attribution already handles that.
- *
- * The stream arm fills `modelId` on every `response-metadata` part the
- * provider emits without one, and it SYNTHESIZES the part only for Google:
- * Google emits none at all whenever the response carries no `responseId`,
- * while OpenAI and Anthropic always report their own id one chunk later — and
- * the SDK merges `response-metadata` field by field with last-wins, so a
- * synthesized part ahead of theirs is harmless to `modelId` but still a part
- * the provider never sent. An eager synthesis for those providers would fire
- * after chunk 1 on every turn; scoping it to the one provider that sometimes
- * emits nothing keeps the wire truthful.
+ * Stamp the leg's model id on a result that has none. `@ai-sdk/google` never reports one,
+ * so without this a fallback to Google is priced as the primary (see {@link routeLegProviders}).
+ * A provider's own id wins. A missing stream part is added only for Google, which can send none.
  */
 function servedModelIdMiddleware(modelId: string, provider: ProviderId): LanguageModelV4Middleware {
   return {
@@ -236,9 +197,6 @@ function servedModelIdMiddleware(modelId: string, provider: ProviderId): Languag
     wrapStream: async ({ doStream }) => {
       const { stream, ...rest } = await doStream();
       let seen = false;
-      // Only Google ever needs the synthesized part (see the docblock): every
-      // other provider reports its own id, so synthesizing for them would emit
-      // a part the provider never sent on every turn.
       const synthesizeMissing = provider === "google";
 
       return {
@@ -255,10 +213,7 @@ function servedModelIdMiddleware(modelId: string, provider: ProviderId): Languag
 
               controller.enqueue(chunk);
 
-              // After the first part rather than in `flush`: the SDK reads the
-              // step's response when the model's terminal part arrives, so a
-              // part enqueued at close is too late. An id the provider sends
-              // later still wins, because the SDK merges field by field.
+              // Not in `flush`: the SDK reads the response at the terminal part, before close.
               if (synthesizeMissing && !seen) {
                 seen = true;
                 controller.enqueue({ type: "response-metadata", modelId });
@@ -271,25 +226,7 @@ function servedModelIdMiddleware(modelId: string, provider: ProviderId): Languag
   };
 }
 
-// ── Adapter attachment ─────────────────────────────────────────────────────
-// Ordered chain [served-model stamp (innermost) ← toolName ← projection
-// (outermost)]: the outer projection strips the internal envelope and decorates
-// for the provider, the name shim encodes only the final function-tool set and
-// leaves provider-defined tools alone, and the innermost stamp labels the
-// result with the leg that produced it. Order is load-bearing — the stamp must
-// sit closest to the real model so it names one leg, never a composition.
-
-/**
- * One leg of a model route: the provider and model id the leg was validated
- * as, plus the adapter-attached model that serves it.
- *
- * The triple is the proof `adaptProviderModel` checked — it throws when the
- * constructed model disagrees with the claimed provider — carried on the
- * value instead of rebuilt later. The middleware re-attaches the model id to
- * the result, this table re-attaches the provider to the model id, and
- * neither has to re-read the model object; a leg that skipped validation
- * cannot be spelled, because there is no `RouteLeg` for it.
- */
+/** One route leg. Only `adaptProviderModel` makes one, so every leg is validated. */
 export interface RouteLeg {
   readonly provider: ProviderId;
   readonly modelId: string;
@@ -297,14 +234,9 @@ export interface RouteLeg {
 }
 
 /**
- * Attach the matching Alfred adapter to a model the provider package already
- * constructed. The provider is read off the model object, never a registry, and
- * the call fails loudly on a mismatch so an adapter cannot decorate the wrong
- * provider's request.
- *
- * Returns the {@link RouteLeg} triple rather than the bare model, so the
- * validated (provider, modelId) pair travels with the model into
- * `createProviderRouteModel` instead of being re-derived there.
+ * Attach Alfred's adapter to a provider model. Throws if the model is from another provider.
+ * Wrap order, inside out: model-id stamp, tool names, projection. The stamp must sit
+ * next to the real model so it names one leg.
  */
 export function adaptProviderModel(provider: ProviderId, model: LanguageModelV4): RouteLeg {
   const codec = codecForProvider(provider);
@@ -332,22 +264,17 @@ export function adaptProviderModel(provider: ProviderId, model: LanguageModelV4)
   return { provider, modelId: model.modelId, model: composed };
 }
 
-/** Construct an Anthropic leg with its adapter attached. */
 export function anthropicLeg(modelId: AnthropicModelId): RouteLeg {
   return adaptProviderModel("anthropic", activeGateway().createAnthropic()(modelId));
 }
 
-/** Construct a Google leg with its adapter attached. */
 export function googleLeg(modelId: GoogleModelId): RouteLeg {
   return adaptProviderModel("google", activeGateway().createGoogle()(modelId));
 }
 
 /**
- * Construct an OpenAI Responses leg with its adapter attached. Every OpenAI leg
- * carries `store: false` and the reason is reasoning-item retention rather than
- * privacy: Cloudflare Unified Billing puts Alfred on a Zero Data Retention org,
- * so replaying a reasoning item by `rs_…` id 400s and kills the turn. See the
- * longer note in the removed `reasoning-policy.ts` history and ADR-0077.
+ * `store: false` on every OpenAI leg (ADR-0077). Unified Billing is a Zero Data Retention org,
+ * so replaying a reasoning item by `rs_…` id returns 400.
  */
 export function openAiLeg(modelId: OpenAiModelId): RouteLeg {
   const leg = adaptProviderModel("openai", activeGateway().createOpenAI().responses(modelId));
@@ -362,12 +289,7 @@ export function openAiLeg(modelId: OpenAiModelId): RouteLeg {
   return { ...leg, model };
 }
 
-/**
- * Install the route's generic reasoning ceiling as a default — a caller that
- * sets `reasoning` explicitly still wins. `defaultSettingsMiddleware` owns the
- * other call settings but its options type omits `reasoning`, so this is the
- * narrow seam that carries the provider-neutral value.
- */
+/** Default `reasoning`; an explicit caller value wins. `defaultSettingsMiddleware` cannot set it. */
 function reasoningMiddleware(reasoning: RouteReasoning): LanguageModelV4Middleware {
   return {
     specificationVersion: "v4",
@@ -379,62 +301,20 @@ function reasoningMiddleware(reasoning: RouteReasoning): LanguageModelV4Middlewa
 
 export interface RouteModelSettings {
   readonly reasoning: RouteReasoning;
-  /** Alfred's provider-option exceptions the generic reasoning setting cannot express. */
+  /** What the generic reasoning setting cannot express. */
   readonly providerOptions?: SharedV4ProviderOptions;
 }
 
 /**
- * Any constructed SDK model object — the arm `LanguageModel` narrows to once a
- * bare gateway model-id string is excluded. Wider than `LanguageModelV4`
- * because the SDK's own handle type still admits older specification versions,
- * and a caller holding one must be able to ask this question.
- *
- * Single home: {@link ModelObject} in `./models`.
- */
-
-/**
- * Which provider serves each model id a given route can degrade to.
- *
- * THIS DOCBLOCK IS THE ONE HOME OF THE SERVED-MODEL RULE. Every other site
- * that touches attribution — `servedModelIdMiddleware` above, `reconcileServed`
- * and `MeteredResult.served` in `./metering` — points here instead of
- * restating it, because the rule has moved twice already and a restated copy
- * does not move with it.
- *
- * The rule has two halves, and BOTH must hold or a degraded call is priced
- * against the wrong `model_prices` row.
- *
- * 1. Attribution cannot be read off the composed model object.
- *    `wrapLanguageModel` evaluates `provider` and `modelId` ONCE, at
- *    construction, into plain properties — it installs no getters — and
- *    `createProviderRouteModel` wraps every route unconditionally to carry the
- *    reasoning ceiling. So the composed model reports the primary leg forever,
- *    whichever leg actually answered. A probe over a fallback that returned
- *    text confirmed it: `result.response` named the Gemini leg while the model
- *    object still read `openai`.
- * 2. The SDK result carries the truth ONLY because Alfred puts it there.
- *    `ai` resolves a step as `result.response?.modelId ?? stepModel.modelId`,
- *    and `stepModel` is the frozen facade from (1) — so a provider that
- *    reports no model id, which `@ai-sdk/google` does on both its generate and
- *    its stream path, silently returns the primary's id and no divergence is
- *    ever seen. `servedModelIdMiddleware` stamps each leg's own id at
- *    construction to close that hole.
- *
- * The stamped result still carries a bare `modelId` with no provider beside
- * it. This map supplies the missing half from the legs the route was built
- * from, so no hand-written model-to-provider table is needed and an unknown id
- * resolves to nothing rather than to a guess. Keyed by the FINAL wrapped
- * object, because that is what call sites hold. The table itself is derived
- * data: `createProviderRouteModel` builds it from the {@link RouteLeg} triples
- * the caller passed, never by re-reading the model objects.
+ * The served-model rule. Two facts, both required, or a fallback call is priced wrong:
+ * 1. The composed model always reports the primary leg; `wrapLanguageModel` copies
+ *    `provider` and `modelId` once.
+ * 2. `result.response.modelId` names the leg that answered, because `servedModelIdMiddleware` stamps it.
+ * This map turns that model id into its provider. Keyed by the final wrapped model.
  */
 const routeLegProviders = new WeakMap<ModelObject, ReadonlyMap<string, string>>();
 
-/**
- * The provider that owns `servedModelId` on this route, or `undefined` when the
- * id belongs to no leg of it. Pair with `result.response.modelId`; never with
- * the route model's own `modelId`, which names the primary leg only.
- */
+/** Pass `result.response.modelId`, never the route model's own `modelId`. */
 export function providerForServedModel(
   routeModel: ModelObject,
   servedModelId: string,
@@ -443,16 +323,9 @@ export function providerForServedModel(
 }
 
 /**
- * Compose a route's legs — validated {@link RouteLeg} triples, each built by
- * its own provider factory and adapter — then install the route's reasoning
- * ceiling and provider exceptions as overridable defaults.
- *
- * The composed facade reports the PRIMARY leg's `provider`/`modelId`, and that
- * stays true at any leg count — `ai-retry`'s `getModelKey` reads those two
- * fields, so a three-leg route would key its retry state on the primary as
- * well. Harmless today because attribution runs off {@link routeLegProviders}
- * rather than off the facade, and because every route here has two legs or
- * fewer. Check that assumption before adding a third.
+ * Chain the legs with `composeFallback` and set the route defaults.
+ * ai-retry keys retry state on the facade's primary id, so a third leg would share
+ * the primary's budget. Every route has two legs or fewer today.
  */
 export function createProviderRouteModel(
   legs: readonly (() => RouteLeg)[],
@@ -472,12 +345,7 @@ export function createProviderRouteModel(
   for (const makeLeg of rest) {
     const leg = makeLeg();
 
-    // Two legs can share a model id (the same model behind two providers, or
-    // the same leg listed twice). A shared id with one provider is the same
-    // entry; a shared id across providers is ambiguous, and silently keeping
-    // the last writer would misattribute every turn the other leg served. Drop
-    // the entry instead, so the lookup resolves to nothing and the row keeps
-    // its pre-call attribution rather than taking a guessed provider.
+    // One model id under two providers is ambiguous, so drop it rather than guess.
     const existing = legProviders.get(leg.modelId);
 
     if (existing === undefined) {

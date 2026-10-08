@@ -1,13 +1,8 @@
 /**
- * One-shot validation for the rule-11a upsell-vs-owed fix.
+ * Check rule 11a (upsell versus a bill that is owed) with a live cheap-model call:
+ * the real Greptile "upgrade your plan" miss, plus owed-payment cases that must not be demoted.
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-triage-upsell.ts
- *
- * Live cheap-model (gemini-2.5-flash-lite) call — needs GOOGLE_GENERATIVE_AI_API_KEY.
- * Runs the real prod miss (Greptile "upgrade your plan" per-PR bot comment, tagged
- * action_needed @0.8-0.9) plus owed-payment counter-cases that must NOT be demoted,
- * so we confirm the discriminator splits manufactured conversion pressure from a
- * genuine bill without over-suppressing real billing mail.
  */
 import { classifyEmail } from "@alfred/assistant/triage/classify";
 import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
@@ -76,7 +71,7 @@ const CASES: Case[] = [
     expectCategory: ["marketing", "fyi"],
     expectTodo: false,
     priorKey: "service:github.com",
-    // The self-reinforcing prior accumulated across PR #111/#112/#113.
+    // The self-reinforcing prior from earlier PR comments.
     prior: { action_needed: 4, fyi: 2 },
   },
   {
@@ -116,7 +111,7 @@ const CASES: Case[] = [
     expectCategory: ["marketing", "fyi"],
     expectTodo: false,
     priorKey: "service:greptile.com",
-    // Mirrors the prod prior that helped push it to urgent.
+    // The prod prior that pushed it to urgent.
     prior: { action_needed: 3, urgent: 1, fyi: 1 },
   },
   {

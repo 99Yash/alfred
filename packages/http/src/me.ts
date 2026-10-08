@@ -58,29 +58,14 @@ import {
   getUsageSummary,
 } from "@alfred/assistant/execution/usage-report";
 
-/**
- * Per-user read endpoints used by the chat right rail.
- *
- *   GET /api/me/inbox             → recent Gmail threads (Inbox tab)
- *   GET /api/me/briefings/latest  → latest composed briefing run (CTA chip)
- *
- * Both endpoints are best-effort reads: empty arrays / null payloads are
- * normal — the web client renders honest empty states (e.g. "Connect Gmail
- * to see your latest unread threads here").
- */
+/** Per-user reads for the chat right rail. Empty results are normal. */
 
-// INBOX_DEFAULT_LIMIT / INBOX_MAX_LIMIT live in `@alfred/contracts` — the web
-// rail paginates with the same values.
 const BRIEFING_RUN_THROTTLE_SECONDS = 60;
 
 let briefingRunThrottleRedis: BoundedRedis | undefined;
 
 function getBriefingRunThrottleRedis(): BoundedRedis {
-  // `"command"`, not `"fail-fast"`: the `SET NX` claim IS the throttle, so no
-  // other store can answer for it. A `"fail-fast"` handle rejects its first
-  // command after construction even against a healthy Redis, and the `catch`
-  // below reads that rejection as "not throttled" — so the throttle failed to
-  // fire exactly once per process (#127).
+  // Not "fail-fast": it rejects the first command, and the catch below reads that as "not throttled".
   briefingRunThrottleRedis ??= createRedisConnection("command");
 
   return briefingRunThrottleRedis;
@@ -110,13 +95,7 @@ async function claimBriefingRunRetry(args: {
   }
 }
 
-/**
- * Drizzle `WHERE` for the inbox cursor. It must mirror
- * `orderBy(desc(authoredAt), desc(id))` below — `id` tie-breaks rows that
- * share an `authoredAt` (Gmail batch). Keep it next to the ORDER BY so drift
- * is visible. It is inbox-specific and used once, so it lives here, not in
- * a shared pagination file.
- */
+/** Inbox cursor filter. Must match `orderBy(desc(authoredAt), desc(id))` below. */
 function inboxCursorWhere(cursor: ParsedInboxCursor | null) {
   if (!cursor) return undefined;
 
@@ -128,38 +107,21 @@ function inboxCursorWhere(cursor: ParsedInboxCursor | null) {
 
 export interface MeInboxItem {
   documentId: string;
-  /**
-   * Gmail thread id. Stable across re-ingest and used to deep-link into
-   * Gmail web (`https://mail.google.com/mail/u/0/#inbox/<id>`). Null only
-   * for documents that lost their thread grouping during ingest — which
-   * we don't currently produce for `source = 'gmail'`, but the column is
-   * nullable so we keep the type honest.
-   */
+  /** Gmail thread id, used to deep-link into Gmail web. The column is nullable. */
   threadId: string | null;
-  /** Raw `From` header from Gmail metadata, e.g. `"Maya Chen <maya@example.com>"`. */
+  /** Raw `From` header, e.g. `"Maya Chen <maya@example.com>"`. */
   sender: string | null;
   subject: string | null;
   snippet: string | null;
   authoredAt: string | null;
   unread: boolean;
-  /** Triage category if classified, else null. */
   category: string | null;
 }
 
 /**
- * Thread-level payload for the rail reader. The route receives a single
- * `documentId` (the row the user clicked), then fans out to every Gmail
- * doc sharing its `sourceThreadId` — the reader renders them as a
- * conversation timeline, with the clicked message highlighted via
- * `selectedDocumentId`.
+ * One Gmail thread for the rail reader, oldest message first.
  *
- * Subject + category lift to the thread root because both are shared
- * across messages (Gmail thread subjects are stable up to "Re:" prefixes,
- * and email_triage is keyed on the thread). Per-message identifiers
- * (sender, body, attachments, html) live on `MeInboxMessage`.
- *
- * @public Response contract — the web reader consumes it through Eden's
- * `typeof app` inference, not a named import, so knip can't see the use.
+ * @public Eden infers it from `typeof app`, so knip cannot see the use.
  */
 export interface MeInboxDetail {
   threadId: string | null;
@@ -177,21 +139,13 @@ export interface MeInboxMessage {
   cc: string | null;
   subject: string | null;
   snippet: string | null;
-  /** Markdown-ready plain body — drives the Reader view. */
+  /** Plain body, ready for markdown. */
   body: string;
-  /**
-   * Sanitized HTML from the message's `text/html` part. Null when the
-   * sender shipped a text-only email or the body sanitized down to
-   * nothing. The reader renders this in a sandboxed iframe when present.
-   */
+  /** Sanitized `text/html` part, or null. The reader shows it in a sandboxed iframe. */
   htmlBody: string | null;
   authoredAt: string | null;
   unread: boolean;
-  /**
-   * File attachments parsed from the cached Gmail payload. The reader pane
-   * renders these as chips below the body. `attachmentId` is opaque — the
-   * client can't download bytes directly; clicking a chip opens Gmail web.
-   */
+  /** The client cannot download bytes. A click opens Gmail web. */
   attachments: ReadonlyArray<MeInboxAttachment>;
 }
 
@@ -214,54 +168,26 @@ export interface MeLatestBriefing {
 }
 
 export interface MeMeetingItem {
-  /** Google Calendar event id; stable across reads of the same occurrence. */
   id: string;
   title: string;
-  /** RFC3339 start; `null` only for ill-formed events we couldn't parse. */
   startAt: string | null;
-  /** RFC3339 end; same caveat. */
   endAt: string | null;
-  /** All-day if `start.date` was set instead of `start.dateTime`. */
   allDay: boolean;
   location: string | null;
-  /** Non-self attendees. */
+  /** Attendees other than the user. */
   attendees: ReadonlyArray<{ email: string; displayName: string | null }>;
   hangoutLink: string | null;
-  /** Public web view of the event in Google Calendar. */
   htmlLink: string | null;
 }
 
-/**
- * `documents.content` for Gmail is `buildGmailDocumentContent(...)` output:
- *   `From: …\nTo: …\nSubject: …\nDate: …\n\n<body>`
- * The header block is redundant with `metadata.from` / `.to` / `.subject`
- * and the `authoredAt` column, so strip it before returning to the reader
- * — the UI renders those fields from structured columns instead.
- */
-/**
- * Detects common shapes of raw HTML hiding inside a `text/plain` body —
- * GitHub notifications, mail-list digests, and a handful of newsletters
- * pack a `<picture>`/`<a>` HTML fallback below the markdown copy.
- */
+/** Raw HTML that some senders put inside a `text/plain` body. */
 const HTML_TAG_RE =
   /<(?:!--|\/?(?:a|p|div|span|br|img|picture|source|table|tr|td|th|ul|ol|li|blockquote|h[1-6]|html|body|head|style|script|font|center|pre|code|hr|strong|em|b|i|u|figure|figcaption|small|details|summary)\b)/i;
 
 /**
- * Clean a `text/plain` Gmail body for in-rail rendering. The ingest already
- * prefers `text/plain` over stripped HTML, but some senders embed raw HTML
- * inside the `text/plain` part itself (GitHub badges, "view in browser"
- * fallbacks). Without a pass here the reader prints angle-bracket noise.
- *
- *  - Normalize CRLF → LF so `remark-breaks` produces consistent `<br>`s.
- *  - Strip `<!-- … -->` comments (Devin / GitHub track-and-trace blocks).
- *  - Strip `<style>` / `<script>` blocks wholesale.
- *  - Strip remaining HTML tags when the body trips the tag detector.
- *  - Collapse runs of ≥3 blank lines so HTML-stripped output doesn't leave
- *    a half-page of whitespace where the tags used to sit.
- *
- * This is a read-time cleanup; the persisted `documents.content` stays
- * untouched so a future re-ingest with smarter extraction is free to take
- * over without a migration.
+ * Clean a `text/plain` Gmail body for the reader: drop the header block,
+ * strip embedded HTML, collapse blank lines, fence diffs.
+ * Read time only; `documents.content` stays as stored.
  */
 function normalizeBodyForReader(
   content: string,
@@ -287,9 +213,7 @@ function normalizeBodyForReader(
       .replace(/&#39;/g, "'");
   }
 
-  // Tame whitespace introduced by the strip — keep paragraph breaks (two
-  // newlines) but collapse anything denser. `\s*\n` first so trailing
-  // spaces on otherwise-blank lines don't survive as visible whitespace.
+  // Drop trailing spaces, then keep at most one blank line.
   body = body.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
   body = fenceDiffBlocks(body);
 
@@ -297,21 +221,8 @@ function normalizeBodyForReader(
 }
 
 /**
- * Detects unified-diff style runs in plaintext email bodies — GitHub PR
- * notifications quote review snippets as raw diff (`-      foo` / `+      bar`)
- * with no surrounding code fence, which makes the markdown parser see each
- * `-` line as a list item and each indented continuation as an indented
- * code block. That renders as bullets-with-boxes, not the unified block
- * the sender intended. Wrapping the run in a ```diff fence collapses it
- * back to a single `<pre>` block in the reader.
- *
- * Conservative on the per-line check (multi-space indent after the marker,
- * which separates diff lines from genuine `- bullet` list items where
- * there's a single space). Permissive on the run shape — a run can be
- * all `+`, all `-`, or mixed, since GitHub review comments quote either
- * direction independently. Lines preceded by the email-quote prefix `> `
- * are peeled before pattern-matching so quoted file snippets fold into
- * the same block.
+ * Wrap unfenced diff runs (GitHub review emails) in a ```diff fence.
+ * Without it, markdown reads each `-` line as a list item.
  */
 function fenceDiffBlocks(body: string): string {
   const lines = body.split("\n");
@@ -357,14 +268,10 @@ function stripQuotePrefix(line: string): string {
 
 function looksLikeDiffLine(line: string | undefined): boolean {
   if (line == null) return false;
-  // Peel the `> ` email-quote prefix first — GitHub review notifications
-  // routinely lead the diff with `> +    foo(...)` (the `>` marking the
-  // snippet as quoted from the source file).
+  // GitHub quotes diff lines as `> +    foo(...)`.
   const stripped = stripQuotePrefix(line);
 
-  // Multi-space indent after marker rules out genuine markdown list items
-  // (`- bullet` and `+ bullet` both use a single space). Tab-separated and
-  // bare `+`/`-` (diff hunk separators) also qualify, as does `@@ … @@`.
+  // Two or more spaces after the marker. A list item `- bullet` has one.
   return (
     /^[-+] {2,}\S/.test(stripped) ||
     /^[-+]\t/.test(stripped) ||
@@ -375,12 +282,7 @@ function looksLikeDiffLine(line: string | undefined): boolean {
 
 const USAGE_DEFAULT_WINDOW_DAYS = 30;
 
-/**
- * Resolve the [start, end) window for a usage query. `end` defaults to now,
- * `start` to 30 days before end. Both bounds accept any `Date`-parseable
- * string; a malformed one is a 400 rather than a silent NaN window that would
- * scan the whole table. `end` is exclusive (matches the service's `lt`).
- */
+/** Resolve the [start, end) usage window. A bad date is a 400, not a NaN full scan. */
 function resolveUsageRange(query: { start?: string; end?: string }) {
   const end = query.end ? new Date(query.end) : new Date();
 
@@ -397,7 +299,6 @@ function resolveUsageRange(query: { start?: string; end?: string }) {
   return { start, end };
 }
 
-/** Parse the comma-separated `categories` filter, dropping unknown values. */
 function parseUsageCategories(raw: string | undefined): UsageRunCategory[] {
   if (!raw) return [];
 
@@ -426,17 +327,14 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             eq(documents.userId, u.id),
             eq(documents.source, "gmail"),
             notSentGmailDocumentWhere(),
-            // Untriaged rows (left join null) and rows that aren't in the
-            // suppressed list both belong in the rail.
+            // Untriaged rows (null from the left join) stay in the rail.
             or(
               isNull(emailTriage.category),
               notInArray(emailTriage.category, [...TRIAGE_RAIL_SUPPRESSED_CATEGORIES]),
             ),
           );
 
-          // Total count drives the "X/N" indicator in the rail. With cursor
-          // pagination we don't get this for free, so it's a second roundtrip —
-          // cheap at single-user scale, but it's the reason we cap MAX_LIMIT.
+          // For the "X/N" indicator. Cursor pages do not give a total.
           const totalRow = await db()
             .select({ value: drizzleSql<number>`count(*)::int` })
             .from(documents)
@@ -472,19 +370,13 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               ),
             )
             .where(where)
-            // `id` tie-breaks rows sharing an `authoredAt` so the cursor
-            // WHERE stays consistent with the ORDER BY.
             .orderBy(desc(documents.authoredAt), desc(documents.id))
-            // Over-fetch by one so we can tell if there is a next page without
-            // a second query — drop the extra row before return.
+            // One extra row tells us if a next page exists.
             .limit(limit + 1);
 
           const hasMore = rows.length > limit;
           const pageRows = hasMore ? rows.slice(0, limit) : rows;
-          // `authoredAt` is `Date | null` (documents.authoredAt is nullable per
-          // schema/documents.ts:50). Gmail ingest always sets it, so last row
-          // has a date in practice. If it were null, nextCursor stays null and
-          // pagination stops — residual liveness gap accepted for single-user inbox.
+          // Gmail ingest always sets `authoredAt`. If it were null, paging would stop here.
           const last = pageRows[pageRows.length - 1];
 
           const nextCursor =
@@ -520,9 +412,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
       .get(
         "/inbox/:documentId",
         async ({ user: u, params }) => {
-          // First resolve the selected row to its threadId — we accept a
-          // `documentId` (so existing rail links keep working) but the
-          // response is thread-shaped.
+          // Takes a `documentId` but returns its whole thread.
           const selectedRows = await db()
             .select({
               documentId: documents.id,
@@ -544,10 +434,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
 
           if (!selected) throw Errors.NotFoundError("Not found");
 
-          // Fan out to every sibling message in the same thread. Falls
-          // back to the single row when the thread id is null (extremely
-          // rare for `source = 'gmail'`, but the column is nullable) — only
-          // the row selector differs between the two.
+          // A null thread id falls back to the single row.
           const rowSelector = selected.threadId
             ? eq(documents.sourceThreadId, selected.threadId)
             : eq(documents.id, params.documentId);
@@ -572,20 +459,13 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               ),
             )
             .where(and(eq(documents.userId, u.id), eq(documents.source, "gmail"), rowSelector))
-            // Oldest first so the reader reads top-to-bottom like a chat
-            // transcript — matches how Gmail's web UI orders threads. Harmless
-            // for the single-row fallback.
+            // Oldest first, like Gmail web.
             .orderBy(asc(documents.authoredAt), asc(documents.id));
 
           const messages: MeInboxMessage[] = threadRows.map((row) => {
             const meta = parseGmailDocumentMetadata(row.metadata);
             const labelIds = meta.labelIds ?? [];
-            // `documents.raw` is the verbatim Gmail message we stored at
-            // ingest (schema-validated then). Cast back to `GmailMessage`
-            // rather than re-running zod per request — the shape is fixed
-            // and parsing the MIME tree dominates the cost anyway.
-            // SAFETY: raw was schema-validated when the document was ingested;
-            // this read-only path re-views the stored payload as GmailMessage.
+            // SAFETY: ingest schema-validated `raw` as a GmailMessage.
             const raw = (row.raw ?? null) as GmailMessage | null;
             const attachments: ExtractedAttachment[] = raw ? extractAttachments(raw) : [];
             const rawHtml = raw ? extractMessageHtml(raw) : null;
@@ -610,19 +490,11 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             };
           });
 
-          // Subject + category lift from the selected row (thread subjects
-          // mostly stable up to "Re:" prefixes; email_triage is keyed on
-          // the thread anyway). Falls back to the first message when the
-          // selected row somehow isn't in the result (e.g. fan-out raced
-          // with a delete — defensive).
+          // The selected row can vanish if a delete races the fan-out.
           const selectedRow =
             threadRows.find((r) => r.documentId === params.documentId) ?? threadRows[0];
 
-          // `satisfies`, not a type annotation: Eden Treaty infers the client
-          // response type from this return, and it indexes the literal's
-          // `messages: MeInboxMessage[]` correctly while the interface's
-          // `ReadonlyArray<MeInboxMessage>` collapsed the nested attachment
-          // element to `any` on the reader. The check still enforces the shape.
+          // `satisfies`, not an annotation: the `ReadonlyArray` type made Eden infer attachments as `any`.
           const detail = {
             threadId: selected.threadId ?? null,
             subject: selectedRow?.subject ?? selected.subject ?? null,
@@ -638,16 +510,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
       .post(
         "/inbox/mark-read",
         async ({ user: u, body }) => {
-          // Resolve the requested docs to (Gmail message id, owning
-          // account, current labelIds) and filter to the user's own
-          // currently-UNREAD Gmail rows. Two things this guards
-          // against: a client sending ids it doesn't own (the user_id
-          // filter), and a client sending ids that are already read
-          // (Gmail would no-op, but we'd still bill a round-trip +
-          // write a useless metadata update). Cap the list because the
-          // rail page only ever shows ~8 rows; refuse anything
-          // sketchier so a bad caller can't ask us to slam Gmail with
-          // the full inbox.
+          // Keep only the user's own rows that are still UNREAD.
           const rows = await db()
             .select({
               id: documents.id,
@@ -673,16 +536,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
 
           if (unreadRows.length === 0) return { marked: 0 };
 
-          // Group unread rows by the Google account they were ingested
-          // under. A user can connect multiple Google accounts
-          // (work + personal) and each `integration_credentials` row
-          // only holds tokens for its own mailbox — calling
-          // batchModifyMessages with the wrong account's token would
-          // 404/403 the whole request. `documents.accountId` mirrors
-          // `integration_credentials.account_id` for exactly this
-          // reason. Older ingested rows may have NULL accountId, so
-          // bucket those under a sentinel and pick the lone modify-
-          // scoped cred for them if there is one.
+          // Group by Google account: another account's token fails the whole batch.
+          // Older rows have a NULL accountId.
           const byAccount = new Map<string | null, typeof unreadRows>();
 
           for (const r of unreadRows) {
@@ -692,10 +547,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             byAccount.set(key, bucket);
           }
 
-          // Find Gmail credentials carrying `gmail.modify` — the
-          // read-only briefing scope isn't enough to remove a label.
-          // Mirrors the calendar-scope filter in `/meetings` so a
-          // Calendar-only Google account doesn't get picked up here.
+          // Removing a label needs `gmail.modify`.
           const modifyScope = GOOGLE_SCOPE.gmail.modify;
 
           const creds = await db()
@@ -726,9 +578,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           }
 
           const credByAccount = new Map(modifyCreds.map((c) => [c.accountId, c]));
-          // Fallback for legacy NULL-accountId docs: the unique
-          // modify-scoped cred if there's exactly one, otherwise
-          // ambiguous and we skip them.
+          // NULL-accountId rows use the only modify cred, or are skipped if there are several.
           const fallbackCred = modifyCreds.length === 1 ? modifyCreds[0] : null;
 
           const markedRows: typeof unreadRows = [];
@@ -752,13 +602,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             );
           }
 
-          // Strip UNREAD from each row's stored metadata so the next
-          // /inbox refetch reports them as read immediately. Without
-          // this the rows would re-appear unread until the next Gmail
-          // poll / history sync reconciles labels — a confusing UX gap
-          // even for the few seconds it takes. Scoped to the rows we
-          // actually modified in Gmail above, so a partial multi-
-          // account result doesn't silently desync unmodified rows.
+          // Update stored labels now so the next /inbox read does not wait for a Gmail sync.
+          // Only rows that Gmail actually modified.
           await db()
             .update(documents)
             .set({
@@ -782,9 +627,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         },
         {
           body: t.Object({
-            // The rail page caps at 8 visible rows today; 50 leaves
-            // headroom for future page-size bumps without blessing
-            // server-wide "mark all" via this endpoint.
+            // Capped so this cannot become "mark the whole inbox read".
             documentIds: t.Array(t.String({ minLength: 1 }), {
               minItems: 1,
               maxItems: 50,
@@ -795,11 +638,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
       .get(
         "/meetings",
         async ({ user: u }): Promise<{ items: MeMeetingItem[]; connected: boolean }> => {
-          // A user can have multiple active Google credentials (e.g. a
-          // Gmail-only personal account and a Calendar-only work account).
-          // Filter in SQL to the row(s) actually carrying the calendar
-          // scope so we don't accidentally pick a Gmail-only cred and
-          // report "not connected".
+          // A user can have several Google accounts. Pick one with a calendar scope.
           const creds = await db()
             .select({
               id: integrationCredentials.id,
@@ -825,10 +664,6 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
 
           if (!row) return { items: [], connected: false };
 
-          // "Today" is computed in the user's timezone (general
-          // `user_preferences.timezone`, falling back to UTC) — the rail
-          // is a personal "today's meetings" surface, so server-local
-          // would be wrong for any user not co-located with the host.
           const { start, end } = inZone(await resolveTimezone(u.id)).dayBounds();
 
           const accessToken = await getFreshAccessToken(row.id);
@@ -872,10 +707,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
       .get(
         "/briefings/latest",
         async ({ user: u }): Promise<{ briefing: MeLatestBriefing | null }> => {
-          // Scope to *today's* briefing in the user's timezone — the rail is a
-          // "Today" panel, so an older briefing must read as empty rather than
-          // pin the chip to a stale day. Among today's slots (morning fires
-          // first, evening supersedes it), the most recent composed run wins.
+          // Today only, so the chip never shows a stale day. The newest slot wins.
           const today = inZone(await resolveTimezone(u.id)).day();
 
           const rows = await db()
@@ -911,19 +743,13 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         },
       )
       .post("/briefings/run", async ({ user: u }) => {
-        // On-demand briefing trigger for the rail "Generate briefing"
-        // button. `reason: "manual"` bypasses morning suppression, so the
-        // requested slot always sends. Slot follows the time of day: after
-        // the user's evening hour we compose the evening recap, else morning.
+        // `reason: "manual"` skips morning suppression, so the slot always sends.
         const prefs = await resolveBriefingPreferences(u.id);
         const zone = inZone(prefs.timezone);
         const briefingDate = zone.day();
         const slot: BriefingSlot = zone.hour() >= prefs.eveningHour ? "evening" : "morning";
 
-        // Don't spin up a second agent run if today's slot is already
-        // terminal (done) or genuinely in flight. `composed` (compose
-        // finished, send interrupted) and `failed` fall through to
-        // re-enqueue — `beginBriefing` resumes/retries them to a terminal.
+        // `composed` and `failed` fall through: `beginBriefing` resumes or retries them.
         const existing = await db()
           .select({ id: briefings.id, status: briefings.status })
           .from(briefings)
@@ -1020,7 +846,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             end: t.Optional(t.String()),
             page: t.Optional(t.Numeric({ minimum: 1 })),
             pageSize: t.Optional(t.Numeric({ minimum: 1, maximum: USAGE_ACTIVITY_MAX_PAGE_SIZE })),
-            /** Comma-separated `UsageRunCategory` values; unknowns are dropped. */
+            /** Comma-separated `UsageRunCategory` values. Unknown values are dropped. */
             categories: t.Optional(t.String()),
             sortField: t.Optional(t.String()),
             sortDir: t.Optional(t.String()),

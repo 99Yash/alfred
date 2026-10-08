@@ -13,51 +13,32 @@ import {
 } from "@alfred/assistant/time";
 
 /**
- * Briefing time-of-day preferences live under `user_preferences` keys
- * (called out canonically in `packages/db/src/schema/memory.ts`). The
- * defaults are shared cross-boundary in `@alfred/contracts/briefing-constants`.
- *
- * Timezone resolution (#229): the canonical zone key is `timezone` — it grounds
- * chat/boss date reasoning AND briefing delivery, so the two can never diverge.
- * The legacy `briefing.timezone` key is read as a fallback for rows written
- * before the unification. The key-set and its canonical order live once in
- * {@link TIMEZONE_PREFERENCE_KEYS}; this maps that const through the same
- * {@link firstValidTimezone} primitive `settings.resolveTimezone` uses, rather
- * than restating either. After the const (`timezone`, then `briefing.timezone`)
- * comes `DEFAULT_USER_TIMEZONE` (UTC) — so a user with no pref row still gets
- * daily emails at a predictable time.
- *
- * The browser's `Intl.DateTimeFormat().resolvedOptions().timeZone` is captured
- * at onboarding and persisted to `timezone`, so a user who never opens settings
- * no longer silently defaults to UTC.
+ * Briefing hours and zone live in `user_preferences`. Zone order comes from
+ * {@link TIMEZONE_PREFERENCE_KEYS} via {@link firstValidTimezone}, the same path as
+ * `settings.resolveTimezone`, so delivery and date reasoning agree (#229). Then UTC.
  */
 
 export { DEFAULT_BRIEFING_DELIVERY_HOUR, DEFAULT_BRIEFING_EVENING_HOUR, DEFAULT_BRIEFING_TIMEZONE };
 
 export interface BriefingPreferences {
   timezone: IanaTimezone;
-  /** Morning delivery hour (0-23, in `timezone`). Backwards-compatible name. */
+  /** Morning hour (0-23, in `timezone`). Old name kept. */
   deliveryHour: number;
-  /** Evening delivery hour (0-23, in `timezone`). */
+  /** 0-23, in `timezone`. */
   eveningHour: number;
-  /** True when at least one of the values came from the pref row, not the fallback. */
+  /** At least one value came from the user's row. */
   hasUserOverride: boolean;
 }
 
 interface BriefingPreferenceValues {
-  /** Zone values in `TIMEZONE_PREFERENCE_KEYS` order (canonical-first). */
+  /** In `TIMEZONE_PREFERENCE_KEYS` order. */
   timezoneValues: readonly unknown[];
   deliveryHour: unknown;
   eveningHour: unknown;
 }
 
 export async function resolveBriefingPreferences(userId: string): Promise<BriefingPreferences> {
-  // #229: the zone keys and their canonical order come from
-  // `TIMEZONE_PREFERENCE_KEYS` (canonical `timezone`, then legacy
-  // `briefing.timezone`) — the same const `settings.resolveTimezone` maps, so
-  // delivery time and date reasoning never diverge. All four `getPreference`
-  // calls fire synchronously before the first `await` (the `.map` and the two
-  // sibling calls execute eagerly), so this stays a single round-trip.
+  // Every `getPreference` call starts before the first await, so this is one round-trip.
   const [tzRows, hourRow, eveRow] = await Promise.all([
     Promise.all(TIMEZONE_PREFERENCE_KEYS.map((key) => getPreference(userId, key))),
     getPreference(userId, "briefing.delivery_hour"),

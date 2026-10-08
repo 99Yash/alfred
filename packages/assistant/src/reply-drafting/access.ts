@@ -2,10 +2,8 @@ import { GOOGLE_SCOPE, holdsAnyScope, type ReplyNoAccessReason } from "@alfred/c
 import { listCredentials } from "@alfred/integrations/google";
 
 /**
- * Whether Alfred could send from the mailbox at all (ADR-0098). A `no_access`
- * outcome is a decision, not an error: the user connected Gmail read-only, or
- * never connected it, and the run records that instead of composing a draft
- * that no approval could ever send.
+ * Can Alfred send from this mailbox (ADR-0098)? `no_access` is a decision, not an error:
+ * Gmail is read-only or not connected, so no draft is composed.
  */
 export type GmailSendAccess =
   | { ok: true; credentialId: string; mailboxAddress: string | null }
@@ -13,7 +11,7 @@ export type GmailSendAccess =
 
 export async function checkGmailSendAccess(args: {
   userId: string;
-  /** The `integration_credentials.account_id` of the mailbox the inbound mail arrived in. */
+  /** `integration_credentials.account_id` of the receiving mailbox. */
   accountId: string;
 }): Promise<GmailSendAccess> {
   const active = (await listCredentials(args.userId, "google")).filter(

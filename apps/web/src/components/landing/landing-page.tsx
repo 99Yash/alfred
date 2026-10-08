@@ -17,39 +17,15 @@ import { LandingBackground } from "~/components/landing/landing-background";
 import { cn } from "~/lib/utils";
 
 /**
- * Marketing landing.
- *
- * The page is one continuous document, read top to bottom:
- *
- *   hero copy → the product, full-bleed → why you'd trust it → what happens
- *   when you sign up → what it does → why it matters → the honest caveat →
- *   the ask
- *
- * Two rules hold that shape together, and breaking either one is what made
- * the previous version read as a stack of unrelated screens on a black void:
- *
- * 1. **One rhythm, owned in one place.** Every band is `py-16 sm:py-20` over a
- *    `max-w-5xl px-5` column — see `LandingSection`. Sections do not carry
- *    their own margins. The two deliberate exceptions announce themselves:
- *    `LandingStatement` takes extra air because it is the crescendo, and
- *    `BenefitsRow` takes less because it is the caption on the product shot.
- *
- * 2. **Exactly one full-bleed moment.** `HeroShowcase` breaks the column,
- *    once, at the moment the reader first sees the product. Everything before
- *    and after it stays in the column, which is what makes the break read as
- *    emphasis instead of noise.
- *
- * Sources: the section grammar and the notch-over-band hero are visitors.now
- * (re-registered for a dark canvas); the device bezel is firstquadrant.ai; the
- * product clips are dimension's, pending Alfred-branded replacements.
+ * Marketing landing, one continuous document.
+ * Every band uses `LandingSection`'s rhythm; only `LandingStatement` and `BenefitsRow`
+ * differ on purpose. `HeroShowcase` is the one full-bleed break.
  */
 function goToLogin() {
   window.location.assign("/login");
 }
 
-// Module-scope so the JSX object is stable across renders — the
-// FloatingPillNav `cta` slot would otherwise receive a fresh node on every
-// LandingPage re-render.
+// Module scope keeps the `cta` node stable across renders.
 const NAV_CTA = (
   <FrostButton tone="light" size="sm" onClick={goToLogin}>
     Sign in
@@ -59,17 +35,13 @@ const NAV_CTA = (
 export function LandingPage() {
   return (
     <LandingBackground className="min-h-[100dvh] w-full overflow-x-hidden">
-      {/* `<main>` gives the page its required primary landmark (the footer and
-       * nav below are siblings, not part of the main content) — keeps
-       * screen-reader "skip to main" working and clears Lighthouse's
-       * landmark-one-main audit. */}
+      {/* The one primary landmark; nav and footer sit outside it. */}
       <main className="relative w-full">
         <Hero onGetStarted={goToLogin} />
 
         <HeroShowcase />
 
-        {/* The trust strip is the product shot's caption, so it sits tight
-         * against the band rather than a section away. */}
+        {/* The trust strip captions the product shot, so it sits tight against the band. */}
         <div id="why" className="scroll-mt-24 pt-12 sm:pt-14">
           <BenefitsRow />
         </div>
@@ -96,9 +68,7 @@ export function LandingPage() {
         }
         cta={NAV_CTA}
       >
-        {/* Each label names what is actually there. "Home" and "Pricing" are
-         * the kind of safe generic labels that tell a visitor nothing — and
-         * this product has no pricing page to send them to. */}
+        {/* Labels name what is there. There is no pricing page. */}
         <a href="#features" className={NAV_LINK}>
           Features
         </a>
@@ -118,10 +88,6 @@ const NAV_LINK = cn(
   "transition-colors duration-150 hover:bg-white/[0.07] hover:text-white",
 );
 
-/* ------------------------------------------------------------------ */
-/* Hero                                                                */
-/* ------------------------------------------------------------------ */
-
 function Hero({ onGetStarted }: { onGetStarted: () => void }) {
   return (
     <section className="relative w-full pt-28 pb-14 sm:pt-36 sm:pb-16">
@@ -133,9 +99,7 @@ function Hero({ onGetStarted }: { onGetStarted: () => void }) {
         </FadeInOnScroll>
 
         <FadeInOnScroll delay={80}>
-          {/* The largest type on the page, so the tightest tracking on the
-           * page: letters read too far apart as they grow, and a single
-           * letter-spacing value across a scale is wrong somewhere. */}
+          {/* Largest type, so the tightest tracking: letters drift apart as they grow. */}
           <h1
             className={cn(
               "font-semibold text-balance text-white",

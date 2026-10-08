@@ -10,18 +10,8 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { client } from "~/lib/eden";
 
 /**
- * Settings → Usage data hooks. Each wraps a `GET /api/me/usage/*` Eden call in
- * React Query. The window is passed as ISO strings so the query key is a stable
- * primitive (a `Date` object would be a new reference every render and thrash
- * the cache). All three read paths tolerate an empty backend — the components
- * render honest empty states.
- *
- * The server already coerces every aggregate to a finite number (Postgres
- * returns `numeric`/`sum` as strings; `usage-report` folds them via `num`), so
- * the responses arrive shaped exactly as the `@alfred/contracts` types declare.
- * We return Eden's typed payload directly rather than re-coercing field by field
- * — the only date fields here are fed straight to `new Date()` downstream, which
- * tolerates Eden's date-string revival without a normalization pass.
+ * Settings → Usage queries. The window is ISO strings, so the query key is a
+ * stable primitive. The server already coerces aggregates to numbers.
  */
 
 interface UsageWindow {
@@ -105,7 +95,7 @@ export function useUsageActivity(args: ActivityArgs) {
 
       return res.data;
     },
-    // Keep the current page visible while the next page / re-sort loads.
+    // Keep the current page while the next one loads.
     placeholderData: keepPreviousData,
     staleTime: 60_000,
     refetchOnWindowFocus: false,

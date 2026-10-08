@@ -7,16 +7,7 @@ import { z } from "zod";
 import { identifyLanguageModel } from "../models";
 import type { CallUsage } from "./metered";
 
-/**
- * In-process price cache. Keyed by `${provider}:${model}`; bounded TTL
- * so a `db:sync-prices` deploy reaches running workers within a few
- * minutes without restart. Misses fall through to a single fetch and
- * populate the cache.
- *
- * Picked over an SQL view + per-call query because pricing changes
- * monthly at most — the cache trades a tiny staleness window for
- * eliminating a DB round-trip per metered call.
- */
+/** Price cache TTL. A `db:sync-prices` run reaches running workers within minutes. */
 const TTL_MS = 5 * 60_000;
 
 interface CachedPrice {
@@ -38,19 +29,12 @@ export interface PriceLookup {
   outputPerMtok: number;
   cachedInputPerMtok: number | null;
   cacheWriteInputPerMtok: number | null;
-  /** Provider-specific 1h cache-write rate; null when TTL does not affect pricing. */
+  /** Null when the cache TTL does not change the price. */
   cacheWrite1hPerMtok: number | null;
-  /** Higher token rates activated when a request crosses a provider context threshold. */
+  /** Higher rates above a provider's context-size threshold. */
   tiers: readonly ModelPriceTier[];
   perCallUsd: number | null;
-  /**
-   * Max input tokens the model accepts in a single request. Seeded by
-   * `pnpm --filter @alfred/db db:sync-prices` from models.dev. `null`
-   * for rows that don't carry a meaningful context window (e.g. Voyage
-   * embeddings). Consumed by ADR-0035 compaction to derive the 60%
-   * threshold; `resolveModelContextWindow` throws when it is missing
-   * for a model the runtime needs to reason about.
-   */
+  /** Max input tokens, from models.dev. Null for embedding models. Compaction uses it (ADR-0035). */
   contextWindow: number | null;
 }
 
@@ -126,15 +110,7 @@ export async function getPrice(provider: string, model: string): Promise<PriceLo
   return fresh;
 }
 
-/**
- * Code-resident fallback windows for the models the boot guard verifies.
- * Mirrors the current `model_prices.context_window` seeded by
- * `db:sync-prices` (models.dev). Used only when the DB row is missing or
- * carries a null window — e.g. a fresh local DB before the first sync, or a
- * brief models.dev rename gap — so a new checkout boots without a manual
- * `db:sync-prices` step. The DB remains the source of truth; this map is a
- * safety net that is intentionally narrow to the verified set.
- */
+/** Used only when the DB row has no window, so a fresh checkout boots before the first price sync. */
 const FALLBACK_CONTEXT_WINDOWS = {
   "anthropic/claude-sonnet-4-6": 1_000_000,
   "anthropic/claude-opus-4-8": 1_000_000,
@@ -142,24 +118,12 @@ const FALLBACK_CONTEXT_WINDOWS = {
   "google/gemini-2.5-flash-lite": 1_048_576,
   "google/gemini-3.5-flash": 1_048_576,
   "google/gemini-3.8-flash": 1_048_576,
-  // OpenAI's published 1.05M context window for gpt-6-luna. Like the rest of
-  // this map: a boot safety net, not source of truth.
   "openai/gpt-6-luna": 1_050_000,
 } as const satisfies Readonly<Record<string, number>>;
 
 /**
- * Resolve the input-token context window for an AI SDK `LanguageModel` via
- * the `model_prices.context_window` column. Falls back to
- * `FALLBACK_CONTEXT_WINDOWS` for the known agent models when the row is
- * missing or carries a null window, otherwise throws — boot-time
- * `verifyMeteringModels` uses this to fail fast on misconfigured workers
- * (ADR-0035 derives the compaction threshold from this value; a silent
- * fallback for an *unknown* model would mean unbounded transcript growth).
- *
- * Provider id normalization is handled by `identifyLanguageModel` (shared with
- * the metering wrappers): AI SDK exposes namespaced ids
- * (`google.generative-ai`, `anthropic.messages`), models.dev uses the head
- * (`google`, `anthropic`).
+ * The model's context window. Throws for an unknown model: compaction needs it (ADR-0035),
+ * and a guessed value could let the transcript grow without bound.
  */
 export async function resolveModelContextWindow(model: LanguageModel): Promise<number> {
   const { provider, modelId } = identifyLanguageModel(model);
@@ -168,18 +132,8 @@ export async function resolveModelContextWindow(model: LanguageModel): Promise<n
 }
 
 /**
- * Boot assertion for ONE route leg: the leg must have a real, priced row in
- * `model_prices`.
- *
- * Separate from {@link resolveContextWindowById} because that function cannot
- * carry this proof. It answers with `FALLBACK_CONTEXT_WINDOWS` when the row is
- * missing, and that table lists the fallback legs — so a boot guard built on it
- * passes for a leg whose price row does not exist, which is exactly the leg
- * that then meters at $0 on the turn the cascade degrades to it.
- *
- * Two conditions, because a row can exist and still price nothing: `computeCost`
- * returns 0 for a missing row AND for a row whose rates are all zero with no
- * per-call price, and both produce the same silent under-report.
+ * Boot check: the leg has a `model_prices` row with a nonzero rate.
+ * A missing row and an all-zero row both meter at $0.
  */
 export async function assertLegPriced(provider: string, modelId: string): Promise<void> {
   const key = `${provider}/${modelId}`;
@@ -197,24 +151,18 @@ export async function assertLegPriced(provider: string, modelId: string): Promis
     );
   }
 
-  // The compaction threshold needs a window too (ADR-0035). The code fallback
-  // is allowed here: it is a deliberate safety net for a fresh checkout, and
-  // unlike the price above it cannot hide a metering hole.
+  // Compaction needs a window (ADR-0035). The code fallback is fine here; it cannot hide a cost.
   await resolveContextWindowById(provider, modelId);
 }
 
-/**
- * `resolveModelContextWindow` for a caller that holds identifiers rather than
- * a model object — the boot guard enumerates every leg a route can serve
- * (`allRouteLegIdentifiers`), and a composed facade only names its primary.
- */
+/** `resolveModelContextWindow` by ids, for the boot guard's per-leg list. */
 export async function resolveContextWindowById(provider: string, modelId: string): Promise<number> {
   const price = await getPrice(provider, modelId);
 
   if (price?.contextWindow != null) return price.contextWindow;
   const key = `${provider}/${modelId}`;
 
-  // SAFETY: `in` guard ensures key is a known literal before indexing the const table.
+  // SAFETY: the `in` guard proves the key is in the table.
   const fallback =
     key in FALLBACK_CONTEXT_WINDOWS
       ? FALLBACK_CONTEXT_WINDOWS[key as keyof typeof FALLBACK_CONTEXT_WINDOWS]
@@ -233,23 +181,14 @@ export async function resolveContextWindowById(provider: string, modelId: string
   );
 }
 
-/**
- * Compute USD cost from a known price + token usage. Returns 0 when the
- * price row is missing — the log row still lands so we can detect the
- * gap and run `db:sync-prices`. (Silent zero is preferable to throwing,
- * which would break the underlying call path.)
- */
+/** USD cost. 0 when the price is missing; throwing would break the call. */
 export function computeCost(price: PriceLookup | null, usage: CallUsage | undefined): number {
   if (!price) return 0;
 
   if (price.perCallUsd != null) return price.perCallUsd;
 
   if (!usage) return 0;
-  // The SDK's `inputTokens` is the TOTAL prompt, INCLUDING cache reads
-  // (anthropic/google both report total = uncached + cache_creation +
-  // cache_read). Bill only the uncached remainder at the full input rate, then
-  // add cache reads and writes at their own rates — otherwise either category
-  // is charged twice (full rate via the total, plus its cache rate).
+  // `inputTokens` includes cache reads and writes. Bill only the rest at the input rate.
   const rates = resolveRates(price, usage.inputTokens ?? 0);
   const cachedInputTokens = usage.cachedInputTokens ?? 0;
   const cacheWriteInputTokens = usage.cacheWriteInputTokens ?? 0;

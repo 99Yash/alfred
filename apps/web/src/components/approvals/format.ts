@@ -1,18 +1,8 @@
-/**
- * Pure formatting helpers for the approvals surface. No React imports — kept
- * separate so the per-component files stay within the single-component lint
- * scope and these stay trivially testable.
- */
-
 import { eventTriggerPhrase, humanizeSlug } from "@alfred/contracts";
 
 export type JsonParseResult = { ok: true; value: unknown } | { ok: false; message: string };
 
-/**
- * Human label for the run's narrowed trigger projection — the provenance
- * line's "where did this come from". e.g. `manual` → "Run now",
- * `event`/gmail/message_received → "Triggered by Gmail message".
- */
+/** Provenance line: `manual` → "Run now", a Gmail event → "Triggered by Gmail message". */
 export function triggerLabel(trigger: {
   kind: string;
   source?: string | null | undefined;
@@ -27,7 +17,7 @@ export function triggerLabel(trigger: {
     case "on_signal":
       return "Signal";
     case "event": {
-      // Historical runs written before ADR-0047 carry no source.
+      // Runs from before ADR-0047 have no source.
       const phrase = trigger.source
         ? eventTriggerPhrase({
             source: trigger.source,

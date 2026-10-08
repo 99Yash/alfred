@@ -12,16 +12,15 @@ export function LoginPage() {
   const { data: session, isPending } = authClient.useSession();
   const isAuthed = !!session?.user;
 
-  // Already signed in: bounce to the path they were headed for, or `/chat`.
+  // Signed in: go to the target path or `/chat`.
   useEffect(() => {
     if (isAuthed) void navigate({ to: redirect ?? "/chat", replace: true });
   }, [isAuthed, redirect, navigate]);
 
-  // Confirmed authed -> redirect is in flight, render nothing.
+  // The redirect is in flight.
   if (isAuthed) return null;
 
-  // Session not yet resolved: defer to the synchronous hint to avoid flashing
-  // the sign-in screen at a returning signed-in user before redirect fires.
+  // Do not flash sign-in at a returning user before the redirect.
   if (isPending && getLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED)) return null;
 
   return (

@@ -1,37 +1,13 @@
 /**
- * COMMITTED Gmail sent / lifetime backfill (user-model P1, issue #218 — PR B).
+ * Ingest deep Gmail sent history as `documents` for the user-model fold (#218),
+ * which needs outbound mail. Normal ingest keeps only 30 days.
  *
- * The user-model significance fold needs reciprocity + reply-latency signal,
- * and that requires the user's OUTBOUND mail. Steady-state ingestion only keeps
- * a rolling `newer_than:30d` window (plus realtime), so the deep sent history
- * the fold wants isn't on file. This script fills it: it drives the existing
- * full Gmail ingest path (`ingestRecentGmail`) over a sent-scoped query so the
- * messages land as ordinary `documents` rows the P1 reducer can later replay.
+ * It calls `ingestRecentGmail` directly, not the queue job, so there is no triage
+ * fan-out or label reconcile. It does not move the history cursor, because a filtered
+ * replay is not a full sync. It never writes to the mailbox. Re-runs are idempotent.
  *
- * Why call `ingestRecentGmail` directly (not via the ingestion queue): the
- * queue's `gmail.ingest_recent` job adds post-insert side effects (triage
- * fan-out, thread reconcile, label reconcile). We want NONE of those for a bulk
- * backfill — this is the `triageInsertedDocs: false` contract, achieved by not
- * running the post-insert plan at all. `ingestRecentGmail` only READS Gmail
- * (list + get) and WRITES `documents` + chunks; this script opts out of the
- * ingestor's normal history-cursor update because a filtered sent-mail replay
- * is not a full mailbox sync. It never mutates the mailbox or emits a triage
- * event, so the #278 mailbox-write gate is not in play.
- *
- *   - Sent docs persist with `metadata.isSent = true` (set by `persistMessage`).
- *   - Alfred's own outbound (`From = RESEND_FROM_EMAIL`) is dropped by the
- *     existing `isSelfAuthored` guard (#211) — and `in:sent` on the user's
- *     mailbox never contains it anyway (Resend doesn't write the Sent folder).
- *   - Re-runs are idempotent: the `(user_id, source, source_id)` unique index
- *     makes already-ingested messages a `skipped` no-op.
- *
- * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
- * `node dist/scripts/backfills/backfill-gmail-sent-committed.js` — the prod image has no
- * `tsx`/loose `@alfred/*` sources.
- *
- * Dry by default — lists the candidate message ids per credential and
- * writes NOTHING. `--commit` is required to actually ingest (which also calls
- * Gmail `get` per message + embeds, so it is not free).
+ * Bundled for prod. Dry by default: lists candidate ids. `--commit` ingests, which
+ * costs a Gmail `get` and an embed per message.
  *
  *   # preview personal mailbox (writes nothing):
  *   node dist/scripts/backfills/backfill-gmail-sent-committed.js --emails=yashgouravkar@gmail.com
@@ -79,12 +55,7 @@ function parseEmails(): string[] {
     .filter(Boolean);
 }
 
-/**
- * The Gmail search query to ingest. A `--query` overrides everything (use it to
- * pull inbound + sent or any custom slice); otherwise we scope to sent mail
- * with the requested recency horizon. The horizon is a script argument, not an
- * architecture constant — the P1 fold doesn't care how far back we filled.
- */
+/** `--query` wins; otherwise sent mail within the requested horizon. */
 function resolveQuery(): string {
   const override = flagValue("query");
 
@@ -115,7 +86,7 @@ interface TargetCredential {
   scopes: string[];
 }
 
-/** A Google credential is Gmail-capable iff it was granted a gmail.* scope. */
+/** True when the credential has a gmail.* scope. */
 function hasGmailScope(scopes: string[]): boolean {
   return scopes.some((s) => s.includes("gmail"));
 }
@@ -165,7 +136,7 @@ async function resolveTargets(emails: string[]): Promise<TargetCredential[]> {
   return targets;
 }
 
-/** Dry-run: list candidate message ids (read-only) up to the cap. */
+/** List candidate message ids up to the cap. Read-only. */
 async function previewCredential(
   t: TargetCredential,
   query: string,
@@ -276,8 +247,7 @@ async function main() {
           `chunks=${result.chunksWritten}`,
       );
     } catch (err) {
-      // One bad credential (revoked token, missing scope) must not abort the
-      // remaining mailboxes in an --all-connected sweep.
+      // One bad credential must not stop the other mailboxes.
       totals.errors++;
       console.error(`  ! ingest failed for ${t.email}: ${toMessage(err)}`);
     }
@@ -296,7 +266,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

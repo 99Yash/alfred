@@ -1,8 +1,3 @@
-/**
- * Pure helpers for the workflow History tab (#561). No React imports so the
- * component files stay single-component and these stay trivially readable.
- */
-
 import {
   humanizeSlug,
   type EffectReceipt,
@@ -66,8 +61,7 @@ function outcomeHeadline(
     case "failed":
       return { title: "Failed", detail: outcome.safeMessage, tone: "red" };
     case "cancelled": {
-      // The live ledger is the one effect list on the wire; nothing lands
-      // after the terminal write, so its succeeded count is the frozen one.
+      // Nothing lands after the terminal write, so this count is final.
       const landed = effects.filter((effect) => effect.outcome === "succeeded").length;
       const unknown = outcome.unknownEffects.length;
 
@@ -89,14 +83,14 @@ function outcomeHeadline(
   }
 }
 
-/** What the row says first: the frozen outcome when there is one, else the live status. */
+/** The frozen outcome if there is one, else the live status. */
 export function runHeadline(row: WorkflowRunHistoryRow): RunHeadline {
   if (row.outcome) return outcomeHeadline(row.outcome, row.effects);
 
   return { title: STATUS_TITLE[row.status], detail: null, tone: STATUS_TONE[row.status] };
 }
 
-/** The exact identity of the firing: the schedule instant, the event id, or the signal. */
+/** The schedule instant, the event id, or the signal. */
 export function triggerIdentity(trigger: WorkflowRunHistoryTrigger | null): string {
   if (!trigger) return "Trigger unknown";
   const label = triggerLabel(trigger);
@@ -133,7 +127,7 @@ export interface EffectCount {
   tone: "green" | "amber" | "red" | "purple";
 }
 
-/** Tally the write receipts into the five states a user can act on or worry about. */
+/** Count write receipts into the five states a user cares about. */
 export function effectCounts(effects: readonly EffectReceipt[]): EffectCount[] {
   const tally = { succeeded: 0, awaiting: 0, rejected: 0, failed: 0, unknown: 0 };
 

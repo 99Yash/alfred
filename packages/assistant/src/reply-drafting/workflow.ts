@@ -26,8 +26,7 @@ import { checkGmailSendAccess } from "./access";
 import { composeReply } from "./compose";
 import { gatherReplyContext, loadReplyDocument, replyGatherSchema } from "./gather";
 import { prepareReplyStaging } from "./verifier";
-// Imported for its module augmentation: it registers the `reply_drafting.decision`
-// trace kind that every `ctx.trace` call below is typed against.
+// Side-effect import: registers the `reply_drafting.decision` trace kind.
 import "./decision";
 import { REPLY_DRAFTING_WORKFLOW_SLUG, replyDraftingWorkflowInputSchema } from "./workflow-input";
 import {
@@ -37,18 +36,11 @@ import {
 } from "./worthiness";
 
 /**
- * The `reply-drafting` workflow (ADR-0098): `gate` → `gather` → `compose` → `stage`.
- *
- * `gate` re-runs the worthiness rubric on the live row so a run started by a
- * stale event (or by hand) decides from what is true now. `gather` proves the
- * mailbox can send, picks the style profile, and freezes the recipient and
- * participant facts the verifier will bind to. `compose` freezes a verified
- * candidate before `stage` enters the tool dispatcher. The run waits for the
- * existing approval flow; resuming never composes a second body.
- *
- * Every terminal step traces the result as `reply_drafting.decision` and returns
- * it as the run output, so a `no_draft`, `no_access`, or `withheld` run is a
- * completed run with a typed reason, never a failed one.
+ * `reply-drafting` workflow (ADR-0098): `gate`, `gather`, `compose`, `stage`.
+ * `gate` reruns the rubric on the live row. `gather` checks the mailbox can send and freezes
+ * the facts the verifier binds to. `compose` freezes one verified candidate before `stage`.
+ * Resuming never composes a second body. `no_draft`, `no_access`, and `withheld` are
+ * completed runs with a typed reason, not failures.
  */
 
 const stateSchema = z.object({
@@ -74,11 +66,7 @@ type State = z.infer<typeof stateSchema>;
 
 const REPLY_TOOL_CALL_ID = "reply-draft";
 
-/**
- * The live row as a snapshot. `email_triage.document_id` is a soft pointer that
- * survives a purge of the document it names, so a null falls back to the
- * document this run was started for.
- */
+/** `email_triage.document_id` can outlive its document, so null falls back to the run's document. */
 function snapshotFromRow(row: TriageRow, fallbackDocumentId: string): ReplyDraftTriageSnapshot {
   return {
     documentId: row.documentId ?? fallbackDocumentId,
@@ -217,8 +205,7 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
       inboundAuthoredAt: document.authoredAt,
       lastUserReplyAt: threadState.lastUserReplyAt,
     },
-    // The run has no gmail.message_received reason of its own; the reply state
-    // comes from the thread timestamps read above.
+    // The reply state comes from the thread timestamps above.
     triageReason: null,
     standingInstruction,
   };
@@ -355,8 +342,7 @@ async function runCompose(ctx: StepContext<State>): Promise<StepResult<State>> {
     });
   }
 
-  // Commit the exact candidate before dispatch so retries and approval resumes
-  // use one body, one tool-call identity, and the original inbound mailbox.
+  // Commit the candidate before dispatch, so retries and resumes use one body and one call id.
   return {
     kind: "next",
     nextStep: "stage",
@@ -368,8 +354,7 @@ async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
   const result = await dispatchReply(ctx);
 
   if (result.kind === "done") {
-    // The action insert and workflow checkpoint are separate commits. Close
-    // any pending row even when this attempt exits before reaching dispatch.
+    // The action insert and checkpoint are separate commits; close a pending row on early exit.
     await withdrawToolCallApproval({
       userId: ctx.userId,
       runId: ctx.runId,
@@ -390,8 +375,7 @@ async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>
     throw new Error("[reply-drafting] stage entered without verified input");
 
   if (!ctx.state.result) {
-    // Compose can take time. Recheck the live gate and access before creating
-    // the first approval; approved resumes remain owned by the dispatcher.
+    // Compose can be slow: recheck gate and access before the first approval.
     const gate = await runGate(ctx);
 
     if (gate.kind !== "next") return gate;
@@ -454,9 +438,7 @@ async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>
     return { kind: "interrupt", state: { ...ctx.state, result }, wake: round.wake };
   }
 
-  // A resumed run uses the dispatcher's stored approved/edited input. Its
-  // transcript and action row record send/rejection/failure independently of
-  // the drafting decision, which remains the historical staging result.
+  // A resumed run uses the dispatcher's stored input. The decision stays the staging result.
   const result =
     ctx.state.result ??
     ({

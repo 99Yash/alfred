@@ -18,28 +18,11 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 import type { RecentThread } from "~/lib/shell/thread-view-model";
 import { cn } from "~/lib/utils";
 
-/**
- * Cmd-K search palette.
- *
- * Modal overlay mounted by `AppShell`. Provides a single keyboard-driven
- * entry point that fuzzy-matches across:
- *   • Static commands (New chat, Settings, Integrations, …)
- *   • Recent chat threads supplied by the owning shell surface
- *
- * Keyboard:
- *   • cmd/ctrl-K (handled by parent) — open
- *   • esc — close
- *   • up/down arrows — move highlight (wraps)
- *   • enter — invoke highlighted item
- *
- * The component is only mounted while open — the parent renders it
- * conditionally — so internal state is fresh on each open without
- * needing to reset on a prop change.
- */
+/** ⌘K palette over commands and recent threads. Mounted only while open, so state starts fresh. */
 
 export interface SearchPaletteProps {
   onClose: () => void;
-  /** Recent threads to surface in the "Recent chats" group. Empty/omitted → group hidden. */
+  /** Empty hides the "Recent chats" group. */
   recentThreads?: ReadonlyArray<RecentThread> | undefined;
 }
 
@@ -51,15 +34,14 @@ interface CommandItem {
   label: string;
   hint?: string | undefined;
   icon: LucideIcon;
-  /** When set, navigate to this path on invoke. */
   to?: string | undefined;
-  /** Thread rows: the synced thread id — invoke navigates to `/chat/$threadId`. */
+  /** Opens `/chat/$threadId`. */
   threadId?: string | undefined;
-  /** When set, run this on invoke (e.g. open settings modal — not wired yet). */
+  /** No caller sets this yet. */
   onRun?: (() => void) | undefined;
-  /** Free-form keywords to match in addition to the label. */
+  /** Matched besides the label. */
   keywords?: string | undefined;
-  /** Global shortcut for this command, shown as a trailing hint when not selected. */
+  /** Shown when the row is not selected. */
   kbd?: string | undefined;
 }
 
@@ -165,24 +147,17 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
-  // Stable base for the combobox/listbox ARIA wiring. The input is a
-  // combobox that controls the listbox via `aria-controls`, and points at
-  // the active row via `aria-activedescendant` — that's how a screen reader
-  // learns which option is highlighted while DOM focus stays on the input.
+  // Focus stays on the input; `aria-activedescendant` tells a screen reader the highlighted row.
   const baseId = useId();
   const listId = `${baseId}-listbox`;
   const optionId = (item: CommandItem) => `${baseId}-opt-${item.id}`;
 
-  // Focus the input on mount. The parent only renders this component
-  // while the palette is open, so this fires exactly once per open.
   useEffect(() => {
     const id = requestAnimationFrame(() => inputRef.current?.focus());
 
     return () => cancelAnimationFrame(id);
   }, []);
 
-  // Build the full item list — commands plus the (prop-driven) recent
-  // threads — once per prop change.
   const allItems = useMemo<ReadonlyArray<CommandItem>>(() => {
     if (!recentThreads || recentThreads.length === 0) return COMMANDS;
 
@@ -199,7 +174,6 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
     return [...COMMANDS, ...threadItems];
   }, [recentThreads]);
 
-  // Filter + score in one pass to avoid the .map().filter() chain.
   const results = useMemo(() => {
     const ranked: { item: CommandItem; score: number }[] = [];
 
@@ -214,8 +188,6 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
     return ranked.map((r) => r.item);
   }, [allItems, query]);
 
-  // Group results into commands + threads in a single pass so the visual
-  // order is built once and shared by rendering and keyboard nav.
   const grouped = useMemo(() => {
     const commands: CommandItem[] = [];
     const threads: CommandItem[] = [];
@@ -228,18 +200,14 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
     return { commands, threads };
   }, [results]);
 
-  // Flat array in render order. Arrow keys walk this so the highlight
-  // matches the visual sequence (commands first, then threads).
+  // Render order, so arrow keys follow what is on screen.
   const visualOrder = useMemo(() => [...grouped.commands, ...grouped.threads], [grouped]);
 
-  // Clamp the highlight during render — no useEffect needed.
   const activeIndex = visualOrder.length === 0 ? 0 : Math.min(highlight, visualOrder.length - 1);
   const activeItem = visualOrder[activeIndex];
   const activeOptionId = activeItem ? optionId(activeItem) : undefined;
 
-  // Keep the highlighted row in view when arrow-key nav walks past the
-  // visible window. `block: "nearest"` is a no-op when the row is already
-  // visible, so this stays quiet for mouse hover and short lists.
+  // `block: "nearest"` does nothing when the row is already visible.
   useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
     el?.scrollIntoView({ block: "nearest" });
@@ -296,9 +264,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
       open
       aria-label="Search palette"
       className={cn(
-        // Override UA defaults: dialog ships with its own border, padding,
-        // max-width/height and centered positioning — we want a full-bleed
-        // overlay so the backdrop button covers the viewport.
+        // Remove the UA dialog box styles so the backdrop covers the viewport.
         "fixed inset-0 z-60 m-0 size-full max-h-none max-w-none",
         "border-0 bg-transparent p-0 text-inherit",
         "app-fade-in flex items-start justify-center pt-[12vh]",
@@ -450,7 +416,7 @@ function PaletteRow({
   onMouseEnter,
   onClick,
 }: {
-  /** Stable id referenced by the input's `aria-activedescendant`. */
+  /** Referenced by the input's `aria-activedescendant`. */
   id: string;
   item: CommandItem;
   active: boolean;

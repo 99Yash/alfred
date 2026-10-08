@@ -1,23 +1,10 @@
 /**
- * m7c smoke test — exercises the delta-poll pipeline end-to-end against
- * a connected Google account.
+ * Smoke test for Gmail delta polling on a connected account: a re-poll is a no-op,
+ * the cursor never moves back, a just-polled credential leaves the poll sweep, and
+ * the embed sweep query is bounded. The Pub/Sub push path is manual; the script
+ * prints the setup steps.
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-google-poll.ts
- *
- * What this verifies (with a connected credential):
- *  1. `pollGmailHistory` runs idempotently when the cursor is current
- *     (zero-or-low inserts on a quiet inbox).
- *  2. The cursor advances or stays the same — never goes backwards.
- *  3. `findCredentialsNeedingPoll` excludes credentials we just polled
- *     (last_sync_at advanced inside the threshold).
- *  4. `gmail.embed_sweep` candidate query returns a bounded list.
- *
- * What this *does not* verify:
- *  - The webhook → Pub/Sub → /webhooks/gmail flow. That requires a
- *    public URL and a real Pub/Sub push subscription; documented as a
- *    manual checklist at the bottom of this file.
- *  - users.watch installation against a real topic — also manual,
- *    since Pub/Sub topics + IAM are configured out-of-band.
  */
 import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
@@ -53,11 +40,11 @@ async function main() {
 
   console.log(`[smoke-google-poll] target: ${cred.accountLabel ?? cred.id} (user=${cred.userId})`);
 
-  // ---- Phase 1: pre-state ---------------------------------------------------
+  // Phase 1: pre-state.
   const cursorBefore = await loadCursor(cred.id);
   console.log(`[smoke-google-poll] cursor before: ${cursorBefore ?? "(none)"}`);
 
-  // ---- Phase 2: poll --------------------------------------------------------
+  // Phase 2: poll.
   const result = await pollGmailHistory({ credentialId: cred.id });
   console.log("[smoke-google-poll] result:", JSON.stringify(result, null, 2));
 
@@ -71,14 +58,13 @@ async function main() {
     );
   }
 
-  // ---- Phase 3: re-poll (should be a clean no-op when nothing changed) ----
+  // Phase 3: re-poll, a no-op when nothing changed.
   const second = await pollGmailHistory({ credentialId: cred.id });
   console.log(
     `[smoke-google-poll] re-poll: inserted=${second.inserted} pages=${second.pagesFetched}`,
   );
 
-  // ---- Phase 4: poll-sweep candidate query -------------------------------
-  // The credential we just polled should NOT appear in a 5-minute-old window.
+  // Phase 4: the just-polled credential must not be a poll candidate.
   const cutoff = new Date(Date.now() - 5 * 60 * 1000);
   const stale = await findCredentialsNeedingPoll(cutoff);
 
@@ -90,7 +76,7 @@ async function main() {
     `[smoke-google-poll] sweep query excludes fresh credential ✓ (${stale.length} other stale)`,
   );
 
-  // ---- Phase 5: embed-sweep candidate query ------------------------------
+  // Phase 5: embed-sweep candidate query.
   const unembedded = await findUnembeddedDocumentIds({ source: "gmail", limit: 10 });
   console.log(`[smoke-google-poll] unembedded gmail docs: ${unembedded.length}`);
 
@@ -106,8 +92,7 @@ async function loadCursor(credentialId: string): Promise<string | null> {
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
 
-  // SAFETY: ingestion_state.state is jsonb written by these cursors with the
-  // historyId envelope.
+  // SAFETY: the Gmail cursor writes ingestion_state.state with a historyId.
   const state = rows[0]?.state as { historyId?: string | null } | undefined;
 
   return state?.historyId ?? null;

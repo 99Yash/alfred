@@ -6,15 +6,8 @@ import { and, eq } from "drizzle-orm";
 import { getInstallationToken } from "./app";
 
 /**
- * Persistence layer for GitHub `integration_credentials` (ADR-0052, GitHub
- * App). The stored `access_token` is the user-to-server *identity* token;
- * live REST access goes through short-lived installation tokens minted from
- * `installation_id` (see `getInstallationTokenForUser`).
- *
- * One of the three owners of credential encryption at rest (#453): the stored
- * token is sealed on write and opened on read, so callers keep the same
- * signatures. Installation tokens are minted per call and never persisted, so
- * they never reach the vault.
+ * GitHub App credentials (ADR-0052). The stored token is the user identity token.
+ * REST calls use short-lived installation tokens, which are never stored.
  */
 
 export interface UpsertGithubCredentialArgs {
@@ -23,7 +16,7 @@ export interface UpsertGithubCredentialArgs {
   accountLabel?: string | null;
   accessToken: string;
   refreshToken?: string | null;
-  /** GitHub App installation id captured on the post-install redirect. */
+  /** From the post-install redirect. */
   installationId?: string | null;
   scopes: string[];
   metadata?: JsonObject;
@@ -34,7 +27,6 @@ export async function upsertGithubCredential(
   args: UpsertGithubCredentialArgs,
 ): Promise<{ id: string }> {
   const vault = credentialVault();
-  // Sealed once and reused by both the insert and the on-conflict update.
   const sealedAccessToken = vault.seal(args.accessToken);
   const sealedRefreshToken = args.refreshToken ? vault.seal(args.refreshToken) : null;
 
@@ -86,11 +78,6 @@ export type GithubCredentialSummary = Pick<
   "id" | "status" | "accountId" | "accountLabel" | "installationId"
 >;
 
-/**
- * List a user's GitHub credential rows (parity with Google's
- * `listCredentials(userId, "google")`). Tool code finds the active one and
- * resolves its token. Most users have exactly one.
- */
 export async function listGithubCredentials(userId: string): Promise<GithubCredentialSummary[]> {
   return db()
     .select({
@@ -106,11 +93,7 @@ export async function listGithubCredentials(userId: string): Promise<GithubCrede
     );
 }
 
-/**
- * Resolve the stored user-to-server identity token for a credential row.
- * Kept for parity with Google; most callers want `getInstallationTokenForUser`
- * for actual REST access.
- */
+/** The stored identity token. For REST access use `getInstallationTokenForUser`. */
 export async function getGithubAccessToken(credentialId: string): Promise<string> {
   const rows = await db()
     .select({
@@ -136,11 +119,7 @@ export interface UserInstallationToken {
   accountLogin: string | null;
 }
 
-/**
- * Mint a short-lived installation token for a user's active GitHub App
- * connection — the token REST calls (PR search, issues) actually use. Also
- * returns the connected login so callers can resolve `author:@me`.
- */
+/** Also returns the login, for resolving `author:@me`. */
 export async function getInstallationTokenForUser(
   userId: string,
   accountRef?: string,
@@ -168,11 +147,7 @@ export async function getInstallationTokenForUser(
   return { token, accountLogin: active.accountLabel?.trim() || null };
 }
 
-/**
- * The GitHub App installation id a webhook delivery came from, as the
- * `integration_credentials.installation_id` column stores it, or `null` when
- * the payload carries none. GitHub sends it as a JSON number; the column is text.
- */
+/** GitHub sends a JSON number; the column is text. */
 export function githubInstallationId(payload: JsonObject): string | null {
   return getIdPath(payload, "installation", "id");
 }

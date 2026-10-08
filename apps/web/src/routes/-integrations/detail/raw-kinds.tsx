@@ -5,12 +5,7 @@ import { ColumnLabel } from "./column-label";
 import { SectionHeading } from "./section-heading";
 import { useRawReceiptKinds } from "~/lib/integrations/use-raw-kinds";
 
-/**
- * Every event kind this provider has delivered that no built-in flow acts on
- * (ADR-0097 item 9). A new provider resource shows up here the day it starts
- * to arrive, with explicit loading, error, and empty states. A workflow can
- * subscribe to any kind listed here from its editor (#990).
- */
+/** Delivered event kinds that no built-in flow handles (ADR-0097). Workflows can subscribe to them. */
 export function RawKinds({ slug }: { slug: InboundEventSource }) {
   const query = useRawReceiptKinds(slug);
   const kinds = query.data?.kinds ?? [];

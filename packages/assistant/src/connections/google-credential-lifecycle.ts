@@ -166,7 +166,7 @@ const DEFAULT_DISCONNECT_DEPS: GoogleCredentialDisconnectDeps = {
   },
 };
 
-/** Internal seam for focused ordering and external-provider failure tests. */
+/** For tests of ordering and provider failures. */
 export async function disconnectGoogleCredentialConnectionWith(
   request: GoogleCredentialDisconnectRequest,
   deps: GoogleCredentialDisconnectDeps,

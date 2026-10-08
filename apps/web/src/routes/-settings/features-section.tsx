@@ -52,10 +52,7 @@ export function FeaturesSection() {
                 disabled={agent.comingSoon ?? !agent.prefKey}
                 comingSoon={agent.comingSoon}
                 onChange={(next) => {
-                  // Fire-and-forget optimistic write, matching the sibling
-                  // toggle idiom (provider-policy's `void setIntegrationMode`):
-                  // Replicache applies the mutation locally and rebases on the
-                  // next pull. A load failure surfaces via `error` above.
+                  // Optimistic: Replicache applies locally and rebases on pull.
                   if (agent.prefKey) void setFlag(agent.prefKey, next);
                 }}
               />

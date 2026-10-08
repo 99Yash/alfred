@@ -1,10 +1,4 @@
-/**
- * App-grammar Input primitive.
- *
- * Same shadow stack as the white AppButton. Use `readOnly` to get the muted
- * `bg-app-bg-2` token-display variant (the "Project token" field on the
- * visitors.now /settings page).
- */
+/** App Input. `readOnly` gives the muted token-display look. */
 
 import type { InputHTMLAttributes, Ref } from "react";
 import { cn } from "~/lib/utils";

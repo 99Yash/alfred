@@ -8,53 +8,22 @@ import { enumGuard, isRecord } from "@alfred/contracts";
 import type { drizzleAdapter } from "better-auth/adapters/drizzle";
 
 /**
- * Transparent encryption for Better Auth's `account` OAuth tokens (#453).
- *
- * Better Auth owns every read and write of that table, so there is no call site
- * in Alfred to wrap. The seam is the adapter: decorate it and the tokens are
- * sealed on the way to Postgres and opened on the way back, while Better Auth's
- * own OAuth refresh and account-linking code keeps seeing plaintext and needs no
- * change.
- *
- * Why not Better Auth's own `account.encryptOAuthTokens` option: as of the
- * installed 1.6.25 its write path does not cover `id_token`, it does not
- * transparently decrypt general adapter reads (only the paths it knows about),
- * and it derives its key from the Better Auth application secret rather than the
- * separate credential KEK this vault requires.
+ * Encrypts Better Auth's `account` tokens in the adapter, the only place that sees every
+ * read and write (#453). Not `encryptOAuthTokens`: as of 1.6.25 it skipped `id_token`,
+ * missed some reads, and used the auth secret instead of the KEK.
  */
 
-/**
- * Derived from `drizzleAdapter` rather than imported.
- *
- * `@better-auth/core/db/adapter` does export `DBAdapter` as of 1.6.25, but that
- * package is a transitive dependency of `better-auth` and not a dependency of
- * `@alfred/auth`, so importing from it would be a phantom dependency that a
- * hoisting change could break. Deriving from the value we actually pass costs
- * nothing and cannot drift from it.
- */
+/** Derived, not imported: `@better-auth/core` is only a transitive dependency. */
 type AuthAdapterFactory = ReturnType<typeof drizzleAdapter>;
 
 type AuthAdapter = ReturnType<AuthAdapterFactory>;
 
-/** The Better Auth model whose tokens are sealed. */
 const ACCOUNT_MODEL = "account";
 
-/**
- * `ACCOUNT_SECRET_FIELDS` comes from `@alfred/db/credential-vault` rather than
- * being restated here. The vault owns the column catalog, and its boot gate
- * refuses to start unless every field in that tuple is sealed, so the two lists
- * have to be the same list: a field only in this decorator is a column nothing
- * verifies, and a field only in the gate is a process that never boots again.
- * The Better Auth field names match the Drizzle schema keys, which is why one
- * tuple can serve both.
- */
+// One field list with the vault's boot gate. Two lists could drift apart.
 const isSealedField = enumGuard(ACCOUNT_SECRET_FIELDS);
 
-/**
- * Seal the token fields of an outbound write payload. Values are plaintext by
- * construction: everything Better Auth writes either came from a provider
- * response or from a row this decorator already opened.
- */
+/** Seal token fields on write. Better Auth only writes plaintext it got from us or a provider. */
 function sealWrite<T extends Record<string, unknown>>(payload: T, vault: CredentialVault): T {
   let sealed: Record<string, unknown> | undefined;
 
@@ -67,23 +36,11 @@ function sealWrite<T extends Record<string, unknown>>(payload: T, vault: Credent
     sealed[field] = vault.seal(value);
   }
 
-  // SAFETY: sealing replaces only marked field values with envelope strings;
-  // the record's key structure is untouched, so T's shape holds.
+  // SAFETY: only field values change, not keys, so T's shape holds.
   return (sealed ?? payload) as T;
 }
 
-/**
- * Open the token fields of one row read back from Postgres.
- *
- * A non-envelope value throws rather than passing through. That is the whole
- * point of the invariant: a plaintext row means the backfill missed it, and
- * returning it would let the system keep working while quietly holding usable
- * tokens — the exact state this change exists to end.
- *
- * Generic over the row (the `sealWrite` pattern above): the rebuild touches
- * only sealed field values, so the row's own type rides through untouched and
- * callers are not forced through an `unknown` round-trip.
- */
+/** Open token fields on read. Plaintext throws: it means a row was never sealed. */
 function openRow<T>(row: T, vault: CredentialVault): T {
   if (!isRecord(row)) return row;
   const source: Record<string, unknown> = row;
@@ -98,17 +55,11 @@ function openRow<T>(row: T, vault: CredentialVault): T {
     opened[field] = vault.open(value);
   }
 
-  // SAFETY: opening replaces only sealed field values with plaintext strings;
-  // the record's key structure is untouched, so T's shape holds.
+  // SAFETY: only field values change, not keys, so T's shape holds.
   return (opened ?? source) as T;
 }
 
-/**
- * Open account rows reached through a `join`, driven by the join option the
- * caller declared rather than by walking the result for keys that happen to be
- * named `accessToken`. A blind walk would decrypt — or reject — a coincidental
- * `accessToken` on some unrelated joined model.
- */
+/** Open joined account rows. Uses the declared join, so another model's `accessToken` is not touched. */
 function openJoined<T>(
   row: T,
   join: Parameters<AuthAdapter["findOne"]>[0]["join"],
@@ -127,18 +78,11 @@ function openJoined<T>(
     ? joined.map((entry) => openRow(entry, vault))
     : openRow(joined, vault);
 
-  // SAFETY: same key-structure-preserving rebuild as `openRow`; only the
-  // account join value is replaced with its opened form.
+  // SAFETY: only the account join value changes, so T's shape holds.
   return Object.assign({}, source, { [ACCOUNT_MODEL]: resolved }) as T;
 }
 
-/**
- * Reject a query that filters on a sealed column. Each envelope carries a fresh
- * nonce, so `where accessToken = <plaintext>` can never match and would return
- * "no such account" instead of failing — a silent wrong answer in the middle of
- * a sign-in. Better Auth does not issue such a query today; this makes sure a
- * future one is loud.
- */
+/** Reject a filter on a sealed column. Each envelope has a fresh nonce, so it would never match. */
 function rejectSealedWhere(where: ReadonlyArray<{ field: string }> | undefined): void {
   if (!where) return;
 
@@ -149,34 +93,12 @@ function rejectSealedWhere(where: ReadonlyArray<{ field: string }> | undefined):
 
 type WithoutTransaction = Omit<AuthAdapter, "transaction">;
 
-/**
- * What this decorator owes each adapter member.
- *
- * - `seal` — the member reads or writes a token value, so it needs
- *   `sealWrite` on the way down, `openRow` on the way back, or both.
- * - `guard-where` — the member never touches a token value but does take a
- *   `where`, so it needs `rejectSealedWhere` and nothing else. Filtering on a
- *   sealed column can never match, and for these members that surfaces as
- *   "deleted 0 rows" or "count 0" rather than an error.
- * - `inert` — no `where`, no row values. Nothing to do.
- */
+/** `seal`: touches token values. `guard-where`: only takes a `where`. `inert`: neither. */
 type MemberDuty = "seal" | "guard-where" | "inert";
 
 /**
- * Every member of the adapter, classified — and exhaustive by construction.
- *
- * This exists because the completeness of this boundary used to rest on a
- * spread plus a comment listing method names. A spread passes anything new
- * straight through, and better-auth proved the point: 1.6.25 added `consumeOne`
- * and `incrementOne`, both of which take a `where` and return a row, and both
- * crossed this seam undecorated while the comment above the spread still read as
- * complete.
- *
- * The `satisfies` is the enforcement, and it runs both ways. A release that adds
- * an adapter method fails the build here until someone classifies it; and once
- * classified as anything but `inert`, `DecoratedMember` below makes the build
- * fail again until an implementation exists. That is the difference between a
- * documented boundary and a checked one.
+ * Every adapter member, classified. A new Better Auth method fails the build here
+ * until it is classified, and again until a non-`inert` one is implemented.
  */
 const MEMBER_DUTIES = {
   create: "seal",
@@ -194,28 +116,16 @@ const MEMBER_DUTIES = {
   options: "inert",
 } satisfies Record<keyof WithoutTransaction, MemberDuty>;
 
-/** The members this module must supply an implementation for. */
 type DecoratedMember = {
   [K in keyof typeof MEMBER_DUTIES]: (typeof MEMBER_DUTIES)[K] extends "inert" ? never : K;
 }[keyof typeof MEMBER_DUTIES];
 
 /**
- * Each decorated operation is written against the *instantiated* parameter type
- * and then asserted back to the generic member type.
- *
- * That assertion is unavoidable rather than lazy: `create`, `findOne`,
- * `findMany`, `update`, `delete`, `consumeOne`, and `incrementOne` are generic in
- * their row type, and TypeScript has no way to say "same signature, same type
- * parameter, one transform applied to the result". The alternative is to
- * re-declare seven generic signatures by hand,
- * which is the parallel-shape duplication the repo bans and would silently rot
- * on a better-auth bump. The row transform is `unknown`-in / `unknown`-out and
- * validates every value it opens, so the runtime guarantee does not rest on the
- * assertion.
+ * The generic members are cast back to their generic type. TypeScript cannot express
+ * "same signature, transformed result" otherwise. `openRow` checks every value it opens.
  */
 function decorateOperations(base: WithoutTransaction, vault: CredentialVault): WithoutTransaction {
-  // SAFETY: forwards to base.create unchanged except sealing account-model
-  // token fields on the way in and opening them on the way out.
+  // SAFETY: forwards to base.create; only seals on the way in and opens on the way out.
   const create = (async (data: Parameters<AuthAdapter["create"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL) return base.create(data);
 
@@ -227,8 +137,7 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     return openRow(result, vault);
   }) as AuthAdapter["create"];
 
-  // SAFETY: same seal/open forwarding as create; the asserted member type is
-  // the operation being wrapped.
+  // SAFETY: same seal/open forwarding as create.
   const findOne = (async (data: Parameters<AuthAdapter["findOne"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL && !data.join) return base.findOne(data);
 
@@ -253,7 +162,7 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     });
   }) as AuthAdapter["findMany"];
 
-  // SAFETY: same seal/open forwarding as update; row opened on return.
+  // SAFETY: same seal/open forwarding as create.
   const update = (async (data: Parameters<AuthAdapter["update"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL) return base.update(data);
     rejectSealedWhere(data.where);
@@ -266,17 +175,11 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     if (data.model !== ACCOUNT_MODEL) return base.updateMany(data);
     rejectSealedWhere(data.where);
 
-    // Returns a row count, so there is nothing to open on the way back.
+    // Returns a count, so there is nothing to open.
     return base.updateMany({ ...data, update: sealWrite(data.update, vault) });
   };
 
-  /**
-   * Added in better-auth 1.6.25. Deletes one row and returns it, which makes it
-   * a read of token values as much as a delete — an undecorated pass-through
-   * would hand Better Auth raw envelopes and it would use them as tokens.
-   */
-  // SAFETY: consumeOne returns the deleted row, so it is a read of token
-  // values; same seal/open forwarding, asserted to its own member type.
+  // SAFETY: returns the deleted row, so it opens like a read.
   const consumeOne = (async (data: Parameters<AuthAdapter["consumeOne"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL) return base.consumeOne(data);
     rejectSealedWhere(data.where);
@@ -285,15 +188,8 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     return openRow(result, vault);
   }) as AuthAdapter["consumeOne"];
 
-  /**
-   * Added in better-auth 1.6.25. Its `set` map writes absolute values in the
-   * same atomic step as the increments, so it is a write path for token fields
-   * and has to seal. `increment` itself is numeric; a sealed field holds a
-   * string envelope, so incrementing one is incoherent rather than merely wrong
-   * and is refused.
-   */
-  // SAFETY: set fields sealed on the way in, row opened on the way out;
-  // asserted to its own member type.
+  // `set` can write token fields, so seal it. Incrementing a sealed field makes no sense: refuse it.
+  // SAFETY: seals `set` on the way in, opens the row on the way out.
   const incrementOne = (async (data: Parameters<AuthAdapter["incrementOne"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL) return base.incrementOne(data);
     rejectSealedWhere(data.where);
@@ -310,12 +206,7 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     return openRow(result, vault);
   }) as AuthAdapter["incrementOne"];
 
-  /**
-   * `count`, `delete`, and `deleteMany` never carry a token value, but they do
-   * carry a `where`. A filter on a sealed column matches nothing, so without
-   * this they would answer "0 rows" — a silent wrong answer of exactly the kind
-   * `rejectSealedWhere` exists to prevent, just quieter than a failed sign-in.
-   */
+  // These take no token values, but a sealed `where` would silently answer 0 rows.
   const count: AuthAdapter["count"] = async (data) => {
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
 
@@ -334,8 +225,7 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     return base.deleteMany(data);
   };
 
-  // Annotated, not inferred: the annotation is what makes a member classified
-  // `seal` or `guard-where` above and then forgotten here a build failure.
+  // The annotation makes a classified but missing member a build error.
   const decorated: Pick<WithoutTransaction, DecoratedMember> = {
     create,
     findOne,
@@ -349,20 +239,13 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     deleteMany,
   };
 
-  // `id`, `createSchema`, and `options` are the `inert` members and delegate.
+  // The `inert` members pass through.
   return { ...base, ...decorated };
 }
 
 /**
- * Decorate a Better Auth adapter **factory** so both Alfred initializers get
- * the same boundary.
- *
- * The factory, not the resulting object: `betterAuth` calls the factory with
- * its own resolved options, so a decorator applied to an adapter instance would
- * be replaced by the instance Better Auth builds for itself.
- *
- * @param vault Injected in tests. Production resolves the singleton lazily, on
- *   the first `betterAuth` call, so importing this module never requires a KEK.
+ * Wrap the adapter factory, not an instance: `betterAuth` builds its own instance from the factory.
+ * @param vault For tests. Otherwise resolved on first use, so an import never needs a KEK.
  */
 export function encryptedAuthAdapter(
   base: AuthAdapterFactory,
@@ -375,9 +258,7 @@ export function encryptedAuthAdapter(
 
     return {
       ...decorated,
-      // Recurse into the transaction handle. Better Auth links a social
-      // account inside a transaction, so without this the one write that
-      // actually stores a fresh OAuth token would bypass the boundary.
+      // Better Auth stores a new OAuth token inside a transaction, so wrap that handle too.
       transaction: (callback) =>
         // drift-ok: Better-Auth adapter interface — its transaction wraps
         // db().transaction internally; not a Drizzle handle to run runAtomic on.

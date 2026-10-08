@@ -85,10 +85,8 @@ export async function restageWorkflowApproval(
   input: ReturnType<typeof activateWorkflowInputSchema.parse>,
 ): Promise<Date> {
   const expiresAt = new Date(Date.now() + APPROVAL_EXPIRY_MS);
-  // #374: one parse, two columns — the pairing is what lets notification
-  // readers trust the display column. Workflow activation has no redactor
-  // today, so they are equal; if one is added, apply it here so re-stage
-  // does not leak the secret the redactor exists to hide.
+  // #374: one parse feeds both columns, so readers can trust the display column.
+  // There is no redactor for workflow activation yet; add one here if needed.
   const stagedInput = jsonValueSchema.parse(input);
   await tx
     .update(actionStagings)

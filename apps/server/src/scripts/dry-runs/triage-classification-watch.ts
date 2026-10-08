@@ -1,57 +1,22 @@
 /**
- * Standing watch over `triage.classification` decision traces (#1099) —
- * READ-ONLY, `tsx`-only.
+ * Read-only watch over `triage.classification` decision traces (#1099). Reports:
+ *   1. how often the spam floor demotes a reply lane or holds a demand lane;
+ *   2. how often an over-classification conflict on a non-person author gets a
+ *      second pass, and how often that pass throws;
+ *   3. which senders land in `awaiting_reply`.
  *
- * Answers three questions the sender-not-phrases work (#1097/#1098) left open,
- * from data rather than from inbox annoyance:
+ * Why TypeScript, not SQL: `->>` on a missing JSON key returns NULL, so a renamed
+ * key makes raw SQL report zero forever. Every key here goes through
+ * {@link traceKey}, so a rename fails `check-types`.
  *
- *   1. How often does the spam floor demote a reply lane, and how often does it
- *      hold a demand lane? (`spamFloorOutcome` over Gmail-filed spam.)
- *   2. How often does an over-classification conflict send a NON-PERSON
- *      envelope to a second pass, and how often does that second pass throw?
- *   3. Which senders are landing in `awaiting_reply`? A relay or service
- *      envelope in a reply lane is the exact shape of the miss #1097 fixed.
+ * A renamed key is the only failure the compiler catches. A zero can also mean the
+ * key is younger than the window or stopped being written, so each section prints
+ * a key presence count beside it (#1187). Read a zero as "no answer", not "dead".
  *
- * WHY THIS IS TYPESCRIPT AND NOT SQL IN A DOC. A Postgres `->>` against a JSON
- * key that does not exist reads as SQL NULL — it does not fail. So a hand-written
- * query is a SILENT duplicate of {@link TraceRecord}: when a key is
- * renamed, the query keeps running and reports zero forever. That is not
- * hypothetical. While #1098 was in review the spam audit key moved from
- * `spamDemotionReason` to `spamFloorOutcome`, and the conventional
- * `<floor>DemotionReason IS NOT NULL` query would have reported no spam-floor
- * activity at all, with nothing failing. Every JSON key below therefore goes
- * through {@link traceKey}, and every member string is annotated with the type
- * that owns it, so a rename breaks `pnpm check-types` instead of the watch.
- *
- * WHAT THE COMPILER DOES NOT CATCH, AND THIS FILE DOES NOT EITHER. The tier-1
- * claim above covers exactly one failure mode: a RENAMED key. It does not cover
- * a key that still exists but carries no value in the window. Every section
- * therefore prints its numerator against the window's total distinct-run
- * `triage.classification` count, which separates an empty window (0/0) from a
- * populated one — but a populated window still prints the SAME zero for three
- * different situations: a key younger than the window, a key that stopped being
- * written, and a mechanism that simply stayed quiet. Measured, not argued: a
- * local run printed `spam-filed mail in window: 0/160`, and the cause was that
- * `gmailSpam` was one day old, not that Gmail filed no spam. So read a zero here
- * as "no answer", never as "dead". Telling those apart needs a presence count
- * (`t.trace ? '<key>'`, i.e. how many rows carry the key at all) beside each
- * numerator; every section below prints one (#1187).
- *
- * NOT bundled by tsdown: it makes no model call — it reads
- * `agent_decision_traces` — so a local `tsx` over the documented prod tunnel
- * reaches it. Do not read that as "a script that classifies must be bundled":
- * three siblings in this directory (`dry-run-triage-backfill.ts`,
- * `triage-prompt-replay.ts`, `dry-run-attribution-fixtures.ts`) call
- * `classifyEmail` and are unbundled too. A bundle entry buys a prod `node`
- * command, nothing else:
- *
- *   # prod, in one terminal:
- *   railway connect --tunnel-only            # DATABASE_PUBLIC_URL is broken; use the tunnel
- *   # then, from apps/server:
+ * Run (prod), from apps/server, with `railway connect --tunnel-only` open
+ * (DATABASE_PUBLIC_URL is broken):
  *   pnpm exec tsx --env-file=.env src/scripts/dry-runs/triage-classification-watch.ts
- *
- *   # widen or narrow the window (days, default 14):
- *   TRIAGE_WATCH_DAYS=30 pnpm exec tsx --env-file=.env src/scripts/dry-runs/triage-classification-watch.ts
+ * Set `TRIAGE_WATCH_DAYS=30` to change the window (default 14).
  */
 import { TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage";
 import type {
@@ -67,76 +32,35 @@ import { closeScriptResources } from "../script-runtime";
 /** Trailing window in days. */
 const WATCH_DAYS = Number(process.env.TRIAGE_WATCH_DAYS) || 14;
 
-/**
- * The trace kind this watch reads. `satisfies` (not an annotation) keeps the
- * literal type, so {@link TraceRecord} can read the payload back out of the
- * SAME registry entry. Renaming the kind triage declares
- * (`sender-extraction-event.ts`) fails here.
- */
+/** `satisfies` keeps the literal type, so {@link TraceRecord} reads the same registry entry. */
 const TRACE_KIND = "triage.classification" satisfies DecisionTraceKind;
 
 /**
- * The payload {@link TRACE_KIND} carries, resolved through execution's open
- * registry rather than imported by name.
- *
- * This correlation is the point. `DecisionTraceKind` is a UNION — today
- * `triage.classification` plus `reply_drafting.decision` — so a hand-typed kind
- * beside a hand-imported payload type lets a person repoint one and leave the
- * other. Every key below then still compiles, every query still runs,
- * and every section reports zero. Reading both out of one registry entry makes
- * the repoint a compile error instead. Today this resolves to triage's
- * `SenderExtractionEvent`.
+ * The payload for {@link TRACE_KIND}, read from the registry, not imported by name.
+ * Then the kind and the payload type cannot point at different entries.
  */
 type TraceRecord = DecisionTraceFor<typeof TRACE_KIND>;
 
-/**
- * Name a `triage.classification` trace key so a rename breaks the build, not the
- * query. This is the whole tier-1 claim of this file: a bare string literal in a
- * `->>` position is the one thing a reviewer must reject here.
- */
+/** Type-check a trace key, so a rename breaks the build. Never put a bare string after `->>`. */
 const traceKey = (key: keyof TraceRecord & string): string => key;
 
-/**
- * `trace ->> '<key>'` as text, with the key routed through {@link traceKey}. The
- * explicit `::text` cast is deliberate but NOT required. Postgres resolves an
- * unknown parameter to `text` by itself, so the uncast form runs: probed with
- * `PREPARE p1 AS SELECT '{"a":"x"}'::jsonb ->> $1`, which prepares and returns
- * `x`. The cast is kept because it names the operator this report means —
- * `jsonb ->> text`, never `jsonb ->> int` — at the call site.
- */
+/** `trace ->> '<key>'`. The `::text` cast is optional; it names `jsonb ->> text`, not `->> int`. */
 const traceText = (key: keyof TraceRecord & string): SQL =>
   sql`(t.trace ->> ${traceKey(key)}::text)`;
 
-/**
- * Every `spamFloorOutcome` member, with the line this report prints for it.
- *
- * The `satisfies Record<…>` is the point; the labels are incidental. Each member
- * SPELLING was already tier 1 as a lone annotated const, but the member SET was
- * tier 4: a third member would fall into no bucket, the printed shares would
- * stop summing to the spam total, and nothing would fail. That add case is live
- * — #1098 introduced the second member. With the table exhaustive, a new member
- * is a compile error here, and {@link watchSpamFloor} derives its buckets from
- * these keys, so the report grows with the union instead of drifting from it.
- */
+/** Exhaustive over `spamFloorOutcome`, so a new member is a compile error, not a missing bucket. */
 const SPAM_FLOOR_OUTCOMES = {
   demoted_reply_lane: "the floor pulled a reply lane down to fyi",
   held_demand_lane: "the floor let a demand lane stand (the softened path)",
 } satisfies Record<NonNullable<TraceRecord["spamFloorOutcome"]>, string>;
 
 /**
- * Bucket for a spam row whose `spamFloorOutcome` reads as SQL NULL. THREE causes
- * land here, not two: a real inert floor (the mail was not in a lane the floor
- * governs), a row written before the key existed, and a classify that THREW.
- * On the throw path `workflow-operations.ts` keeps `observations` and leaves
- * `audit` null, so the trace is still written with `gmailSpam: true` and no
- * outcome — a FAILED classify prints here as "floor inert", which is this
- * report's worst reading. `->>` cannot tell an absent key from a JSON null,
- * which is the same limit the header states. Item 37 owns the discriminator.
+ * Spam rows with no `spamFloorOutcome`. Three causes: an inert floor, a row older
+ * than the key, or a classify that threw (the trace still has `gmailSpam: true`).
  */
 const SPAM_FLOOR_INERT = "(null)";
 
-// Member strings, each annotated with the type that owns it. A renamed MEMBER
-// (not just a renamed key) is a compile error at these lines.
+// Annotated, so a renamed member is a compile error.
 const OVER_CLASSIFICATION: NonNullable<TraceRecord["conflict"]> = "over_classification";
 
 const PERSON_AUTHOR: TraceRecord["effectiveAuthor"] = "person";
@@ -144,13 +68,8 @@ const PERSON_AUTHOR: TraceRecord["effectiveAuthor"] = "person";
 const AWAITING_REPLY: TraceRecord["finalCategory"] = "awaiting_reply";
 
 /**
- * Latest attempt per run inside the window, as a CTE every section selects from.
- *
- * `workflow_slug` + `kind` + `decided_at` is exactly
- * `agent_decision_traces_workflow_kind_idx`; `created_at` has NO index, so the
- * window must be on `decided_at`. A retried attempt writes a DISTINCT row
- * (`attempt` is in the unique key), so `DISTINCT ON (run_id) … ORDER BY run_id,
- * attempt DESC` keeps one row per classification and not one per try.
+ * CTE of the latest attempt per run in the window. Filter on `decided_at`, which
+ * `agent_decision_traces_workflow_kind_idx` covers; `created_at` has no index.
  */
 function withLatest(body: SQL): SQL {
   return sql`
@@ -166,12 +85,7 @@ function withLatest(body: SQL): SQL {
   `;
 }
 
-/**
- * Rows come back from the driver untyped, so each query states its own shape and
- * parses it here rather than asserting it. `count(*)` arrives as a string from
- * `node-postgres` on bigint columns; every count below is cast to `int` in SQL,
- * which the driver returns as a number.
- */
+/** Parse driver rows. Counts are cast to `int` in SQL, because a bigint arrives as a string. */
 async function query<T extends z.ZodType>(statement: SQL, rowSchema: T): Promise<z.infer<T>[]> {
   const result: unknown = await db().execute(statement);
   const rows = z.object({ rows: z.array(z.unknown()) }).safeParse(result);
@@ -181,7 +95,7 @@ async function query<T extends z.ZodType>(statement: SQL, rowSchema: T): Promise
 
 const countRow = z.object({ n: z.number() });
 
-/** `x/y (z%)`, with an honest `n/a` when the denominator is zero. */
+/** `x/y (z%)`, or `n/a` for a zero denominator. */
 function share(numerator: number, denominator: number): string {
   const pct = denominator === 0 ? "n/a" : `${((numerator / denominator) * 100).toFixed(1)}%`;
 
@@ -194,19 +108,11 @@ async function totalClassifications(): Promise<number> {
   return row?.n ?? 0;
 }
 
-/**
- * Watch 1 — the spam floor. The denominator is Gmail-filed spam, not the whole
- * window: the floor cannot fire on anything else. `null` means the floor was
- * inert (the mail was not in a lane the floor governs), which is a legitimate
- * third outcome and is printed as such.
- */
+/** Watch 1: spam floor outcomes. The denominator is Gmail-filed spam, the only mail the floor sees. */
 async function watchSpamFloor(total: number): Promise<void> {
   console.log(`\n## 1. Spam floor — outcomes over Gmail-filed spam`);
 
-  // GROUP BY, not one FILTER per member: the group keys come back from the data,
-  // so every spam row lands in exactly one printed bucket and the shares sum to
-  // the spam total. A value outside SPAM_FLOOR_OUTCOMES then has nowhere to hide
-  // — it prints as UNKNOWN below instead of vanishing from the report.
+  // GROUP BY, so a value outside SPAM_FLOOR_OUTCOMES prints as UNKNOWN instead of vanishing.
   const rows = await query(
     withLatest(sql`
       SELECT
@@ -224,8 +130,7 @@ async function watchSpamFloor(total: number): Promise<void> {
   const spamTotal = rows.reduce((sum, row) => sum + row.n, 0);
   const outcomePresent = rows.reduce((sum, row) => sum + row.outcome_present, 0);
 
-  // Window-level presence for the filter key itself (#1187): when the window
-  // predates the key, `spamTotal` is 0 AND this is 0 — "no answer", not "dead".
+  // If the window predates the key, both this and `spamTotal` are 0.
   const [spamKey] = await query(
     withLatest(
       sql`SELECT count(*) FILTER (WHERE t.trace ? ${traceKey("gmailSpam")})::int AS n FROM t`,
@@ -257,27 +162,10 @@ async function watchSpamFloor(total: number): Promise<void> {
 }
 
 /**
- * Watch 2 — over-classification second passes on non-person authors.
- *
- * "Non-person", not "service": the filter is `effectiveAuthor <> 'person'`, and
- * `effectiveAuthor` is `bot | person | service | unknown`, so this counts `bot`
- * and `unknown` beside `service`. Widening it that way is deliberate — an
- * envelope the extractor could not attribute is exactly as suspicious in a
- * demand lane as one it named a service — but the name must not read as
- * `= 'service'`.
- *
- * Reads the trace's own `conflict` key, NOT the `email_triage.model` tag. Two
- * reasons: the tag is not in the trace at all, and matching it by substring is a
- * trap — `'+2pass_failed'` contains `'+2pass'`, so `LIKE '%+2pass%'` counts a
- * FAILED second pass as a successful one. `conflict` answers the same question
- * with neither problem.
- *
- * The `secondPassFailure IS NOT NULL` count is NESTED under the
- * over-classification non-person count — a third conjunct in the SQL, and a
- * `d/c` share printed under `c/b`. That nesting is what makes it readable: the
- * column itself is set on ANY second-pass throw, before the conflict kind is
- * consulted, so on its own it names a failed re-check and nothing more. Read
- * under the conflict filter it names a failed re-check of THIS class.
+ * Watch 2: over-classification second passes where `effectiveAuthor <> 'person'`
+ * (bot, service, and unknown). Reads `conflict`, not the model tag: `LIKE '%+2pass%'`
+ * also matches `+2pass_failed`. `secondPassFailure` is set on any second-pass throw,
+ * so count it only under the conflict filter.
  */
 async function watchOverClassification(total: number): Promise<void> {
   console.log(`\n## 2. Over-classification second passes on non-person authors`);
@@ -332,8 +220,6 @@ async function watchOverClassification(total: number): Promise<void> {
   console.log(
     `   …and the second pass threw: ${share(row.non_person_author_failures, row.non_person_authors)}`,
   );
-  // Presence beside each numerator (#1187): a zero with a zero presence is "no
-  // answer" (key younger than the window, or stopped being written), not "dead".
   console.log(`   …conflict key present (window): ${share(row.conflict_present, total)}`);
   console.log(
     `   …effectiveAuthor key present (window): ${share(row.effective_author_present, total)}`,
@@ -343,15 +229,7 @@ async function watchOverClassification(total: number): Promise<void> {
   );
 }
 
-/**
- * Watch 3 — who is landing in `awaiting_reply`.
- *
- * A reply lane asserts the SENDER is owed an answer. A relay, a no-reply
- * envelope or a known service domain in that lane is the miss #1097 started
- * from, so this prints the sender identity beside the count instead of a bare
- * rate. `senderAddress`/`senderDomain` are on the trace itself, so this needs no
- * join — the trace names no document, thread or message.
- */
+/** Watch 3: senders in `awaiting_reply`. A relay or service sender there is a miss. */
 async function watchAwaitingReplySenders(total: number): Promise<void> {
   console.log(`\n## 3. Fresh '${AWAITING_REPLY}' rows, by sender`);
 
@@ -391,15 +269,12 @@ async function watchAwaitingReplySenders(total: number): Promise<void> {
     .filter((row) => row.effective_author !== PERSON_AUTHOR)
     .reduce((sum, row) => sum + row.n, 0);
 
-  // Presence beside the numerator (#1187): a '-' senderKind is an absent key,
-  // not a quiet parser. Rows carrying the key at all, over rows in the lane.
+  // A '-' senderKind is an absent key, not a quiet parser.
   const keyPresent = rows.reduce((sum, row) => sum + row.sender_kind_present, 0);
   const authorPresent = rows.reduce((sum, row) => sum + row.effective_author_present, 0);
   const fromKindPresent = rows.reduce((sum, row) => sum + row.from_kind_present, 0);
 
-  // Window-level presence for the lane filter key itself: every lane row
-  // carries `finalCategory` by construction, so its presence is only meaningful
-  // over the whole window.
+  // Every lane row has `finalCategory`, so count its presence over the whole window.
   const [laneKey] = await query(
     withLatest(
       sql`SELECT count(*) FILTER (WHERE t.trace ? ${traceKey("finalCategory")})::int AS n FROM t`,
@@ -470,7 +345,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

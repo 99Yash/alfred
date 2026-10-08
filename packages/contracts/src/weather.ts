@@ -1,9 +1,6 @@
 /**
- * Hand-curated IANA-timezone → principal-city map for the briefing weather
- * contributor (ADR-0041 §"v1 source notes"). Used when the user has not set
- * a `user_preferences.location` row. Add zones as the user actually visits
- * them — kept short on purpose, the user's stored location is the right
- * source of truth once set.
+ * Timezone to city map for briefing weather when the user has no stored
+ * location (ADR-0041). Short on purpose: add zones as the user visits them.
  */
 
 import type { IanaTimezone } from "./briefing";
@@ -14,13 +11,7 @@ export interface WeatherFallbackLocation {
   label: string;
 }
 
-/**
- * Hand-curated subset of IANA zones the briefing weather contributor knows.
- * A `Map` is the honest shape — `Record<IanaTimezone, ...>` would suggest
- * the table is exhaustive (it isn't), and `Partial<Record<IanaTimezone, ...>>`
- * can't accept plain string-literal keys because `IanaTimezone` is branded.
- * Callers must treat a miss as a miss (see `weatherFallbackFor`).
- */
+/** A `Map`, not a `Record`: the table is not exhaustive, and `IanaTimezone` is branded. */
 export const WEATHER_FALLBACK_CITIES: ReadonlyMap<string, WeatherFallbackLocation> = new Map<
   string,
   WeatherFallbackLocation
@@ -46,12 +37,7 @@ export const WEATHER_FALLBACK_CITIES: ReadonlyMap<string, WeatherFallbackLocatio
   ["UTC", { lat: 51.4934, lng: 0.0098, label: "Greenwich" }],
 ]);
 
-/**
- * Lookup helper. Returns `null` when the timezone isn't in the curated
- * table — caller decides whether to omit weather from the briefing or use a
- * different fallback. Cheaper than throwing because the gather step
- * `Promise.allSettled`s its contributors.
- */
+/** `null` for an unknown zone. The caller decides what to do without weather. */
 export function weatherFallbackFor(tz: IanaTimezone): WeatherFallbackLocation | null {
   return WEATHER_FALLBACK_CITIES.get(tz) ?? null;
 }

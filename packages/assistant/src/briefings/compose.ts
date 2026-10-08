@@ -30,20 +30,8 @@ import {
 import { shortenFrom } from "./sender";
 
 /**
- * Deterministic HTML+text renderer for the inbox-only morning briefing.
- *
- * v1 deliberately skips an LLM compose step:
- *  - the structured digest from `gatherBriefingDigest` already carries
- *    each item's classifier rationale (a short LLM-grounded sentence),
- *    so a deterministic list reads as well as a re-summarised one;
- *  - cron-driven sends should be cost-floor-stable; running the cheap
- *    model per send is fine, but $0 is better;
- *  - rendering bugs are easy to triage when the template is in code,
- *    not the model.
- *
- * If/when ADR-0025's "schedule + relevant updates" sections ship,
- * this is the spot to swap the body for a `metered.text()` call with
- * the digest serialised as the prompt.
+ * Composers for the legacy `morning-briefing` workflow: `composeBriefing` (boss model,
+ * schema-bound) and `composeInboxBriefing` (deterministic HTML and text).
  */
 
 const CATEGORY_LABEL = {
@@ -64,10 +52,7 @@ const CATEGORY_ORDER: readonly PriorityCategory[] = [
   "payment",
 ] as const;
 
-// Role + rules + citation contract, sectioned per the Anthropic template. The
-// actual ask and the output-shape rules live in `buildComposerPrompt` (the user
-// message), which the model reads last — so the critical "what to produce"
-// instruction is naturally end-positioned.
+// Role, rules, and citation contract. The ask itself is in `buildComposerPrompt`, read last.
 const BRIEFING_COMPOSER_SYSTEM_PROMPT = composeAgentInstructions({
   purpose: "assistant_response",
   role: "You compose Alfred's daily briefing for one user.",
@@ -91,14 +76,11 @@ const BRIEFING_COMPOSER_SYSTEM_PROMPT = composeAgentInstructions({
 
 export interface ComposeInboxBriefingArgs {
   digest: BriefingDigest;
-  /** Greeting name — usually the user's first name. Falls back to "there". */
+  /** Falls back to "there". */
   recipientName?: string | null;
-  /** Local date label, e.g. "Saturday, May 2". Computed in user's tz. */
+  /** E.g. "Saturday, May 2", in the user's zone. */
   dateLabel: string;
-  /**
-   * URL the email links to as the "open Alfred" CTA. Optional — when
-   * omitted, the CTA is hidden.
-   */
+  /** CTA link; hidden when omitted. */
   alfredUrl?: string;
 }
 
@@ -122,11 +104,7 @@ export interface ComposedBriefing {
   outputTokens?: number | undefined;
 }
 
-/**
- * Strip em-dashes the model won't drop from the prompt alone, across every
- * user-facing prose field of the composed briefing. Panels/ids/audit are code-
- * generated or non-user-facing and left untouched.
- */
+/** Strip em dashes from every user-facing prose field. The model keeps them despite the prompt. */
 function sanitizeFullBriefing(fb: FullBriefing): FullBriefing {
   return fullBriefingSchema.parse({
     ...fb,
@@ -508,10 +486,7 @@ function renderItemHtml(item: BriefingItem): string {
   ].join("\n");
 }
 
-// Inline styles only — Gmail strips <style> blocks, and inlining is the
-// only reliable way to get consistent rendering across email clients.
-// The shared brand shell (WRAPPER/P/LINK) is owned by ./references; the
-// briefing-specific tokens below stay local.
+// Inline styles only: Gmail strips <style> blocks. The shared shell lives in ./references.
 const MUTED_P_STYLE = "margin: 24px 0 0 0; font-size: 13px; color: #6b6b6b;";
 
 const H2_STYLE = "font-size: 14px; font-weight: 600; margin: 24px 0 8px 0; color: #1a1a1a;";

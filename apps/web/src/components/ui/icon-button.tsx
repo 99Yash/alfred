@@ -1,17 +1,10 @@
-/**
- * Dimension-grammar IconButton primitive.
- *
- * Square `rounded-lg` (8px), 28px or 32px. Quiet ghost styling by default.
- * Press is a snap `scale-[0.96]`.
- */
-
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 type IconButtonSize = "sm" | "md";
 
 interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label"> {
-  /** Accessible label — also rendered as the native `title` for cursor tooltip. */
+  /** Also the native `title` tooltip. */
   label: string;
   size?: IconButtonSize | undefined;
   children: ReactNode;

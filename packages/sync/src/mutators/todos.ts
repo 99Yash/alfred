@@ -4,15 +4,7 @@ import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
 import type { SyncedTodo } from "../schemas";
 
-/**
- * Client-side todo mutators (ADR-0050). User-authored todos and user-initiated
- * lifecycle transitions are Replicache mutators; Alfred's proposals come in
- * server-side via `system.suggest_todo`. Each mutator applies an optimistic
- * patch the next pull rebases over the canonical row.
- *
- * Optimistic updates are best-effort: a transition that can't find its row
- * (rare post-refresh race) no-ops and lets the server pull take over.
- */
+// Todo mutators (ADR-0050). A missing local row is a no-op; the next pull fixes it.
 
 const todoId = z.string().min(1).max(100);
 
@@ -70,7 +62,7 @@ async function writeTodo(tx: WriteTransaction, todo: SyncedTodo): Promise<void> 
   await SYNC_MODEL.todo.put(tx, todo);
 }
 
-/** Add a user-authored todo. Idempotent on id (a retry overwrites with the same row). */
+/** Idempotent on id. */
 export async function todoCreateClient(tx: WriteTransaction, args: TodoCreateArgs): Promise<void> {
   const value: SyncedTodo = {
     id: args.id,
@@ -95,7 +87,6 @@ export async function todoCreateClient(tx: WriteTransaction, args: TodoCreateArg
   await writeTodo(tx, value);
 }
 
-/** Check the box: `open → done`, stamp `completedAt`. */
 export async function todoCompleteClient(
   tx: WriteTransaction,
   args: TodoCompleteArgs,
@@ -103,9 +94,7 @@ export async function todoCompleteClient(
   const todo = await readTodo(tx, args.id);
 
   if (!todo || todo.status === "done") return;
-  // `updatedAt` is left to the server's `.$onUpdate()` — the optimistic row
-  // keeps the old value until the next pull rebases the canonical timestamp,
-  // and nothing client-side reads it. The same goes for the other transitions.
+  // Transitions leave `updatedAt` to the server. Nothing on the client reads it.
   await writeTodo(tx, {
     ...todo,
     status: "done",
@@ -114,7 +103,6 @@ export async function todoCompleteClient(
   });
 }
 
-/** Uncheck the box: `done → open`, clear `completedAt`. */
 export async function todoReopenClient(tx: WriteTransaction, args: TodoReopenArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
 
@@ -127,12 +115,7 @@ export async function todoReopenClient(tx: WriteTransaction, args: TodoReopenArg
   });
 }
 
-/**
- * Mark an Alfred-suggested todo done in one action: `suggested → done`, stamp
- * `completedAt`. Provenance (`createdBy`, `sources`, `assist`) rides along
- * untouched, so the completed row carries the same context as any other done
- * todo. The done row syncs (within the done-sync window) and lands in *Done*.
- */
+/** Mark a suggestion done in one step. Keeps its provenance. */
 export async function todoCompleteSuggestionClient(
   tx: WriteTransaction,
   args: TodoCompleteSuggestionArgs,
@@ -148,7 +131,7 @@ export async function todoCompleteSuggestionClient(
   });
 }
 
-/** Accept a suggestion (`+`): `suggested → open`. `createdBy` is preserved. */
+/** Accept a suggestion. */
 export async function todoPromoteClient(
   tx: WriteTransaction,
   args: TodoPromoteArgs,
@@ -163,11 +146,7 @@ export async function todoPromoteClient(
   });
 }
 
-/**
- * Decline a suggestion or drop an open todo. `dismissed` rows never sync, so
- * the optimistic patch deletes the local row; the server moves it to
- * `status='dismissed'` and the next pull confirms the deletion.
- */
+/** Delete locally: `dismissed` rows do not sync. */
 export async function todoDismissClient(
   tx: WriteTransaction,
   args: TodoDismissArgs,
@@ -175,12 +154,7 @@ export async function todoDismissClient(
   await SYNC_MODEL.todo.del(tx, { id: args.id });
 }
 
-/**
- * Personally clear a completed todo from the rail: `done → cleared`. Like
- * `dismissed`, `cleared` rows never sync, so the optimistic patch deletes the
- * local row; the server moves it to `status='cleared'` and the next pull
- * confirms the deletion. Guarded on `done` so it can't drop a live todo.
- */
+/** Clear a done todo. `cleared` rows do not sync. Only `done` rows, so a live todo stays. */
 export async function todoClearClient(tx: WriteTransaction, args: TodoClearArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
 
@@ -188,7 +162,6 @@ export async function todoClearClient(tx: WriteTransaction, args: TodoClearArgs)
   await SYNC_MODEL.todo.del(tx, { id: args.id });
 }
 
-/** Edit a todo's name and/or description. */
 export async function todoEditClient(tx: WriteTransaction, args: TodoEditArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
 

@@ -1,13 +1,6 @@
 import type { McpConnection } from "./helpers";
 
-/**
- * What one stored connection's state says to its owner.
- *
- * Both helpers take a connection that EXISTS. A tile with no row yet is a tile
- * concern, not a status concern: only the caller knows which words belong there
- * — what a first-class server buys, or what the generic add door is for — and
- * the caller already holds them.
- */
+/** Status text for a connection that exists. A tile with no row writes its own copy. */
 export function mcpConnectionStatusText(
   connection: Pick<McpConnection, "status" | "lastError">,
 ): string {
@@ -32,12 +25,7 @@ export function mcpConnectionStatusText(
   }
 }
 
-/**
- * Status text plus the published tool count once a revision exists.
- *
- * The count is the one fact a connection can report without a call, so it is
- * folded into the status line rather than given a second field.
- */
+/** Status text plus the published tool count once a revision exists. */
 export function mcpConnectionSubtitle(
   connection: Pick<McpConnection, "status" | "lastError" | "toolCount">,
 ): string {
@@ -48,15 +36,7 @@ export function mcpConnectionSubtitle(
   return `${status} · ${connection.toolCount} ${connection.toolCount === 1 ? "tool" : "tools"}`;
 }
 
-/**
- * The card's health line: status, tool count, and when the connection last
- * succeeded.
- *
- * The last-connected time is the one fact that separates a healthy connection
- * from one that has not answered since long before the last catalog read. It is
- * absent until the first successful connect, so it is appended only when it
- * exists rather than rendered as a placeholder.
- */
+/** Status, tool count, and last successful connect (omitted until the first one). */
 export function mcpConnectionHealthText(
   connection: Pick<McpConnection, "status" | "lastError" | "toolCount" | "lastConnectedAt">,
 ): string {

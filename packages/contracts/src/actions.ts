@@ -14,23 +14,11 @@ export const ACTION_STAGING_STATUSES = Object.freeze([...actionStagingStatusSche
 export type ActionStagingStatus = z.infer<typeof actionStagingStatusSchema>;
 
 /**
- * The effect dimension of a staging row (#559a). Distinct from `status`, which
- * is the approval-gate machine: an `executed` row may be `succeeded`, `failed`,
- * or `unknown`, and a gated row is `awaiting_approval` from the moment it is
- * staged. `unknown` is the sticky case — a possibly-delivered write whose
- * outcome was never provable; it holds the ambiguity barrier and never
- * auto-retries. `compensated` marks an effect the system reversed after it
- * `succeeded`. `refused` marks an effect the system refused to attempt — the
- * gate never called the provider, so it must not count as an attempt the way
- * `failed` does.
- * `superseded` means a fresh, explicit user authorization replaced an ambiguous
- * attempt. It does not claim the remote effect succeeded or failed. The prior
- * row must leave `unknown` because the successor row carries the same
- * `request_hash`, and the `(user_id, request_hash) WHERE outcome = 'unknown'`
- * index admits one unresolved row per effect. While the successor is in flight
- * its row is `dispatching`, so the generic gate does not block a repeat of that
- * effect; the MCP barrier index on `mcp_invocation` does, exactly as it does for
- * a first attempt that is still in flight. Only the MCP recovery door writes it.
+ * What happened to the write, apart from the approval `status`.
+ * `unknown`: maybe delivered, never proven. It blocks repeats and never auto-retries.
+ * `refused`: the provider was never called, so it is not an attempt.
+ * `superseded`: a new user authorization replaced an `unknown` row. The unique index
+ * allows one `unknown` row per `request_hash`. Only the MCP recovery path writes it.
  */
 export const effectOutcomeSchema = z.enum([
   "planned",
@@ -49,14 +37,9 @@ export const EFFECT_OUTCOMES = Object.freeze([...effectOutcomeSchema.options]);
 export type EffectOutcome = z.infer<typeof effectOutcomeSchema>;
 
 /**
- * The model-safe "possibly delivered, outcome unprovable" envelope (#559a). A
- * tool (today only the MCP broker, whose ambiguous attempt is projected here)
- * or the dispatch gate's ambiguity barrier returns it when a write may have
- * landed but was never confirmed. `retry: "blocked"` is the load-bearing field:
- * the model must NOT self-correct by repeating the call — it can only check the
- * target's state. The dispatch gate recognises this shape to record the staging
- * row's `outcome` as `unknown`; keeping the shape here means the producer and
- * the recognizer cannot drift.
+ * Tool result for a write that may have landed but is not confirmed.
+ * `retry: "blocked"`: the model must check the target, not repeat the call.
+ * The dispatch gate reads this shape to set `outcome` to `unknown`.
  */
 export const unknownEffectEnvelopeSchema = z.object({
   status: z.literal("unknown"),

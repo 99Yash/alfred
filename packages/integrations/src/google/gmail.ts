@@ -3,13 +3,7 @@ import { z } from "zod";
 import type { RetryPolicy } from "../shared/retry";
 import { googleJson, uncheckedResponse } from "./http";
 
-/**
- * Thin Gmail REST client. We deliberately avoid `googleapis` (~2MB,
- * pulls in all Google APIs) and call the JSON endpoints directly. The
- * surface implemented here covers the m7a→m7c slice: list/get for
- * ingestion, history.list for delta sync, watch/stop for push channels.
- * Send + label-modify wait for m9.
- */
+/** Gmail REST client without `googleapis`. */
 
 const API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 
@@ -73,10 +67,10 @@ export interface ListMessagesArgs {
   accessToken: string;
   /** Gmail search query (`newer_than:30d`, `in:inbox`, etc.). */
   q?: string | undefined;
-  /** Server-side cap; Gmail max is 500. */
+  /** Gmail max is 500. */
   maxResults?: number | undefined;
   pageToken?: string | undefined;
-  /** When set, restricts to messages with all of these label IDs. */
+  /** Messages must carry all of these labels. */
   labelIds?: string[] | undefined;
 }
 
@@ -109,10 +103,7 @@ export async function listMessages(
 export interface GetMessageArgs {
   accessToken: string;
   id: string;
-  /**
-   * `full` returns headers + body + MIME parts (what we want for ingest).
-   * `metadata` skips the body entirely (used by delta polling later).
-   */
+  /** `full` includes body and MIME parts; `metadata` skips the body. */
   format?: "full" | "metadata" | "minimal" | "raw" | undefined;
 }
 
@@ -140,11 +131,7 @@ export interface ThreadMessageLabels {
   labelIds: string[];
 }
 
-/**
- * Fetch a Gmail thread and return each message's id + labelIds. Uses the
- * `minimal` format so the response stays tiny — no body, no headers, just
- * what we need to find sibling messages that still carry alfred labels.
- */
+/** `minimal` format: ids and labels only, no body or headers. */
 export async function getThreadMessageLabels(args: {
   accessToken: string;
   threadId: string;
@@ -159,12 +146,7 @@ export async function getThreadMessageLabels(args: {
   }));
 }
 
-/**
- * GET and parse at the seam. The schema is the first argument, so a raw
- * (unvalidated) response cannot reach a caller: without a schema there is no
- * data. Parse failures throw the schema's error, same as the boundary parse
- * they replace.
- */
+/** The schema is required, so an unvalidated response cannot reach a caller. */
 const getJson = <T>(
   schema: z.ZodType<T>,
   url: string,
@@ -181,9 +163,7 @@ const postJson = <T>(
 ): Promise<T> =>
   googleJson("gmail", "POST", url, accessToken, payload).then((raw) => schema.parse(raw));
 
-// ---------------------------------------------------------------------------
-// users.history.list — delta sync from a baseline historyId
-// ---------------------------------------------------------------------------
+// users.history.list: delta sync from a baseline historyId
 
 const historyMessageRefSchema = z.object({
   message: messageRefSchema.extend({
@@ -215,32 +195,24 @@ export type GmailHistoryEntry = z.infer<typeof historyEntrySchema>;
 
 export interface ListHistoryArgs {
   accessToken: string;
-  /** Baseline cursor — the `historyId` returned by the previous successful poll/watch. */
+  /** The `historyId` from the last successful poll or watch. */
   startHistoryId: string;
-  /** Defaults to ["messageAdded"] — narrows the response and matches our ingest semantics. */
+  /** Default `["messageAdded"]`. */
   historyTypes?: ("messageAdded" | "messageDeleted" | "labelAdded" | "labelRemoved")[];
   pageToken?: string | undefined;
   maxResults?: number | undefined;
 }
 
 export interface ListHistoryResult {
-  /** Raw history entries returned by Gmail. May be empty when nothing changed. */
   entries: GmailHistoryEntry[];
   nextPageToken?: string | undefined;
-  /**
-   * Latest mailbox historyId Gmail saw at the time of this call. Use this
-   * (not the per-entry id) as the next cursor when there are no entries —
-   * otherwise we'd never advance during quiet periods.
-   */
+  /** Use this as the next cursor when there are no entries, or a quiet mailbox never advances. */
   historyId?: string | undefined;
 }
 
 /**
- * Fan-out from a baseline `historyId`. One page; callers paginate.
- *
- * Important: Gmail returns 404 with `failedPrecondition` when
- * `startHistoryId` is older than ~7 days; the caller should detect that
- * and fall back to a full re-ingest (ADR-0024).
+ * One page; callers paginate. A `startHistoryId` older than about 7 days gets a 404,
+ * and the caller must fall back to a full re-ingest (ADR-0024).
  */
 export async function listHistory(args: ListHistoryArgs): Promise<ListHistoryResult> {
   const url = new URL(`${API_BASE}/history`);
@@ -262,42 +234,35 @@ export async function listHistory(args: ListHistoryArgs): Promise<ListHistoryRes
   };
 }
 
-/**
- * Detect the "history cursor too old" 404. Gmail responses look like
- * `{"error":{"code":404,"status":"NOT_FOUND",...}}` and our `getJson`
- * surfaces the status in the thrown message — string match is brittle
- * but cheap, and a wrong-classify here just triggers a full re-ingest.
- */
+/** String match: brittle, but a false match only costs a full re-ingest. */
 export function isHistoryGoneError(err: unknown): boolean {
   const msg = toMessage(err);
 
   return /\[gmail\] 404 /.test(msg) && /history/.test(msg);
 }
 
-// ---------------------------------------------------------------------------
-// users.watch / users.stop — push notifications via Cloud Pub/Sub
-// ---------------------------------------------------------------------------
+// users.watch / users.stop: push through Cloud Pub/Sub
 
 const watchResponseSchema = z.object({
   historyId: z.string(),
-  /** ms-since-epoch as a string — Gmail returns int64 fields stringified. */
+  /** Epoch ms as a string: Gmail sends int64 as a string. */
   expiration: z.string(),
 });
 
 export interface StartWatchArgs {
   accessToken: string;
-  /** Fully-qualified Pub/Sub topic, e.g. `projects/<id>/topics/gmail-push`. */
+  /** e.g. `projects/<id>/topics/gmail-push`. */
   topicName: string;
-  /** Restrict to specific labels (e.g. `["INBOX"]`) — empty/undefined = all mail. */
+  /** Empty means all mail. */
   labelIds?: string[] | undefined;
-  /** `include` (default) or `exclude` for the labelIds filter. */
+  /** Default `include`. */
   labelFilterAction?: "include" | "exclude" | undefined;
 }
 
 export interface StartWatchResult {
-  /** Use this as the baseline for the next users.history.list call. */
+  /** The baseline for the next `users.history.list`. */
   historyId: string;
-  /** Channel expiry — Gmail caps at ~7 days; renew before this. */
+  /** Gmail caps a channel at about 7 days. Renew before this. */
   expiration: Date;
 }
 
@@ -325,9 +290,7 @@ export async function stopWatch(args: { accessToken: string }): Promise<void> {
   await postJson(uncheckedResponse, `${API_BASE}/stop`, args.accessToken, {});
 }
 
-// ---------------------------------------------------------------------------
-// users.labels — list / create / messages.modify
-// ---------------------------------------------------------------------------
+// users.labels and messages.modify
 
 const labelSchema = z.object({
   id: z.string(),
@@ -351,11 +314,9 @@ export async function listLabels(args: { accessToken: string }): Promise<GmailLa
 
 export interface CreateLabelArgs {
   accessToken: string;
-  /** e.g. `Alfred/ActionNeeded` — `/` produces a nested label in the Gmail UI. */
+  /** A `/` makes a nested label. */
   name: string;
-  /** `show` (default) keeps the label rendered next to the message subject. */
   messageListVisibility?: "show" | "hide" | undefined;
-  /** `labelShow` (default) keeps the label visible in the sidebar. */
   labelListVisibility?: "labelShow" | "labelShowIfUnread" | "labelHide" | undefined;
 }
 
@@ -371,20 +332,13 @@ export async function createLabel(args: CreateLabelArgs): Promise<GmailLabel> {
 
 export interface ModifyMessageLabelsArgs {
   accessToken: string;
-  /** Gmail message id (NOT thread id). */
+  /** A message id, not a thread id. */
   messageId: string;
   addLabelIds?: string[] | undefined;
   removeLabelIds?: string[] | undefined;
 }
 
-/**
- * Apply / remove labels on a single message in one round-trip. Gmail's
- * `messages.modify` is idempotent — adding a label that's already on the
- * message is a no-op, and the same goes for removing one that isn't.
- *
- * Returns the message metadata (id + labelIds) so callers can verify the
- * post-modify label set without an extra get call.
- */
+/** Idempotent. Returns the new label set, so no extra get is needed. */
 export async function modifyMessageLabels(args: ModifyMessageLabelsArgs): Promise<GmailMessage> {
   const payload = {
     ...(args.addLabelIds?.length ? { addLabelIds: args.addLabelIds } : {}),
@@ -401,26 +355,13 @@ export async function modifyMessageLabels(args: ModifyMessageLabelsArgs): Promis
 
 export interface BatchModifyMessagesArgs {
   accessToken: string;
-  /**
-   * Gmail message ids (NOT thread ids). Gmail caps the list at 1000 per
-   * call; callers should chunk if they need more. Empty arrays are a
-   * client error here rather than a silent no-op — the round-trip cost
-   * is small and a no-op call usually signals a callsite bug.
-   */
+  /** Message ids, at most 1000. Empty throws: a no-op call is usually a bug. */
   messageIds: ReadonlyArray<string>;
   addLabelIds?: string[] | undefined;
   removeLabelIds?: string[] | undefined;
 }
 
-/**
- * Apply / remove labels across many messages in one request. Wraps
- * `users.messages.batchModify`, which returns 204 No Content on success
- * — no message bodies come back, so we resolve `void` and let callers
- * re-query if they need post-modify state.
- *
- * Like `modifyMessageLabels`, the operation is idempotent per-message:
- * adding an existing label or removing a missing label is a no-op.
- */
+/** Idempotent per message. Gmail returns 204, so this returns nothing. */
 export async function batchModifyMessages(args: BatchModifyMessagesArgs): Promise<void> {
   if (args.messageIds.length === 0) {
     throw new Error("[gmail] batchModifyMessages called with empty messageIds");
@@ -447,13 +388,9 @@ export interface SendMessageArgs {
   cc?: string[] | undefined;
   bcc?: string[] | undefined;
   subject: string;
-  /** Plain-text body. We only send `text/plain` for now. */
+  /** Sent as `text/plain`. */
   bodyText: string;
-  /**
-   * Gmail thread id to attach the reply to. Gmail groups the sent message
-   * into that thread; proper `In-Reply-To`/`References` threading would also
-   * need the original `Message-ID`, which callers don't carry yet.
-   */
+  /** Groups the reply into the thread. Full threading also needs `In-Reply-To`, not sent yet. */
   threadId?: string | undefined;
 }
 
@@ -462,10 +399,7 @@ export interface SendMessageResult {
   threadId: string;
 }
 
-/**
- * RFC 2047-encode a header value if it contains non-ASCII, so subjects with
- * accents/emoji don't corrupt the MIME. ASCII values pass through verbatim.
- */
+/** RFC 2047-encode non-ASCII values so accents and emoji do not corrupt the MIME. */
 function encodeHeaderValue(value: string): string {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: ASCII range test
   // oxlint-disable-next-line no-control-regex -- ASCII range test, not a control-char match
@@ -480,12 +414,7 @@ function assertHeaderSafe(name: string, value: string): void {
   }
 }
 
-/**
- * Send a plain-text email via `users.messages.send`. Builds an RFC822 MIME
- * message, base64url-encodes it as `raw`, and posts it. Requires the
- * `gmail.send` scope on the credential (the `reply_draft` feature tier) —
- * a missing scope surfaces as a 403 from `postJson`.
- */
+/** Needs the `gmail.send` scope; without it the call gets a 403. */
 export async function sendMessage(args: SendMessageArgs): Promise<SendMessageResult> {
   for (const value of [...args.to, ...(args.cc ?? []), ...(args.bcc ?? [])]) {
     assertHeaderSafe("recipient", value);
@@ -521,9 +450,7 @@ export async function sendMessage(args: SendMessageArgs): Promise<SendMessageRes
   return { id: parsed.id, threadId: parsed.threadId };
 }
 
-// ---------------------------------------------------------------------------
 // MIME helpers
-// ---------------------------------------------------------------------------
 
 export interface ExtractedMessage {
   subject: string | null;
@@ -532,23 +459,12 @@ export interface ExtractedMessage {
   cc: string | null;
   bcc: string | null;
   date: Date | null;
-  /** Best-effort plain-text body. Falls back to the snippet if we can't find one. */
+  /** Plain text, else stripped HTML, else the snippet. */
   body: string;
-  /** Headers keyed by lowercased header name, for downstream metadata queries. */
+  /** Keys are lowercased. */
   headers: ReadonlyMap<string, string>;
 }
 
-/**
- * Walk the MIME tree to extract the user-facing email content. Gmail
- * messages can be a single part (`text/plain`) or multipart with HTML
- * + text alternatives plus attachments. Strategy:
- *   1. Prefer `text/plain` parts.
- *   2. Fall back to `text/html` stripped of tags.
- *   3. Fall back to the snippet.
- *
- * Attachments are skipped entirely in m7a — we'll surface them in m7b
- * when ingestion gets a richer object model.
- */
 export function extractMessageContent(message: GmailMessage): ExtractedMessage {
   const headers = headersToMap(message.payload?.headers ?? []);
   const text = collectText(message.payload, "text/plain");
@@ -562,8 +478,6 @@ export function extractMessageContent(message: GmailMessage): ExtractedMessage {
 
   if (!body) body = message.snippet ?? "";
 
-  // `headersToMap` lowercases all keys so we can do single lookups
-  // here without juggling the (legal) header-name casing variations.
   const dateHeader = headers.get("date");
   const dateValue = dateHeader ? new Date(dateHeader) : null;
 
@@ -580,23 +494,19 @@ export function extractMessageContent(message: GmailMessage): ExtractedMessage {
 }
 
 export interface ExtractedAttachment {
-  /** Gmail part id (e.g. `"1.2"`). Stable within a message. Null for ill-formed parts. */
+  /** e.g. `"1.2"`. Null for a malformed part. */
   partId: string | null;
-  /** Opaque token for `messages.attachments.get`. Required to download the bytes. */
+  /** Token for `messages.attachments.get`. */
   attachmentId: string;
   filename: string;
-  /** RFC mime type, e.g. `application/pdf`. */
   mimeType: string;
-  /** Bytes, as reported by Gmail. `0` when missing. */
+  /** Bytes as Gmail reports them. `0` when missing. */
   size: number;
 }
 
 /**
- * Walk the MIME tree and collect file attachments. Real attachments have
- * both a `filename` and an `attachmentId` (the body data is fetched lazily
- * via a separate API call). Inline body parts (text/plain, text/html) have
- * neither; embedded images (cid: refs) have an attachmentId but typically
- * no filename — those stay invisible until we add inline-image support.
+ * A real attachment has a filename and an `attachmentId`. Inline images usually have
+ * no filename, so they are skipped.
  */
 export function extractAttachments(message: GmailMessage): ExtractedAttachment[] {
   const out: ExtractedAttachment[] = [];
@@ -623,12 +533,6 @@ function walkAttachments(part: MessagePart | undefined, out: ExtractedAttachment
   for (const sub of part.parts ?? []) walkAttachments(sub, out);
 }
 
-/**
- * Pull the message's `text/html` part verbatim (base64-decoded). Returns
- * null when no html alternative exists. The reader uses this to render
- * the email "as the sender intended" in a sandboxed iframe — the existing
- * `body` field stays the text/plain fallback for the markdown view.
- */
 export const getAttachmentResponseSchema = z.object({
   size: z.number().optional(),
   data: z.string().optional(),
@@ -652,8 +556,7 @@ export async function getAttachment(
   const url = `${API_BASE}/messages/${encodeURIComponent(args.messageId)}/attachments/${encodeURIComponent(args.attachmentId)}`;
   const parsed = await getJson(getAttachmentResponseSchema, url, args.accessToken, retry);
   const dataBase64Url = parsed.data ?? "";
-  // Gmail returns URL-safe base64. Node's base64 decoder accepts the
-  // `-`/`_` alphabet and missing padding, so no normalization is needed.
+  // Node's base64 decoder accepts the URL-safe alphabet and missing padding.
   const bytes = dataBase64Url ? Buffer.from(dataBase64Url, "base64") : Buffer.alloc(0);
 
   if (parsed.size !== undefined && parsed.size !== bytes.byteLength) {
@@ -669,6 +572,7 @@ export async function getAttachment(
   };
 }
 
+/** For the sandboxed iframe view. `body` stays the text fallback. */
 export function extractMessageHtml(message: GmailMessage): string | null {
   const html = collectText(message.payload, "text/html");
 
@@ -707,7 +611,7 @@ function decodeBase64Url(data: string): string {
   return Buffer.from(normalized, "base64").toString("utf8");
 }
 
-/** Naive HTML strip — preserves text content, drops tags. Sufficient for ingestion. */
+/** Naive tag strip. Good enough for ingestion. */
 function stripHtml(html: string): string {
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, "")

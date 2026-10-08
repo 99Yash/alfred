@@ -12,9 +12,7 @@ const stateSchema = z.object({
   documentIds: z.array(z.string()),
   startedAt: z.string(),
   processed: z.number().int().nonnegative(),
-  // `.default(0)` so a run persisted before this field shipped still parses.
-  // The INFERRED type stays required, so every construction site is still
-  // forced by the compiler to supply it.
+  // `.default(0)` lets older runs parse; the inferred type stays required.
   extractionErrors: z.number().int().nonnegative().default(0),
   proposed: z.number().int().nonnegative(),
   blocked: z.number().int().nonnegative(),
@@ -31,12 +29,7 @@ const inputSchema = z.object({
 
 /**
  * Build the daily memory-extraction recipe with an injected Gmail sender parser
- * (ADR-0089). The `process` step closes over `sender` and threads it into
- * `runMemoryProcess(sender, ctx)`, so memory never imports triage's parsers; the
- * executor still sees an unchanged `run(ctx)`, so no executor or state-schema
- * change and no re-serialization of persisted runs. Recipe identity — slug,
- * ordered step ids, entry step, trigger — is byte-identical regardless of the
- * injected `sender`. The composition root injects `gmailSenderAdapter`.
+ * (ADR-0089), so memory never imports triage's parsers. Recipe identity does not depend on `sender`.
  */
 export function buildMemoryExtractionWorkflow(sender: GmailSenderParser): Workflow<State> {
   return {

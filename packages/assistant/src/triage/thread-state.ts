@@ -15,43 +15,22 @@ import {
 import { gmailSentSql } from "./sent-mail";
 
 /**
- * Sent-mail-aware thread state (ADR-0051 #8). A BOUNDED OBSERVATION fed to the
- * classifier — "you last replied in this thread on `<date>`" — NOT a hard rule.
- * The model owns the resulting category; we never deterministically map
- * "you already replied" onto a bucket (that taxonomy edge dissolves once the
- * model just sees the fact).
- *
- * Depends on sent-mail ingestion (Phase 1): sent docs carry
- * `metadata.isSent = true` and live in the same `(user_id, source_thread_id)`
- * group as the received mail, so one indexed thread scan sees both sides.
+ * Thread state for the classifier (ADR-0051 #8). A hint, never a category
+ * mapping. Sent and received mail share one thread group, so one scan sees both.
  */
 
-/** A bounded excerpt of one prior message in the thread, fed to the classifier. */
 export interface ThreadMessageContext {
-  /** Whether the user sent it or received it. */
   direction: "sent" | "received";
-  /** Authored time, if known. */
   authoredAt: Date | null;
-  /** Body lede (header block stripped, whitespace-collapsed, length-capped). */
   snippet: string;
 }
 
 export interface ThreadState {
-  /** Newest authored time across the thread for a message the USER sent, or null. */
   lastUserReplyAt: Date | null;
-  /** Direction of the newest message in the thread (excluding `excludeDocumentId`). */
+  /** Excludes `excludeDocumentId`, like the fields below. */
   newestDirection: "sent" | "received" | null;
-  /** Total messages on file for the thread (sent + received), excluding the exclusion. */
   messageCount: number;
-  /**
-   * The most recent prior messages (newest first, excluding `excludeDocumentId`),
-   * as bounded body excerpts. ADR-0051 #8 fed only thread *dates*; this extends
-   * the same observation with the prior messages' *content* so the classifier of
-   * a trailing low-signal message (e.g. a ClickUp/Linear bot confirming it filed
-   * a task) can see an earlier live ask/assignment in the SAME thread and not
-   * collapse the whole thread to `done`. Still a fed hint — the model owns the
-   * category (ADR-0051 amendment 2026-06-13).
-   */
+  /** Newest first. Lets a trailing bot line see an earlier open ask in the thread. */
   recentMessages: ThreadMessageContext[];
 }
 
@@ -62,7 +41,6 @@ const EMPTY: ThreadState = {
   recentMessages: [],
 };
 
-/** Body lede for the fed thread context: drop the leading header block, collapse whitespace, cap length. PURE. */
 export function buildThreadSnippet(
   title: string | null,
   content: string | null,
@@ -86,22 +64,12 @@ export function buildThreadSnippet(
 export interface GetThreadStateArgs {
   userId: string;
   sourceThreadId: string;
-  /** Constrain outbound drafting context to its inbound mailbox. */
+  /** Limit outbound drafting context to its inbound mailbox. */
   accountId?: string | undefined;
-  /**
-   * Document to exclude — typically the message currently being triaged, so
-   * "thread state" describes the context the new message arrives into rather
-   * than counting itself.
-   */
+  /** Usually the message being triaged, so the state is the context it arrives into. */
   excludeDocumentId?: string;
 }
 
-/**
- * Read bounded thread observations from `documents`. One indexed scan on
- * `(user_id, source, source_thread_id)`; threads are small at single-user
- * scale, so we resolve direction/recency in JS rather than two aggregate
- * queries. Returns the empty state for a brand-new thread.
- */
 export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadState> {
   const threadWhere = and(
     eq(documents.userId, args.userId),
@@ -116,20 +84,12 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
   const rows = await db()
     .select({
       authoredAt: documents.authoredAt,
-      // Canonical sent detection (isSent flag OR the raw SENT label) so a
-      // SENT-labelled doc without the flag is not mis-counted as received,
-      // which would corrupt newestDirection / lastUserReplyAt.
+      // Flag OR the raw SENT label, so an unflagged sent doc is not counted as received.
       isSent: gmailSentSql(),
     })
     .from(documents)
     .where(threadWhere)
-    // Order before the cap so a >500-message thread truncates deterministically
-    // to its most recent rows — otherwise Postgres returns an arbitrary subset
-    // and `newestDirection`/`lastUserReplyAt` could be computed from stale rows.
-    // NULLS LAST so undated rows (no ordering signal) never displace a dated
-    // one out of the window. `documents.id` is a deterministic tiebreaker so
-    // two messages sharing an authoredAt (same-second replies) resolve the
-    // "newest" slot identically every run. `documents_thread_idx` supports it.
+    // Order before the cap, so a long thread keeps its newest rows. `id` breaks same-second ties.
     .orderBy(newestFirst)
     .limit(TRIAGE_THREAD_STATE_ROW_LIMIT);
 
@@ -145,16 +105,13 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
       lastUserReplyAt = r.authoredAt;
     }
 
-    // Order by authoredAt; rows without a timestamp can't win the "newest"
-    // slot (an undated row gives us no ordering signal).
+    // An undated row cannot be newest.
     if (r.authoredAt && (!newest?.authoredAt || r.authoredAt > newest.authoredAt)) {
       newest = { authoredAt: r.authoredAt, isSent: r.isSent };
     }
   }
 
-  // Pull bodies only for the few messages we feed to the classifier. The wider
-  // 500-row pass above stays metadata-only, so long Gmail threads do not drag
-  // hundreds of full email bodies through every triage run.
+  // Bodies only for the few fed messages; the wide pass above stays metadata-only.
   const recentRows = await db()
     .select({
       authoredAt: documents.authoredAt,
@@ -190,53 +147,21 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
 }
 
 /**
- * Whole-thread closure observations (ADR-0050 same-thread retraction). One read
- * owns the query shape for every closure consumer; it exposes the two facts
- * those consumers actually need and nothing else:
- *
- *   - `userHasReplied` — the newest message in the thread is the user's own
- *     send, so the thread is currently closed. This is the fact the
- *     `close-loop-todos` retraction reads: when it holds, no unanswered inbound
- *     exists and every live todo on the thread is safe to dismiss.
- *   - `lastUserReplyAt` — the user's newest send instant. The triage mint reads
- *     it through {@link userRepliedAfterMessage} to ask the per-message
- *     question ("did I reply after THIS message?") instead of the thread-level
- *     one, which inverts on the next inbound (P0).
- *
- * It deliberately passes NO `excludeDocumentId`. `getThreadState`'s exclusion
- * exists for the classifier's observation — "the context this message arrives
- * into" — but the closure fact is about the WHOLE thread. Reading the
- * exclusion-based observation here treated a fresh inbound that arrived after
- * an older user reply as "user already replied": the current message was
- * excluded, so the prior user send looked newest, and the mint was withheld
- * from a message the user had not answered.
+ * Whole-thread closure (ADR-0050). No `excludeDocumentId`: excluding the current
+ * message made an older user reply look newest and withheld a fresh ask's todo.
  */
 export interface GmailThreadClosure {
-  /** True when the newest message in the whole thread is the user's own send. */
+  /** The newest message in the whole thread is the user's. Gates the retraction. */
   userHasReplied: boolean;
-  /** The direction the decision read, for logs. */
+  /** For logs. */
   newestDirection: ThreadState["newestDirection"];
-  /**
-   * Newest authored time across the whole thread for a message the USER sent.
-   * The per-message predicate below reads this; `userHasReplied` answers the
-   * coarser "is the thread currently closed" question.
-   */
+  /** Read through {@link userRepliedAfterMessage} for the mint. */
   lastUserReplyAt: Date | null;
 }
 
 /**
- * The precise per-message closure test (ADR-0050 same-thread retraction): the
- * user's newest send is strictly newer than the message under consideration.
- *
- * `newestDirection === "sent"` answers a different question — "is the newest
- * message in the whole thread mine?" — and it is the wrong question for a
- * message that merely arrives after an older reply. On the reply re-eval the
- * two coincide; on the next inbound they invert, so a fresh ask that follows
- * the user's reply reads as already answered and its mint is withheld (P0).
- * Comparing the user's newest send against THIS message's `authoredAt` is
- * order-exact in both directions: a send after the message closes it, a send
- * before it does not. A message with no `authoredAt` carries no ordering
- * signal, so it is never suppressed. PURE.
+ * The user's newest send is newer than this message. Use this, not
+ * `newestDirection === "sent"`, which flips on the next inbound. No date means false.
  */
 export function userRepliedAfterMessage(
   lastUserReplyAt: Date | null,

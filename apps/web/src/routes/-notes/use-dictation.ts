@@ -1,18 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * `useDictation` — thin wrapper around the Web Speech API
- * (`SpeechRecognition`) that turns spoken audio into text for the notes
- * composer.
- *
- * Unlike the chat composer's `useMicRecording` (which records audio and
- * transcribes server-side via Whisper), this hook transcribes locally in the
- * browser: finalised transcript segments are handed to `start(onFinal)` as
- * they settle, and the live interim guess is exposed via `interim` for an
- * inline preview.
- *
- * Browser support is Chromium/WebKit only today, so callers must gate UI on
- * `supported`. Everything tears down on `stop()` and on unmount.
+ * Browser speech-to-text (Web Speech API) for the notes composer. Final segments
+ * go to `start(onFinal)`; `interim` is the live guess. Chromium/WebKit only, so gate UI on `supported`.
  */
 export function useDictation() {
   const [listening, setListening] = useState(false);
@@ -20,8 +10,7 @@ export function useDictation() {
   const [error, setError] = useState<string | null>(null);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  // Latest onFinal handler, kept in a ref so the long-lived recognition
-  // instance always calls the current closure without re-binding listeners.
+  // A ref, so the long-lived recognizer always calls the current handler.
   const onFinalRef = useRef<(chunk: string) => void>(() => {});
 
   const supported =
@@ -87,8 +76,7 @@ export function useDictation() {
       stop();
     };
 
-    // Fires when recognition ends on its own (silence timeout, etc.). Mirror
-    // the teardown so the UI doesn't get stuck in a listening state.
+    // Recognition can end on its own (silence); tear down so the UI does not stay "listening".
     rec.onend = () => {
       recognitionRef.current = null;
       setListening(false);
@@ -102,17 +90,14 @@ export function useDictation() {
 
   useEffect(() => {
     return () => stop();
-    // stop closes over refs/setters only; run teardown once on unmount.
+    // stop uses only refs and setters; tear down once on unmount.
   }, []);
 
   return { supported, listening, interim, error, start, stop };
 }
 
-// -------------------------------------------------------------------------
-// Minimal ambient types for the Web Speech API. This TS DOM lib ships the
-// result sub-types but not the recognition interface, its events, or the
-// `webkitSpeechRecognition` global — so we declare just what this hook touches.
-// -------------------------------------------------------------------------
+// The TS DOM lib lacks the recognition interface, its events, and
+// `webkitSpeechRecognition`, so we declare what this hook uses.
 
 interface SpeechRecognition extends EventTarget {
   lang: string;

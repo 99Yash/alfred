@@ -19,11 +19,7 @@ const ReplicacheContext = createContext<ReplicacheContextValue>({
   retry: () => {},
 });
 
-/**
- * Shown across every synced surface when the data path starts 401ing — the
- * session cookie expired while the tab stayed open. Without this, pull/push
- * retry forever and the UI silently serves stale data with no signal.
- */
+/** Pull and push retry a 401 forever, so without this the UI serves stale data silently. */
 const SESSION_EXPIRED_MESSAGE = "Your session expired. Please sign in again.";
 
 function syncErrorMessage(error: unknown): string {
@@ -160,8 +156,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
 
     dispatch({ type: "start", lifecycle });
 
-    // Set once on the first 401 — Replicache retries the pull/push forever, so
-    // onAuthError fires repeatedly; collapse that to a single state update.
+    // Fires on every retried 401; the reducer keeps the first message.
     const handleAuthError = () => {
       if (cancelled) return;
       dispatch({ type: "authError", lifecycle });
@@ -256,10 +251,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
   return <ReplicacheContext.Provider value={contextValue}>{children}</ReplicacheContext.Provider>;
 }
 
-/**
- * The live Replicache instance, or `null` before sign-in / while the client
- * is (re)initializing. Subscription hooks must treat `null` as "not ready".
- */
+/** `null` before sign-in or while the client loads. Treat it as "not ready". */
 export function useReplicache(): Replicache<ClientMutators> | null {
   return use(ReplicacheContext).rep;
 }

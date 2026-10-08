@@ -19,29 +19,13 @@ import {
 } from "~/lib/integrations/integration-tile-components";
 import { cn } from "~/lib/utils";
 
-// Auto-generated from dimension.dev integration SVGs (public brand assets).
-// Source artwork is authored in a 50x50 grid; the actual glyph paths
-// occupy the inner ~[8,42] x [8,42] region. `IntegrationGlyph` renders
-// these inside `<svg viewBox="8 8 34 34">` so icons fill the visible
-// space at small rail sizes (12–32px). The crop intentionally clips a
-// few units of drop-shadow on the doc-family glyphs (google_docs,
-// google_slides, google_sheets) — imperceptible at our rendering sizes
-// and an acceptable trade for the tighter optical fit.
-//
-// `__UID0__` is substituted with a useId() value at render time so
-// multiple instances of the same icon on a page do not collide on
-// filter or clip-path IDs.
+// Generated from dimension.dev brand SVGs on a 50x50 grid. `IntegrationGlyph` crops to
+// `viewBox="8 8 34 34"`, which clips a little drop-shadow on the Google doc glyphs.
+// `__UID0__` becomes a `useId()` value so filter and clip-path ids do not collide.
 
-/**
- * Brands that exist only on the web: sources with no registry entry (web
- * search, a collaborator). Every other brand is a provider entry's `brand`.
- */
+/** Brands with no registry entry. */
 export type WebOnlyBrand = "web" | "collaborators";
 
-/**
- * Every brand Alfred can render an icon for: the registry's brand keys plus the
- * web-only ones. The registry owns the key; this module owns the asset.
- */
 export type IntegrationBrand = IntegrationBrandKey | WebOnlyBrand;
 
 const BRAND_SVGS = {
@@ -54,16 +38,13 @@ const BRAND_SVGS = {
   github: `<g><path d="M25.001 8.63984C34.025 8.63984 41.334 15.9489 41.334 24.9728C41.3317 31.9902 36.8552 38.2247 30.2077 40.4682C29.3911 40.6315 29.0842 40.1205 29.0842 39.6924C29.0842 39.1406 29.1052 37.3848 29.1052 35.2008C29.1052 33.6702 28.5954 32.6902 28.0028 32.1792C31.6368 31.7709 35.4553 30.3826 35.4553 24.1154C35.4553 22.3187 34.8218 20.8686 33.7811 19.7264C33.9445 19.3181 34.5161 17.644 33.6178 15.3982C33.6178 15.3982 32.2493 14.949 29.1262 17.0723C27.8196 16.7048 26.4313 16.5217 25.043 16.5217C23.6547 16.5217 22.2664 16.7048 20.9597 17.0723C17.8366 14.97 16.4681 15.3982 16.4681 15.3982C15.5698 17.644 16.1415 19.3181 16.3048 19.7264C15.2642 20.8698 14.6307 22.3397 14.6307 24.1154C14.6307 30.3627 18.4281 31.772 22.0622 32.1804C21.592 32.5887 21.1639 33.3038 21.0204 34.3643C20.0812 34.7936 17.7328 35.4878 16.264 33.0168C15.9572 32.5269 15.039 31.3229 13.7534 31.3427C12.3849 31.3637 13.2027 32.1185 13.7732 32.4242C14.4674 32.8115 15.263 34.2617 15.4473 34.7318C15.774 35.65 16.8356 37.4069 20.9387 36.6509C20.9387 38.0194 20.9597 39.3051 20.9597 39.6924C20.9597 40.1217 20.6529 40.6105 19.8362 40.4682C13.1642 38.2469 8.66447 32.0042 8.66797 24.9717C8.66797 15.9477 15.977 8.63984 25.001 8.63984Z" fill="currentColor"></path></g>`,
   linear: `<g><path d="M11.1792 28.265C11.1162 27.9962 11.4364 27.8269 11.6315 28.0221L21.9767 38.3673C22.1719 38.5625 22.0026 38.8827 21.7339 38.8196C16.5133 37.5949 12.4039 33.4856 11.1792 28.265ZM10.8326 24.1187C10.8276 24.199 10.8577 24.2774 10.9146 24.3342L25.6646 39.0842C25.7215 39.1411 25.7999 39.1714 25.8801 39.1663C26.5514 39.1245 27.21 39.0359 27.8528 38.9039C28.0694 38.8595 28.1447 38.5933 27.9883 38.437L11.5619 22.0106C11.4055 21.8542 11.1394 21.9294 11.0949 22.1461C10.9629 22.7888 10.8744 23.4475 10.8326 24.1187ZM12.0251 19.25C11.978 19.3559 12.002 19.4797 12.084 19.5617L30.4372 37.9149C30.5192 37.9969 30.6429 38.0209 30.7488 37.9737C31.2549 37.7483 31.7453 37.4941 32.2181 37.2133C32.3745 37.1203 32.3986 36.9054 32.27 36.7767L13.2221 17.7289C13.0935 17.6002 12.8785 17.6244 12.7856 17.7808C12.5047 18.2535 12.2505 18.744 12.0251 19.25ZM14.4187 15.9545C14.3138 15.8496 14.3073 15.6814 14.4061 15.5708C17.0029 12.6636 20.7803 10.8335 24.9851 10.8335C32.8166 10.8335 39.1654 17.1822 39.1654 25.0138C39.1654 29.2186 37.3352 32.996 34.4281 35.5927C34.3175 35.6915 34.1493 35.6851 34.0444 35.5802L14.4187 15.9545Z" fill="currentColor"></path></g>`,
   slack: `<path fill-rule="evenodd" clip-rule="evenodd" d="M16.3154 28.9467C16.3154 30.6907 14.9017 32.1044 13.1577 32.1044C11.4137 32.1044 10 30.6907 10 28.9467C10 27.2028 11.4137 25.7891 13.1577 25.7891H16.3154V28.9467Z" fill="#E01E5A"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M17.8955 28.9467C17.8955 27.2028 19.3092 25.7891 21.0532 25.7891C22.7972 25.7891 24.2109 27.2028 24.2109 28.9467V36.841C24.2109 38.5849 22.7972 39.9987 21.0532 39.9987C19.3092 39.9987 17.8955 38.5849 17.8955 36.841V28.9467Z" fill="#E01E5A"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M21.0532 16.3154C19.3092 16.3154 17.8955 14.9017 17.8955 13.1577C17.8955 11.4137 19.3092 10 21.0532 10C22.7972 10 24.2109 11.4137 24.2109 13.1577V16.3154H21.0532Z" fill="#36C5F0"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M21.0519 17.8945C22.7959 17.8945 24.2096 19.3082 24.2096 21.0522C24.2096 22.7962 22.7959 24.2099 21.0519 24.2099H13.1577C11.4137 24.2099 10 22.7962 10 21.0522C10 19.3082 11.4137 17.8945 13.1577 17.8945H21.0519Z" fill="#36C5F0"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M33.6843 21.0522C33.6843 19.3082 35.098 17.8945 36.842 17.8945C38.586 17.8945 39.9997 19.3082 39.9997 21.0522C39.9997 22.7962 38.586 24.2099 36.842 24.2099H33.6843V21.0522Z" fill="#2EB67D"></path><g filter="url(#filter0_i___UID0__)"><path fill-rule="evenodd" clip-rule="evenodd" d="M32.1042 21.0519C32.1042 22.7959 30.6905 24.2096 28.9465 24.2096C27.2025 24.2096 25.7888 22.7959 25.7888 21.0519V13.1577C25.7888 11.4137 27.2025 10 28.9465 10C30.6905 10 32.1042 11.4137 32.1042 13.1577V21.0519Z" fill="url(#paint1_linear___UID0__)"></path></g><path fill-rule="evenodd" clip-rule="evenodd" d="M28.9467 33.6826C30.6907 33.6826 32.1044 35.0964 32.1044 36.8403C32.1044 38.5843 30.6907 39.998 28.9467 39.998C27.2028 39.998 25.7891 38.5843 25.7891 36.8403V33.6826H28.9467Z" fill="#ECB22E"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M28.9465 32.1044C27.2025 32.1044 25.7888 30.6907 25.7888 28.9467C25.7888 27.2028 27.2025 25.7891 28.9465 25.7891C30.6905 25.7891 32.1042 27.2028 32.1042 28.9467C32.1042 30.6907 30.6905 32.1044 28.9465 32.1044ZM28.9465 33.6826V39.998C27.2025 39.998 25.7888 38.5843 25.7888 36.8403C25.7888 35.0964 27.2025 33.6826 28.9465 33.6826Z" fill="white"></path><defs><filter id="filter0_i___UID0__" x="25.7888" y="10" width="8.31531" height="14.2096" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="BackgroundImageFix"></feFlood><feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"></feBlend><feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"></feColorMatrix><feOffset></feOffset><feGaussianBlur stdDeviation="0.5"></feGaussianBlur><feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"></feComposite><feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.25 0"></feColorMatrix><feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow___UID0__"></feBlend><feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow___UID0__" result="shape"></feBlend></filter><linearGradient id="paint1_linear___UID0__" x1="25.7888" y1="10" x2="32.1042" y2="24.2096" gradientUnits="userSpaceOnUse"><stop stop-color="white"></stop><stop offset="1" stop-color="white" stop-opacity="0"></stop></linearGradient></defs></path>`,
-  // Monochrome marks (currentColor) — like github/linear, these brand glyphs
-  // are a single-tone logo, so IntegrationGlyph tints them theme-aware.
+  // Single-tone marks use currentColor so `IntegrationGlyph` can tint them.
   notion: `<path fill-rule="evenodd" clip-rule="evenodd" d="M29.1559 9.76696L12.2566 11.0152C10.8932 11.1331 10.4189 12.0239 10.4189 13.0917V31.6178C10.4189 32.4495 10.7143 33.1611 11.4268 34.1121L15.3993 39.2775C16.0519 40.1092 16.6453 40.2875 17.8914 40.2283L37.5162 39.0402C39.1755 38.922 39.651 38.1493 39.651 36.8434V16.0013C39.651 15.3263 39.3844 15.1318 38.5995 14.5558L33.0703 10.6575C31.7653 9.70862 31.2317 9.5886 29.1559 9.76665V9.76696ZM18.3352 15.6602C16.7327 15.768 16.3693 15.7924 15.4591 15.0524L13.1453 13.212C12.9102 12.9738 13.0284 12.6766 13.6209 12.6174L29.8666 11.4302C31.2308 11.3111 31.9412 11.7866 32.4748 12.202L35.261 14.2208C35.3801 14.2809 35.6764 14.6361 35.32 14.6361L18.5429 15.6461L18.3352 15.6602ZM16.467 36.6654V18.972C16.467 18.1993 16.7043 17.8429 17.4147 17.7831L36.6842 16.6549C37.3378 16.5959 37.6331 17.0113 37.6331 17.7828V35.3582C37.6331 36.1309 37.514 36.7845 36.4472 36.8434L18.0075 37.9123C16.9407 37.9713 16.4673 37.6161 16.4673 36.6654H16.467ZM34.6694 19.9206C34.7876 20.4551 34.6694 20.9896 34.135 21.0506L33.2462 21.2269V34.2902C32.4745 34.7055 31.7641 34.9428 31.1704 34.9428C30.2214 34.9428 29.9844 34.6457 29.2738 33.7557L23.4618 24.6117V33.4585L25.3004 33.8748C25.3004 33.8748 25.3004 34.9438 23.817 34.9438L19.7275 35.1811C19.6084 34.9428 19.7275 34.3494 20.142 34.2312L21.21 33.935V22.2378L19.7279 22.1177C19.6087 21.5833 19.905 20.8115 20.7357 20.7516L25.1235 20.4563L31.1707 29.7185V21.5243L29.6293 21.3472C29.5101 20.6927 29.9844 20.2172 30.5769 20.1592L34.6694 19.9206Z" fill="currentColor"></path>`,
   railway: `<path d="M7.82509 22.5005C7.7425 23.0793 7.68876 23.662 7.66406 24.2462H33.9983C33.9063 24.0665 33.7828 23.9045 33.6582 23.746C29.1562 17.9296 26.7344 18.4339 23.2701 18.2862C22.1151 18.2387 21.3318 18.2196 16.7344 18.2196C14.2737 18.2196 11.5986 18.2259 8.99364 18.2328C8.65642 19.143 8.33119 20.0253 8.17284 20.743H21.6674V22.5005H7.82509ZM34.2059 26.0054H7.67757C7.70533 26.4744 7.74908 26.9371 7.81226 27.3935H32.3043C33.3962 27.3935 34.0073 26.7741 34.2059 26.0054ZM9.18822 32.1881C9.18822 32.1881 13.2485 42.1579 24.9807 42.335C31.993 42.335 38.0182 38.1703 40.7551 32.1881H9.18822Z" fill="currentColor"></path><path d="M24.9805 7.66504C18.4968 7.66504 12.8548 11.2255 9.87528 16.4887C12.2037 16.4838 16.7383 16.481 16.7383 16.481H16.7394V16.4793C22.0993 16.4793 22.2985 16.5032 23.3455 16.5469L23.9939 16.5708C26.2522 16.6461 29.0279 16.8886 31.2119 18.541C32.3974 19.4372 34.1091 21.4154 35.1295 22.8246C36.0728 24.1281 36.3441 25.6265 35.7028 27.0622C35.1125 28.3816 33.8423 29.1686 32.3041 29.1686H8.22914C8.22914 29.1686 8.37246 29.7761 8.58735 30.4467H41.4504C42.034 28.6926 42.3323 26.8561 42.334 25.0074C42.3343 15.4304 34.5648 7.66504 24.9805 7.66504Z" fill="currentColor"></path>`,
   vercel: `<path d="M37.6934 35.7358L25 13.75L12.3066 35.7358H37.6934Z" fill="currentColor"></path>`,
-  // Sentry mark from simple-icons (24-unit grid), scaled onto the 34-unit glyph region.
+  // Sentry mark from simple-icons, scaled from a 24-unit grid.
   sentry: `<g transform="translate(8 8) scale(1.41667)"><path d="M13.91 2.505c-.873-1.448-2.972-1.448-3.844 0L6.904 7.92a15.478 15.478 0 0 1 8.53 12.811h-2.221A13.301 13.301 0 0 0 5.784 9.814l-2.926 5.06a7.65 7.65 0 0 1 4.435 5.848H2.194a.365.365 0 0 1-.298-.534l1.413-2.402a5.16 5.16 0 0 0-1.614-.913L.296 19.275a2.182 2.182 0 0 0 .812 2.999 2.24 2.24 0 0 0 1.086.288h6.983a9.322 9.322 0 0 0-3.845-8.318l1.11-1.922a11.47 11.47 0 0 1 4.95 10.24h5.915a17.242 17.242 0 0 0-7.885-15.28l2.244-3.845a.37.37 0 0 1 .504-.13c.255.14 9.75 16.708 9.928 16.9a.365.365 0 0 1-.327.543h-2.287c.029.612.029 1.223 0 1.831h2.297a2.206 2.206 0 0 0 1.922-3.31z" fill="currentColor"></path></g>`,
-  // Polylane mark from the product's own favicon (716-unit grid, brand lime
-  // #A8E840), scaled onto the 34-unit glyph region and re-tinted: the mark is
-  // one tone, so it follows the same currentColor rule as github/notion.
+  // Polylane favicon, scaled from a 716-unit grid. One tone, so it uses currentColor.
   polylane: `<g transform="translate(8 8) scale(0.047486) translate(-120 -120)"><path fill-rule="evenodd" clip-rule="evenodd" d="M381.142 255.979C353.262 256.882 324.664 258.165 294.739 259.828C240.319 262.852 197.432 305.379 194.635 357.744C191.659 413.446 191.596 463.816 194.618 519.68C197.379 570.729 238.619 612.379 291.522 616.294C424.628 626.144 531.099 626.37 664.216 616.432C716.652 612.517 757.575 571.322 760.527 520.692C763.828 464.081 763.824 413.076 760.619 356.673C757.677 304.896 715.104 262.861 661.009 259.838C629.813 258.094 600.063 256.769 571.071 255.861C568.898 277.025 553.17 294.761 531.729 297.623C492.693 302.833 460.623 302.444 420.534 297.184C399.233 294.389 383.392 276.96 381.142 255.979ZM291.944 209.528C212.897 213.921 148.553 276.001 144.329 355.057C141.26 412.512 141.192 464.688 144.314 522.401C148.496 599.706 210.597 660.82 287.804 666.534C369.848 672.605 442.16 675.087 516.559 673.853C551.603 711.938 579.891 732.555 618.741 749.748C627.403 753.581 635.458 743.223 630.988 734.873C618.661 711.839 616.267 692.195 623.929 669.646C638.33 668.78 652.985 667.788 667.966 666.669C744.641 660.945 806.343 600.383 810.819 523.625C814.234 465.063 814.229 412.124 810.915 353.815C806.453 275.298 742.341 213.928 663.821 209.539C531.36 202.135 424.263 202.176 291.944 209.528Z" fill="currentColor"></path><path d="M438.296 415.062C438.296 447.11 412.316 473.09 380.269 473.09C348.221 473.09 322.242 447.11 322.242 415.062C322.242 383.015 348.221 357.035 380.269 357.035C412.316 357.035 438.296 383.015 438.296 415.062Z" fill="currentColor"></path><path d="M570.358 473.09C602.405 473.09 628.385 447.11 628.385 415.062C628.385 383.015 602.405 357.035 570.358 357.035C538.31 357.035 512.331 383.015 512.331 415.062C512.331 447.11 538.31 473.09 570.358 473.09Z" fill="currentColor"></path></g>`,
 } satisfies Record<IntegrationBrandKey, string>;
 
@@ -71,9 +52,7 @@ type BrandIconMeta =
   | {
       kind: "svg";
       slug: IntegrationBrandKey;
-      // currentColor brand fallback for marks whose dimension source uses a
-      // white-on-dark gradient (github, linear). Other multicolor SVGs ignore
-      // currentColor entirely.
+      // The currentColor value. Multicolor SVGs ignore it.
       plainColor?: string | undefined;
       frostColor?: string | undefined;
     }
@@ -83,22 +62,13 @@ type BrandIconMeta =
       color: string;
     };
 
-/**
- * One icon per brand. `satisfies Record<IntegrationBrand, …>` is the proof: a
- * provider entry whose `brand` has no row here is a compile error, so a live
- * entry cannot ship without an icon. Read it through `brandIcon`, which widens
- * a row back to `BrandIconMeta`; `satisfies` keeps each row's literal type, and
- * `IntegrationGlyph` reads `plainColor` and `frostColor` unconditionally.
- */
+/** One icon per brand; a brand with no row fails to compile. Read through `brandIcon`. */
 const BRAND_ICONS = {
   collaborators: { kind: "lucide", icon: Users, color: "#e5e7eb" },
   github: {
     kind: "svg",
     slug: "github",
-    // Theme-aware on chrome: GitHub's mark is monochrome, so a fixed near-white
-    // (#f4f4f5) vanished on light-mode surfaces (tool cards, connect row, mention
-    // menu). --app-fg-4 tracks the primary text tone — dark in light mode, light
-    // in dark mode. `frost` keeps white for the dark integration tiles.
+    // A fixed near-white vanished in light mode. `--app-fg-4` follows the text tone.
     plainColor: "var(--app-fg-4)",
     frostColor: "#f4f4f5",
   },
@@ -115,10 +85,7 @@ const BRAND_ICONS = {
     frostColor: "#ffffff",
   },
   slack: { kind: "svg", slug: "slack" },
-  // Monochrome marks: like GitHub, the bare glyph is single-tone, so it tracks
-  // app-fg-4 on chrome (dark in light mode, light in dark) and stays white on
-  // the dark integration tiles via `frost`. Full-color artwork lives in the
-  // app-icon coins (integration-tile-components.tsx).
+  // Single-tone marks follow the text tone, as GitHub does.
   notion: {
     kind: "svg",
     slug: "notion",
@@ -143,9 +110,7 @@ const BRAND_ICONS = {
     plainColor: "var(--app-fg-4)",
     frostColor: "#f4f4f5",
   },
-  // Lime on chrome, not --app-fg-4: the mark is monochrome but its one tone IS
-  // the brand, and #A8E840 keeps its contrast on both themes. `frost` stays
-  // white so the mark reads on the dark tile like every other coin.
+  // Its one tone is the brand, and the lime reads on both themes.
   polylane: {
     kind: "svg",
     slug: "polylane",
@@ -160,16 +125,8 @@ function brandIcon(brand: IntegrationBrand): BrandIconMeta {
 }
 
 /**
- * Per-brand accent color for ambient surfaces — the radial glow behind a
- * provider's detail-page hero (see `HeroPanel`). A brand is keyed here by its
- * primary brand *hue*, not by how its mark renders: Railway's glyph is
- * monochrome on chrome (see `BRAND_ICONS`) yet keeps its magenta glow. Brands
- * absent here (github, notion, vercel, sentry) are the ones whose brand color is
- * black/near-gray — a gray glow reads as no glow on the dark canvas — so they
- * fall back to Alfred's house purple (`--app-purple-2`). Values are applied at
- * low alpha via `color-mix`, so the saturation here is intentional — the
- * surface dilutes it. Partial on purpose: it is keyed by brand, not by slug,
- * and an absent brand falls back.
+ * Brand hue for the glow behind the detail-page hero, applied at low alpha.
+ * Gray brands are absent because a gray glow is invisible; they get the house purple.
  */
 const BRAND_ACCENT = {
   gmail: "#ea4335",
@@ -184,7 +141,6 @@ const BRAND_ACCENT = {
   polylane: "#a8e840",
 } satisfies Partial<Record<IntegrationBrand, string>>;
 
-/** The brand's accent hue, or `undefined` for a monochrome brand that falls back to the house purple. */
 export function brandAccent(brand: IntegrationBrand): string | undefined {
   return Object.hasOwn(BRAND_ACCENT, brand)
     ? // SAFETY: `hasOwn` proved `brand` is one of the literal's own keys.
@@ -204,16 +160,13 @@ const GLYPH_SIZE = {
   xs: 15,
 } as const;
 
-// Offsets sit the check on the tile's 4:30 edge. Because the corner of a circle
-// recedes from its bounding box, the badge hugs the edge with a smaller outset
-// than a square would need (a -1 outset on `md` would float clear of the rim).
+// A circle's rim sits inside its box corner, so the check needs a small outset.
 const CHECK_SIZE_CLASS = {
   sm: "size-3.5 -bottom-0.5 -right-0.5",
   md: "size-4 -bottom-0.5 -right-0.5",
   xs: "size-3 -bottom-0.5 -right-0.5",
 } as const;
 
-/** Brands that ship a full-bleed app-icon tile (background + gloss baked in): every registry brand. */
 function hasTile(brand: IntegrationBrand): brand is IntegrationBrandKey {
   return Object.prototype.hasOwnProperty.call(INTEGRATION_TILES, brand);
 }
@@ -238,17 +191,8 @@ const INTEGRATION_TILES = {
 } satisfies Record<IntegrationBrandKey, TileComponent>;
 
 /**
- * An integration's brand mark as a polished, full-bleed app-icon coin — the
- * artwork fills the circle edge-to-edge, lit by the gloss baked into each SVG,
- * and finished with a hairline frost border (no inner glow over the art). The
- * round tile is what makes these read as Alfred's own marks rather than stock
- * app-store tiles; it's used on connect surfaces, the approval tray, onboarding
- * and the integrations catalog. Inline contexts that want just the bare logo
- * next to text use `IntegrationGlyph` instead.
- *
- * Brands without bespoke artwork (`web`, `collaborators`) fall back to their
- * Lucide mark centered on a dark frost coin so every brand still renders a
- * tile rather than a naked glyph.
+ * A brand as a round full-bleed coin. For the bare logo next to text, use `IntegrationGlyph`.
+ * `web` and `collaborators` get their Lucide mark on a neutral coin.
  */
 export function IntegrationIcon({
   brand,
@@ -260,7 +204,7 @@ export function IntegrationIcon({
   brand: IntegrationBrand;
   connected?: boolean | undefined;
   size?: keyof typeof TILE_SIZE_CLASS | undefined;
-  /** Retained for source compatibility; tiles carry their own background. */
+  /** Unused. Tiles carry their own background. */
   variant?: "plain" | "frost" | undefined;
   title?: string | undefined;
   className?: string | undefined;
@@ -269,7 +213,7 @@ export function IntegrationIcon({
     <span
       className={cn(
         "absolute z-10 grid place-items-center rounded-full bg-emerald-400 text-black",
-        // ring tracks the canvas so the check reads as a cut-out in both themes.
+        // The ring matches the canvas, so the check looks cut out.
         "shadow-[0_1px_4px_rgba(0,0,0,0.28)] ring-2 ring-app-background",
         CHECK_SIZE_CLASS[size],
       )}
@@ -288,10 +232,7 @@ export function IntegrationIcon({
         className={cn("relative block shrink-0", TILE_SIZE_CLASS[size], className)}
         title={title}
       >
-        {/* Inner layer clips the full-bleed artwork to the circle. The
-         * elevated shadow is a theme-aware hairline + soft drop: a faint dark
-         * rim frames the light Google tiles on a light canvas, a faint light
-         * rim lifts the dark GitHub/Linear tiles on dark. */}
+        {/* Clip the artwork to the circle; the shadow gives a rim in both themes. */}
         <span className="block size-full overflow-hidden rounded-[inherit] shadow-(--app-shadow-elevated)">
           <Tile aria-hidden className="block size-full" />
         </span>
@@ -300,9 +241,6 @@ export function IntegrationIcon({
     );
   }
 
-  // No bespoke artwork (web, collaborators) — center the Lucide mark on a
-  // theme-aware neutral tile so it stays in the same family as the app tiles
-  // in both light and dark.
   return (
     <span
       className={cn(
@@ -328,14 +266,11 @@ export function IntegrationGlyph({
   brand: IntegrationBrand;
   size?: number | undefined;
   variant?: "plain" | "frost" | undefined;
-  /** Override the brand's plain/frost color — needed when the surrounding
-   * tile isn't the background tone the brand metadata assumes (e.g. the
-   * monochrome GitHub glyph on a white tile). */
+  /** For a background the brand colors do not assume, such as GitHub on white. */
   colorOverride?: string | undefined;
   className?: string | undefined;
 }) {
   const meta = brandIcon(brand);
-  // useId is always called regardless of branch so hook order is stable.
   const reactId = useId();
   const uid = `ai_${reactId.replace(/[^a-zA-Z0-9_]/g, "_")}`;
 
@@ -352,10 +287,7 @@ export function IntegrationGlyph({
   }
 
   const color = colorOverride ?? (variant === "frost" ? meta.frostColor : meta.plainColor);
-  // BRAND_SVGS is a hand-curated constant in source (see integration-svgs.ts);
-  // there is no user-provided HTML path into this value, so the no-danger rule
-  // is a false positive here. We use innerHTML to keep the SVG markup
-  // verbatim (filter/clipPath IDs need to live inside the same <svg> element).
+  // Safe innerHTML: `BRAND_SVGS` is a source constant. Ids must stay inside one <svg>.
   const inner = BRAND_SVGS[meta.slug].replaceAll("__UID0__", uid);
 
   return (

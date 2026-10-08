@@ -1,16 +1,7 @@
 import { type ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
-/**
- * Small bordered pill rendered above hero headlines. Four accents — neutral,
- * indigo, emerald, amber — each a border/bg/text triple, paired with an optional
- * leading icon or status dot.
- *
- * Single owner for both the production landing hero and the styleguide catalog:
- * the styleguide imports this real component instead of copying it, so a restyle
- * (new accent, retinted triple) can't drift the design-system reference away from
- * production.
- */
+/** Small bordered pill above hero headlines. The styleguide imports this same component. */
 export function EyebrowChip({
   children,
   icon,

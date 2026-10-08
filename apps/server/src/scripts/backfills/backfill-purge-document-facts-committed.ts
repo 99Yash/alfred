@@ -1,45 +1,17 @@
 /**
- * COMMITTED purge + canonicalization of `user_facts` pollution (#330 / ADR-0079,
- * folds in #331). Rebuilt on the ONE shared classifier — `gateDocumentFact` +
- * `canonicalizeFactKey` + `isSingleValuedKey` — so "junk" has a single
- * definition shared with the live capture path (no third drifting copy).
+ * Purge and canonicalize polluted `user_facts` (#330, ADR-0079). It uses the live
+ * capture classifier (`gateDocumentFact`, `canonicalizeFactKey`, `isSingleValuedKey`),
+ * so "junk" has one definition. Three passes per user:
  *
- * The new capture gates stop FUTURE bad writes; this clears the live damage.
- * Three passes per target user, in order:
+ *   1. Reject each document fact that fails `gateDocumentFact`. A fact whose source
+ *      document is gone loses its identity claims; relationships stay.
+ *   2. Re-key alias keys to the canonical key in place (`current_company` to `employer`).
+ *   3. For a single-valued key with several values, keep the best row (source,
+ *      then confidence, then recency) and reject the rest.
  *
- *   Pass 1 — document purge. For each active `source.kind="document"` fact, run
- *     the SAME `gateDocumentFact` the workflow runs (re-loading the source
- *     document so the Tier-B authorship check can fire). Reject anything that
- *     fails: canonicalization failures + malformed `relationship:*` (shape a),
- *     `not_writable` keys (shape b), and leaked Tier-B rows the user didn't
- *     author (shape c). A `relationship:<email>` from a real doc is Tier A and
- *     is KEPT. A row whose source document is gone can't be attributed → its
- *     identity claim is rejected (relationships still kept).
+ * Reject uses `rejectFact`, which is reversible and blocks re-extraction.
  *
- *   Pass 2 — alias-key convergence (ALL sources). Rewrite surviving alias-keyed
- *     rows (`current_company`→`employer`, `name`→`full_name`, a mixed-case
- *     `relationship:` email, …) onto the canonical key IN PLACE, so legacy and
- *     canonical rows compare against the same key. User/cold-start identity is
- *     preserved (just re-keyed) — `current_company="Oliv AI"` becomes
- *     `employer="Oliv AI"` and still surfaces as `profile.currentCompany`.
- *
- *   Pass 3 — single-valued collapse. For each `SINGLE_VALUED_KEYS` key with more
- *     than one active value, keep the highest-authority row (source priority →
- *     confidence → recency) and reject the rest, so the read side sees exactly
- *     one authoritative value per identity key (the grill-time done criteria).
- *
- * Reject = `rejectFact` (reversible governance: `status='rejected'` +
- * `valid_until=now` + a `rejected_inferences` row so the same `(key,value)` is
- * not silently re-extracted). Un-reject from the Memory UI. Re-key = a direct
- * `key` UPDATE (preserves the row + its status).
- *
- * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
- * `node dist/scripts/backfills/backfill-purge-document-facts-committed.js`.
- *
- * Dry by default — classifies and prints what it WOULD do, writes
- * nothing. `--commit` applies and REQUIRES `--emails=...` explicitly so a prod
- * shell typo cannot mutate the default account. Idempotent (rejected/non-active
- * rows won't re-match; already-canonical keys are no-ops).
+ * Bundled for prod. Dry by default. `--commit` requires `--emails=...`. Idempotent.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfills/backfill-purge-document-facts-committed.js
@@ -93,7 +65,7 @@ type ActiveFactRow = {
   createdAt: Date | null;
 };
 
-/** Lower wins. User edits beat cold-start beat agent beat autonomous extraction. */
+/** Lower wins. */
 function sourcePriority(source: unknown): number {
   const kind = getStringPath(source, "kind");
 
@@ -180,8 +152,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
       ),
     );
 
-  // Source documents for the Tier-B authorship re-judge (pass 1). Keyed by
-  // documents.id == the document fact's source.id.
+  // Source documents for the pass 1 authorship check.
   const docIds = Array.from(
     new Set(
       rows
@@ -205,7 +176,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
   const docById = new Map(docRows.map((d) => [d.id, d]));
 
-  // ── Pass 1: document purge via the shared gate ──────────────────────────
+  // Pass 1: document purge.
   const purge: Array<{ row: ActiveFactRow; reason: string }> = [];
   const surviving: ActiveFactRow[] = [];
 
@@ -220,16 +191,13 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     const sourceId = getStringPath(r.source, "id");
     const doc = sourceId ? docById.get(sourceId) : undefined;
 
-    // A missing source document can't attribute a Tier-B identity claim — feed
-    // the gate an `unknown` source so relationships (Tier A) survive but
-    // identity claims fail authorship.
+    // No document: an `unknown` source keeps relationships but fails identity claims.
     const gateDoc = doc
       ? {
           source: doc.source,
           metadata: doc.metadata,
           accountId: doc.accountId,
-          // Parse From/SENT in the injected triage adapter (ADR-0089); non-gmail
-          // docs carry no sender observation.
+          // Triage owns the From/SENT parse (ADR-0089).
           sender: doc.source === "gmail" ? gmailSenderAdapter.authorship(doc.metadata) : null,
         }
       : { source: "unknown" as const, metadata: {}, accountId: null, sender: null };
@@ -244,7 +212,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     else purge.push({ row: r, reason: doc ? gate.reason : `${gate.reason}(doc_missing)` });
   }
 
-  // ── Pass 2: alias-key convergence (all surviving sources) ───────────────
+  // Pass 2: alias-key convergence.
   const rekeys: Array<{ row: ActiveFactRow; canonicalKey: string }> = [];
 
   for (const r of surviving) {
@@ -252,11 +220,11 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
     if (canon.ok && canon.wasAlias) {
       rekeys.push({ row: r, canonicalKey: canon.key });
-      r.key = canon.key; // reflect locally so pass 3 groups correctly
+      r.key = canon.key; // so pass 3 groups by the canonical key
     }
   }
 
-  // ── Pass 3: single-valued collapse over survivors ───────────────────────
+  // Pass 3: single-valued collapse.
   const byKey = new Map<string, ActiveFactRow[]>();
 
   for (const r of surviving) {
@@ -272,9 +240,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     const distinctSigs = new Set(group.map((r) => valueSignature(r.value)));
 
     if (group.length <= 1 || distinctSigs.size <= 1) {
-      // One value (possibly duplicated rows with identical signature stay — the
-      // active-dup guard already prevents new dups; collapsing identical-value
-      // dup rows is out of scope, the read side dedups by value anyway).
+      // Rows with one identical value stay. The read side dedups by value.
       continue;
     }
 
@@ -285,7 +251,6 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     }
   }
 
-  // ── Report ──────────────────────────────────────────────────────────────
   console.log(
     `  active: ${rows.length} | document-purge ${purge.length} | ` +
       `re-key ${rekeys.length} | single-valued collapse ${collapse.length}`,
@@ -340,17 +305,14 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     return;
   }
 
-  // ── Apply (commit) ────────────────────────────────────────────────────────
   let rejected = 0;
 
   for (const p of purge) if (await reject(p.row, u.userId, p.reason)) rejected++;
 
-  // Re-key: only rows that SURVIVED the purge (purge rejects are already
-  // inactive). A rejected loser in pass 3 below is handled after.
   let rekeyed = 0;
 
   for (const rk of rekeys) {
-    // Skip rows that became collapse losers (they'll be rejected, not re-keyed).
+    // A collapse loser is rejected, not re-keyed.
     const isLoser = collapse.some((c) => c.row.id === rk.row.id);
 
     if (isLoser) continue;
@@ -401,7 +363,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

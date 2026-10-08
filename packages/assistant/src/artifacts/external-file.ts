@@ -6,21 +6,10 @@ import { AppError } from "@alfred/contracts/app-errors";
 import type { ArtifactWriteContext } from "./write";
 
 /**
- * Surface an existing external file (e.g. a Drive PDF) inline (#287, ADR-0075).
- *
- * When the agent cannot read/export a file on the user's behalf — a binary
- * upload that Drive refuses to export to text (the #267 friction case) — it
- * mints an `external_file` artifact instead of punting, so the user can view and
- * download the file themselves in the sidebar. Unlike the authored kinds, this
- * carries only a pointer (preview URL + provenance), never a body.
- *
- * The row is created `generating` with its content already complete: the
- * chat-turn finalizer ({@link finalizeRunArtifacts}) flips still-`generating`
- * rows for the run to `complete` AND backfills `messageId` after the authoring
- * message persists, so the in-message trigger card attaches on reload — exactly
- * the lifecycle the authored kinds use. (`messageId` can't be set at mint: the
- * assistant message isn't in `chat_messages` until the turn finalizes, so
- * referencing it here would fail the FK.)
+ * Show an external file, such as a Drive PDF, inline (#287, ADR-0075). Used when the agent
+ * cannot export it to text (#267). Holds only a pointer, never a body.
+ * Created `generating` with content done; {@link finalizeRunArtifacts} marks it complete
+ * and fills `messageId`, as for authored kinds.
  */
 export interface SurfaceExternalFileInput {
   source: ExternalFileSource;
@@ -29,7 +18,7 @@ export interface SurfaceExternalFileInput {
   webViewLink?: string | undefined;
   mimeType?: string;
   fileName?: string;
-  /** Sidebar/card title (usually the file name). */
+  /** Usually the file name. */
   title: string;
 }
 

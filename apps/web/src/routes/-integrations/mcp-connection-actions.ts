@@ -5,21 +5,13 @@ import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 import { MCP_CONNECTIONS_QUERY_KEY, type McpConnection } from "./helpers";
 
-/** Which lifecycle action is in flight, so one spinner at a time disables its siblings. */
+/** The action in flight; its spinner disables the others. */
 export type McpConnectionPendingAction = "reconnect" | "disconnect" | "rename" | "remove";
 
 /**
- * The outcome of the last lifecycle action on this row, as one value.
- *
- * `blocked_remove` is the DELETE's unresolved-invocation refusal, which the card
- * renders with the recovery anchor; `action_failed` is every other failure and
- * carries no anchor.
- *
- * This is one discriminated value, not an error message beside a separate
- * `removeBlocked` boolean projected from the same four mutations. Two
- * projections can disagree: a resolved refusal keeps rendering as refused, and
- * a later failed reconnect renders its own message under the removal anchor.
- * Neither sequence is representable here.
+ * Outcome of the last action. `blocked_remove` is the unresolved-invocation
+ * refusal, shown with the recovery anchor. One value, so a refusal and a later
+ * failure cannot both render.
  */
 export type McpConnectionActionError =
   | { readonly kind: "blocked_remove"; readonly action: "remove"; readonly message: string }
@@ -29,14 +21,7 @@ export type McpConnectionActionError =
       readonly message: string;
     };
 
-/**
- * One connection's four lifecycle actions, flattened for the card.
- *
- * The card renders this object; it never touches a mutation. That keeps the
- * single `MCP_CONNECTIONS_QUERY_KEY` invalidation and the error-to-message
- * mapping in one place — four inline mutation blocks per card previously each
- * carried their own invalidation and their own `responseErrorMessage` call.
- */
+/** The four lifecycle actions for the card, with one invalidation and one error mapping. */
 export interface McpConnectionActions {
   readonly onReconnect: () => void;
   readonly onDisconnect: () => void;
@@ -47,22 +32,14 @@ export interface McpConnectionActions {
 }
 
 /**
- * A removal refused by the unresolved-invocation barrier. The status is read
- * from the wire CODE, not `response.error.status`: Elysia types a route's error
- * status from its own validation shape, so the numeric status here can be the
- * 422 default even when the handler threw a conflict.
+ * Read the wire code, not `response.error.status`: Elysia types the status
+ * from the validation shape, so it can say 422 for a thrown conflict.
  */
 function isRemovalBlocked(value: unknown): boolean {
   return isApiErrorResponse(value) && value.code === "CONFLICT";
 }
 
-/**
- * A removal's refusal, tagged where the wire response is still in hand.
- *
- * `onError` receives only the thrown value, so the one branch the card needs —
- * barrier or ordinary failure — travels on the error rather than being guessed
- * from a second piece of state.
- */
+/** Tags the refusal while the response is in hand; `onError` only gets the thrown value. */
 class McpRemovalRefusedError extends Error {
   constructor(
     readonly kind: "blocked_remove" | "action_failed",
@@ -81,9 +58,7 @@ export function useMcpConnectionActions(connection: McpConnection): McpConnectio
 
   const route = () => client.api.integrations.mcp.connections({ id: connection.id });
 
-  // Each action clears the previous outcome as it starts, so the rendered error
-  // is always the outcome of the LAST action on this row. A success therefore
-  // clears a stale refusal, and a later failure cannot inherit its anchor.
+  // Each action clears the last outcome first, so the error is always from the latest action.
   const clearError = () => setError(null);
 
   const reconnect = useMutation({
@@ -149,8 +124,7 @@ export function useMcpConnectionActions(connection: McpConnection): McpConnectio
       const response = await route().delete();
 
       if (response.error) {
-        // A 409 is the unresolved-invocation barrier, not a transport failure;
-        // the card renders it with the recovery anchor.
+        // 409 is the unresolved-invocation barrier, not a transport failure.
         throw new McpRemovalRefusedError(
           isRemovalBlocked(response.error.value) ? "blocked_remove" : "action_failed",
           responseErrorMessage(response.error.value, response.error.status, "Remove MCP server"),

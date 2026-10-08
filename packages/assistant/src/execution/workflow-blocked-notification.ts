@@ -1,14 +1,5 @@
 /**
- * Workflow-blocked notification (#561) — worker side.
- *
- * `checkWorkflowRunReadiness` enqueues one job per new blocker generation on
- * the approval notification queue. When it fires, re-read the workflow; if the
- * same blocker is still current and has not been notified, render the email,
- * hand it to `delivery.send`, stamp `blocked.notifiedAt` guarded on the same
- * generation, and poke Replicache. A failed send throws so BullMQ retries.
- *
- * Lives in `execution` beside the approval worker for the same reason: it
- * imports `../delivery` (the sender), which `tool-runtime` must not.
+ * Workflow-blocked email (#561), one per blocker generation, on the approval notification queue.
  */
 
 import { workflowBlockedGeneration } from "@alfred/contracts";
@@ -22,10 +13,7 @@ import { send } from "@alfred/assistant/delivery";
 import { emailLogoUrl, webOrigin } from "@alfred/assistant/settings";
 import type { WorkflowBlockedNotificationJobData } from "@alfred/assistant/tool-runtime";
 
-/**
- * Opens the workflow page; with a revision, the recovery panel for it opens
- * too (the page needs both search params to show the panel).
- */
+/** The page needs both search params to open the recovery panel. */
 function workflowRecoveryDeepLink(slug: string, revisionId: string | undefined): string {
   const base = `${webOrigin()}/workflows/${encodeURIComponent(slug)}`;
 
@@ -35,11 +23,7 @@ function workflowRecoveryDeepLink(slug: string, revisionId: string | undefined):
   return `${base}?${params.toString()}`;
 }
 
-/**
- * The outcome of one workflow-blocked notification job. A failed send throws
- * for a BullMQ retry instead of returning, so `sent`/`duplicate` are the only
- * send outcomes a caller ever sees.
- */
+/** A failed send throws so BullMQ retries; it is never returned. */
 export type WorkflowBlockedNotificationResult =
   | { status: "missing"; workflowId: string }
   | {
@@ -113,9 +97,7 @@ export async function processWorkflowBlockedNotification(
     },
   });
 
-  // A failed send must NOT stamp notifiedAt (the guard above would then block
-  // every future attempt) and must NOT complete the job green — throw so BullMQ
-  // retries. The workflow stays blocked either way.
+  // Throw so BullMQ retries. A stamped `notifiedAt` would block every later attempt.
   if (result.status === "failed") {
     throw new Error(
       `[workflow-blocked-notification] send failed for workflow ${row.id}: ${result.error}`,
@@ -134,9 +116,7 @@ export async function processWorkflowBlockedNotification(
       and(
         eq(workflows.id, row.id),
         eq(workflows.userId, data.userId),
-        // Guard on the exact value read above (jsonb equality is structural):
-        // a blocker that changed in between, or was stamped by another worker,
-        // no longer equals it and belongs to a newer job.
+        // jsonb equality is structural, so a changed or already stamped blocker does not match.
         sql`${workflows.blocked} = ${JSON.stringify(blocked)}::jsonb`,
       ),
     )

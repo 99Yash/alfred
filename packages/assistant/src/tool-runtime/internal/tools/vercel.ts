@@ -1,11 +1,4 @@
-/**
- * Vercel tools (read + write). Reads list projects and deployments; `redeploy`
- * re-deploys an existing deployment (tier `high`).
- *
- * Every call goes through `ctx.integrations.vercel`, so this file names no
- * credential function and holds no token. The team scope a team install must echo
- * on every call is the client's business, not a field these tools thread through.
- */
+/** Vercel tools. The client adds the team scope, so these tools never pass it. */
 
 import {
   restPassthroughInput,

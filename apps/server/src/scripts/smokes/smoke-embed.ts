@@ -1,15 +1,8 @@
 /**
- * m7b smoke test — exercises chunker → Voyage → pgvector search.
+ * Smoke test for chunking, Voyage embeddings, metering, and pgvector search.
+ * It makes only two Voyage calls, because the free tier allows 3 per minute.
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-embed.ts
- *
- * Voyage's free tier rate-limits at 3 RPM, so this smoke deliberately
- * makes only **two** Voyage calls (one document embed + one query
- * embed). That's enough to prove every link in the chain:
- *
- *   indexDocument → chunks rows with 1024-dim vectors →
- *   metered() row in api_call_log with non-zero cost → search
- *   joins back to documents and returns top-K.
  */
 import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
@@ -87,10 +80,10 @@ async function main() {
   const docId = await upsertDoc(userId);
   console.log(`[smoke-embed] docId=${docId}`);
 
-  // Wipe chunks to force a real Voyage call regardless of prior state.
+  // Clear chunks to force a real Voyage call.
   await db().delete(chunks).where(eq(chunks.documentId, docId));
 
-  // ---- One embed call: index the doc -------------------------------------
+  // One embed call: index the doc
   const embedResult = await indexDocument({
     documentId: docId,
     idempotencyKey: "m7b-smoke",
@@ -104,7 +97,6 @@ async function main() {
     throw new Error("expected ≥1 chunk written");
   }
 
-  // Verify chunk shape.
   const sample = await db()
     .select({ embedding: chunks.embedding, content: chunks.content })
     .from(chunks)
@@ -121,7 +113,7 @@ async function main() {
 
   console.log(`[smoke-embed] chunk embedding: 1024-dim ✓ (sample[0]=${embedding[0]?.toFixed(4)})`);
 
-  // Re-embed must be a no-op (content_hash unchanged → no Voyage call).
+  // Same content_hash, so a re-embed makes no Voyage call.
   const reembed = await indexDocument({ documentId: docId });
 
   if (reembed.chunksWritten !== 0) {
@@ -130,7 +122,7 @@ async function main() {
 
   console.log("[smoke-embed] re-embed is a no-op ✓");
 
-  // ---- One embed call: query --------------------------------------------
+  // One embed call: query
   const hits = await search({
     query: "what's our quarterly revenue and cash runway?",
     userId,
@@ -150,7 +142,7 @@ async function main() {
     throw new Error(`top similarity suspiciously low: ${top.similarity}`);
   }
 
-  // ---- Verify metering captured the embed call --------------------------
+  // Verify metering captured the embed call
   const recent = await db()
     .select()
     .from(apiCallLog)

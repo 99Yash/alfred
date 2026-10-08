@@ -1,20 +1,11 @@
 /**
- * Smoke test for the m8b memory-extraction workflow.
+ * Smoke test for the memory-extraction workflow with pre-baked proposals (no
+ * model calls). The first run writes facts, a status row, and a summary chunk.
+ * The second run adds no duplicate facts.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-extract.ts
  *
- * Pre-req: a server process running (`pnpm dev`) — its agent + memory
- * workers are what actually drive the run.
- *
- * What we exercise:
- *   1. Plant a fake `documents` row owned by a smoke user.
- *   2. Trigger the workflow in `manual` mode with pre-baked proposals
- *      keyed by that doc id (no LLM tokens burned).
- *   3. Poll the run to completion.
- *   4. Assert: proposed facts landed, `memory_extraction_status` row
- *      written, `memory_chunks` summary present.
- *   5. Trigger again — second run is a no-op (proposeFact dedups, doc
- *      sits inside the extracted-window) and produces the same output.
+ * Pre-req: a server process running (`pnpm dev`).
  */
 import { closeAgentQueue } from "@alfred/assistant/execution";
 import { getPath } from "@alfred/contracts";
@@ -42,7 +33,6 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`assertion failed: ${msg}`);
 }
 
-/** Validate the persisted jsonb run output at this smoke's own boundary. */
 function readRunOutcome(output: unknown, label: string) {
   const parsed = memoryExtractionOutcomeSchema.safeParse(getPath(output, "outcome"));
 
@@ -68,8 +58,7 @@ async function findOrCreateSmokeUser(): Promise<string> {
 }
 
 async function plantDocument(userId: string, runTag: string) {
-  // Idempotent on (user, source, source_id): re-running the smoke
-  // returns the same row id.
+  // Idempotent on (user, source, source_id).
   const sourceId = `smoke-extract-${runTag}`;
 
   const content = [
@@ -127,17 +116,14 @@ async function pollRun(runId: string, label: string) {
 
 async function main() {
   await warmPool();
-  // Local registration so createRun's `requireWorkflow` can build the
-  // initial state — the server process has its own registration.
+  // So `requireWorkflow` can build the initial state in this process.
   registerBuiltinWorkflows();
   const userId = await findOrCreateSmokeUser();
   const runTag = Math.random().toString(36).slice(2, 8);
   const docId = await plantDocument(userId, runTag);
   console.log(`[smoke-extract] userId=${userId} docId=${docId} runTag=${runTag}`);
 
-  // Use uniquely-keyed facts so reruns don't collide with prior runs'
-  // active rows in user_facts (proposeFact's dup guard would block the
-  // identical (key, value) on round two).
+  // Per-run keys, so proposeFact's dup guard does not block a rerun.
   const proposals = [
     {
       key: `smoke:manager:${runTag}`,
@@ -153,9 +139,7 @@ async function main() {
     },
   ];
 
-  // ---------------------------------------------------------------------
-  // Run 1 — should propose both facts, write status row + memory_chunk.
-  // ---------------------------------------------------------------------
+  // Run 1.
   const { runId: runId1 } = await enqueueExtractionForUser(userId, {
     mode: "manual",
     manualProposals: { [docId]: proposals },
@@ -167,10 +151,7 @@ async function main() {
 
   const run1 = await pollRun(runId1, "run 1 completion");
   assert(run1.status === "completed", `run 1 status=${run1.status}`);
-  // `agent_runs.output` is jsonb, so it arrives as `unknown` — parse it rather
-  // than cast it. The parse also asserts the discriminant: a run that picked
-  // documents and proposed facts must report `facts_proposed`, so the smoke can
-  // no longer pass on a report that says `proposed: 0` without saying which zero.
+  // The parse also asserts the `facts_proposed` discriminant.
   const out1 = readRunOutcome(run1.output, "run 1");
   console.log(`[smoke-extract] run 1 outcome: ${JSON.stringify(out1)}`);
   assert(out1.kind === "facts_proposed", `expected facts_proposed, got ${out1.kind}`);
@@ -179,7 +160,6 @@ async function main() {
   assert(out1.proposed === 2, `expected proposed=2, got ${out1.proposed}`);
   assert(out1.blocked === 0, `expected blocked=0 on first run, got ${out1.blocked}`);
 
-  // Facts landed
   const managerFacts = await recallActiveByKey(userId, `smoke:manager:${runTag}`, {
     includeProposed: true,
   });
@@ -187,7 +167,6 @@ async function main() {
   assert(managerFacts.length === 1, `expected 1 manager fact, got ${managerFacts.length}`);
   assert(managerFacts[0]!.confidence > 0.9, "manager confidence should match proposal");
 
-  // Status row landed
   const [statusRow] = await db()
     .select()
     .from(memoryExtractionStatus)
@@ -197,7 +176,6 @@ async function main() {
   assert(statusRow.lastRunId === runId1, `lastRunId mismatch`);
   assert(statusRow.proposedCount === 2, `proposedCount mismatch ${statusRow.proposedCount}`);
 
-  // Summary memory_chunk landed
   const summaryChunks = await db()
     .select()
     .from(memoryChunks)
@@ -213,11 +191,7 @@ async function main() {
 
   console.log("[smoke-extract] run 1 assertions OK");
 
-  // ---------------------------------------------------------------------
-  // Run 2 — same proposals; both should be blocked by dedup, but the
-  // workflow itself still processes (manual mode bypasses the freshness
-  // window). Status row's lastRunId moves to runId2.
-  // ---------------------------------------------------------------------
+  // Run 2: dedup blocks both facts, but manual mode still runs the workflow.
   const { runId: runId2 } = await enqueueExtractionForUser(userId, {
     mode: "manual",
     manualProposals: { [docId]: proposals },
@@ -236,7 +210,6 @@ async function main() {
   assert(out2.processed === 1, `expected processed=1, got ${out2.processed}`);
   assert(out2.blocked === 2, `expected blocked=2 on dup run, got ${out2.blocked}`);
 
-  // Confirm no duplicate facts piled up
   const stillOne = await recallActiveByKey(userId, `smoke:manager:${runTag}`, {
     includeProposed: true,
   });

@@ -10,26 +10,17 @@ export function ChatThreadRoute() {
   const { setActiveThread } = useChatContext();
   const { thread, loading } = useChatThread(threadId);
 
-  // Publish the active thread so the sidebar highlights this row, and clear it
-  // on unmount. Without the cleanup, navigating back to bare `/chat` (⌘J, the
-  // "New chat" button, deleting the open thread) leaves the previous thread
-  // highlighted, since nothing else resets it. Mirrors the preview route.
+  // Clear on unmount, or bare `/chat` keeps the old thread highlighted. Mirrors the preview route.
   useLayoutEffect(() => {
     setActiveThread(threadId);
 
     return () => setActiveThread("");
   }, [threadId, setActiveThread]);
 
-  // Title comes from the synced thread (the worker derives it from the opening
-  // exchange; the turn endpoint seeds a placeholder before that lands). Stay
-  // neutral while the subscription resolves so a deep link never presents an
-  // existing conversation as a new one, even briefly.
+  // Stay neutral while loading, so a deep link never shows as a new chat.
   const title = thread?.title?.trim() || (loading ? "Chat" : "New chat");
 
-  // Mirror the live thread title into the browser tab. The static route `head`
-  // can't see Replicache subscriptions, so it seeds "Chat · Alfred"; this keeps
-  // document.title in sync as the worker derives the real title post-turn.
-  // No cleanup needed: navigating away re-runs the destination route's head.
+  // The route `head` cannot see Replicache, so sync the tab title here. Navigation re-runs head.
   useEffect(() => {
     document.title = formatPageTitle(title);
   }, [title]);

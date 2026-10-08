@@ -4,49 +4,21 @@ import { z } from "zod";
 import type { ColdStartSignals } from "./signals";
 
 /**
- * Turn cold-start research prose into structured `user_facts` proposals
- * (ADR-0011 + ADR-0019).
- *
- * Why a second LLM pass and not a deterministic parse: Sonar's output
- * is free-form prose with inline citations, not a typed payload. The
- * cheap-tier model's job here is purely transformation — read the
- * research, emit a constrained JSON shape — so it doesn't need the
- * boss-tier reasoning budget.
- *
- * Conservative-by-default: ambiguous signals and anything below 0.7
- * confidence get dropped. Single-user trust matters more than recall.
- *
- * Schema choices worth flagging:
- *   - `value` is `z.string()` (not a union). Every cold-start canonical
- *     key holds a string anyway (names, URLs, paragraph summaries) and
- *     Gemini's structured-output mode handles unions inconsistently —
- *     a polymorphic `value` field reliably triggered "response did not
- *     match schema" failures on longer extractions.
- *   - `rationale.max(2000)` is generous on purpose: Gemini quotes
- *     multiple research sources verbatim per proposal once the corpus
- *     is dense enough, and a 500-char cap was the failure mode that
- *     blocked the whole extraction.
+ * Turn the cold-start summary into `user_facts` proposals (ADR-0011, ADR-0019).
+ * `value` is a plain string because structured output failed often on a union.
+ * `rationale` allows 2000 chars because the model quotes sources at length.
  */
 
 export const coldStartProposalSchema = z.object({
   /**
-   * Canonical snake_case key. Allowed shapes for cold-start output (#330 — the
-   * one fact ontology; `name`→`full_name`, `company`→`employer` still map via
-   * `FACT_KEY_ALIASES` but prefer the canonical spelling):
-   *   Identity:      `full_name`, `bio_summary` (paragraph)
-   *   Work:          `employer`, `job_title`, `team`, `location`,
-   *                  `home_city`, `home_country`
-   *   Online:        `personal_site` (URL), `github_username`,
-   *                  `twitter_handle`, `linkedin_url`
-   *   Personal:      `marital_status` (e.g. "married", "single"),
-   *                  `spouse_name`, `family_summary` (paragraph),
-   *                  `notable_relations` (paragraph naming public-figure
-   *                  family members and what makes them notable)
+   * Canonical snake_case key (#330). Cold-start keys: `full_name`, `bio_summary`,
+   * `employer`, `job_title`, `team`, `location`, `home_city`, `home_country`,
+   * `personal_site`, `github_username`, `twitter_handle`, `linkedin_url`,
+   * `marital_status`, `spouse_name`, `family_summary`, `notable_relations`.
    */
   key: z.string().min(1).max(100),
   value: z.string().min(1).max(2_000),
   confidence: confidenceSchema,
-  /** Quote or paraphrase the citation that grounds the fact. */
   rationale: z.string().min(1).max(2_000),
 });
 
@@ -96,8 +68,7 @@ function buildUserPrompt(args: ExtractColdStartFactsArgs): string {
   lines.push(`Subject:`);
   lines.push(`- Name: ${args.signals.name}`);
 
-  // Domain only — the local-part is a contact detail the rules already forbid
-  // proposing, and there's no reason to put it in front of the extractor.
+  // Domain only: the rules forbid the local-part as a fact.
   if (args.signals.emailDomain) {
     lines.push(`- Email domain: ${args.signals.emailDomain}`);
   }
@@ -127,9 +98,7 @@ export async function extractColdStartFacts(
       prompt: buildUserPrompt(args),
       schema: extractColdStartResultSchema,
       temperature: 0,
-      // Schema permits up to 20 proposals × ~150 tokens each + JSON
-      // overhead. 4k is comfortable headroom; 2k truncated mid-JSON on
-      // longer research outputs and the SDK rejected the partial parse.
+      // 2k truncated the JSON on long research.
       maxOutputTokens: 4_000,
     },
     {

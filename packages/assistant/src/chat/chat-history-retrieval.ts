@@ -70,11 +70,7 @@ export async function readChatHistory(
   args: { userId: string; threadId: string; input: ReadChatHistoryInput },
   dependencies: ChatHistoryRetrievalDependencies = {},
 ): Promise<ChatHistoryToolResult> {
-  // `readChatHistoryInput` refinements guarantee `query` in search mode and
-  // `kind`+`id` in fetch mode, but the flattened object types them optional
-  // (the schema is one object, not a discriminated union — see tool-schemas.ts).
-  // Guard defensively so a direct caller that skips the dispatch-layer parse
-  // can't dereference an undefined.
+  // The schema refines these but types them optional, and a direct caller may skip the parse.
   if (args.input.mode === "search") {
     const { query } = args.input;
 

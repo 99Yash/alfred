@@ -1,11 +1,4 @@
-/**
- * Google Drive tools registered into the boss's tool surface.
- *
- * Read-only tool surface (the grant is now full `drive`, but write tools
- * are separate — ADR-0043): find files, read metadata, and pull text
- * contents (export Google-native files, or download textual uploads). All
- * no_risk/low reads — mirrors gmail.ts for credential resolution.
- */
+/** Google Drive tools. Read-only, though the grant is full `drive` (ADR-0043). */
 
 import {
   driveDownloadFileInput,
@@ -24,12 +17,11 @@ import {
   type ToolExecuteContext,
 } from "@alfred/assistant/tool-runtime";
 
-/** Google-editable file (Doc/Sheet/Slide) — the only kind `export_file` can read as text. */
+/** A Doc, Sheet, or Slide: the only kind `export_file` can read as text. */
 function isGoogleNativeMimeType(mimeType: string | undefined): boolean {
   return normalizeMimeType(mimeType).startsWith(GOOGLE_WORKSPACE_MIME_PREFIX);
 }
 
-/** Result the read tools return once a file has been surfaced inline instead of read. */
 interface RenderedInSidebarResult {
   status: "rendered_in_sidebar";
   artifactId: string;
@@ -39,25 +31,17 @@ interface RenderedInSidebarResult {
 }
 
 /**
- * A Drive read (export/download) failed. If the file is a binary the API can
- * never read as text (a real upload, not a Google-editable doc) and the user can
- * still access it, surface it in the artifact sidebar (#287) so they can view /
- * download it themselves — turning a dead-end ("paste it here") into a rendered
- * file. Returns null when surfacing doesn't apply (no chat thread, the file is a
- * Google-native doc whose failure is transient/permission, or the file itself is
- * unreadable/inaccessible), so the caller rethrows the honest original error.
+ * After a failed read, open a binary file in the artifact sidebar so the user can view it.
+ * Returns null when that does not apply, and the caller rethrows the original error.
  */
 async function maybeSurfaceUnreadableDriveFile(
   ctx: ToolExecuteContext,
   args: { credentialId: string; fileId: string },
 ): Promise<RenderedInSidebarResult | null> {
-  // Artifacts are thread-owned — a non-chat run (briefing, sub-agent) has no
-  // sidebar to surface into, so let the original error stand.
+  // Artifacts are thread-owned, so a non-chat run has no sidebar.
   if (!ctx.threadId) return null;
 
-  // Confirm the file exists and the user can reach it (this succeeds only with
-  // real access, so a genuine permission 403 on the read stays a 403). Its
-  // mimeType tells us whether text extraction was ever possible.
+  // Succeeds only with real access, so a permission 403 stays a 403.
   let file;
 
   try {
@@ -66,8 +50,7 @@ async function maybeSurfaceUnreadableDriveFile(
     return null;
   }
 
-  // A Google-native doc IS text-exportable; its read failure is transient or a
-  // permission edge, not "this file can't be read as text". Don't mask it.
+  // A native doc is exportable, so its failure is real. Do not mask it.
   if (isGoogleNativeMimeType(file.mimeType) || !file.mimeType) return null;
 
   const fileName = file.name ?? "file";

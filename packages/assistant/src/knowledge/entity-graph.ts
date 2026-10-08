@@ -12,11 +12,7 @@ import { z } from "zod";
 import { classifyContactKind } from "./entity-kind-classifier";
 import { parsePersonEntityMetadata } from "./entity-metadata";
 
-/**
- * `entities.kind` values — the 6-member ADR-0012 vocabulary. The text column is
- * validated at this app-boundary store; the union derives from the tuple so a
- * new kind cannot drift from its parse.
- */
+/** `entities.kind` values (ADR-0012). The union derives from the tuple. */
 export const ENTITY_KINDS = [
   "person",
   "organization",
@@ -33,34 +29,23 @@ export type EntityKind = (typeof ENTITY_KINDS)[number];
 const aliasesSchema = z.array(z.string());
 
 /**
- * The two kinds the mail-contact writer owns. The alias match spans both so a
- * re-classified contact is UPDATED in place rather than duplicated (#1108).
- *
- * The SINGLE definition: the kind union derives from this tuple, never
- * restated, so narrowing the writer's match fails the classifier's `other`
- * arms at compile time instead of orphaning a stored row.
+ * The two kinds the mail-contact writer owns. The match spans both, so a re-kinded
+ * contact updates in place instead of duplicating (#1108).
  */
 const CONTACT_KINDS = ["person", "other"] as const satisfies readonly EntityKind[];
 
 export type ContactKind = (typeof CONTACT_KINDS)[number];
 
-/** Parses the stored kind of a contact row — the range `storedContactMatch` selects. */
+/** Parses a contact row's stored kind. */
 const contactKindSchema = z.enum(CONTACT_KINDS);
 
 /**
- * What both contact-kind preview doors answer: the inputs they classified,
- * plus the inputs they could not. `kinds` holds only answered inputs;
- * `unclassifiable` holds the rest, in the door's own key space, in input
- * order. Every input appears exactly once across the two. The door names its
- * unanswered inputs, and a caller reading `kinds.get` must still handle
- * `undefined`: absence is a named list beside the map, not a replacement for
- * the guard. The caller leaves an unclassifiable input alone rather than
- * defaulting toward a write.
+ * The answer of both contact-kind preview doors. Each input is in exactly one of
+ * `kinds` or `unclassifiable`. Leave an unclassifiable input alone; do not default it to a write.
  */
 export interface ContactKindPreview {
-  /** Answered inputs. Key space is per-door (see each door). */
+  /** Key space is per door. */
   kinds: ReadonlyMap<string, ContactKind>;
-  /** Inputs the door did not answer, in the door's own key space. */
   unclassifiable: readonly string[];
 }
 
@@ -78,12 +63,7 @@ export const upsertEntityArgsSchema = entityInsertSchema
 
 export type UpsertEntityArgs = z.infer<typeof upsertEntityArgsSchema>;
 
-/**
- * DB row with the jsonb/enum columns narrowed to their parsed shapes. Other
- * columns track `Entity` ($inferSelect); the lifecycle dates are dropped
- * deliberately — `rowToEntity` doesn't surface them. Only `kind`/`aliases`/
- * `metadata`, which are zod-parsed, are restated.
- */
+/** `Entity` with the zod-parsed jsonb/enum columns narrowed and the lifecycle dates dropped. */
 export type EntityRow = Omit<
   Entity,
   "kind" | "aliases" | "metadata" | "createdAt" | "updatedAt"
@@ -106,31 +86,16 @@ function rowToEntity(r: Entity): EntityRow {
 }
 
 /**
- * A Drizzle transaction handle — the value `db().transaction(cb)` hands its
- * callback. Every write helper below optionally takes one so several writes can
- * commit atomically in a caller's transaction (mirrors `publishEvent`'s `tx?`).
- * The team-graph capture relies on this: its correspondence increments and the
- * `captured_into_graph_at` stamp must land together (ADR-0059 amendment
- * 2026-06-16), so a failed apply rolls back the marker too and the next run
- * retries cleanly. Omit it and each helper opens its own transaction as before.
- */
-/**
- * Upsert by `(user_id, kind, canonical_name)`. Aliases merge — never
- * shrink — so re-extracting "Alice Doe" with a new alias preserves prior
- * aliases. Metadata last-writes-wins on conflicting keys.
- *
- * NOTE — keying on `canonical_name` means a `person` whose display name
- * collides with a *different* existing person merges onto that row. For people,
- * whose stable identity is the email, prefer {@link upsertContactByAlias}.
+ * Upsert by `(user_id, kind, canonical_name)`. Aliases only grow; metadata is last-writes-wins.
+ * Two people with one display name merge here, so use {@link upsertContactByAlias} for people.
+ * Pass `tx` to commit with the caller's other writes.
  */
 export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): Promise<EntityRow> {
   const parsed = upsertEntityArgsSchema.parse(args);
   const aliases = parsed.aliases ?? [];
   const metadata = parsed.metadata ?? {};
 
-  // Two-step: try insert; if the unique key collides, merge by hand.
-  // Simpler than expressing alias-merge in a single onConflictDoUpdate
-  // (jsonb array union with dedup is awkward in Drizzle).
+  // Insert, then merge by hand on conflict: a jsonb alias union is awkward in one `onConflictDoUpdate`.
   const run = async (ex: DbTransaction): Promise<EntityRow> => {
     const [existing] = await ex
       .select()
@@ -187,36 +152,21 @@ export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): 
 
 export interface UpsertContactByAliasArgs {
   userId: string;
-  /** The email alias the row is matched on (normalized with `canonicalizeIdentityValue` before matching). */
+  /** Matched after `canonicalizeIdentityValue`. */
   address: string;
-  /** Aliases to union onto the row — typically just `[address]`. */
   aliases: string[];
-  /** Canonical name used ONLY when inserting a new row; an existing row keeps its own. */
+  /** Used only on insert; an existing row keeps its name. */
   canonicalNameIfNew: string;
-  /**
-   * Build the metadata bag to write from the row's PRIOR metadata (`{}` for a
-   * new row). Runs inside the match's transaction, so the prior it sees is
-   * consistent with the write. Returned keys merge last-writes-wins over the
-   * prior bag, so untouched keys (e.g. `significance`) survive.
-   */
+  /** Builds the metadata from the row's prior bag, inside the match's transaction. */
   buildMetadata: (priorMetadata: JsonObject) => JsonObject;
 }
 
-/**
- * One candidate for {@link previewContactKinds}: the two writer inputs a dry
- * run must reproduce, taken from {@link UpsertContactByAliasArgs} so the two
- * cannot drift. `displayName` stands in for `canonicalNameIfNew` and is
- * `undefined` for a bare address.
- */
+/** Input for {@link previewContactKinds}. `displayName` is `undefined` for a bare address. */
 export type ContactPreviewCandidate = Pick<UpsertContactByAliasArgs, "buildMetadata"> & {
   displayName: string | undefined;
 };
 
-/**
- * The bag a contact write stores: the caller's keys last-writes-wins over the
- * prior bag, so untouched keys (e.g. `significance`) survive. ONE home, so the
- * writer and the dry preview classify the same bag.
- */
+/** Caller keys win over the prior bag. One home, so the writer and the preview agree. */
 function mergeContactMetadata(
   prior: JsonObject,
   build: (priorMetadata: JsonObject) => JsonObject,
@@ -225,12 +175,8 @@ function mergeContactMetadata(
 }
 
 /**
- * The legacy kind of ONE contact from values its row stores: the canonical
- * name, plus the list-header evidence and sticky written-to flag (or outbound
- * count, for a row written before the flag) in the metadata bag
- * (#1198). Every contact-kind reader goes through here — the live writer, the
- * address-keyed dry preview and the row-keyed purge preview — so the bag is
- * parsed one way and the three cannot disagree about a row.
+ * The legacy kind of one contact from its stored values (#1198). The writer and
+ * both previews call this, so they cannot disagree about a row.
  */
 function classifyStoredContact(
   address: string,
@@ -249,35 +195,12 @@ function classifyStoredContact(
 }
 
 /**
- * Upsert ONE mail contact matched by EMAIL ALIAS rather than canonical name.
- *
- * A contact's stable identity is the email; the display name drifts and
- * collides (two different "John Smith"s). {@link upsertEntity}'s
- * `canonical_name` key would merge a second John onto the first and clobber his
- * correspondence, so the team-graph writer keys on the alias instead. An
- * existing row keeps its established `canonicalName` — only a brand-new contact
- * takes `canonicalNameIfNew`. Aliases union; metadata merges
- * last-writes-wins.
- *
- * The match covers BOTH kinds this writer owns (`person` and `other`) and the
- * update SETS the kind, so a contact the bar re-classifies moves in place on the
- * next capture run instead of minting a duplicate under the new kind. An
- * `organization` row can never be caught by accident: its only alias is a bare
- * domain, and a domain never contains `@`.
- *
- * The kind is DERIVED here, inside the match's transaction, from the canonical
- * name the row carries (or, for a new row, the one it is about to carry) and
- * from the metadata bag it is about to store — never from the caller's
- * per-run display name or headers. The caller sees only the
- * documents of its own run, so a run whose headers carried a bare address used
- * to promote a demoted row straight back to `person`. Classifying the stored
- * value makes the writer, the purge script and a dry run agree by construction,
- * and keeps the bar self-healing: change the bar and the next run re-kinds the
- * same row in place (#1108 round 1).
- *
- * A re-kind the `entities` unique index would refuse keeps the current kind
- * and is reported as `reKindBlocked`, so the capture log and the backfill
- * commit report can count what the purge backfill counts.
+ * Upsert one mail contact matched by email alias, not by display name.
+ * An existing row keeps its `canonicalName`. The kind is derived from the stored
+ * name and the merged metadata, never from this run's headers, so the writer and
+ * the backfills agree (#1108). The match spans `person` and `other`, so a re-kind
+ * moves the row in place. A re-kind the unique index would refuse keeps the kind
+ * and reports `reKindBlocked`.
  */
 export async function upsertContactByAlias(
   args: UpsertContactByAliasArgs,
@@ -301,10 +224,7 @@ export async function upsertContactByAlias(
       args.buildMetadata,
     );
 
-    // One classification per write, from the values this row stores after the
-    // write: its canonical name and its merged metadata bag. Already a
-    // ContactKind at the call site — no boundary parse: the classifier, not a
-    // tier-2 guard, owns the range.
+    // Classify the values the row holds after the write.
     const kind = classifyStoredContact(
       address,
       existing?.canonicalName ?? args.canonicalNameIfNew,
@@ -357,41 +277,16 @@ export async function upsertContactByAlias(
 
 export interface ReKindCollisionArgs {
   readonly userId: string;
-  /** The kind the row holds now. REQUIRED so the same-kind question answers itself. */
+  /** The row's current kind. Required, so the same-kind case answers itself. */
   readonly from: EntityKind;
-  /** The kind the caller wants to move the row TO. */
   readonly kind: EntityKind;
-  /** The canonical name of the row being moved. */
   readonly canonicalName: string;
 }
 
 /**
- * True when moving a contact row from `from` to `kind` would land on a row
- * that already holds that `(user_id, kind, canonical_name)` coordinate — the
- * columns of the `entities` unique index.
- *
- * A same-kind question (`from === kind`) answers `false` without touching the
- * database: the row always matches its own coordinate, so asking the index
- * about the kind a row already holds would report every row as blocked. The
- * field is REQUIRED so the predicate itself answers right; the three callers
- * keep their own same-kind fast path only to skip the SELECT.
- *
- * The collision is not a re-kinder's to resolve: a merge would pick a winner
- * and silently drop one contact's correspondence aggregate, so the two
- * writers keep the row's current kind and report the refusal, and the dry
- * door counts it — the live
- * writer (`resolveKindForUpdate`) as `reKindBlocked` summed into the capture
- * log and the backfill commit report, the backfill dry door (`previewContactKinds`) as `blockedEstimate`
- * counted but never written, the purge backfill as `blocked` in its dry and
- * commit reports. A stale kind is recoverable; a
- * dropped aggregate is not.
- *
- * ONE definition, for the same reason {@link previewContactKinds} is one: the
- * live writer below, the backfill dry door, and the committed purge backfill
- * apply the same rule under the same index — the door only counts what the
- * writers would refuse — and a second copy of this rule
- * would drift (#1108,
- * the #493 precedent).
+ * True when moving a contact to `kind` would hit the `entities` unique index.
+ * Same kind answers `false` with no query. Callers keep the old kind and report it:
+ * merging would drop one contact's correspondence. A stale kind is recoverable.
  */
 export async function reKindWouldCollide(
   args: ReKindCollisionArgs,
@@ -414,16 +309,7 @@ export async function reKindWouldCollide(
   return Boolean(clash);
 }
 
-/**
- * What to write on an EXISTING contact row: the kind, plus whether a wanted
- * move was refused — see {@link reKindWouldCollide}. The flag is the whole
- * point of the envelope: a caller that ignores `blocked` must say so, because
- * the clash is otherwise invisible. The envelope's one caller,
- * `upsertContactByAlias`, surfaces it as `reKindBlocked` (summed into the
- * capture log and the backfill commit report via `persistContacts`); the purge backfill never sees this
- * type — it builds its own `blockedIds` straight from
- * {@link reKindWouldCollide}.
- */
+/** The kind to write on an existing row, and whether a wanted move was refused. */
 interface ReKindDecision {
   kind: EntityKind;
   blocked: boolean;
@@ -446,12 +332,7 @@ async function resolveKindForUpdate(
   return collides ? { kind: storedKind, blocked: true } : { kind, blocked: false };
 }
 
-/**
- * The alias-`EXISTS` predicate every contact read shares — the live writer's
- * match and the preview's stored read below. ONE home: a second copy drifted
- * in beside the writer's, so the writer, the purge backfill and a dry run now
- * meet the same stored rows by construction.
- */
+/** The alias-match predicate every contact read shares. */
 function storedContactMatch(userId: string, normalizedAddresses: readonly string[]) {
   return and(
     eq(entities.userId, userId),
@@ -464,50 +345,12 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
 }
 
 /**
- * The ONE address-keyed preview door for a mail contact's kind: the stored
- * canonical name each existing row holds, classified the way the live writer
- * classifies it.
- *
- * Key = address as written; value = the writer inputs a dry run reproduces —
- * the display name for a not-yet-stored contact (`undefined` = bare address)
- * and the `buildMetadata` the writer would apply, merged over the stored bag
- * exactly as the writer merges it, so the stored list-header evidence and
- * outbound count reach the bar (#1198). Keys are normalized once, inside, with
- * `canonicalizeIdentityValue` — the same helper the writer matches on — and the
- * stored read runs in the caller's `tx` when one is passed. `kinds` is
- * keyed by the caller's OWN candidate string, so an answered candidate is
- * a hit under the caller's own key and no caller re-derives a normalized
- * key. A candidate
- * key that is empty after trim normalizes to an empty string and is listed
- * in `unclassifiable`: the caller leaves
- * it alone rather than defaulting toward a write.
- *
- * A DRY backfill persists nothing, so it has no written row to read the kind
- * back from. It still has to report the kind a real write WOULD produce, and
- * the kind bar is defined over the STORED canonical name — the value an
- * existing row keeps and no writer ever updates. Without this read a preview
- * classifies the display name this scan's headers happened to carry, which is
- * exactly the per-run value the kind bar was moved off.
- *
- * A caller that already HOLDS the stored row (the committed purge backfill)
- * does not belong here: an address-keyed second read can return a SIBLING
- * row's name for a shared alias. That caller uses {@link
- * previewStoredContactKinds}, which classifies each row's own name.
- *
- * Besides the shared preview, this door counts `blockedEstimate`: an ESTIMATE
- * of the would-be moves (classified kind different from stored kind)
- * the committer would refuse via {@link reKindWouldCollide}. Counted here,
- * from the stored name just classified — never a second call-site read —
- * but still an estimate, never an equality, and it can differ in EITHER
- * direction: the committer INSERTS new rows as it loops, and a new row can
- * occupy the coordinate a later stored row wants, which this pre-run
- * snapshot cannot see (item 95, under-count); and wherever two contact rows
- * share one email alias the two sides can resolve it to different rows —
- * the preview is last-write-wins over an unordered SELECT while the writer
- * takes `.limit(1)` with no `ORDER BY` (item 98, either direction). A dry
- * report prints `re-kind blocked ~B (estimate)`; a commit over the same
- * data prints `re-kind blocked B` and can refuse more, fewer, or the same. The purge script needs no
- * marker: its dry number is exact by the unique index.
+ * Address-keyed preview of contact kinds, classified like the live writer: from the
+ * stored canonical name and the merged metadata, which a dry run cannot read back.
+ * `kinds` uses the caller's own keys. An empty key goes to `unclassifiable`.
+ * A caller that already holds rows uses {@link previewStoredContactKinds}.
+ * `blockedEstimate` is only an estimate: the committer inserts rows as it runs,
+ * and two rows that share an alias can resolve differently.
  */
 export async function previewContactKinds(
   userId: string,
@@ -568,7 +411,7 @@ export async function previewContactKinds(
     const storedName = prior?.canonicalName;
     const canonicalName = storedName ?? candidate?.displayName ?? normalized;
 
-    // The bag the writer WOULD store: the same merge over the same prior.
+    // The same merge the writer does.
     const metadata = candidate
       ? mergeContactMetadata(prior?.metadata ?? {}, candidate.buildMetadata)
       : (prior?.metadata ?? {});
@@ -590,14 +433,7 @@ export async function previewContactKinds(
   return { kinds, unclassifiable, blockedEstimate };
 }
 
-/**
- * The primary address of a STORED contact row: the metadata bag first, then
- * any email alias. Lenient by design — `aliases` is jsonb, so non-string
- * members are skipped, never strictly parsed: a strict parse would throw and
- * kill the whole committed run over one malformed row. The address-keyed
- * preview above already owns the strict stored-read path; this door
- * classifies rows the caller holds.
- */
+/** Metadata address first, then any email alias. Lenient: one bad row must not kill a committed run. */
 function storedContactAddress(metadata: unknown, aliasesRaw: unknown): string | null {
   const fromMetadata = parseEmailAddress(
     parsePersonEntityMetadata(metadata).primaryAddress ?? null,
@@ -619,29 +455,9 @@ function storedContactAddress(metadata: unknown, aliasesRaw: unknown): string | 
 }
 
 /**
- * The row-keyed preview door beside {@link previewContactKinds}: for a caller
- * that already holds the stored rows it is about to re-kind (the committed
- * purge backfill), where a second address-keyed read would be a NEW query over
- * the same rows and could answer with a sibling's stored name wherever two
- * rows share one alias.
- *
- * Each row classifies its OWN stored `canonicalName` and its OWN metadata bag
- * (list-header evidence and outbound count, #1198) — the same inputs the live
- * writer classifies for that row — so a wrapped alias, a metadata-led address,
- * and an alias-sharing pair each read their own values. The evidence rides the
- * row the caller already selected, so no per-row `documents` read is needed.
- * Pure: no stored read,
- * no transaction. Keyed by row id, so the caller never derives a key and a
- * row with no derivable address is listed in `unclassifiable`: the caller
- * leaves it alone rather than defaulting toward a write.
- *
- * Takes the stored ROWS, not a derived address: the parameter names the
- * fields the door reads (`Pick<Entity, "id" | "canonicalName" | "aliases" |
- * "metadata">`), so this campaign's known wrong caller — a
- * `ContactAggregate`, which holds neither `aliases` nor `metadata` — fails
- * `check-types`. Structural residue remains (named, not closed): any object
- * with those four fields compiles, so the `Stored` in the name asserts a
- * provenance the type carries nothing of.
+ * Row-keyed preview for a caller that already holds the rows, such as the purge backfill.
+ * Each row classifies its own name and metadata, so rows that share an alias do not mix.
+ * Pure, keyed by row id. A row with no address goes to `unclassifiable`.
  */
 export function previewStoredContactKinds(
   rows: ReadonlyArray<Pick<Entity, "id" | "canonicalName" | "aliases" | "metadata">>,
@@ -649,8 +465,6 @@ export function previewStoredContactKinds(
   const kinds = new Map<string, ContactKind>();
   const unclassifiable: string[] = [];
 
-  // Row ids are unique by primary key out of a single select, so no dedup
-  // guard: one set per row.
   for (const row of rows) {
     const address = storedContactAddress(row.metadata, row.aliases);
 

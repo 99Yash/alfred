@@ -3,24 +3,13 @@ import type { RetryPolicy } from "../shared/retry";
 import { googleJson } from "./http";
 
 /**
- * Thin Google Docs v1 REST client. Same shape as `gmail.ts` /
- * `calendar.ts` — direct JSON calls, no `googleapis` dependency.
- *
- * The granted scope is now full `documents` (see `GOOGLE_SCOPE.docs.full` in `@alfred/contracts`),
- * but this client's surface is still read-only: "fetch a document and hand
- * back its text" (write tools ride a separate registration, ADR-0043). The
- * Docs API returns a deeply nested
- * structural tree; `getDocument` walks it into plain text + a heading
- * outline, which is what an agent actually wants. The raw structure stays
- * out of the return so a long doc doesn't blow up the model's context.
- *
- * Callers pass an already-fresh access token — get it from
- * `getFreshAccessToken(credentialId)` first.
+ * Docs v1 client, read-only. `getDocument` flattens the nested tree to text and a
+ * heading outline, so a long doc does not flood the model's context.
+ * Callers pass a token from `getFreshAccessToken(credentialId)`.
  */
 
 const API_BASE = "https://docs.googleapis.com/v1/documents";
 
-/** A text run carries the actual characters; everything else is layout. */
 const textRunSchema = z.object({
   content: z.string().optional(),
 });
@@ -34,8 +23,7 @@ const paragraphSchema = z.object({
   paragraphStyle: z.object({ namedStyleType: z.string().optional() }).optional(),
 });
 
-// Tables nest StructuralElements one level deeper; declared lazily so the
-// recursive shape type-checks without a forward reference dance.
+// Lazy, because table cells nest StructuralElements.
 const structuralElementSchema: z.ZodType<StructuralElement> = z.lazy(() =>
   z.object({
     paragraph: paragraphSchema.optional(),
@@ -67,7 +55,6 @@ const documentSchema = z.object({
   body: z.object({ content: z.array(structuralElementSchema).optional() }).optional(),
 });
 
-/** Named styles the Docs API uses for headings; everything else is body text. */
 const HEADING_STYLES = new Set([
   "TITLE",
   "SUBTITLE",
@@ -80,7 +67,7 @@ const HEADING_STYLES = new Set([
 ]);
 
 export interface DocumentHeading {
-  /** The Docs named style, e.g. `HEADING_1` or `TITLE`. */
+  /** e.g. `HEADING_1` or `TITLE`. */
   style: string;
   text: string;
 }
@@ -94,13 +81,11 @@ export interface GetDocumentResult {
   documentId: string;
   title?: string | undefined;
   revisionId?: string | undefined;
-  /** Full document text, paragraphs joined with newlines (tables flattened in reading order). */
+  /** Tables are flattened in reading order. */
   text: string;
-  /** Heading outline in document order — handy for the model to navigate a long doc. */
   headings: DocumentHeading[];
 }
 
-/** Fetch a document and flatten its structure into plain text + a heading outline. */
 export async function getDocument(
   args: GetDocumentArgs,
   retry: RetryPolicy | "none" = "none",
@@ -156,7 +141,6 @@ function collectElement(
   }
 }
 
-/** GET and parse at the seam — a raw response cannot reach a caller. */
 const getJson = <T>(
   schema: z.ZodType<T>,
   url: string,

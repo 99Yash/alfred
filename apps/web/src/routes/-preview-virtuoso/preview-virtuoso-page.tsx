@@ -5,12 +5,8 @@ import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import { SCROLL_CHAT_TO_BOTTOM_EVENT } from "~/lib/chat/use-run-complete";
 
 /**
- * Dev-only harness for issue #496 (virtualized chat feed). Feeds a synthetic
- * long thread and a simulated stream straight into the production
- * `Conversation`, bypassing Replicache, so the windowing + stick-to-bottom
- * behavior can be exercised on localhost without seeding the database.
- *
- * Gated to `import.meta.env.DEV` by the route. Never imported by production.
+ * Dev-only harness for the virtualized chat feed: a synthetic thread and stream
+ * fed to the real `Conversation`, without Replicache. Never imported by production.
  */
 const THREAD_ID = "preview-virtuoso-thread";
 
@@ -64,9 +60,7 @@ export function PreviewVirtuosoPage() {
 
   const messages = useMemo(() => [...base, ...appended], [base, appended]);
 
-  // Simulate a streaming turn: an assistant reply whose text grows over ~5s,
-  // then finishes and folds into the durable messages. Exercises footer-growth
-  // stick-to-bottom (the risky part of the Virtuoso port).
+  // A reply that grows for ~5s then folds into the transcript, to test stick-to-bottom.
   const simulateStream = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     const seq = base.length + appended.length;
@@ -113,8 +107,7 @@ export function PreviewVirtuosoPage() {
       if (done && timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
-        // Fold the finished stream into the durable transcript, then drop the
-        // live bubble — mirrors the Replicache sync taking over.
+        // Fold into the transcript and drop the live bubble, as sync would.
         const createdAt = new Date(EPOCH + seq * 30_000).toISOString();
         setAppended((prev) => [
           ...prev,

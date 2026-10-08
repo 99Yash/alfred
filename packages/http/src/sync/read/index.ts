@@ -19,14 +19,7 @@ export type EntityFetchers = {
   [Slug in IDBKeys]: EntityFetcher<Slug>;
 };
 
-/**
- * Per-entity read model for Replicache pull, one file per domain.
- *
- * `satisfies EntityFetchers` is load-bearing: adding a key to `SYNC_MODEL`
- * forces a fetcher here, and each slot accepts only the fetcher for that slug.
- * Server pull therefore cannot forget an entity or pair (for example) the
- * `fact` reader with `note`. This is the only way a fetcher becomes reachable.
- */
+/** `satisfies EntityFetchers` forces one fetcher per `SYNC_MODEL` key, each matched to its slug. */
 export const ENTITY_FETCHERS = {
   note: fetchNotes,
   fact: fetchFacts,
@@ -46,9 +39,7 @@ export const ENTITY_FETCHERS = {
   triagetag: fetchTriageTags,
 } satisfies EntityFetchers;
 
-// Built from `IDB_KEY_NAMES`, NOT from `Object.entries(ENTITY_FETCHERS)`: this
-// map order is the patch-operation order, and `Object.entries` would take it
-// from the literal above instead.
+// Order is patch order, so build from `IDB_KEY_NAMES`, not `Object.entries`.
 export const SYNC_ENTITIES = IDB_KEY_NAMES.map((slug) => ({
   slug,
   fetchRows: ENTITY_FETCHERS[slug],

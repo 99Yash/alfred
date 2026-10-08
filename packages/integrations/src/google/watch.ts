@@ -8,54 +8,28 @@ import { toMessage, withDefaults } from "@alfred/contracts";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 
 /**
- * Push-channel lifecycle for Gmail. The delta sync and the rolling
- * `ingestion_state` cursor now live in the ingestion consumer
- * (`@alfred/assistant/connections/ingestion`); this provider module is just the
- * watch channel bookkeeping.
- *
- * State is split across two tables:
- *  - `integration_credentials.metadata.watch`: channel-level bookkeeping
- *    (Pub/Sub topic + expiration + the historyId Gmail returned at watch
- *    time, kept as the cold-start baseline) — owned here.
- *  - `ingestion_state.state.historyId`: rolling cursor — advanced by
- *    every successful poll/webhook delta and seeded on first connect. This
- *    table is owned by the ingestion consumer, NOT this provider package;
- *    `installGmailWatch` returns the baseline historyId and the consumer's
- *    `installGmailWatchAndSeedCursor` wrapper seeds the cursor row.
- *
- * `installGmailWatch` is package-internal: it is NOT on the public
- * `@alfred/integrations/google` barrel, only on the `./internal` friend subpath
- * (`packages/integrations/src/google/internal.ts`, oxlint-gated to two
- * allowlisted files). App code installs a watch through the seeding wrapper
- * `installGmailWatchAndSeedCursor` (`@alfred/assistant/connections/ingestion`),
- * which is the only door that also seeds the `ingestion_state` cursor — a raw
- * call leaves the credential cursorless.
- *
- * Rationale for not adding a dedicated `gmail_watches` table: at most one
- * watch per credential, and watch state is irrelevant outside this
- * provider — the jsonb shape keeps the schema diff to zero.
+ * Gmail push-channel bookkeeping. The watch lives in `integration_credentials.metadata.watch`
+ * (at most one per credential, so no own table). The rolling cursor is in `ingestion_state`,
+ * owned by the ingestion consumer.
  */
 
 export const gmailWatchStateSchema = z.object({
   topic: z.string().min(1),
-  /** ISO timestamp; convert with `new Date(...)`. */
   expiresAt: z.iso.datetime(),
-  /** The `historyId` Gmail returned at watch creation. Cold-start cursor. */
+  /** The `historyId` from the watch call. The cold-start cursor. */
   baselineHistoryId: z.string().min(1),
-  /** First installation of this watch. Renewal must not reset push health. */
+  /** A renewal must not reset this: push health reads it. */
   installedAt: z.iso.datetime(),
-  /** Most recent installation or renewal (audit); absent on older rows. */
+  /** Absent on older rows. */
   renewedAt: z.iso.datetime().optional(),
 });
 
 export type GmailWatchState = z.infer<typeof gmailWatchStateSchema>;
 
-/** Parse the `watch` slice off metadata; normal object parsing ignores sibling keys. */
 const credentialWatchMetadataSchema = z.object({
   watch: gmailWatchStateSchema.optional(),
 });
 
-/** Read the `watch` slice off a credential's metadata jsonb, else null. */
 export function readGmailWatchState(metadata: unknown): GmailWatchState | null {
   const parsed = credentialWatchMetadataSchema.safeParse(metadata);
 
@@ -79,19 +53,9 @@ const DEFAULT_DEPS: GmailWatchDeps = {
 };
 
 /**
- * Install or renew a Gmail watch channel for a credential.
- *
- * Idempotent against Gmail: re-calling `users.watch` for the same user
- * replaces the existing channel, so a renewal is just another call. We
- * always re-run startWatch and overwrite the stored state — Gmail's
- * historyId from the latest call is the correct baseline.
- *
- * PACKAGE-INTERNAL: reachable only via `@alfred/integrations/google/internal`
- * (the oxlint-gated friend door), never the public `./google` barrel. This is
- * the RAW primitive — it does NOT seed the `ingestion_state` cursor. App code
- * must go through the seeding wrapper `installGmailWatchAndSeedCursor`
- * (`@alfred/assistant/connections/ingestion`); a direct raw call leaves the
- * credential cursorless (the item-01 round-0 bug).
+ * Install or renew a watch. `users.watch` replaces the old channel, so renewal is the same call.
+ * Raw primitive: it does not seed the `ingestion_state` cursor. App code uses
+ * `installGmailWatchAndSeedCursor`.
  */
 export async function installGmailWatch(
   args: {
@@ -103,9 +67,7 @@ export async function installGmailWatch(
 ): Promise<GmailWatchState | null> {
   const d = withDefaults(DEFAULT_DEPS, deps);
 
-  // #278: a non-prod instance must not register a watch against the shared real
-  // Gmail account — it would drive ingestion + relabel that fights prod. Returns
-  // null (not a fake state) so callers can report "skipped" honestly.
+  // Non-prod shares the real mailbox; a watch here would fight prod (#278).
   if (!d.mailboxWritesEnabled()) {
     console.warn(
       `[gmail.watch] install skipped for ${args.credentialId}: mailbox writes disabled (non-prod)`,
@@ -132,14 +94,12 @@ export async function installGmailWatch(
     renewedAt: now,
   };
 
-  // Merge into existing metadata jsonb so we don't clobber `token_type`
-  // and other unrelated keys. Drizzle's `||` operator on jsonb merges
-  // shallowly which is exactly what we want here.
+  // Shallow jsonb merge keeps the other metadata keys.
   const [updated] = await d
     .db()
     .update(integrationCredentials)
     .set({
-      // Preserve the installation baseline atomically across concurrent renewals.
+      // Keep the first `installedAt`, atomically against concurrent renewals.
       metadata: sql`${integrationCredentials.metadata} || jsonb_build_object('watch',
         ${JSON.stringify(state)}::jsonb || jsonb_build_object('installedAt',
           coalesce(${integrationCredentials.metadata}->'watch'->>'installedAt', ${now}::text)))`,
@@ -147,10 +107,6 @@ export async function installGmailWatch(
     .where(eq(integrationCredentials.id, args.credentialId))
     .returning({ metadata: integrationCredentials.metadata });
 
-  // The rolling `ingestion_state` cursor is seeded by the ingestion consumer
-  // (`installGmailWatchAndSeedCursor`), not here — this provider package no
-  // longer writes ingestion-domain tables. `state.baselineHistoryId` carries the
-  // historyId the caller needs to seed from.
   const saved = readGmailWatchState(updated?.metadata);
 
   if (!saved) throw new Error("Gmail watch metadata was not saved");
@@ -158,21 +114,14 @@ export async function installGmailWatch(
   return saved;
 }
 
-/**
- * Stop the channel + drop the stored watch state. Keeps the credential
- * row itself intact — disconnect-from-watch is not the same as
- * disconnect-from-google.
- */
+/** Stop the channel and drop the watch state. The credential stays. */
 export async function uninstallGmailWatch(
   credentialId: string,
   deps: Partial<GmailWatchDeps> = {},
 ): Promise<void> {
   const d = withDefaults(DEFAULT_DEPS, deps);
 
-  // #278: never stop a watch from non-prod — the only live watch belongs to
-  // prod, and stopping it here would kill prod ingestion. Still clear local
-  // metadata so a manual "uninstall watch" does not report a stale watch as
-  // active in this environment.
+  // Non-prod must not stop prod's watch (#278), but still clears local state.
   if (d.mailboxWritesEnabled()) {
     const accessToken = await d.getFreshAccessToken(credentialId);
     await stopGmailWatchWithAccessToken(
@@ -194,11 +143,7 @@ export async function uninstallGmailWatch(
     .where(eq(integrationCredentials.id, credentialId));
 }
 
-/**
- * Stop Gmail's remote watch when the credential row is about to disappear.
- * Unlike `uninstallGmailWatch`, this does not update local metadata, so callers
- * can run it after the credential delete commits without reloading the row.
- */
+/** For a credential about to be deleted: stops the remote watch, leaves metadata alone. */
 export async function stopGmailWatchWithAccessToken(
   args: {
     accessToken: string;
@@ -208,7 +153,6 @@ export async function stopGmailWatchWithAccessToken(
 ): Promise<void> {
   const d = withDefaults(DEFAULT_DEPS, deps);
 
-  // #278: don't stop the shared watch from non-prod (would kill prod ingestion).
   if (!d.mailboxWritesEnabled()) {
     const suffix = args.credentialId ? ` for ${args.credentialId}` : "";
     console.warn(`[gmail.watch] stopWatch skipped${suffix}: mailbox writes disabled (non-prod)`);
@@ -219,8 +163,7 @@ export async function stopGmailWatchWithAccessToken(
   try {
     await d.stopWatch({ accessToken: args.accessToken });
   } catch (err) {
-    // `users.stop` returns 204 even when no active channel exists, so
-    // a non-2xx here is unusual — surface but don't block state cleanup.
+    // `users.stop` returns 204 even with no channel. Do not block cleanup.
     const suffix = args.credentialId ? ` for ${args.credentialId}` : "";
     console.warn(`[gmail.watch] stopWatch failed${suffix}:`, toMessage(err));
   }
@@ -237,10 +180,7 @@ export async function getGmailWatchState(credentialId: string): Promise<GmailWat
   return readGmailWatchState(md);
 }
 
-/**
- * Look up the email address (account label) for a credential, used by
- * the webhook to map a Pub/Sub `emailAddress` payload back to a row.
- */
+/** Map a Pub/Sub `emailAddress` back to a credential. */
 export async function findCredentialByEmail(
   emailAddress: string,
 ): Promise<{ id: string; userId: string } | null> {
@@ -261,12 +201,7 @@ export async function findCredentialByEmail(
   return rows[0] ?? null;
 }
 
-/**
- * Find Gmail credentials whose watch channel is expiring soon (or
- * already expired). The renewal cron drains this list. Single-user
- * scale = JS-side filtering after a full scan; if this ever grows we'd
- * add a generated column + index.
- */
+/** Active watches expiring before `before`. Filters in JS after a full scan: single-user scale. */
 export async function findExpiringGmailWatches(
   before: Date,
 ): Promise<{ id: string; userId: string; expiresAt: Date; topic: string }[]> {

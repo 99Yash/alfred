@@ -1,18 +1,7 @@
 /**
- * Deterministic sender-context extraction (ADR-0042 micro-decision #1).
- *
- * Pure function. Zero LLM cost, ~5ms. Runs as the head step of the triage
- * workflow so the cheap-tier classifier downstream receives a typed
- * `SenderContext` instead of having to re-parse `From:` headers in prose.
- *
- * Coverage policy: grow the bot allowlist and per-service body-actor
- * parsers from observed `triage.classification` decision traces,
- * never speculation. v1 covers GitHub, Google Calendar, and Linear — the
- * three sources that hit ~80% of bot/human disambiguation in real inboxes.
- *
- * Anything we can't classify deterministically falls through to
- * `effectiveAuthor: 'unknown'`, which the deepen gate (`confidence < 0.7`
- * clause) treats as the safety net.
+ * Deterministic sender parse (ADR-0042 #1), so the classifier gets a typed
+ * `SenderContext`. Grow the bot list and body parsers only from observed traces.
+ * Anything unclear is `effectiveAuthor: 'unknown'`.
  */
 
 import {
@@ -29,20 +18,16 @@ import { isExactGroupLocal } from "../knowledge";
 // ---------------------------------------------------------------------------
 
 export interface ExtractSenderContextArgs {
-  /** Raw `From:` header value, e.g. `'CodeRabbit <noreply@github.com>'`. */
+  /** Raw header, e.g. `'CodeRabbit <noreply@github.com>'`. */
   fromHeader: string | null;
   subject: string | null;
-  /** Plain-text body. The GitHub/Calendar/Linear parsers all run against this. */
   body: string;
 }
 
 export interface SenderContextResult {
   context: SenderContext;
-  /** Which body-actor parser produced `context.bodyActor`, if any. Drives the observability event. */
   parserHit: "github" | "calendar" | "linear" | null;
-  /** Normalized lowercase `local@domain`. Null if `From:` was unparseable. */
   senderAddress: string | null;
-  /** Normalized lowercase domain. Null if `From:` was unparseable. */
   senderDomain: string | null;
 }
 
@@ -59,17 +44,8 @@ export function extractSenderContext(args: ExtractSenderContextArgs): SenderCont
   let bodyActor = dispatch.actor;
   let parserHit = dispatch.parserHit;
 
-  // GitHub marks every bot account with a `[bot]` display-name suffix (its own
-  // universal convention — `greptile-apps[bot]`, `dependabot[bot]`, …). The
-  // body-actor parser only reads `**bold**` actor lines in the body, so a PR
-  // review notification whose actor lives only in the `From:` display name
-  // (`"greptile-apps[bot]" <notifications@github.com>`) falls through to
-  // `effectiveAuthor=service`, leaving the classifier no reliable bot signal.
-  // Recognize the `[bot]` suffix on a github.com envelope structurally (NOT a
-  // hand-maintained slug list — it generalizes to any current/future bot) so
-  // advisory review mail is reliably tagged `effectiveAuthor=bot`. The body
-  // parser still wins when it fired; this only fills the gap. ADR-0050/0051
-  // amendment 2026-06-09.
+  // A GitHub `[bot]` display name with no body actor line is still a bot.
+  // Structural, not a slug list, so new bots are covered.
   if (!bodyActor && parsed && isGithubDomain(parsed.domain) && parsed.displayName) {
     const m = parsed.displayName.match(GITHUB_BOT_SUFFIX_RE);
     const handle = m?.[1]?.trim().toLowerCase();
@@ -104,11 +80,8 @@ export function extractSenderContext(args: ExtractSenderContextArgs): SenderCont
 
 interface ParsedFrom {
   displayName: string | null;
-  /** Lowercased `local@domain`. */
   address: string;
-  /** Lowercased portion before `@`. */
   localPart: string;
-  /** Lowercased portion after `@`. */
   domain: string;
 }
 
@@ -151,19 +124,10 @@ function parseFromHeader(raw: string | null): ParsedFrom | null {
 // Recipient (`To:`/`Cc:`) address extraction
 // ---------------------------------------------------------------------------
 
-// Every `local@domain` token in a header, ignoring `<>`, quotes, commas, and
-// comment parens as boundaries. A global scan rather than a comma split so a
-// quoted display name (`"Doe, Jane" <j@x>`) does not corrupt a token boundary —
-// the exact reason a naive `header.split(",")` rots.
+// A global scan, not a comma split: `"Doe, Jane" <j@x>` breaks a split.
 const RECIPIENT_ADDRESS_RE = /[^\s<>,";()]+@[^\s<>,";()]+/g;
 
-/**
- * Every email address in a `To:`/`Cc:` header, each folded to the canonical
- * comparison form (see {@link canonicalizeEmailForMatch}). PURE — no DB, no LLM.
- * Reused by the triage monitoring-alarm audience gate (#354); lives here because
- * `sender-context` is triage's DB-free address-parsing home (importing the
- * `memory/team-graph` splitter would pull DB in and cycle `triage → memory`).
- */
+/** Every address in a To/Cc header, canonicalized. Lives here to stay DB-free. */
 export function recipientAddresses(header: string | null | undefined): string[] {
   const out: string[] = [];
 
@@ -176,12 +140,7 @@ export function recipientAddresses(header: string | null | undefined): string[] 
   return out;
 }
 
-/**
- * Lowercase/trim an email and drop a Gmail `+tag` suffix from the local part
- * (`u+alerts@x.com` → `u@x.com`) so a plus-addressed recipient still matches the
- * base account. Returns `""` when the input is not a `local@domain` address.
- * PURE.
- */
+/** Lowercase, trim, drop a `+tag` (`u+alerts@x.com` → `u@x.com`). `""` when not an address. */
 export function canonicalizeEmailForMatch(raw: string | null | undefined): string {
   const value = String(raw ?? "")
     .trim()
@@ -203,12 +162,7 @@ export function canonicalizeEmailForMatch(raw: string | null | undefined): strin
 // fromKind classification
 // ---------------------------------------------------------------------------
 
-/**
- * Local parts that unambiguously identify the address as a service envelope.
- * The set is intentionally conservative — soft markers like `info`, `hello`,
- * `billing`, `security` fall through to the WEAK set below because
- * those can be staffed mailboxes at small companies.
- */
+/** Always a service envelope. `info`/`support` go in the weak set: small companies staff them. */
 const STRONG_SERVICE_LOCAL = new Set<string>([
   "noreply",
   "no-reply",
@@ -226,14 +180,10 @@ const STRONG_SERVICE_LOCAL = new Set<string>([
   "bounce",
 ]);
 
-/** Locals that *might* be services but aren't on the unknown domain. */
+/** Maybe a service, maybe staffed. */
 const WEAK_SERVICE_LOCAL = new Set<string>([
   "info",
-  // `team` is NOT here: its home is GROUP_LOCALS (see isExactGroupLocal). An
-  // exact group envelope beats a display name in both readers — the
-  // `classifyFromKind` exact test below and the sender-kind floor's address
-  // bar — so `Matt Pocock <team@…>` reads `unknown` in the parser and demotes
-  // in the floor. One home, not two (#1187).
+  // Not `team`: it lives in GROUP_LOCALS (#1187).
   "hello",
   "support",
   "billing",
@@ -250,11 +200,7 @@ const WEAK_SERVICE_LOCAL = new Set<string>([
   "admin",
 ]);
 
-/**
- * Domains that always ride as a service envelope regardless of local part.
- * Add per observed evidence — a "person@github.com" wouldn't make it through
- * the human reality check anyway. Subdomain matches are handled in code.
- */
+/** Always a service envelope. Add only from observed mail. */
 const KNOWN_SERVICE_DOMAINS = new Set<string>([
   "github.com",
   "noreply.github.com",
@@ -272,27 +218,14 @@ const KNOWN_SERVICE_DOMAINS = new Set<string>([
   "atlassian.net",
   "notion.so",
   "amazonses.com",
-  // Social-network relays send every notification (invites, reminders, digests)
-  // from platform envelopes such as `messages-noreply@`, `invitations@`, and
-  // `notifications-noreply@` — the actual human (if any) lives in the display
-  // name ("Vaibhav (via LinkedIn)"), never in the envelope. Observed in prod:
-  // a LinkedIn invite reminder relayed this way parsed as `person` and was
-  // tagged `awaiting_reply` off the reminder copy ("I'm still waiting for your
-  // response"). The envelope is the platform's, so it is `service`.
+  // The human is in the display name ("Vaibhav (via LinkedIn)"); the envelope is the platform's.
   "linkedin.com",
 ]);
 
 const SERVICE_LOCAL_PREFIX_RE =
   /^(no[-_.]?reply|donotreply|do[-_]not[-_]reply|notification|notifications|alerts?|security[-_]|billing[-_]|account[-_]|calendar[-_])/;
 
-/**
- * An unambiguous automated envelope local part — the exact `noreply` set, the
- * `notification…`/`security-`/`billing-`/`account-`/`calendar-` prefixes, or a
- * separated service-word suffix (`…-noreply`, `…_alerts`, `….update`). Shared
- * by the classifier verdict below and the
- * team-graph human-likeness rescue: an automated envelope is never rescued as
- * a person, even behind a person-like display name.
- */
+/** Never rescued as a person, even behind a person-like display name. */
 function isAutomatedEnvelopeLocal(localPart: string): boolean {
   return (
     STRONG_SERVICE_LOCAL.has(localPart) ||
@@ -314,38 +247,13 @@ function classifyFromKind(parsed: ParsedFrom | null): SenderKind {
 
   if (KNOWN_SERVICE_DOMAINS.has(domain) || domain.endsWith(".linkedin.com")) return "service";
 
-  // Weak service markers (`info`, `support`) on an *unknown* domain are
-  // genuinely ambiguous — could be a small-company staffed mailbox or a
-  // service envelope. Default to 'unknown' so the deepen gate's low-confidence
-  // path catches it instead of an over-eager service classification. Bare
-  // single-token locals stay `unknown` for the same reason even when they read
-  // name-like (`arjun@`): the parser cannot tell a name from a role word
-  // (`careers@`, `payroll@`) without a name dictionary, so `unknown` is the
-  // honest verdict. The sibling `classifyEntityKind` types that same address
-  // `person` via its `email:mailbox:individual` fallthrough — different costs,
-  // different defaults: the entity graph's answer is a re-kindable guess at
-  // weak confidence (and the legacy `entities.kind` bar keeps `person` on every
-  // soft claim), while a triage `person` grants reply-lane standing. What
-  // `unknown` does downstream is written down once, in the sender-kind floor's
-  // `unknown` contract and `docs/reference/triage.md` (#1187).
+  // Ambiguous, so `unknown`. See `docs/reference/triage.md` (#1187).
   if (WEAK_SERVICE_LOCAL.has(localPart)) return "unknown";
 
-  // Group envelopes first: an EXACT whole-local GROUP_LOCALS member
-  // (`team@`, `all@`, …) is never a person, even behind a person-like display
-  // name — `Matt Pocock <team@acme.io>` is still the team envelope. An exact
-  // group envelope beats a display name in both readers: here in the parser
-  // and in the sender-kind floor, which demotes by address alone. Exact on
-  // purpose — the infix form below keeps the display-first order, because it
-  // demoted real human shapes (`dev.patel@`, `dev.7@`, `hr.priya@`, `sam.all@`,
-  // `jane.team@`, `ops-lead@`). The set is single-homed as
-  // {@link isExactGroupLocal}; the sender-kind floor demotes their reply lanes.
+  // An exact group local beats a display name. Exact only: `dev.patel@` is a person.
   if (isExactGroupLocal(localPart)) return "unknown";
 
-  // A person-like display name rescues the address — but only past the exact
-  // group test above. The same precedence as `classifyEntityKind`, which reads
-  // `display:person_like` first: `Dev Patel <dev.patel@acme.io>` is a person,
-  // not an envelope. Triage must not be stricter than the set's owner on these
-  // infix shapes.
+  // Same order as `classifyEntityKind`, so triage is not stricter than the set's owner.
   if (isLikelyPersonDisplayName(displayName)) return "person";
 
   if (FIRST_LAST_LOCAL_RE.test(localPart)) return "person";
@@ -362,19 +270,8 @@ function isLikelyPersonDisplayName(displayName: string | null): boolean {
 }
 
 /**
- * The "human reality check" the `KNOWN_SERVICE_DOMAINS` note above references.
- *
- * `classifyFromKind` deliberately tags whole service domains (`google.com`,
- * `github.com`, …) as `service` for inbox triage, which is right there but
- * wrong for the team-graph extractor: a real colleague at `jane.doe@google.com`
- * must still become a `person` node. This predicate answers "does this address
- * look like a real human despite riding a service domain?" — a strong person
- * signal (a person-like display name OR a `first.last` local part) qualifies,
- * UNLESS the local part is an unambiguous automated envelope (`noreply@`,
- * `notifications@`, …). It reuses the same constants the classifier ranks
- * above the domain check, so the two stay in lockstep. Triage classification is
- * intentionally left untouched (its eval lane depends on the current ordering);
- * only the graph extractor opts into the rescue.
+ * A real person on a service domain (`jane.doe@google.com`). For the team graph
+ * only; triage keeps the service verdict.
  */
 export function isHumanLikeSender(localPart: string, displayName: string | null): boolean {
   if (isAutomatedEnvelopeLocal(localPart)) return false;
@@ -433,10 +330,6 @@ function isCalendarSender(domain: string, localPart: string): boolean {
   return localPart === "calendar-notification" || localPart.startsWith("calendar-");
 }
 
-/**
- * Strip wrapping bold markers, trim whitespace. Used so a body line like
- * `**dependabot[bot]**` collapses to `dependabot[bot]` before suffix tests.
- */
 function unwrapBold(s: string): string {
   return s
     .trim()
@@ -542,8 +435,7 @@ function resolveBotSlug(args: {
 
   if (!domain) return undefined;
 
-  // GitHub: bot identity comes from the body-actor handle, not the envelope —
-  // all GitHub notifications share `noreply@github.com`.
+  // All GitHub mail shares one envelope, so the handle names the bot.
   if (isGithubDomain(domain)) {
     const handle = bodyActor?.handle?.toLowerCase();
 
@@ -602,9 +494,7 @@ function deriveEffectiveAuthor(args: {
   bodyActor: BodyActor | undefined;
   botSlug: BotSlug | undefined;
 }): EffectiveAuthor {
-  // A recognized bot slug is the most specific signal: GitHub apps like
-  // CodeRabbit don't always emit the `[bot]` suffix in the body, but the
-  // handle match still pins them as bots.
+  // CodeRabbit can omit `[bot]`; the slug still marks it.
   if (args.botSlug) return "bot";
   const ba = args.bodyActor;
 

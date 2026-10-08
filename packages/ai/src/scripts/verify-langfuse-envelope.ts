@@ -1,18 +1,7 @@
 /**
- * Manual verification for the Langfuse envelope (#216/#226 + review fixes).
- * Drives the real `startLangfuseSpan` code path with three call shapes and
- * reads them back through the Observations API v2 to assert the envelope:
+ * Live check of trace attributes for three calls: chat (has a session), a background job
+ * (no session), and an embedding (`call_kind:embedding`, no `cost_kind`).
  *
- *   1. chat   — caller supplies a real `sessionId` (threadId) → grouped session
- *   2. job    — background run, no sessionId → MUST be sessionless (no runId
- *               fallback), proving the P2 Sessions-view-pollution fix
- *   3. embed  — embedding kind → `call_kind:embedding` tag, no `cost_kind`
- *
- * Reads go through `GET /api/public/v2/observations` (filtered by trace id)
- * because the self-hosted `events_only` write mode serves reads from the v2
- * observations API and 404s the legacy `GET /api/public/traces/:id`.
- *
- * Run from packages/ai:
  *   ./node_modules/.bin/tsx --env-file=../../apps/server/.env \
  *     src/scripts/verify-langfuse-envelope.ts
  */
@@ -90,7 +79,6 @@ function openAndClose() {
   }
 }
 
-/** The slice of the first observation that the envelope assertions read back. */
 interface VerifiedTrace {
   sessionId?: string | null;
   tags?: string[] | null;
@@ -131,7 +119,7 @@ async function main() {
   openAndClose();
   await flushLangfuse();
 
-  // Ingestion is async (worker). Poll until all three traces materialize.
+  // Ingestion is async, so poll.
   const ids = [chatRun, jobRun, embedRun];
   let traces: Record<string, VerifiedTrace> = {};
 

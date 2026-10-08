@@ -27,12 +27,7 @@ const PERSON_CONFIDENCE = 0.82;
 
 const WEAK_CONFIDENCE = 0.58;
 
-/**
- * The evidence codes the list-header branch emits. A closed vocabulary, not
- * free text, because the legacy bar persists them per contact
- * (`entities.metadata.listEvidence`) and reads them back: a stored code that
- * the branch no longer emits must fail the parse, not demote a row.
- */
+/** Closed set: codes persist in `entities.metadata.listEvidence`, so a retired code must fail the parse. */
 export const LIST_EVIDENCE_CODES = [
   "gmail:list_id",
   "gmail:list_unsubscribe",
@@ -44,7 +39,7 @@ export const listEvidenceCodeSchema = z.enum(LIST_EVIDENCE_CODES);
 
 export type ListEvidenceCode = z.infer<typeof listEvidenceCodeSchema>;
 
-/** Exact `Precedence:` values, lowercased and trimmed. No infix match. */
+/** Exact `Precedence:` values, lowercased and trimmed. */
 const BULK_PRECEDENCE_CODES: ReadonlyMap<string, ListEvidenceCode> = new Map([
   ["bulk", "gmail:precedence:bulk"],
   ["list", "gmail:precedence:list"],
@@ -119,30 +114,11 @@ const SERVICE_DOMAIN_SUFFIXES = [
 ] as const;
 
 /**
- * Leftmost host labels that carry the SAME claim as a strong service local
- * part moved one field left: `noreply.github.com` is `noreply@`, and
- * `newsletter.shoppersstop.com` is a bulk-mail host with no reader behind it.
- *
- * LISTED, not derived from {@link STRONG_SERVICE_LOCALS}. The derivation was
- * the first shape and it was wrong: it admitted `alert`, `alerts`, `bounce`,
- * `bounces`, `postmaster`, `notification`, `notifications` and `mailer-daemon`,
- * which are cheap words to carry in a LOCAL part and plausible company names in
- * a HOST. `jane.doe@bounce.exchange` is a real address shape, and this branch
- * would have demoted it. Against the whole prod `entities` table only three
- * rows need this branch at all — two on `noreply.github.com`, one on
- * `newsletter.shoppersstop.com` — so the eight dropped labels earn zero
- * re-kinds and cost a reachable human. The same argument the paragraph below
- * makes against `SERVICE_DOMAIN_LABELS` applies to them, so the file may not
- * refuse the trade there and make it here.
- *
- * This deliberately does NOT reuse `SERVICE_DOMAIN_LABELS` from
- * `@alfred/contracts`, although that set also matches a leftmost label. Its
- * members include `mail`, `email`, `smtp`, `mta` and `send`, and
- * `jane@mail.company.com` is a real address shape. That set answers a
- * different question — its own comment says "infrastructure, not an org the
- * user works at", which is an affiliation-grounding judgement, not a
- * can-a-human-be-reached-here judgement. Borrowing it would demote a reachable
- * human to close a noisy row.
+ * Leftmost host labels that mean the same as a strong service local part:
+ * `noreply.github.com` is `noreply@`. Listed, not derived from
+ * {@link STRONG_SERVICE_LOCALS}: words like `bounce` or `alerts` are plausible
+ * company hosts (`jane.doe@bounce.exchange`). Not `SERVICE_DOMAIN_LABELS` either:
+ * it holds `mail`, and `jane@mail.company.com` is a person.
  */
 const STRONG_SERVICE_DOMAIN_LABELS: ReadonlySet<string> = new Set([
   "noreply",
@@ -183,12 +159,7 @@ export interface ClassifyEntityKindInput {
   readonly displayNames?: readonly string[];
   readonly observations?: readonly Observation[];
   readonly payloadSignals?: readonly GmailPayloadSignals[];
-  /**
-   * List-header evidence already reduced to codes — the persisted form the
-   * legacy `entities.kind` bar reads back from a stored row. It joins the
-   * codes derived from `payloadSignals`/`observations` before the list branch,
-   * so both forms reach the SAME branch.
-   */
+  /** Stored list-header codes. They reach the same branch as `payloadSignals`. */
   readonly listEvidence?: readonly ListEvidenceCode[];
 }
 
@@ -219,11 +190,7 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
   }
 
   if (identity.kind === "integration_object_key") {
-    // TWO node kinds anchor on this identity kind — an ADR-0062 provider object
-    // (`project`) and an ADR-0092 `referent` — so the kind alone decides
-    // nothing, and reading it as `project` labelled every referent a project.
-    // The registered kind SEGMENT of the value decides, from the one table both
-    // this classifier and every minter share.
+    // Two node kinds use this identity kind (`project` and `referent`), so the registered segment decides.
     const segment = integrationObjectKeySegment(identity.value);
 
     if (segment) {
@@ -232,9 +199,7 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
       ]);
     }
 
-    // An unregistered segment is a minter that skipped the table. Say `unknown`
-    // and keep `project` as the guess: `kind` is versioned, so a replay fixes it
-    // once the segment is registered, and a wrong hard claim never lands.
+    // An unregistered segment means a minter skipped the table. `kind` is versioned, so a replay fixes it.
     return classification(
       "unknown",
       WEAK_CONFIDENCE,
@@ -257,9 +222,7 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
     return classification("service", STRONG_CONFIDENCE, [SERVICE_EVIDENCE_CODES.localStrong]);
   }
 
-  // Before the `display:person_like` fast path, or it decides nothing: the rows
-  // this branch exists for (`ghsa-…@noreply.github.com`, `Ci activity`
-  // <ci_activity@noreply.github.com>) all carry a person-like display name.
+  // Before the `display:person_like` fast path: these rows carry person-like display names.
   if (isStrongServiceDomain(parsed.domain)) {
     return classification("service", STRONG_CONFIDENCE, [SERVICE_EVIDENCE_CODES.domainStrong]);
   }
@@ -319,11 +282,7 @@ function signalsFromObservations(observations: readonly Observation[]): GmailPay
   return signals;
 }
 
-/**
- * The list/bulk evidence codes a set of header signals carries, sorted and
- * deduplicated. Exported so the team-graph writer reduces a message's headers
- * to the SAME codes this file's list branch reads, and persists those.
- */
+/** Sorted, deduped list codes. The team-graph writer persists these. */
 export function listEvidenceCodes(signals: readonly GmailPayloadSignals[]): ListEvidenceCode[] {
   const evidenceCodes = new Set<ListEvidenceCode>();
 
@@ -381,19 +340,9 @@ function isStrongServiceLocal(localPart: string): boolean {
 }
 
 /**
- * True when the LEFTMOST host label is a strong service word AND that label is
- * a SUBDOMAIN of something else (`noreply.github.com`), never the registrable
- * domain itself.
- *
- * The apex test is what keeps the claim honest. `noreply.github.com` says "a
- * host GitHub stands up for mail nobody reads"; `noreply.com` says only that
- * somebody registered the word, and the address on it can still be a person's.
- * A third label is the closest test available without a public-suffix list,
- * which this repo does not carry. The residue it cannot see is an apex under a
- * two-part suffix — `newsletter.co.uk` reads as three labels and still matches.
- * That costs a demotion, is reversible in place (`CONTACT_KINDS` spans
- * `person` and `other`, so the writer re-kinds back), and no such row exists in
- * the corpus this bar was measured against.
+ * True when the leftmost label is a strong service word and is a subdomain
+ * (`noreply.github.com`), not the apex (`noreply.com` can be a person's).
+ * With no public-suffix list, `newsletter.co.uk` still matches; that demotion is reversible.
  */
 function isStrongServiceDomain(domain: string): boolean {
   const labels = domain.split(".");
@@ -409,29 +358,15 @@ function isServiceLocal(localPart: string): boolean {
 }
 
 /**
- * Group-envelope local-part test owned by the entity classifier. True for a
- * whole-local `GROUP_LOCALS` member OR an infix token match (`engineering-team@`,
- * `dev.patel@`, `hr.priya@`, `sam.all@`, `jane.team@`). The classifier answers
- * `unknown` at `WEAK_CONFIDENCE` with evidence `email:local:group_weak` and
- * best-guess `"group"` — it never answers `group` here — and it reads a
- * person-like display name BEFORE this test. The triage parser mirrors that
- * display-first order for infix shapes only; an EXACT whole-local member beats
- * a display name there (see `classifyFromKind`). The triage reply-lane bar
- * does NOT use this infix form; it uses {@link isExactGroupLocal}. Pure: a
- * lowercased local part in, a boolean out.
+ * Group-word local part: an exact `GROUP_LOCALS` member or an infix token
+ * (`engineering-team@`, `hr.priya@`). The classifier answers only a weak
+ * `unknown` for it. The triage reply-lane bar uses {@link isExactGroupLocal}.
  */
 export function isGroupLocal(localPart: string): boolean {
   return GROUP_LOCALS.has(localPart) || GROUP_LOCAL_RE.test(localPart);
 }
 
-/**
- * Exact whole-local `GROUP_LOCALS` membership for the triage reply-lane bar
- * (#1187). Unlike {@link isGroupLocal} this has no infix pattern, so
- * `dev.patel@`, `hr.priya@`, `sam.all@`, `jane.team@`, and `ops-lead@` do NOT
- * match — only a bare `team@`/`all@`/… envelope does. Single-homed here so the
- * triage parser and the sender-kind floor read one definition. Pure: an
- * already-lowercased local part in, a boolean out.
- */
+/** Exact `GROUP_LOCALS` match only, no infix (#1187). Shared by the triage parser and the sender-kind floor. */
 export function isExactGroupLocal(localPart: string): boolean {
   return GROUP_LOCALS.has(localPart);
 }
@@ -477,28 +412,11 @@ function classification(
   };
 }
 
-/**
- * ── the legacy `entities.kind` bar (#1108) ──────────────────────────────────
- *
- * The ADR-0067 substrate above answers `EntityNodeKind` (8 members) for
- * `entity_profiles.kind`. The legacy memory-module graph (`entities.kind`,
- * ADR-0012) has its own 6-member `EntityKind` vocabulary and, until this bar,
- * no classification at all: the team-graph writer wrote the literal `"person"`
- * for every mail contact, so a GitHub advisory id, a CI workflow name and a
- * retailer all became people. The two graphs keep their own vocabularies, but
- * person-ness now has ONE definition — this file — for both.
- */
+// ── the legacy `entities.kind` bar (#1108) ──────────────────────────────────
+// `entity_profiles.kind` and the legacy `entities.kind` keep their own
+// vocabularies, but this file is the one definition of person-ness for both.
 
-/**
- * Total map from the ADR-0067 node kind onto the legacy `entities.kind`. Five
- * node kinds have no legacy member, so they land on `other` — the ADR's own
- * answer (alternative (d): non-humans are typed nodes, never suppressed).
- *
- * `satisfies` rather than an annotation: an annotation on a const table trips
- * oxlint `no-known-value-widening`, and a `switch` with a `default` would hide
- * a new node kind. This way a new `EntityNodeKind` member fails to compile
- * until it is named here.
- */
+/** A new `EntityNodeKind` fails to compile until it is mapped here. Non-humans land on `other`. */
 const NODE_KIND_TO_ENTITY_KIND = {
   person: "person",
   organization: "organization",
@@ -517,35 +435,10 @@ function entityKindForNodeKind(kind: EntityNodeKind): NodeKindEntityKind {
 }
 
 /**
- * True when `value` is a hostname that is the contact's own domain, or a
- * parent or child of it. The ONE rule the VALUE side of the kind bar holds,
- * and a DENY test: a single-token name ("Sanyam"), a role suffix ("Jane Doe |
- * Marketing"), a pronoun parenthesis ("Jane Doe (she/her)") and a dotted local
- * part used as a display name ("sarah.chen") all pass it.
- *
- * It states the cross-kind duplicate rule exactly. `collectOrgDomains` mints
- * ONE `organization` row per non-free-mail sender domain, so a contact whose
- * display value IS its own mail domain is that organization restated
- * (`Amazon.in` from `order-update@amazon.in`). It asks `classifyBareDomain`
- * first, so "is this string a hostname at all" reuses
- * the ONE DNS grammar in `@alfred/contracts` (`hostname.ts`) rather than a
- * fourth hand-rolled regex.
- *
- * A second value rule rejected a name holding `/`, for
- * `99Yash/GHSA-xwg4-73v4-xw9w`. It is deleted (#1108 round 3). It matched the
- * character anywhere in the string, so it demoted `Jane Doe (she/her)` and
- * `Anna Müller / ACME GmbH`, and it bought nothing: every row it was written
- * for arrives on `noreply@` or `notifications@`, which {@link
- * isHardNonPersonClaim} already demotes from the address alone.
- *
- * The VALUE side deliberately does NOT reuse `NON_PERSON_DISPLAY_RE` either.
- * That regex is an AND-partner of the positive `PERSON_DISPLAY_RE`; standalone
- * it rejects the surnames Jobs, Sales and Service and every "Name | Function"
- * display convention, and a wrong demotion is not cosmetic —
- * `gmail-recipient-policy` filters `kind = 'person'` and fails a live send
- * closed. The ADDRESS side still reaches that regex through
- * `isLikelyPersonDisplayName`, but only to WITHHOLD the person fast path,
- * never to demote on its own: {@link isHardNonPersonClaim} decides that.
+ * True when `value` is the contact's own domain, or a parent or child of it
+ * (`Amazon.in` from `order-update@amazon.in`). That duplicates the organization row.
+ * Deny-only: names like `Jane Doe (she/her)` or `sarah.chen` pass. It avoids
+ * `NON_PERSON_DISPLAY_RE`, which rejects real surnames like Jobs and Sales.
  */
 function restatesOwnDomain(value: string, domain: string): boolean {
   const candidate = value.trim().toLowerCase();
@@ -560,73 +453,25 @@ function restatesOwnDomain(value: string, domain: string): boolean {
 }
 
 export interface ClassifyContactKindInput {
-  /** The contact's primary email address. Canonicalized here, so any case is fine. */
+  /** Canonicalized here, so any case is fine. */
   readonly address: string;
   /**
-   * The value that is — or is about to be — stored in `entities.canonical_name`.
-   *
-   * NOT the display name this run's headers carried. `canonical_name` is
-   * written once at insert and never updated, so it is the only display
-   * evidence every reader shares: the live writer, the purge script and a dry
-   * run all classify the same string and cannot disagree. A per-run display
-   * name made the kind flap — one message with a bare `<address>` re-minted
-   * `person` on a row the bar had just demoted (#1108 round 1).
+   * The stored `entities.canonical_name`, not this run's display name. It is
+   * written once, so every reader classifies the same string and the kind cannot flap.
    */
   readonly canonicalName: string;
-  /**
-   * The list-header evidence the row stores — or is about to store — in
-   * `entities.metadata.listEvidence` (#1198). NOT this run's headers, for the
-   * same reason as {@link canonicalName}: the writer unions the codes it sees
-   * onto the stored set and never removes one, so the stored set is the only
-   * header evidence the live writer and the purge script both read.
-   */
+  /** The stored `metadata.listEvidence` (#1198), not this run's headers. Same reason as {@link canonicalName}. */
   readonly listEvidence: readonly ListEvidenceCode[];
-  /**
-   * True when the row's stored correspondence shows the user has sent mail TO
-   * this address (`metadata.correspondence.outbound > 0`). It withholds the
-   * list-header evidence, and only that: see {@link classifyContactKind}.
-   */
+  /** The user has sent mail to this address. It withholds list-header evidence only. */
   readonly userHasWrittenTo: boolean;
 }
 
 /**
- * True when a non-person answer is a HARD claim — the only kind of claim that
- * may take `person` away from a mail contact.
- *
- * On this graph `kind = 'person'` is a CAPABILITY, not a label.
- * `gmail-recipient-policy` lets a `gmail.send_draft` reach only an address that
- * a `person` row already holds, and six more readers score a contact by the
- * same column. So a wrong demotion refuses a live send to somebody the user
- * has already emailed, while a missed demotion leaves one noisy row. The two
- * costs are not symmetric, and the bar sits where the cheaper mistake is.
- *
- * {@link classifyEntityKind} answers for `entity_profiles.kind`, where
- * `service` is a harmless label. Two of its email branches reach a non-person
- * answer on soft evidence, and neither may demote here:
- *   - every `unknown` answer — a group-word local part (`hr.priya@`), a
- *     `SERVICE_DOMAIN_SUFFIXES` domain (`jane@notion.so`), an unparseable
- *     address. It carries `WEAK_CONFIDENCE` and names its own guess in
- *     `bestGuess`, so it is a guess by construction.
- *   - `service` from a SOFT service local (`billing@`, `support@`, `admin@`).
- *     The person fast path cannot overrule it, because that path is gated on
- *     `!isServiceLocal(localPart)`, so even an unambiguous human display name
- *     on a role mailbox still answers `service`.
- *
- * Three shapes no human mailbox carries clear the bar, and they are exactly the
- * rows #1108 measured on prod:
- *   - a STRONG service local (`noreply@`, `notifications@`, `alerts@`,
- *     `bounces@`, and the separated `…-noreply`/`…_alerts` suffix);
- *   - a STRONG service DOMAIN label (`…@noreply.github.com`,
- *     `…@newsletter.shoppersstop.com`);
- *   - a bulk-list header, read from the row's stored `listEvidence` and
- *     withheld once the user has written to the address (#1198).
- *
- * `gmail:auto_submitted` is `service` at the same confidence and is NOT one of
- * them: a human's out-of-office auto-reply must not lose `person`.
- *
- * Hardness is read off the evidence codes the classification already carries,
- * not re-derived from a separate argument. The caller therefore cannot pair a
- * classification with a different address's local part.
+ * True when a non-person answer is strong enough to take `person` away.
+ * Here `kind = 'person'` is a capability: `gmail-recipient-policy` sends only to
+ * person rows. A wrong demotion blocks a real send, so only hard claims demote:
+ * a strong service local, a strong service domain label, or stored list
+ * evidence the user has not written past. Soft `unknown` or `service` answers do not.
  */
 function isHardNonPersonClaim(classified: EntityKindClassification): boolean {
   if (classified.kind === "person") return false;
@@ -640,52 +485,20 @@ function isHardNonPersonClaim(classified: EntityKindClassification): boolean {
   );
 }
 
-/**
- * Which `service` evidence codes are hard enough to take `person` away.
- *
- * TOTAL over {@link ServiceEvidenceCode}, not a set of the members that answer
- * `true`. The vocabulary is shared with the #210 triage sender-kind floor,
- * which keeps its own total table over the same union, so a new member cannot
- * land in one reader and leave the other silently unchanged. That is exactly
- * how `email:domain:service_strong` switched the triage floor off.
- */
+/** Total over {@link ServiceEvidenceCode}, like the triage sender-kind floor's table, so a new code cannot reach one and miss the other. */
 const HARD_SERVICE_EVIDENCE = {
   "email:local:service_strong": true,
   "email:domain:service_strong": true,
-  // A role mailbox may be staffed, and an out-of-office auto-reply is a human.
-  // Neither may refuse a live `gmail.send_draft`.
+  // A role mailbox may be staffed, and an out-of-office reply is a human.
   "email:local:service": false,
   "gmail:auto_submitted": false,
 } satisfies Record<ServiceEvidenceCode, boolean>;
 
 /**
- * The legacy `entities.kind` for ONE mail contact.
- *
- * Two independent bars, because neither one alone clears the prod queue:
- *   - the ADDRESS side delegates to {@link classifyEntityKind} and then to
- *     {@link isHardNonPersonClaim}, so a `noreply@`/`notifications@` envelope
- *     is never a person and a soft guess never demotes one;
- *   - the VALUE side runs {@link restatesOwnDomain} over the stored canonical
- *     name.
- *
- * A canonical name equal to the address carries no display evidence — the
- * writer stores `displayName ?? address` — so the value side is skipped there
- * and the address side decides alone.
- *
- * The address side also reads the row's stored list-header evidence (#1198),
- * which reaches the SAME `group` branch of {@link classifyEntityKind} a raw
- * `List-Id`/`List-Unsubscribe`/`Precedence: bulk` header reaches. That branch
- * runs before the name-shape tests, so `Y Combinator` and a `first.last` bulk
- * local cannot keep `person` through them. The evidence is withheld when the
- * user has written to the address: a human who posts through a mailing list
- * carries the list's headers, and demoting somebody the user has already
- * emailed is exactly the costly mistake {@link isHardNonPersonClaim} exists to
- * avoid. The other hard claims (a strong service local or domain label) are
- * not withheld — no human reads `noreply@`.
- *
- * An address that is not a well-formed email is not a person either — the
- * identity parse is the owning boundary, and a failure answers `other` rather
- * than throwing, so one malformed header never fails a capture run.
+ * The legacy `entities.kind` for one mail contact. Two bars: the address side
+ * ({@link classifyEntityKind}, then {@link isHardNonPersonClaim}) and the value side
+ * ({@link restatesOwnDomain}). When the canonical name is the address, only the address side runs.
+ * A malformed address answers `other` instead of throwing, so one bad header cannot fail a run.
  */
 export function classifyContactKind(input: ClassifyContactKindInput): ContactKind {
   const address = canonicalizeIdentityValue("email", input.address);
@@ -710,22 +523,13 @@ export function classifyContactKind(input: ClassifyContactKindInput): ContactKin
   if (isHardNonPersonClaim(classified)) {
     const mapped = entityKindForNodeKind(classified.kind);
 
-    // Pinned to ContactKind: the writer matches only `person`/`other`, so a
-    // label answer (`organization`/`project`) files as `other` rather than
-    // orphaning a row the next write cannot see. Narrowing CONTACT_KINDS
-    // breaks these arms at compile time (tier 1 one way: the narrowing below
-    // no longer covers the return type). Widening it is silent (tier 5) — a
-    // new member compiles, the writer's `inArray` spans it at runtime, and
-    // nothing here is forced to teach it. Widen the tuple deliberately, then
-    // teach this branch.
+    // The writer matches only `person`/`other`. A wider `CONTACT_KINDS` compiles silently, so teach this branch too.
     if (mapped === "organization" || mapped === "project") return "other";
 
     return mapped;
   }
 
-  // Every other answer keeps `person`, so the value bar still runs over it: a
-  // contact rescued from a soft service claim can still be its own domain
-  // restated (`Amazon.in` from `order-update@amazon.in`).
+  // A contact rescued from a soft service claim can still restate its own domain.
   if (!displayName) return "person";
 
   return restatesOwnDomain(displayName, domain) ? "other" : "person";

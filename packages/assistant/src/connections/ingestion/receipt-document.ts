@@ -9,12 +9,8 @@ import { INBOUND_SOURCES } from "../ingress";
 import { INBOUND_DAILY_EMBED_CAP, INBOUND_DAILY_EMBED_CAP_REASON } from "../receipt-corpus-policy";
 
 /**
- * The corpus document of one receipt is keyed `(userId, source = the event
- * source, sourceId = the receipt id)`. This file is the one place that key is
- * spelled: the writer below inserts under it, {@link receiptDocumentJoin} is
- * the same key as a SQL join for the inventory and the backfill, and
- * {@link readReceiptDocument} reads it back for a run's `<trigger_event>`.
- * A re-key of the document changes these three and nothing else.
+ * Corpus document key for one receipt: `(userId, source, sourceId = receipt id)`. The only place it
+ * is spelled.
  */
 export function receiptDocumentKey(receipt: {
   id: string;
@@ -24,7 +20,7 @@ export function receiptDocumentKey(receipt: {
   return { userId: receipt.userId, source: receipt.provider, sourceId: receipt.id };
 }
 
-/** {@link receiptDocumentKey} as the join from an `eventReceipts` row to its document. */
+/** {@link receiptDocumentKey} as a join from `eventReceipts` to `documents`. */
 export function receiptDocumentJoin(): SQL | undefined {
   return and(
     eq(documents.userId, eventReceipts.userId),
@@ -33,13 +29,13 @@ export function receiptDocumentJoin(): SQL | undefined {
   );
 }
 
-/** The display fields of a receipt's document. `raw` is the stored payload and is never selected. */
+/** Display fields of a receipt's document. Never selects `raw`. */
 export type ReceiptDocument = Pick<
   Document,
   "title" | "content" | "url" | "authoredAt" | "metadata"
 >;
 
-/** The document the receive path wrote for one receipt, or `null` when none exists. */
+/** The receipt's document, or `null`. */
 export async function readReceiptDocument(receipt: {
   id: string;
   userId: string;
@@ -70,20 +66,11 @@ export async function readReceiptDocument(receipt: {
 
 declare const receiptProjectionBrand: unique symbol;
 
-/** The receipt facts {@link prepareReceiptProjection} reads: raw/typed kind and the owning user. */
 export type ReceiptProjectionFacts = Pick<EventReceipt, "userId" | "eventType" | "rawKind"> & {
   readonly provider: InboundEventSource;
 };
 
-/**
- * The normalized receipt inputs the writer consumes. Opaque: only
- * {@link prepareReceiptProjection} constructs one, so a call site cannot hand
- * the writer a `kind` or another user's zone.
- *
- * The brand is type-only (the intersection below), matching `IanaTimezone`,
- * `LocalDateKey`, and the other brands: there is no runtime symbol to
- * reference, so a mint cannot accidentally emit one.
- */
+/** Writer input. Branded (type-only), so only {@link prepareReceiptProjection} can build one. */
 export type ReceiptProjection = {
   readonly provider: InboundEventSource;
   readonly userId: string;
@@ -92,15 +79,9 @@ export type ReceiptProjection = {
 } & { readonly [receiptProjectionBrand]: true };
 
 /**
- * Derive the provider kind and resolve the user's zone. MUST run before any
- * transaction opens: `resolveTimezone` is a pooled settings read, and holding a
- * transaction connection through it can exhaust the pool under concurrent
- * receipt writes.
- *
- * The kind precedence is the one the backfill used to spell inline:
- * `rawKind ?? parseEventTypeName(provider, eventType) ?? eventType`. A typed row
- * stores `eventTypeName(source, type)` (so `parseEventTypeName` recovers `type`)
- * and a raw row carries its provider kind in `rawKind`, which wins the chain.
+ * Derive the kind and resolve the user's zone. Run it before any transaction opens:
+ * `resolveTimezone` uses a pooled connection, and holding a transaction through it can exhaust the
+ * pool. Kind: `rawKind`, else the parsed typed name, else `eventType`.
  */
 export async function prepareReceiptProjection(
   facts: ReceiptProjectionFacts,
@@ -110,8 +91,7 @@ export async function prepareReceiptProjection(
 
   const timezone = await resolveTimezone(facts.userId);
 
-  // SAFETY: this function is the brand's only mint; the type-only brand makes a
-  // hand-built { kind, timezone } object a type error at every other call site.
+  // SAFETY: the brand's only mint.
   return {
     provider: facts.provider,
     userId: facts.userId,
@@ -120,16 +100,14 @@ export async function prepareReceiptProjection(
   } as ReceiptProjection;
 }
 
-/** The receipt identity a document is written under: the row id, payload, delivery time, and account. */
 export type ReceiptDocumentIdentity = Pick<EventReceipt, "id" | "payload" | "deliveredAt"> & {
   readonly accountId: string;
 };
 
 /**
- * Called for a new receipt or a stored receipt without a document. The receipt's
- * unique key proves document identity; rollback preserves the pair on failure.
- * The per-user/source lock serializes admission across concurrent deliveries.
- * No provider or embedding call runs on this path; the existing sweep indexes it.
+ * Write the corpus document for a receipt, inside the receipt's transaction. A per-user, per-source
+ * advisory lock serializes the daily embed cap check. No provider or embed call here; the sweep
+ * indexes later.
  */
 export async function writeReceiptDocument(
   tx: DbTransaction,

@@ -14,7 +14,7 @@ import { resolveTimezone } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { getThreadState } from "@alfred/assistant/triage";
 
-// Bound persisted/model context. The composer treats all sources as excerpts.
+// Bound context. The composer treats every source as an excerpt.
 const SOURCE_MAX_CHARS = 20_000;
 
 export const replyGatherSchema = z.object({
@@ -68,8 +68,7 @@ export async function gatherReplyContext(args: {
       subjectEmail: args.sender ?? undefined,
       include: ["profile", "facts", "preferences", "entities", "relationships"],
     }),
-    // #238 owns audience inference/materialization. Read the active generic
-    // profile only; do not guess a more specific audience from prose.
+    // Audience inference belongs to #238; read the generic profile only.
     getStyleProfile(args.userId, "gmail", "generic"),
     resolveTimezone(args.userId),
     getThreadState({
@@ -89,8 +88,7 @@ export async function gatherReplyContext(args: {
     subject: document.title,
   });
 
-  // Both model calls cite this same context. Keep style instructions outside
-  // the evidence: examples may guide voice but cannot establish facts.
+  // Style stays outside the evidence: examples guide voice but cannot establish facts.
   const context = {
     subject: document.title ?? "",
     senderHeader: document.metadata.from ?? null,

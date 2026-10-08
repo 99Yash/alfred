@@ -1,34 +1,18 @@
 /**
- * COMMITTED purge of proposed `relationship:<email>` junk (#493) — the existing
- * prod damage behind #491 (read filter) and #492 (write guard). Rebuilt on the
- * ONE shared classifier (`isUninformativeRelationshipFact` from fact-policy) so
- * "junk" has a single definition across the read filter, the live write guard,
- * and this backfill — no third drifting copy.
+ * Reject proposed `relationship:<email>` junk (#493). It uses the shared classifier
+ * `isUninformativeRelationshipFact`, so "junk" has one definition.
+ * Junk: the edge points at a service or no-reply sender, or the value is empty.
+ * `rejectFact` also records the signature, so nothing re-proposes it.
  *
- * A proposed relationship fact is junk when its edge points at a service/no-reply
- * sender (`help@sentry.io`, `info@xing.com`, …) OR its value is empty/uninformative
- * (`{}`). For each match: `rejectFact` flips `status='rejected'`, stamps
- * `valid_until=now`, and writes a `rejected_inferences` (key, valueSignature) row
- * so the write guard + extractor never re-propose it.
+ * Only proposed relationship rows. Confirmed facts stay. The #492 write guard must
+ * be live first, or ingest re-creates the rows.
  *
- * SCOPE: PROPOSED relationship rows only. Confirmed facts (a user may have
- * confirmed one) and all non-`relationship:` facts are untouched — this mirrors
- * #491's read filter, which also hides proposed-only. #492 must be live first so
- * purged rows are not immediately re-created on the next ingest (blocked-by).
- *
- * Bundled by tsdown (`noExternal: @alfred/*`, registered in `tsdown.config.ts`)
- * so it runs on prod with plain `node dist/...`.
- *
- * Dry by default — classifies and prints what it WOULD do, writes nothing.
- * `--commit` applies and REQUIRES `--emails=...` explicitly so a prod shell typo
- * cannot mutate the default account. A DRY run with no `--emails` surveys ALL
- * users (read-only) so the operator can see the full picture first. Idempotent:
- * rejected rows leave the proposed/active set and won't re-match; the signature
- * insert is `onConflictDoNothing`, so re-runs are no-ops.
+ * Dry by default. A dry run without `--emails` surveys all users. `--commit` requires
+ * `--emails=...`. Idempotent.
  *
  *   # preview one account (writes nothing):
  *   node dist/scripts/backfills/backfill-purge-relationship-junk-committed.js --emails=a@x.com
- *   # preview EVERY account (writes nothing):
+ *   # preview every account (writes nothing):
  *   node dist/scripts/backfills/backfill-purge-relationship-junk-committed.js
  *   # commit:
  *   node dist/scripts/backfills/backfill-purge-relationship-junk-committed.js --emails=a@x.com --commit
@@ -49,7 +33,7 @@ const COMMIT = process.argv.includes("--commit");
 
 const VERBOSE_VALUES = process.argv.includes("--verbose-values");
 
-/** Cap on how many per-row samples to print in the dry report (count is exact). */
+/** Max sample rows to print. Counts stay exact. */
 const SAMPLE_LIMIT = 50;
 
 function parseTargetEmails(): string[] | null {
@@ -59,7 +43,6 @@ function parseTargetEmails(): string[] | null {
     throw new Error("--emails=a@x.com must be set explicitly when using --commit");
   }
 
-  // No flag in DRY mode → survey ALL users (read-only).
   if (!flag) return null;
 
   return flag
@@ -77,7 +60,7 @@ type ProposedRelRow = {
   value: unknown;
 };
 
-/** Which junk shape a matched row is — `service_sender`, `empty_value`, or both. */
+/** Which junk shapes a row matched. */
 function junkReason(key: string, value: unknown): string {
   const reasons: string[] = [];
 
@@ -92,7 +75,7 @@ function junkReason(key: string, value: unknown): string {
   return reasons.join("+") || "relationship_junk";
 }
 
-/** Reveal the service domain (the verification signal) without the full address. */
+/** Show the domain, not the full address. */
 function maskRelKey(key: string): string {
   if (VERBOSE_VALUES) return key;
   const email = key.slice(RELATIONSHIP_FACT_PREFIX.length);
@@ -134,8 +117,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
       ),
     );
 
-  // The classifier is the single source of truth — the SQL only narrows to the
-  // relationship namespace; the junk decision stays in code so it can't drift.
+  // SQL narrows to the namespace; the classifier decides.
   const junk = rows.filter((r) => isUninformativeRelationshipFact(r.key, r.value));
   const kept = rows.length - junk.length;
 
@@ -222,7 +204,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

@@ -10,33 +10,12 @@ import {
 import type { ObjectStateDelta } from "./store";
 
 /**
- * GitHub reducer (ADR-0062, #212). Pure, idempotent: maps a single webhook
- * delivery to the projection deltas the store applies in one transaction
- * (ADR-0103 blesses one receipt yielding zero or several deltas). An empty
- * array is the no-op.
- *
- * State source of truth is the webhook ONLY (the propose/dispose invariant):
- * the native-state token is collapsed here — the PR's `state` + `merged`
- * boolean into one of `open | merged | closed`, a suite's `conclusion` into
- * one of `success | failure | pending` — which the registry's per-kind
- * `normalize` maps to the agnostic category. An LLM-proposed key can never
- * reach this path, so it can never fake a merge.
- *
- * Two shapes, one transaction:
- *   pull_request      → one delta for the PR itself (transition on itself):
- *     opened / reopened / synchronize → `open`   (+ head_sha key)
- *     closed (merged=true)            → `merged`
- *     closed (merged=false)           → `closed`
- *     Everything else (labeled, edited, review_requested, …) is a no-op.
- *   check_suite       → two deltas (succession on a target, #1093): the
- *     attempt row (`ci_attempt`, `check_suite:<id>`) plus the target row
- *     (`ci_target`, `owner/repo#branch`) carrying the same token and the
- *     suite's `updated_at` as the provider-clock instant. Only the
- *     `completed` action carries a conclusion; every other action is a no-op,
- *     and so is a conclusion that names no outcome (`neutral`, `stale`).
- *     `check_run` never reaches this switch: it is not a typed event, so the
- *     ingress guard answers `[]` before the call — the suite subsumes branch
- *     health in v1.
+ * GitHub reducer (ADR-0062). Pure. Webhooks are the only state source, so a model-proposed key can
+ * never fake a merge. An empty array is a no-op.
+ * - `pull_request`: opened, reopened or synchronize gives `open`; closed gives `merged` or
+ *   `closed`. Other actions are no-ops.
+ * - `check_suite` (completed only): an attempt delta plus an `owner/repo#branch` target delta,
+ *   ordered by the suite's `updated_at` (#1093). `neutral` and `stale` fold nothing.
  */
 export function reduceGithubEvent(
   eventType: string,
@@ -54,10 +33,7 @@ export function reduceGithubEvent(
     case "issues":
     case "pull_request_review":
       return [];
-    // GitHub is only the TRANSPORT for a `repository_dispatch`: the body's
-    // `client_payload` belongs to whoever dispatched it. Vercel's deployment
-    // relay is folded by `reduceVercelEvent` under provider `vercel`, so this
-    // reducer — GitHub's own half — asserts nothing about it (#1167).
+    // GitHub only transports this. `reduceVercelEvent` folds Vercel's dispatch (#1167).
     case "repository_dispatch":
       return [];
     default: {
@@ -69,18 +45,11 @@ export function reduceGithubEvent(
 }
 
 function reducePullRequest(action: string | null, payload: unknown): ObjectStateDelta[] {
-  // Boundary reads, the way every sibling reducer reads its own provider body:
-  // `getIdPath` / `getStringPath` off the raw `unknown` payload, so each field
-  // carries its own contract and no parse step can widen the rest back to
-  // `JsonObject`.
   const githubId = getIdPath(payload, "pull_request", "id");
 
   if (githubId === null) return [];
 
-  // GitHub serializes the PR number as a JSON integer. `getIdPath` collapses
-  // either spelling to one string; `Number` restores the integer the URL
-  // canonicalizer takes, and that canonicalizer is what re-checks it is a safe
-  // integer of at least 1.
+  // `getIdPath` returns a string; `Number` restores the integer, and the canonicalizer checks it.
   const rawNumber = getIdPath(payload, "pull_request", "number");
   const number = rawNumber === null ? null : Number(rawNumber);
   const nativeState = pullRequestNativeState(action, getPath(payload, "pull_request", "merged"));
@@ -119,9 +88,7 @@ function reducePullRequest(action: string | null, payload: unknown): ObjectState
       attributes: {
         ...(headSha ? { head_sha: headSha } : {}),
         ...(headRef ? { head_ref: headRef } : {}),
-        // The stored attribute keeps its numeric spelling; only the projection
-        // identity is text. `githubId` is already a validated safe-integer
-        // string, so `Number` is exact.
+        // `githubId` is a validated safe-integer string, so `Number` is exact.
         github_id: Number(githubId),
         ...(number !== null ? { number } : {}),
       },
@@ -130,7 +97,7 @@ function reducePullRequest(action: string | null, payload: unknown): ObjectState
   ];
 }
 
-/** Collapse the PR `state` + `merged` boolean into one native-state token. */
+/** PR action plus `merged` to one native-state token. */
 function pullRequestNativeState(
   action: string | null,
   merged: unknown,
@@ -148,11 +115,8 @@ function pullRequestNativeState(
 }
 
 /**
- * Fold one completed suite into its attempt delta plus its target delta. The
- * attempt identity is the suite id; the target identity is `owner/repo#branch`.
- * A receipt with no branch still folds its attempt (attempt rows never close
- * asks, so that is inert); a receipt with no usable conclusion folds nothing —
- * absence never closes.
+ * Fold a completed suite into an attempt delta and an `owner/repo#branch` target delta. No branch
+ * still folds the attempt, which never closes asks. No usable conclusion folds nothing.
  */
 function reduceCheckSuite(action: string | null, payload: unknown): ObjectStateDelta[] {
   if (action !== "completed" || !isRecord(payload)) return [];
@@ -189,9 +153,7 @@ function reduceCheckSuite(action: string | null, payload: unknown): ObjectStateD
       ...(branch ? { head_branch: branch } : {}),
       ...(headSha ? { head_sha: headSha } : {}),
     },
-    // The suite id alone: NO head_sha key, so an attempt row never joins the
-    // PR annotation floor (`byObjectId.size === 1` still sees GitHub-only
-    // chunks exactly as before).
+    // No head_sha key, so an attempt row never resolves as the PR.
     keys: [{ keyKind: "check_suite_id", keyValue: suiteId }],
     ...(providerEventTime ? { providerEventTime } : {}),
   };
@@ -214,8 +176,7 @@ function reduceCheckSuite(action: string | null, payload: unknown): ObjectStateD
       head_branch: branch,
       ...(headSha ? { head_sha: headSha } : {}),
     },
-    // Self-key only: the target is read structurally by identity in v1, and a
-    // head_sha key here would shadow the PR the sha belongs to.
+    // Self-key only. A head_sha key here would shadow the PR.
     keys: [{ keyKind: "ci_target", keyValue: targetId }],
     ...(providerEventTime ? { providerEventTime } : {}),
   };
@@ -223,11 +184,7 @@ function reduceCheckSuite(action: string | null, payload: unknown): ObjectStateD
   return [attempt, target];
 }
 
-/**
- * Collapse a suite conclusion into the CI token vocabulary. `success` resolves
- * the target, the failure family fails it, and a conclusion that names no
- * outcome — plus anything unrecognized — folds nothing.
- */
+/** Suite conclusion to `success` or `failure`. Anything else folds nothing. */
 function checkSuiteNativeState(conclusion: string | undefined): "success" | "failure" | null {
   switch (conclusion) {
     case "success":
@@ -242,11 +199,7 @@ function checkSuiteNativeState(conclusion: string | undefined): "success" | "fai
   }
 }
 
-/**
- * Read the suite's provider-clock instant. A missing or unparseable timestamp
- * yields `undefined` — the store then orders by the receipt clock — and never
- * a smuggled null.
- */
+/** The suite's provider time, or `undefined`, so the store falls back to receipt time. */
 function parseProviderEventTime(value: string | undefined): Date | undefined {
   if (!value) return undefined;
 

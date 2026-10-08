@@ -3,18 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
 import { WorkflowDetailPage } from "./-workflows-detail/workflow-detail-page";
 
-/**
- * App-grammar port of `/workflows/$workflow`.
- *
- * Same data + same IA as the original detail page (header → tabs →
- * Plan/History/Approvals), rebuilt on AppCard + AppButton + AppSegmented.
- * The page scrolls inside the shared preview shell; sidebar + theme +
- * cmd-K live in the shared preview layout.
- *
- * Compare:
- *   /workflows/$workflow            → dimension grammar
- *   /preview/workflows/$workflow    → app grammar
- */
+/** Workflow detail: header, then Plan, History, and Approvals tabs. */
 export const Route = createFileRoute("/workflows/$workflow")({
   validateSearch: (params: unknown) => {
     const workflowRecovery = getStringPath(params, "workflow_recovery");

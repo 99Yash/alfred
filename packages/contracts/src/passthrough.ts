@@ -1,30 +1,7 @@
 /**
- * General invocation tier — read-only passthrough (ADR-0074 rung-a, epic #271).
- *
- * The curated typed tier (ADR-0071) is deliberately small and sized to the hot
- * path; it can never be an API mirror. This module owns the *browser-safe*
- * cross-boundary shapes for the general read-only passthrough tier that serves
- * the long tail the curated tier deliberately doesn't cover: one raw,
- * uncurated, read-only request per integration, executed by Alfred's trusted
- * boundary.
- *
- * Only the shared contracts live here (contracts is zod-only, client-safe),
- * plus the browser-safe payload bounding ({@link PassthroughTruncation};
- * `boundPassthroughBody` in `./passthrough-bounds`), which is shared with the
- * raw MCP client and so cannot sit inside either consuming tier. The rest of
- * the security boundary — the pure read gate, the per-provider transport
- * config, and the result shaper — lives beside the curated tools in
- * `@alfred/api` (`modules/tools/passthrough`). The Settings UI reads the
- * coverage/preference exports here so there is no third provider list.
- *
- * Which integrations the tier covers, and with which transport, are facts about
- * the integration, so they live on the registry entry
- * (`INTEGRATIONS[slug].passthrough` in `./integrations`, ADR-0093). This module
- * derives the tool names and preference keys from that. The slugs the tier
- * serves are {@link SupportedPassthroughSlug}: every live provider whose entry
- * has a non-null `passthrough`. The API-side handler registry is keyed by it,
- * so giving an entry a `passthrough` is a compile error until its config, gate,
- * transport, tool action, and preference are wired.
+ * Shared shapes for the read-only passthrough tier (ADR-0074 rung-a): one raw read request
+ * per integration, for what the curated tools do not cover. Coverage comes from
+ * `INTEGRATIONS[slug].passthrough` (ADR-0093). The read gate and transport live in `@alfred/assistant`.
  */
 
 import { z } from "zod";
@@ -36,31 +13,18 @@ import {
 } from "./integrations";
 import { isToolName, type ToolName } from "./tools";
 
-/**
- * The tool `action` each transport registers: REST providers expose
- * `<slug>.request`; a future GraphQL provider can expose `<slug>.graphql`. The
- * single source for that mapping — the registration test and the dispatcher's
- * per-run ceiling both derive passthrough tool identity from here rather than
- * re-hardcoding the action strings.
- */
+/** Tool action per transport: `<slug>.request` or `<slug>.graphql`. */
 export const PASSTHROUGH_TOOL_ACTION = {
   rest: "request",
   graphql: "graphql",
 } as const satisfies Record<PassthroughTransportKind, string>;
 
-/**
- * The exact registered tool names of the passthrough tier (`github.request`,
- * `notion.request`, …), derived from the supported slugs and their transports.
- * The dispatcher's per-run passthrough ceiling counts prior calls against this
- * set, so a new supported slug is bounded automatically.
- */
+/** Every passthrough tool name. The per-run passthrough ceiling counts calls against this set. */
 export const PASSTHROUGH_TOOL_NAMES: readonly ToolName[] = SUPPORTED_PASSTHROUGH_SLUGS.map(
   (slug) => {
     const name = `${slug}.${PASSTHROUGH_TOOL_ACTION[INTEGRATIONS[slug].passthrough.transport]}`;
 
-    // Constructed from registered slugs + actions; validate rather than cast so a
-    // future drift (a supported slug whose action isn't registered) fails loudly
-    // at module load instead of silently widening to a non-existent tool name.
+    // Validate, not cast, so an unregistered name fails at module load.
     if (!isToolName(name)) throw new Error(`Passthrough tool name is not registered: ${name}`);
 
     return name;
@@ -68,16 +32,10 @@ export const PASSTHROUGH_TOOL_NAMES: readonly ToolName[] = SUPPORTED_PASSTHROUGH
 );
 
 // ---------------------------------------------------------------------------
-// Per-user rollout preference (default OFF — a security-sensitive tier must be
-// killable per-integration without a deploy).
+// Per-integration preference. Default OFF, so the tier can be turned off without a deploy.
 // ---------------------------------------------------------------------------
 
-/**
- * Preference key prefix for the per-integration passthrough toggle. These live
- * under `feature.passthrough.<slug>` in `user_preferences` but, unlike the
- * background-agent `feature.*` flags (UNSET = ON), this tier is **default OFF**:
- * an absent row means the tool is unavailable. See {@link isPassthroughPreferenceOn}.
- */
+/** Unlike other `feature.*` flags, an absent row means OFF. */
 export const PASSTHROUGH_PREFERENCE_PREFIX = "feature.passthrough." as const;
 
 export function passthroughPreferenceKey(slug: SupportedPassthroughSlug): string {
@@ -85,33 +43,20 @@ export function passthroughPreferenceKey(slug: SupportedPassthroughSlug): string
 }
 
 export const PASSTHROUGH_PREFERENCE_KEYS: Record<SupportedPassthroughSlug, string> =
-  // SAFETY: the entries are built by mapping SUPPORTED_PASSTHROUGH_SLUGS — the
-  // same derived list the SupportedPassthroughSlug union describes — so the
-  // fromEntries result has exactly those keys; Object.fromEntries' string index
-  // erases that, and this cast restores it.
+  // SAFETY: the keys are exactly SUPPORTED_PASSTHROUGH_SLUGS; `fromEntries` erases that.
   Object.fromEntries(
     SUPPORTED_PASSTHROUGH_SLUGS.map((slug) => [slug, passthroughPreferenceKey(slug)]),
   ) as Record<SupportedPassthroughSlug, string>;
 
-/**
- * Resolve a stored passthrough preference value to on/off. **Default OFF**: only
- * an explicit truthy value (`true` / `"true"` / `1`) enables the tier — the
- * inverse of `flagOn` (background-agent flags default ON). An absent row is
- * `undefined`, which is OFF.
- */
+/** Only an explicit `true`, `"true"`, or `1` turns the tier on. */
 export function isPassthroughPreferenceOn(value: unknown): boolean {
   return value === true || value === "true" || value === 1;
 }
 
 // ---------------------------------------------------------------------------
-// Request shapes. Deliberately smaller than `fetch`: the model composes a
-// method + namespace-relative path + params (or a GraphQL document), never an
-// absolute URL, origin, or headers — those are pinned by the trusted boundary.
-//
-// Note `method` is a free string, not a read-method enum: a mistaken write
-// method must reach the *read gate* and come back as a VISIBLE `rejected`
-// envelope the model can self-correct from — not a hidden `invalid_input` Zod
-// failure. The same reasoning keeps `path` permissive here (the gate hardens it).
+// Request shapes. No URL, origin, or headers: Alfred pins those.
+// `method` and `path` stay loose so a bad value reaches the read gate and comes back
+// as a visible `rejected` result the model can correct, not a Zod error.
 // ---------------------------------------------------------------------------
 
 export const restPassthroughRequestSchema = z.object({
@@ -131,7 +76,6 @@ export const restPassthroughRequestSchema = z.object({
     .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
     .optional()
     .describe("Query-string parameters, appended and encoded by Alfred."),
-  /** Accepted only for an allowlisted read-via-POST path (enforced by the gate). */
   body: z
     .unknown()
     .optional()
@@ -164,7 +108,7 @@ export type GraphqlPassthroughRequest = z.infer<typeof graphqlPassthroughRequest
 export type PassthroughRequest = RestPassthroughRequest | GraphqlPassthroughRequest;
 
 // ---------------------------------------------------------------------------
-// The read gate (security boundary) result. Pure, deny-by-default, per-integration.
+// Read gate result. Deny by default.
 // ---------------------------------------------------------------------------
 
 export const READ_GATE_REASONS = [
@@ -178,28 +122,17 @@ export const READ_GATE_REASONS = [
 
 export type ReadGateReason = (typeof READ_GATE_REASONS)[number];
 
-/**
- * The read gate's decision. Encodes deny-by-default precisely: `ok: true` is the
- * only way through, and every denial carries a machine reason plus a
- * human/model-readable `detail` used to build the visible rejection envelope.
- */
 export type ReadGateResult = { ok: true } | { ok: false; reason: ReadGateReason; detail: string };
 
 // ---------------------------------------------------------------------------
-// Result envelope (inherits ADR-0071 #6 result-honesty). Passthrough cannot
-// pre-validate params, so it surfaces the raw outcome and is explicit about
-// non-completion — the boss must never mistake a wrong-path error for "nothing".
+// Result envelope (ADR-0071 #6). Explicit about failure, so a wrong-path error never reads as "nothing".
 // ---------------------------------------------------------------------------
 
 export const TRANSPORT_ERROR_KINDS = ["timeout", "dns", "connection_reset", "tls"] as const;
 
 export type TransportErrorKind = (typeof TRANSPORT_ERROR_KINDS)[number];
 
-/**
- * Emitted whenever a passthrough result is clipped. The "thermometer" signal
- * (ADR-0074): its presence marks the result handle-eligible and drives the
- * telemetry that decides when to build the object-handle layer (L0).
- */
+/** Present when a result was clipped. Marks it handle-eligible (ADR-0074). */
 export interface PassthroughTruncation {
   handleEligible: true;
   originalBytesApprox: number;
@@ -224,7 +157,7 @@ export type PassthroughResult =
       truncation?: PassthroughTruncation;
     }
   | {
-      /** The request never left Alfred — the read gate denied it. */
+      /** The read gate denied it; nothing was sent. */
       outcome: "rejected";
       reason: ReadGateReason;
       message: string;

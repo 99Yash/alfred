@@ -7,20 +7,12 @@ import { formatDuration } from "./duration";
 
 const ITEM = "reasoning";
 
-// A *finished* reasoning block earns a row only if it reflects real thinking:
-// either it took a beat or it's long enough to be worth reading. Below both
-// thresholds it renders as a useless "Thought for 0.0s" stub (the model emitted
-// a token or two with no measurable pause), so we drop it entirely.
+// A finished block shows only if it took a beat or has enough text; else it is a "Thought for 0.0s" stub.
 const MIN_COMPLETE_MS = 400;
 
 const MIN_COMPLETE_CHARS = 160;
 
-/**
- * The model's thinking, in a collapsible "Thinking…" accordion. While the
- * reasoning is still streaming (`active`) the trigger shimmers and the content
- * stays open; once the reply begins it auto-collapses to "Thought for Ns" and
- * becomes a click-to-expand affordance. Mirrors dimension's reasoning section.
- */
+/** Collapsible reasoning. Open and shimmering while active; collapses to "Thought for Ns" when the reply starts. */
 export function ReasoningSection({
   reasoning,
   active,
@@ -30,10 +22,7 @@ export function ReasoningSection({
   active: boolean;
   durationMs: number | null;
 }) {
-  // Open while thinking; collapse the moment the reply starts (active → false).
-  // Tracking the previous `active` during render lets us re-assert the collapse
-  // on the transition without an effect (an effect would flash the open panel
-  // for a frame). The user can still toggle freely between transitions.
+  // Collapse during render when `active` turns false; an effect would flash the panel for a frame.
   const [value, setValue] = useState(active ? ITEM : "");
   const [prevActive, setPrevActive] = useState(active);
 
@@ -43,9 +32,7 @@ export function ReasoningSection({
     if (!active) setValue("");
   }
 
-  // While reasoning streams, the capped scroll box would otherwise pin to the
-  // top and hide the newest lines — keep it stuck to the bottom so the live
-  // thinking stays in view.
+  // Keep the capped box at the bottom while reasoning streams.
   const contentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!active) return;
@@ -85,9 +72,7 @@ export function ReasoningSection({
               {active ? (
                 "Thinking"
               ) : durationMs != null && durationMs >= MIN_COMPLETE_MS ? (
-                // Only quote a duration we actually measured — a sub-threshold
-                // value renders as a silly "for 0.0s", so drop the suffix and
-                // keep the bare "Thought" (the content itself is still useful).
+                // Below the threshold, drop the duration rather than show "for 0.0s".
                 <>
                   <span className="text-app-fg-4">Thought</span> for {formatDuration(durationMs)}
                 </>

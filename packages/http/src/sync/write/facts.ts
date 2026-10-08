@@ -12,21 +12,9 @@ import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
 
 /**
- * Server-side mutators run inside the push handler's outer transaction
- * (via a per-mutator savepoint). Atomicity guarantees:
- *   - the mutator's writes commit together with the LMID advance, OR
- *   - the savepoint rolls back and the LMID still advances so the
- *     client doesn't re-queue the failed mutation forever.
- *
- * Memory primitives in `@alfred/assistant/knowledge` split two ways for this
- * savepoint. An export that takes a trailing executor argument runs inside
- * the caller's transaction when it gets one, so pass `tx`:
- * `ensureEntityNode(args, tx)` is the shape, and its writes commit with the
- * LMID advance. Every other db-touching export opens its own transaction
- * via `db()` or issues bare `db()` statements, so its writes escape this
- * savepoint. The fact-correction writers (`proposeFact` and its siblings) are
- * that second shape, which is why the fact mutators below re-implement their
- * logic inline against the supplied `tx`.
+ * Each mutator runs in a savepoint; on failure the LMID still advances.
+ * `proposeFact` and its siblings write through `db()` and would escape the
+ * savepoint, so these mutators repeat their logic against `tx`.
  */
 async function lockFactKey(tx: DbTransaction, userId: string, key: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${key}`}, 0))`);
@@ -106,12 +94,8 @@ async function supersedeConflictingConfirmedFacts(
 }
 
 /**
- * Confirm a `proposed` row. No-op if the row is missing or already
- * past the proposed state — Replicache's at-least-once delivery means
- * confirm may arrive twice; the second is harmless. Mirrors
- * `confirmFact()`'s #330 single-valued invariant inside the push tx:
- * confirming a held conflict supersedes the prior active truth instead of
- * leaving two confirmed `employer`/`job_title`/etc. rows.
+ * Confirm a `proposed` row. A repeat is a no-op. Like `confirmFact()`, it supersedes
+ * the prior active value of a single-valued key.
  */
 export async function factConfirm(
   tx: DbTransaction,
@@ -165,13 +149,8 @@ export async function factConfirm(
 }
 
 /**
- * User-authored create: insert a `confirmed` user-sourced fact. Unlike
- * Alfred's extraction (which `proposeFact`s server-side and runs the
- * dedup/rejection guards), a user asserting a fact directly via the UI is
- * authoritative — confidence 1. Idempotent on id (client mints it before
- * push) so at-least-once redelivery is a harmless no-op. It still runs the
- * #330 canonical key + single-valued supersession invariant so direct user
- * writes cannot fork `company` from `employer` or leave two active truths.
+ * A user's own fact is `confirmed` at confidence 1. Idempotent on the client id.
+ * It still canonicalizes the key and supersedes single-valued keys.
  */
 export async function factCreate(
   tx: DbTransaction,
@@ -207,10 +186,7 @@ export async function factCreate(
     .onConflictDoNothing();
 }
 
-/**
- * Reject a fact: mark the row + record the (key, value) signature so
- * the extraction sub-agent doesn't re-propose it (ADR-0019).
- */
+/** Also record the (key, value) signature so extraction does not propose it again (ADR-0019). */
 export async function factReject(
   tx: DbTransaction,
   args: FactRejectArgs,
@@ -245,11 +221,7 @@ export async function factReject(
     .onConflictDoNothing();
 }
 
-/**
- * User-edit: old row → `edited`, a new `confirmed` row replaces it
- * with `supersedes_id` linking back. Idempotent on `newFactId` —
- * the client mints it before pushing so a retry is a no-op.
- */
+/** The old row becomes `edited`; a new row links back by `supersedes_id`. Idempotent on `newFactId`. */
 export async function factEdit(
   tx: DbTransaction,
   args: FactEditArgs,

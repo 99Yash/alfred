@@ -1,13 +1,4 @@
-/**
- * GitHub tools registered into the boss's tool surface.
- *
- * Read-only over the GitHub App's installation (ADR-0052): search the user's
- * issues and pull requests, and fetch one by number for the per-item detail
- * search structurally cannot return (ADR-0071). The boss uses `github.search`
- * to answer "how many PRs did I merge today" / "what issues are open" directly,
- * and `github.get_pull_requests` to total LOC across a set of PRs in one call
- * (#222, #935); `github.get_pull_request` is the single-item form.
- */
+/** Read-only GitHub tools over the App installation (ADR-0052). */
 
 import {
   GITHUB_SEARCH_WINDOWS,
@@ -29,17 +20,14 @@ import { AppError } from "@alfred/contracts/app-errors";
 
 type GithubSearchInput = z.infer<typeof githubSearchInput>;
 
-/**
- * Lower bound for a "within the last N days" filter, anchored on local midnight
- * in the user's timezone and serialized as a UTC-offset date-time for GitHub
- * search. N=1 resolves to *today* in that zone (not "24h ago in UTC"), so "PRs
- * I merged today" for an IST user includes the 00:00-05:29 IST slice that a
- * date-only GitHub qualifier would miss.
- */
 function githubSearchDateTime(date: Date): string {
   return date.toISOString().replace(/\.\d{3}Z$/, "+00:00");
 }
 
+/**
+ * Local midnight N-1 days ago, as a date-time. A date-only qualifier would miss
+ * the start of an IST user's day, which falls on the previous UTC date.
+ */
 function windowLowerBound(days: number, timezone: IanaTimezone, nowMs: number): string {
   const zone = inZone(timezone);
   const lowerDate = addDays(zone.day(new Date(nowMs)), -(days - 1));
@@ -47,12 +35,7 @@ function windowLowerBound(days: number, timezone: IanaTimezone, nowMs: number): 
   return githubSearchDateTime(zone.startOf(lowerDate));
 }
 
-/**
- * Build the fully-formed `/search/issues` query from the (already sanitized)
- * structured fields plus any clean free-form qualifiers. The `type` field owns
- * the `is:pr`/`is:issue` clause. A trailing `new Set` dedupe guarantees no
- * doubled token even if a clean extra qualifier coincides with a structured one.
- */
+/** Build the `/search/issues` query from sanitized fields. The final `Set` drops doubled tokens. */
 export function buildGithubSearchQuery(
   input: GithubSearchInput,
   timezone: IanaTimezone,
@@ -93,22 +76,9 @@ export function buildGithubSearchQuery(
       assertNever(state);
   }
 
-  // Two or more windows become ONE parenthesized OR group, never separate
-  // tokens. GitHub joins top-level tokens with AND, so `created:>=D
-  // merged:>=D` asks for a PR that was created AND merged inside the window —
-  // an open PR created in the window silently drops out, and the count reads
-  // as exact. Measured against `/search/issues` for author `@me` over
-  // `D=2026-08-28`: the AND form returned 36 and the OR group returned 37, and
-  // the item the AND form dropped is PR 910, created 2026-08-27 and merged
-  // 2026-08-28. The OR group is a superset the boss narrows locally, because
-  // every item carries `createdAt`, `closedAt`, `mergedAt` and `merged`; the
-  // AND form loses items with no signal at all. One window keeps its bare
-  // token, so a single-window query is unchanged.
-  //
-  // A free-form date window in `query` would still be a top-level AND token,
-  // so the schema refuses to mix the two grammars
-  // (`githubSearchQueryIssues` in `@alfred/contracts`) and every window that
-  // reaches here came through `githubSearchWindowDays`.
+  // Several windows form one OR group. GitHub ANDs top-level tokens, so
+  // `created:>=D merged:>=D` silently drops a PR created in the window but merged later.
+  // The schema refuses free-form date windows in `query` for the same reason.
   const windows = GITHUB_SEARCH_WINDOWS.flatMap((entry) => {
     const days = githubSearchWindowDays(input, entry);
 
@@ -117,8 +87,7 @@ export function buildGithubSearchQuery(
     return [`${entry.qualifier}:>=${windowLowerBound(days, timezone, nowMs)}`];
   });
 
-  // `advanced_search=true` on the client is what makes `(… OR …)` a boolean
-  // group rather than free text (`packages/integrations/src/github/client.ts`).
+  // The client's `advanced_search=true` makes `(… OR …)` a boolean group.
   if (windows.length > 1) parts.push(`(${windows.join(" OR ")})`);
   else parts.push(...windows);
   const extra = input.query?.trim();
@@ -161,15 +130,10 @@ export const githubTools: readonly RegisteredTool[] = [
       const github = ctx.integrations.github;
       // `author:@me` resolves against the connected handle.
       const accountLogin = await github.connectedLogin();
-      // Fold any free-typed author:/state:/is:/date qualifiers into the
-      // structured fields (silent correctness, ADR-0071) before resolving @me.
+      // Fold free-typed qualifiers into the structured fields (ADR-0071).
       const { sanitized } = sanitizeGithubSearchQuery(input);
 
-      // Resolve author honestly (ADR-0071, no silent narrowing): an explicit
-      // author (structured field or folded `author:` qualifier) wins; otherwise
-      // default to the connected user ONLY for an otherwise-unscoped search ("my
-      // PRs"). A query that already names a repo/org/person is left
-      // author-unfiltered — forcing `@me` there would silently narrow it.
+      // Default to `@me` only for an unscoped search. Forcing it on a repo query would narrow it.
       const author = sanitized.author
         ? resolvePullRequestAuthor(sanitized.author, accountLogin, ctx.userId)
         : queryHasNarrowingScope(sanitized.query)
@@ -183,7 +147,7 @@ export const githubTools: readonly RegisteredTool[] = [
 
       const result = await github.search({ q, perPage: input.perPage });
 
-      // Result-honesty (ADR-0071 #6): never present a truncated count as exact.
+      // Never present a truncated count as exact (ADR-0071).
       const note = result.incompleteResults
         ? "GitHub reported incomplete_results — its search index timed out, so this count may be partial. Narrow the query (repo:, a tighter window) and retry for an exact figure."
         : undefined;
@@ -200,7 +164,6 @@ export const githubTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "github",
     action: "get_pull_request",
-    // Read-only fetch-by-number — same tier as github.search and drive.get_file.
     riskTier: "no_risk",
     description:
       "Fetch ONE pull request by owner/repo/number. Returns diff stats — additions, deletions, changed_files, commits — that search cannot. For two or more PRs (every hit of a search, a set to total) use github.get_pull_requests once instead of calling this per PR.",
@@ -222,7 +185,6 @@ export const githubTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "github",
     action: "get_pull_requests",
-    // Read-only fetch-by-number, batched — same tier as github.get_pull_request.
     riskTier: "no_risk",
     description:
       "Fetch SEVERAL pull requests in one call — pass every owner/repo/pull_number (or each hit's url) from a search as `items`. Returns each PR's diff stats (additions, deletions, changed_files, commits) plus `totals` summed for you, and lists any item that could not be fetched under `failed`. This is the way to total lines changed across a set of PRs or to summarize recent PR work: one search, then one call here — never one github.get_pull_request per hit.",
@@ -246,7 +208,6 @@ export const githubTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "github",
     action: "get_issue",
-    // Read-only fetch-by-number — same tier as github.search and drive.get_file.
     riskTier: "no_risk",
     description:
       "Fetch one issue by owner/repo/number. Returns the issue body, labels, and comment count (search returns only the title and metadata).",

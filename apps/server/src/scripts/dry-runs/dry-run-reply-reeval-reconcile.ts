@@ -1,30 +1,17 @@
 /**
- * Dry-run replay for #282 (reply re-eval) + #279 (thread reconcile) — READ-ONLY.
+ * Read-only replay of reply re-eval (#282) and thread reconcile (#279) against the
+ * dev DB and live Gmail. It writes nothing in the triage domain.
+ * Exception (#453): `getFreshAccessToken` may refresh a credential and save it.
+ * The token is sealed, so reading it directly would bypass the vault.
  *
- * Simulates exactly what the two new code paths would do, against the live dev
- * DB + live Gmail, but MUTATES NOTHING IN THE TRIAGE DOMAIN: it never emits a
- * triage event, never repoints `email_triage.document_id`, never deletes a
- * `documents` row. It only fetches live Gmail thread message lists (read) to
- * compute what reconcile would prune.
- *
- * One exception, and it is deliberate (#453): the script resolves its token
- * through `getFreshAccessToken`, which MAY refresh an expiring credential and
- * write the new one back. It used to read `access_token` out of the row itself
- * to stay write-free. Those bytes are now a sealed envelope, and a script that
- * reached past the credential boundary to decrypt them would be a second,
- * unowned copy of the vault. A credential refresh is the cheaper concession.
- *
- * #282 — for each thread that has BOTH a sent doc and a triage row, report the
- *        newest INBOUND doc the reply-re-eval would re-key the classify on, and
- *        the thread's current frozen tag.
- * #279 — for each multi-doc thread, fetch the live Gmail message set and report
- *        the dead-id tail reconcile would repoint-then-delete.
+ * #282: for threads with a sent doc and a triage row, print the newest inbound doc
+ *       re-eval would classify, and the current tag.
+ * #279: for multi-doc threads, print the dead-id tail reconcile would repoint and delete.
  *
  * Run:  pnpm --filter server exec tsx --env-file=.env \
  *         src/scripts/dry-runs/dry-run-reply-reeval-reconcile.ts [threadId ...]
  *
- * With no args it auto-scans a bounded sample; pass explicit thread ids to
- * target known cases (e.g. 19ef44b6b5a0183b — the #282 Tania thread).
+ * With no args it scans a bounded sample.
  */
 import {
   planGmailThreadReconcile,
@@ -71,15 +58,13 @@ async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[
 }
 
 function newestInbound(docs: DocRow[]): DocRow | null {
-  // docs already sorted newest-first; first non-sent wins (mirrors the
-  // `NOT(gmailSentSql()) ORDER BY authoredAt DESC LIMIT 1` query in queue.ts).
+  // Docs are newest first, so the first non-sent doc wins, like the runtime query.
   return docs.find((d) => !isSentGmailMetadata(d.metadata)) ?? null;
 }
 
 async function main() {
   const argThreads = process.argv.slice(2).filter(Boolean);
 
-  // Single-user app, but be correct: resolve a user + a per-account token map.
   const creds = await db()
     .select({
       id: integrationCredentials.id,
@@ -107,9 +92,7 @@ async function main() {
     if (cached) return cached;
 
     try {
-      // The credential boundary owns expiry, revocation, and decryption. A
-      // needs-reauth credential throws here, which is the same "skip the live
-      // fetch" outcome the old expiry check produced.
+      // A needs-reauth credential throws here, so the live fetch is skipped.
       const token = await getFreshAccessToken(credId);
       tokenCache.set(credId, token);
 
@@ -123,12 +106,11 @@ async function main() {
     }
   }
 
-  // ---- #282: reply re-eval candidates -------------------------------------
+  // #282: reply re-eval candidates.
   console.log("══════════════════════════════════════════════════════════");
   console.log("#282 — outbound-reply re-eval (READ-ONLY simulation)");
   console.log("══════════════════════════════════════════════════════════");
 
-  // Threads that have at least one SENT doc AND a triage row.
   const sentThreadRows = await db()
     .select({ threadId: documents.sourceThreadId })
     .from(documents)
@@ -210,12 +192,12 @@ async function main() {
     }
   }
 
-  // ---- #279: thread reconcile candidates ----------------------------------
+  // #279: thread reconcile candidates.
   console.log("\n══════════════════════════════════════════════════════════");
   console.log("#279 — thread reconcile vs live Gmail (READ-ONLY simulation)");
   console.log("══════════════════════════════════════════════════════════");
 
-  // Multi-doc threads (only these can carry a dead tail worth converging).
+  // Only a multi-doc thread can have a dead tail.
   const multiRows = await db()
     .select({ threadId: documents.sourceThreadId, n: sql<number>`count(*)::int` })
     .from(documents)
@@ -260,7 +242,7 @@ async function main() {
 
     const dead = docs.filter((d) => !liveIds.has(d.sourceId));
 
-    if (dead.length === 0) continue; // healthy thread — stay quiet
+    if (dead.length === 0) continue;
 
     threadsWithDead++;
     totalDead += dead.length;

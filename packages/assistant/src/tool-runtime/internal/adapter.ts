@@ -19,13 +19,7 @@ export interface RejectedToolResult {
   retryPolicy: "do_not_retry_identical";
 }
 
-/**
- * A `staging: "question"` call the user dismissed or let expire (ADR-0099).
- * The row reached `rejected` or `expired` by the same route as a vetoed write,
- * but it rides its own `unanswered` dispatch kind: the model must read it as
- * "no answer", and the chat card, the tool-call log, and the metrics must not
- * count it as a failed call. The envelope fields are the rejection's.
- */
+/** A dismissed or expired question (ADR-0099). Not a failed call anywhere downstream. */
 export type UnansweredQuestionsToolResult = AskUserUnansweredResult &
   Pick<RejectedToolResult, "toolName" | "retryPolicy">;
 
@@ -98,12 +92,8 @@ export type ToolCallDispatchResult =
       kind: "not_allowed";
       result: NotAllowedToolResult;
       /**
-       * The availability evaluator's own code when the floor refused on
-       * connection health — the fact the `{status:"not_allowed"}` envelope
-       * collapses away. Carried beside (never inside) `result`, so the
-       * model-facing transcript envelope is unchanged; only the client-facing
-       * connect nudge (#378 item 3) derives from it. Absent on workflow-cap
-       * and resource-scope refusals, which are policy, not connection health.
+       * Set only for a connection-health refusal. Kept outside `result` so the
+       * model-facing envelope stays the same; the connect nudge reads it.
        */
       unavailability?: ToolUnavailabilityCode;
     }

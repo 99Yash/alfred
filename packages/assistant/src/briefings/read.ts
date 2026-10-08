@@ -26,36 +26,23 @@ import {
 import { inZone } from "@alfred/assistant/time";
 
 /**
- * Read-side helpers for the LLM-composed daily briefing.
- *
- * The watermark contract is the spine of this whole flow: each run for a
- * given `(user_id, slot)` consumes a delta — `documents.ingested_at >
- * last terminal `briefings.watermark_at`. Only sent/suppressed rows
- * advance that watermark; composed/failed rows are reprocessed.
- *
- * `list_prior_briefings` is the memory side — the agent reads its own
- * recent compositions so an evening briefing can reference what the
- * morning surfaced ("Morning mentioned the Deepanshu follow-up...")
- * without re-deriving from the inbox.
+ * Read helpers for the daily briefing.
+ * Each run for `(user_id, slot)` reads documents ingested after the last
+ * sent or suppressed `watermark_at`. Composed and failed rows are reprocessed.
  */
 
 const PRIOR_BRIEFINGS_DEFAULT_LIMIT = 5;
 
 const EMAIL_LIST_DEFAULT_LIMIT = 60;
 
-/** Metadata-only page size while skipping standing-instruction-suppressed senders. */
+/** Larger page while skipping suppressed senders. */
 const EMAIL_LIST_SUPPRESSION_PAGE_SIZE = 200;
 
 const READ_EMAIL_BODY_CHAR_CAP = 8_000;
 
-/**
- * Lookback for the "already surfaced" continuation signal. 16h spans both
- * directions that produce same-thread repetition across consecutive briefings:
- * this morning → this evening (~10h) and last night → this morning (~12h).
- */
+/** 16h covers both morning to evening (~10h) and last night to morning (~12h). */
 const SURFACED_LOOKBACK_MS = 16 * 60 * 60 * 1000;
 
-/** Only the last few terminal briefings can fall inside the lookback window. */
 const SURFACED_LOOKBACK_LIMIT = 4;
 
 export interface EmailListItem {
@@ -68,45 +55,21 @@ export interface EmailListItem {
   authoredAt: Date | null;
   ingestedAt: Date;
   /**
-   * The email's receipt time rendered as wall-clock in the user's timezone
-   * (e.g. "Fri, Jun 26, 3:10 AM") — the signal the agent phrases from (#284).
-   * Sourced from Gmail `internalDate`, not the sender-controlled RFC `Date`
-   * header. Null when the caller passes no timezone or the Gmail receipt
-   * timestamp is unavailable — the agent should then not assert a receipt time.
+   * Receipt time in the user's zone, from Gmail `internalDate`, not the sender's `Date` header.
+   * Null when there is no timezone or receipt time.
    */
   receivedAtLocal: string | null;
-  /**
-   * Gmail read-state derived from the message's `UNREAD` label (#284):
-   * `true` = still unread, `false` = the user has opened it (label removed),
-   * `null` = no label signal captured, so read-state is unknown. The agent
-   * must NOT assume unseen: soften a `false` item from a fresh ask toward
-   * "for reference," and never assert the user has/hasn't seen a `null` one.
-   */
+  /** `UNREAD` label present. Null when no labels were captured, so read-state is unknown. */
   unread: boolean | null;
   threadId: string | null;
   /**
-   * True when this email's underlying *loop* already went out in a recent
-   * terminal briefing (within {@link SURFACED_LOOKBACK_MS}). "Loop" is broader
-   * than the Gmail thread: a match on either the thread id **or** a stable
-   * loop/entity key ({@link deriveLoopKey}) counts, so a collaboration tool
-   * re-notifying about the same task/PR on a *new* thread is still recognized
-   * as a continuation (#283). The agent should close the loop on it ("still no
-   * reply") or drop it, never re-introduce it as fresh — that morning/evening
-   * duplication is what erodes trust. Computed deterministically from prior
-   * briefings' persisted `gather`, not from LLM prose-matching.
+   * This loop went out in a recent sent briefing. Matches on thread id or
+   * {@link deriveLoopKey}, so a tool that re-notifies on a new thread still counts.
    */
   previouslySurfaced: boolean;
-  /**
-   * Presentation-layer demand band (ADR-0064 / #210) — `demanding | normal |
-   * muted`, computed cross-row over the window via the shared scorer (category
-   * base × recurrence decay; significance is folded in at Phase B). A `muted`
-   * item is recurring machine noise / low-signal: the agent should not surface
-   * it as demanding. Like {@link EmailListItem.previouslySurfaced}, this is a
-   * deterministic ranking hint layered on top of the honest, immutable
-   * `triageCategory` — it never re-tags.
-   */
+  /** Demand band (ADR-0064). A ranking hint only. It never changes `triageCategory`. */
   attentionBand: AttentionBand;
-  /** Character length of the full body. Lets the agent decide when read_email is worth a tool call. */
+  /** Lets the agent decide if a `read_email` call is worth it. */
   contentLength: number;
 }
 
@@ -116,7 +79,6 @@ export interface EmailReadResult {
   from: string | null;
   authoredAt: Date | null;
   body: string;
-  /** True when the body was truncated to fit the cap. */
   truncated: boolean;
 }
 
@@ -133,12 +95,9 @@ interface ListEmailsSinceArgs {
   userId: string;
   /** Exclusive lower bound; pass the previous run's `watermark_at`. Null = no lower bound. */
   sinceIngestedAt: Date | null;
-  /** Inclusive upper bound. Defaults to now — the agent should freeze this per run. */
+  /** Inclusive upper bound. Freeze it per run. */
   untilIngestedAt: Date;
-  /**
-   * User's IANA timezone — used to render each item's `receivedAtLocal`. Omit
-   * (e.g. in DB-only tests) and `receivedAtLocal` stays null.
-   */
+  /** Renders `receivedAtLocal`. Omit it and `receivedAtLocal` stays null. */
   timezone?: IanaTimezone;
   limit?: number;
 }
@@ -173,15 +132,9 @@ export async function listEmailsSinceWatermark(
   }
 
   const [surfaced, suppressionInstructions] = await Promise.all([
-    // Anchor the lookback on the run's frozen "until" instant so the signal is
-    // deterministic with the rest of the window, not wall-clock at map time.
+    // Anchor on the frozen "until" so the signal does not depend on wall-clock time.
     listRecentlySurfacedKeys({ userId: args.userId, before: args.untilIngestedAt }),
-    // Standing instructions that exclude a sender from briefing priority. The
-    // briefing AGENT composes from THIS list, so the suppression must be applied
-    // here too — `gather` filters its own deterministic payload, but the prose
-    // is written off `list_emails_since`, and without this a suppressed sender
-    // (e.g. one the user just told Alfred to stop surfacing) leaks straight back
-    // into the headline.
+    // The agent writes prose from this list, not from `gather`, so suppression applies here too.
     listActiveSuppressionInstructions(args.userId),
   ]);
 
@@ -223,8 +176,7 @@ export async function listEmailsSinceWatermark(
     if (page.length === 0) break;
     offset += page.length;
 
-    // Drop suppressed senders before scoring so they neither surface nor skew
-    // the cross-row recurrence signal. Mirrors the same filter in `gather`.
+    // Drop suppressed senders before scoring so they do not skew recurrence.
     for (const row of page) {
       if (hasSuppression) {
         const from = parseGmailDocumentMetadata(row.metadata).from;
@@ -249,12 +201,8 @@ export async function listEmailsSinceWatermark(
   const metas = rows.map((r) => parseGmailDocumentMetadata(r.metadata));
   const senders = metas.map((meta) => meta.from ?? null);
 
-  // Phase B (ADR-0064): fetch each distinct sender's precomputed significance so
-  // the scorer demotes low-significance cold senders *within* their honest
-  // category (the cold LinkedIn `awaiting_reply` drops to the ambient tail; a
-  // known-important sender keeps it demanding). One read per distinct address,
-  // deduped; an unscored / non-human / unknown sender degrades to neutral —
-  // exactly the Phase-A intrinsic-only behavior.
+  // Significance demotes cold senders inside their category (ADR-0064).
+  // An unscored sender is neutral.
   const significanceByAddress = await loadSignificanceBands(args.userId, senders);
 
   const bandFor = (from: string | null): SignificanceBand | null => {
@@ -263,26 +211,21 @@ export async function listEmailsSinceWatermark(
     return address ? (significanceByAddress.get(address) ?? null) : null;
   };
 
-  // Score the window together so recurrence (a cross-row property) is computed
-  // off the same rows the agent sees. Untriaged rows (the defensive left-join
-  // miss) carry no demand signal → `normal`, never demoted on a guess.
+  // Score the whole window together: recurrence is cross-row. Untriaged rows stay `normal`.
   const attention = scoreAttentionForItems(
     rows.map((r, i) => ({
       sender: senders[i],
       subject: r.subject,
       category: toTriageCategory(r.triageCategory) ?? "fyi",
       significanceBand: bandFor(senders[i] ?? null),
-      // Chronological key for recurrence (rows arrive newest-first); fall back
-      // to ingest time when the message carries no authored timestamp.
+      // Rows arrive newest-first.
       occurredAtMs: (r.authoredAt ?? r.ingestedAt)?.getTime() ?? null,
     })),
   );
 
   return rows.map((r, i) => {
     const meta = metas[i] ?? {};
-    // A recent briefing may have surfaced this same loop under a *different*
-    // Gmail thread (a collaboration tool re-notifying about the same task/PR on
-    // a fresh thread — #283), so match on either the thread id or the loop key.
+    // Match on thread id or loop key: a tool can re-notify on a new thread.
     const loopKey = deriveLoopKey(r.subject, { sender: senders[i] ?? null });
     const surfacedByThread = r.sourceThreadId ? surfaced.threadIds.has(r.sourceThreadId) : false;
     const surfacedByLoop = loopKey ? surfaced.loopKeys.has(loopKey) : false;
@@ -310,30 +253,18 @@ export async function listEmailsSinceWatermark(
   });
 }
 
-/** A triage category string narrowed to the contract enum, or null if unknown/absent. */
 function toTriageCategory(category: string | null): TriageCategory | null {
   return isTriageCategory(category) ? category : null;
 }
 
-/**
- * Gmail read-state from a document's stored `labelIds` (#284). The ingestor
- * persists `metadata.labelIds` on every Gmail row; a message carries the
- * `UNREAD` label until it is opened. An absent/non-array value means no label
- * signal was captured (older rows, non-Gmail) → `null` (unknown), so the agent
- * neither asserts seen nor unseen. A present empty array is a captured "not
- * unread" state, matching the inbox reader.
- */
+/** Null when the row has no `labelIds` (older rows), so read-state is unknown. */
 function unreadFromLabels(labelIds: readonly string[] | undefined): boolean | null {
   return labelIds ? labelIds.includes("UNREAD") : null;
 }
 
 /**
- * Real Gmail receipt time, not the RFC `Date` header. Gmail's `internalDate`
- * is the inbox-ordering timestamp and, for normal SMTP mail, the instant Google
- * accepted the message. The query reads metadata going forward and falls back
- * to `raw.internalDate` so already-ingested rows get the same semantics. If
- * neither exists, return null rather than pretending `authoredAt` or
- * `ingestedAt` is a receipt timestamp.
+ * Gmail receipt time from `internalDate`, not the RFC `Date` header.
+ * Null when absent: `authoredAt` and `ingestedAt` are not receipt times.
  */
 function gmailReceivedAt(internalDate: string | null): Date | null {
   if (!internalDate) return null;
@@ -345,15 +276,7 @@ function gmailReceivedAt(internalDate: string | null): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/**
- * Resolve `address → SignificanceBand` for the distinct senders in a window.
- * Reads the precomputed significance scalar (ADR-0057/0059) for all distinct
- * addresses in one batched alias query via {@link getSenderSignificanceBatch} —
- * never recomputes, and avoids an N+1 over the (up to `limit`-many) senders one
- * `list_emails_since` tool call can surface. Senders with no graph row (or a row
- * not yet scored) are simply absent from the map, which the caller treats as
- * neutral (no demotion).
- */
+/** One batched read of precomputed significance. Missing senders are absent from the map. */
 async function loadSignificanceBands(
   userId: string,
   rawSenders: ReadonlyArray<string | null>,
@@ -381,41 +304,27 @@ async function loadSignificanceBands(
 
 /** One already-gathered priority email, reduced to the scorer's inputs. */
 export interface PriorityEmailDemandItem {
-  /** Raw `From` (display-name + address ok) — used for bulk + significance lookup. */
+  /** Raw `From`; a display name is fine. */
   sender: string | null;
   subject: string | null;
-  /** Short body/header context for category-specific pins such as payment failures. */
+  /** Context for pins such as payment failures. */
   snippet?: string | null;
-  /** The honest, immutable triage category — the demand floor. */
   category: TriageCategory;
-  /** Chronological key for recurrence (e.g. `authoredAt`); null falls back to input order. */
+  /** Null falls back to input order. */
   occurredAtMs: number | null;
 }
 
 export interface PriorityEmailDemand {
-  /** How many of the gathered priority emails scored at the `demanding` band. */
   demandingCount: number;
-  /** Highest band across the set — `muted` when the set is empty. */
+  /** `muted` when the set is empty. */
   topBand: AttentionBand;
 }
 
 /**
- * Score an already-gathered set of priority emails for the morning suppression
- * gate (#259 / ADR-0064). Uses the SAME windowed scorer + significance read the
- * agent's `list_emails_since` uses, so the deterministic send/suppress decision
- * and the agent's own ranking agree on what "demanding" means — the gate never
- * suppresses a day the agent would have led with, and never composes a day whose
- * only items the agent would drop.
- *
- * Recurrence is a cross-row property, so pass the WHOLE window's priority items
- * in one call (a machine notification fired ten times decays out of the
- * demanding lane here exactly as it does for the agent). Significance is
- * best-effort: an unscored / non-human sender degrades to the category floor.
- * Quiet `payment`/`follow_up` items stay below `demanding`, but payment items
- * that look failed/due/actionable are pinned demanding so we do not silently eat
- * a real billing problem. An unscored `awaiting_reply`/`action_needed` also
- * sends — ADR-0048's morning posture. A significance-read failure degrades the
- * whole set to intrinsic-only rather than failing the gather.
+ * Score gathered priority emails for the morning suppression gate (ADR-0064).
+ * Uses the same scorer as `list_emails_since`, so the gate and the agent agree on "demanding".
+ * Pass the whole window in one call: recurrence is cross-row.
+ * Failed or due payments pin to demanding. A significance read failure falls back to category only.
  */
 export async function scorePriorityEmailDemand(
   userId: string,
@@ -431,8 +340,7 @@ export async function scorePriorityEmailDemand(
       items.map((item) => item.sender),
     );
   } catch (err) {
-    // Never fail the whole briefing over a significance read — fall back to
-    // intrinsic-only scoring (today's Phase-A behavior).
+    // Never fail the briefing over significance.
     console.warn("[briefing.read] significance unavailable for suppression gate:", toMessage(err));
   }
 
@@ -480,20 +388,10 @@ function isDemandingPayment(item: PriorityEmailDemandItem): boolean {
 }
 
 /**
- * Morning suppression predicate (#259 / ADR-0064). A cron morning is "quiet" —
- * suppressing without an LLM call — when nothing in the window demands the user:
- * no priority email at the `demanding` attention band, no integration activity,
- * and no calendar events. `demandingEmailCount` is the attention-aware
- * replacement for the old raw priority-email count — a normal/muted item (a
- * resolved micro-charge, a cold ask, a bot digest once significance demotes it)
- * no longer forces a send and promotes itself to the headline. Pure so the
- * suppression invariant is unit-pinned.
- *
- * When the attention signal is unavailable (`demandingEmailCount` undefined —
- * a legacy gather or a failed day-shape), fall back to the raw email count so a
- * signalless day still sends if anything landed: erring toward sending is
- * ADR-0048's morning posture, and the wrong direction to fail is a silent
- * suppression that eats a real briefing.
+ * Morning is quiet, and suppresses without an LLM call, when nothing is demanding,
+ * there is no integration activity, and no meetings (ADR-0064).
+ * With no attention signal, fall back to the raw email count:
+ * a false send is better than a silent suppression (ADR-0048).
  */
 export function isQuietMorning(args: {
   demandingEmailCount: number | undefined;
@@ -508,31 +406,19 @@ export function isQuietMorning(args: {
     : args.emailCount === 0;
 }
 
-/** Both continuation signals a recent briefing left behind for the next slot. */
 export interface SurfacedKeys {
-  /** Gmail thread ids surfaced in a recent terminal briefing. */
   threadIds: Set<string>;
-  /**
-   * Stable loop/entity keys ({@link deriveLoopKey}) of those items — the signal
-   * that recognizes a re-notification of the same task/PR on a *new* thread
-   * (#283). Derived from each item's persisted `subject`, so it lines up with
-   * the current-window derivation in {@link listEmailsSinceWatermark}.
-   */
+  /** {@link deriveLoopKey} of each item's persisted `subject`. Catches a re-notify on a new thread. */
   loopKeys: Set<string>;
 }
 
 /**
- * The thread ids **and** loop keys actually surfaced in a recent terminal
- * briefing — the sets the next slot should treat as continuations, not fresh
- * items. Sourced from the delivered briefing's persisted
- * `fullBriefing.surfacedDocumentIds`, then resolved back through
- * `gather.email.categories[*][]`. This is the deterministic backbone of the
- * `previouslySurfaced` flag on {@link EmailListItem}; it replaces relying on
- * the agent to fuzzy-match prose across `list_prior_briefings`.
+ * Threads and loop keys that a recent sent briefing actually cited.
+ * Backs `previouslySurfaced`, so the agent does not have to match prose.
  */
 async function listRecentlySurfacedKeys(args: {
   userId: string;
-  /** Upper bound the lookback window subtracts from — pass the run's frozen "until". */
+  /** Pass the run's frozen "until". */
   before: Date;
   lookbackMs?: number;
 }): Promise<SurfacedKeys> {
@@ -555,12 +441,7 @@ async function listRecentlySurfacedKeys(args: {
   return collectSurfacedKeys(rows);
 }
 
-/**
- * Pure extraction of every thread id referenced across a set of gather
- * payloads. Split out from {@link listRecentlySurfacedKeys} so the dedup
- * core is unit-testable without a database. Null gathers (suppressed rows that
- * never gathered) and per-category absences are tolerated.
- */
+/** Every thread id across gathers. Only tests call this. */
 export function collectSurfacedThreadIds(gathers: Array<BriefingGather | null>): Set<string> {
   const ids = new Set<string>();
 
@@ -579,11 +460,7 @@ export function collectSurfacedThreadIds(gathers: Array<BriefingGather | null>):
   return ids;
 }
 
-/**
- * Pure extraction of every loop/entity key across a set of gather payloads.
- * Legacy helper kept for narrow unit coverage; the production continuation
- * signal uses {@link collectSurfacedKeys}, which filters to actual cited docs.
- */
+/** Every loop key across gathers. Only tests call this; production uses {@link collectSurfacedKeys}. */
 export function collectSurfacedLoopKeys(gathers: Array<BriefingGather | null>): Set<string> {
   const keys = new Set<string>();
 
@@ -610,9 +487,8 @@ export interface SurfacedBriefingPayload {
 }
 
 /**
- * Extract continuation signals only for email documents the delivered prose
- * actually cited. Gather can hold many priority candidates the model chose to
- * omit; those must not become "already told you" suppressors for the next slot.
+ * Continuation keys only for emails the prose cited.
+ * An uncited gather candidate must not suppress the next slot.
  */
 export function collectSurfacedKeys(rows: ReadonlyArray<SurfacedBriefingPayload>): SurfacedKeys {
   const threadIds = new Set<string>();
@@ -696,7 +572,7 @@ export async function readEmailDocument(args: {
 interface ListPriorBriefingsArgs {
   userId: string;
   limit?: number;
-  /** Optional slot filter — null returns both slots interleaved. */
+  /** Null returns both slots. */
   slot?: BriefingSlot | null;
 }
 
@@ -736,11 +612,7 @@ export async function listPriorBriefings(
   }));
 }
 
-/**
- * Latest watermark for a (user, slot) pair. Null when this slot has
- * never reached a terminal consumed state for the user — the first-run
- * case picks up emails from the start of the day.
- */
+/** Null when this slot never reached a terminal state; gather then looks back 24h. */
 export async function fetchLatestWatermark(args: {
   userId: string;
   slot: BriefingSlot;

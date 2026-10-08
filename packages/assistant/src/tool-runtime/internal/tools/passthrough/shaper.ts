@@ -7,15 +7,10 @@ import {
 import { boundPassthroughBody } from "./bounds";
 
 /**
- * The result shaper — the pure boundary that turns a provider outcome into the
- * honest {@link PassthroughResult} envelope (ADR-0071 #6). It never touches the
- * network: the transport adapter reads the `Response` / catches the transport
- * error and hands the *already-parsed* pieces here, so the shaper stays pure and
- * exhaustively unit-testable. The envelope is explicit about non-completion so
- * the boss never mistakes a wrong-path error for "nothing exists".
+ * Turn a parsed provider outcome into a {@link PassthroughResult} (ADR-0071 #6).
+ * The envelope marks non-completion, so a wrong-path error never reads as "nothing exists".
  */
 
-/** Build the visible rejection envelope from a read-gate denial. */
 export function passthroughRejection(
   gate: Extract<ReadGateResult, { ok: false }>,
 ): PassthroughResult {
@@ -23,22 +18,14 @@ export function passthroughRejection(
 }
 
 export interface HttpResultArgs {
-  /** Real HTTP status — for GraphQL this is usually 200 even with errors. */
+  /** GraphQL usually answers 200 even with errors. */
   status: number;
-  /** Parsed JSON value, or bounded text string, for the response body. */
   body: unknown;
-  /**
-   * For GraphQL: whether the response carried a non-empty `errors[]`. A partial
-   * response (`data` *and* `errors[]`) sets `succeeded: false` but keeps the
-   * partial `data` in `body` — read both, trust neither as complete.
-   */
+  /** A partial GraphQL response keeps its `data` but sets `succeeded: false`. */
   graphqlHasErrors?: boolean;
 }
 
-/**
- * Shape a completed HTTP exchange (including 4xx/5xx and GraphQL partials). The
- * body is sanitized + bounded here; a clip attaches the truncation thermometer.
- */
+/** Any HTTP response, 4xx/5xx included. A clipped body carries `truncation`. */
 export function passthroughHttpResult(args: HttpResultArgs): PassthroughResult {
   const succeeded = args.status >= 200 && args.status < 300 && args.graphqlHasErrors !== true;
   const bounded = boundPassthroughBody(args.body);
@@ -52,11 +39,7 @@ export function passthroughHttpResult(args: HttpResultArgs): PassthroughResult {
   };
 }
 
-/**
- * Shape a binary/non-text response. Bytes never enter the transcript: represent
- * it by content type + declared/observed byte count and set `succeeded: false`
- * (actual download/export stays in the curated tier).
- */
+/** Bytes never enter the transcript. Downloads stay in the curated tools. */
 export function passthroughBinaryResult(args: {
   status: number;
   contentType: string;
@@ -75,7 +58,7 @@ export function passthroughBinaryResult(args: {
   };
 }
 
-/** timeout/connection-reset are transient; dns/tls won't fix on an in-turn retry. */
+/** A DNS or TLS failure will not fix itself on an in-turn retry. */
 const RETRYABLE_TRANSPORT = {
   timeout: true,
   connection_reset: true,
@@ -83,7 +66,7 @@ const RETRYABLE_TRANSPORT = {
   tls: false,
 } satisfies Record<TransportErrorKind, boolean>;
 
-/** Shape a transport failure (request left Alfred, no HTTP response arrived). */
+/** The request left Alfred but no HTTP response arrived. */
 export function passthroughTransportError(
   kind: TransportErrorKind,
   message: string,

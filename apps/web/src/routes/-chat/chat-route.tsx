@@ -6,13 +6,8 @@ import { ChatShell } from "./chat-shell";
 export function ChatRoute() {
   const hasChild = useChildMatches().length > 0;
 
-  // Own the tab title for the bare `/chat` (new chat) surface. The `/chat`
-  // route's static `head` seeds "Chat · Alfred", but when landing here from a
-  // thread that head doesn't re-run (the parent match was already active) and
-  // `ChatThreadRoute`'s imperative `document.title` lingers. Restoring it here
-  // — rather than in a thread-route cleanup — keeps us from clobbering a
-  // different destination route's title, since this only writes while `/chat`
-  // is the active route.
+  // Coming from a thread, the `/chat` head does not re-run, so the thread's title lingers.
+  // Reset it here, not in a thread cleanup that could overwrite another route's title.
   useEffect(() => {
     if (!hasChild) document.title = formatPageTitle("Chat");
   }, [hasChild]);

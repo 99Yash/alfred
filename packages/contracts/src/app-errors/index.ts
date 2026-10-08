@@ -1,30 +1,7 @@
 /**
- * The public failure catalog.
- *
- * Every failure that crosses a boundary (the model transcript, the client, the
- * `execute_error` column) is minted here and nowhere else. A public failure
- * carries three things: a `code` from this closed catalog, a `message` that the
- * code decides, and a `fix` a machine can read. Arbitrary exception text never
- * crosses a boundary (the catalog is the transcript-side twin of the ADR-0070
- * persistence rail), and a consumer never sniffs the message to decide what to
- * do (ADR-0072) — it switches on `fix.kind`.
- *
- * Three rules keep a parametrized message as safe as the old literal one:
- *
- *   - `params` are closed enums or numbers, never free strings. The
- *     {@link ClosedParamSchema} constraint rejects a `z.string()` param at the
- *     type level, so a provider's scope list or an exception message cannot
- *     re-enter the transcript through a template.
- *   - `params` are parsed by the entry's own schema every time a failure is
- *     minted, not only on replay. A widened `AppErrorCode` lets a caller reach
- *     a parametrized entry with no params (or with an `ErrorOptions` object in
- *     the params slot); the parse turns that into a loud `TypeError` instead
- *     of a message that reads `undefined` and a `params` object that carries
- *     the cause.
- *   - `message` is branded. Only the catalog can mint one, so a
- *     `{ code, message: err.message }` literal does not type-check at the
- *     persistence door.
- *
+ * The public failure catalog. Every failure that leaves its code (transcript,
+ * client, `execute_error`) is minted here, so exception text never leaks (ADR-0070/0072).
+ * Params are enums or numbers only, are parsed on every mint, and the message is branded.
  * Design: `docs/plans/typed-failures-v1.md`.
  */
 import { z } from "zod";
@@ -39,12 +16,7 @@ import {
 
 const integrationSlug = z.enum(INTEGRATION_SLUGS);
 
-/**
- * How a human or the model can act on a failure. Closed: every consumer
- * switches on `kind` with a `never` guard, so a new remediation kind fails each
- * consumer until it handles it. The web retry button and the connect nudge are
- * projections of this value, not sources of their own.
- */
+/** How a human or the model can act on a failure. Consumers switch on `kind`. */
 export type Fix =
   | { kind: "connect"; integration: IntegrationSlug }
   | { kind: "reconnect"; integration: IntegrationSlug }
@@ -53,9 +25,7 @@ export type Fix =
   | { kind: "start_new_thread" }
   | { kind: "none" };
 
-// A `Record` over the union, not an array `satisfies` a membership check: the
-// record fails to compile when a kind is missing AND when one is extra, so the
-// list below cannot lag the type in either direction.
+// A record, not an array, so a missing or an extra kind fails to compile.
 const FIX_KIND_SET = {
   connect: true,
   reconnect: true,
@@ -71,10 +41,7 @@ export const FIX_KINDS: readonly Fix["kind"][] =
 
 export const isFixKind = enumGuard(FIX_KINDS);
 
-/**
- * The only zod shapes a catalog param may take. A bare `z.string()` is not in
- * this union on purpose — see the module header.
- */
+/** No `z.string()`: free text must not reach the transcript through a template. */
 type ClosedParamSchema =
   | z.ZodEnum
   | z.ZodNumber
@@ -83,7 +50,6 @@ type ClosedParamSchema =
 
 type ClosedParamsSchema = z.ZodObject<Record<string, ClosedParamSchema>>;
 
-/** What every value of a parsed `ClosedParamsSchema` is once `undefined` is dropped. */
 type RenderedParams = Record<string, string | number>;
 
 interface Rendered {
@@ -99,16 +65,11 @@ interface StaticEntry {
   readonly fix: Fix;
 }
 
-/**
- * A parametrized entry. Only {@link withParams} builds one, and it closes over
- * the schema and the two callbacks together, so the schema that validates the
- * params is the same one that types them. `params` stays visible so
- * {@link AppErrorParams} can read the schema's output type off the catalog.
- */
+/** Built only by `withParams`, so one schema both validates and types the params. */
 interface ParamEntry<S extends ClosedParamsSchema = ClosedParamsSchema> {
   readonly params: S;
   readonly why: string;
-  /** Validate `params` against `this.params` and render; `undefined` when they fail. */
+  /** `undefined` when `params` fail the schema. */
   readonly render: (params: unknown) => Rendered | undefined;
 }
 
@@ -139,10 +100,7 @@ function withParams<S extends ClosedParamsSchema>(
   };
 }
 
-/**
- * An optional param that was absent parses to `undefined`; drop it so the
- * rendered `params` stays a JSON object with no undefined values.
- */
+/** Drop absent optional params so the result is clean JSON. */
 function definedParams(parsed: z.output<ClosedParamsSchema>) {
   return Object.fromEntries(
     Object.entries(parsed).filter(
@@ -151,7 +109,6 @@ function definedParams(parsed: z.output<ClosedParamsSchema>) {
   );
 }
 
-/** Identity with a constraint: the value is the catalog, the type is the check. */
 function defineFailureCatalog<const C extends Record<string, CatalogEntry>>(catalog: C): C {
   return catalog;
 }
@@ -241,7 +198,7 @@ export type AppErrorParams<C extends AppErrorCode> = (typeof APP_ERROR_REGISTRY)
   ? z.output<S>
   : never;
 
-/** The codes that take no params — the only legal fallback codes. */
+/** Codes with no params. Only these can be a fallback. */
 export type StaticAppErrorCode = {
   [C in AppErrorCode]: [AppErrorParams<C>] extends [never] ? C : never;
 }[AppErrorCode];
@@ -253,10 +210,9 @@ type AppErrorArgs<C extends AppErrorCode> = [AppErrorParams<C>] extends [never]
 
 declare const publicMessageBrand: unique symbol;
 
-/** A message rendered by the catalog. The brand is what keeps `err.message` out. */
+/** Branded so a raw `err.message` cannot pass as a public message. */
 export type PublicAppErrorMessage = string & { readonly [publicMessageBrand]: true };
 
-/** The one shape a failure has once it leaves the code that raised it. */
 export type PublicAppError = {
   readonly code: AppErrorCode;
   readonly params?: RenderedParams;
@@ -276,20 +232,13 @@ function isParamEntry(entry: CatalogEntry): entry is ParamEntry {
   return "params" in entry;
 }
 
-/**
- * The only place a string becomes a public message. Every caller is
- * {@link renderEntry}, which reads the string from the catalog itself.
- */
+/** Call only from `renderEntry`, which reads the string from the catalog. */
 function brand(message: string): PublicAppErrorMessage {
-  // SAFETY: the brand certifies "rendered by the catalog"; see the doc comment.
+  // SAFETY: the only caller passes catalog text.
   return message as PublicAppErrorMessage;
 }
 
-/**
- * Render one entry, or `undefined` when a parametrized entry rejects `params`.
- * Every `PublicAppError` in the system comes through here, which is what makes
- * the message brand truthful. A static entry ignores `params`.
- */
+/** `undefined` when a parametrized entry rejects `params`. A static entry ignores them. */
 function renderEntry(code: AppErrorCode, params: unknown): PublicAppError | undefined {
   const entry: CatalogEntry = APP_ERROR_REGISTRY[code];
 
@@ -301,11 +250,7 @@ function renderEntry(code: AppErrorCode, params: unknown): PublicAppError | unde
   return { code, params: rendered.params, message: brand(rendered.message), fix: rendered.fix };
 }
 
-/**
- * Mint a failure from code that knows what it is throwing. Bad params are a
- * programming error here, so they throw. The `TypeError` names the code and
- * nothing else: the rejected params are the very value that must not leak.
- */
+/** Bad params throw. The error names only the code, because the params may leak data. */
 function mint(code: AppErrorCode, params: unknown): PublicAppError {
   const rendered = renderEntry(code, params);
 
@@ -313,7 +258,7 @@ function mint(code: AppErrorCode, params: unknown): PublicAppError {
   throw new TypeError(`AppError "${code}" was minted with params that fail its schema`);
 }
 
-/** A public error minted directly from a code — the "there was no thrown error" form. */
+/** Mint a public error when nothing was thrown. */
 export function publicAppError<C extends AppErrorCode>(
   code: C,
   ...rest: [AppErrorParams<C>] extends [never] ? [] : [params: AppErrorParams<C>]
@@ -328,10 +273,7 @@ export class AppError<C extends AppErrorCode = AppErrorCode> extends Error {
 
   constructor(code: C, ...rest: AppErrorArgs<C>) {
     const entry: CatalogEntry = APP_ERROR_REGISTRY[code];
-    // `AppErrorArgs` is only trustworthy for a literal code. For a widened
-    // `AppErrorCode` the conditional collapses to one arm, so the entry shape,
-    // not the tuple type, decides which slot holds params and which holds
-    // options. `args` is `unknown[]` on purpose: `mint` parses the params slot.
+    // A widened `AppErrorCode` breaks `AppErrorArgs`, so the entry shape picks the params slot.
     const args: readonly unknown[] = rest;
 
     const [params, options] = isParamEntry(entry)
@@ -351,25 +293,9 @@ function asErrorOptions(value: unknown): ErrorOptions | undefined {
 }
 
 /**
- * Project a caught value through the catalog. An `AppError` keeps its own
- * public shape; anything else becomes `fallback`, so exception text never
- * reaches persistence or the model.
- *
- * One exception sits between the two: an {@link HttpError} whose status says
- * the provider rejected the REQUEST rather than the caller
- * (`perInputPermanent` — 400/413/422). That is not the unclassified class the
- * fallback stands for, and the difference is the one the reader acts on: the
- * fallback advises `retry`, so the model repeats a call that can only fail
- * again. Observed on `github.search`, which sent GitHub a malformed boolean
- * group, read "please try again", and re-sent the same malformed group twice.
- *
- * Only the per-input class is lifted. A 401/403 (a revoked credential) or a
- * 404 (an endpoint change) still falls through to the caller's `fallback`,
- * which is where a `reconnect` decision belongs — a fan-out reader that maps
- * its failures to `account_read_failed` keeps doing so for exactly those.
- *
- * `status` is a number and `integration` is a closed enum, so the lift obeys
- * the module header's rule: no upstream body text rides into the transcript.
+ * An `AppError` keeps its shape. Anything else becomes `fallback`, except a
+ * per-input `HttpError` (400/413/422): `retry` would make the model resend a call
+ * that cannot pass, so it gets `correct_input`.
  */
 export function toPublicAppError(
   err: unknown,
@@ -379,8 +305,7 @@ export function toPublicAppError(
 
   if (isHttpError(err) && err.perInputPermanent) {
     return publicAppError("upstream_rejected_input", {
-      // A provider label that is not a slug (an embedding vendor, say) renders
-      // the generic wording rather than dropping the classification.
+      // A provider that is not a slug, such as an embedding vendor, gets generic wording.
       ...(isIntegrationSlug(err.provider) ? { integration: err.provider } : {}),
       status: err.status,
     });
@@ -389,13 +314,7 @@ export function toPublicAppError(
   return fallback;
 }
 
-/**
- * Re-mint a persisted `execute_error` for replay. The stored `{ code, params }`
- * is re-validated against the entry's own schema, so a legacy row (a deleted
- * code, raw exception text) or a poisoned param (a slug that is not in the
- * enum, a NUL byte) replays as the generic fallback and never as its stored
- * text. `message` and `fix` are re-derived, not trusted from the row.
- */
+/** Re-mint a stored `execute_error`. Bad or old rows become the fallback; stored text is never trusted. */
 export function publicAppErrorFromStored(stored: unknown): PublicAppError {
   const fallback = publicAppError(FALLBACK_APP_ERROR_CODE);
 

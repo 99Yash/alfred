@@ -1,5 +1,4 @@
-// Client-side env vars are read via import.meta.env in the web app directly.
-// This module exposes defaults for shared reference.
+// The web app reads `import.meta.env` directly. These are only the defaults.
 export const CLIENT_DEFAULTS = {
   VITE_API_URL: "http://localhost:3001",
 } as const;

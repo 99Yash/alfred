@@ -20,11 +20,7 @@ export function RiskPill({ riskTier }: { riskTier: ToolRiskTier }) {
   return <AppPill tone={TONE[riskTier]}>{LABEL[riskTier]}</AppPill>;
 }
 
-/**
- * Static (non-interactive) tier chip for embedding inside interactive rows —
- * e.g. the approval card's accordion trigger, where a nested `<button>`
- * (AppPill) would be invalid HTML. Same tone mapping as {@link RiskPill}.
- */
+/** Non-interactive tier chip, for use inside a button where AppPill would nest one. */
 export function RiskChip({ riskTier }: { riskTier: ToolRiskTier }) {
   const tone = TONE[riskTier];
 

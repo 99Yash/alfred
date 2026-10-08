@@ -5,15 +5,8 @@ import { APP_TINTS } from "~/lib/tints";
 import type { AppTint } from "~/lib/tints";
 
 /**
- * One step in a `RunGroup` — a tool/integration call, search, or write.
- *
- * Two visual modes:
- *  - `integration`: brand-colored SVG (Gmail/Calendar/Slack/…) on a neutral
- *    chip. Use whenever the row represents a call against a connected
- *    integration so the user recognizes the source at a glance.
- *  - `icon` + `tone`: Lucide icon on a toned chip. Use for internal Alfred
- *    actions (memory recall, sender resolution, tag/label writes that aren't
- *    integration-scoped).
+ * One step in a `RunGroup`. `integration` shows a brand mark (calls to a
+ * connected integration); `icon` + `tone` is for internal Alfred actions.
  */
 type ToolRowProps =
   | {
@@ -73,7 +66,6 @@ export function ToolRow(props: ToolRowProps) {
 }
 
 export function SearchRow(props: Omit<ToolRowProps, "done">) {
-  // SAFETY: SearchRow supplies `done` itself; props carries every other
-  // ToolRowProps member by the Omit type.
+  // SAFETY: SearchRow supplies `done`; the Omit type carries every other member.
   return <ToolRow {...(props as ToolRowProps)} done />;
 }

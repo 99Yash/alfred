@@ -18,16 +18,13 @@ import {
 
 export interface ChildRunOutcome {
   ok: boolean;
-  /** True once the child reached a terminal status (completed/failed/cancelled). */
+  /** The child is terminal. */
   done: boolean;
   status: string;
-  /** Present for a completed child — its run output. */
   output?: unknown;
-  /** Present for a failed child — its terminal error. */
   error?: unknown;
-  /** ms the child has been running, used by the await wait-ceiling. */
+  /** Checked against the join wait ceiling. */
   runningMs?: number | undefined;
-  /** Why the call could not return the child's result, if applicable. */
   reason?: string;
 }
 
@@ -38,16 +35,8 @@ export function isTerminalChildStatus(status: string): boolean {
 }
 
 /**
- * The join invariant shared by the two sites that can park a parent on a child:
- * the `await_sub_agent` tool (`resolveAwaitSubAgent`) and the chat-turn
- * finalization guard (`guardSpawnedChildren`). A parent must NEVER park when
- * there is already something to surface — true when the child is terminal, when
- * it is unreadable (ownership/lookup error), or when it has outrun the
- * wait-ceiling. In every one of those cases the caller hands back the outcome
- * (a real result, an error, or an honest still-running note) instead of parking
- * again. Centralized so the two join sites can't drift on *when* parking is safe
- * — drift there is what strands a parent in `waiting` (the timer is the only
- * thing that sweeps `waiting`, and a too-late re-park just resets it forever).
+ * Do not park when the child is terminal, unreadable, or past the wait ceiling; a re-park there
+ * could loop forever.
  */
 export function shouldResolveWithoutParking(outcome: ChildRunOutcome): boolean {
   return (
@@ -63,11 +52,8 @@ export interface SpawnedChildRun {
 }
 
 /**
- * List every sub-agent run spawned by `parentRunId` (terminal or not). Used by
- * the chat-turn finalization guard (ADR-0073) to detect children the boss
- * spawned but never awaited — so the parent turn cannot complete while its
- * children are still running. Keyed on the trusted `subAgent.parentRunId`
- * metadata pointer that `spawnSubAgent` stamps.
+ * Every child the run spawned, terminal or not, so a chat turn cannot end with children still
+ * running.
  */
 export async function listSpawnedChildRuns(parentRunId: string): Promise<SpawnedChildRun[]> {
   return await db()
@@ -76,14 +62,7 @@ export async function listSpawnedChildRuns(parentRunId: string): Promise<Spawned
     .where(subAgentParentRunIdMatches(parentRunId));
 }
 
-/**
- * Read a spawned child run's real outcome for a parent that is joining it
- * (ADR-0073). Enforces ownership: the child must be a sub-agent whose
- * `parentRunId` is the caller's run, so a boss cannot await an arbitrary run.
- * Returns `done:true` with the child's `status`/`output`/`error` once terminal,
- * else `done:false` with how long it has been running (the join site decides
- * whether to park or surface a still-running result).
- */
+/** Read a child's outcome. The child must belong to the caller, so a boss cannot await any run. */
 export async function readChildRunOutcome(args: {
   parentRunId: string;
   userId: string;
@@ -136,7 +115,7 @@ export async function spawnSubAgent(
     parentRunId: string;
     userId: string;
     parentToolCallId: string;
-    /** The parent's chat turn, when it has one — the child streams its trail there. */
+    /** The parent's chat turn, if any; the child streams its tool cards there. */
     chat?: SubAgentChatOrigin | undefined;
   },
 ): Promise<{
@@ -146,13 +125,8 @@ export async function spawnSubAgent(
   childRunId: string;
   subId: string;
 }> {
-  // #559b: the parent row is read FOR UPDATE and the child is inserted on the
-  // same transaction. A cancel of the parent holds that lock while it cascades
-  // to the children (`cancelSpawnedChildrenInTx`), so a spawn racing the cancel
-  // either lands first — and is cascaded — or blocks, then reads the terminal
-  // parent below and refuses. Reading the parent on its own connection would
-  // reopen exactly the window the cascade closes: a child born after the
-  // cascade listed the children, running on behalf of a cancelled boss.
+  // Lock the parent and insert the child in one tx (#559b). A racing cancel then either
+  // cascades to this child or makes the spawn see a terminal parent and refuse.
   type SubAgentSpawn = { status: "spawned" | "already_spawned"; childRunId: string };
 
   let spawn: SubAgentSpawn;
@@ -203,10 +177,7 @@ export async function spawnSubAgent(
       const created = await createRun(
         {
           userId: args.userId,
-          // Sub-agents always run the sub-agent-aware brief workflow — never the
-          // parent's own slug, which may be thread-coupled (chat-turn) and unable to
-          // initialize from a bare brief. For boss / authored parents this is the
-          // same workflow they already resolve to, so behavior is unchanged there.
+          // Never the parent's slug: chat-turn cannot start from a bare brief.
           workflowSlug: SUB_AGENT_WORKFLOW_SLUG,
           brief: args.brief,
           metadata,
@@ -222,15 +193,8 @@ export async function spawnSubAgent(
       return { status: "spawned" as const, childRunId: created.runId };
     });
   } catch (err) {
-    // The `findExistingSubAgentRun` guard above is a non-atomic check-then-
-    // create; a concurrent spawn for the same (parentRunId, parentToolCallId)
-    // — e.g. a false lease-reclaim double-executing `dispatch-tools` — can slip
-    // between the check and this insert. The sub-agent workflow's `dedupKey`
-    // puts a sub-agent-only unique index behind that race (#375 F1), so the
-    // losing insert throws 23505 here. Fold it into the already-spawned path:
-    // re-read the winner's row and enqueue it, so exactly one child is ever
-    // spawned. The re-read runs on a fresh connection because the unique
-    // violation has already aborted the transaction above.
+    // A racing spawn loses on the `dedupKey` index (#375). Re-read the winner on a new
+    // connection, because the violation aborted the tx.
     if (!isUniqueViolation(err)) throw err;
     const winner = await findExistingSubAgentRun(args);
 
@@ -238,8 +202,7 @@ export async function spawnSubAgent(
     spawn = { status: "already_spawned", childRunId: winner.id };
   }
 
-  // Outside the transaction: an enqueue that beat its own commit would hand
-  // the worker a run id no other connection can see yet.
+  // After commit, so the worker can see the row.
   await enqueueRun(spawn.childRunId, {
     jobId: subAgentJobId(args.parentRunId, args.parentToolCallId),
   });

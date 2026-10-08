@@ -1,28 +1,8 @@
 /**
- * Policy seeding and broker replacement for tests only, kept off the product door
- * (`@alfred/assistant/tool-runtime/mcp`) for the reason
- * `packages/assistant/src/action-policies/test-support.ts` states: a name only a
- * test wants should cost a subpath called `test-support`, not a place on the
- * interface production reads.
- *
- * `upsertToolPolicy` writes the reviewed-downgrade row that ADR-0088 makes the one
- * input able to lower an MCP call BELOW the risk floor. Production mints one
- * through `reviewMcpToolPolicy` in `policy.ts`, which owns the descriptor
- * binding; this export stays for fixtures that seed an exact row without a
- * review transaction.
- *
- * `_setMcpExecutionBrokerForTests` drops the process-lifetime broker singleton.
- * Nothing in `src` replaces it, and the same rule already put its twin
- * `_setMcpConnectionManagerForTests` behind
- * `@alfred/assistant/connections/mcp/test-support`: the two singletons are
- * independent since the module split, so replacing either one from product code
- * would leave the other holding a stale view of the same connection.
- *
- * This module is behind an exact `exports` key, but note the door beside it is
- * tier 4, not tier 1: `"./tool-runtime/*"` already republishes every leaf under the
- * directory, so `invocations` itself resolves regardless. Campaign item 79 owns
- * narrowing that wildcard; until it lands this file is a convention, and after it
- * lands it becomes the fence it reads as.
+ * Test-only MCP helpers, kept off the product door like `action-policies/test-support.ts`.
+ * `upsertToolPolicy` seeds an exact review row; production goes through `reviewMcpToolPolicy`.
+ * `_setMcpExecutionBrokerForTests` replaces the broker singleton. Its twin
+ * `_setMcpConnectionManagerForTests` is in `@alfred/assistant/connections/mcp/test-support`.
  */
 
 import { db } from "@alfred/db";
@@ -53,10 +33,8 @@ type TestInvocationReservation = Pick<
 > & { stagingId: string };
 
 /**
- * The one insert both fixtures share: copy correlation from the staging row,
- * then mint the ledger row. The runner chain shape
- * (`select().from().where().limit()` / `insert().values().returning()`) is
- * load-bearing: `persistence.test.ts` drives it with a hand-built runner.
+ * Copy correlation from the staging row, then insert the ledger row.
+ * Keep the chain shape: `persistence.test.ts` fakes it with a hand-built runner.
  */
 async function insertMcpInvocationFixture(
   values: NewMcpInvocation & { stagingId: string },
@@ -81,11 +59,7 @@ async function insertMcpInvocationFixture(
   return requireRow(row, label);
 }
 
-/**
- * Reproduce a normal reservation for persistence fixtures only: a `prepared`
- * mint whose unique violation is classified the way the broker classifies its
- * own. It is the seed below plus that classification, not a second copy.
- */
+/** A `prepared` mint whose unique violation is classified like the broker's. */
 export async function reserveMcpInvocationForTests(
   values: TestInvocationReservation,
   runner: DbRunner = db(),
@@ -109,7 +83,7 @@ export async function reserveMcpInvocationForTests(
   }
 }
 
-/** Seed an exact ledger state for persistence and crash-recovery tests only. */
+/** Seed an exact ledger state. */
 export async function seedMcpInvocationForTests(
   values: NewMcpInvocation & { stagingId: string },
   runner: DbRunner = db(),
@@ -117,7 +91,7 @@ export async function seedMcpInvocationForTests(
   return insertMcpInvocationFixture(values, runner, "seedMcpInvocationForTests");
 }
 
-/** Patch an exact ledger state for persistence fixtures only. */
+/** Patch an exact ledger state. */
 export async function patchMcpInvocationForTests(
   id: string,
   patch: Partial<NewMcpInvocation>,

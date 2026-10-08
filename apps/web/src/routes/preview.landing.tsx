@@ -7,11 +7,7 @@ const PreviewLandingPage = import.meta.env.DEV
     )
   : () => null;
 
-/**
- * Preview of the logged-out marketing landing — accessible at /preview/landing
- * regardless of auth state. Handy for iterating on the Dimension-grammar
- * primitives in components/landing/* without signing out.
- */
+/** The logged-out landing at /preview/landing, whatever the auth state. */
 export const Route = createFileRoute("/preview/landing")({
   staticData: { publicRoute: true },
   beforeLoad: () => {

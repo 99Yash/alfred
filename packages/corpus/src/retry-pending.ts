@@ -1,33 +1,8 @@
 import { type Document } from "@alfred/db/schemas";
 import { findUnembeddedDocumentIds, indexDocument } from "./embed-document";
 
-/**
- * Sweep documents whose embed step never completed and (re-)index them.
- *
- * This folds the loop the ingestion worker used to assemble by hand
- * (`findUnembeddedDocumentIds` + per-id `indexDocument` in a try/catch) so
- * the corpus package owns the sweep, not its callers. The BullMQ schedule
- * that fires it stays in the api integrations queue — only the loop body
- * moved here.
- *
- * Counting rules are preserved exactly: a document counts as `succeeded`
- * only when `indexDocument` wrote (or would have written) chunks — an empty
- * / dead-lettered doc does not; a throw counts as `failed`. A cost-capped
- * document writes its head chunks and counts as `succeeded`; its terminal
- * marker drops it from later sweeps. The durable poison-pill record is
- * written inside `indexDocument` before it rethrows, so the failing document
- * drops out of the candidate set on the next sweep without any bookkeeping
- * here.
- */
 export interface RetryPendingArgs {
-  /**
-   * Scope the sweep to one user. The scheduled job omits it and sweeps every
-   * user, which is what the worker loop did. A caller that must not touch a
-   * row it does not own — a DB-backed test on a shared local database, a
-   * per-user backfill — passes it, because `source` alone is NOT isolation:
-   * every source in `DOCUMENT_SOURCES` has a live writer, so any value can
-   * match a real row.
-   */
+  /** Omit to sweep every user. `source` alone does not isolate rows: every source has live writers. */
   userId?: string;
   source?: Document["source"];
   limit?: number;
@@ -39,6 +14,7 @@ export interface RetryPendingResult {
   failed: number;
 }
 
+/** Index documents whose embed never finished. An empty document does not count as `succeeded`. */
 export async function retryPending(args: RetryPendingArgs = {}): Promise<RetryPendingResult> {
   const ids = await findUnembeddedDocumentIds({
     ...(args.userId ? { userId: args.userId } : {}),
@@ -55,8 +31,7 @@ export async function retryPending(args: RetryPendingArgs = {}): Promise<RetryPe
 
       if (!r.empty) succeeded++;
     } catch {
-      // Failure is durably recorded inside indexDocument (poison-pill guard)
-      // before it rethrows; the summary count is all the sweep owner needs.
+      // indexDocument already recorded the failure.
       failed++;
     }
   }

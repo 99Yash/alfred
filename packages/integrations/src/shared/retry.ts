@@ -1,51 +1,14 @@
 /**
- * The transient-retry transform every integration client can compose over the
- * bare {@link authedFetch} transport — the piece Effect's `HttpClient` gives you
- * as `retryTransient` and that this package was missing entirely (the
- * `HttpError.retryable` getter existed but nothing ever consumed it).
+ * Transient retry over one `authedFetch` call. Retries thrown transport errors and 429/5xx,
+ * with capped exponential backoff and jitter. Only retry-safe requests may use it.
  *
- * It is a *wrapper over a request thunk*, not a change to the transport core:
- * `authedFetch` stays a single honest round-trip, and a client opts in by
- * sending through {@link fetchWithRetry}. This keeps retry a client policy
- * (composed in one place, per provider) rather than a hidden property of every
- * call.
- *
- * Two transient conditions are retried, both with capped exponential backoff +
- * jitter: a thrown transport failure (timeout/DNS/reset/TLS) and a retryable
- * status ({@link isRetryableStatus}: 429 or 5xx). A `429`/`503` `Retry-After`
- * header is honored when present, bounded by the policy's `maxDelayMs` so an
- * upstream-supplied delay can shorten but never exceed the caller's budget.
- *
- * Retry remains an internal transport composition detail. Provider clients and
- * passthrough capabilities may import it, but configured clients expose only the
- * policy knob and executable operations — never the retry machinery itself.
- *
- * Only the caller decides *which requests* are eligible — this must be
- * used for idempotent reads (GET/HEAD) unless the write carries an idempotency
- * key, so a retried request can never double-apply a side effect. That rule is
- * enforceable, not just documented: a transport that dispatches by method gates
- * on {@link isRetrySafeMethod} and makes anything else opt in explicitly (see
- * `defineProviderClient`).
- *
- * CANCELLATION: there is none, by deliberate omission. Every thrown transport
- * error is retried, including the `AbortError` from `authedFetch`'s own
- * `AbortSignal.timeout` — which is correct, because that timeout IS the transient
- * failure this loop exists to absorb. There is no caller-driven abort to confuse
- * it with today: no reachable caller can supply a signal.
- *
- * That changes the moment one can. `TODO(#286)` threads a per-run `AbortSignal`
- * through the dispatcher that builds these binds, and the repo's `AbortSignal.any`
- * idiom makes a user's "Stop" indistinguishable from a timeout once inside
- * `fetch`. So a caller-driven abort must be classified BEFORE the retry decision,
- * or one Stop becomes `maxAttempts` more upstream requests. Re-adding a bare
- * optional field is not enough; take the tree's settled shape for this — the
- * required `abortSignal: AbortSignal | "none"` on
- * `api/src/modules/agent/compaction/compact-with-retry.ts`.
+ * Every thrown error is retried, the timeout `AbortError` too. A caller abort (Drive's
+ * collect deadline) is also retried: each retry fails fast, but the backoff delays the throw.
+ * To fix, classify the caller abort first, as `compact-with-retry.ts` does.
  */
 
 import { withDefaults } from "@alfred/contracts";
 
-/** Tunable backoff envelope; every field has a sane default. */
 export interface RetryPolicy {
   /** Total attempts including the first. Default 3. */
   maxAttempts?: number;
@@ -55,12 +18,7 @@ export interface RetryPolicy {
   maxDelayMs?: number;
 }
 
-/**
- * The first backoff step every retry envelope here starts from (doubles each
- * attempt). Exported so callers that size their own policy — e.g. the tool
- * dispatcher's turn-budget envelope in `@alfred/assistant` — derive their base
- * from the same value instead of re-declaring a bare `250`.
- */
+/** Exported so other retry envelopes share the base instead of a bare `250`. */
 export const RETRY_BASE_DELAY_MS = 250;
 
 const DEFAULT_POLICY: Required<RetryPolicy> = {
@@ -69,22 +27,14 @@ const DEFAULT_POLICY: Required<RetryPolicy> = {
   maxDelayMs: 4_000,
 };
 
-/** Rate-limited (429) or a transient upstream 5xx — the same rule as `HttpError.retryable`. */
+/** Same rule as `HttpError.retryable`. */
 function isRetryableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status <= 599);
 }
 
 /**
- * The HTTP methods a transport may retry WITHOUT knowing anything else about the
- * request: the [RFC 9110 safe methods](https://www.rfc-editor.org/rfc/rfc9110.html#name-safe-methods),
- * which by definition apply no side effect to re-apply.
- *
- * Deliberately narrower than RFC 9110's *idempotent* set (which also admits PUT
- * and DELETE): idempotent means a repeat leaves the same STATE, not that the
- * repeat is free — a retried DELETE whose first attempt actually landed answers
- * `404`, and a caller that reads the status will draw the wrong conclusion. So
- * PUT/DELETE and anything carrying an idempotency key must opt in per request
- * rather than inherit retry from their method.
+ * RFC 9110 safe methods only. PUT and DELETE are idempotent but not free to repeat:
+ * a retried DELETE that already landed returns 404. They must opt in per request.
  */
 export function isRetrySafeMethod(method: string | undefined): boolean {
   const normalized = (method ?? "GET").toUpperCase();
@@ -97,15 +47,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * `Retry-After` in seconds (delta form) → ms, BOUNDED by the policy's
- * `maxDelayMs`; ignores the HTTP-date form.
- *
- * The bound is the point. `Retry-After` is upstream-controlled, so an honest
- * `Retry-After: 3600` on a rate-limited GitHub read would otherwise park a tool
- * call for an hour — the retry envelope's own ceiling would be silently
- * overridden by a header. Capping it means the header can only ever *shorten*
- * the wait relative to the ceiling the caller configured; a wait longer than the
- * budget becomes an exhausted-retries error the caller can report, not a hang.
+ * `Retry-After` seconds to ms, capped at `maxDelayMs` so `Retry-After: 3600` cannot park a call
+ * for an hour. Ignores the HTTP-date form.
  */
 function retryAfterMs(res: Response, policy: Required<RetryPolicy>): number | null {
   const header = res.headers.get("retry-after");
@@ -122,26 +65,18 @@ function backoffMs(attempt: number, policy: Required<RetryPolicy>): number {
   const exponential = policy.baseDelayMs * 2 ** (attempt - 1);
   const capped = Math.min(exponential, policy.maxDelayMs);
 
-  // Full jitter (AWS) — spread retries so a fleet doesn't reconverge on the
-  // upstream in lockstep. Runtime code, so `Math.random` is fine here.
+  // Full jitter, so retries do not hit the upstream in lockstep.
   return Math.random() * capped;
 }
 
 export interface FetchWithRetryOptions {
-  /**
-   * The envelope, stated by the caller. Required: reaching this function at all is
-   * a decision to retry, so there is no "unspecified" case to default. Individual
-   * FIELDS still default ({@link DEFAULT_POLICY}) — those are tunables, not the
-   * on/off switch. To not retry, don't call this.
-   */
+  /** Required: to not retry, do not call this. Fields still default. */
   policy: RetryPolicy;
 }
 
 /**
- * Send `send()` with transient retry. Returns the first success, the last
- * response once attempts are exhausted (the caller still classifies a final
- * non-2xx), or rethrows the last transport error. A body is never read here —
- * the returned `Response` reaches the caller unconsumed.
+ * Returns the first success, or the last response when attempts run out, or rethrows
+ * the last transport error. Does not read the body.
  */
 export async function fetchWithRetry(
   send: () => Promise<Response>,
@@ -166,7 +101,6 @@ export async function fetchWithRetry(
     }
   }
 
-  // Unreachable: the loop returns or throws on the last attempt. Satisfy the
-  // type checker without a cast.
+  // Unreachable; satisfies the type checker without a cast.
   throw lastError instanceof Error ? lastError : new Error("fetchWithRetry: exhausted");
 }

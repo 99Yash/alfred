@@ -1,28 +1,8 @@
 /**
- * MCP invocation ledger + per-tool policy persistence (PRD #540, #541) — durable
- * row access over the `mcp_invocation` and `mcp_tool_policy` tables, plus the ONE
- * identity derivation the approval gate and the execution broker share.
- *
- * This half of the MCP persistence layer lives in the tool runtime rather than in
- * `connections` because what it records is a tool call, not a connection: the
- * ambiguity barrier, the crash-recovery sweep, the reviewed risk downgrade, and
- * the `(current catalog revision, descriptor hash, reviewed policy)` resolution
- * that ADR-0088 makes fail-closed. It joins the `mcp_connections` and
- * `mcp_catalog_revisions` tables directly rather than through the connection
- * half's row readers, because the resolution is ONE query by design (it runs on
- * every `mcp.call` dispatch). Nothing in the connection half may import this
- * module: that edge would close a `connections` <-> `tool-runtime` cycle, which
- * the module-graph ratchet refuses by name.
- *
- * The genuinely-atomic operations here, each of which MUST be a transaction to be
- * crash-safe:
- *
- *  - normal-call reservation and lifecycle transitions live module-private in
- *    `broker.ts`, where they own the invocation and staging rows together.
- *  - explicit successor reservation lives in `recovery.ts`, where the invocation
- *    and action-staging barriers can move in one transaction.
- *  - `reconcileInflightInvocations` — the crash-recovery barrier sweep run at
- *    boot (issue clarification #1).
+ * Persistence for `mcp_invocation` and `mcp_tool_policy`, plus the one tool-identity
+ * resolution the approval gate and the broker share (ADR-0088).
+ * The connection half must not import this module: that makes a cycle.
+ * Normal-call transitions live in `broker.ts`; successor reservation in `recovery.ts`.
  */
 
 import { db } from "@alfred/db";
@@ -46,9 +26,7 @@ import {
 import { and, eq, exists, inArray, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
-// ===========================================================================
-// Per-tool policy (reviewed effect/retry/tier, bound to a descriptor hash)
-// ===========================================================================
+// --- Per-tool policy ---
 
 export async function readToolPolicy(
   connectionId: string,
@@ -86,48 +64,19 @@ export type McpToolIdentityResolution =
       status: "resolved";
       connection: OwnedMcpConnectionRef;
       descriptorHash: string;
-      /** The reviewed row for the EXACT descriptor the caller selected. */
+      /** The review for this exact descriptor. */
       policy: McpToolPolicyRow | undefined;
-      /**
-       * True when the user has reviewed this `(connection, remoteName)` under
-       * ANY descriptor hash, including one that has since drifted.
-       *
-       * `policy` answers "is there a review of THIS descriptor". This answers
-       * "has this tool ever been reviewed at all", and the two differ exactly
-       * when a descriptor drifted. A reviewed tool that drifts must re-gate,
-       * not fall through to a structural downgrade, or drift would silently
-       * undo a review that RAISED the tier (ADR-0096).
-       */
+      /** A review exists under any descriptor hash. Drift must re-gate, not fall to the structural downgrade (ADR-0096). */
       reviewed: boolean;
-      /**
-       * Whether the connection's endpoint is a built-in read-only protected
-       * resource, and whether THIS tool's descriptor asserted
-       * `annotations.readOnlyHint === true` in the current revision.
-       *
-       * Together they are the structural downgrade authority of ADR-0096: a
-       * resource the built-in registry itself marks as read-only, plus the
-       * server's own per-tool claim, read from persisted data rather than
-       * assumed from the admission gate having run. The resource question is
-       * resolved HERE, so the risk gate reads two booleans and never handles a
-       * raw endpoint href.
-       */
+      /** The endpoint is a built-in read-only resource, and this descriptor set `readOnlyHint` (ADR-0096). */
       readOnlyResource: boolean;
       readOnly: boolean;
     }
   | {
       status: "unresolved";
-      /**
-       * WHY no descriptor policy is authorized. The floor is the same in every
-       * case; the distinction exists so a product surface can tell "the catalog
-       * moved" from "this tool is gone" without running a second, competing
-       * identity query. `revision_stale` also covers a connection with no
-       * published revision yet: the caller's `catalogRevision` is not current.
-       */
+      /** Why. The floor is the same; the UI shows the reason. `revision_stale` also covers no published revision. */
       reason: McpToolIdentityUnresolvedReason;
-      /**
-       * Present when the connection exists and belongs to the caller. Consumers
-       * may use its durable pointer, but no descriptor policy is authorized.
-       */
+      /** Set when the caller owns the connection. */
       connection: OwnedMcpConnectionRef | undefined;
     };
 
@@ -147,22 +96,9 @@ export function isReadOnlyMcpToolIdentity(identity: ResolvedMcpToolIdentity): bo
 }
 
 /**
- * Resolve the durable identity of one selected MCP tool in ONE query.
- *
- * This is the owner of the `(current catalog revision, descriptor hash, reviewed
- * policy)` derivation used by both the approval gate and the execution broker.
- * A stale revision, absent descriptor, missing connection, or ownership miss
- * returns `unresolved`; callers must then use their conservative default.
- *
- * The policy join includes its denormalized `userId` as defense in depth. The
- * connection is the ownership authority, but a malformed cross-user policy row
- * must never authorize a downgrade merely because its descriptor key matches.
- *
- * It also answers the two ADR-0096 structural questions here rather than
- * handing the gate the raw material for them: whether the tool was EVER
- * reviewed (`reviewed`), and whether the endpoint is a built-in read-only
- * protected resource (`readOnlyResource`). Both are facts about durable state,
- * which is what this function owns; the gate is left with booleans to combine.
+ * Resolve one selected MCP tool's identity in one query (runs on every `mcp.call`).
+ * Stale revision, missing descriptor, or foreign connection gives `unresolved`.
+ * The policy join also checks `userId`, so a cross-user row never downgrades.
  */
 export async function resolveMcpToolIdentity(
   input: ResolveMcpToolIdentityInput,
@@ -172,8 +108,7 @@ export async function resolveMcpToolIdentity(
     string | null
   >`${mcpCatalogRevisions.descriptorHashes} ->> ${input.remoteName}`;
 
-  // A SECOND, hash-blind view of the same table. It must be an alias: the join
-  // below binds the exact descriptor hash, and this one deliberately does not.
+  // Alias of the same table that ignores the descriptor hash.
   const anyReviewedPolicy = alias(mcpToolPolicy, "any_reviewed_policy");
 
   const [row] = await runner
@@ -184,15 +119,11 @@ export async function resolveMcpToolIdentity(
       },
       revisionHash: mcpCatalogRevisions.revisionHash,
       descriptorHash: descriptorHashExpr,
-      // A by-name read of the projected map, not a scan of `descriptors`. Only
-      // the literal `true` counts: an absent key and a stored `false` are both
-      // "this tool makes no read-only claim" (ADR-0096).
+      // Only a literal `true` counts as a read-only claim.
       readOnly: sql<boolean>`coalesce(
         ${mcpCatalogRevisions.readOnlyHints} -> ${input.remoteName} = 'true'::jsonb, false
       )`,
-      // `exists`, not a second join: one `(connection, remoteName)` may hold a
-      // reviewed row per descriptor hash, and a join would multiply the result
-      // row for every historic review.
+      // `exists`, not a join: one row per historic review would multiply the result.
       reviewed: exists(
         runner
           .select({ reviewed: sql`1` })
@@ -209,8 +140,7 @@ export async function resolveMcpToolIdentity(
       policy: mcpToolPolicy,
     })
     .from(mcpConnections)
-    // INNER join: the server row is the endpoint authority, and a connection
-    // without one cannot resolve an identity at all.
+    // Inner join: no server row, no endpoint, no identity.
     .innerJoin(
       mcpServers,
       and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, input.userId)),
@@ -231,11 +161,6 @@ export async function resolveMcpToolIdentity(
     .where(and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)))
     .limit(1);
 
-  // The three uncertainty cases answer the same floor with three different
-  // facts, so each names its reason rather than collapsing into one arm. A
-  // missing row means the connection is absent or foreign; a revision mismatch
-  // means the caller's view is stale; a null descriptor hash means the named
-  // tool is absent from the current revision.
   if (!row) {
     return { status: "unresolved", reason: "connection_missing", connection: undefined };
   }
@@ -254,33 +179,19 @@ export async function resolveMcpToolIdentity(
     descriptorHash: row.descriptorHash,
     policy: row.policy ?? undefined,
     reviewed: row.reviewed === true,
-    // The registry is keyed on the stored ENDPOINT, not on the server's
-    // `canonical_resource`. That is the fail-closed direction: if an endpoint
-    // is ever retargeted under an unchanged resource, this answers `false` and
-    // the tool keeps the `high` floor. Keying on the resource would keep a
-    // downgrade alive for an endpoint that had moved (ADR-0094 residual).
+    // Key on the endpoint, not `canonical_resource`: a moved endpoint loses the downgrade (ADR-0094).
     readOnlyResource: builtInReadOnlyResource(row.endpointUrl),
     readOnly: row.readOnly === true,
   };
 }
 
-/**
- * Upsert the reviewed policy for a `(connection, remoteName, descriptorHash)`.
- * The descriptor hash is part of the key on purpose: a policy is bound to the
- * EXACT descriptor it was reviewed against, so descriptor drift produces a fresh
- * key (a miss) and the resolver falls back to the static `high` floor rather
- * than silently reusing a downgrade granted for a different descriptor.
- */
+/** Upsert a review. The descriptor hash is in the key, so drift misses and falls back to `high`. */
 export async function upsertToolPolicy(
   values: NewMcpToolPolicyRow,
   runner: DbRunner = db(),
 ): Promise<McpToolPolicyRow> {
   return runAtomic(runner, async (tx) => {
-    // Policy publication and explicit successor reservation serialize on the
-    // connection row. This makes an absent policy as stable as a present one:
-    // a concurrent first review cannot appear between recovery validation and
-    // the barrier transition, while catalog and ownership writers already take
-    // this same PostgreSQL row lock through their connection update.
+    // Lock the connection row so a first review cannot appear mid successor reservation.
     const [ownedConnection] = await tx
       .select({ id: mcpConnections.id })
       .from(mcpConnections)
@@ -314,17 +225,9 @@ export async function upsertToolPolicy(
     return requireRow(row, "upsertToolPolicy");
   });
 }
-// ===========================================================================
-// Operation ledger
-// ===========================================================================
+// --- Operation ledger ---
 
-/**
- * The invocation minted for a staging row, if any. The `mcp_invocation_staging_idx`
- * enforces this is at most one. Used by the broker to recover the prior operation
- * when a re-dispatch of the SAME staging row collides with the 1:1 index (a crash
- * between minting the invocation and marking the staging row `executed`): the
- * broker reads the recorded state rather than re-delivering.
- */
+/** The one invocation for a staging row. A re-dispatch after a crash reads it instead of sending again. */
 export async function readInvocationByStagingId(
   stagingId: string,
   runner: DbRunner = db(),
@@ -338,11 +241,7 @@ export async function readInvocationByStagingId(
   return row;
 }
 
-/**
- * The single unresolved operation matching a proposal, if one exists — the same
- * shape the partial barrier index enforces. Lets the broker read WHY a repeat is
- * blocked (to explain it) instead of only learning it collided.
- */
+/** The unresolved operation that blocks a repeat, so the broker can explain the block. */
 export async function findUnresolvedBarrier(
   key: { userId: string; connectionId: string; remoteName: string; argsHash: string },
   runner: DbRunner = db(),
@@ -365,17 +264,8 @@ export async function findUnresolvedBarrier(
 }
 
 /**
- * The one place allowed to read the invocation ledger while the connection row
- * is locked for removal. `tool-runtime -> connections` is the allowed import
- * direction, so the connection half injects this gate rather than importing the
- * ledger itself.
- *
- * An unresolved invocation — including a `delivery_possible` write whose outcome
- * is still unknown — means removing the connection would silently discard
- * ambiguous-write evidence and bypass the recovery facade. The gate refuses
- * until the owner resolves the operation through that facade. The
- * `FOR UPDATE` row lock taken before this runs is what closes the race with a
- * concurrent invocation insert.
+ * Block connection removal while an invocation is unresolved, so ambiguous-write evidence survives.
+ * Injected into the connection half, which must not import the ledger.
  */
 export const mcpUnresolvedInvocationGate: McpConnectionRemovalGate = {
   async blocks(tx, { connectionId, userId }) {
@@ -396,29 +286,20 @@ export const mcpUnresolvedInvocationGate: McpConnectionRemovalGate = {
 };
 
 export interface ReconcileSummary {
-  /** `prepared` rows that never reached delivery — safe, resolved. */
+  /** `prepared` rows that never sent. Resolved. */
   abandoned: number;
-  /** `delivery_possible` reads that are idempotent — safe, resolved. */
+  /** `delivery_possible` reads. Resolved. */
   resolvedReads: number;
-  /** `delivery_possible` effectful rows — outcome unknown, left BLOCKED. */
+  /** `delivery_possible` writes. Outcome unknown, left blocked. */
   markedUnknown: number;
   /** Split invocation/staging barriers repaired without sending. */
   alignedStagingBarriers: number;
 }
 
 /**
- * Crash-recovery sweep, run at boot before any new dispatch (clarification #1).
- * Three transitions over rows left unresolved by a previous process:
- *
- *  - `prepared`: the row was reserved but the raw-client call was never made
- *    (no delivery possible). Resolve it — the barrier should not block a fresh
- *    attempt of an operation that provably never left the host.
- *  - `delivery_possible` + `read`: a read is idempotent, so an ambiguous read is
- *    safe to resolve and re-run; it never needed the block.
- *  - `delivery_possible` + `write`/`unknown` + no outcome: the effect is
- *    genuinely ambiguous. Mark the outcome `unknown` / disposition `blocked` but
- *    leave `resolvedAt` NULL so the barrier keeps rejecting an identical repeat
- *    until a host-minted successor (or explicit user resolution) clears it.
+ * Boot sweep over rows a dead process left unresolved, before any dispatch.
+ * Resolve `prepared` rows and ambiguous reads. Mark ambiguous writes `unknown`
+ * and `blocked`, but keep `resolvedAt` null so an identical repeat still fails.
  */
 export async function reconcileInflightInvocations(
   userId?: string,
@@ -479,14 +360,8 @@ export async function reconcileInflightInvocations(
       )
       .returning({ id: mcpInvocation.id, stagingId: mcpInvocation.stagingId });
 
-    // The broker can persist its unknown outcome before the dispatch owner
-    // persists the matching action-staging outcome. A process crash in that
-    // narrow gap leaves `mcp_invocation.effect_outcome = unknown` with staging
-    // still `dispatching` (or null on older rows). The old sweep only selected a
-    // null invocation outcome, so that split state survived every restart and
-    // both explicit recovery choices rejected it. Find the split AFTER the
-    // normalization above and align only the staging half. This is a database
-    // repair; it never calls the broker or a remote MCP server.
+    // A crash between the invocation's `unknown` write and the staging write splits them.
+    // Align the staging half. No network call.
     const splitStagingBarriers = await tx
       .select({ stagingId: actionStagings.id })
       .from(mcpInvocation)

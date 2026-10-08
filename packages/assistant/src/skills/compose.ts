@@ -2,21 +2,9 @@ import { route, meteredGenerateText } from "@alfred/ai";
 import type { SkillDocumentationContext } from "./skill-documentation-context";
 
 /**
- * Boss-tier compose pass — phase 2 of dimension's two-phase Learn.
- *
- * Takes the v1 distilled body + retrieved evidence (document chunks,
- * memory chunks, confirmed facts) and writes a v2 body that:
- *   - integrates concrete named entities the search surfaced (companies,
- *     thread topics, dates) without inventing them,
- *   - preserves the v1 body's directives — does not relax constraints
- *     the user explicitly set,
- *   - reads as imperative skill content the agent will mount, not as
- *     report-back-to-the-user prose.
- *
- * Why boss-tier here when distill was cheap-tier: this step has to
- * reason over heterogeneous evidence (~12 chunks + 6 memory hits) and
- * preserve constraint fidelity. Cheap-tier dropped specifics in early
- * trials. Cost is bounded — one call per Learn click, not per turn.
+ * Boss-tier compose, phase 2 of Learn. Rewrites the v1 body with retrieved evidence:
+ * add named specifics without inventing them, keep every v1 directive, and stay imperative.
+ * Boss tier because the cheap tier dropped specifics. One call per Learn click.
  */
 
 const SYSTEM_PROMPT = `You are documenting a personal AI skill by enriching its existing body with evidence retrieved from the user's connected sources.
@@ -65,9 +53,7 @@ function buildUserPrompt(ctx: SkillDocumentationContext): string {
     lines.push(`(no matches)`);
   } else {
     ctx.documentHits.forEach((h, i) => {
-      // `authoredAt` is typed as `Date | null`, but `documentHits` rides through
-      // `agent_runs.state` jsonb between steps as `z.unknown[]` — so on resume it
-      // arrives as an ISO string. `new Date(...)` accepts either form.
+      // Typed `Date | null`, but run state is JSON, so on resume it is an ISO string.
       const stamp = h.authoredAt ? new Date(h.authoredAt).toISOString().slice(0, 10) : "n/a";
       lines.push(
         `- [${i + 1}] source=${h.source} title=${h.title ?? "(untitled)"} date=${stamp} sim=${h.similarity.toFixed(2)}`,
@@ -100,7 +86,7 @@ export interface ComposeArgs {
 
 export interface ComposedDocumentation {
   body: string;
-  /** Tokens are pulled off the metered call; stash them on the revision metadata for cost forensics. */
+  /** For cost tracking on the revision metadata. */
   inputTokens?: number | undefined;
   outputTokens?: number | undefined;
 }

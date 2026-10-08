@@ -87,17 +87,11 @@ export function MCPServerSection() {
   });
 
   const recoveryOperations = flattenMcpRecoveryPages(recoveryQuery.data?.pages);
-  // Every page reports the same owner-wide count; the newest page is the freshest.
+  // Each page reports the same owner-wide count; the newest is freshest.
   const awaitingRepair = recoveryQuery.data?.pages.at(-1)?.awaitingRepair ?? 0;
 
-  // `builtInProvider` is derived server-side from the pinned endpoint, so a tile
-  // follows its built-in when that endpoint moves. The old test was
-  // `canonicalResource.includes("github")`, which also matched a user-added URL
-  // that merely had "github" in it, and broke on any endpoint rename.
-  //
-  // NULL is the whole test for a generic card. Naming the built-ins here
-  // instead would silently demote every future first-class server into the
-  // generic list, which offers no consent action.
+  // `builtInProvider === null` is the whole generic test. Matching URLs or names
+  // would misfile user URLs and future built-ins.
   const genericConnections = connections.filter(
     (connection) => connection.builtInProvider === null,
   );
@@ -128,8 +122,7 @@ export function MCPServerSection() {
         <McpAddServerForm />
       </div>
 
-      {/* The remove-refusal anchor: a DELETE refused for an unresolved
-          invocation links here, so the owner resolves first. */}
+      {/* A refused DELETE links here, so the owner resolves invocations first. */}
       <div id="mcp-recovery">
         <McpRecoveryList
           operations={recoveryOperations}

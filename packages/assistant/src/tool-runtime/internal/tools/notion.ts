@@ -1,11 +1,4 @@
-/**
- * Notion tools registered into the boss's tool surface (read + write).
- *
- * Reads (search, get_page) are no-risk; writes (create_page, append_blocks)
- * are gated by `user_action_policies` like every other mutation — the tier
- * here is only a UX hint. All four resolve the user's active Notion bearer
- * credential via the shared bearer-credential layer.
- */
+/** Notion tools. Writes are gated by `user_action_policies`; the tier is a UX hint. */
 
 import {
   notionAppendBlocksInput,

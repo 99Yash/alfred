@@ -8,13 +8,7 @@ import {
 } from "react";
 import { isStateUpdater } from "~/lib/set-state";
 
-/**
- * The page a `pages` artifact is showing, scoped to the artifact it belongs to.
- *
- * The index is stored together with the artifact id, so opening a different
- * artifact derives back to page 0 on its own. A prop-sync effect would instead
- * paint the previous artifact's index for one frame.
- */
+/** Stored with the artifact id, so a different artifact derives page 0 without a sync effect. */
 export function useArtifactPageIndex(
   artifactId: string,
 ): [number, Dispatch<SetStateAction<number>>] {
@@ -40,12 +34,8 @@ export function useArtifactPageIndex(
 }
 
 /**
- * Arrow-key page navigation, clamped to `pageCount`.
- *
- * `enabled` exists because two viewers of the same artifact can be mounted at
- * once — the library's page body and the presentation overlay stacked over it.
- * Both listen on `window`, so the one underneath must unsubscribe or a single
- * key press advances the shared index twice.
+ * Arrow-key paging. Disable the viewer underneath the presentation overlay:
+ * both listen on `window`, so one key would advance twice.
  */
 export function useArtifactPageKeys({
   enabled,

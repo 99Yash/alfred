@@ -3,12 +3,7 @@ import { rejectedInferences } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
 import { valueSignature } from "./signature";
 
-/**
- * Pattern store consulted by the extraction sub-agent before emitting
- * a proposal (ADR-0019). `rejectFact` writes here transactionally on
- * user reject; this module exposes the read surface + a helper for ad
- * hoc recording (cold-start research, agent self-correction).
- */
+/** Rejected `(key, value)` patterns that extraction checks before proposing (ADR-0019). */
 
 /** Has the user already rejected `(key, value)`? */
 export async function isRejected(userId: string, key: string, value: unknown): Promise<boolean> {
@@ -29,7 +24,7 @@ export async function isRejected(userId: string, key: string, value: unknown): P
   return hit != null;
 }
 
-/** All rejections for `(userId, key?)` — newest first. */
+/** Rejections for `(userId, key?)`, newest first. */
 export async function listRejections(
   userId: string,
   key?: string,
@@ -65,12 +60,7 @@ export async function listRejections(
   }));
 }
 
-/**
- * Record an ad-hoc rejection without an originating `user_facts` row —
- * useful when an agent decides "I considered proposing X and I shouldn't"
- * during a synthesis pass. `rejectFact` is the standard path for
- * user-driven rejections.
- */
+/** Record a rejection with no `user_facts` row. User rejections go through `rejectFact`. */
 export async function recordRejection(args: {
   userId: string;
   key: string;

@@ -6,17 +6,7 @@ import { Elysia, t } from "elysia";
 import { authMacro } from "./middleware/auth";
 import { isValidTimezone } from "@alfred/assistant/time";
 
-/**
- * Onboarding state routes.
- *
- *   GET  /api/me/onboarding   → { routeToOnboarding: boolean, onboardedAt: string | null }
- *   POST /api/me/onboarding/complete → marks onboarding done (idempotent);
- *        optionally captures the browser timezone (#229)
- *
- * `routeToOnboarding` is server-truth: derived from `user.onboarded_at`.
- * The client reads it on boot and gates `/onboarding` access — both the
- * "redirect new users in" and "kick existing users out" directions.
- */
+/** Onboarding state. `routeToOnboarding` comes from `user.onboarded_at`; the client gates on it. */
 export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", normalize: "typebox" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
@@ -51,10 +41,7 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
 
             if (!updated) throw Errors.NotFoundError("User not found");
 
-            // #229: infer the user's zone from the browser at onboarding so chat
-            // date grounding + briefing delivery don't silently default to UTC.
-            // Write the canonical `timezone` key ONLY if unset — never clobber a
-            // zone the user already chose (idempotent re-finish stays safe).
+            // Take the browser zone so dates do not default to UTC. Never overwrite a chosen zone.
             const tz = body?.timezone;
 
             if (tz && isValidTimezone(tz)) {

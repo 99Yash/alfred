@@ -6,9 +6,7 @@ import type {
 } from "./extract-pdf";
 import type { PdfExtractionLimits } from "./constants";
 
-// Keep this child-process protocol dependency-free. In particular, do not
-// import @alfred/contracts guards: extraction intentionally has only the pinned
-// PDF vendor as a runtime dependency.
+// The child process imports this file. Keep it free of runtime imports, including `@alfred/contracts`.
 
 export type PdfExtractionChildReply =
   | { readonly kind: "result"; readonly result: ExtractedPdf }
@@ -623,12 +621,7 @@ export function serializePdfExtractionChildReply(reply: PdfExtractionChildReply)
   return `${JSON.stringify(reply)}\n`;
 }
 
-/**
- * Single home for page-budget truncation. Both `extract-pdf-core` (child)
- * and `extract-pdf` (parent) previously held an identical copy. One
- * domain change (keep-first-N-chars vs keep-first-N-pages) now lands
- * in one place. Tier 1: import.
- */
+/** Truncate pages to fit a character budget. The child and the parent both use it. */
 export function truncatePagesToFit(
   pages: readonly ExtractedPdfPage[],
   maxCharacters: number,

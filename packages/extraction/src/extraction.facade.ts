@@ -6,81 +6,32 @@ import {
   type MediaExtractor,
 } from "./media-extraction";
 
-/**
- * The unified door-bound extraction entry point. One callable binds a door
- * once and hands back a mime-aware extractor already wired to that door's
- * limits, format registry, and factory, so a call site reads as one
- * continuous thought:
- *
- *   extraction({ door: "gmailAttachment" }).extract({ mime, bytes })
- *
- * In production the bind happens once per ingest job and the loop reuses
- * the same instance — each format client is lazily built and memoized, so
- * a second `extract` for the same MIME reuses the SAME extractor.
- *
- * Design properties:
- *
- *   1. The door binds at the *root*, not per call. Binding is cheap and holds
- *      no bytes — each format is a lazily-built extractor over the door's
- *      limits, so the root carries no lifetime rule.
- *
- *   2. Each format is a memoized lazy getter: touching `pdf` builds only
- *      the PDF extractor, and touching it twice yields the SAME extractor.
- *      The memo covers CLIENT CONSTRUCTION only — no bytes are cached.
- *
- *   3. It is GENERIC over two `satisfies`-pinned tables: `FORMAT_REGISTRY`
- *      (format → factory) and `DOOR_LIMITS` (format × door limits), both
- *      declared ONCE in `media-extraction.ts`. Adding a format is one
- *      registry entry plus one `DOOR_LIMITS` row; `extraction()` needs no
- *      second place.
- *
- * The discipline that keeps this from drifting into a pass-through facade:
- * each call hides the full `mime → format → gate → limits → factory` chain.
- * The caller never names `ContentFormat`, never checks `getContentFormat`,
- * never reads limits, and never handles a factory miss — `null` from
- * `forMime` is the only signal for an unsupported (or gated) MIME, and
- * `extract` maps that to `null` so the ingest loop can `continue`.
- */
-
 export interface ExtractionOptions {
-  /** Which ingest policy door owns the limits (chat, fetch, gmail). */
+  /** The ingest path whose limits apply. */
   door: ExtractionDoor;
 }
 
 export interface Extraction {
-  /**
-   * Extract text from bytes for a MIME type under the bound door.
-   * Returns `null` when the MIME has no `contentFormat` (e.g. pass-through
-   * images) — the caller should skip
-   * without embedding. Otherwise returns the normalized
-   * `MediaExtractionResult` (extracted / needs_ocr / encrypted / invalid /
-   * limit_exceeded) so the ingest loop can handle each case uniformly.
-   */
+  /** `null` when the MIME has no extractable format (for example images). The caller skips it. */
   extract(args: { mime: string; bytes: Uint8Array }): Promise<MediaExtractionResult | null>;
 
-  /**
-   * Resolve a MIME type to its door-bound extractor, or `null` when the MIME
-   * is not extractable. The returned extractor is memoized per format —
-   * calling twice for `application/pdf` yields the SAME function.
-   * Use this when you need the extractor handle itself (e.g. to inject in
-   * tests) rather than the one-shot `extract`.
-   */
+  /** The extractor for a MIME, or `null`. One instance per format. */
   forMime(mime: string): MediaExtractor | null;
 
-  /** True when this MIME has an extractable format under the bound door. */
   isSupported(mime: string): boolean;
 
-  /**
-   * True when the declared size exceeds the door's `maxBytes` for this MIME's
-   * format. Use as a pre-fetch hint to avoid a `getAttachment` round-trip for
-   * an obviously over-limit part. Returns false for unsupported MIMEs.
-   */
+  /** Check a declared size before a fetch, to skip a download that is too large. False for unsupported MIMEs. */
   wouldExceed(mime: string, byteLength: number): boolean;
 
-  /** The door this instance is bound to. */
   readonly door: ExtractionDoor;
 }
 
+/**
+ * Bind a door once, then extract by MIME:
+ * `extraction({ door: "gmailAttachment" }).extract({ mime, bytes })`.
+ * Builds each format's extractor on first use. It caches extractors, not bytes.
+ * A new format needs a `FORMAT_REGISTRY` entry and a `DOOR_LIMITS` row.
+ */
 export function extraction(options: ExtractionOptions): Extraction {
   const cache = new Map<ContentFormat, MediaExtractor>();
 

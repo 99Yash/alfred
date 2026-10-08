@@ -1,13 +1,6 @@
-/**
- * Skill authoring, execution, revision persistence, and documentation (ADR-0017).
- *
- * Consolidated module combining the original three api modules:
- *   - skills: learn-skill workflow (phase 1, cheap-tier extraction)
- *   - skill-revisions: run + revision persistence (shared by phases 1 & 2)
- *   - skill-documentation: documentation workflow (phase 2, documented v2)
- */
+/** Skills: Learn phase 1, revision persistence, and documentation phase 2 (ADR-0017). */
 
-// Skill authoring (phase 1)
+// Phase 1
 export {
   LEARN_SKILL_WORKFLOW_SLUG,
   learnSkillDedupKey,
@@ -32,7 +25,7 @@ export { learnSkillWorkflow } from "./learn-skill";
 
 export { slugifyForUser } from "./slug";
 
-// Skill revision persistence (shared seam)
+// Revisions (shared)
 export { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "./revisions";
 
 export type {
@@ -42,7 +35,7 @@ export type {
   RecordSkillRunArgs,
 } from "./revisions";
 
-// Skill documentation (phase 2)
+// Phase 2
 export {
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
   skillDocumentationDedupKey,

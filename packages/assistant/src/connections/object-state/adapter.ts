@@ -1,77 +1,44 @@
 import type { ObjectStateProvider } from "@alfred/contracts";
 
 /**
- * The provider-agnostic half of object-state reconciliation (#1088).
- *
- * ADR-0062's load-bearing invariant is propose / dispose: text may only
- * PROPOSE a candidate key, and only the reducer-owned projection may DISPOSE
- * of the question "is this work finished". This file owns the propose side's
- * vocabulary — what a candidate key is, what a subject is, and what a provider
- * adapter must supply — so the two halves can live in different files without
- * either one restating the other's shape.
- *
- * It is types and three pure helpers. The resolve half is `reconcile.ts`, the
- * GitHub adapter is `github-adapter.ts`, and this file imports neither —
- * `reconcile.ts` wires the adapters to the resolve operation.
+ * Propose-side vocabulary for reconciliation (ADR-0062, #1088). Text may only propose a candidate
+ * key; only the reducer-owned projection decides whether work is finished.
  */
 
-/**
- * How the store must compare a candidate value against the stored key. `prefix`
- * exists for an abbreviated sha: the value is a leading fragment of the stored
- * 40-hex key, so an exact lookup can never find it.
- */
+/** `prefix` is for an abbreviated sha, which an exact lookup on the 40-hex key cannot find. */
 export type ObjectKeyMatch = "exact" | "prefix";
 
 export interface ExtractedKey {
   keyKind: string;
   keyValue: string;
   match: ObjectKeyMatch;
-  /**
-   * Never present on an extracted key: the provider is what makes the key
-   * resolvable, so it is attached at claim time ({@link CandidateKey}), not
-   * at extraction. Without this, `keyIdentity` accepts a `CandidateKey` and
-   * silently collapses two providers' keys into one dedup entry.
-   */
+  /** Attached at claim time, never here. Else `keyIdentity` would merge two providers' keys. */
   provider?: never;
 }
 
 /**
- * An extracted key once an adapter has claimed it. The provider is what makes
- * the key resolvable — `head_sha` means nothing without the projection it is
- * keyed in — so the reconcile operation carries it rather than taking one
- * provider for a whole batch.
- *
- * The {@link KeyProposalReading} a key was proposed under is a REQUIRED
- * structural member, never absent and never defaulted. It is what makes an
- * `annotates` result type-distinct from an `about` one, so a closure reader
- * that accepts the strongest reading cannot be handed the weakest. It is real
- * data rather than a phantom: `reconcile.ts` reads it to decide whether a
- * result may carry a closing category.
+ * An extracted key that an adapter claimed. The provider makes it resolvable. `reading` is
+ * required, so an `annotates` result is type-distinct from an `about` one, and `reconcile.ts` reads
+ * it to decide closure.
  */
 export interface CandidateKey<Reading extends KeyProposalReading> extends Omit<
   ExtractedKey,
   "provider"
 > {
   provider: ObjectStateProvider;
-  /** Which reading proposed this key. Never absent, never defaulted. */
   readonly reading: Reading;
 }
 
 /**
- * Map key for one candidate. The match mode belongs in it: the same value read
- * exactly and read as a prefix are two different lookups. Owned here beside
- * {@link ExtractedKey} so a fourth field cannot silently collapse two
- * candidates in a consumer's dedup map.
+ * Dedup key for one candidate. Match mode is part of it: exact and prefix are different lookups.
  */
 export function keyIdentity(key: ExtractedKey): string {
   return [key.keyKind, key.keyValue, key.match].join("\u0000");
 }
 
 /**
- * The same identity across providers, for a batch that spans more than one.
- * The reading is deliberately not part of the identity: closure is decided per
- * key from the subject's own key, so the reading cannot change a resolved
- * result — which is why it does not belong in the dedup key.
+ * `keyIdentity` plus provider. Not the reading: closure is decided per key, so it cannot change a
+ * result.
  */
 export function candidateIdentity<Reading extends KeyProposalReading>(
   key: CandidateKey<Reading>,
@@ -81,16 +48,14 @@ export function candidateIdentity<Reading extends KeyProposalReading>(
   return [provider, keyIdentity(extracted)].join("\u0000");
 }
 
-/** The text a subject carries. Both halves are required strings (possibly empty) and both are untrusted. */
+/** Untrusted text; both fields may be empty. */
 export interface SubjectText {
   subject: string;
   content: string;
 }
 
 /**
- * One thing a caller wants reconciled: an email, a composed briefing body, an
- * evidence card. `id` is the caller's own — a document id, a card id — and the
- * reconcile result is keyed back on it.
+ * One thing to reconcile (an email, a briefing body, an evidence card). Results key back on `id`.
  */
 export interface ReconcileSubject {
   id: string;
@@ -98,44 +63,19 @@ export interface ReconcileSubject {
 }
 
 /**
- * What the caller claims the text IS, which decides how an adapter reads it.
- *
- * - `about` — the text is a notification about ONE work object (a GitHub
- *   Actions failure mail, a review request). The adapter may demand provenance
- *   before it proposes anything, and an ambiguous reference proposes nothing:
- *   a wrong identity here would drop the wrong item from a briefing.
- * - `mentions` — the text merely NAMES work objects (composed briefing prose).
- *   Every named object is proposed, provenance is not claimed, and the caller
- *   SUPPRESSES prose on the result. Suppression removes a sentence a human
- *   would otherwise read, so the reading stays narrow: only a written form
- *   that names a work object directly counts.
- * - `annotates` — the text is evidence the caller ALREADY holds and will
- *   DECORATE (an indexed document chunk). The caller drops nothing, suppresses
- *   nothing, and closes no loop, so an adapter may also propose an identifier
- *   for a CONSTITUENT of a work object — a commit sha names the pull request
- *   that carries it. A wrong proposal costs one absent annotation.
- *
- * Every reading is equally safe against state, because none of them asserts
- * state: a wrong or hallucinated key resolves to nothing and closes nothing.
- * They differ only in what the caller DOES with a resolution.
- *
- * A reading now rides in the RESULT type, not only in the proposal:
- * {@link import("./reconcile").proposeObjectKeys} stamps it onto every
- * {@link CandidateKey}, and `reconcileEvidence` propagates it as a type
- * parameter. A value produced under `annotates` therefore cannot reach a
- * closure reader, which accepts only {@link ClosureReading}.
+ * What the caller says the text is.
+ * - `about`: a notification about one work object. Adapters may demand provenance, and an ambiguous
+ *   reference proposes nothing, since a wrong identity drops the wrong briefing item.
+ * - `mentions`: prose that names objects. The caller suppresses prose on the result, so only forms
+ *   that name a work object directly count.
+ * - `annotates`: evidence the caller only decorates. May propose a constituent (a commit sha names
+ *   its PR). Never closes. No reading asserts state: a wrong key resolves to nothing.
  */
 export type KeyProposalReading = "about" | "mentions" | "annotates";
 
 /**
- * The single home of closure authority: whether a reading's caller may close an
- * already-open ask on a resolution. `about` drops the item, `mentions`
- * suppresses the prose, and `annotates` only decorates a card — it holds no
- * closure authority by design.
- *
- * Both projections derive from this map, never restate it: {@link ClosureReading}
- * at the type level and {@link readingClosesAsk} at runtime. Annotating one
- * reading here is therefore the only edit that changes who may close an ask.
+ * The only home of closure authority. {@link ClosureReading} and {@link readingClosesAsk} derive
+ * from it, so editing this map is the only way to change who may close an ask.
  */
 const READING_CLOSES_ASK = {
   about: true,
@@ -143,33 +83,19 @@ const READING_CLOSES_ASK = {
   annotates: false,
 } as const satisfies Record<KeyProposalReading, boolean>;
 
-/**
- * The readings whose caller may read closure off a reconciled result. Derived
- * from {@link READING_CLOSES_ASK}, so adding a fourth reading is a compile
- * error until its closure authority is declared.
- */
+/** Readings that may close an ask. A new reading is a compile error until the map declares it. */
 export type ClosureReading = {
   [R in KeyProposalReading]: (typeof READING_CLOSES_ASK)[R] extends true ? R : never;
 }[KeyProposalReading];
 
-/**
- * The map's runtime projection: whether `reading`'s caller may close an ask.
- * This is the only door to {@link READING_CLOSES_ASK}; `reconcile.ts` reads it
- * to decide whether a result may carry a closing category, so the map and the
- * runtime branch cannot disagree.
- */
+/** Runtime read of {@link READING_CLOSES_ASK}. */
 export function readingClosesAsk(reading: KeyProposalReading): boolean {
   return READING_CLOSES_ASK[reading];
 }
 
 /**
- * What the caller asks an adapter to read, with the provenance the reading
- * demands folded in. `about` carries its sender because the adapter gates on
- * it: the field is required (possibly `null`) so a caller that omits it is a
- * compile error rather than a subject that silently proposes nothing forever.
- * `mentions` and `annotates` claim no provenance. It is provenance, never
- * state. The reading also selects the {@link CandidateKey} parameter the
- * proposal mints, so the caller's authority is carried by the result type.
+ * The reading plus the provenance it needs. `about.sender` is required (maybe `null`), so omitting
+ * it is a compile error, not a subject that silently proposes nothing.
  */
 export type KeyProposal =
   | { reading: "about"; sender: string | null }
@@ -177,23 +103,11 @@ export type KeyProposal =
   | { reading: "annotates" };
 
 /**
- * One provider's irreducible half of reconciliation.
- *
- * It owns key PROPOSAL (which written forms name one of its objects, and what
- * the canonical value of each one is) and nothing else. State, closure policy,
- * and the exact-beats-prefix precedence are generic: the store asserts state,
- * the registry's per-kind {@link import("@alfred/contracts").ObjectKindDef}
- * declares closure, and `reconcile.ts` owns precedence. A second provider is
- * therefore one adapter file plus its registry entry and reducer — not a
- * second copy of the reconciliation.
+ * One provider's part of reconciliation: key proposal only. The store owns state, the registry owns
+ * closure policy, and `reconcile.ts` owns precedence.
  */
 export interface ObjectStateAdapter {
   readonly provider: ObjectStateProvider;
-  /**
-   * Every key this subject's text proposes under `proposal`, canonical and in
-   * precedence order. Pure, deterministic, and free to return nothing — an
-   * adapter that does not recognize the text proposes nothing rather than
-   * guessing.
-   */
+  /** Canonical keys in precedence order. Pure. Unrecognized text proposes nothing. */
   proposeKeys(subject: ReconcileSubject, proposal: KeyProposal): ExtractedKey[];
 }

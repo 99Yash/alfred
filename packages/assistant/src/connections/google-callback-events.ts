@@ -4,13 +4,8 @@ import { publishDomainEvent } from "@alfred/assistant/triggers";
 type DomainEventPublisher = typeof publishDomainEvent;
 
 /**
- * Publish the completed connection occurrence without naming its consumers.
- *
- * Best-effort: a publication failure must not bounce the user to an OAuth error
- * page, so it is swallowed with a warn. The Google callback route calls this after
- * the credential is already persisted, so the connection is usable either way —
- * only the post-connect fan-out (cold-start enrichment and friends) is lost, and
- * that is recoverable on the next connect.
+ * Best-effort: the credential is already saved, so a failure must not show an OAuth error.
+ * Only the post-connect fan-out is lost, and the next connect retries it.
  */
 export async function publishGoogleCallbackCompleted(
   userId: string,

@@ -118,7 +118,6 @@ export interface McpHealthMappingController {
   readonly onClear: () => void;
 }
 
-/** Exact descriptor review state plus its two owner mutations. */
 export function useMcpHealthMapping(
   connectionId: string,
   ref: ExternalToolRef,
@@ -425,7 +424,7 @@ function MappingForm({
   );
 }
 
-/** Health mapping review presentation, separated from its query/mutation hook. */
+/** The view, without the query and mutation hook. */
 export function McpHealthMappingView({
   state,
   loading,

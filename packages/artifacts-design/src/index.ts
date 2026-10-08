@@ -1,12 +1,4 @@
-/**
- * `@alfred/artifacts-design` — the typed source of truth + generated shell and
- * prompt for pristine in-app artifacts (pristine-artifacts Phase 1).
- *
- * Web-safe (pure strings/data, no DOM/Node): `apps/web` imports the shell to
- * wrap pages at render time; `packages/assistant` imports the prompt to guide the
- * authoring turn. Both share one token module so the rendered surface and the
- * authoring guidance never drift.
- */
+/** Artifact design tokens, render shell, and authoring prompt. Pure data, safe in the browser. */
 export * from "./tokens";
 
 export * from "./shell";

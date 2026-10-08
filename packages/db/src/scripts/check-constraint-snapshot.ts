@@ -1,21 +1,8 @@
 /**
- * Fails when a CHECK constraint in the Drizzle schema no longer matches the
- * newest migration snapshot.
- *
- * `db:generate` diffs the schema against the newest snapshot. A schema edit
- * made after the last generate (a new `NOTIFICATION_KINDS` member behind an
- * `inList(...)` check, say) leaves the snapshot on the old list, the migration
- * without the `DROP`/`ADD CONSTRAINT`, and every insert of the new value
- * failing on the live constraint (seen on #972). Nothing else notices: the
- * compiler sees a valid enum member, and the check is a `text` column. The fix
- * is to run `db:generate` again (or write the `DROP`/`ADD` by hand and edit the
- * snapshot's `checkConstraints[<name>].value`); this gate is what makes a stale
- * snapshot fail `pnpm check` instead of a production insert.
- *
- * Both sides are read the way drizzle-kit reads them: the schema through
- * `getTableConfig(...).checks` rendered by `PgDialect`, the snapshot through
- * `_journal.json`'s last entry. Zero checks on either side is a failure, not a
- * pass: a gate whose input vanished enforces nothing.
+ * Fail when a schema CHECK constraint differs from the newest migration snapshot.
+ * A schema edit after `db:generate` leaves the migration without the new CHECK,
+ * and inserts of the new value then fail in production. Fix: run `db:generate` again.
+ * Zero checks on either side also fails, because then the gate checks nothing.
  *
  * Usage: pnpm --filter @alfred/db check:constraint-snapshot
  */
@@ -32,10 +19,9 @@ const PACKAGE_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 const MIGRATIONS_META = join(PACKAGE_ROOT, "src/migrations/meta");
 
-/** `<table>.<constraint>` → rendered expression, one entry per CHECK. */
+/** `<table>.<constraint>` -> rendered expression. */
 type CheckExpressions = ReadonlyMap<string, string>;
 
-/** The snapshot `_journal.json` names last, and the checks it records. */
 interface NewestSnapshot {
   tag: string;
   checks: CheckExpressions;
@@ -94,7 +80,6 @@ function newestSnapshotChecks(): NewestSnapshot {
   return { tag: last.tag, checks: out };
 }
 
-/** Every disagreement between the two sides, as one message each. Exported for the self-test below. */
 function constraintDrift(fromSchema: CheckExpressions, fromSnapshot: CheckExpressions): string[] {
   const violations: string[] = [];
 
@@ -120,7 +105,6 @@ function constraintDrift(fromSchema: CheckExpressions, fromSnapshot: CheckExpres
   return violations;
 }
 
-/** The comparison must see a changed expression and must stay quiet on an equal one. */
 function selfTestFailures(): string[] {
   const failures: string[] = [];
   const base = new Map([["t.c_valid", `"t"."c" IN ('a', 'b')`]]);

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { jsonObjectSchema } from "./user-model";
 
-/** @deprecated Use `jsonObjectSchema`; retained as a compatibility export for sync/memory callers. */
+/** @deprecated Use `jsonObjectSchema`. */
 export const jsonRecordSchema = jsonObjectSchema;
 
 export const memorySourceSchema = z.object({
@@ -13,11 +13,8 @@ export const memorySourceSchema = z.object({
 export type MemorySource = z.infer<typeof memorySourceSchema>;
 
 /**
- * Parse a persisted provenance value, falling back to `fallback` when the
- * stored jsonb does not match `memorySourceSchema`. The `source` column is
- * `unknown` until validated here — every reader of a stored `MemorySource`
- * goes through this one door (ADR-0019 provenance discipline). `context`
- * names the row for the warning so a malformed value is traceable.
+ * Parse a stored `MemorySource`, or return `fallback` if it is malformed (ADR-0019).
+ * `context` names the row in the warning.
  */
 export function parseMemorySourceOrDefault(
   value: unknown,

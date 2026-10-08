@@ -1,13 +1,4 @@
-/**
- * App-grammar Switch primitive.
- *
- * 40×22 track with a 18px thumb. Off → bg-app-bg-3 fill. On → accent gradient
- * (matching the primary AppButton's accent). Thumb is a slightly-elevated
- * white circle in both states.
- *
- * Built on `@radix-ui/react-switch` for the same accessibility wiring as
- * the dimension Switch (form association, ARIA, IME-safe keyboard, etc.).
- */
+/** App Switch on Radix. On uses the primary button's accent. */
 
 import * as SwitchPrimitive from "@radix-ui/react-switch";
 import type { ComponentPropsWithRef } from "react";
@@ -22,15 +13,12 @@ export function AppSwitch({ className, ref, ...rest }: AppSwitchProps) {
       className={cn(
         "relative inline-flex h-[22px] w-[40px] shrink-0 cursor-pointer items-center rounded-full",
         "transition-[background-color,box-shadow] duration-200",
-        /* off / on fills via data-state */
         "data-[state=unchecked]:bg-app-bg-3",
         "data-[state=checked]:bg-[linear-gradient(180deg,var(--app-accent-from)_0%,var(--app-accent-to)_100%)]",
-        /* shadow stack — hairline-as-border in both states; on adds an accent glow in light only */
+        /* inset hairline in both states; accent glow when on, light mode only */
         "data-[state=unchecked]:shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]",
         "data-[state=checked]:shadow-[inset_0_1px_0_rgba(255,255,255,0.20),0_1px_2px_rgba(0,0,0,0.15)]",
-        /* focus */
         "app-focus",
-        /* disabled */
         "disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}

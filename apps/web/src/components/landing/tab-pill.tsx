@@ -3,19 +3,8 @@ import { tabButtonId, tabPanelId, type TabPillOption } from "~/components/landin
 import { cn } from "~/lib/utils";
 
 /**
- * Segmented control rendered as a dark rounded pill. Modeled on
- * visitors.now's `Dashboard · Profiles · Funnels …` row above their hero
- * mockup. Active tab gets a lighter neutral fill + white text; inactive
- * tabs read as muted neutral.
- *
- * Generic over the value type so callers can pass a string union and get
- * type-checked `onChange` calls.
- *
- * Implements the WAI-ARIA tabs pattern: roving tabIndex (active tab is
- * focusable, others are skipped), Left/Right cycle through tabs, Home/End
- * jump to the ends, and `aria-controls` ties each button to the matching
- * panel id via `tabPanelId(idBase, value)`. Callers render the panels
- * themselves and must use `tabPanelId` so the relationship is consistent.
+ * Segmented tab control as a dark pill, using the WAI-ARIA tabs pattern.
+ * Callers render the panels and must give them ids from `tabPanelId`.
  */
 export type TabPillVariant = "glass" | "bare";
 
@@ -30,22 +19,11 @@ export function TabPill<T extends string>({
   options: ReadonlyArray<TabPillOption<T>>;
   value: T;
   onChange: (next: T) => void;
-  /**
-   * Shared id prefix for tab buttons and their panels. Pass the same
-   * value used by `tabPanelId` on the rendered panels. Defaults to a
-   * `useId`-generated string when omitted.
-   */
+  /** Id prefix for tabs and panels; pass the same value to `tabPanelId`. Defaults to `useId`. */
   idBase?: string | undefined;
   /**
-   * `glass` — self-contained frosted pill with its own border and aurora
-   * halo. Use when the row floats over a busy surface and has to hold its
-   * own shape.
-   *
-   * `bare` — no outer chrome at all. Use when the row already sits inside a
-   * container that supplies the shape, e.g. the hero band's notch, where a
-   * bordered pill inside a notch would read as two nested containers. Never
-   * stack a light translucent surface on another translucent surface —
-   * legibility collapses and the shapes fight.
+   * `glass`: frosted pill with its own border, for busy backgrounds.
+   * `bare`: no chrome, for a container that already gives the shape (the hero notch).
    */
   variant?: TabPillVariant | undefined;
   className?: string | undefined;
@@ -55,16 +33,12 @@ export function TabPill<T extends string>({
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const listRef = useRef<HTMLDivElement | null>(null);
 
-  // Sliding-indicator geometry. Null until the first layout pass so the
-  // indicator doesn't flash at x=0 on mount.
+  // Null until the first layout, so the indicator does not flash at x=0.
   const [indicator, setIndicator] = useState<{
     x: number;
     width: number;
   } | null>(null);
 
-  // Measure the active button relative to the tablist and park the
-  // indicator on it. useLayoutEffect runs before paint, so the indicator
-  // is positioned correctly on the very first frame.
   useLayoutEffect(() => {
     const list = listRef.current;
     const index = options.findIndex((o) => o.value === value);
@@ -76,8 +50,7 @@ export function TabPill<T extends string>({
     setIndicator({ x: btnRect.left - listRect.left, width: btnRect.width });
   }, [value, options]);
 
-  // Recompute on container resize so font-load shifts, viewport changes,
-  // or option label edits don't leave the indicator misaligned.
+  // Re-measure on resize: font loads and label changes shift the buttons.
   useEffect(() => {
     const list = listRef.current;
 
@@ -103,8 +76,7 @@ export function TabPill<T extends string>({
 
     if (!target) return;
     onChange(target.value);
-    // The roving tabIndex updates on the next render — focus the button
-    // synchronously so keyboard users see the focus follow the arrow press.
+    // tabIndex updates next render; focus now so focus follows the arrow key.
     buttonRefs.current[index]?.focus();
   };
 
@@ -147,33 +119,20 @@ export function TabPill<T extends string>({
       ref={listRef}
       role="tablist"
       aria-orientation="horizontal"
-      // `tabIndex={-1}` satisfies the rule that interactive roles with
-      // handlers be focusable, without putting the container itself in
-      // the tab order — the active child tab remains the keyboard entry
-      // point per the WAI-ARIA tabs pattern.
+      // Satisfies the focusable-handler lint rule without adding the container to the tab order.
       tabIndex={-1}
       onKeyDown={handleKeyDown}
       className={cn(
         "relative inline-flex items-center rounded-full p-1",
         variant === "glass" &&
           cn(
-            // Tinted glass — dark enough to give the pill body against the
-            // aurora, glassy enough to still feel lit by it.
             "border border-white/[0.12] bg-black/40 backdrop-blur-xl",
             "shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(0,0,0,0.4),0_12px_36px_-12px_rgba(99,102,241,0.45)]",
           ),
         className,
       )}
     >
-      {/* Sliding active indicator. The glass variant picks up the indigo aurora
-       * behind the pill so it reads as lit rather than painted; the bare
-       * variant only needs to mark position, so it stays a quiet neutral fill
-       * and lets the label carry the state.
-       *
-       * `cubic-bezier(0.32,0.72,0,1)` is a critically-damped curve: it leaves
-       * fast, arrives without overshoot, and settles. Overshoot would be wrong
-       * here — no gesture carried momentum into this move, the tab simply
-       * changed. */}
+      {/* Sliding indicator. The curve has no overshoot: no gesture gave this move momentum. */}
       {indicator ? (
         <span
           aria-hidden

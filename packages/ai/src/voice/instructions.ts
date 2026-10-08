@@ -12,19 +12,17 @@ type AgentOutputPurpose = keyof typeof AGENT_OUTPUT_PURPOSES;
 export type VoicePolicy = "default" | "none";
 
 export interface ComposeAgentInstructionsArgs {
-  /** Required semantic classification; its closed policy map supplies the voice default. */
+  /** Picks the default voice. */
   purpose: AgentOutputPurpose;
-  /** Role and mission. This is always the first, cache-stable block. */
+  /** Always the first block. */
   role: string;
-  /** Additional cache-stable capability or behavior blocks. */
   rules?: readonly string[];
-  /** Rare typed override. Audience-specific prose stays in validated request context. */
+  /** Rare override of the purpose's voice. */
   voice?: VoicePolicy;
-  /** Per-run grounding, ordered last so stable prompt prefixes remain cacheable. */
+  /** Per-run text. Last, so the stable prefix stays cached. */
   grounding?: readonly string[];
 }
 
-/** Compose a system prompt with one centrally-owned output-voice decision. */
 export function composeAgentInstructions(args: ComposeAgentInstructionsArgs): string {
   const voice = args.voice ?? AGENT_OUTPUT_PURPOSES[args.purpose].voice;
   const blocks = [args.role, ...(args.rules ?? [])];

@@ -1,24 +1,10 @@
 /**
- * COMMITTED object-state backfill (issue #212, ADR-0062, one-off 2026-06-21).
+ * Replay stored GitHub deliveries in `event_receipts` through the GitHub reducer,
+ * so `integration_objects` includes history from before the live fold (#212, ADR-0062).
+ * Without it, old merges never close their briefing loops.
  *
- * Replays the stored GitHub deliveries in `event_receipts` through the GitHub
- * reducer so the `integration_objects` projection reflects history that
- * predates the real-time fold in
- * `packages/assistant/src/connections/object-state/activity-consumer.ts`. Without this,
- * only PRs whose webhooks arrive *after* deploy would ever close a briefing
- * loop — the months of already-stored deliveries (including the merges that
- * should retire today's stuck CI-failure loops) would be invisible.
- *
- * Replay order is `delivered_at ASC` so the reducer's monotonic state guard
- * sees events in causal order (opened → synchronize → closed). The reducer is
- * idempotent, so re-running is safe.
- *
- * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
- * `node dist/scripts/backfills/backfill-object-state-github-committed.js` — the prod
- * image has no `tsx`/loose `@alfred/*` sources.
- *
- * Dry by default — counts + previews but writes nothing. Pass `--commit`
- * to project state into the new tables (additive only; never deletes).
+ * Replays in `delivered_at` order for the reducer's monotonic guard. The reducer is
+ * idempotent. Bundled for prod. Dry by default; `--commit` writes (additive only).
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfills/backfill-object-state-github-committed.js
@@ -39,15 +25,12 @@ async function main() {
   await warmPool();
   console.log(`# Object-state github backfill — mode=${COMMIT ? "COMMIT" : "DRY"}`);
 
-  // Every receipt is attributed to a credential, and so to a user, at receive
-  // time (ADR-0097). `pull_request` is the sole kind the v1 reducer folds;
-  // pulling just those keeps the replay tight.
+  // The reducer folds only `pull_request`. Receipts carry their user (ADR-0097).
   const rows = await db()
     .select({
       userId: typedEventReceipts.userId,
       payload: typedEventReceipts.payload,
-      // The replay must order exactly as the live fold does, so it reads the
-      // same microsecond instant rather than a truncated JS `Date` (#1200).
+      // Microseconds, not a JS `Date`, so the order matches the live fold (#1200).
       deliveredAt: receiptDeliveryInstant(),
     })
     .from(typedEventReceipts)
@@ -59,8 +42,7 @@ async function main() {
     )
     .orderBy(asc(typedEventReceipts.deliveredAt));
 
-  // A receipt whose body is not a JSON object cannot be folded; the reducer
-  // would read nothing off it, so it is left out of the count as well.
+  // A body that is not a JSON object cannot be folded or counted.
   const deliveries = rows.flatMap((row) => {
     const stored = jsonObjectSchema.safeParse(row.payload);
 
@@ -121,7 +103,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

@@ -12,43 +12,12 @@ import { SharingRequestError, useSharedThreadPage } from "~/lib/sharing/use-thre
 import { cn } from "~/lib/utils";
 
 /**
- * The public read-only view of a shared thread — `/c/$slug` (ADR-0102).
- *
- * THIS SURFACE RUNS SIGNED OUT. It opens no Replicache and reads no session of
- * its own; its only data source is `GET /api/shared/:slug`, whose body is a
- * frozen snapshot. That isolation is deliberate — it is what keeps a visitor
- * from being one buggy hook away from the owner's live data, so resist pulling
- * a shell, a sidebar, or a synced hook in here.
- *
- * `AppShell` still wraps this route, because it wraps every route from
- * `__root`. What keeps it inert here is `staticData: { publicRoute: true }` on
- * the route itself: no chrome renders and, more importantly, the shell's
- * signed-out-visitor redirect to `/login` does not fire. Drop that flag and
- * this page is unreachable by the only audience it has.
- *
- * It lives in `-chat/` because it is a second view of the chat feature, not a
- * feature of its own: it reuses `MessageBubble` so a published transcript keeps
- * the markdown, reasoning panel, and tool trail the owner saw, rather than
- * drifting into a second renderer. The folder is a module boundary, not the
- * trust boundary. The trust boundary is the list above — what this file mounts.
- *
- * `MessageBubble` is safe to mount signed out, and that is a property to keep
- * rather than assume. It has no Replicache dependency, and `ConnectNudgeRows`
- * returns before it asks for credentials when a message carries no bounce —
- * which a published message never does, because the snapshot drops
- * `connectNudge`. Any new authenticated read added below `MessageBubble` breaks
- * this page, and nothing in the build will say so.
+ * Public read-only `/c/$slug` (ADR-0102). Signed out; its only data is the `GET /api/shared/:slug` snapshot.
+ * Do not add Replicache, a session, or a synced hook. The route's `publicRoute: true` stops the `/login` redirect.
+ * `MessageBubble` must make no authenticated read; nothing in the build catches one.
  */
 
-/**
- * The one outbound control on this page.
- *
- * `FrostButton` renders its own `<button>` and has no `asChild`, so this
- * navigates on click rather than wrapping a router `Link` — a `<button>` inside
- * an `<a>` is invalid. That is the same trade `landing-cta-section.tsx` already
- * makes for the landing hero, and following it keeps one frost recipe in the
- * tree instead of a second hand-rolled copy on an anchor.
- */
+/** `FrostButton` has no `asChild`, and a button inside a link is invalid, so it navigates on click. */
 function TryAlfredButton({ size = "md", children }: { size?: "sm" | "md"; children: string }) {
   const navigate = useNavigate();
 
@@ -61,23 +30,14 @@ function TryAlfredButton({ size = "md", children }: { size?: "sm" | "md"; childr
 }
 
 /**
- * The signed-out invitation, docked where a reader with an account would find
- * the composer. Adapted from Dimension's shared-thread banner, which puts the
- * product mark, one welcome line, and the action in a frosted pill that the
- * transcript scrolls under.
- *
- * The copy is deliberately NOT Dimension's "Create an account to start
- * chatting". That promise belongs to its `/copy` fork path, which Alfred does
- * not build (ADR-0102) — a visitor here cannot continue this conversation, and
- * an invitation that implies otherwise would be a lie the next click exposes.
- *
- * The action leaves for `/`. It does not open a sign-in: this page holds no
- * session and starting an auth flow from it would undo that.
+ * Signed-out invitation, docked where the composer would be.
+ * The copy does not promise "start chatting": Alfred has no fork path (ADR-0102).
+ * It links to `/`, not sign-in, because this page holds no session.
  */
 function TryAlfredBanner() {
   return (
     <div className="sticky bottom-0 z-10 -mx-5 mt-8 px-5 pb-4">
-      {/* Fades the transcript out under the pill rather than cutting it. */}
+      {/* Fades the transcript out under the pill. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 bottom-full h-16 bg-linear-to-b from-transparent to-app-background"
@@ -106,16 +66,8 @@ function TryAlfredBanner() {
 }
 
 /**
- * Widen a published message to the shape `MessageBubble` reads.
- *
- * The absent fields are absent from the snapshot on purpose (see
- * `sharedThreadMessageSchema`), so they are filled with the values that mean
- * "nothing to render": `usage: null` draws no cost line, `errorKind: null`
- * draws the generic failure copy rather than naming an internal taxonomy, and
- * the ids are placeholders no branch of the renderer reads. `threadId` is the
- * one a caller might be tempted to make real — do not. `Conversation` uses it
- * to open Replicache subscriptions, which is exactly what this page must not
- * do, and `MessageBubble` never reads it.
+ * Fill the fields the snapshot omits with "render nothing" values.
+ * Keep `threadId` a placeholder: `Conversation` would open Replicache with a real one.
  */
 function toRenderableMessage(message: SharedThreadMessage): SyncedChatMessage {
   return {
@@ -139,19 +91,8 @@ function toRenderableMessage(message: SharedThreadMessage): SyncedChatMessage {
 }
 
 /**
- * One published artifact.
- *
- * The branch below is exhaustive because the WIRE is narrow, not because this
- * component checks carefully. `sharedThreadArtifactBodySchema` has exactly two
- * variants, and an artifact whose body fits neither — an `external_file`, whose
- * body is a pointer into the owner's Drive — never reaches the snapshot at all
- * (see `toSharedArtifact`). So there is no "no published body" state to draw
- * here: a row that exists has something to show.
- *
- * A `pages` artifact publishes its COUNT and never its HTML (ADR-0102 D7). A
- * page body is assembled from tool results, so inlining it would restate the
- * mail, calendar, and file content that the snapshot already dropped from the
- * same thread.
+ * One published artifact. The wire schema has only two body variants, so this branch is exhaustive.
+ * A `pages` artifact publishes only its count (ADR-0102 D7); its HTML repeats tool results.
  */
 function ArtifactPanel({ artifact }: { artifact: SharedThreadArtifact }) {
   const { body } = artifact;
@@ -181,15 +122,7 @@ function ArtifactPanel({ artifact }: { artifact: SharedThreadArtifact }) {
   );
 }
 
-/**
- * Says that files rode with a turn, without publishing them.
- *
- * A snapshot carries attachment COUNTS and no bytes, because the bytes sit
- * behind the owner's auth-gated content proxy and a visitor cannot fetch them.
- * Drawing the count keeps the transcript honest: a turn that carried three
- * screenshots would otherwise read as a bare sentence, and the reply to it
- * would look like a non sequitur.
- */
+/** Attachment counts only: the bytes sit behind the owner's auth-gated proxy. */
 function AttachmentNote({ count, role }: { count: number; role: "user" | "assistant" }) {
   return (
     <p
@@ -204,7 +137,7 @@ function AttachmentNote({ count, role }: { count: number; role: "user" | "assist
   );
 }
 
-/** Shared chrome for every non-populated state, so they all sit in the same frame. */
+/** Shared frame for every non-populated state. */
 function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh items-center justify-center px-6 text-center">
@@ -214,13 +147,8 @@ function Centered({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Every state in which the snapshot did not arrive.
- *
- * 404 is the ONLY final answer. A revoked link and a slug that never existed
- * both answer 404, and this page says one thing for both — telling them
- * apart would confirm a guess. Every other status is the server or the
- * network failing, and saying "never shared" there tells the visitor their
- * link is dead when it is not, so those get the truth and a retry instead.
+ * 404 covers both revoked and never-existed links, with one message so a guess is not confirmed.
+ * Other statuses are server or network failures and get a retry.
  */
 function SharedThreadUnavailable({ error, onRetry }: { error: unknown; onRetry: () => void }) {
   const gone = error instanceof SharingRequestError && error.status === 404;
@@ -293,9 +221,7 @@ function SharedThreadBody({ urlSlug }: { urlSlug: string }) {
 
       <div className="flex flex-col gap-8 py-4">
         {messages.map((message) => (
-          // The note sits ABOVE the bubble because that is where the owner's own
-          // chat draws attachments on a user turn (`MessageAttachments`), and a
-          // published transcript should not reorder the turn it copies.
+          // Above the bubble, as the owner's chat draws attachments on a user turn.
           <div key={message.id} className="flex flex-col gap-2">
             {message.attachmentCount > 0 ? (
               <AttachmentNote count={message.attachmentCount} role={message.role} />
@@ -339,9 +265,7 @@ export function SharedThreadPage({ urlSlug }: { urlSlug: string }) {
   return (
     <AppThemeProvider>
       <AppThemed as="main" className="min-h-dvh bg-app-background">
-        {/* Everything below renders alt text instead of remote images. The
-         * provider wraps the WHOLE body, not just the transcript, so an
-         * artifact body added to this page later is covered too. */}
+        {/* Alt text instead of remote images, for the whole body, including later artifacts. */}
         <PublishedTranscript>
           <SharedThreadBody urlSlug={urlSlug} />
         </PublishedTranscript>

@@ -72,7 +72,7 @@ const callbackParamsSchema = z.object({ state: z.string().min(1) });
 
 const endpointAuthorizer = getMcpEndpointAuthorizer();
 
-/** OAuth start and callback have no raw client, so they name the client's default budget. */
+/** OAuth has no raw client, so it uses the client's default timeout. */
 const OAUTH_NETWORK: McpEndpointNetworkPolicy = {
   requestTimeoutMs: MCP_DEFAULT_REQUEST_TIMEOUT_MS,
 };
@@ -82,7 +82,6 @@ type McpOAuthCallbackProvider = Pick<
   "matchesState" | "discoveryState" | "finishAuthorization"
 >;
 
-/** The connection identity plus the server definition the authorizer pins the endpoint to. */
 type McpOAuthCallbackConnection = Pick<McpConnection, "id" | "userId"> & {
   readonly server: McpEndpointConnection;
 };
@@ -93,7 +92,7 @@ interface McpOAuthCallbackDependencies {
   connectionManager: Pick<McpConnectionManager, "getReadyClient">;
 }
 
-/** Identify the only callback phase whose transport failure can recover with stored tokens. */
+/** The one callback phase where a transport failure can recover with stored tokens. */
 class McpPostConsentHandshakeError extends Error {
   constructor(cause: unknown) {
     super("MCP connection handshake failed", { cause });
@@ -134,8 +133,7 @@ export async function completeMcpOAuthCallback(input: {
 
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
-          // This writes the row's status only when it OPENS a generation.
-          // Each consent door drops the old client before it asks.
+          // Writes status only when it opens a new client; each consent door drops the old one first.
           await dependencies.connectionManager.getReadyClient(connection.id);
 
           return;
@@ -158,9 +156,7 @@ function connectionResult(connection: McpConnectionSummary) {
     label: connection.label,
     canonicalResource: connection.server.canonicalResource,
     endpointOrigin: connection.server.endpointOrigin,
-    // Derived from the endpoint, never stored (ADR-0093). The card picks its
-    // built-in by this key; `canonicalResource.includes("github")` also matched
-    // any user-added URL with the word "github" in it.
+    // Derived from the endpoint, never stored (ADR-0093).
     builtInProvider: builtInProviderForEndpoint(connection.server.endpointUrl) ?? null,
     status: connection.status,
     grantedScopes: connection.grantedScopes,
@@ -168,19 +164,12 @@ function connectionResult(connection: McpConnectionSummary) {
     lastError: connection.lastError,
     lastConnectedAt: connection.lastConnectedAt,
     updatedAt: connection.updatedAt,
-    // Null until the first catalog revision is published; the card states the
-    // count only when a revision exists.
+    // Null until the first catalog revision exists.
     toolCount: connection.toolCount,
   };
 }
 
-/**
- * Project a persisted review onto the wire contract. The row is the
- * source-of-truth shape; only the browser-visible fields cross, and the two
- * server-owned fields (`descriptorHash`, the row id/keys) stay behind. The
- * contract parse at the call site is the boundary that validates the `$type`
- * enum columns.
- */
+/** Only browser-visible fields cross. The caller's contract parse validates the enum columns. */
 function mcpToolPolicyResult(policy: McpToolPolicyRow): McpToolPolicy {
   return {
     riskTier: policy.riskTier,
@@ -192,14 +181,7 @@ function mcpToolPolicyResult(policy: McpToolPolicyRow): McpToolPolicy {
   };
 }
 
-/**
- * The one 200-able policy response. A missing or foreign connection is a 404
- * here because it is a request for something the owner does not have; every
- * other state is a typed body, including `not_found` (the read answered "this
- * tool is not in that revision") and `catalog_stale` (the named revision is not
- * current). That is why the contract carries both arms: they are reachable
- * bodies, not dead schema.
- */
+/** Only a missing connection is a 404. `not_found` and `catalog_stale` are typed 200 bodies. */
 function mcpToolPolicyStateResult(
   state: Awaited<ReturnType<typeof readMcpToolPolicyState>>,
   ref: ExternalToolRef,
@@ -228,7 +210,6 @@ function mcpToolPolicyStateResult(
   }
 }
 
-/** Map the owner-reviewed health state onto the same exact-ref wire vocabulary. */
 function mcpHealthMappingStateResult(
   state: Awaited<ReturnType<typeof readMcpHealthMappingState>>,
   ref: ExternalToolRef,
@@ -289,8 +270,7 @@ async function beginAuthorization(input: {
       },
     );
   } catch (error) {
-    // A consent screen is the NORMAL answer, not a failure: the SDK reports it
-    // by throwing, and the pending sentence is the whole report the card needs.
+    // The SDK throws to ask for a consent screen. That is the normal path.
     if (error instanceof McpOAuthAuthorizationRequiredError) {
       await updateConnection(connection.id, {
         status: "auth_required",
@@ -300,12 +280,7 @@ async function beginAuthorization(input: {
       return error.authorizationUrl;
     }
 
-    // Anything else is a real failure of the authorization attempt — an endpoint
-    // the authorizer refuses, a server that cannot register a client, an
-    // unreachable endpoint, a rejected discovery document. The record sits OUT
-    // here, not inside the authorized callback, because the authorizer can
-    // refuse before that callback ever runs; a caller redirected to the
-    // integrations page would then have no reason to read anywhere.
+    // Record it here, not in the callback: the authorizer can refuse before the callback runs.
     await updateConnection(connection.id, {
       status: "failed",
       lastError: boundedMcpErrorText(error),
@@ -314,13 +289,7 @@ async function beginAuthorization(input: {
   }
 }
 
-/**
- * Both connect entrypoints and the callback are BROWSER navigations, so an
- * escaping error renders the API error page and strands the user off the
- * integrations surface. Send the browser back to the card instead. The card
- * reads `status` and `lastError` from the connection list, so the redirect
- * carries no query parameter: the durable row is the only report.
- */
+/** These are browser navigations, so send errors back to the card. The row carries the reason. */
 function redirectToIntegrations(set: Context["set"]): null {
   set.status = 302;
   set.headers["Location"] = `${serverEnv().CORS_ORIGIN}/integrations`;
@@ -329,27 +298,8 @@ function redirectToIntegrations(set: Context["set"]): null {
 }
 
 /**
- * Walk one stored connection to its next consent step and answer the BROWSER.
- *
- * Every consent door ends here — the built-in connect, the generic add door's
- * `auth_required` answer, and the forced re-consent — because they differ only
- * in how they reach a connection id, never in what happens after. Two answers:
- * the authorization server wants a consent screen, so the browser goes there;
- * or the row already holds a usable credential, so the only work left is to
- * open the session.
- *
- * ONE try covers both halves on purpose. `beginAuthorization` persists every
- * reason it can name, and `getReadyClient` persists its own `failed` (or
- * `auth_required`) row with a bounded `lastError` before it rethrows, so in
- * both cases the card is where the reason is readable and the browser belongs
- * back on the integrations page. Three hand-written copies of this sequence had
- * already drifted: two of them left the session open OUTSIDE the try, so a
- * remote that went down between consent and connect answered a navigation with
- * the API error page.
- *
- * The redirect therefore holds for every failure that leaves a ROW behind. A
- * missing row is the one exception and it is rethrown, because the promise
- * "the card states the reason" needs a card.
+ * Every consent door ends here: redirect to the consent screen, or open the client.
+ * One try covers both, because each half writes its failure to the row first.
  */
 async function navigateToConsent(
   set: Context["set"],
@@ -367,10 +317,7 @@ async function navigateToConsent(
 
     await getMcpConnectionManager().getReadyClient(input.connectionId);
   } catch (error) {
-    // The one error this must NOT swallow. A row that does not exist has no
-    // card to carry a reason, so a redirect would answer a mistyped id with a
-    // silent bounce off the integrations page, and the same fact would answer
-    // 404 through `reconsent` and 302 through here.
+    // A missing row has no card to show the reason, so it stays a 404.
     if (isApiError(error, "NOT_FOUND")) throw error;
 
     return redirectToIntegrations(set);
@@ -379,17 +326,7 @@ async function navigateToConsent(
   return redirectToIntegrations(set);
 }
 
-/**
- * The MCP connection surface. Two creation doors: a first-class built-in, whose
- * endpoint the registry supplies and whose provider key the path names, and the
- * generic `POST /connections` (#1004), where the owner supplies the URL and the
- * assistant validates and probes it before any row exists.
- *
- * Both end at the SAME consent flow. `GET /connections/:id/authorize` is the
- * one door to an authorization server, so a built-in with a pinned client and a
- * pasted URL whose server registers a client dynamically differ only in where
- * the endpoint came from.
- */
+/** MCP connections: built-ins and owner-added URLs share one consent flow. */
 export const mcpIntegrationRoutes = new Elysia({
   prefix: "/api/integrations/mcp",
   normalize: "typebox",
@@ -403,10 +340,7 @@ export const mcpIntegrationRoutes = new Elysia({
 
         return { connections: connections.map((connection) => connectionResult(connection)) };
       })
-      // The generic creation door (#1004). The owner supplies the endpoint; the
-      // assistant validates and probes it before any row exists. A server that
-      // needs sign-in answers `auth_required` with the id of the connection the
-      // browser must walk to `/connections/:id/authorize`.
+      // Add a server by URL. `auth_required` returns the id to send to `/connections/:id/authorize`.
       .post(
         "/connections",
         async ({ body, request, user }) => {
@@ -414,9 +348,7 @@ export const mcpIntegrationRoutes = new Elysia({
             const result = await addUserMcpServer({
               userId: user.id,
               endpointUrl: body.endpointUrl,
-              // The probe commits nothing, so a closed tab may abort it. The
-              // assistant unions this with its own aggregate deadline, which is
-              // what bounds a server that answers slowly but forever.
+              // The probe writes nothing, so a closed tab may abort it.
               signal: request.signal,
               ...(body.label !== undefined ? { label: body.label } : {}),
               ...(body.auth !== undefined ? { auth: body.auth } : {}),
@@ -424,11 +356,7 @@ export const mcpIntegrationRoutes = new Elysia({
 
             return { outcome: result.outcome, connectionId: result.connectionId };
           } catch (error) {
-            // A refusal the OWNER caused is a 400, bounded by the one MCP error
-            // funnel: a blocked scheme/host/port, an embedded credential, a
-            // built-in's own URL, an unreachable or non-MCP endpoint. Anything
-            // else — a failed insert, a missing key — is Alfred's fault and must
-            // stay a 500 rather than blame the URL the owner typed.
+            // A bad URL is a 400. Our own failures stay a 500.
             if (!isAddUserMcpServerRefusal(error)) throw error;
 
             throw Errors.BadRequestError(boundedMcpErrorText(error));
@@ -436,8 +364,7 @@ export const mcpIntegrationRoutes = new Elysia({
         },
         { body: mcpAddServerBodySchema },
       )
-      // The recovery read is pure: it never repairs a row, so a focus refetch
-      // costs one query pair and no broker construction.
+      // Read only: it never repairs a row.
       .get(
         "/recovery",
         async ({ query, user }) =>
@@ -457,14 +384,10 @@ export const mcpIntegrationRoutes = new Elysia({
           }),
         {
           params: t.Object({ invocationId: t.String({ minLength: 1 }) }),
-          // The same Zod schema the contract publishes, validated once by Elysia,
-          // exactly as the GET above validates its `query`.
           body: mcpRecoveryDecisionBodySchema,
         },
       )
-      // The request signal is deliberately NOT threaded into the successor send.
-      // A closed tab must not abort a write that is already `delivery_possible`;
-      // the broker's own request timeout is the only bound.
+      // No request signal: a closed tab must not abort a write that may already be delivered.
       .post(
         "/recovery/:invocationId/successor",
         async ({ params, user }) =>
@@ -477,15 +400,11 @@ export const mcpIntegrationRoutes = new Elysia({
           body: t.Undefined(),
         },
       )
-      // One door for every first-class server. The provider key is the path
-      // segment, and `BUILT_IN_MCP_CATALOG` is the only thing that mints one,
-      // so the next built-in adds no route here.
+      // One route for every built-in in `BUILT_IN_MCP_CATALOG`.
       .get(
         "/built-ins/:provider/connect",
         async ({ params, user, set }) => {
-          // The segment arrives from a URL, so it is untrusted until the
-          // catalog claims it. An unknown provider is a 404, not a redirect: a
-          // card cannot produce one, so it is a mistyped link.
+          // A card cannot produce an unknown provider, so it is a 404, not a redirect.
           if (!isBuiltInMCPProvider(params.provider)) {
             throw Errors.NotFoundError("Unknown built-in MCP provider");
           }
@@ -493,13 +412,10 @@ export const mcpIntegrationRoutes = new Elysia({
           let connectionId: string;
 
           try {
-            // The ensure sits INSIDE the guard. It reaches the database and it
-            // reconciles the pinned built-in endpoint, so it can fail on its own,
-            // and a browser navigation must not meet a bare 500 page for it.
+            // Inside the try: it can fail, and a navigation must not show a 500 page.
             const connection = await ensureBuiltInConnection(user.id, params.provider);
 
-            // Drop any live client first: this door re-asks for a grant, and a
-            // session opened under the old one must not survive the new ask.
+            // A session from the old grant must not outlive the new ask.
             await getMcpConnectionManager().disconnect(connection.id, user.id);
             connectionId = connection.id;
           } catch {
@@ -510,24 +426,9 @@ export const mcpIntegrationRoutes = new Elysia({
         },
         { params: t.Object({ provider: t.String({ minLength: 1 }) }) },
       )
-      // The consent door for a STORED connection. The generic add door's
-      // `auth_required` answer lands here, and so does the "Grant access"
-      // action on either card.
-      //
-      // It does NOT force a consent screen: there is no grant to widen, so an
-      // authorization server that can answer from an existing session should be
-      // allowed to. `reconsent` below is the widening case.
-      //
-      // Forcing a screen and dropping the live client are two different things,
-      // and this door does the second, which makes all three consent doors do
-      // it. That is one invariant, not a precaution: the callback reports a
-      // successful grant by opening a client, and `getReadyClient` writes the
-      // row's status only when it OPENS a generation. A door that left a cached
-      // one alive would hand the callback that cache, no status would be
-      // written, and a connection parked in `auth_required` by its own ask
-      // would keep offering "Grant access" over live tokens and a serving
-      // client, with every press repeating the round trip. A session opened
-      // under the replaced grant must not outlive it either.
+      // Consent for a stored connection. It does not force a consent screen; `reconsent` does.
+      // It must drop the live client: with a cached client, the callback writes no status,
+      // and the row stays stuck in `auth_required`.
       .get(
         "/connections/:id/authorize",
         async ({ params, user, set }) => {
@@ -542,8 +443,6 @@ export const mcpIntegrationRoutes = new Elysia({
         async ({ params, user, set }) => {
           const disconnected = await getMcpConnectionManager().disconnect(params.id, user.id);
 
-          // A 404, not a redirect: no row matches this owner and this id, so
-          // there is nothing to re-consent for and no row to carry a reason.
           if (!disconnected) throw Errors.NotFoundError("MCP connection not found");
 
           return navigateToConsent(set, {
@@ -554,17 +453,13 @@ export const mcpIntegrationRoutes = new Elysia({
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       )
-      // Generic lifecycle actions (#1004). Reconnect drops the live client and
-      // opens a fresh generation; disconnect closes it and marks the row.
       .post(
         "/connections/:id/reconnect",
         async ({ params, user }) => {
           let reconnected: boolean;
 
           try {
-            // The manager owns the close/open pair because it owns the restore:
-            // a remote that is down between the two must not cost the row its
-            // published catalog.
+            // The manager keeps the published catalog if the remote is down between close and open.
             reconnected = await getMcpConnectionManager().reconnect(params.id, user.id);
           } catch (error) {
             throw Errors.BadRequestError(boundedMcpErrorText(error));
@@ -587,10 +482,7 @@ export const mcpIntegrationRoutes = new Elysia({
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       )
-      // Rename changes only the display label. A built-in is a 400 rather than a
-      // silent no-op: its label is reclaimed from the catalog on the next
-      // connect, so the write would report success and then revert. The manager
-      // owns the owner-scoped, built-in-aware decision; the route only maps it.
+      // A built-in is a 400: its label resets on the next connect.
       .patch(
         "/connections/:id",
         async ({ body, params, user }) => {
@@ -611,10 +503,7 @@ export const mcpIntegrationRoutes = new Elysia({
           body: mcpRenameConnectionBodySchema,
         },
       )
-      // Removal closes the live client and deletes the row plus its credential
-      // rows. It is refused while an unresolved invocation exists, so the
-      // ambiguity barrier is only discarded through the recovery facade: the
-      // owner resolves first, then removes.
+      // Refused while an invocation is unresolved: resolve it first, then remove.
       .delete(
         "/connections/:id",
         async ({ params, user }) => {
@@ -638,14 +527,8 @@ export const mcpIntegrationRoutes = new Elysia({
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       )
-      // The per-connection catalog read. It reads Alfred's PERSISTED
-      // `mcp_catalog_revisions` slice; it never opens a live client, so an
-      // inspection costs one query and cannot dial a remote. The connection
-      // identity is `params.id` alone: the query contract omits
-      // `connectionId` and `namespace`, so a client cannot point the read at
-      // another owner's catalog, and `listMcpToolsLocal` refuses a foreign id
-      // in SQL on top of that. The handler re-parses the returned union with
-      // the matching contract arm so the Eden response type is exact.
+      // Reads the stored catalog only; never dials the remote. The query omits `connectionId`,
+      // so the path is the only connection a client can name.
       .get(
         "/connections/:id/tools",
         async ({ params, query, user }) => {
@@ -661,11 +544,7 @@ export const mcpIntegrationRoutes = new Elysia({
           query: mcpToolSearchInputSchema.omit({ connectionId: true, namespace: true }),
         },
       )
-      // The one exact descriptor behind a catalog hit. The ref's
-      // `connectionId` is the path segment, so the browser can only inspect a
-      // tool whose catalogue it just read. A stale `catalogRevision` answers
-      // `catalog_stale` (ADR-0094's refused refresh stays visible) rather than
-      // a filtered list.
+      // A stale `catalogRevision` answers `catalog_stale` (ADR-0094).
       .get(
         "/connections/:id/tools/inspect",
         async ({ params, query, user }) => {
@@ -688,10 +567,7 @@ export const mcpIntegrationRoutes = new Elysia({
           query: mcpExternalToolRefSchema.pick({ remoteName: true, catalogRevision: true }),
         },
       )
-      // The exact-descriptor policy review surface (ADR-0088 / ADR-0096). Three
-      // thin routes: read the state, write a review, clear the pair. The path
-      // names the connection and `ref.connectionId` must agree with it, so a
-      // review can only ever target a tool on the connection the path names.
+      // Policy review (ADR-0088 / ADR-0096). `ref.connectionId` always comes from the path.
       .get(
         "/connections/:id/tools/policy",
         async ({ params, query, user }) => {
@@ -771,9 +647,7 @@ export const mcpIntegrationRoutes = new Elysia({
           body: mcpToolInspectInputSchema,
         },
       )
-      // Owner-reviewed health projection for the exact descriptor just inspected.
-      // The server derives the descriptor hash and holds the same current-revision
-      // lock as policy review, so this row carries the same drift-void trust shape.
+      // Health mapping. Same server-derived hash and revision lock as policy review.
       .get(
         "/connections/:id/tools/health-mapping",
         async ({ params, query, user }) => {
@@ -857,11 +731,7 @@ export const mcpIntegrationRoutes = new Elysia({
         },
       ),
   )
-  // The Client ID Metadata Document, NOT the RFC 7591 registration body. The
-  // two differ by `client_id`, and `mcpOAuthClientConfiguration` owns which
-  // field belongs to which. An `http://` API base advertises no Client
-  // Identifier URL, so on that base this path has nothing honest to serve and
-  // says so rather than publishing a document no server may accept.
+  // The Client ID Metadata Document, not the RFC 7591 body. There is none on an `http://` base.
   .get("/client-metadata", () => {
     const { clientMetadataDocument } = mcpOAuthClientConfiguration();
 
@@ -893,12 +763,11 @@ export const mcpIntegrationRoutes = new Elysia({
       await completeMcpOAuthCallback({
         connection,
         state: parsed.data.state,
+        // URLSearchParams lets the SDK validate `iss` before it reads errors or redeems the code.
         params,
         dependencies: {
           endpointAuthorizer,
           providerForConnection: mcpOAuthProviderForConnection,
-          // The URLSearchParams overload validates `iss` before it reads any
-          // callback error text or redeems the authorization code.
           connectionManager: getMcpConnectionManager(),
         },
       });

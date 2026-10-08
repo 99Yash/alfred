@@ -1,21 +1,15 @@
 import * as React from "react";
 import { bodyStyles, EmailShell } from "./_shell";
 
-/**
- * The "workflow blocked" email (#561). Sent once per blocker generation when a
- * scheduled or event-driven workflow cannot run because a capability it needs
- * is missing (a disconnected account, a lost scope, a dead watch). Renders the
- * shared shell with the workflow name, the one safe sentence the readiness
- * check produced, and a footer CTA that opens the recovery panel.
- */
+/** Sent once per blocker when a workflow cannot run, for example after an account disconnects. */
 
 export interface WorkflowBlockedEmailProps {
   workflowName?: string;
-  /** The readiness verdict's safe sentence. Never raw provider text. */
+  /** One sentence from the readiness check. Never raw provider text. */
   message?: string;
-  /** Stable machine code, shown small so a support thread can quote it. */
+  /** Machine code, shown small so the user can quote it. */
   code?: string;
-  /** Deep link to the workflow page with the recovery panel open. */
+  /** Opens the workflow page with the recovery panel. */
   workflowUrl?: string;
   logoUrl?: string;
   createdAt?: string;

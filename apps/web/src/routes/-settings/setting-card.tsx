@@ -3,9 +3,7 @@ import { AppCard } from "~/components/ui/v2";
 import { APP_TINTS } from "~/lib/tints";
 import { cn } from "~/lib/utils";
 
-// Extends the shared tint palette with two card-only tones: `red` (destructive
-// affordances) and `neutral` (untinted). The six shared hues flow from
-// `APP_TINTS` so this card can never drift from the rail/settings tiles.
+// The shared `APP_TINTS` plus `red` (destructive) and `neutral`.
 const CARD_TILE = {
   ...APP_TINTS,
   red: "bg-app-red-1 text-app-red-4",
@@ -17,14 +15,12 @@ type CardTone = keyof typeof CARD_TILE;
 interface SettingCardProps {
   title: string;
   description?: string | undefined;
-  /** Optional hue-tinted icon tile next to the title. */
   icon?: ComponentType<{ size?: number; className?: string }>;
   tone?: CardTone | undefined;
-  /** Optional footer caption (left side, below the divider). */
+  /** Left side, below the divider. */
   footer?: ReactNode | undefined;
-  /** Optional footer action (right side, below the divider). */
+  /** Right side, below the divider. */
   action?: ReactNode | undefined;
-  /** When true, the footer divider is omitted. */
   noDivider?: boolean | undefined;
   children?: ReactNode | undefined;
 }

@@ -10,47 +10,31 @@ import {
   type IntegrationStatus,
 } from "~/lib/integrations/integrations";
 
-/**
- * Client side of the connection-health bounce (#378 item 3). When the dispatch
- * floor refuses a tool call because the integration behind it isn't usable,
- * the server attaches the repair to the refusal (`chat.tool` event and the
- * durable tool-call entry); this module turns those payloads into what the
- * chat renders: which provider to fix, what to call the fix, and whether the
- * offer still stands.
- */
+// Connection-health bounce, client side (#378 item 3): turn the server's repair payloads into chat views.
 
-/** One rendered repair offer, resolved against the integration catalog. */
+/** One repair offer, resolved against the integration catalog. */
 export interface ConnectNudgeView {
-  /** Stable identity — one offer per integration even after several bounces. */
+  /** One offer per integration, even after several bounces. */
   integration: string;
   action: ChatConnectNudge["action"];
-  /** The live provider's slug (`gmail`), the connect route's param. */
+  /** The connect route's param (`gmail`). */
   slug: LiveProviderSlug;
-  /** Display name (`Gmail`). */
   name: string;
   brand: IntegrationPage["brand"];
-  /** The one-line explanation above the action ("Gmail isn't connected."). */
+  /** "Gmail isn't connected." */
   line: string;
-  /** The primary action label ("Connect Gmail"). */
+  /** "Connect Gmail" */
   cta: string;
 }
 
-/** One persisted turn split into drawable cards and repair offers. */
 export interface PersistedToolCallSplit {
   cards: SyncedChatToolCall[];
   nudges: ChatConnectNudge[];
 }
 
 /**
- * Pull the repair offers out of a persisted turn's tool-call log, deduped by
- * integration under the same rule as the live stream state's map:
- * first-appearance order, last offer wins — so a reload renders exactly what
- * the turn streamed. A bounce whose repair the registry no longer recognizes
- * is dropped outright. Everything else in the log is a
- * drawable card and passes through untouched, so callers feed `cards` to the
- * trail exactly as they fed the raw list before — a bounced entry must never
- * draw as a failed step, inflate the run summary, or leak into source
- * extraction.
+ * Split a persisted turn into cards and repair offers, deduped like the live stream:
+ * first-appearance order, last offer wins. A bounce must never draw as a failed step.
  */
 export function splitPersistedToolCalls(
   toolCalls: readonly SyncedChatToolCall[],
@@ -64,8 +48,7 @@ export function splitPersistedToolCalls(
       continue;
     }
 
-    // A bounce whose persisted repair no longer parses (see the sync schema):
-    // neither a card nor an offer.
+    // A bounce whose repair no longer parses: neither card nor offer.
     if (call.connectNudge === null) continue;
     offers.set(call.connectNudge.integration, call.connectNudge);
   }
@@ -74,17 +57,8 @@ export function splitPersistedToolCalls(
 }
 
 /**
- * Resolve raw offers into renderable views. `statusBySlug` is the live
- * credential overlay once ready and `undefined` while queries are in flight —
- * matching the mention palette's rule that rows stay stateless during load
- * rather than flash an offer that may already be stale:
- *
- *  - not a live provider (a planned one, a channel, Alfred's own tools) → no
- *    view. There is no flow to send the user to, so an actionable offer would
- *    be dishonest (the same rule that keeps Slack/Linear out of the composer's
- *    nudges).
- *  - already connected → no view. The repair happened; re-offering it would
- *    read as broken even though the bounce was real when it streamed.
+ * Resolve offers into views. `statusBySlug` is `undefined` while loading, so no stale offer flashes.
+ * No view for a provider with no connect flow, or one already connected again.
  */
 export function presentConnectNudges(
   nudges: readonly ChatConnectNudge[],

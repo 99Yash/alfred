@@ -37,37 +37,19 @@ export function migrateRecordedToolNames(toolNames: readonly string[]): ToolName
 }
 
 /**
- * The tool surface a run carries in durable state.
- *
- * Every workflow that checkpoints a run holds this same slice, and it is one
- * truth rather than a coincidence: the fields exist to describe *this* module's
- * surface, they are read back through {@link migrateActiveTools} /
- * {@link migrateRecordedToolNames} defined right above, and the #414 preload
- * accounting reads `preloadedTools` + `preloadApplied` together across both
- * workflows. Spread into a run-state schema (`z.object({ ...fields, … })`) so a
- * new field, a changed default, or a new migration lands once here instead of in
- * every workflow that happens to remember.
- *
- * Values are the *persisted* shape (plain `string[]`, tolerant of names retired
- * since the checkpoint was written); {@link foldToolSurfaceState} is what turns
- * them into today's `ToolName[]`, so a schema that spreads these fields must
- * also fold them.
+ * The tool surface every workflow keeps in run state. Spread it into the state schema,
+ * and run {@link foldToolSurfaceState} in the transform: stored names may be retired tools.
  */
 export const toolSurfaceStateFields = {
-  // Persisted under an older deploy, so names may refer to tools that have
-  // since been retired. The fold drops anything not in today's registry.
   activeTools: z.array(z.string()).optional(),
-  // Exact first-turn deterministic selections (prompt preload and, for chat,
-  // names carried over from the thread's previous run), persisted so #414 can
-  // measure hits/misses against the durable transcript. Optional for legacy runs.
+  // Kept so #414 can measure preload hits and misses.
   preloadedTools: z.array(z.string()).default([]),
-  // Read only while resuming checkpoints created before exact tool surfaces.
+  // Legacy checkpoints only.
   activeIntegrations: z.array(z.string().min(1)).optional(),
   preloadApplied: z.boolean().default(false),
   allowedIntegrations: z.array(z.string()),
 };
 
-/** What {@link foldToolSurfaceState} needs from a parsed run state. */
 interface ParsedToolSurfaceState {
   activeTools?: string[] | undefined;
   activeIntegrations?: string[] | undefined;
@@ -77,12 +59,7 @@ interface ParsedToolSurfaceState {
 }
 
 /**
- * Resolve a parsed {@link toolSurfaceStateFields} slice against today's
- * registry: expand a legacy integration-level checkpoint into exact names, drop
- * retired ones, and discard the now-consumed `activeIntegrations`. Everything
- * else on the state passes through untouched, so a run-state schema's
- * `.transform` is `foldToolSurfaceState(parsed)` plus whatever else that
- * workflow migrates.
+ * Expand legacy integration checkpoints, drop retired tool names, and remove `activeIntegrations`.
  */
 export function foldToolSurfaceState<T extends ParsedToolSurfaceState>(
   parsed: T,
@@ -111,25 +88,14 @@ export function activateTool(activeTools: readonly ToolName[], toolName: ToolNam
   return uniqueToolNames([...activeTools, toolName]);
 }
 
-/** The one spelling of a tool-name set: deduplicated and sorted, so two surfaces compare by value. */
+/** Deduplicated and sorted, so two surfaces compare by value. */
 export function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
   return [...new Set(toolNames)].sort();
 }
 
 /**
- * Project the run's exact active tool names into the SDK `ToolSet` for a model
- * turn, dropping tools the caller could never actually invoke so the model never
- * burns a turn on a call the dispatcher would only bounce:
- *   - `callers` gates boss-only tools (the sub-agent join tools) out of sub-agent
- *     runs (ADR-0073), and
- *   - `requiresLiveChat` gates conversation-bound tools out of background runs.
- * These are the caller-context predicates also used by
- * {@link availableToolNames}. Integration allowlists and credential health are
- * load-time gates: they were checked before a name entered `activeTools` and are
- * intentionally not re-checked at this SDK projection boundary. Thus a kernel
- * tool like `read_chat_history` can be eager in chat yet stay invisible where it
- * can't run. Shared by the chat-turn and brief workflows so the two SDK-tool
- * builders can't drift.
+ * Build the SDK `ToolSet`, without tools this caller can never run (boss-only, or live-chat-only).
+ * Allowlists and credential health were checked at load time and are not checked again.
  */
 export function buildSdkToolSet(
   activeTools: readonly ToolName[],
@@ -139,23 +105,15 @@ export function buildSdkToolSet(
 }
 
 /**
- * Build the SDK tool set for one model turn and emit a `runtime.tool_surface`
- * span describing what the model was shown: the active count, the kernel/loaded
- * split, the loaded tool names, and the estimated schema payload (#414). The
- * payload (`schemaBytes`/`schemaTokens`) is the budget signal; the span also
- * carries a `schema_rebuild` band that only registers on a cold rebuild (both
- * the SDK set and the schema estimate are memoized). Prefer this over calling
- * {@link buildSdkToolSet} directly at a turn's model-call site so both workflows
- * measure the surface identically; the underlying set is still memoized, so the
- * only per-turn cost is the (memoized) schema estimate and one best-effort span.
- * Observability never changes the returned set.
+ * {@link buildSdkToolSet} plus a `runtime.tool_surface` span (#414). The span never changes the
+ * set.
  */
 function buildTurnToolSurface(args: {
   activeTools: readonly ToolName[];
   context: ToolRunContext;
   runId: string;
   workflow: string;
-  /** Span caller label (`boss` | `sub:<id>`); distinct from the availability caller kind. */
+  /** `boss` or `sub:<id>`; not the availability caller kind. */
   spanCaller: string;
 }): ToolSet {
   const startedAt = new Date();
@@ -186,13 +144,7 @@ function buildTurnToolSurface(args: {
 }
 
 /**
- * First-turn deterministic preload, folded into the run's active surface and
- * traced as a `runtime.tool.preload` span. Idempotent on `state.preloadApplied`,
- * so it runs at most once per run. Shared by the chat-turn and brief workflows —
- * both open the identical span, rank the latest user prompt, and activate the
- * selected tools — so the selection policy and telemetry can't drift between the
- * two entry points. A thrown ranking/availability error closes the span as an
- * error and propagates (the caller's step-retry owns recovery).
+ * First-turn preload from the latest user prompt. `state.preloadApplied` makes it run once per run.
  */
 async function applyPromptToolPreload(args: {
   state: {
@@ -204,7 +156,7 @@ async function applyPromptToolPreload(args: {
   userId: string;
   runId: string;
   workflow: string;
-  /** Span caller label (`boss` | `sub:<id>`); distinct from the availability caller kind. */
+  /** `boss` or `sub:<id>`; not the availability caller kind. */
   spanCaller: string;
   transcript: readonly { role: string; content: unknown }[];
   context: ToolRunContext;
@@ -260,7 +212,6 @@ export interface ToolRunTools {
   forModel(activeTools: readonly ToolName[]): ToolSet;
 }
 
-/** Bind stable run facts once, then expose the two tool actions a model turn needs. */
 export function toolRuntimeForRun(args: {
   userId: string;
   runId: string;

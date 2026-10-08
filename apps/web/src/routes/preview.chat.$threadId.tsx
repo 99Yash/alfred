@@ -7,11 +7,7 @@ const PreviewChatThreadRoute = import.meta.env.DEV
     )
   : () => null;
 
-/**
- * Design-reference deep link — `/preview/chat/$threadId`. Same fixture
- * shell as `/preview/chat`; the threadId from the URL gets pushed into
- * ChatContext so the sidebar highlight + page title pick it up.
- */
+/** Fixture deep link; the URL thread id goes into ChatContext for the sidebar. */
 export const Route = createFileRoute("/preview/chat/$threadId")({
   beforeLoad: () => {
     if (!import.meta.env.DEV) throw notFound();

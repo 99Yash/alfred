@@ -1,15 +1,8 @@
 /**
- * Smoke test for the new `system.web_search` tool.
+ * Smoke test for `system.web_search`, with no server process: the tool registers,
+ * and a live grounded-Gemini call returns an answer with citations.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-web-search.ts
- *
- * Verifies, with no server process needed:
- *   1. The tool registers and resolves by name from the registry.
- *   2. A live Perplexity Sonar Pro call returns a non-empty answer + citations
- *      (proves PERPLEXITY_API_KEY is wired and the metered path works).
- *
- * This is the exact failure the chat screenshot exposed: the boss wanted to
- * search the web, invented `search.search`, and the dispatcher rejected it.
  */
 
 import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";

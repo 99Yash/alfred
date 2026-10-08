@@ -5,8 +5,7 @@ import { syncEntity } from "./sync-entity";
 
 const ownedByUser = (userId: string) => eq(userPreferences.userId, userId);
 
-// Preferences are keyed by `(user_id, key)`; the IDB id is the pref key
-// so optimistic client writes can address rows without a lookup.
+// The client id is the pref key, so optimistic writes need no lookup.
 export const fetchPreferences = syncEntity(SYNC_MODEL.pref, {
   versionQuery: (tx, userId) =>
     tx

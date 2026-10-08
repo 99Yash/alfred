@@ -6,12 +6,8 @@ import { sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
 
 /**
- * Baseline rules for a row that doesn't exist yet (legacy user predating the
- * signup seed). Mirrors `ensureDefaultActionPolicyForUser` / `resolve.ts` so the
- * editor shows the same rules the resolver would apply. `system: autonomy` is
- * the SECOND line of defense only: `resolvePolicyMode` answers `"autonomy"` for
- * every `system.*` tool before it reads a row at all (ADR-0040 as amended), so
- * dropping it here cannot make a system tool gate.
+ * Rules for a user with no row yet. Must match `ensureDefaultActionPolicyForUser`.
+ * `system` is a backstop: `resolvePolicyMode` never gates `system.*` (ADR-0040).
  */
 const DEFAULT_INTEGRATION_RULES: IntegrationRules = {
   system: { mode: "autonomy" },
@@ -38,10 +34,7 @@ export async function policySetIntegrationMode(
     .onConflictDoUpdate({
       target: userActionPolicies.userId,
       set: {
-        // `::text` casts are load-bearing: the driver binds these as untyped
-        // parameters and Postgres can't infer the type inside `jsonb_build_object`
-        // (VARIADIC "any") or the `->` overload, so it raises "could not determine
-        // data type of parameter". The casts pin each to text.
+        // Keep the `::text` casts: Postgres cannot infer an untyped parameter inside `jsonb_build_object`.
         integrationRules: sql`jsonb_set(
             ${userActionPolicies.integrationRules} ||
               jsonb_build_object(
@@ -57,13 +50,7 @@ export async function policySetIntegrationMode(
     });
 }
 
-/**
- * Flip the user's global approval default. Inserts a baseline row (legacy
- * users predating the signup seed) or patches `default_mode` in place. The
- * push handler busts the dispatcher's policy cache after commit (see
- * `POLICY_BUST_MUTATORS`) so a gated→autonomy flip takes effect on the next
- * tool call without a restart.
- */
+/** Its `followUp` busts the policy cache after commit, so the flip applies on the next tool call. */
 export async function policySetDefaultMode(
   tx: DbTransaction,
   args: PolicySetDefaultModeArgs,

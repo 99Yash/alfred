@@ -15,40 +15,13 @@ import {
 } from "./workflow-input";
 
 /**
- * `learn-skill` — sync phase 1 of dimension's two-phase Learn (ADR-0017).
- *
- * Steps:
- *   1. gather   — read user + active facts + connected integrations +
- *                 existing skill slugs into a context bundle.
- *   2. distill  — one cheap-tier structured-output call returning a body,
- *                 a suggested name, fact proposals, and parsed mentions.
- *   3. persist  — within one transaction:
- *                   * write a `skill_revisions` row (`kind='distilled'`),
- *                   * advance `skills.current_revision_id`,
- *                   * flip status `draft` → `active` on first revision,
- *                   * update the display name from `suggestedName`,
- *                   * propose each fact via `proposeFact()` (existing
- *                     auto-confirm / rejection-guard / active-dup logic).
- *                 Then mark the `skill_runs` row terminal.
- *
- * The async `skill-documentation` workflow is enqueued from `persist`
- * once that step lands (12c). For 12b the persist step finishes the run.
- *
- * Idempotency:
- *   - Trigger-side: `dedupKey: learn-skill:<skillId>` blocks concurrent
- *     Learn clicks for the same skill via the partial unique index on
- *     `agent_runs.(user_id, workflow_slug, dedup_key)`.
- *   - Step-side: `proposeFact` and `commitSkillRevision` are both
- *     idempotent on retry (rejection-guard + active-dup guard for facts;
- *     append-only revisions with the same content are tolerated).
- *   - Cost: a worker crash mid-distill re-bills the cheap-tier call.
- *     Distill is ~$0.001/call so this is a non-issue.
- *
- * The Learn HIL pattern (approve / regenerate / reject) lives on the
- * `user_facts` rows produced here, NOT on this workflow. Auto-confirmed
- * facts (≥0.85) land active immediately; lower-confidence proposals
- * surface in the existing memory page review queue. The skill body
- * itself isn't gated — it commits the moment distill succeeds.
+ * `learn-skill`: sync phase 1 of Learn (ADR-0017).
+ * Steps: gather context; one cheap-tier distill call; in one transaction, write a
+ * `distilled` revision, activate the skill, rename it, and propose facts. Then enqueue
+ * `skill-documentation`.
+ * `dedupKey` blocks concurrent Learn clicks per skill. Retries are safe: facts and
+ * revisions are idempotent. A crash re-bills one cheap call.
+ * Review happens on the proposed `user_facts`, not here. The body commits on success.
  */
 
 const distillProposalSchema = z.object({
@@ -72,9 +45,7 @@ const distillOutputSchema = z.object({
   ),
 });
 
-// Checkpoint mirror of the `collectSkillLearnContext` return shape. `satisfies
-// z.ZodType<SkillLearnContext>` ties it to the interface so an added/renamed
-// required field fails typecheck instead of being silently stripped on resume.
+// `satisfies` ties this to `SkillLearnContext`, so a new field fails typecheck instead of being dropped on resume.
 const skillLearnContextSchema = z.object({
   userId: z.string(),
   user: z.object({ name: z.string(), email: z.string() }),
@@ -104,8 +75,7 @@ export const learnSkillWorkflow: Workflow<State> = {
   name: "Learn skill",
   description:
     "Sync phase of skill authoring — distill the user's prompt + memory into a v1 skill body and fact proposals (ADR-0017).",
-  // User-initiated from the skills CRUD surface (/api/skills POST + the
-  // /:id/relearn endpoint). No cron path.
+  // From the skills API (create and `/:id/relearn`). No cron.
   trigger: { kind: "manual" },
   initialStep: "gather",
   stateSchema,
@@ -120,18 +90,15 @@ export const learnSkillWorkflow: Workflow<State> = {
     };
   },
 
-  // Concurrent Learn clicks on the same skill are blocked at the DB level.
-  // Different skills run in parallel (different dedup keys).
+  // One run per skill; different skills run in parallel.
   dedupKey: ({ input }) => {
     const parsed = learnSkillWorkflowInputSchema.parse(input ?? {});
 
     return learnSkillDedupKey(parsed.skillId);
   },
 
-  // The skill-detail UI reads `skill_runs.status`, so a run that goes terminal
-  // outside the step body has to close that row or the card stays "in progress"
-  // forever. `finalizeSkillRun` records the terminal status it is handed, so each
-  // branch records its own — a cancel is recorded as a cancel, not as a failure.
+  // The UI reads `skill_runs.status`, so close it on any terminal path or the card
+  // stays "in progress". Each branch records its own status.
   closure: {
     kind: "client",
     async onTerminal(ctx) {
@@ -156,10 +123,7 @@ export const learnSkillWorkflow: Workflow<State> = {
     gather: {
       id: "gather",
       async run(ctx) {
-        // Record the Learn run row up-front so the skill-detail UI can
-        // render "in progress" the moment the workflow picks up. The
-        // helper is idempotent on agent_run_id, so a worker-crash retry
-        // doesn't double-write.
+        // Record the run first so the UI shows "in progress". Idempotent on agent_run_id.
         await recordSkillRun({
           userId: ctx.userId,
           skillId: ctx.state.skillId,
@@ -187,9 +151,7 @@ export const learnSkillWorkflow: Workflow<State> = {
           throw new Error("[learn-skill] distill entered without context");
         }
 
-        // Stable per-run key so api_call_log + Langfuse trace tie
-        // attempts of the same step together. Cheap-tier model — the
-        // re-bill on retry is not load-bearing.
+        // Stable key so retries of one step share a trace.
         const result = await distillSkill({
           context: ctx.state.context,
           prompt: ctx.state.prompt,
@@ -264,12 +226,8 @@ export const learnSkillWorkflow: Workflow<State> = {
           producedRevisionId: commit.revisionId,
         });
 
-        // Phase 2: kick off async deep documentation. Fire-and-forget —
-        // a failure to enqueue the doc workflow must NOT undo the v1
-        // commit that already succeeded. Per-skill dedup means a Learn
-        // re-fire while an earlier doc is still running surfaces as
-        // 23505 here; we log + continue so the in-flight doc finishes
-        // (it will re-read the latest revision in its gather step).
+        // Fire-and-forget: a failed enqueue must not undo the commit. A 23505 means a doc
+        // run is already going; it will re-read the latest revision.
         let docRunId: string | null = null;
         let docEnqueueStatus: "enqueued" | "deduplicated" | "failed" = "enqueued";
 
@@ -284,9 +242,7 @@ export const learnSkillWorkflow: Workflow<State> = {
             metadata: {
               triggeringLearnRunId: ctx.runId,
             },
-            // Parent-workflow-driven spawn: the eventId is the parent
-            // run id so History/query surfaces can locate every doc run
-            // emitted by a specific learn run.
+            // eventId is the parent run id, so History can find each doc run.
             trigger: {
               kind: "event",
               source: "learn-skill",

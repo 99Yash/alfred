@@ -1,33 +1,14 @@
 /**
- * COMMITTED triage + todo backfill (one-off, 2026-06-09).
+ * Delete every agent todo, then re-run the real `email-triage` workflow over a
+ * thread set, so Gmail tags and todos follow the current rules. Its read-only
+ * sibling is `dry-run-triage-backfill.ts`.
  *
- * The merged `dry-run-triage-backfill.ts` is READ-ONLY — it re-classifies the
- * source email of every agent todo and prints KEEP/KILL. This is its committing
- * sibling: it actually re-runs the production `email-triage` workflow (classify
- * → upsertTriage + suggestTodo → apply-label / Gmail re-tag) over a target set
- * of threads, after first deleting the stale agent-authored todos.
+ * Per user, it re-triages the N newest Gmail threads plus every thread behind a
+ * deleted agent todo. The sender prior keeps its old vote: a second bump would
+ * count one mail twice.
  *
- * It does NOT re-teach the sender prior. `incrementSenderPrior` only adds, so a
- * second bump on the same mail would give the sender two votes. The classify
- * step skips the bump when the stored row was written by an earlier run and
- * names the same document, which is every thread this script re-triages that
- * Alfred already tagged. A thread with no stored row still teaches normally.
- *
- * Scope (per target user):
- *   - DELETE every `created_by='agent'` todo (suggested + open + done).
- *   - Re-triage the UNION of:
- *       (a) the N most recent Gmail threads (newest doc per thread), and
- *       (b) every thread behind a (now-deleted) agent todo's gmail source.
- *     Enqueueing the real workflow re-tags Gmail AND re-mints todos under the
- *     new stringency bar.
- *
- * Execution model: this enqueues runs onto the SAME BullMQ queue the prod
- * `server` worker consumes, so the workflow executes in the worker exactly as
- * in production. It is bundled by tsdown (`noExternal: @alfred/*`) so it runs on
- * prod with plain `node dist/scripts/backfills/backfill-triage-committed.js` — the prod
- * image has no `tsx`/loose `@alfred/*` sources.
- *
- * Dry by default. Pass `--commit` to actually delete + enqueue.
+ * It enqueues onto the prod BullMQ queue, so the prod worker runs the workflow.
+ * Bundled for prod. Dry by default; `--commit` deletes and enqueues.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfills/backfill-triage-committed.js
@@ -47,18 +28,12 @@ import { registerBuiltinWorkflows } from "~/builtins";
 import { toMessage } from "@alfred/contracts";
 import { closeScriptResources } from "../script-runtime";
 
-/**
- * Mailboxes to backfill. Override with `BACKFILL_TARGET_EMAILS` (comma-separated)
- * to scope a run to a subset — e.g. a single mailbox for a targeted re-triage.
- */
+/** Override with comma-separated `BACKFILL_TARGET_EMAILS`. */
 const TARGET_EMAILS = process.env.BACKFILL_TARGET_EMAILS?.split(",")
   .map((email) => email.trim())
   .filter(Boolean) ?? ["yash.k@oliv.ai", "yashgouravkar@gmail.com"];
 
-/**
- * Newest doc per thread, most-recent N threads. Defaults to 50; override with
- * `BACKFILL_RECENT_LIMIT` (e.g. the 2026-06-10 re-run scoped to 100 each).
- */
+/** Recent threads per mailbox. Override with `BACKFILL_RECENT_LIMIT`. */
 const RECENT_THREAD_LIMIT = Number(process.env.BACKFILL_RECENT_LIMIT) || 50;
 
 const RECENT_DOCUMENT_SCAN_LIMIT = RECENT_THREAD_LIMIT * 4;
@@ -95,7 +70,7 @@ async function buildThreadIndex(
         isNotNull(documents.sourceThreadId),
       ),
     )
-    // nulls last so a dateless doc never shadows a real newest message
+    // Nulls last, so a dateless doc never hides the real newest message.
     .orderBy(sql`${documents.authoredAt} desc nulls last`, desc(documents.id))
     .limit(RECENT_DOCUMENT_SCAN_LIMIT);
 
@@ -156,8 +131,7 @@ async function agentTodoThreads(userId: string): Promise<{ ids: string[]; thread
   const threads = new Set<string>();
 
   for (const t of rows) {
-    // SAFETY: email_triage.sources is the jsonb { provider, kind, id } envelope
-    // written by the triage workflow; Array.isArray gates the array read.
+    // SAFETY: todos.sources holds { provider, kind, id } entries; Array.isArray gates the read.
     const sources = Array.isArray(t.sources)
       ? (t.sources as Array<{ provider: string; kind: string; id: string }>)
       : [];
@@ -173,18 +147,15 @@ async function agentTodoThreads(userId: string): Promise<{ ids: string[]; thread
 async function processUser(u: TargetUser): Promise<void> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
 
-  // Gather the agent-todo set + their source threads BEFORE deleting — the
-  // delete is destructive and we need the thread list for the re-triage union.
+  // Read the todo threads before the delete removes them.
   const { ids: agentTodoIds, threads: todoThreads } = await agentTodoThreads(u.userId);
   const { newestDocByThread, recentThreads } = await buildThreadIndex(u.userId, todoThreads);
 
-  // Union: recent threads ∪ threads behind agent todos.
   const targetThreads = new Set<string>(recentThreads);
 
   for (const t of todoThreads) targetThreads.add(t);
 
-  // Resolve each target thread to its newest local gmail doc. A todo whose
-  // thread has no local document is skipped (mirrors the dry-run's behavior).
+  // A thread with no local document is skipped.
   const docIds: string[] = [];
   const missing: string[] = [];
 
@@ -209,7 +180,6 @@ async function processUser(u: TargetUser): Promise<void> {
     return;
   }
 
-  // 1) Delete all agent todos for this user.
   if (agentTodoIds.length > 0) {
     const deleted = await db()
       .delete(todos)
@@ -217,12 +187,10 @@ async function processUser(u: TargetUser): Promise<void> {
       .returning({ id: todos.id });
 
     console.log(`  deleted ${deleted.length} agent todos`);
-    // Poke so the rail drops the deleted rows immediately (the enqueued runs
-    // would also poke via suggestTodo, but some threads mint nothing).
+    // Some runs mint no todo and so never poke. Poke now so the rail drops the rows.
     emitReplicachePokes([u.userId]);
   }
 
-  // 2) Enqueue a real email-triage run per target doc.
   let enqueued = 0;
 
   for (const documentId of docIds) {
@@ -230,10 +198,7 @@ async function processUser(u: TargetUser): Promise<void> {
       await startRun({
         userId: u.userId,
         workflowSlug: TRIAGE_WORKFLOW_SLUG,
-        // `force`: bypass the already-tagged skip guard so threads still on the
-        // message they were last classified from RE-classify here — otherwise a
-        // backfill over a previously-triaged inbox skips everything and mints no
-        // todos. Backfill-only; the real-time path never sets it.
+        // `force` bypasses the already-tagged skip. The real-time path never sets it.
         input: { documentId, reason: "manual", force: true },
         metadata: { source: "backfill-triage-committed" },
         trigger: { kind: "manual" },
@@ -251,7 +216,7 @@ async function processUser(u: TargetUser): Promise<void> {
 async function main() {
   await warmPool();
   registerBuiltinWorkflows(); // createRun resolves builtins from the in-process registry
-  registerReplicachePokeAdapter(); // Register the concrete Replicache poke adapter before domain code can emit pokes
+  registerReplicachePokeAdapter(); // before the todo delete pokes
 
   console.log(
     `# Committed triage backfill — mode=${COMMIT ? "COMMIT" : "DRY"} | recentLimit=${RECENT_THREAD_LIMIT}`,
@@ -275,11 +240,11 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })
   .finally(async () => {
-    // Flush + close so enqueued BullMQ jobs are durably persisted before exit.
+    // Close the queue so enqueued jobs are persisted before exit.
     await closeScriptResources(closeAgentQueue);
   });

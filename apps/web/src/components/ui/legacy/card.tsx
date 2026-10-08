@@ -1,17 +1,10 @@
-/**
- * Legacy dimension-grammar Card primitive for the development styleguide.
- *
- * Plain work surface used for every list row in /integrations, /workflows,
- * /skills, /library. Rounded-2xl, transparent at rest, fills to `#181818`
- * on hover OR focus-visible (same value — no ring). Pass `interactive` when
- * the entire card is clickable so the hover transition + focus state apply.
- */
+/** Legacy dimension Card for the styleguide. */
 
 import type { HTMLAttributes, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 interface LegacyCardProps extends HTMLAttributes<HTMLDivElement> {
-  /** Apply hover/focus background fill — set to true when the card itself is clickable. */
+  /** Hover and focus fill, for a fully clickable card. */
   interactive?: boolean | undefined;
   ref?: Ref<HTMLDivElement> | undefined;
 }

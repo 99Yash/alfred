@@ -23,19 +23,9 @@ import { authMacro } from "../middleware/auth";
 import { requireOnboarded } from "../middleware/onboarding";
 
 /**
- * GitHub App integration routes (ADR-0052). Same state-nonce CSRF defense as
- * `google-routes.ts`, but the IdP step is a GitHub App *install* rather than a
- * classic OAuth authorize. Because the App is registered with
- * `request_oauth_on_install`, a single install screen both installs the App
- * (giving us an `installation_id` + activity webhooks) and authorizes the user
- * (giving us a user-to-server `code` for identity) — one click, zero post-auth
- * setup.
- *
- *   GET    /api/integrations/github/connect      → 302 to the App install URL
- *   GET    /api/integrations/github/callback      ← GitHub redirects with code + installation_id
- *   DELETE /api/integrations/github/:id           → disconnect (drops our token, App stays installed)
- *
- * Connection state is read from `GET /api/integrations` (`../integrations.ts`).
+ * GitHub App connect (ADR-0052). With `request_oauth_on_install`, one install
+ * screen gives both an `installation_id` and a user `code`.
+ * Same state-nonce CSRF check as `google-routes.ts`.
  */
 
 const PROVIDER = "github" satisfies CredentialProvider;
@@ -46,8 +36,7 @@ export const githubIntegrationRoutes = new Elysia({
 })
   .use(authMacro)
   .use(requireOnboarded)
-  // `/connect` must be reachable during onboarding step 2, before
-  // `user.onboarded_at` is set, so the step's CTA does not 302 to a 403.
+  // No `requireOnboarded`: onboarding step 2 links here.
   .guard({ auth: true }, (app) =>
     app.get("/connect", async ({ user, set }) => {
       const nonce = randomBytes(16).toString("hex");
@@ -63,9 +52,7 @@ export const githubIntegrationRoutes = new Elysia({
     app.delete(
       "/:id",
       async ({ params, user }) => {
-        // Drops our stored token + installation reference. The GitHub App
-        // itself stays installed on the user's account until they remove it
-        // from GitHub's settings — we just stop holding credentials for it.
+        // The App stays installed on GitHub; we only drop our credentials.
         const deleted = await deleteIntegrationCredential({
           userId: user.id,
           provider: PROVIDER,
@@ -85,9 +72,7 @@ export const githubIntegrationRoutes = new Elysia({
     async ({ query, set }) => {
       const origin = serverEnv().CORS_ORIGIN;
 
-      // Install initiated directly from the App's GitHub page (no state) —
-      // we can't bind it to an Alfred user, so drop them on /integrations to
-      // connect properly from inside the app.
+      // An install from GitHub's own page has no state, so no Alfred user to bind.
       if (!query.state) {
         set.status = 302;
         set.headers["Location"] = `${origin}/integrations`;
@@ -108,15 +93,8 @@ export const githubIntegrationRoutes = new Elysia({
       if (!query.installation_id) throw Errors.BadRequestError("Missing installation_id");
       const installationId = query.installation_id;
 
-      // Normal path: GitHub sent both `code` (user-to-server OAuth) and
-      // `installation_id` — exchange the code for identity and verify the
-      // installation belongs to the caller.
-      //
-      // Already-installed path: the App is already on the account and the
-      // user just re-configured it (setup_action=update). GitHub then
-      // redirects with `installation_id` but NO `code`. We reconcile via the
-      // App JWT instead, so deleting your Alfred row (DB wipe) doesn't force
-      // you to uninstall/reinstall the GitHub App to get back in.
+      // `setup_action=update` sends no `code`. Then we look up the installation with the
+      // App JWT, so a lost Alfred row does not force a reinstall.
       let accountId: string;
       let accountLogin: string;
       let accountEmail: string | null = null;
@@ -149,26 +127,17 @@ export const githubIntegrationRoutes = new Elysia({
         scopes = tokens.scopes;
         tokenType = tokens.tokenType;
       } else {
-        // No code — fall back to App-JWT installation lookup. This still
-        // proves the installation exists and yields the account, but we
-        // mint a placeholder token that will be refreshed on next use via
-        // the installation token flow. We use a sentinel far-future expiry
-        // and empty scopes since the App permissions live on the
-        // installation, not on OAuth scopes.
         const inst = await getInstallation(installationId);
 
         if (!inst) throw Errors.BadRequestError("GitHub installation not found");
         accountId = inst.accountId;
         accountLogin = inst.accountLogin;
-        // Use a sealed sentinel token — the credential row requires one, but
-        // live REST goes through `getInstallationToken(installationId)` so it
-        // never uses this value. `expiresAt` is far-future so we don't trip
-        // `needs_reauth` immediately.
+        // The row needs a token, but REST uses `getInstallationToken`. Far-future expiry
+        // avoids an instant `needs_reauth`.
         accessToken = `ghu_placeholder_${installationId}`;
         expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
       }
 
-      // Onboarding lookup is independent of the credential upsert — race them.
       const [credential, userRow] = await Promise.all([
         upsertGithubCredential({
           userId: decoded.userId,
@@ -205,8 +174,7 @@ export const githubIntegrationRoutes = new Elysia({
       set.status = 302;
       set.headers["Location"] = `${origin}${target}`;
 
-      // Returning the credential id is only useful in tests; the browser
-      // follows the Location redirect immediately.
+      // For tests; the browser follows the redirect.
       return { id: credential.id };
     },
     {

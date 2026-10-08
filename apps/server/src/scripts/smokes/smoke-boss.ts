@@ -1,35 +1,16 @@
 /**
- * Smoke test for m13 Phase 9 — the whole boss milestone as one feature.
+ * End-to-end boss smoke with the model in the loop: search, spawn a sub-agent,
+ * promote its findings, and send a gated draft.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-boss.ts
  *
  * Pre-reqs:
- *   - A server process running (`pnpm dev`) so the agent worker picks up
- *     the run and its sub-agent child. This script polls the run row and
- *     auto-approves any pending action_stagings inline.
- *   - One user with Google connected (gmail.send scope). The brief seeds
- *     `@gmail` and the boss is told to delegate to a sub-agent + promote.
+ *   - A server process running (`pnpm dev`), so the worker runs the run and its child.
+ *     This script auto-approves pending stagings.
+ *   - One user with Google connected (gmail.send scope).
  *
- * Unlike smoke-sub-agents (which drives the dispatcher directly), this is
- * the LLM-in-the-loop end-to-end: the boss itself decides to search, spawn
- * a sub-agent, read + promote its findings, and draft/send an email.
- *
- * Policy setup is the interesting part: gmail is set to `autonomy` with a
- * per-tool override gating `gmail.send_draft`, so `gmail.search` executes
- * immediately while the draft send parks for approval — exercising both
- * dispatch paths in one run. The user's real policy row is snapshotted and
- * restored in `finally` so the smoke never leaves Gmail on autonomy.
- *
- * What this verifies (Phase 9 acceptance):
- *   1. `gmail.search` lands as autonomy (executed, no approval).
- *   2. The boss spawns a sub-agent; a child run row exists.
- *   3. Scratchpad round-trips: ≥1 `scratch.*` key (sub-agent finding) and
- *      ≥1 `shared.*` key (boss promote) land in `agent_run_context` via the
- *      terminal snapshot.
- *   4. `gmail.send_draft` lands gated (requiresApproval) and is approved.
- *      The real send executor runs and the staging resolves `executed`.
- *   5. The run reaches `status='completed'` and no run for this user
- *      failed with `compactor_failed`.
+ * Gmail runs on autonomy with `gmail.send_draft` gated, so one run covers both
+ * dispatch paths. The user's real policy row is restored in `finally`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -56,11 +37,7 @@ const WORKFLOW_SLUG = "smoke-boss";
 
 const POLL_INTERVAL_MS = 2_000;
 
-// Boss + a full sub-agent child run is many LLM turns; the dev boss model
-// (Gemini 3.5 Flash) can still run several minutes across a full tool loop, and the 30-turn cap is the
-// ceiling, so a quiet-window run needs hours. The policy override stays
-// installed for this entire span (restore is in `finally`, after polling
-// returns), so a timeout never gates the run mid-flight.
+// Boss plus a sub-agent is many model turns, so allow hours. The policy is restored only after this.
 const POLL_TIMEOUT_MS = 3 * 60 * 60_000;
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -89,11 +66,7 @@ async function pickGoogleConnectedUser(): Promise<{
 
 type PolicyRow = UserActionPolicy;
 
-/**
- * Snapshot the user's policy row (or null if none), then install the
- * smoke policy: gmail autonomy with `gmail.send_draft` gated, system
- * autonomy. Returns the snapshot for restore in `finally`.
- */
+/** Install the smoke policy and return the old policy row (or null) for restore. */
 async function installSmokePolicy(userId: string): Promise<PolicyRow | null> {
   const existing = await db()
     .select()
@@ -152,11 +125,7 @@ async function resetSmokeRows(userId: string): Promise<void> {
 }
 
 async function createSmokeWorkflow(userId: string, selfEmail: string): Promise<void> {
-  // `gmail.read_message` reads from the ingested `documents` table (it does
-  // NOT hit the Gmail API), so the sub-agent can only summarize a message
-  // that's already ingested. Bake a real, recent ingested gmail document id
-  // into the brief so the sub-agent has something resolvable to read —
-  // otherwise it gets a thread/message id with no documents row and gives up.
+  // `gmail.read_message` reads ingested `documents`, not the Gmail API, so give the brief a real doc id.
   const [doc] = await db()
     .select({ id: documents.id, title: documents.title })
     .from(documents)

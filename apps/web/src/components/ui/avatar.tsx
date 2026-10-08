@@ -1,12 +1,4 @@
-/**
- * Dimension-grammar Avatar primitive.
- *
- * Two flavors, one component:
- *   - default — radial-gradient pseudo-avatar, no initial. 16px in the
- *               model picker. Used wherever a real image would be overkill.
- *   - initial — same disc + a single letter centered in white-ish. 28px in
- *               the sidebar user row.
- */
+/** Gradient disc avatar, with an optional initial. */
 
 import type { HTMLAttributes, Ref } from "react";
 import { cn } from "~/lib/utils";
@@ -14,7 +6,6 @@ import { cn } from "~/lib/utils";
 type AvatarSize = "sm" | "md" | "lg";
 
 interface AvatarProps extends HTMLAttributes<HTMLSpanElement> {
-  /** When provided, the first character is rendered inside the disc. */
   initial?: string | undefined;
   size?: AvatarSize | undefined;
   ref?: Ref<HTMLSpanElement> | undefined;

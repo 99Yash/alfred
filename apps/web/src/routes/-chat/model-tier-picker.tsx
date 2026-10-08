@@ -1,15 +1,6 @@
 /**
- * Chat model-tier picker — the functional successor to the composer's old
- * disabled "Auto" pill. Mirrors dimension's agent-mode picker (a model
- * selector, not the autonomy toggle): a compact pill trigger opening a frosted
- * popover of label + description rows. The choice rides with each turn as
- * `tier`, which the server maps through `route` (standard → the fast
- * everyday model, deep → the deeper-reasoning escalation).
- *
- * The tier literal lives in `@alfred/contracts` (`ChatModelTier`), importable from
- * both browser and server. Server-side the runtime mapping lives in `@alfred/ai`
- * (`route`), a server-only package that must never enter the web runtime bundle
- * — see `pnpm check:web-boundaries`.
+ * Model-tier picker. The `tier` goes with each turn; the server maps it through `route`.
+ * `route` is in server-only `@alfred/ai`; keep it out of web (`pnpm check:web-boundaries`).
  */
 import type { ChatModelTier } from "@alfred/contracts";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -20,12 +11,7 @@ import { cn } from "~/lib/utils";
 import { TIER_OPTIONS, tierOption } from "./model-tier-options";
 import { Tip } from "./tip";
 
-// Per-tier, theme-tuned Alfred marks. Like dimension's agent-mode picker, each
-// tier carries its OWN glyph — Standard is the calm single-capsule mark, Pro
-// nests a second capsule inside and lifts the gradient — so the two read as
-// distinct at a glance, not just by their label. Each tier then has a light/dark
-// variant (vivid + dark rim on light surfaces, calmer + light rim on dark). See
-// public/images/logo/alfred-logo{,-pro}-{light,dark}.svg.
+// A distinct mark per tier, light and dark variants (public/images/logo/alfred-logo{,-pro}-{light,dark}.svg).
 const TIER_MARK = {
   standard: {
     light: "/images/logo/alfred-logo-light.svg",
@@ -48,9 +34,7 @@ export function ModelTierPicker({
 }) {
   const listboxId = useId();
   const [open, setOpen] = useState(false);
-  // The popover portals out of the `.app` subtree, so CSS token inheritance
-  // breaks — stamp the resolved theme on the content directly (React context
-  // still flows through portals). Same pattern as `AppSelect`.
+  // The popover portals out of `.app`, so stamp the theme on the content.
   const themeCtx = use(AppThemeContext);
   const resolved: AppResolvedTheme = themeCtx?.resolved ?? "dark";
 
@@ -72,7 +56,6 @@ export function ModelTierPicker({
               "inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2 text-[12px]",
               "app-press text-app-fg-3 outline-none",
               "transition-[box-shadow,color,background-color,transform]",
-              // Raised frosted pill — visible chrome at rest, mirrors dimension's mode pill.
               "bg-linear-to-b from-app-bg-1 to-app-bg-2 shadow-(--app-shadow-elevated)",
               "hover:text-app-fg-4 hover:shadow-(--app-shadow-elevated-hover)",
               "data-[state=open]:text-app-fg-4 data-[state=open]:shadow-(--app-shadow-elevated-hover)",
@@ -127,8 +110,7 @@ export function ModelTierPicker({
                   "app-press flex w-full items-start gap-2.5 rounded-xl p-2 text-left outline-none",
                   "transition-[background-color,transform] hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
                   "active:bg-app-bg-a3",
-                  // Selected row holds a quiet tint so the active tier reads even
-                  // before the eye finds the check.
+                  // A tint so the active tier shows before the eye finds the check.
                   checked && "bg-app-bg-a2",
                 )}
               >

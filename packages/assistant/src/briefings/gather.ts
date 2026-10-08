@@ -75,22 +75,8 @@ import { scorePriorityEmailDemand } from "./read";
 import { shortenFrom } from "./sender";
 
 /**
- * Inbox-only briefing data shape (ADR-0025 #2).
- *
- * One bucket per priority category. `newsletter`, `marketing`, `fyi`,
- * and `done` are excluded from the priority list — they're either
- * promotional (newsletter, marketing), non-actionable status noise
- * (fyi), or closure notices that don't need user attention (done).
- * Leaving them out is what makes the briefing a *priority* inbox
- * rather than a flat last-24-hours digest.
- *
- * Counts are surfaced separately so the briefing can still mention
- * "+12 newsletters arrived" without expanding them inline.
- *
- * Display order for the priority buckets mirrors the user's own Gmail
- * label numbering (urgent=1, action_needed=2, follow_up=3, …); urgent
- * sits first so a same-day-actionable item never gets buried under a
- * full action_needed list.
+ * Inbox briefing data (ADR-0025 #2). Only priority categories are listed;
+ * the rest are counted ("+12 newsletters"). `urgent` comes first so it is never buried.
  */
 
 const PRIORITY_CATEGORIES = [
@@ -126,33 +112,24 @@ export interface BriefingItem {
   from: string | null;
   snippet: string | null;
   authoredAt: Date | null;
-  /** Stable Gmail webview URL when we have the source thread id. */
   threadUrl: string | null;
 }
 
 export interface BriefingDigest {
   windowStart: Date;
   windowEnd: Date;
-  /** One entry per priority category, in display order. Empty arrays are kept (renders as "nothing here"). */
+  /** Empty arrays are kept and render as "nothing here". */
   buckets: Record<PriorityCategory, BriefingItem[]>;
-  /** Last-24h counts for the suppressed categories — surfaced as a tail line. */
   suppressedCounts: Record<SuppressedCategory, number>;
   /**
-   * Minimal trigger fields for every triaged row in the window, including
-   * `fyi`-suppressed status noise. Every verified-pull trigger reads
-   * this — never `buckets` — so a failure notice triaged as `fyi` still
-   * triggers a live read.
+   * Trigger fields for every triaged row, including `fyi`. Verified-pull triggers read this,
+   * not `buckets`, so a failure notice triaged as `fyi` still triggers a live read.
    */
   triggerItems: { subject: string | null; from: string | null; snippet: string | null }[];
   /** Priority items dropped because a standing instruction matched the sender. */
   suppressedByInstruction: BriefingInstructionSuppression[];
-  /**
-   * Priority items dropped because object-state (ADR-0062) shows the underlying
-   * work object has reached a terminal state — e.g. a CI-failure email whose PR
-   * has since merged. These feed the evening "closed today" recap (ADR-0048 #5).
-   */
+  /** Items whose work object reached a terminal state (ADR-0062). Feeds the evening recap. */
   closedLoops: BriefingClosedLoop[];
-  /** One bounded, non-closing relevance verdict for every still-live priority loop. */
   loopRelevance: BriefingLoopRelevance[];
   totalPriority: number;
   totalSuppressed: number;
@@ -172,7 +149,7 @@ export interface GatherBriefingDigestArgs {
   windowStart?: Date | undefined;
   /** Defaults to "now". */
   windowEnd?: Date;
-  /** Cap per bucket — protects the email body length on busy days. */
+  /** Cap per bucket. */
   maxPerBucket?: number;
 }
 
@@ -191,7 +168,7 @@ export interface GatherBriefingWithSuppressionAuditResult {
   suppressedByInstruction: BriefingInstructionSuppression[];
   /** Loops dropped because their work object reached a terminal state (ADR-0062). */
   closedLoops: BriefingClosedLoop[];
-  /** Check-before-remind verdicts over every still-live priority loop (#1194). */
+  /** Check-before-remind verdicts (#1194). */
   loopRelevance: BriefingLoopRelevance[];
 }
 
@@ -203,11 +180,7 @@ const MAX_CALENDAR_EVENTS = 40;
 
 const WEATHER_FETCH_TIMEOUT_MS = 30_000;
 
-/**
- * Pull a user's last-24h triaged email into briefing-shaped buckets.
- * Pure read against `email_triage` joined to `documents`; no Gmail API
- * call required (the triage workflow already wrote the categorisations).
- */
+/** Bucket the window's triaged email. Reads `email_triage` only; no Gmail call. */
 export async function gatherBriefingDigest(
   args: GatherBriefingDigestArgs,
 ): Promise<BriefingDigest> {
@@ -218,23 +191,18 @@ export async function gatherBriefingDigest(
 
   const maxPerBucket = args.maxPerBucket ?? DEFAULT_MAX_PER_BUCKET;
 
-  // One query gets every triaged document in window — we partition into
-  // buckets in JS afterwards. At single-user scale (a few hundred emails
-  // a day, max), the JS partition is faster than 6 separate queries.
+  // One query, then partition in JS.
   const [rows, suppressionInstructions] = await Promise.all([
     db()
       .select({
-        // Select from the documents side of the inner-join — `emailTriage.documentId`
-        // is nullable in the thread-keyed schema (pointer can dangle after a doc
-        // purge); the joined `documents.id` is guaranteed non-null here.
+        // `emailTriage.documentId` can dangle after a purge; the joined id cannot.
         documentId: documents.id,
         accountId: documents.accountId,
         category: emailTriage.category,
         confidence: emailTriage.confidence,
         rationale: emailTriage.rationale,
         title: documents.title,
-        // Body is needed only to regex a GitHub CI `head_sha` for loop
-        // reconciliation; it never leaves this function.
+        // Only for the CI `head_sha` regex; it never leaves this function.
         content: documents.content,
         authoredAt: documents.authoredAt,
         sourceThreadId: documents.sourceThreadId,
@@ -246,9 +214,7 @@ export async function gatherBriefingDigest(
       .where(
         and(
           eq(emailTriage.userId, args.userId),
-          // Use ingestedAt as the window pivot — `documents.authoredAt` can
-          // be days old if a thread surfaces a backfilled message; what
-          // matters for "today's briefing" is what alfred saw today.
+          // `authoredAt` can be days old on a backfilled thread; window on ingest.
           gte(documents.ingestedAt, windowStart),
           lte(documents.ingestedAt, windowEnd),
         ),
@@ -276,14 +242,9 @@ export async function gatherBriefingDigest(
   };
 
   const suppressedByInstruction: BriefingInstructionSuppression[] = [];
-  // Trigger fields for every triaged row (priority and suppressed alike), so
-  // a Railway failure notice triaged as `fyi` still reaches the verified-pull
-  // trigger. Built here, where the body and metadata are already in hand.
+  // Every triaged row, so a Railway failure triaged as `fyi` still reaches verified pull.
   const triggerItems: BriefingDigest["triggerItems"] = [];
-  // One entry per priority row whose text proposes a work-object key, for the
-  // post-partition loop-reconciliation pass (ADR-0062). Priority buckets stay
-  // uncapped until after reconciliation so closed loops do not consume one of
-  // the visible slots.
+  // Buckets stay uncapped until reconciliation, so closed loops do not take visible slots.
   const keyCandidates: ReconcileCandidates<"about">[] = [];
 
   for (const r of rows) {
@@ -334,11 +295,7 @@ export async function gatherBriefingDigest(
       threadUrl: r.sourceThreadId ? gmailThreadUrl(r.sourceThreadId) : null,
     });
 
-    // Every deterministic work-object identity this notification carries, as
-    // its provider's adapter reads it. The mail is ABOUT one object, so the
-    // adapter demands the sender-domain gate and refuses an ambiguous
-    // reference. Proposed here, inside the loop that already holds the body,
-    // so the row's content is never carried into the resolve phase.
+    // Propose keys here, while the body is in hand, so content never reaches the resolve phase.
     const keys = proposeObjectKeys(
       { id: r.documentId, text: { subject: r.title ?? "", content: r.content } },
       { reading: "about", sender: from },
@@ -347,9 +304,7 @@ export async function gatherBriefingDigest(
     if (keys.length > 0) keyCandidates.push({ id: r.documentId, keys });
   }
 
-  // Owner-reviewed MCP health pulls run BEFORE reconciliation so a matching
-  // read can enter the same object-state store the built-ins use. The verifier
-  // contributes only exact, data-backed candidates; it never returns closure.
+  // Approved MCP health reads run before reconciliation. They add candidates; they never close.
   const priorityLoops = PRIORITY_CATEGORIES.flatMap((category) => buckets[category]);
 
   const approvedHealth = await verifyApprovedMcpHealth(
@@ -388,11 +343,8 @@ export async function gatherBriefingDigest(
 
   const reconciliationCandidates = [...candidatesByLoop].map(([id, keys]) => ({ id, keys }));
 
-  // Loop reconciliation (ADR-0062): drop any priority item whose underlying
-  // work object has reached a loop-closing state. State unknown ⇒ the loop stays
-  // live (absence never closes — ADR-0048-D). The bounded relevance pass then
-  // runs over exactly what survived reconciliation and before presentation
-  // capping, so every still-live priority loop carries one verdict (#1194).
+  // Drop items whose work object is closed (ADR-0062). Unknown state stays live.
+  // Relevance then runs on the survivors, before the per-bucket cap (#1194).
   const reconciliation = await dropClosedLoops(args.userId, buckets, reconciliationCandidates);
   const approvedStates = new Map<string, ApprovedLoopState>();
   const unverifiedDetails = new Map<string, string>();
@@ -438,23 +390,10 @@ export async function gatherBriefingDigest(
 }
 
 /**
- * Resolve each candidate loop to its work object's projected state and drop the
- * closed ones from the priority buckets (mutates `buckets`), returning the
- * dropped set for the evening "closed today" recap.
- *
- * The resolve, the exact-beats-prefix precedence, and the closure test are the
- * shared `reconcileEvidence` operation (#1088); this function owns only what is
- * briefing-specific — which bucket an item sits in, and what a closed loop
- * reports. A key that resolves to nothing, to more than one object, or to a
- * state its kind does not treat as closing leaves its loop live (the
- * determinism contract: absence never closes).
- *
- * `firstClosingObject` nominates; this function ASSERTS. A kind the registry
- * declares `closesAskFrom: "live_confirmation"` — a Sentry issue, whose stored
- * `resolved` may be a delayed delivery that reordered (ADR-0103) — is confirmed
- * with a live provider read here before it becomes a `BriefingClosedLoop`. Any
- * other live state, a read failure, or a kind this gather holds no reader for
- * keeps the ask, and a failed read is reported rather than swallowed.
+ * Drop priority items whose work object is closed, and return them for the evening recap.
+ * Unresolved, ambiguous, or non-closing keys keep the loop live.
+ * A kind with `closesAskFrom: "live_confirmation"` (a Sentry issue, ADR-0103) needs a live
+ * read first. A missing reader or a failed read keeps the ask.
  */
 async function dropClosedLoops(
   userId: string,
@@ -470,9 +409,7 @@ async function dropClosedLoops(
 
   const closedLoops: BriefingClosedLoop[] = [];
 
-  // One live read per distinct object within this gather call — one object
-  // named by N items costs one read. A failure resolves to null here so the
-  // caller keeps the ask; the warn inside the catch is the report.
+  // One live read per distinct object. A failure resolves to null, so the ask stays.
   const liveByObject = new Map<string, Promise<StateCategory | null>>();
 
   const confirmLive = (
@@ -484,9 +421,7 @@ async function dropClosedLoops(
 
     if (pending) return pending;
 
-    // `normalize` then `closesOpenAsk` (below) are the only readings of the
-    // live token: an unknown token and an archived issue both fall out as
-    // non-closing with no literal status comparison on this path.
+    // An unknown token and an archived issue both normalize to non-closing.
     const confirmation = read(userId, state.externalId)
       .then((nativeState) => getObjectDef(state.provider).normalize(state.kind, nativeState))
       .catch((err: unknown) => {
@@ -507,23 +442,18 @@ async function dropClosedLoops(
 
     if (!candidate) return null;
 
-    // Each branch passes the proof THIS branch actually holds, as a literal —
-    // never `candidate.proof`, which is the registry's DEMAND. Passing the
-    // demand back would compare the demand against itself, so the gate would
-    // admit every kind and the registry would answer its own question.
+    // Pass the proof this branch holds, never `candidate.proof`: that is the demand,
+    // and passing it back would admit every kind.
     if (candidate.proof === "stored_projection")
       return closesOpenAsk(state.provider, state.kind, state.stateCategory, "stored_projection");
 
     const read = liveNativeStateReader(state);
 
-    // The registry says stored state does not prove this kind's closure and
-    // this gather holds no read for it, so it may not assert one: keep the ask.
+    // Stored state is not proof for this kind and there is no reader: keep the ask.
     if (!read) return null;
 
     const live = await confirmLive(state, read);
 
-    // `live` came from the read above, so this branch — and only this branch —
-    // holds a live confirmation.
     return live === null
       ? null
       : closesOpenAsk(state.provider, state.kind, live, "live_confirmation");
@@ -567,8 +497,7 @@ export async function gatherBriefingWithSuppressionAudit(
 ): Promise<GatherBriefingWithSuppressionAuditResult> {
   const slot = args.slot ?? "morning";
   const windowEnd = args.windowEnd ?? localEndOfDay(args.briefingDate, args.timezone);
-  // Integration activity shares the email digest's window so the briefing
-  // covers one coherent slice of time across sources.
+  // Activity uses the email window.
   const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
 
   const [digest, calendar, weather, integrationActivity] = await Promise.all([
@@ -607,23 +536,14 @@ export async function gatherBriefingWithSuppressionAudit(
     }));
   }
 
-  // Verified pull (#1094, #1192): a triaged deployment failure from a
-  // connected provider triggers a live status read at gather time, once per
-  // registered pull provider (`connections/verified-pull`). Runs after the
-  // digest resolves (the failure-mail trigger reads every triaged row,
-  // including `fyi`-suppressed status noise) and appends deployment verdict
-  // lines beside the receipt-sourced activity — never through the email
-  // slice, which only carries triage buckets.
+  // Verified pull (#1094, #1192): a triaged deploy failure triggers a live status read.
+  // Verdicts go into activity, not into the email buckets.
   const verifiedPull = await gatherVerifiedPulls({
     userId: args.userId,
     digestItems: digest.triggerItems,
   });
 
-  // Day-shape (ADR-0064 / #230): reuse the already-fetched activity count so we
-  // don't re-query event_receipts; the resolved-object recap is one cheap list.
-  // Runs AFTER the verified pull so a day whose only activity is a Railway
-  // failure counts that line — otherwise the same briefing would score the
-  // day quiet and list the failure.
+  // Runs after the verified pull, so a day whose only activity is a Railway failure is not quiet.
   const dayShape = await gatherDayShape({
     userId: args.userId,
     windowStart: activityStart,
@@ -631,14 +551,8 @@ export async function gatherBriefingWithSuppressionAudit(
     activityCount: integrationActivity.length + verifiedPull.length,
   });
 
-  // Attention-aware email demand over the FINALIZED priority buckets (#259 /
-  // ADR-0064) — scored off the raw `from` (not the shortened `sender` above, so
-  // bulk-sender + significance lookups still work) with the same scorer the
-  // agent's read path uses. Folds into day-shape so the morning suppression gate
-  // leads from "is anything demanding?" instead of a raw count: a quiet day of
-  // normal/muted items suppresses rather than promoting a trivial item to the
-  // headline. `fyi` remains ambient/suppressed and is not part of the demand
-  // count.
+  // Demand over the final buckets (ADR-0064). Use the raw `from`, not the shortened
+  // `sender`, so bulk and significance lookups work.
   const emailDemand = await scorePriorityEmailDemand(
     args.userId,
     PRIORITY_CATEGORIES.flatMap((category) =>
@@ -673,31 +587,21 @@ export async function gatherBriefingWithSuppressionAudit(
   };
 }
 
-/**
- * Activity-item count → volume thresholds. Seeded by judgment (tunable from the
- * prod distribution, same surface as the ADR-0064 weights). Zero is the only
- * "quiet" — the whole point of #230 is that any real activity disqualifies it.
- */
+/** Tunable. Zero activity is the only "quiet" (#230). */
 const DAY_SHAPE_BUSY_AT = 8;
 
 const MAX_SHIPPED = 6;
 
 /**
- * Deterministic day-shape (ADR-0064 / #230). `activityVolume` is derived from
- * the integration-activity window count; `shipped` is the GitHub work objects
- * that *resolved within the briefing window* (ADR-0062 projection), which feeds
- * the evening "what you shipped" recap. No LLM judgment — this exists so the
- * composer can't call a day with real activity "quiet."
- *
- * `shipped` is windowed on the persisted `stateDeliveredAt` (the delivery time
- * of the event that resolved the object), so a previously-resolved or
- * future-resolved object can't leak into the recap — even on a retry.
+ * Day shape without an LLM, so the composer cannot call an active day "quiet" (ADR-0064).
+ * `shipped` filters on `stateDeliveredAt`, so a retry does not pull in objects resolved
+ * outside the window.
  */
 export async function gatherDayShape(args: {
   userId: string;
   windowStart: Date;
   windowEnd: Date;
-  /** Precomputed integration-activity count; falls back to a fresh query. */
+  /** Falls back to a fresh query. */
   activityCount?: number;
 }): Promise<DayShape> {
   const activityCount =
@@ -729,12 +633,7 @@ export async function gatherDayShape(args: {
 
 const MAX_ACTIVITY_ITEMS = 25;
 
-/**
- * Recent GitHub App activity for the briefing window (ADR-0052), sourced from
- * the `event_receipts` rows the ingress route stores for `provider = 'github'`
- * (ADR-0097). Empty when nothing fired or GitHub isn't connected —
- * represented as `[]`, never an error.
- */
+/** GitHub activity from `event_receipts` (ADR-0052, ADR-0097). Empty, not an error, when none. */
 async function gatherIntegrationActivity(args: {
   userId: string;
   windowStart: Date;
@@ -759,19 +658,13 @@ async function gatherIntegrationActivity(args: {
     .orderBy(desc(typedEventReceipts.deliveredAt))
     .limit(MAX_ACTIVITY_ITEMS);
 
-  // One deployment relays several receipts — `pending`, then `ready`, then
-  // `promoted`. Measured on dev, 2026-09-20: 8 `repository_dispatch` receipts
-  // for 5 distinct deployments on the busiest such day. This list is what
-  // `gatherDayShape` counts, and `DAY_SHAPE_BUSY_AT` is 8, so without a
-  // collapse one machine relay reads as several units of the USER's day. Rows
-  // arrive newest first, so the surviving line is the deployment's latest
-  // state — which is the only state a succession object has (#1167).
+  // One deployment relays several receipts (`pending`, `ready`, `promoted`).
+  // Keep only the newest per deployment, or one relay counts several times
+  // toward `DAY_SHAPE_BUSY_AT` (#1167).
   const seenDeployments = new Set<string>();
 
   return rows.flatMap((row) => {
-    // The receipt stores `github.<type>`; a name the github entry does not
-    // declare is a row the deliver job already marked `failed`, so it has no
-    // activity line either.
+    // A name the github entry does not declare was already marked `failed` by the deliver job.
     const eventType = parseEventTypeName("github", row.eventType);
 
     if (!eventType) return [];
@@ -1059,12 +952,7 @@ function isSuppressed(c: string): c is SuppressedCategory {
   return SUPPRESSED_CATEGORY_SET.has(c);
 }
 
-/**
- * Best-effort Gmail webview URL. Gmail accepts thread ids in the `#all/`
- * path; this gets the user one click away from the thread without
- * requiring us to know which authenticated account they're viewing
- * (Gmail picks the active account itself).
- */
+/** Gmail picks the active account, so we need not know which one is signed in. */
 function gmailThreadUrl(threadId: string): string {
   return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
 }
@@ -1080,14 +968,8 @@ const SUNDAY = 0;
 
 const SATURDAY = 6;
 
-// `briefingDate` is already a local date key in the user's zone, so the weekday
-// is read off the key itself — re-projecting it through the zone is what made a
-// UTC+13/+14 user's briefing name the wrong day.
-//
-// Which days are the weekend is this module's policy, so it is decided here on
-// `weekdayIndex` — not by string-matching a *rendered* weekday name against
-// "Saturday"/"Sunday", which made a locale choice inside a formatter silently
-// load-bearing for a briefing decision.
+// `briefingDate` is already local; re-projecting it named the wrong day for UTC+13/+14.
+// Decide the weekend on `weekdayIndex`, not on a rendered day name.
 function dayContribution(briefingDate: LocalDateKey): BriefingGather["day_of_week"] {
   const index = weekdayIndex(briefingDate);
 

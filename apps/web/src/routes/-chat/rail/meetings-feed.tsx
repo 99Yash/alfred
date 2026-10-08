@@ -17,11 +17,7 @@ export function MeetingsFeed({
 }: {
   items: ReadonlyArray<RailMeetingItem>;
   lookahead?: ReadonlyArray<MeetingLookaheadItem> | undefined;
-  /**
-   * Did the user actually grant the Calendar scope? An empty `items` list
-   * means either "no calendar connected" or "calendar is connected, but
-   * the day is genuinely clear" — copy diverges between the two.
-   */
+  /** Separates "no calendar connected" from "the day is clear"; both have no items. */
   calendarConnected?: boolean | undefined;
 }) {
   if (!items.length && !lookahead.length) {

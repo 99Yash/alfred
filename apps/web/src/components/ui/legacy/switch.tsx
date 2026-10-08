@@ -1,14 +1,4 @@
-/**
- * Legacy dimension-grammar Switch primitive for the development styleguide.
- *
- * 44×24 track with a 20px thumb. Off → gray-100 fill. On → purple-400 fill,
- * brightening to purple-300 on hover. Frost-border hairline on the track so
- * the switch reads as a "lifted" surface even at rest.
- *
- * Controlled (`checked` + `onCheckedChange`) or uncontrolled (`defaultChecked`).
- * Built on `@radix-ui/react-switch` so we get form association, ARIA wiring,
- * IME-safe keyboard handling, and `data-state` for styling for free.
- */
+/** Legacy dimension Switch for the styleguide, on Radix. */
 
 import * as SwitchPrimitive from "@radix-ui/react-switch";
 import type { ComponentPropsWithRef } from "react";
@@ -21,16 +11,12 @@ export function LegacySwitch({ className, ref, ...rest }: LegacySwitchProps) {
     <SwitchPrimitive.Root
       ref={ref}
       className={cn(
-        /* track */
         "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full",
         "frost-border border border-transparent backdrop-blur-sm",
         "transition-[background-color] duration-200",
-        /* off / on fills via data-state */
         "data-[state=unchecked]:bg-gray-100 data-[state=unchecked]:hover:bg-gray-200",
         "data-[state=checked]:bg-purple-400 data-[state=checked]:hover:bg-purple-300",
-        /* focus */
         "outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-0",
-        /* disabled */
         "disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}

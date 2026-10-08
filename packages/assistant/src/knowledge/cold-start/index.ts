@@ -1,21 +1,6 @@
 /**
- * Cold-start research at signup (ADR-0011 + ADR-0022, v2 amendment).
- *
- * v2 replaces the single stranded Perplexity Sonar Deep Research call with the
- * agent harness, run bounded inside a deterministic onboarding workflow:
- *   - `signals`         pure read of identity evidence
- *   - `seed`            boss identity resolution → an anchor (web_search)
- *   - `aspects`         bounded parallel sub-agents, one per facet (web_search)
- *   - `synthesis`       boss folds findings → ~300w telegraphic summary
- *   - `extract`         cheap-tier prose → structured fact proposals
- *   - `workflow-input`  slug + zod schema for callers that enqueue
- *
- * The `synthesis` output keeps the old `ResearchResult` shape, so the
- * `extract` → persist tail (ADR-0019's two-stage extract) is unchanged.
- *
- * The workflow itself (`cold-start-research.ts`) lives here in the module
- * and only orchestrates these helpers; the composition root registers it
- * through this barrel's `@alfred/assistant/knowledge` door.
+ * Cold-start research at signup (ADR-0011, ADR-0022). The workflow lives in
+ * `cold-start-research.ts`; the composition root registers it through this barrel.
  */
 
 export { collectColdStartSignals } from "./signals";

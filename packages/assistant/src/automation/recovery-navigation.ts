@@ -5,10 +5,7 @@ import {
 } from "@alfred/contracts";
 import type { PersistedWorkflowReadinessProblem } from "@alfred/contracts";
 
-/**
- * Convert a readiness remedy into navigation only when this server owns a flow
- * that can preserve the immutable draft through that remedy.
- */
+/** Navigation for a remedy, only when this server has a flow that keeps the draft intact. */
 export function workflowRecoveryNavigation(args: {
   workflowId: string;
   revisionId: string;

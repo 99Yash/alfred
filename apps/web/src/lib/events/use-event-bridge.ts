@@ -3,25 +3,7 @@ import { useEffect } from "react";
 import { authClient } from "~/lib/auth/auth-client";
 import { openEventStream } from "./stream";
 
-/**
- * Side-effect hook that opens an SSE connection on behalf of the React
- * Query cache and invalidates the relevant queries when events arrive.
- * Mount once at the app shell — additional consumers (`useInbox`, etc.)
- * just read from React Query as usual.
- *
- * `openEventStream` multiplexes subscribers onto one shared EventSource, so
- * mounting this beside chat/debug listeners does not spend another browser SSE
- * connection slot.
- *
- * Current bindings:
- *   - `inbox.updated` → invalidate `["me","inbox"]` so the rail re-fetches.
- *
- * Adding a new binding: append a case in the switch. The hook does no
- * payload-level reasoning; that's by design — the wire payloads are
- * intentionally minimal (just enough to identify which query to
- * invalidate). Per-row diffs would buy us nothing the rail can use given
- * how few rows it shows.
- */
+/** Invalidate React Query caches when SSE events arrive. Mount once, in the app shell. */
 export function useEventBridge(): void {
   const queryClient = useQueryClient();
   const { data: session } = authClient.useSession();
@@ -31,10 +13,7 @@ export function useEventBridge(): void {
 
     if (!userId) return;
 
-    // No `onError` here — fatal bus errors are surfaced globally by
-    // `EventStreamBanner` (reconnecting) and the shared bus backs off before
-    // re-opening. The inbox degrades to polling (useInbox: `refetchOnWindowFocus`
-    // + 5-min interval), so per-subscriber toast/bubble handling is unnecessary.
+    // No `onError`: `EventStreamBanner` shows bus failures and the inbox also polls.
     const close = openEventStream({
       onFrame: (frame) => {
         switch (frame.kind) {
@@ -42,9 +21,6 @@ export function useEventBridge(): void {
             void queryClient.invalidateQueries({ queryKey: ["me", "inbox"] });
             break;
           default:
-            // Other kinds (agent.run, tool.call, approval.requested, …)
-            // are consumed by their own subscribers via `useEventStream`
-            // — no global cache-invalidation binding yet.
             break;
         }
       },

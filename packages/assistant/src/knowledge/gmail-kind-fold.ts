@@ -27,15 +27,9 @@ export interface ProjectGmailKindProfilesArgs {
   readonly projectionVersion: number;
   readonly projectionName?: string | undefined;
   readonly computedAt?: Date | undefined;
-  /**
-   * Inclusive Gmail replay bound captured before the run starts. The completed
-   * run records this value, so the fold must consume exactly this prefix.
-   */
+  /** Inclusive replay bound captured before the run. The fold must consume exactly this prefix. */
   readonly gmailHighWatermark?: ProjectionCursorValue | undefined;
-  /**
-   * Account-holder email identities to exclude from the first consumer-facing
-   * profile projection. PR G can fill this from connected account addresses.
-   */
+  /** The user's own addresses, excluded from the projection. */
   readonly excludeEmailValues?: readonly string[] | undefined;
 }
 
@@ -239,13 +233,7 @@ function ensureAccumulator(
   return created;
 }
 
-/**
- * Header list/bulk signals for one observation, in the shape
- * `classifyEntityKind` consumes as `payloadSignals`. Exported (not
- * module-private) so the `works_at` edge fold classifies from the SAME
- * header-signal inputs the kind fold does — a second hand-rolled header
- * read would drift and the two folds would disagree about one sender.
- */
+/** Header list/bulk signals for one observation. Shared with the `works_at` fold so both classify alike. */
 export function payloadSignalsFromObservation(observation: Observation): GmailPayloadSignals {
   const payload = observation.payload;
 
@@ -257,12 +245,7 @@ export function payloadSignalsFromObservation(observation: Observation): GmailPa
   };
 }
 
-/**
- * Inclusive Gmail replay bound shared by the Gmail projection folds. Exported
- * (not module-private) so the `works_at` edge fold consumes exactly the same
- * prefix the kind fold does — a second hand-rolled copy would drift and the two
- * folds would replay different windows under one `projectionRunId`.
- */
+/** Inclusive Gmail replay bound, shared with the `works_at` fold so both replay one window. */
 export function gmailHighWatermarkCondition(
   watermark: ProjectionCursorValue | undefined,
 ): SQL | null {

@@ -41,7 +41,7 @@ import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { callToast, toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 
-// Hoisted so the `leading` props below don't allocate a fresh element per render.
+// Hoisted so `leading` props do not allocate per render.
 const ICON_X = <X size={13} />;
 
 const ICON_REVISE = <RefreshCw size={13} />;
@@ -52,20 +52,11 @@ const ICON_CHECK = <Check size={13} />;
 
 const ICON_PENCIL = <Pencil size={13} />;
 
-/** The single accordion item value — one card holds one expandable panel. */
 const PANEL_ITEM = "approval";
 
 /**
- * Renders the pending approvals for a run inline in the transcript, right below
- * the tool trail whose action they gate. One card per staged action, stacked in
- * the order they were passed (the conversation orders them by tool position, so
- * each card sits under the call it belongs to). Replaces the old detached
- * step-through tray: the decision now lives where the action appears, not in a
- * separate bar above the composer.
- *
- * The approval "chime" (toast + sound) fires once here for the batch — a stack
- * of cards must not overlap N sounds — while every other decision detail lives
- * in {@link InlineApprovalCard}.
+ * Pending approvals for a run, one card per staged action, under the tool trail they gate.
+ * The chime (toast and sound) fires here once per batch, so stacked cards do not play N sounds.
  */
 export function ChatApprovalTray({
   runId,
@@ -76,7 +67,7 @@ export function ChatApprovalTray({
   runId: string | undefined;
   approvals: readonly SyncedActionStaging[];
   awaitingApproval: boolean;
-  /** Styleguide-only: render with all interactions local — no toast, audio, API, or policy writes. */
+  /** Styleguide only: no toast, audio, API, or policy writes. */
   preview?: boolean | undefined;
 }) {
   const [recentDecision, setRecentDecision] = useState(false);
@@ -87,24 +78,12 @@ export function ChatApprovalTray({
     setRecentDecision(false);
   }
 
-  // Chime once per freshly-arrived batch of approvals. A per-card effect would
-  // fire N toasts and stack N overlapping sounds when several actions gate at
-  // once; centralizing it here keeps a single "review this" signal.
-  //
-  // The map is both the dedupe ledger and the handle on the chime it raised:
-  // the key answers "did this row chime already?", and the value is the toast
-  // to dismiss once the row no longer waits for the user. A retired chime
-  // keeps a `null` value, because deleting the key re-chimes the row on the
-  // next poke. Lazily allocated: `useRef(new Map())` builds and discards a Map
-  // on every render. Pruned to the rows still on screen on each fire, so a
-  // long thread does not accumulate an id per approval it ever showed — a row
-  // that leaves `pending` never comes back, so dropping it cannot re-chime.
+  // Chime once per new batch. Key: the row chimed; value: its toast, or `null` once retired.
+  // Deleting a retired key would re-chime the row. Lazy, because `useRef(new Map())` allocates each render.
+  // Pruned to on-screen rows; a row that leaves `pending` never returns.
   const chimesRef = useRef<Map<string, string | number | null> | null>(null);
 
-  // A chime means "come and look". The user who decides has looked, so the
-  // toast goes on the click itself — not when the server answers, and not five
-  // seconds later. One chime can cover a batch, so a decision on any row it
-  // announced retires it for every row in that batch.
+  // Dismiss on the click, not on the server reply. One chime covers its whole batch.
   const dismissChime = (stagingId: string) => {
     const chimes = chimesRef.current;
     const toastId = chimes?.get(stagingId) ?? null;
@@ -122,8 +101,7 @@ export function ChatApprovalTray({
     const fresh = approvals.filter((row) => !chimes.has(row.id));
     const live = new Set(approvals.map((row) => row.id));
 
-    // A row leaves `pending` when someone decides it — on this card, on the
-    // approvals page, or through an expiry — so its chime is stale either way.
+    // A decided row (here, on the approvals page, or by expiry) has a stale chime.
     for (const [id, toastId] of chimes) {
       if (live.has(id)) continue;
 
@@ -134,9 +112,7 @@ export function ChatApprovalTray({
     if (fresh.length === 0) return;
 
     const first = fresh[0];
-    // A question is not a permission request, so it gets its own chime copy —
-    // "Approval needed" over a card asking which recipient to use reads as a
-    // warning about an action the user never proposed.
+    // A question gets its own copy: "Approval needed" reads as a warning about an action the user never proposed.
     const lone = fresh.length === 1 ? first : undefined;
     const loneQuestion = lone ? asQuestionStaging(lone) : null;
 
@@ -159,8 +135,7 @@ export function ChatApprovalTray({
     const audio = new Audio("/sounds/run-finished.mp3");
     audio.volume = 0.42;
     void audio.play().catch(() => {
-      // Browsers can block audio until the page has user activation. The inline
-      // card remains the source of truth when that happens.
+      // Browsers can block audio before user activation; the card still shows.
     });
   }, [approvals, preview]);
 
@@ -174,9 +149,7 @@ export function ChatApprovalTray({
         <div className="flex items-center gap-2 text-[13px] text-app-fg-3">
           <Loader2 size={14} className="animate-spin" />
           <span className={cn(!recentDecision && "animate-chat-shimmer")}>
-            {/* Neutral over both card kinds: the pending row below may be a
-             * question, and "Waiting for approval" reads as a permission
-             * prompt the user never asked for. */}
+            {/* Neutral: the pending row may be a question, not a permission prompt. */}
             {recentDecision ? "Resuming after your decision…" : "Waiting for your decision…"}
           </span>
         </div>
@@ -187,10 +160,7 @@ export function ChatApprovalTray({
   return (
     <div className="flex flex-col gap-2">
       {approvals.map((staging) => {
-        // A question is an approval with a different card (ADR-0099): same
-        // staged row, same decision route, but the body is an answer sheet and
-        // the actions are Continue / Dismiss. A staged input that does not
-        // parse falls back to the ordinary card rather than to nothing.
+        // A question is a staged approval with a different card (ADR-0099). Unparseable input gets the ordinary card.
         const question = asQuestionStaging(staging);
 
         return question ? (
@@ -215,7 +185,6 @@ export function ChatApprovalTray({
   );
 }
 
-/** The toast a landed decision raises. */
 interface DecisionToast {
   tone: "success" | "info";
   message: string;
@@ -223,13 +192,8 @@ interface DecisionToast {
 }
 
 /**
- * Posts one decision for a staged row and lands the card's local state: which
- * decision it was (drives the resolved badge) and the "resuming" affordance.
- * Shared by the write card and the question card, which differ only in the
- * copy they raise for a run-ending decision — the route, the error wording,
- * and the preview no-op are the same for both. Approve/reject decisions raise
- * no toast: the inline card already collapses to a "Resuming…" state, so a
- * toast would double-announce the same signal.
+ * Post one decision and set the card's local state.
+ * Shared by the write and question cards. Approve and reject raise no toast: the card shows "Resuming…".
  */
 function useRecordDecision<Decision extends RecordedDecision>({
   staging,
@@ -242,17 +206,14 @@ function useRecordDecision<Decision extends RecordedDecision>({
 }: {
   staging: SyncedActionStaging;
   preview: boolean | undefined;
-  /** The user recorded a decision. Fires on the click, before the API call. */
+  /** Fires on the click, before the API call. */
   onDecisionStart: () => void;
   onDecision: () => void;
   run: ApprovalDecisionState["run"];
   setDecided: (value: boolean) => void;
   toastFor: (decision: Decision) => DecisionToast | null;
 }) {
-  // Generic over the decision union, so a write card cannot record a
-  // reason-less rejection and a question card cannot record a `cancel_run`.
-  // The card passes its own union, so each copy builder below covers exactly
-  // the kinds its own card raises — and a `never` guard in each proves it.
+  // Generic so a write card cannot send a reason-less rejection and a question card cannot send `cancel_run`.
   const [decisionKind, setDecisionKind] = useState<Decision["decision"] | null>(null);
 
   const decide = (decision: Decision) => {
@@ -260,8 +221,7 @@ function useRecordDecision<Decision extends RecordedDecision>({
     onDecisionStart();
 
     if (preview) {
-      // Styleguide: land the decision locally so the collapse + badge states
-      // are demonstrable without an API.
+      // Styleguide: decide locally so the states show without an API.
       setDecided(true);
 
       return;
@@ -337,8 +297,6 @@ function InlineApprovalCard({
 
   const { modeFor, setIntegrationMode } = useActionPolicy();
 
-  // Which decision landed — drives the resolved badge (check = approved,
-  // ✕ = sent back / run ended).
   const { decisionKind, decide } = useRecordDecision({
     staging,
     preview,
@@ -349,9 +307,7 @@ function InlineApprovalCard({
     toastFor: writeDecisionToast,
   });
 
-  // Open while the decision is pending; auto-collapse the moment it lands,
-  // leaving the collapsed trigger row with the resolved badge. Render-phase
-  // tracking (no effect) so the collapse lands on the same frame as `decided`.
+  // Open while pending; collapse when decided. Set during render so it lands the same frame.
   const [panelValue, setPanelValue] = useState(decided ? "" : PANEL_ITEM);
   const [prevDecided, setPrevDecided] = useState(decided);
 
@@ -381,8 +337,7 @@ function InlineApprovalCard({
               >
                 <ToolIcon integration={staging.integration} />
                 <div className="min-w-0 flex-1">
-                  {/* While the Permissions affordance is pinned top-right, cap
-                   * the title row so long headlines don't run underneath it. */}
+                  {/* Cap the title row so it does not run under the Permissions button. */}
                   <div
                     className={cn(
                       "flex flex-wrap items-center gap-2",
@@ -405,8 +360,7 @@ function InlineApprovalCard({
                   </p>
                 </div>
                 {decided ? (
-                  // Resolved coin — check on approval, ✕ on sent-back / ended.
-                  // Slides in from under the edge on hover/open (peek state).
+                  // Resolved coin: check on approve, ✕ on sent back or ended.
                   <span
                     aria-hidden
                     className={cn(
@@ -454,8 +408,7 @@ function InlineApprovalCard({
           </div>
           <Accordion.Content className="data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down overflow-hidden">
             <div className="border-t border-app-bg-a2 p-3 sm:px-4">
-              {/* Fields are always live — no read-only/Adjust step. Edit in place, then
-               * the primary button reads "Approve changes". */}
+              {/* Fields are always editable; the button then reads "Approve changes". */}
               <ApprovalInputEditor
                 toolName={staging.toolName}
                 value={draftInput}
@@ -523,8 +476,7 @@ function InlineApprovalCard({
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {/* Revise sends the action back to Alfred with a note — the run stays
-                     * alive and Alfred tries again. Distinct from End run, which stops. */}
+                    {/* Revise sends the action back with a note and the run continues. End run stops it. */}
                     <AppButton
                       variant="ghost"
                       size="sm"
@@ -594,9 +546,7 @@ function InlineApprovalCard({
   );
 }
 
-/** The toast copy for a write approval's run-ending decision. Approve and
- * reject resume the run, which the inline card already announces with its
- * "Resuming…" state — so they raise no toast. */
+/** Toast for a run-ending write decision. Approve and reject resume the run, so no toast. */
 function writeDecisionToast(decision: WriteDecision): DecisionToast | null {
   if (decision.decision === "approve") return null;
 
@@ -606,18 +556,15 @@ function writeDecisionToast(decision: WriteDecision): DecisionToast | null {
     return { tone: "info", message: "Run ended", description: "Alfred stopped this run." };
   }
 
-  // A new arm on `WriteDecision` fails to compile here instead of falling
-  // through to another decision's copy.
+  // A new `WriteDecision` arm fails to compile here.
   const unhandled: never = decision;
 
   return unhandled;
 }
 
 /**
- * The toast copy for a question's decisions. Both arms continue the turn,
- * which the inline card already announces — so neither raises a toast. The
- * builder stays so a future run-ending question decision fails to compile
- * instead of silently raising nothing.
+ * Both question decisions continue the turn, so no toast.
+ * Kept so a future run-ending decision fails to compile here.
  */
 function questionDecisionToast(decision: QuestionDecision): DecisionToast | null {
   if (decision.decision === "approve") return null;
@@ -630,22 +577,10 @@ function questionDecisionToast(decision: QuestionDecision): DecisionToast | null
 }
 
 /**
- * A parked `system.ask_user` question, inline under the tool trail (ADR-0099).
- *
- * The row is an ordinary staged approval, so this card rides the same decision
- * route and the same Replicache row as a write approval — a reload during the
- * park draws the same open card, and the composer stays disabled the whole
- * time. Only three things differ: the body is an answer sheet instead of a
- * field editor, the panel stays open (a question is the point of the turn, not
- * a detail to fold away), and the actions read Dismiss / Continue.
- *
- * The card owns the chrome only. {@link QuestionSheet} owns the answer sheet,
- * the action row, and the keyboard contract, so the `/approvals` queue's card
- * draws the identical body from the identical component.
- *
- * The answers ride the approval's `editedInput`. Continuing without answering
- * anything sends a plain approval, which the tool reports to the model as
- * `no_answers` rather than as a sheet full of blanks.
+ * A parked `system.ask_user` question (ADR-0099). Same staged row and route as a write approval.
+ * The panel stays open, and the actions are Dismiss / Continue.
+ * {@link QuestionSheet} owns the sheet, so the `/approvals` card draws the same body.
+ * Continue with no answers sends a plain approval, reported to the model as `no_answers`.
  */
 function InlineQuestionCard({
   question,
@@ -706,9 +641,7 @@ function InlineQuestionCard({
         idPrefix={`chat-question-${staging.id}`}
         settledLabel="Continuing…"
         onContinue={() => void decide(approveDecision())}
-        // A dismissal IS the answer, so it goes on the wire as a plain
-        // reason-less rejection — the same shape the route already accepts for
-        // a question (ADR-0099). No separate decision kind exists.
+        // A dismissal is a plain reason-less rejection (ADR-0099).
         onDismiss={() =>
           void decide({ decision: "reject", expectedRowVersion: staging.rowVersion })
         }
@@ -718,12 +651,8 @@ function InlineQuestionCard({
 }
 
 /**
- * "Always allow {integration}" moved off the action row into a Permissions
- * popover pinned to the collapsed trigger's top-right — the card body keeps
- * only the decision buttons, and the standing policy lives where its scope
- * (the whole integration) lives. Flipping the switch is an optimistic policy
- * write; the staged row is frozen at dispatch, so approving below is still
- * what releases this action — the note says so.
+ * "Always allow {integration}" in a popover on the trigger. The policy write is optimistic.
+ * The staged row is frozen at dispatch, so this action still needs Approve.
  */
 function PermissionsAffordance({
   staging,
@@ -740,9 +669,7 @@ function PermissionsAffordance({
   const integrationName = getIntegrationPage(staging.integration)?.name ?? staging.integration;
   const alwaysAllowed = modeFor(staging.integration) === "autonomy";
 
-  // The popover portals out of the `.app` subtree, so stamp the resolved theme
-  // on the content directly (context still flows through the portal). Same
-  // pattern as ApprovalModePicker / AppSelect.
+  // The popover portals out of `.app`, so stamp the theme on the content.
   const themeCtx = use(AppThemeContext);
 
   const dataTheme =
@@ -815,9 +742,7 @@ function PermissionsAffordance({
   );
 }
 
-/** The trigger's subline once the decision has landed. Write cards only — the
- * question card carries its own subline, whose "reject" reads as a dismissal
- * rather than as a revision note. */
+/** Trigger subline after a decision. Write cards only. */
 function ResolvedCopy({ kind, edited }: { kind: WriteDecision["decision"]; edited: boolean }) {
   if (kind === "approve") {
     return edited ? "Approved with changes — resuming the run." : "Approved — resuming the run.";
@@ -831,10 +756,10 @@ function ResolvedCopy({ kind, edited }: { kind: WriteDecision["decision"]; edite
   return unhandled;
 }
 
-/** "Always allow" is only offerable where it can actually take effect: high-tier
- * actions confirm even under autonomy (the one-way floor), so the switch would
- * flip the policy yet keep prompting — misleading. System tools never gate and
- * aren't loadable, so they're excluded too. */
+/**
+ * Only where it can take effect: high-tier actions confirm even under autonomy.
+ * System tools never gate.
+ */
 function canAlwaysAllow(staging: SyncedActionStaging): boolean {
   return staging.riskTier !== "high" && isLoadableIntegrationSlug(staging.integration);
 }

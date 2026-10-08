@@ -23,29 +23,11 @@ import {
 import type { JsonObject } from "@alfred/contracts";
 
 /**
- * Lazy-init Langfuse tracing. We build the SDK once per process when the keys
- * are present; missing keys make the rest of `metered()` a tracing no-op — the
- * `api_call_log` row still lands. Per ADR-0023 (and confirmed in m6): tracing
- * wires alongside metering, keys gate emission.
- *
- * This is JS/TS SDK v5 (#1130), which is OpenTelemetry-based: `startObservation`
- * builds the observation tree, and a `LangfuseSpanProcessor` exports spans.
- * The provider is set on Langfuse's own isolated tracer provider
- * (`setLangfuseTracerProvider`) instead of the process-global one, so it never
- * replaces the OTel provider that `Sentry.init` installs in
- * `apps/server/src/instrument.ts`.
- *
- * `environment` and `release` are SDK config in v5, not per-trace attributes
- * (the v3 `client.trace({ environment })` and the removed
- * `updateActiveTrace({ release, environment })`); they ride the processor,
- * which reads `LANGFUSE_TRACING_ENVIRONMENT` / `LANGFUSE_RELEASE`.
- *
- * **Four functions here open observations, and all four must go through
- * `startRunAttributedObservation`** so each carries its run's `sessionId` / `userId` /
- * `tags`: `startLangfuseSpan` (which also publishes that identity), `startToolSpan`,
- * `recordDispatchRejection`, and `startRuntimeSpan`. A fifth opener added without it
- * ships unattributed, which is invisible in the UI — filtering a trace by role or by
- * session then silently drops it.
+ * Langfuse tracing, built once per process (ADR-0023). Without keys, tracing is a no-op;
+ * the `api_call_log` row still lands.
+ * Uses Langfuse's own tracer provider, so it never replaces the one `Sentry.init` installs.
+ * Every observation opener must go through `startRunAttributedObservation`,
+ * or its span loses the run's session, user, and tags.
  */
 type LangfuseRuntime = { readonly provider: BasicTracerProvider };
 
@@ -69,22 +51,15 @@ function getRuntime(): LangfuseRuntime | null {
       publicKey: env.LANGFUSE_PUBLIC_KEY,
       secretKey: env.LANGFUSE_SECRET_KEY,
       ...(env.LANGFUSE_HOST ? { baseUrl: env.LANGFUSE_HOST } : {}),
-      // Stamp every trace with the deploy environment (#226) so traces never
-      // blur once multiple targets report. `NODE_ENV` only separates
-      // development|production|test, but staging/preview/prod all run with
-      // `NODE_ENV=production`, so prefer the dedicated
-      // `LANGFUSE_TRACING_ENVIRONMENT` slug per deploy target and fall back to
-      // `NODE_ENV` only when it's unset (#226 review).
+      // Every deploy target runs `NODE_ENV=production`, so prefer the per-target slug.
       environment: env.LANGFUSE_TRACING_ENVIRONMENT ?? env.NODE_ENV,
       ...(env.LANGFUSE_RELEASE ? { release: env.LANGFUSE_RELEASE } : {}),
     });
 
     const provider = new BasicTracerProvider({ spanProcessors: [processor] });
 
-    // `propagateAttributes` reads the OTel active context. NodeSDK (and Sentry,
-    // in `apps/server/src/instrument.ts`) install an AsyncLocalStorage context
-    // manager, but scripts and tests may run without either, so register the
-    // standard one. This is a no-op when a manager is already registered.
+    // `propagateAttributes` needs a context manager. Scripts run without Sentry's,
+    // so register one. No-op when one already exists.
     context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
 
     setLangfuseTracerProvider(provider);
@@ -99,11 +74,7 @@ function getRuntime(): LangfuseRuntime | null {
   }
 }
 
-/**
- * Test-only: point the helpers at a caller-owned provider (an in-memory span
- * recorder) instead of the env-gated real one. Returns a restore closure.
- * Mirrors `_resetPriceCacheForTests`.
- */
+/** Test-only: use the given provider. Returns a restore function. */
 export function _setLangfuseRuntimeForTests(provider: BasicTracerProvider): () => void {
   const previous = _runtime;
   _runtime = { provider };
@@ -116,16 +87,8 @@ export function _setLangfuseRuntimeForTests(provider: BasicTracerProvider): () =
 }
 
 /**
- * Derive a valid 32-hex OTel trace id from a logical trace id (`runId` or
- * `adhoc:<key>`). v5 has no `client.trace()` upsert: an OTel trace *is* the set
- * of observations that share `traceId`, and a span inherits that id from its
- * `parentSpanContext`. The parent span id is never a real observation — the
- * Langfuse docs bless exactly this shape for trace-id inheritance, so every
- * observation of a run lands at the root of one deterministic trace.
- *
- * Hashing matches `w3cTraceId` in `packages/assistant/src/connections/mcp/trace.ts`,
- * so the id an MCP peer sees in its `traceparent` is now the same id this trace
- * uses (before v5 the two diverged).
+ * Hash a logical trace id (`runId` or `adhoc:<key>`) to a 32-hex OTel trace id.
+ * Same hash as `w3cTraceId` in the MCP trace module, so MCP peers see this trace id.
  */
 export function langfuseTraceId(logicalTraceId: string): string {
   const derived = createHash("sha256").update(logicalTraceId).digest("hex").slice(0, 32);
@@ -138,25 +101,14 @@ function traceSpanContext(logicalTraceId: string): SpanContext {
 
   return {
     traceId: langfuseTraceId(logicalTraceId),
-    // Any valid 16-hex string works; the parent span does not exist and is only
-    // used for trace-id inheritance.
+    // A fake parent. It exists only so children inherit the trace id.
     spanId: digest.slice(32, 48),
     traceFlags: TraceFlags.SAMPLED,
     isRemote: true,
   };
 }
 
-/**
- * Trace-level attributes for `propagateAttributes` — the v5 replacement for the
- * v3 `client.trace()` upsert. v5 propagates `userId` / `sessionId` / `tags` /
- * `traceName` to every observation in scope, so they are set on each
- * observation this module creates rather than once on the trace.
- *
- * `public` has no call site today; v5 exposes it separately as
- * `setTraceAsPublic()` / `setActiveTraceAsPublic()` and it must not be passed as
- * a trace attribute (removed in v5). Trace input/output is likewise not set
- * here: in v5 the root observation's input/output *is* the trace's.
- */
+/** Trace-level attributes, set on each observation. The root observation's I/O is the trace's. */
 function traceAttributeParams(payload: {
   name: string;
   userId?: string | undefined;
@@ -172,22 +124,14 @@ function traceAttributeParams(payload: {
 }
 
 /**
- * Apply trace attributes to the observation `fn` creates, without writing them
- * to whatever OTel span is active process-wide.
- *
- * `propagateAttributes` does two things: it seeds the OTel context the
- * `LangfuseSpanProcessor` reads in `onStart`, and it calls `setAttribute` on the
- * active span. Sentry owns the process-global provider, so the active span is
- * normally Sentry's — running from `ROOT_CONTEXT` hides it, leaving the SDK
- * nothing to stamp while the context values still ride into the Langfuse
- * observation. Without this, `user.id` / `session.id` / `langfuse.trace.*` leak
- * onto Sentry spans.
+ * Apply trace attributes to the observation `fn` creates.
+ * `propagateAttributes` also stamps the active span, which is usually Sentry's.
+ * `ROOT_CONTEXT` hides that span, so user and session ids do not leak onto Sentry.
  */
 function withTraceAttributes<T>(params: PropagateAttributesParams, fn: () => T): T {
   return context.with(ROOT_CONTEXT, () => propagateAttributes(params, fn));
 }
 
-/** One run's trace-level identity, as the generation established it. */
 type RunTraceIdentity = {
   name: string;
   userId?: string | undefined;
@@ -196,53 +140,19 @@ type RunTraceIdentity = {
 };
 
 /**
- * A run's identity, held between the generation that established it and the spans
- * that follow.
- *
- * `withTraceAttributes` seeds OTel context for the duration of one call and
- * returns, so it cannot carry `sessionId` / `userId` / `tags` to a span opened
- * later — which is every tool and runtime span, since those run in the
- * `dispatch-tools` step after the generation has already returned. Threading the
- * identity through all four span seams instead would touch `executor.ts` and
- * `worker.ts`; this keeps the change inside this module.
- *
- * Every span input already carries `runId`, and `resolveTraceId` returns
- * `meta.runId` for a run, so the generation's payload is keyed by the same string
- * the spans look up.
- *
- * **Process-local, and the resume path is designed to cross instances.**
- * `AGENT_WORKER_CONCURRENCY` is in-process concurrency, so every worker in one
- * server shares this map. But `execution/worker.ts` documents that "anything left
- * mid-flight by a previous deploy gets picked up", so a run resumed by a different
- * server instance after a deploy finds no entry and its spans open bare. That is a
- * silent observability gap on scale-out, not an error. A shared store is the fix; it
- * is deliberately not built here.
- *
- * **The entry is the most recent attribution seen for a run, not a canonical one.**
- * Calls for the same run do not all carry the same fields: the brief workflow passes
- * `runId` with no `sessionId` (workflow-scoped, not thread-scoped), so a brief's
- * entry carries no session by design. Nothing merges a previous entry forward, so a
- * later call with fewer fields narrows it.
- *
- * **Every opener must route through `startRunAttributedObservation`.** There are four
- * today — `startLangfuseSpan`, `startToolSpan`, `recordDispatchRejection`,
- * `startRuntimeSpan` — and a fifth added without it ships unattributed, which is the
- * defect this map exists to remove.
+ * Each run's identity, keyed by `runId`, so tool and runtime spans opened after the
+ * generation returns can carry it.
+ * Process-local: a run resumed on another instance finds no entry and its spans open bare.
+ * The latest call wins; a later call with fewer fields narrows the entry.
  */
 const runIdentities = new Map<string, { at: number; identity: RunTraceIdentity }>();
 
 /**
- * Sized by the longest park a run sits through, not by how long a turn usually takes.
- * A staged tool call opens its span on *resume*, not at decision time
- * (`tool-runtime/internal/dispatch/pipeline.ts:1455`), and the resume re-enters
- * `dispatch-tools` with no intervening generation — so the identity has to still be
- * here when the run wakes. That park is bounded by `APPROVAL_EXPIRY_MS` (24h, ADR-0034);
- * `AWAIT_SUB_AGENT_CEILING_MS` is 6 minutes and a chat turn is seconds. An earlier
- * 15-minute value read as reasonable and was 1/96th of the case it claimed to cover.
+ * A staged tool call opens its span on resume with no new generation, so the identity
+ * must outlive the longest approval wait (ADR-0034).
  */
 const RUN_IDENTITY_TTL_MS = APPROVAL_EXPIRY_MS;
 
-/** Amortises the sweep to once per interval rather than once per generation. */
 const RUN_IDENTITY_SWEEP_MS = 60 * 60_000;
 
 let lastRunIdentitySweepMs = 0;
@@ -261,12 +171,7 @@ function rememberRunIdentity(runId: string, identity: RunTraceIdentity): void {
   runIdentities.set(runId, { at: now, identity });
 }
 
-/**
- * Open an observation carrying its run's trace attributes, or open it bare when
- * the run never established any. A miss is today's behaviour, not a new one — a
- * span that opens before its run's first generation, or a run with no LLM call
- * at all, has no identity to propagate and must not invent one.
- */
+/** Open an observation with its run's trace attributes, or bare when the run has none yet. */
 function startRunAttributedObservation<T>(runId: string, create: () => T): T {
   const entry = runIdentities.get(runId);
 
@@ -278,41 +183,22 @@ export interface LangfuseSpanInput {
   startedAt: Date;
 }
 
-/**
- * Open a Langfuse generation span. Use `runId` as the trace id so all
- * calls inside one agent run group into a single tree (boss + sub-agents
- * inherited from m13 will hang off the same trace via parent links).
- *
- * Returns a closer with two outcomes — `success(usage, costUsd, output)`
- * or `error(message)`. Both are best-effort: any throw inside the
- * Langfuse SDK is swallowed so tracing failures never break the call.
- */
+/** Closes a generation span. SDK errors are swallowed so tracing never breaks the call. */
 export interface LangfuseSpanCloser {
   success(args: {
     usage?: CallUsage | undefined;
     costUsd: number;
-    /** Full completion — only attached to the span when I/O capture is on. */
+    /** Attached only when I/O capture is on. */
     output?: unknown;
-    /** Small response metadata (finish_reason, tool-call count) — always attached. */
+    /** Always attached. */
     responseMeta?: JsonObject | undefined;
-    /**
-     * Model the request actually resolved to (#216). When a `withFallback`
-     * cascade switches providers mid-call, `metered()` reconciles the served
-     * id and passes it here so the generation's `model` reflects what ran —
-     * not the nominal id the span opened with. Defaults to the requested id
-     * when undefined or unchanged.
-     */
+    /** The model that actually ran, when a fallback switched it. */
     servedModel?: string | undefined;
   }): void;
   error(message: string): void;
 }
 
-/**
- * Whether to attach full prompt/completion text to spans. Gated by
- * `LANGFUSE_CAPTURE_IO` (#215) so the default stays I/O-free and prompt
- * content (potential PII) never leaves the box unless explicitly enabled
- * on a self-hosted instance.
- */
+/** Attach prompt and completion text only when enabled. It can hold PII. */
 function shouldCaptureIo(): boolean {
   return serverEnv().LANGFUSE_CAPTURE_IO === true;
 }
@@ -332,20 +218,13 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   }
 
   const { meta, startedAt } = input;
-  // `getRuntime()` above proves the provider is live; the calls below are still
-  // wrapped so a misconfigured SDK can't crash the call site.
   const captureIo = shouldCaptureIo();
   const tracePayload = buildTracePayload(meta);
   const generationPayload = buildGenerationPayload({ meta, startedAt, captureIo });
   let generation: LangfuseGeneration | null = null;
 
   try {
-    // No v3-style trace upsert exists in v5. Trace identity comes from the
-    // synthetic `parentSpanContext`, and the trace-level name/user/session/tags
-    // ride the propagated context for this observation. Repeated calls in one run
-    // all hash to the same trace id, and Langfuse unions tags across
-    // observations, so a multi-role run accumulates every surface tag (#226).
-    // `withTraceAttributes` keeps those attributes off the process-global span.
+    // Langfuse unions tags across a trace, so a multi-role run collects every role tag.
     generation = withTraceAttributes(traceAttributeParams(tracePayload), () =>
       startObservation(
         generationPayload.name,
@@ -368,10 +247,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
     console.warn("[langfuse] span start failed:", toMessage(err));
   }
 
-  // Publish the run's identity so the tool and runtime spans that follow in the
-  // dispatch step can carry it too. Keyed by `runId` rather than the resolved
-  // trace id so an ad-hoc call, which has no run and no spans to serve, does not
-  // take an entry.
+  // Ad-hoc calls have no run and no later spans, so they take no entry.
   if (meta.runId) {
     rememberRunIdentity(meta.runId, tracePayload);
   }
@@ -389,10 +265,6 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
           captureIo,
         });
 
-        // v5 splits the v3 `generation.end(payload)` into `update(attributes)`
-        // then `end()`. `usage` is a v3-only field — v5 reads `usageDetails`.
-        // For an ad-hoc trace this generation is the app root, so its
-        // input/output are the trace's (#226); no separate trace IO write.
         generation?.update({
           ...(end.model !== undefined ? { model: end.model } : {}),
           ...(end.usageDetails !== undefined ? { usageDetails: end.usageDetails } : {}),
@@ -416,49 +288,27 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   };
 }
 
-/**
- * A tool call to open a span for under the run trace (#214). Tool calls
- * execute in the dispatcher *after* the LLM generation that proposed them,
- * so without this they appear in no trace at all — the run tree shows the
- * boss's generations but none of the work they triggered.
- */
 export interface ToolSpanInput {
-  /** Run id — doubles as the Langfuse trace id this span hangs under. */
+  /** Also the trace id. */
   runId: string;
   toolName: string;
-  /** Model-supplied id for the call; deduplicates a call across re-attempts. */
   toolCallId: string;
   userId?: string;
-  /** `boss` or a named sub-agent — surfaced in span metadata. */
+  /** `boss` or a sub-agent name. */
   caller?: string;
-  /** Executor step that owns the dispatch — audit only. */
   stepId?: string;
-  /** Tool arguments. Only attached when `LANGFUSE_CAPTURE_IO` is on (PII). */
+  /** Attached only when I/O capture is on. */
   input?: unknown;
   startedAt: Date;
 }
 
 export interface ToolSpanCloser {
-  /**
-   * Tool returned; `output` is attached only when I/O capture is on. `metadata`
-   * (when given) is merged onto the span's metadata and is recorded ALWAYS —
-   * independent of the I/O gate — so it must carry only non-PII, structural
-   * signal (e.g. the ADR-0074 passthrough truncation "thermometer").
-   */
+  /** `output` needs I/O capture. `metadata` is always recorded, so it must hold no PII. */
   success(output?: unknown, metadata?: JsonObject): void;
   error(message: string): void;
 }
 
-/**
- * Open a Langfuse span for a single tool execution, nested under the run
- * trace (#214). Mirrors `startLangfuseSpan`'s contract: a no-op closer when
- * keys are absent, and every SDK call swallowed so tracing can't break the
- * dispatch path.
- *
- * Tool I/O (args + result) can carry PII, so it rides the same
- * `LANGFUSE_CAPTURE_IO` gate as generation I/O — off by default, the span
- * still records name/timing/metadata.
- */
+/** Open a span for one tool execution under the run trace. SDK errors are swallowed. */
 export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
   const runtime = getRuntime();
 
@@ -477,11 +327,6 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
   let span: LangfuseSpan | null = null;
 
   try {
-    // The boss LLM turn that proposed this call already created the run trace
-    // (chat's generation step precedes tool dispatch). The synthetic parent
-    // context still carries that trace's id, so a tool that somehow runs before
-    // any generation joins the same trace instead of orphaning. The parent span
-    // does not exist — by design, only for trace-id inheritance.
     span = startRunAttributedObservation(args.runId, () =>
       startObservation(
         `tool:${args.toolName}`,
@@ -511,9 +356,7 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
   return {
     success(output, metadata) {
       try {
-        // Structural metadata (e.g. the truncation thermometer) is recorded
-        // regardless of the I/O gate; v5 merges `update` metadata onto the set
-        // from span open, so the `kind: "tool"` block is preserved.
+        // `update` merges metadata, so the opening `kind: "tool"` block stays.
         span?.update({
           ...(captureIo && output !== undefined ? { output } : {}),
           ...(metadata && Object.keys(metadata).length > 0 ? { metadata } : {}),
@@ -525,11 +368,7 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
     },
     error(message) {
       try {
-        // A tool error can carry user content, response fragments, or secrets
-        // from an integration. `statusMessage` is recorded even with I/O capture
-        // off, so redact + bound here (the funnel) so no raw error reaches
-        // Langfuse regardless of the caller. `summarizeBody` strips secrets and
-        // caps length; `sanitizeErrorMessage` strips NUL-byte poison.
+        // `statusMessage` is recorded even without I/O capture, and errors can hold secrets.
         span?.update({
           level: "ERROR",
           statusMessage: summarizeBody(sanitizeErrorMessage(message)),
@@ -542,15 +381,7 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
   };
 }
 
-/**
- * The dispatch branches that short-circuit *before* a tool ever executes
- * (#345). `startToolSpan` only covers the execute path, so these — an
- * undeclared/unregistered tool, a Zod/access rejection, a policy/expiry
- * rejection, or a post-approval reparse failure — produced no span at all,
- * leaving a whole class of "naive tool error" invisible in the trace tree
- * (found only by manual chat-card audit). `recordDispatchRejection` makes
- * every attempt a node.
- */
+/** Dispatch branches that stop before a tool executes. */
 export type DispatchRejectionOutcome =
   | "unknown_tool"
   | "inactive_tool"
@@ -560,60 +391,41 @@ export type DispatchRejectionOutcome =
   | "feature_disabled"
   | "failed";
 
-/**
- * Trace severity per outcome. A schema/access/unknown miss or a failed
- * reparse is an anomaly (WARNING/ERROR); a policy/expiry rejection is an
- * expected user decision, not an error (DEFAULT), but still worth a node so
- * the "bounce on the same wall" pattern is countable.
- */
+/** A user rejection or a disabled tier (ADR-0074) is expected, so it is not a warning. */
 const DISPATCH_OUTCOME_LEVEL = {
   unknown_tool: "WARNING",
   inactive_tool: "WARNING",
   not_allowed: "WARNING",
   invalid_input: "WARNING",
   rejected: "DEFAULT",
-  // The user turned this tier off (ADR-0074, default-OFF). An expected setting,
-  // not an anomaly — a node worth counting but not a warning.
   feature_disabled: "DEFAULT",
   failed: "ERROR",
 } satisfies Record<DispatchRejectionOutcome, "DEFAULT" | "WARNING" | "ERROR">;
 
 export interface DispatchRejectionInput {
-  /** Run id — doubles as the Langfuse trace id this span hangs under. */
+  /** Also the trace id. */
   runId: string;
-  /**
-   * Safe tool identity used for the observation name and grouping. For a raw
-   * undeclared model string, callers must pass a stable placeholder such as
-   * `<unknown>` and put any sanitized/bounded hint in `candidateToolName`.
-   */
+  /** For an undeclared tool, pass a placeholder like `<unknown>`, not the raw model string. */
   toolName: string;
-  /** Optional sanitized + bounded model-supplied name hint for unknown tools. */
+  /** Sanitized, bounded name hint for an unknown tool. */
   candidateToolName?: string | undefined;
-  /** Model-supplied id for the call; deduplicates a call across re-attempts. */
   toolCallId: string;
-  /** Dispatch branch that short-circuited before execution. */
   outcome: DispatchRejectionOutcome;
-  /** Enriched, human-readable reason. Redacted + bounded before it reaches Langfuse. */
   reason: string;
-  /**
-   * Stable, PII-free fingerprint of the rejection (e.g. tool + outcome + Zod
-   * issue codes/paths). Always recorded so identical repeats — the boss
-   * re-proposing the same broken call — group and count in the Traces view.
-   */
+  /** PII-free fingerprint, always recorded, so repeats of one broken call group together. */
   signature: string;
   userId?: string | undefined;
-  /** `boss` or a named sub-agent — surfaced in span metadata. */
+  /** `boss` or a sub-agent name. */
   caller?: string | undefined;
-  /** Executor step that owns the dispatch — audit only. */
   stepId?: string | undefined;
-  /** Structured detail (e.g. Zod issues). Only attached when I/O capture is on (PII). */
+  /** Attached only when I/O capture is on. */
   detail?: unknown;
-  /** The proposed input that was rejected. Only attached when I/O capture is on (PII). */
+  /** Attached only when I/O capture is on. */
   input?: unknown;
   startedAt: Date;
 }
 
-/** Pure payload builder for rejection spans; kept exported so privacy gates are testable. */
+/** Exported so tests can check the privacy gates. */
 export function buildDispatchRejectionSpanPayload(
   args: DispatchRejectionInput,
   captureIo: boolean,
@@ -634,7 +446,7 @@ export function buildDispatchRejectionSpanPayload(
         userId: args.userId,
         runId: args.runId,
         stepId: args.stepId,
-        // Zod issues / structured detail can echo the proposed input values.
+        // Zod issues can echo the input values.
         detail: captureIo ? args.detail : undefined,
       },
     },
@@ -646,16 +458,8 @@ export function buildDispatchRejectionSpanPayload(
 }
 
 /**
- * Emit a zero-duration span for a dispatch attempt that never reached execute
- * (#345). Shares the `tool:<name>` naming with execution spans so attempts and
- * executions of the same tool group together; `metadata.outcome` +
- * `metadata.rejectionSignature` + the span `level` distinguish and bucket them.
- *
- * Fire-and-forget and fully swallowed — like `startToolSpan`, tracing must never
- * break the dispatch path. The reason string can carry user content from
- * custom validators, so it rides the `LANGFUSE_CAPTURE_IO` gate; with capture
- * off, `statusMessage` is the structural, PII-free rejection signature. The
- * structured `detail` and `input` use the same gate.
+ * Emit a zero-length `tool:<name>` span for a call that never executed.
+ * Without I/O capture, `statusMessage` is the signature, because the reason can hold user content.
  */
 export function recordDispatchRejection(args: DispatchRejectionInput): void {
   const runtime = getRuntime();
@@ -681,7 +485,6 @@ export function recordDispatchRejection(args: DispatchRejectionInput): void {
       ),
     );
 
-    // v5 splits the v3 `span.end(attributes)` into `update` + `end`.
     span.update({ level: payload.end.level, statusMessage: payload.end.statusMessage });
     span.end();
   } catch (err) {
@@ -689,55 +492,31 @@ export function recordDispatchRejection(args: DispatchRejectionInput): void {
   }
 }
 
-/**
- * Non-LLM runtime observations (#406, PRD #405). The trace tree already covers
- * the execution spine — LLM generations (`startLangfuseSpan`), tool executions
- * (`startToolSpan`), and dispatch rejections (`recordDispatchRejection`) — but
- * the deterministic orchestration *between* those (dispatch batch overhead,
- * scratchpad round-trips, approval/sub-agent waits, queue/lease timing, lazy
- * tool lookup) is invisible: an operator can't tell whether a run spent its
- * wall-clock in the model, a tool, or orchestration glue. `startRuntimeSpan` is
- * the shared helper for that class — a plain span nested under the run trace,
- * stable-named (`runtime.<area>.<op>`), carrying only bounded, PII-free metadata.
- *
- * Same privacy posture as the sibling helpers: full I/O rides the
- * `LANGFUSE_CAPTURE_IO` gate (off by default); metadata is timings / counts /
- * statuses / hashes only, never raw payloads or keys. Every SDK call is
- * swallowed so a tracing fault can never break the orchestration path it
- * observes. Span duration is derived by Langfuse from start/end times, so
- * callers need not compute it.
- */
+// Runtime spans time the non-LLM work in a run (dispatch, waits, queue), named
+// `runtime.<area>.<op>`.
 
-/** Langfuse observation level for a runtime span's terminal status. */
 export type RuntimeSpanLevel = "DEFAULT" | "WARNING" | "ERROR";
 
-/**
- * Bounded metadata value for a runtime span. Deliberately primitive-only so the
- * type system keeps raw objects / keys / values (potential PII) off the span —
- * runtime spans record counts, durations, statuses, and hashes, not payloads.
- */
+/** Primitives only, so no raw payload (possible PII) can reach a runtime span. */
 export type RuntimeMetaValue = string | number | boolean | null | undefined;
 
 export interface RuntimeSpanInput {
-  /** Run id — doubles as the Langfuse trace id this span hangs under. */
+  /** Also the trace id. */
   runId: string;
-  /** Stable observation name, e.g. `runtime.dispatch.batch`. */
+  /** For example `runtime.dispatch.batch`. */
   name: string;
   startedAt: Date;
-  /** Bounded, PII-free metadata (timings / counts / statuses / hashes). */
   metadata?: Record<string, RuntimeMetaValue>;
-  /** Full input — only attached when `LANGFUSE_CAPTURE_IO` is on. */
+  /** Attached only when I/O capture is on. */
   input?: unknown;
 }
 
 export interface RuntimeSpanEndArgs {
-  /** Terminal status, recorded in `metadata.status` (e.g. "committed", "staged", "error"). */
+  /** Recorded as `metadata.status`. */
   status: string;
-  /** Observation level. Defaults to `DEFAULT`; pass `ERROR` for a faulted span. */
   level?: RuntimeSpanLevel | undefined;
-  /** Additional bounded metadata merged at end (final counts / durations). */
   metadata?: Record<string, RuntimeMetaValue> | undefined;
-  /** Full output — only attached when `LANGFUSE_CAPTURE_IO` is on. */
+  /** Attached only when I/O capture is on. */
   output?: unknown;
 }
 
@@ -745,7 +524,6 @@ export interface RuntimeSpanCloser {
   end(args: RuntimeSpanEndArgs): void;
 }
 
-/** Pure builder for a runtime span's opening attributes. Exported for tests. */
 export function buildRuntimeSpanPayload(input: RuntimeSpanInput, captureIo: boolean) {
   return {
     name: input.name,
@@ -759,7 +537,6 @@ export function buildRuntimeSpanPayload(input: RuntimeSpanInput, captureIo: bool
   };
 }
 
-/** Pure builder for the terminal `span.end()` payload. Exported for tests. */
 const DEFAULT_RUNTIME_SPAN_LEVEL: RuntimeSpanLevel = "DEFAULT";
 
 export function buildRuntimeSpanEndPayload(args: RuntimeSpanEndArgs, captureIo: boolean) {
@@ -770,13 +547,7 @@ export function buildRuntimeSpanEndPayload(args: RuntimeSpanEndArgs, captureIo: 
   };
 }
 
-/**
- * Open a runtime span under the run trace (#406). No-op closer when Langfuse
- * keys are absent (mirrors `startToolSpan`). The synthetic parent context
- * carries the run trace id, so the span joins the trace the boss generation
- * already created (or creates it first for a run with no generation yet). Every
- * SDK call is swallowed.
- */
+/** Open a runtime span under the run trace. SDK errors are swallowed. */
 export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
   const runtime = getRuntime();
 
@@ -817,7 +588,6 @@ export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
       try {
         const end = buildRuntimeSpanEndPayload(args, captureIo);
 
-        // v5 splits the v3 `span.end(payload)` into `update` + `end`.
         span?.update({
           level: end.level,
           ...(end.output !== undefined ? { output: end.output } : {}),
@@ -831,11 +601,7 @@ export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
   };
 }
 
-/**
- * Best-effort flush so a CLI script (smoke tests, sync-prices) doesn't
- * exit before in-flight Langfuse events are sent. Server processes
- * call this on graceful shutdown.
- */
+/** Send pending events. Call it before a script exits. */
 export async function flushLangfuse(): Promise<void> {
   const runtime = getRuntime();
 
@@ -861,15 +627,8 @@ export async function shutdownLangfuse(): Promise<void> {
 }
 
 /**
- * `CallKind` overloads two dimensions: call *shape* (llm/embedding/web_search/
- * transcription/tool_api) and cost *bucket* (`briefing`, added per ADR-0041 so
- * daily-briefing spend rolls up apart from per-run LLM cost). For trace tags
- * these must stay separate, or filtering breaks: the briefing agent emits
- * `kind:"llm"` while briefing compose emits `kind:"briefing"`, yet both are LLM
- * calls — a `kind:llm` filter would silently miss compose (#226 review). This
- * map projects every kind onto its underlying shape; the cost-bucket kinds map
- * to the shape they actually run as and are surfaced under a separate
- * `cost_kind:` namespace.
+ * Map each `CallKind` to its call shape. `briefing` is a cost bucket (ADR-0041), not a shape,
+ * so a `call_kind:llm` filter must still find briefing calls.
  */
 const CALL_SHAPE = {
   llm: "llm",
@@ -877,21 +636,10 @@ const CALL_SHAPE = {
   web_search: "web_search",
   transcription: "transcription",
   tool_api: "tool_api",
-  // A briefing call is an LLM generation; `briefing` is only a cost bucket.
   briefing: "llm",
 } satisfies Record<CallKind, string>;
 
-/**
- * Build the filterable trace tags from a call's attribution (#226). Three
- * independent namespaces so the Traces filter slices cleanly:
- * - `role:<surface>` — chat/triage/briefing/cold_start/…
- * - `call_kind:<shape>` — the call shape (llm/embedding/web_search/…), derived
- *   so cost-bucket kinds normalize to their real shape.
- * - `cost_kind:<bucket>` — only when `kind` is a cost bucket that isn't itself
- *   a shape (e.g. `briefing`), so spend-bucket filtering stays independent of
- *   shape filtering.
- * Returns undefined when nothing is present so we don't stamp an empty array.
- */
+/** Trace tags: `role:`, `call_kind:` (the shape), and `cost_kind:` for a cost bucket. */
 export function traceTags(meta: MeteredMeta): string[] | undefined {
   const tags: string[] = [];
 
@@ -907,34 +655,17 @@ export function traceTags(meta: MeteredMeta): string[] | undefined {
   return tags.length > 0 ? tags : undefined;
 }
 
-/**
- * Trace id for a call. `runId` groups every call inside one agent run into a
- * single trace tree; ad-hoc calls (no run) get a unique id keyed off the
- * idempotency key (stable across retries) or a fresh UUID. `Date.now()` would
- * collide for concurrent same-ms calls and merge unrelated traces.
- */
+/** One trace per run. An ad-hoc call keys on its idempotency key, so retries share a trace. */
 export function resolveTraceId(meta: MeteredMeta): string {
   return meta.runId ?? `adhoc:${meta.idempotencyKey ?? randomUUID()}`;
 }
 
-/**
- * Trace name. A run mixes models and roles (boss + sub-agents + compactor), so
- * naming the trace after any single call's `provider/model` would churn as each
- * call upserts the trace. `run:<id>` is stable by construction. Ad-hoc traces
- * hold exactly one generation, so the descriptive name is more useful there.
- */
+/** A run mixes models, so its trace is `run:<id>`. An ad-hoc trace has one call and uses its name. */
 export function resolveTraceName(meta: MeteredMeta): string {
   return meta.runId ? `run:${meta.runId}` : (meta.name ?? `${meta.provider}/${meta.model}`);
 }
 
-/**
- * Trace-level identity and attributes for a call. Pure, for testability. In v5
- * `id` is hashed into the OTel trace id via `langfuseTraceId`, and the rest map
- * onto `propagateAttributes`.
- *
- * Trace input/output is not built here: in v5 it is the root observation's I/O,
- * not a separate trace attribute.
- */
+/** Trace id, name, and attributes for a call. `id` is hashed by `langfuseTraceId`. */
 export function buildTracePayload(meta: MeteredMeta) {
   const tags = traceTags(meta);
 
@@ -942,19 +673,12 @@ export function buildTracePayload(meta: MeteredMeta) {
     id: resolveTraceId(meta),
     name: resolveTraceName(meta),
     ...(meta.userId !== undefined ? { userId: meta.userId } : {}),
-    // Only group under a Sessions-view entry when the caller supplied a real
-    // session id (chat passes `threadId`). Falling back to `runId` would mint a
-    // one-trace "session" per background/job run that duplicates the trace and
-    // pollutes the Sessions view — Langfuse sessions are for grouping *multiple*
-    // traces under a real product session (#226 review).
+    // No `runId` fallback: that would make a one-trace session per background run.
     ...(meta.sessionId !== undefined ? { sessionId: meta.sessionId } : {}),
-    // Promote role/kind to filterable trace tags (#226) — they otherwise only
-    // live in generation metadata, which the Traces filter can't slice by.
     ...(tags !== undefined ? { tags } : {}),
   };
 }
 
-/** Attributes for the generation's opening `startObservation`. Pure, for testability. */
 export function buildGenerationPayload(args: {
   meta: MeteredMeta;
   startedAt: Date;
@@ -981,7 +705,6 @@ export function buildGenerationPayload(args: {
   };
 }
 
-/** Payload for `generation.end()` on success. Pure, for testability. */
 export function buildGenerationEndPayload(args: {
   meta: MeteredMeta;
   usage?: CallUsage | undefined;
@@ -992,10 +715,7 @@ export function buildGenerationEndPayload(args: {
   captureIo: boolean;
 }) {
   const { meta, usage, costUsd, output, responseMeta, servedModel, captureIo } = args;
-  // The span opened with the requested model; if the call actually resolved to
-  // a different (registry-known) model via fallback, restamp the generation so
-  // per-model cost/latency attributes correctly, and keep the requested id in
-  // metadata for fallback debugging (#216).
+  // After a fallback, stamp the model that ran and keep the requested one in metadata.
   const servedDiverged = servedModel != null && servedModel !== meta.model;
   const metadata = servedDiverged ? { ...responseMeta, requestedModel: meta.model } : responseMeta;
 
@@ -1003,10 +723,7 @@ export function buildGenerationEndPayload(args: {
     ...(servedDiverged ? { model: servedModel } : {}),
     ...(usage
       ? {
-          // `cacheWrite` is the miss half of `cached`. Without it a trace shows
-          // a cold call as plain input, hiding both the premium rate the
-          // provider charged and the fact that the cache missed at all. The v3
-          // `usage` field is not sent — v5 reads `usageDetails` only.
+          // Without `cacheWrite`, a cache miss looks like plain input.
           usageDetails: {
             input: usage.inputTokens ?? 0,
             output: usage.outputTokens ?? 0,
@@ -1015,28 +732,19 @@ export function buildGenerationEndPayload(args: {
           },
         }
       : {}),
-    // Cost in USD; Langfuse's `costDetails` accepts arbitrary keys.
     costDetails: { total: costUsd },
-    // Full completion only when capture is on; the small response metadata
-    // (finish_reason, tool-call count) is always useful.
     ...(captureIo ? { output } : {}),
     ...(metadata !== undefined ? { metadata } : {}),
   };
 }
 
-/**
- * v5 narrows `modelParameters` to `string | number` (v3 accepted booleans and
- * string arrays). Coerce instead of dropping so values like `stream: true` and
- * `stop: ["a","b"]` still reach the trace.
- */
+/** Langfuse takes only `string | number`, so booleans and string arrays are coerced, not dropped. */
 type LangfuseModelParam = string | number;
 
 function stripParams(
   meta: JsonObject | undefined,
 ): { [key: string]: LangfuseModelParam } | undefined {
   if (!meta) return undefined;
-  // Drop fields that are too large or not relevant to the trace, and coerce
-  // remaining values to the primitive shapes Langfuse accepts.
   const skip = new Set(["prompt", "messages", "system"]);
   const out: { [key: string]: LangfuseModelParam } = {};
 
@@ -1048,14 +756,12 @@ function stripParams(
     } else if (typeof v === "boolean") {
       out[k] = String(v);
     } else if (Array.isArray(v)) {
-      // `toStringArray` drops non-strings; the length check keeps the old
-      // all-strings-only contract (mixed arrays stay dropped) without a probe.
+      // Keep only all-string arrays; the length check drops mixed ones.
       const strings = toStringArray(v);
 
       if (strings.length === v.length) out[k] = strings.join(", ");
     }
-    // Anything else (objects, mixed arrays) is silently dropped — Langfuse
-    // can't render them and including them broke the type contract.
+    // Objects and mixed arrays are dropped.
   }
 
   return out;

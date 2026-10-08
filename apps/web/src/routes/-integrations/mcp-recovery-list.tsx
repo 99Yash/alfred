@@ -17,12 +17,7 @@ function confirmPrompt(action: PendingCardAction, isPreparedSuccessor: boolean):
     : "Confirm that this MCP operation was not applied?";
 }
 
-/**
- * One recovery row. The confirm step is inline state on the card, not a browser
- * dialog: it renders inside the same tree, so the static-markup tests see the
- * closed state and a user sees the question next to the row it is about.
- * The list above stays hook-free so tests can call it as a plain function.
- */
+/** One recovery row. The confirm is inline state, so static markup sees it closed. */
 function McpRecoveryCard({
   operation,
   mutationPending,
@@ -137,7 +132,7 @@ export function McpRecoveryList({
   onRetry,
 }: {
   operations: ReadonlyArray<McpRecoveryOperation>;
-  /** Rows the server knows about but has not normalized yet; see the page contract. */
+  /** Rows the server has not normalized yet. */
   awaitingRepair: number;
   loading: boolean;
   readError: boolean;

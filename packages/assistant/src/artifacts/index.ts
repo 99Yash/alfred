@@ -1,8 +1,4 @@
-// Public seam for the `artifacts` module. Read side builds a thread's artifact
-// context for the chat recipe; write side owns the agent-authored create/append/
-// update path (ADR-0075) plus the turn-close finalizer; external-file surfaces a
-// Drive/other pointer artifact inline. Cross-module callers (the `system.*` and
-// `drive` tools) import these here, not the private files.
+// Public seam for artifacts (ADR-0075): read context, writes, the turn finalizer, and external files.
 export { buildThreadArtifactsContext } from "./read";
 
 export {

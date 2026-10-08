@@ -27,23 +27,11 @@ import { createId, lifecycle_dates } from "../helpers";
 import { actionStagings } from "./action-policies";
 import { user } from "./auth";
 
-// ===========================================================================
-// MCP persistence (PRD #540). The layer ABOVE `McpRawClient`: durable
-// server/connection/catalog facts, a reviewed per-tool policy, and a durable
-// operation ledger for ambiguous writes. Amends ADR-0018.
-//
-// Definition order matters: `mcpCatalogRevisions` is declared FIRST because the
-// composite "current revision" pointer FK on `mcpConnections` references its
-// columns directly (evaluated synchronously in the table callback). The reverse
-// `connectionId` FK uses a lazy `() => mcpConnections.id` thunk, so the forward
-// reference resolves fine.
-// ===========================================================================
+// MCP persistence above `McpRawClient` (PRD #540, amends ADR-0018).
+// `mcpCatalogRevisions` comes first: the composite revision-pointer FK on
+// `mcpConnections` reads its columns eagerly.
 
-/**
- * Owner-scoped MCP server identity. Several named connection instances may use
- * one endpoint definition, but the definition cannot be shared across owners or
- * silently retargeted by an idempotent connection create.
- */
+/** One owner's MCP endpoint. Never shared across owners. */
 export const mcpServers = pgTable(
   "mcp_servers",
   {
@@ -53,9 +41,9 @@ export const mcpServers = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** Canonical MCP resource URI — the OAuth `resource` indicator. */
+    /** The OAuth `resource` indicator. */
     canonicalResource: text("canonical_resource").notNull(),
-    /** Pinned endpoint + origin. The model NEVER supplies these. */
+    /** Pinned. The model never supplies these. */
     endpointUrl: text("endpoint_url").notNull(),
     endpointOrigin: text("endpoint_origin").notNull(),
     ...lifecycle_dates,
@@ -66,12 +54,7 @@ export const mcpServers = pgTable(
   ],
 );
 
-/**
- * Immutable, append-only catalog authority + history. One row per atomically
- * published catalog snapshot; a revision is NEVER mutated tool-by-tool, so there
- * is no `updatedAt`. The connection row holds only a pointer to the current
- * revision (see `mcpConnections.currentCatalogRevisionId`).
- */
+/** Append-only catalog snapshots. A revision is never edited, so there is no `updatedAt`. */
 export const mcpCatalogRevisions = pgTable(
   "mcp_catalog_revisions",
   {
@@ -80,36 +63,18 @@ export const mcpCatalogRevisions = pgTable(
       .$defaultFn(() => createId("mcpr")),
     connectionId: text("connection_id")
       .notNull()
-      // Explicit `AnyPgColumn` return breaks the TS inference cycle between this
-      // table and `mcpConnections` (whose composite pointer FK references this
-      // table's columns).
+      // The explicit return type breaks the inference cycle with `mcpConnections`.
       .references((): AnyPgColumn => mcpConnections.id, { onDelete: "cascade" }),
-    /** Stable authority hash = `McpCatalogSnapshot.revision` ("sha256:..."). */
+    /** `McpCatalogSnapshot.revision` ("sha256:..."). */
     revisionHash: text("revision_hash").notNull(),
-    /** Raw, validated descriptors exactly as admitted (`Tool[]`); the audit source. */
+    /** Validated `Tool[]` as admitted. The audit source. */
     descriptors: jsonb("descriptors").notNull(),
-    /**
-     * Per-tool descriptor hashes `{ [remoteName]: "sha256:..." }`, so an
-     * approval/downgrade binds to ONE tool's descriptor: an unrelated tool
-     * changing (which bumps the whole `revisionHash`) need not churn it.
-     */
+    /** Per-tool hashes, so a review binds to one tool and survives changes to other tools. */
     descriptorHashes: jsonb("descriptor_hashes").$type<Record<string, string>>().notNull(),
     /**
-     * Per-tool read-only claim `{ [remoteName]: boolean }` — true ONLY when the
-     * descriptor asserted `annotations.readOnlyHint === true`. A tool that said
-     * nothing is `false`, because an optional annotation absent carries no
-     * claim, and "said nothing" must not read as "is a read".
-     *
-     * Projected here for the same reason as `descriptorHashes`: the dispatch
-     * gate resolves ONE tool per call and must not scan a catalog-sized JSON
-     * array on a hot path (`resolveMcpToolIdentity`). It is derived from
-     * `descriptors` at publication and never written apart from them.
-     *
-     * The ADR-0095 admission gate already refuses a non-read tool on a
-     * read-only built-in, so for those connections this map is all `true` by
-     * construction. It is stored anyway because the RISK gate must verify the
-     * claim from persisted data rather than inherit the assumption that the
-     * admission gate ran (ADR-0094 amendment, ADR-0096).
+     * Per-tool `readOnlyHint === true`. A missing hint is `false`.
+     * Stored so the risk gate checks persisted data, not the assumption that
+     * admission ran (ADR-0094 amendment, ADR-0096).
      */
     readOnlyHints: jsonb("read_only_hints")
       .$type<Record<string, boolean>>()
@@ -120,25 +85,14 @@ export const mcpCatalogRevisions = pgTable(
   },
   (t) => [
     uniqueIndex("mcp_catalog_revisions_conn_hash_idx").on(t.connectionId, t.revisionHash),
-    // FK target for the connection's current-revision pointer: `(connectionId,
-    // id)` must be unique so the composite FK below can bind a pointer to a
-    // revision of the SAME connection (issue clarification #6).
+    // Target of the composite pointer FK, so a connection can only point at its own revision.
     uniqueIndex("mcp_catalog_revisions_conn_id_idx").on(t.connectionId, t.id),
   ],
 );
 
 /**
- * Alfred → MCP authorization credentials, isolated from downstream provider
- * grants in `integration_credentials`.
- *
- * OAuth client identifiers and tokens belong to one protected-resource
- * connection and the authorization server that issued them. The connection is
- * the storage authority. Authorization-attempt state and PKCE live in the
- * separate attempt table below.
- *
- * Secret-bearing fields use the shared authenticated credential envelope. JSON
- * fields remain `unknown`; the MCP OAuth provider validates them when it opens
- * the persisted boundary.
+ * Alfred's OAuth grant for one MCP connection. Kept apart from `integration_credentials`.
+ * JSON columns stay `unknown`; the MCP OAuth provider validates them on read.
  */
 export const mcpOauthCredentials = pgTable(
   "mcp_oauth_credentials",
@@ -149,15 +103,12 @@ export const mcpOauthCredentials = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** One protected-resource grant per durable MCP connection. */
     connectionId: text("connection_id")
       .notNull()
       .references((): AnyPgColumn => mcpConnections.id, { onDelete: "cascade" }),
-    /** Validated RFC 8414 / OIDC authorization-server issuer identifier. */
     issuer: text("issuer").notNull(),
-    /** Persisted `OAuthDiscoveryState`; validated before every provider read. */
     discoveryState: jsonb("discovery_state"),
-    /** Public DCR response fields. `client_secret` is split into the sealed column below. */
+    /** Public DCR fields. `client_secret` lives sealed in `clientSecret`. */
     clientInformation: jsonb("client_information"),
     clientSecret: text("client_secret").$type<SealedCredentialSecret>(),
     accessToken: text("access_token").$type<SealedCredentialSecret>(),
@@ -177,16 +128,7 @@ export const mcpOauthCredentials = pgTable(
   ],
 );
 
-/**
- * Alfred → MCP API-key credentials, isolated from the OAuth store above.
- *
- * A non-OAuth MCP server authenticates with one owner-supplied key placed in an
- * explicit header or query parameter. The bound connection is the storage
- * authority, exactly as it is for the OAuth grant, and the secret uses the same
- * authenticated credential envelope. `placement` is not secret and stays
- * `unknown` at the database layer: the store parses it against the contract
- * schema before the transport reads it.
- */
+/** Owner-supplied API key for one MCP connection. */
 export const mcpApiKeyCredentials = pgTable(
   "mcp_api_key_credentials",
   {
@@ -196,13 +138,11 @@ export const mcpApiKeyCredentials = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** One API-key grant per durable MCP connection. */
     connectionId: text("connection_id")
       .notNull()
       .references((): AnyPgColumn => mcpConnections.id, { onDelete: "cascade" }),
-    /** `{ in: "header" | "query", name }`; validated by the owning store. */
+    /** `{ in: "header" | "query", name }`. The store parses it. */
     placement: jsonb("placement").notNull(),
-    /** The only secret: the sealed envelope, never a plaintext key. */
     secret: text("secret").$type<SealedCredentialSecret>().notNull(),
     ...lifecycle_dates,
   },
@@ -213,12 +153,7 @@ export const mcpApiKeyCredentials = pgTable(
   ],
 );
 
-/**
- * Durable named connection FACTS — owner, immutable instance identity,
- * negotiated account identity, status, and a pointer to the current catalog
- * revision. NOT live SDK objects (the connection manager re-hydrates a
- * `McpRawClient` in memory on demand), endpoint definitions, or catalog history.
- */
+/** Durable facts about a named connection. The live client is rebuilt in memory on demand. */
 export const mcpConnections = pgTable(
   "mcp_connections",
   {
@@ -228,67 +163,39 @@ export const mcpConnections = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /**
-     * Owning server definition. The reference is the composite
-     * `mcp_connections_server_owner_fk` below and NOT a simple one: the
-     * composite carries the same `on delete cascade` AND binds the owner, so a
-     * simple foreign key beside it would only add a second lookup per insert.
-     */
+    /** FK is the composite `mcp_connections_server_owner_fk`, which also binds the owner. */
     serverId: text("server_id").notNull(),
-    /**
-     * The caller's idempotency key inside one server definition. Immutable after
-     * creation. A built-in provider passes the stable slot it owns; a
-     * user-created connection passes the key that identifies its creation.
-     */
+    /** Idempotency key within one server. Immutable. */
     instanceKey: text("instance_key").notNull(),
-    /** Human label shown in the (future) connection UI. */
     label: text("label").notNull(),
-    /** Selected authorization-server identity. Null for unauthenticated servers. */
+    /** Null for unauthenticated servers. */
     authServerIdentity: text("auth_server_identity"),
-    /** Alfred→MCP bearer, kept separate from downstream integration grants. */
     credentialId: text("credential_id").references(() => mcpOauthCredentials.id, {
       onDelete: "set null",
     }),
-    /**
-     * Owner-supplied API-key grant, kept in its own table so the OAuth vault
-     * never holds a non-OAuth credential. At most one of `credentialId` and
-     * this column is non-null (the check constraint below).
-     */
     apiKeyCredentialId: text("api_key_credential_id").references(() => mcpApiKeyCredentials.id, {
       onDelete: "set null",
     }),
-    /** Granted scopes parsed to an array (mirrors `integration_credentials.scopes`). */
     grantedScopes: jsonb("granted_scopes")
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
-    /** Scope challenge awaiting visible user re-consent; empty outside that state. */
+    /** Scopes awaiting user re-consent. Empty otherwise. */
     requiredScopes: jsonb("required_scopes")
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
-    /** disconnected | connecting | ready | stale | auth_required | failed. */
     status: text("status").$type<McpConnectionStatus>().notNull().default("disconnected"),
-    /** Negotiated protocol version — v1 pins "2025-11-25". */
     negotiatedProtocolVersion: text("negotiated_protocol_version"),
-    /** Server identity + capabilities snapshot. */
     serverIdentity: jsonb("server_identity").$type<McpServerIdentity>(),
-    /**
-     * Pointer to the currently-authoritative immutable revision. Nullable at
-     * creation (a connection is inserted before its first catalog load). The
-     * composite FK below guarantees a non-null pointer references a revision of
-     * THIS connection — a connection can never point at another connection's
-     * revision (issue clarification #6).
-     */
+    /** Null until the first catalog load. The composite FK keeps it on this connection. */
     currentCatalogRevisionId: text("current_catalog_revision_id"),
     lastConnectedAt: timestamp("last_connected_at", { withTimezone: true }),
     lastError: text("last_error"),
     ...lifecycle_dates,
   },
   (t) => [
-    // The health-mapping owner FK references (id, user_id); keep the exact
-    // composite unique target on the connection table so the database enforces
-    // ownership as well as the application-side lock/query.
+    // Target of the health-mapping owner FK.
     uniqueIndex("mcp_connections_id_user_idx").on(t.id, t.userId),
     uniqueIndex("mcp_connections_user_server_instance_idx").on(t.userId, t.serverId, t.instanceKey),
     index("mcp_connections_user_status_idx").on(t.userId, t.status),
@@ -317,9 +224,7 @@ export const mcpConnections = pgTable(
       foreignColumns: [mcpApiKeyCredentials.id, mcpApiKeyCredentials.connectionId],
       name: "mcp_connections_api_key_credential_connection_fk",
     }),
-    // One authentication mode per connection. OAuth and an owner-supplied API
-    // key cannot both be attached, so the manager's "exactly one credential
-    // source" reading is a database invariant rather than a convention.
+    // At most one credential source: OAuth or API key.
     check(
       "mcp_connections_single_credential_chk",
       sql`num_nonnulls(${t.credentialId}, ${t.apiKeyCredentialId}) <= 1`,
@@ -332,11 +237,7 @@ export const mcpConnections = pgTable(
   ],
 );
 
-/**
- * One browser authorization attempt. State and PKCE are attempt identity, not
- * grant identity: two tabs may authorize the same connection without overwriting
- * each other, and completing one attempt cannot consume another attempt's verifier.
- */
+/** One browser authorization attempt, so two tabs cannot consume each other's PKCE verifier. */
 export const mcpOauthAuthorizationAttempts = pgTable(
   "mcp_oauth_authorization_attempts",
   {
@@ -349,11 +250,9 @@ export const mcpOauthAuthorizationAttempts = pgTable(
     connectionId: text("connection_id")
       .notNull()
       .references(() => mcpConnections.id, { onDelete: "cascade" }),
-    /** Hash only; the signed state value itself returns through the browser. */
+    /** Hash only. The signed state travels through the browser. */
     stateHash: text("state_hash").notNull(),
-    /** Sealed PKCE verifier for exactly this state value. */
     codeVerifier: text("code_verifier").$type<SealedCredentialSecret>(),
-    /** Attempt lifetime matches the browser nonce lifetime. */
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     ...lifecycle_dates,
   },
@@ -364,12 +263,8 @@ export const mcpOauthAuthorizationAttempts = pgTable(
 );
 
 /**
- * Reviewed per-tool policy. The base risk tier of `mcp.call` is a static `high`
- * floor; this table carries the effective downgrade, bound to the EXACT reviewed
- * descriptor (descriptor drift → the resolver falls back to `high`). Effect and
- * retry semantics are persisted SEPARATELY from the approval risk tier: a
- * low-risk write still receives ambiguous-write protection, and a reviewed read
- * can use read-safe failure handling independently of its tier (clarification #3).
+ * Reviewed per-tool policy, bound to one exact descriptor. Without a match,
+ * `mcp.call` stays `high` risk. Effect and retry are separate from the risk tier.
  */
 export const mcpToolPolicy = pgTable(
   "mcp_tool_policy",
@@ -384,15 +279,12 @@ export const mcpToolPolicy = pgTable(
       .notNull()
       .references(() => mcpConnections.id, { onDelete: "cascade" }),
     remoteName: text("remote_name").notNull(),
-    /** Binds the review to the exact descriptor it was granted for. */
     descriptorHash: text("descriptor_hash").notNull(),
-    /** Bumped on each review edit; recorded on the invocation for audit. */
+    /** Bumped on each review edit. */
     policyRevision: integer("policy_revision").notNull().default(1),
-    /** The reviewed approval tier (e.g. "low" for a routine read). */
     riskTier: text("risk_tier").$type<ToolRiskTier>().notNull(),
-    /** read | write | unknown. Default unknown = handled conservatively as effectful. */
+    /** `unknown` is treated as effectful. */
     effectClass: text("effect_class").$type<McpEffectClass>().notNull().default("unknown"),
-    /** never | same_key | reconcile. v1 only ships "never". */
     retryContract: text("retry_contract").$type<McpRetryContract>().notNull().default("never"),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     reviewedNote: text("reviewed_note"),
@@ -408,16 +300,9 @@ export const mcpToolPolicy = pgTable(
 );
 
 /**
- * One owner-reviewed projection from a read-only MCP result into the generic
- * object-state store (#1196). The row has the same authority shape as
- * `mcp_tool_policy`: owner + connection + remote name + exact descriptor hash.
- * The JSON payload stays UNKNOWN in the schema and is parsed with
- * `mcpHealthMappingDefinitionSchema` at every read boundary; a corrupt mapping
- * is inert rather than trusted because a column annotation says so.
- *
- * Catalog drift does not rewrite or delete this row. The current revision's
- * descriptor hash simply stops matching, so the approval is VOID until the
- * owner reviews the new descriptor. Historic hashes remain as an audit trail.
+ * Owner-reviewed mapping from a read-only MCP result to object state (#1196).
+ * `definition` stays `unknown`; readers parse it with `mcpHealthMappingDefinitionSchema`.
+ * When the descriptor changes, the hash stops matching and the mapping goes inert.
  */
 export const mcpHealthMapping = pgTable(
   "mcp_health_mapping",
@@ -432,11 +317,9 @@ export const mcpHealthMapping = pgTable(
       .notNull()
       .references(() => mcpConnections.id, { onDelete: "cascade" }),
     remoteName: text("remote_name").notNull(),
-    /** Server-derived from the exact descriptor the owner inspected. */
+    /** Derived by the server from the descriptor the owner inspected. */
     descriptorHash: text("descriptor_hash").notNull(),
-    /** Bumped only when the same exact descriptor is reviewed again. */
     mappingRevision: integer("mapping_revision").notNull().default(1),
-    /** Bounded declarative projection; validated at the assistant boundary. */
     definition: jsonb("definition").notNull(),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     reviewedNote: text("reviewed_note"),
@@ -458,22 +341,10 @@ export const mcpHealthMapping = pgTable(
 );
 
 /**
- * The operation ledger. Effectful (`write`/`unknown`) MCP calls have a
- * companion `action_stagings` row and are minted BEFORE network dispatch so a
- * crash mid-flight still leaves durable evidence the write is ambiguous.
- * Owner-approved gather-time health reads are also ledgered here, with a null
- * staging id, and are constrained to the `read` effect class.
- *
- * Three distinct axes (docs/research/mcp-ambiguous-write-outcomes.md):
- *  - `attemptLifecycle`: what Alfred locally did (`delivery_possible` is written
- *    before the raw-client call).
- *  - `effectOutcome`: what Alfred can prove about the remote effect.
- *  - `retryDisposition`: what the broker may do next.
- *
- * Kept LEAN (clarification #7): no pre-modeled `remote_idempotency_key` / `task_id`
- * / `business_correlation_id` columns — those are deferred, server-contract-
- * specific, and added by the implementation that can use them. This ledger
- * persists only the evidence for the blocked-unknown + explicit-successor path.
+ * Operation ledger. An effectful call writes its row before network dispatch,
+ * so a crash still leaves proof the write may have happened.
+ * Health reads have no staging row and must be `read`.
+ * See docs/research/mcp-ambiguous-write-outcomes.md for the three status axes.
  */
 export const mcpInvocation = pgTable(
   "mcp_invocation",
@@ -481,12 +352,7 @@ export const mcpInvocation = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => createId("mcpi")),
-    /**
-     * 1:1 with the staging row for a model-dispatched call. Owner-approved
-     * gather-time health reads have no model staging row and leave this null;
-     * they are still ledgered here, but only after the broker has proved the
-     * descriptor is read-only.
-     */
+    /** 1:1 with a model call's staging row. Null for owner-approved health reads. */
     stagingId: text("staging_id").references(() => actionStagings.id, { onDelete: "cascade" }),
     userId: text("user_id")
       .notNull()
@@ -495,94 +361,37 @@ export const mcpInvocation = pgTable(
       .notNull()
       .references(() => mcpConnections.id, { onDelete: "cascade" }),
     remoteName: text("remote_name").notNull(),
-    /** Server-resolved catalog revision in effect for this call. */
     catalogRevisionId: text("catalog_revision_id").references(() => mcpCatalogRevisions.id, {
       onDelete: "cascade",
     }),
-    /** The exact descriptor hash the call was authorized against. */
     descriptorHash: text("descriptor_hash"),
-    /** The `mcp_tool_policy.policyRevision` that governed the effect/retry decision. */
     policyRevision: integer("policy_revision"),
-    /**
-     * SHA-256 over the canonical EFFECTIVE arguments — the security-relevant
-     * ambiguity barrier key. Deliberately NOT the generic FNV-1a
-     * `proposedInputHash` (clarification #6).
-     */
+    /** SHA-256 of the effective args. The barrier key, not the FNV-1a `proposedInputHash`. */
     argsHash: text("args_hash").notNull(),
-    /** read | write | unknown — the class that governed the ambiguity decision. */
     effectClass: text("effect_class").$type<McpEffectClass>().notNull().default("unknown"),
-    /** prepared → delivery_possible → response_received. */
     attemptLifecycle: text("attempt_lifecycle")
       .$type<McpAttemptLifecycle>()
       .notNull()
       .default("prepared"),
-    /** succeeded | rejected | failed | unknown. Null while in-flight. */
+    /** Null while in flight. */
     effectOutcome: text("effect_outcome").$type<McpEffectOutcome>(),
-    /** safe | blocked | reconcile | same_key_only. Null while in-flight. */
+    /** Null while in flight. */
     retryDisposition: text("retry_disposition").$type<McpRetryDisposition>(),
-    /**
-     * A one-use host-minted successor authorization points here at the prior
-     * invocation it supersedes. Only the authenticated approval boundary sets
-     * this — the model cannot mint it (clarification #4).
-     */
+    /** The invocation this one supersedes. Only the approval boundary sets it, never the model. */
     successorOf: text("successor_of"),
-    /**
-     * Set when the operation reaches a terminal, non-blocking state (success,
-     * definitive rejection, abandoned-before-delivery, or user-resolved
-     * successor supersede). While NULL the operation is unresolved and, if
-     * possibly delivered, blocks an identical repeat.
-     */
+    /** Null means unresolved. An unresolved, possibly delivered row blocks an identical repeat. */
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolutionReason: text("resolution_reason"),
     lastError: text("last_error"),
-    /**
-     * Host-owned correlation evidence (#541). Enough breadcrumbs to reconstruct an
-     * ambiguous attempt across Alfred's own traces WITHOUT storing credentials,
-     * args, or results. Observability ONLY — never an authority or idempotency key
-     * (the barrier key stays `argsHash`), so they are unindexed and carry no FK.
-     *
-     * These are a DENORMALIZED COPY of the authorizing `action_stagings` row
-     * (`run_id` / `step_id` / `tool_call_id`) — the source of truth, always
-     * reachable via the 1:1 `staging_id` FK — kept here only so an operator can
-     * pivot from a trace id to the row without the join. Nothing in the DB enforces
-     * the copy stays equal to its staging twin; the enforcement is that every
-     * minter sources these from the staging row at insert (`stagingCorrelation` in
-     * `persistence.ts`), never from a separately-threaded ctx that could drift.
-     *
-     * Nullable for rows predating these columns and for owner-approved health
-     * reads, which have no model staging row. Model-dispatched calls still carry
-     * these copies, and the staging relationship remains the authority for those
-     * rows. A completed reviewed read persists a resolved audit row with this
-     * correlation when one exists.
-     */
-    /** Copy of the staging row's `run_id` — the agent-run / Langfuse trace this call groups under. */
+    // Copies of the staging row's run_id, step_id, and tool_call_id, for trace lookup only.
+    // Never a key. Null for health reads and older rows.
     traceId: text("trace_id"),
-    /**
-     * Copy of the staging row's `step_id`: the dispatch pipeline-STAGE label, not an
-     * intent identifier. Both live dispatch callers stage from the fixed
-     * `"dispatch-tools"` step, so this is currently a constant with no disambiguating
-     * power on its own — `tool_call_id` is what separates two calls in one run.
-     */
+    /** Currently always "dispatch-tools". `toolCallId` tells calls apart. */
     stepId: text("step_id"),
-    /** Copy of the staging row's `tool_call_id` — the model's local tool-call id, distinct from the staging row's own id. */
     toolCallId: text("tool_call_id"),
-    /**
-     * Attempt-phase timestamps, distinct from the row's `createdAt` (reservation)
-     * and `resolvedAt` (terminal). `deliveryPossibleAt` is stamped at the moment
-     * the lifecycle crosses the delivery boundary; `responseReceivedAt` at the
-     * moment a response (clean, tool-error, or malformed) crossed the wire. Null
-     * whenever the corresponding phase was never reached.
-     */
     deliveryPossibleAt: timestamp("delivery_possible_at", { withTimezone: true }),
     responseReceivedAt: timestamp("response_received_at", { withTimezone: true }),
-    /**
-     * Bounded, payload-free record of what the server actually returned (#541),
-     * persisted SEPARATELY from the sanitized model projection in
-     * `action_stagings.execute_result` so an effectful attempt stays
-     * reconstructable for audit without prose being its only durable copy.
-     * Null while in-flight and for any outcome with no received response
-     * (blocked / ambiguous / pre-delivery failure). Shape: `McpResultProvenance`.
-     */
+    /** What the server returned, without payload (#541). Null when no response arrived. */
     resultProvenance: jsonb("result_provenance").$type<McpResultProvenance>(),
     ...lifecycle_dates,
   },
@@ -593,16 +402,11 @@ export const mcpInvocation = pgTable(
     ),
     uniqueIndex("mcp_invocation_staging_idx").on(t.stagingId),
     index("mcp_invocation_barrier_lookup_idx").on(t.connectionId, t.remoteName, t.argsHash),
-    // The partial-barrier invariant: at most one UNRESOLVED operation may match a
-    // proposal on (owner, connection, remote tool, canonical args hash). This is
-    // broader than "unknown" on purpose — it protects unresolved possibly-
-    // delivered work too (a `delivery_possible` row not yet normalized to
-    // `unknown`), per clarification #1. Inserting the row IS the reservation; a
-    // duplicate proposal violates this and is surfaced as "blocked".
+    // At most one unresolved call per (owner, connection, tool, args). The insert is the reservation.
     uniqueIndex("mcp_invocation_unresolved_barrier_idx")
       .on(t.userId, t.connectionId, t.remoteName, t.argsHash)
       .where(sql`${t.resolvedAt} IS NULL`),
-    // A prior invocation can grant exactly one fresh successor authorization.
+    // A prior invocation grants at most one successor.
     uniqueIndex("mcp_invocation_successor_once_idx")
       .on(t.successorOf)
       .where(sql`${t.successorOf} IS NOT NULL`),

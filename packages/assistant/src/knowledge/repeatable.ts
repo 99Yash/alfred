@@ -1,22 +1,9 @@
 import { getMemoryQueue, type MemoryJobData } from "./queue";
 
 /**
- * Boot-time registration for memory-side repeatable jobs (ADR-0019, ADR-0025 #3).
- *
- *   - memory.extract.daily  every 24h — fans out into per-user
- *                           memory-extraction runs. Per-doc dedup via
- *                           memory_extraction_status keeps re-runs cheap.
- *   - memory.embed_sweep    every 5m — backfills embeddings for
- *                           memory_chunks written through the
- *                           write-then-embed path (extraction-run
- *                           summaries, end-of-thread distillations).
- *                           Mirrors the m7c `gmail.embed_sweep` pattern.
- *   - memory.drift_health_check  every 24h — #219 PR-B drift/invariant
- *                           sweep over the source-of-truth tables; writes
- *                           drift_metrics snapshots + pushes on breach.
- *
- * Idempotent: `upsertJobScheduler` keys by id, so repeated boots don't
- * duplicate schedules.
+ * Boot-time repeatable memory jobs (ADR-0019, ADR-0025 #3): daily extraction,
+ * a 5-minute embed sweep, and the daily drift health check (#219).
+ * `upsertJobScheduler` keys by id, so a reboot does not duplicate schedules.
  */
 export async function scheduleRepeatableMemoryJobs(): Promise<void> {
   const queue = getMemoryQueue();
@@ -51,10 +38,7 @@ export async function scheduleRepeatableMemoryJobs(): Promise<void> {
     },
   );
 
-  // Drift / invariant health check (#219 PR-B) — every 24h. Reads the same
-  // source-of-truth tables the daily extraction sweeps, so it rides this queue
-  // instead of a dedicated worker. Writes drift_metrics snapshots + pushes a
-  // health_alert email per breached threshold.
+  // Rides this queue: it reads the same tables as the daily extraction.
   await queue.upsertJobScheduler(
     "memory.drift_health_check",
     { every: 24 * 60 * 60 * 1000 },

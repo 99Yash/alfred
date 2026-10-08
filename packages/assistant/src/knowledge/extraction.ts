@@ -5,37 +5,20 @@ import { modelFactValueSchema } from "@alfred/sync";
 import { z } from "zod";
 
 /**
- * Memory-extraction sub-agent (ADR-0019).
- *
- * Pure function over a single document. Returns proposals; the
- * workflow is responsible for calling `proposeFact` (which enforces the
- * idempotency + rejection guards) and persisting status rows. Keeping
- * the LLM call separate from the persistence layer makes both unit
- * testable and lets the workflow inject pre-baked proposals in test
- * mode without dragging the AI SDK into the test harness.
- *
- * Cheap-tier model per ADR-0016 (`route("cheap").model()` → Gemini 2.5 Flash).
+ * Memory-extraction sub-agent (ADR-0019). Pure over one document: returns
+ * proposals and writes nothing. The workflow calls `proposeFact`.
  */
 
 export const factProposalSchema = z.object({
-  /**
-   * Canonical key. Use snake-case. Examples:
-   *   `manager`, `employer`, `birthday`, `home_city`,
-   *   `relationship:alice@oliv.ai`, `pref:tone`.
-   */
+  /** Canonical snake_case key, e.g. `employer`, `relationship:alice@oliv.ai`, `pref:tone`. */
   key: z.string().min(1).max(200),
   /**
-   * The bounded, model-facing shape — NOT the recursive storage
-   * `factValueSchema`. This schema is the `responseSchema` of a
-   * `generateObject` on the Gemini leg, and a recursive `$ref` there is fatal:
-   * `@ai-sdk/google` throws `AI_UnsupportedFunctionalityError` while building
-   * the request, with no fallback. See `modelFactValueSchema` for the full
-   * account. Every value it accepts is storable, so nothing is lost on the way
-   * into `proposeFact`.
+   * Bounded, not the recursive `factValueSchema`: a recursive `$ref` in a Gemini
+   * response schema makes `@ai-sdk/google` throw. See `modelFactValueSchema`.
    */
   value: modelFactValueSchema,
   confidence: confidenceSchema,
-  /** Short justification grounded in the source — used for audit and to debug bad proposals. */
+  /** Grounded in the source, for audit and debugging. */
   rationale: z.string().min(1).max(500),
 });
 
@@ -47,18 +30,14 @@ export const extractionResultSchema = z.object({
 
 export interface ExtractDocumentArgs {
   userId: string;
-  /**
-   * The document to extract facts from. Derived from the `documents` table
-   * so the shape (and its nullability) can never drift from the schema —
-   * see the duplication rules in docs/reference/code-style.md.
-   */
+  /** Picked from `Document`, so it cannot drift from the schema. */
   document: Pick<Document, "id" | "title" | "content" | "source" | "authoredAt">;
-  /** Existing confirmed facts so the model can avoid duplicates. Top-N most relevant. */
+  /** Confirmed facts, so the model avoids duplicates. */
   existingFacts?: Array<{ key: string; value: unknown }>;
-  /** Run/step ids forwarded to the metering log + Langfuse trace. */
+  /** Forwarded to the metering log and Langfuse trace. */
   runId?: string;
   stepId?: string;
-  /** Stable per-call idempotency key — caller should derive from `(runId, stepId, doc.id)`. */
+  /** Derive it from `(runId, stepId, doc.id)`. */
   idempotencyKey?: string;
 }
 
@@ -104,8 +83,7 @@ function userPrompt(args: ExtractDocumentArgs): string {
 
   lines.push("=== Document content ===");
 
-  // Cap at ~12k chars to keep token budget bounded — most provider
-  // emails fit easily; ingested docs that exceed this get truncated.
+  // About 12k chars keeps the token budget bounded.
   const content =
     args.document.content.length > 12_000
       ? args.document.content.slice(0, 12_000) + "\n[…truncated]"
@@ -116,12 +94,7 @@ function userPrompt(args: ExtractDocumentArgs): string {
   return lines.join("\n");
 }
 
-/**
- * Run the cheap-tier model over a single document and return its
- * proposals. Output is Zod-validated by the AI SDK; on parse failure the
- * caller gets the raw error and the workflow can mark the doc as
- * processed with `proposed_count = 0`.
- */
+/** Cheap-tier extraction over one document. A parse failure throws to the caller. */
 export async function extractFactsFromDocument(args: ExtractDocumentArgs): Promise<FactProposal[]> {
   const result = await meteredGenerateObject<z.infer<typeof extractionResultSchema>>(
     {
@@ -130,7 +103,6 @@ export async function extractFactsFromDocument(args: ExtractDocumentArgs): Promi
       prompt: userPrompt(args),
       schema: extractionResultSchema,
       temperature: 0,
-      // Hard cap so a misbehaving model can't produce a 100k-token blob.
       maxOutputTokens: 2_000,
     },
     {

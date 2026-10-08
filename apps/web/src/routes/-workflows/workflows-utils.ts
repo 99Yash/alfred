@@ -11,7 +11,7 @@ import {
   Zap,
 } from "lucide-react";
 
-/** Fallback tile tints, cycled by slug hash for workflows without bespoke art. */
+/** Tints cycled by slug hash for workflows without their own art. */
 const FALLBACK_TINTS = ["violet", "emerald", "amber"] as const;
 
 type WorkflowTint = (typeof FALLBACK_TINTS)[number];

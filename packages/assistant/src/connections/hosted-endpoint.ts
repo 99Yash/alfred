@@ -23,29 +23,13 @@ function stripHostedEndpointSensitiveHeaders(headers: Headers): void {
   for (const name of HOSTED_ENDPOINT_SENSITIVE_HEADERS) headers.delete(name);
 }
 
-/**
- * Characters a path segment may carry UNESCAPED (RFC 3986 `pchar`, minus the
- * percent sign itself). A `%XX` escape that decodes to one of these says the
- * same thing as the bare character, so {@link canonicalPercentEncoding} may
- * decode it. Everything else — `/`, `?`, `#`, a space, any byte of a UTF-8
- * sequence — keeps its escape, because decoding one of those would merge two
- * different resources into one key.
- */
+/** RFC 3986 `pchar` minus `%`. Only these escapes are safe to decode; others would merge resources. */
 const UNESCAPED_PATH_CHARACTER = /^[A-Za-z0-9\-._~!$&'()*+,;=:@]$/;
 
 /**
- * One spelling for a path that percent-encoding can spell many ways.
- *
- * `URL` does not do this: `new URL("https://host/%6Dcp").pathname` is `/%6Dcp`,
- * not `/mcp`. That let a supplied URL name a built-in's own endpoint while
- * reading as a different key, so the registry did not claim it and the generic
- * add door did not refuse it — two connections, two catalogs and two tool
- * namespaces for one server, the second with no scope baseline and no
- * read-only pin.
- *
- * A redundant escape is decoded; every other escape is kept and its hex digits
- * are upper-cased, which is the one remaining spelling choice. `%2F` therefore
- * stays `%2F`, so `/a%2Fb` and `/a/b` remain two resources.
+ * Decode redundant escapes and upper-case the rest. `URL` keeps `/%6Dcp` as is,
+ * so without this a user URL could reach a built-in endpoint under another key.
+ * `%2F` stays, so `/a%2Fb` and `/a/b` remain two resources.
  */
 function canonicalPercentEncoding(path: string): string {
   return path.replace(/%[0-9A-Fa-f]{2}/g, (escape) => {
@@ -56,25 +40,10 @@ function canonicalPercentEncoding(path: string): string {
 }
 
 /**
- * The identity of a hosted endpoint: its origin plus its path, canonically
- * spelled, with any trailing slashes removed.
- *
- * Two hrefs that name the same endpoint produce one key, and `URL` does the
- * parsing. `URL` itself normalizes neither of the two spellings this function
- * owns:
- *
- * - a trailing slash, so `…/mcp` and `…/mcp/` would be two servers;
- * - a redundant percent escape, so `…/%6Dcp` and `…/mcp` would be two;
- * - a fully qualified host, so `https://host./mcp` and `https://host/mcp` would
- *   be two. The root label a trailing dot names is implicit in every other
- *   spelling, and DNS resolves both to one host, so the dot is dropped.
- *
- * Every door that mints or matches an endpoint identity — the built-in registry
- * lookup and the generic add — keys on this one function, so a spelling this
- * function does not fold is a spelling that walks past the built-in refusal.
- *
- * The query and the fragment are deliberately absent: they are request
- * parameters, not identity. A caller that must refuse them does so itself.
+ * One key per hosted endpoint: origin plus path. Folds what `URL` does not:
+ * a trailing slash, a redundant percent escape, and a trailing dot on the host.
+ * The built-in lookup and the generic add both key on this, so an unfolded spelling bypasses the built-in refusal.
+ * Query and fragment are not identity.
  */
 export function hostedEndpointKey(url: URL): string {
   const path = canonicalPercentEncoding(url.pathname).replace(/\/+$/, "");
@@ -90,12 +59,7 @@ export type HostedEndpointErrorCode =
   | "blocked_port"
   | "credential_url"
   | "invalid_origin"
-  /**
-   * A STORED placement column no longer parses. Like `invalid_origin`, this is
-   * a bad column value rather than fresh owner input: the row was written before
-   * a name rule tightened, so the owner is told to remove and re-add the key
-   * instead of meeting a raw parse error as a 500.
-   */
+  /** A stored placement no longer parses after a name rule tightened. The owner re-adds the key. */
   | "invalid_placement"
   | "origin_mismatch"
   | "redirect_refused"
@@ -114,19 +78,9 @@ export class HostedEndpointError extends Error {
 const BLOCKED_HOST_ERRNO = "EBLOCKEDHOST";
 
 /**
- * Recover the hosted-endpoint refusal behind whatever wrapped it. A URL-level
- * refusal is thrown as a {@link HostedEndpointError} directly. A DNS-level
- * refusal is minted by `pinningLookup` as a Node errno error (`EBLOCKEDHOST`)
- * because undici's connector only understands that shape, and `fetch` then
- * buries it as the `cause` of a bare `TypeError: fetch failed`. Both are the
- * same fact — this host is blocked — so both come back as `blocked_host`.
- *
- * The walk is {@link causeChain}, not a bare `cause` loop, because the MCP SDK
- * wraps a connect failure in an `SdkError` that keeps its cause on `data`. A
- * `cause`-only walk answers `null` for every refused private address reached
- * through that SDK, and the caller then reports `fetch failed`.
- *
- * Returns `null` for anything else so callers keep their own generic text.
+ * Find the refusal under any wrapping, or `null`.
+ * A DNS refusal is an `EBLOCKEDHOST` errno under `TypeError: fetch failed`.
+ * Uses {@link causeChain} because the MCP SDK keeps the cause on `data`, not `cause`.
  */
 export function hostedEndpointErrorFrom(err: unknown): HostedEndpointError | null {
   for (const link of causeChain(err)) {
@@ -134,8 +88,7 @@ export function hostedEndpointErrorFrom(err: unknown): HostedEndpointError | nul
 
     if (!(link instanceof Error)) continue;
 
-    // SAFETY: `code` is the errno field Node puts on network errors; reading it
-    // off an `Error` is a presence check, not a shape assertion.
+    // SAFETY: reading Node's errno `code` is a presence check, not a shape assertion.
     if ((link as NodeJS.ErrnoException).code === BLOCKED_HOST_ERRNO) {
       return new HostedEndpointError("blocked_host", link.message);
     }
@@ -381,10 +334,7 @@ export function validatePublicWebUrl(input: unknown): URL {
   return url;
 }
 
-/**
- * A malformed stored origin is a bad column value, not a mismatch: it gets its
- * own code so an operator can tell "the row is corrupt" from "the endpoint moved".
- */
+/** A corrupt stored origin gets its own code, apart from "the endpoint moved". */
 function parseExpectedOrigin(input: string): string {
   let origin: URL;
 
@@ -402,18 +352,8 @@ function parseExpectedOrigin(input: string): string {
 }
 
 /**
- * The shape every hosted endpoint must have — public web URL, HTTPS, no
- * fragment — and, when the caller has a stored origin, the pin to it.
- *
- * `expectedOrigin` is `null` for a URL Alfred has never stored: a brand-new
- * endpoint the owner just typed, or an OAuth discovery hop that may legally
- * leave the resource origin. There is no prior origin to disagree with, so the
- * pin is not merely skipped, it does not yet exist. Passing the URL's OWN
- * origin instead reads like a pin and is a tautology — `origin_mismatch`
- * becomes unreachable — so the absence is spelled `null` and typed.
- *
- * The pin becomes load-bearing on every LATER connect, where the expected
- * origin comes from the `mcp_servers` row rather than from the candidate.
+ * Public HTTPS URL with no fragment, pinned to `expectedOrigin` when there is one.
+ * Pass `null` for a URL never stored, not the URL's own origin: that would make the pin a tautology.
  */
 export function validatePinnedHttpsEndpoint(input: unknown, expectedOrigin: string | null): URL {
   const url = validatePublicWebUrl(input);
@@ -515,19 +455,13 @@ function asLookupFunction(resolve: DnsLookupAll): LookupFunction {
 }
 
 /**
- * The socket-level time policy of one pinned dispatcher. It is a required part
- * of the bind, with no default, because the right numbers differ per owner:
- * `fetch_url` reads one page and bounds every phase at its own deadline; an MCP
- * bundle holds a long-lived list-change stream, so its body timeout must be off
- * (`0`) and the SDK request deadline owns request time instead. A shared
- * constant here silently handed one owner the other's policy.
+ * Required, no default: owners differ. An MCP bundle holds a long-lived stream,
+ * so its body timeout is `0`; `fetch_url` bounds every phase.
  */
 export interface HostedDispatcherTimeouts {
-  /** Time to receive complete response headers. */
   headersMs: number;
-  /** Time between body chunks; `0` disables the bound (undici semantics). */
+  /** Time between body chunks; `0` disables it. */
   bodyMs: number;
-  /** Time to establish the TCP/TLS connection. */
   connectMs: number;
 }
 
@@ -546,17 +480,12 @@ export function createPinnedDispatcher(deps: {
 }
 
 /**
- * The init the guard hands its requester: standard `RequestInit` plus the
- * stream-body flag. `dispatcher` is omitted because @types/node declares it
- * against `undici-types`, which is not assignable from the `undici` package's
- * own `Dispatcher`; {@link dispatcherRequester} re-adds it at the send.
+ * No `dispatcher`: @types/node types it from `undici-types`, which the `undici`
+ * `Dispatcher` does not satisfy. {@link dispatcherRequester} adds it back.
  */
 export type GuardedRequestInit = Omit<RequestInit, "dispatcher"> & { duplex?: "half" };
 
-/**
- * Sends one already-validated hop. Production binds this to a pinned dispatcher
- * via {@link dispatcherRequester}; tests pass a fake and never open a socket.
- */
+/** Sends one already-validated hop. */
 export type GuardedFetchRequester = (input: string, init: GuardedRequestInit) => Promise<Response>;
 
 export interface GuardedFetchOptions {
@@ -570,8 +499,7 @@ export function dispatcherRequester(dispatcher: Dispatcher): GuardedFetchRequest
   return (input, init) => {
     const withDispatcher: GuardedRequestInit & { dispatcher: unknown } = { ...init, dispatcher };
 
-    // SAFETY: Node's Fetch implementation accepts Undici's runtime `dispatcher`
-    // extension; the DOM `RequestInit` declaration omits only that extra key.
+    // SAFETY: Node's fetch accepts undici's `dispatcher`; the DOM type only omits the key.
     return globalThis.fetch(input, withDispatcher as RequestInit);
   };
 }
@@ -581,36 +509,14 @@ export interface HostedRequestFacts {
   method: string;
   headers: Headers;
   body: RequestInit["body"];
-  /**
-   * The effective abort signal under native Fetch precedence. `undefined`
-   * exactly when neither the `init` nor the `Request` supplies one — the guard
-   * invents no `AbortSignal` of its own. An explicit `null` (present, so it
-   * replaces) is carried through: handing `null` to `fetch` mints a fresh,
-   * never-aborting signal, which is how a caller detaches a `Request`'s signal.
-   */
+  /** `undefined` when nobody supplied one. An explicit `null` detaches a `Request`'s signal, so keep it. */
   signal: AbortSignal | null | undefined;
 }
 
 /**
- * Flatten the two ways a fetch caller can spell one request (`Request` object
- * or `input + init`) into the facts a policy check reads, under native Fetch
- * precedence:
- *
- *  - a supplied `init.headers` REPLACES the `Request`'s headers (it does not
- *    merge them), and an absent one falls back to the `Request`'s own;
- *  - a supplied `init.signal` replaces the `Request`'s signal — including an
- *    explicit `null`, which native carries through so `fetch` detaches the
- *    `Request`'s signal — and an absent one falls back to it;
- *  - `url`/`method`/`body` keep the same `init`-wins ordering they already had,
- *    which already matches native (`init.body == null` falls back, a non-null
- *    value replaces).
- *
- * "Supplied" is `!== undefined`, not `??`: an explicit `null` is a value, and
- * collapsing it into the fallback would re-couple a request the caller asked to
- * detach. The one place the guard deliberately stops short of native is when
- * NOTHING is supplied: `new Request(url)` mints a fresh never-aborting signal,
- * while this returns `undefined`, because callers that add no signal must not
- * be given one (item 02's "the protocol fetch adds no signal of its own").
+ * Flatten `Request` or `input + init` with native fetch precedence: `init` wins.
+ * `init.headers` replaces, never merges. The signal check is `!== undefined`, so `null` is kept.
+ * Unlike native, no signal is invented when none is supplied.
  */
 export function requestFacts(
   input: string | URL | Request,
@@ -652,9 +558,6 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
   return async (input, init) => {
     const { url, method, headers, body, signal } = requestFacts(input, init);
 
-    // One validator for both modes: `expectedOrigin` is `null` exactly when the
-    // chain is unpinned, which is the argument `validatePinnedHttpsEndpoint`
-    // takes for "no stored origin yet".
     const validate = (candidate: unknown): URL =>
       validatePinnedHttpsEndpoint(candidate, expectedOrigin);
 
@@ -665,12 +568,8 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
         ...init,
         method,
         headers,
-        // Written AFTER `...init` so the effective signal holds on the first hop
-        // and on every redirect hop: a Request's signal survives when `init`
-        // supplies none, and a supplied `init.signal` is never replaced by
-        // whatever `...init` already carried. Spread conditionally because
-        // `exactOptionalPropertyTypes` refuses an explicit `undefined` for
-        // `signal?: AbortSignal | null`.
+        // After `...init`, so a `Request`'s signal survives every hop.
+        // Conditional because `exactOptionalPropertyTypes` refuses `undefined`.
         ...(signal !== undefined ? { signal } : {}),
         ...(body != null ? { body, duplex: "half" } : {}),
         redirect: "manual",

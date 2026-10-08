@@ -1,17 +1,11 @@
 /**
- * Smoke for ADR-0042 phase 3a — deterministic sender-context extraction.
+ * Pure fixtures for sender-context extraction (ADR-0042): the six cases in
+ * `docs/plans/triage-briefing-v2-plan.md` plus parser edge cases. Exits 1 on the first failure.
  *
  *   $ pnpm tsx src/scripts/smokes/smoke-sender-context.ts
- *
- * Pure-function fixtures; no DB / LLM / network. Asserts the six canonical
- * cases from `docs/plans/triage-briefing-v2-plan.md` plus a few edge cases that
- * exercise the parser dispatch table.
- *
- * Exits with code 1 on the first failure so CI gets a clear signal.
  */
 
-// Deep import so the smoke doesn't pull `@alfred/assistant/triage`'s barrel
-// (which reaches the queues and the classifier model routes at module load).
+// Deep import: the triage barrel loads the queues and model routes.
 import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 import type { SenderContext } from "@alfred/contracts";
 

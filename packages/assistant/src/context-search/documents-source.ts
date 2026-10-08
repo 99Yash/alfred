@@ -26,52 +26,18 @@ import { defineContextSource, type ContextSource } from "./registry";
 import { compareByScoreThenId, renderContent } from "./vector-source";
 
 /**
- * The ingested-document adapter (#424; epic #422; ADR-0101).
+ * Ingested-document source (#424, ADR-0101): maps corpus `search` hits to cards.
+ * No retrieval logic of its own. One source for every ingested provider; the
+ * provider rides the citation label.
  *
- * It is a thin, read-only translation of the corpus vector search
- * (`search` in `@alfred/corpus`, over `chunks ⨝ documents`) into canonical
- * `EvidenceCard`s. It owns no retrieval logic of its own: `search` embeds the
- * query, reranks by cosine distance, and bounds the pool; this file maps its
- * `SearchHit`s to cards and nothing more. That is the seam's point — the
- * fabric aggregates primitives rather than re-implementing pgvector.
- *
- * One adapter covers every ingested provider (`gmail`, `github`, …) because
- * the corpus table is already source-tagged and the search is source-agnostic.
- * The card's `source` is therefore the corpus itself (`documents`, `internal`),
- * the per-record provider rides the citation label, and the manifest (#466)
- * keys on the one stable id. Splitting per provider would clone this file once
- * per `DOCUMENT_SOURCES` member for no retrieval difference.
- *
- * Cards are re-sorted by score here so the adapter's order is deterministic
- * even if the primitive changes its own ordering; that ordering and the
- * content fallback are shared with the memory adapter in `vector-source.ts`.
- * Cross-source ranking is `rank.ts` (#427), not this file.
- *
- * One annotation rides on top of the translation (#1087): a chunk whose own
- * rendered text names a work object carries that object's reducer-owned state.
- * It obeys ADR-0062's propose / dispose contract. The text may only PROPOSE a
- * candidate key; only the projection may say what the work's state is. So the
- * card never reads a lifecycle out of prose, an unresolvable or ambiguous
- * reference leaves the card exactly as it was, and the object declares
- * `relation: "names"` — the chunk was still reached by similarity, so the
- * ranker must not read the annotation as an exact-key retrieval, must not read
- * a missed annotation as evidence the chunk is off-focus, and the packer must
- * label the line so the model cannot read the chunk AS the object.
+ * Annotation (#1087, ADR-0062): when a chunk's own text names exactly one work
+ * object, the card carries that object's state with `relation: "names"`.
+ * Text only proposes keys; only the projection says the state.
  */
 
 /**
- * What this source declares (#466): `high` authority because a chunk is a
- * VERBATIM slice of the provider's own record — an email body, an attachment's
- * text — not a summary of one. It names no `integration` and no `domains`
- * because it spans every ingested provider at once; the per-record provider
- * rides each card's citation instead. The cost is `metered`: the corpus search
- * embeds the query, so one read is one embedding call. Only the fields the
- * boundary acts on are declared; catalog-reserved fields stay unset.
- *
- * The manifest is the single owner of the kind, display name, source ref,
- * and authority: cards derive all of them from it, so the declaration and the
- * evidence cannot drift. The stable id lives once in
- * `DOCUMENT_CONTEXT_SOURCE_ID` and the registry mints it into the manifest.
+ * `high` authority: a chunk is a verbatim slice of the record. `metered`: each
+ * read embeds the query. No `integration`, because it spans every provider.
  */
 const DOCUMENT_CONTEXT_SOURCE_ID = "documents";
 
@@ -82,35 +48,18 @@ const DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE: Omit<RetrievalSourceManifest, "id" 
   authority: { level: "high", label: "verbatim slice of an ingested provider record" },
   cost: { class: "metered" },
   availability: "available",
-  // Exactly the two modalities `documentMediaKind` can mint, and the boundary
-  // holds every card to this list (#429). The corpus ingests a message body
-  // (`text`) and a file (`document`). A hit whose page structure the extractor
-  // proved (ADR-0091) stays a `document`: the page is granularity, so it rides
-  // the `page` anchor rather than taking the modality slot. The corpus ingests
-  // no picture and no recording: a `needs_ocr` PDF never becomes a row at all,
-  // so declaring `image` here would name a card this source cannot produce.
+  // Exactly what `documentMediaKind` mints (#429). The corpus holds no images:
+  // a `needs_ocr` PDF never becomes a row.
   mediaKinds: ["text", "document"],
 };
 
-/**
- * The manifest as cards read it: the base plus the once-stated id. Cards
- * derive their source ref and authority from this rather than restating
- * either beside the manifest fragment.
- */
 function documentManifest(): SourceManifest {
   return { ...DOCUMENT_CONTEXT_SOURCE_MANIFEST_BASE, id: DOCUMENT_CONTEXT_SOURCE_ID };
 }
 
-/**
- * Tolerance for a sender-controlled authored instant that lies slightly in the
- * future. The ranker (#427) reads an instant up to one day past `now` as
- * current clock skew and drops anything beyond it; the adapter applies the same
- * bound so a `Date: Sat, 1 Jan 3000` header never reaches the model as
- * `occurred <future>` nor earns maximum recency.
- */
+/** Same one-day skew bound as the ranker. A sender's `Date` header can claim year 3000. */
 const DOCUMENT_FUTURE_SKEW_MS = 86_400_000;
 
-/** Build the document context source over the real `@alfred/corpus` verb. */
 export function createDocumentContextSource(): ContextSource {
   return defineContextSource({
     id: DOCUMENT_CONTEXT_SOURCE_ID,
@@ -126,10 +75,7 @@ async function readDocuments(request: ContextSearchRequest, signal: AbortSignal)
     limit: request.limit,
   });
 
-  // Cards are model-facing: strip the corpus `record` before mapping so the
-  // mapper below cannot see dereference plumbing and the handle it mints
-  // stays inside Alfred's own store (an Alfred document id, like
-  // `memory_chunk` → chunk id and `integration_object` → object id).
+  // Strip the corpus `record`, so no provider plumbing reaches a card.
   const modelFacing = [...hits].map(toModelFacingHit).sort(compareByScoreThenId);
   const objects = await namedObjectByCardId(request.userId, modelFacing, signal);
 
@@ -140,42 +86,16 @@ async function readDocuments(request: ContextSearchRequest, signal: AbortSignal)
   return { evidence };
 }
 
-/** The stable card id for one hit: the same chunk retrieved twice is one card. */
+/** The same chunk retrieved twice is one card. */
 function documentCardId(hit: ModelFacingHit): string {
   return `${DOCUMENT_CONTEXT_SOURCE_ID}:${hit.chunkId}`;
 }
 
 /**
- * The work object each hit's own text names, for the hits where exactly one
- * resolves (#1087).
- *
- * The text read is the text the card RENDERS — its title and its bounded
- * preview — and nothing wider: the annotation must be justified by what a
- * reader of the card can see. No corpus read is added.
- *
- * Two rules keep the annotation honest. `annotates` is the reading, so an
- * adapter proposes every key the chunk names and no caller drops or suppresses
- * anything on the result. And a hit is annotated only when its keys resolve to
- * ONE object: two written forms can name one row (a repository rename mints a
- * second `pull_request_url`), so the set is deduplicated by object id first,
- * and a chunk naming two different objects is an ambiguous reference that
- * leaves the card unchanged.
- *
- * A failed resolve degrades to no annotation. `reconcileEvidence` reads the
- * database, and an unguarded throw here would turn the whole `documents` source
- * into an error report and drop EVERY document card for this search — far worse
- * than losing an annotation. The catch logs, because a silent catch of exactly
- * this shape once hid a total briefing failure for seven weeks.
- *
- * The `try` covers the PROPOSE loop as well as the resolve. An adapter runs
- * regexes over sender-controlled indexed text, so it is a throw site too, and a
- * throw from it would drop every card by the same path the resolve's catch
- * exists to fence.
- *
- * The raw error goes to `logger`, never a pre-rendered string: pino's `err`
- * serializer reads an `Error` and writes the type, the message, and the stack,
- * and a string reaches the sink as `{"type":"string"}` instead. That is how a
- * catch that looks like it speaks says nothing.
+ * The one work object each hit's rendered title and preview names (#1087).
+ * Two different objects is ambiguous, so no annotation. A throw in propose or
+ * resolve degrades to no annotation, not to a failed source. Log the raw
+ * `err`: pino's serializer drops a pre-rendered string.
  */
 async function namedObjectByCardId(
   userId: string,
@@ -206,23 +126,14 @@ async function namedObjectByCardId(
       const [object] = [...byObjectId.values()];
 
       if (!object) continue;
-      // The chunk NAMES this object; it is not the object. This source reached
-      // the object through TEXT, so `cardNamesObjectRef` is the only correct
-      // builder here: it keeps the ranker's exact-retrieval feature off a
-      // semantic hit. The reading axis is now type-carried — this subject is
-      // `ReconcileCandidates<"annotates">`, so `firstClosingObject` refuses it —
-      // but the `names`-vs-`is` relation is still convention:
-      // `cardIsObjectRef(object.state)` is one import away, compiles, and would
-      // turn that feature on. That is why the rule lives in a comment and in
-      // `object-ref.ts` rather than in a type.
+      // The chunk names the object; it is not the object. Never use
+      // `cardIsObjectRef` here: it compiles, and it would turn on `exactMatch`.
       const ref = cardNamesObjectRef(object);
 
       if (ref) found.set(id, ref);
     }
   } catch (err) {
-    // Cancellation is not a failed resolve: the collect timeout already owns
-    // the degraded outcome, so an abort propagates instead of degrading to
-    // unannotated cards with an error log.
+    // An abort belongs to the collect timeout. Do not log it as a failure.
     if (signal.aborted) throw err;
     logger.error(
       { err, event: "context_search_object_annotation_failed", userId },
@@ -236,31 +147,12 @@ async function namedObjectByCardId(
 }
 
 /**
- * Map one model-facing corpus hit to a canonical card. The id is the chunk
- * id — the same chunk retrieved twice is the same card — and the expansion
- * handle points at the parent document, the unit a later live drill-down
- * (#428) fetches.
- *
- * The parameter is deliberately `ModelFacingHit`, not `SearchHit`: the
- * corpus `record` (provider id, account, thread in `@alfred/corpus`, #1076)
- * is for the future expander, and this mapper must not see it. A provider
- * address must ride the canonical `(provider, kind, externalId)`
- * `objectIdentitySchema` in `@alfred/contracts` — the shape the request
- * envelope, the evidence card `object`, and the object-state store read
- * already derive from — never a fused `gmail_message` kind beside it, and a
- * handle's `sourceId` must name the `ContextSource` that can actually expand
- * its `ref` (S1/S2 on #1076). `documents` declares only `semantic_search`
- * today, and its `ref` stays inside its own store until #428 declares
- * `expand` plus the `objectKinds` it can dereference.
- *
- * `object` is the optional annotation described in the module docstring. It is
- * a parameter rather than a lookup so this mapper stays pure and reads no
- * store: the one resolve runs once for the whole page in `readDocuments`.
+ * One hit as a card. The handle points at the parent document.
+ * Takes `ModelFacingHit`, not `SearchHit`, so it cannot see the corpus `record`.
+ * Pure: `object` is resolved once per page in `readDocuments`.
  */
 function documentHitToEvidenceCard(hit: ModelFacingHit, object?: EvidenceObjectRef): EvidenceCard {
-  // `boundCardText` bounds and strips poison; an all-poison title collapses to
-  // empty, which is not a citation, so it falls back to undefined. The label cap
-  // is the tighter bound shared with the citation schema.
+  // An all-poison title collapses to empty, so it becomes undefined.
   const title = boundCardText(hit.title, EVIDENCE_CITATION_LABEL_MAX_CHARS);
 
   const authority = sourceAuthorityFromManifest(documentManifest());
@@ -275,30 +167,18 @@ function documentHitToEvidenceCard(hit: ModelFacingHit, object?: EvidenceObjectR
     ...(object ? { object } : {}),
     ...(authority !== undefined ? { authority } : {}),
     time: {
-      // `authoredAt` is the authored instant (an email Date header, an event
-      // start), so it is when the underlying event happened — `occurredAt`,
-      // never `observedAt`, which is when the source observed the record.
-      // Sender-controlled and therefore untrusted for range: a future instant
-      // beyond clock-skew tolerance is omitted rather than rendered or ranked
-      // as maximally recent.
+      // Authored instant, so `occurredAt`. Sender-controlled: drop a far-future value.
       ...(isUsableAuthoredAt(hit.authoredAt) ? { occurredAt: hit.authoredAt.toISOString() } : {}),
       freshness: "ingested",
     },
     citations: [
       {
-        // A title is the useful citation; without one, name the provider the
-        // hit came from rather than humanizing the raw slug (`github` would
-        // become "Github"). `integrationDisplayName` reads the display registry
-        // and falls back to `humanizeSlug` for a non-integration source.
+        // No title: name the provider, not the humanized slug ("Github").
         label: title ?? integrationDisplayName(hit.source),
         ...(hit.url && hit.url.length <= EVIDENCE_CITATION_URL_MAX_CHARS ? { url: hit.url } : {}),
       },
     ],
-    // The page rides the ANCHOR, not a citation locator string (#429). It used
-    // to be prose (`page 3`), which a consumer could only read by parsing the
-    // label it was joined to; the anchor is the structured carrier the contract
-    // minted for it, and the packer renders it on its own line. Stating it in
-    // both places would put one fact under two spellings.
+    // The page goes in the anchor only, not in a citation locator (#429).
     ...(anchors.length > 0 ? { anchors } : {}),
     expansion: {
       sourceId: DOCUMENT_CONTEXT_SOURCE_ID,
@@ -320,23 +200,8 @@ function isUsableAuthoredAt(value: Date | null): value is Date {
 }
 
 /**
- * The modality of one corpus hit (#429).
- *
- * Two readings, in the order of what each one PROVES:
- *
- * 1. A file row is a `document`, whether or not its page structure was proven.
- *    `chunks.metadata.page` is written only from page structure the extractor
- *    emitted (ADR-0091), and the chunker bounds a chunk to one page, so a hit
- *    that carries one is one page of a document — but the page is granularity,
- *    so it rides the `page` anchor while the modality stays `document`. A file
- *    row without a proven page is the same modality: a document whose pages
- *    were never proven (a text attachment, a PDF that extracted as text
- *    without offsets).
- * 2. Everything else is a message body or a webhook receipt: `text`.
- *
- * It never reads a MIME type, because the corpus row does not carry one — the
- * ingest lane already turned the bytes into text, and the modality of the
- * evidence is the modality of that text, not of the file it came from.
+ * File rows and paged hits are `document`; message bodies and receipts are
+ * `text` (#429). The corpus row has no MIME type to read.
  */
 function documentMediaKind(hit: ModelFacingHit): EvidenceMediaKind {
   if (hit.page !== null) return "document";
@@ -345,18 +210,8 @@ function documentMediaKind(hit: ModelFacingHit): EvidenceMediaKind {
 }
 
 /**
- * The page anchor for one hit, or none.
- *
- * A list of at most one: the chunker never lets a chunk span two pages, so one
- * hit anchors to one page. It carries no `confidence`, because the page is
- * proven rather than estimated — a confidence would invite a reader to discount
- * a fact the extractor established. The card schema bounds `page` to a positive
- * integer and `extractPageFromMetadata` already rejected anything else, so the
- * two gates agree.
- *
- * The list is mutable because `EvidenceCard` derives from the Zod schema and
- * `z.array` infers a mutable array; a `readonly` return would not assign into
- * the field it exists to fill.
+ * At most one: a chunk never spans two pages. No `confidence`, because the page
+ * is proven. Mutable, because the schema-derived card field is mutable.
  */
 function pageAnchors(page: number | null): EvidenceAnchor[] {
   return page === null ? [] : [{ kind: "page", page }];

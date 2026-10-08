@@ -2,12 +2,8 @@ import { isRecord } from "@alfred/contracts";
 import { createHash } from "node:crypto";
 
 /**
- * Stable hash for `(key, value)` pairs we record in `rejected_inferences`.
- *
- * Drives "did the user already say no to (key='manager', value='Bob')?"
- * — so it must be deterministic across re-extractions. Object keys are
- * sorted recursively before hashing; strings are NFKC + lower-cased so
- * cosmetic variants ("alice@oliv.ai" vs "Alice@Oliv.ai") collide.
+ * Stable hash of `(key, value)` for `rejected_inferences`. Keys sort recursively;
+ * strings are NFKC and lowercased, so "Alice@Oliv.ai" matches "alice@oliv.ai".
  */
 export function valueSignature(value: unknown): string {
   return createHash("sha256").update(canonicalize(value)).digest("hex");

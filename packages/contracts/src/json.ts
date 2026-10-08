@@ -1,27 +1,11 @@
-/**
- * Safe JSON parsing — the server analog of the type-safe localStorage reader
- * in `apps/web/src/lib/storage/storage.ts`.
- *
- * The lesson from that module: `JSON.parse` returns `any`, so
- * `JSON.parse(raw) as T` is a blind cast that both throws on malformed input
- * *and* lies about the shape of whatever did parse. The storage reader fixed it
- * by parsing to `unknown` and running the value through a Zod schema —
- * valid-or-default, never throws. These helpers carry that same shape to the
- * server (Redis caches, signed-state blobs, anything deserialized from a
- * string we don't fully control).
- */
+/** JSON parsing that returns `unknown` or a validated value. Never `JSON.parse(raw) as T`. */
 
 import type { z } from "zod";
 import type { JsonValue } from "./user-model";
 
 /**
- * `JSON.parse` that returns `unknown` instead of `any`, and `null` instead of
- * throwing on malformed input. Narrow the result with a guard (`isRecord`,
- * `Array.isArray`, …) or a schema — never trust the parsed shape.
- *
- * Note `null` is also what valid JSON `"null"` parses to; callers that need to
- * tell "absent/corrupt" from "literal null" should guard on the raw string
- * first (see how `sender-priors` uses a `"null"` sentinel).
+ * `JSON.parse` that returns `unknown`, and `null` on malformed input.
+ * Valid `"null"` also returns `null`; check the raw string if that matters.
  */
 export function safeJsonParse(raw: string): unknown {
   try {
@@ -31,12 +15,7 @@ export function safeJsonParse(raw: string): unknown {
   }
 }
 
-/**
- * Parse a JSON string and validate it against a Zod schema in one step. Returns
- * the validated value, or `fallback` (default `null`) when the JSON is
- * malformed or fails the schema. Never throws — corrupt input degrades to the
- * fallback rather than blowing up the caller.
- */
+/** Parse and validate. Returns `fallback` (default `null`) on bad JSON or a schema miss. Never throws. */
 export function parseJsonWith<T>(raw: string, schema: z.ZodType<T>): T | null;
 export function parseJsonWith<T>(raw: string, schema: z.ZodType<T>, fallback: T): T;
 export function parseJsonWith<T>(
@@ -49,18 +28,12 @@ export function parseJsonWith<T>(
   return result.success ? result.data : fallback;
 }
 
-/**
- * Coerce an arbitrary value into a JSON-safe one for storage on a transcript or
- * tool-result message: `undefined` becomes `null`, and anything that can't
- * round-trip through `JSON.stringify` (cycles, BigInt, …) degrades to a
- * `{ unserializable }` marker rather than throwing.
- */
+/** Make a value JSON-safe. `undefined` becomes `null`; cycles and BigInt become `{ unserializable }`. */
 export function toJsonValue(value: unknown): JsonValue {
   if (value === undefined) return null;
 
   try {
-    // SAFETY: JSON.stringify emitted this text, so it parses back to a plain
-    // JSON value; unserializable input throws and degrades via the catch.
+    // SAFETY: text from `JSON.stringify` parses back to a plain JSON value.
     return JSON.parse(JSON.stringify(value)) as JsonValue;
   } catch {
     return { unserializable: String(value) };

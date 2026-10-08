@@ -71,13 +71,8 @@ import {
 } from "@alfred/assistant/tool-runtime/discovery";
 
 /**
- * Resolve the provenance an artifact tool needs from the call context. Returns
- * an honest refusal (not a throw) when the call didn't come from a chat turn —
- * an artifact is owned by the thread/run that produced it, so a
- * background/sub-agent run has nowhere to attach one (ADR-0075). A live
- * `messageId` is required as proof this is an interactive chat turn. It is
- * associated with the artifact only when the turn finalizes because its row
- * does not exist during tool execution.
+ * Artifact provenance from the call context, or a refusal outside a chat turn (ADR-0075).
+ * The message row does not exist yet, so the turn links it on finalize.
  */
 function resolveArtifactContext(
   ctx: ToolExecuteContext,
@@ -104,11 +99,7 @@ function resolveArtifactContext(
   };
 }
 
-/**
- * What `system.current_time` reports. The absolute instant plus the wall clock
- * the user is reading — every locale/offset detail comes from the timezone
- * module, which owns it.
- */
+/** The instant plus the user's wall clock, for `system.current_time`. */
 export function currentTimeSnapshot(timezone: IanaTimezone, now: Date = new Date()) {
   return {
     isoTime: now.toISOString(),
@@ -159,9 +150,7 @@ export const systemTools: readonly RegisteredTool[] = [
           latencyMs: Date.now() - startMs,
         });
 
-        // Echo the query. The chat UI drops `argsPreview` when it persists a
-        // turn, so the result is the only channel through which a reloaded
-        // tool card can say what Alfred looked for.
+        // Echo the query: a reloaded tool card has no `argsPreview` to show it.
         return { ok: true, query: input.query, candidates };
       } catch (error) {
         span.error();
@@ -313,18 +302,11 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Search or fetch bounded raw evidence from the current chat thread when the conversation summary is insufficient. Fetch messages, tool outcomes, or attachment representations by their stable IDs. This never accesses another thread.",
-    // Kernel: the chat prompt names this by name as a primary source, so it must
-    // be visible on turn one — otherwise every first use pays a search/load dance
-    // plus a mid-run prompt-cache invalidation. `requiresLiveChat` gates it out of
-    // thread-less brief/sub-agent runs at BOTH the SDK-tool boundary and the
-    // dispatch floor, which refuses the call with `requires_thread` before input
-    // parsing.
+    // Kernel: the chat prompt names it, so a lazy load would cost a cache bust.
     availability: { surface: "kernel", requiresLiveChat: true },
     inputSchema: readChatHistoryInput,
     execute: async (input, ctx) => {
-      // Unreachable via dispatch (the floor's `requiresLiveChat` gate answers
-      // first); kept for a direct `execute` — tests and any future non-dispatch
-      // caller — so the tool never reads another thread by falling through.
+      // Dispatch refuses first; this guards a direct `execute`.
       if (!ctx.threadId) {
         return {
           ok: false,
@@ -342,8 +324,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Spawn one focused sub-agent run with an isolated brief. Reserve it for a subtask that needs its own multi-step investigation across several sources (memory + the user's accounts + the web, or a long open-ended research question). It costs a second model run and a join, and its tool calls are no more parallel than yours. Do NOT spawn one for a bounded lookup chain you can run directly — one search plus a batch or a few fetches from a single integration (a daily GitHub summary, today's calendar, one person's recent mail) is a direct call, not a delegation.",
-    // Kernel: named in the chat/boss prompt as a primary capability; keep it
-    // visible on turn one. `callers` still hides it from sub-agent runs.
+    // Kernel: the boss prompt names it.
     availability: { surface: "kernel", callers: ["boss"] },
     inputSchema: spawnSubAgentInputSchema,
     execute: async (input, ctx) => {
@@ -369,9 +350,7 @@ export const systemTools: readonly RegisteredTool[] = [
         subId: input.subId,
         brief: input.brief,
         allowedIntegrations: requestedAllowed.length > 0 ? requestedAllowed : [...workflowAllowed],
-        // Both are present only when the parent is a chat turn; the child uses
-        // them to stream its tool trail into that turn's bubble. A background
-        // parent has neither, and its child just runs quietly.
+        // Only a chat parent has these. The child streams its trail into that turn.
         ...(ctx.threadId && ctx.messageId
           ? { chat: { threadId: ctx.threadId, messageId: ctx.messageId } }
           : {}),
@@ -384,15 +363,9 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Wait for a spawned sub-agent to finish and read its real result. Call this after system.spawn_sub_agent; it returns the child's terminal status, output, and any error. Never tell the user you'll notify them when a sub-agent is done later — there is no out-of-turn notification; await it here so the turn completes with the real result, or report honestly that it could not finish.",
-    // Kernel: the prompt teaches spawn -> await as one delegation move. Keeping
-    // only spawn eager would make the required join pay an activation bounce and
-    // invalidate the prompt cache mid-run. `callers` still hides both join tools
-    // from sub-agent runs.
+    // Kernel: the prompt teaches spawn then await as one move.
     availability: { surface: "kernel", callers: ["boss"] },
-    // ADR-0073: the dispatcher intercepts this call to park the parent on a
-    // child-completion signal when the child is still running. The `execute`
-    // below is the read-only fallback (terminal children, or a direct call that
-    // bypasses the dispatcher); it never blocks.
+    // ADR-0073: dispatch parks the parent on a running child. `execute` is the non-blocking fallback.
     staging: "join",
     inputSchema: awaitSubAgentInputSchema,
     execute: async (input, ctx) => {
@@ -414,24 +387,11 @@ export const systemTools: readonly RegisteredTool[] = [
       `Give each question ${ASK_USER_LIMITS.options.min} to ${ASK_USER_LIMITS.options.max} options. Put the option you recommend first and end its label with "(Recommended)". ` +
       "Never add an 'Other' option; the card always adds a free-text answer. " +
       "Never put a question for the user in a sub-agent brief; ask here first. Never fill `answers` yourself.",
-    // Boss-only and live-chat-only: a question needs a person watching the
-    // thread. Background workflows have no browser, and a sub-agent returns a
-    // clarification request to its parent instead. Kernel (#1019): the chat
-    // prompt points at this tool for every ambiguous request, and a lazy tool
-    // would cost a search/load bounce and a mid-turn cache bust before the ask.
-    // `callers` and `requiresLiveChat` still hide it outside a live chat boss.
+    // A question needs a person on a live thread. Kernel: the prompt sends every ambiguous request here.
     availability: { surface: "kernel", requiresLiveChat: true, callers: ["boss"] },
-    // ADR-0099: the dispatcher parks the chat turn on a `question` approval.
-    // `execute` runs only on resume, with the decided input the decision route
-    // validated and wrote `answers` into; a row approved with no edit reaches it
-    // without answers and says so.
+    // ADR-0099: `execute` runs only on resume. An approval with no edit has no answers.
     staging: "question",
-    // Two schemas on purpose (ADR-0099). `inputSchema` is what the runtime
-    // validates, so it must accept the `answers` the decision route writes into
-    // the decided input and the resume path re-parses. `modelInputSchema` is
-    // what the model is shown, and it has no `answers` key at all — a model
-    // that can see the key fills it, and then the question arm refuses the
-    // call.
+    // The runtime schema accepts `answers`; the model schema hides it, or the model fills it.
     inputSchema: askUserInput,
     modelInputSchema: askUserModelInput,
     execute: async (input): Promise<AskUserResult> => {
@@ -454,9 +414,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Read Alfred's compact, bounded user context: profile, confirmed facts, preferences, known people/entities, relationship edges, and recent memory. Use before answering questions about people, relationships, standing instructions, preferences, or personal context.",
-    // Kernel: the single most-reached-for source in the chat/boss prompt. Off the
-    // kernel it never preloads (no intent-bearing discovery metadata), so every
-    // "what do you know about X" pays a search/load dance + a mid-run cache bust.
+    // Kernel: it has no intent-bearing discovery metadata, so it would never preload.
     availability: { surface: "kernel" },
     inputSchema: readUserContextInput,
     execute: async (input, ctx) => {
@@ -477,7 +435,6 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Read a value from the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
-    // Run-local read, no external side effect and nothing to approve.
     staging: "fast_path",
     inputSchema: readScratchInput,
     execute: async (input, ctx) => {
@@ -504,8 +461,6 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Write a value to the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
-    // Writes only the run's own scratchpad — internal to the run, never a
-    // user-visible or outbound effect, so there is nothing to stage or approve.
     staging: "fast_path",
     inputSchema: writeScratchInput,
     execute: async (input, ctx) => {
@@ -540,8 +495,6 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description: "Copy a sub-agent scratch value into the boss-owned shared scratchpad.",
     availability: { callers: ["boss"] },
-    // Moves a value between two zones of the run's own scratchpad; same fast
-    // path as the reads/writes it composes.
     staging: "fast_path",
     inputSchema: promoteScratchInput,
     execute: async (input, ctx) => {
@@ -684,9 +637,7 @@ export const systemTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "system",
     action: "suggest_todo",
-    // no_risk + system integration (autonomy) → never gated. A suggestion has
-    // no real-world side effect, so it stays off the approvals HIL path
-    // (ADR-0050); audit lives on the todo row.
+    // A suggestion has no outside effect (ADR-0050). The todo row is the audit.
     riskTier: "no_risk",
     description:
       "Propose a todo for the user's quick rail. Inserts a 'suggested' row the user can accept or dismiss — it never acts on the user's behalf. Idempotent: if a live todo already references one of the given sources, the refs merge into it instead of duplicating. A Gmail thread the user has already answered is suppressed (status 'suppressed', reason 'user_already_replied') — the loop is closed, so do not ask the user to reply again.",
@@ -706,12 +657,9 @@ export const systemTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "system",
     action: "web_search",
-    // Read-only external lookup with no side effect on the user's accounts.
-    // `system.*` tools are always dispatched in autonomy mode, so this never awaits approval.
-    // Cost is bucketed under api_call_log.kind = 'web_search', not the gate.
+    // Cost is logged under api_call_log.kind = 'web_search'.
     riskTier: "no_risk",
-    // Kernel: the prompt's third rung (live web) and a hot path for person/company
-    // research. Eager on turn one so it never triggers the search/load dance.
+    // Kernel: a hot path for person and company research.
     availability: { surface: "kernel" },
     description:
       "Search the live web and get back what the search found: a synthesized answer, source results/citations behind it (open a result URL with fetch_url to read the page in full), and the queries actually run. Use this for current events, facts you're unsure of, or public background on a person or company — don't guess from memory when a lookup would settle it. It surfaces candidate matches even when uncertain rather than stopping at 'no confident match', so treat a thin result as a cue to search a different angle or drill a source, not a dead end.",
@@ -731,10 +679,7 @@ export const systemTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "system",
     action: "fetch_url",
-    // Read-only external fetch with no side effect on the user's accounts —
-    // like web_search, `system.*` tools dispatch in autonomy mode so this never
-    // awaits approval. Honest read-in (ADR-0071): text only, size-bounded,
-    // binary resources reported rather than garbled; host-guarded for SSRF.
+    // ADR-0071: text only, size-bounded, binary reported, host-guarded for SSRF.
     riskTier: "no_risk",
     description:
       "Read the contents of a known http(s) URL in as sanitized text. Use this when you already hold a link (from the user, read_user_context, or a prior tool result) and need what the page actually says — 'read my website', 'summarize this page', 'what does this link say'. This reads a page you can name; use web_search to discover sources for a question instead. Reads JavaScript-rendered pages too (X/Twitter profiles and tweets, and other single-page apps): when the plain read comes back empty it re-fetches through a headless renderer, so prefer it over web_search for 'what's in his bio', 'read his recent tweets' — web_search only sees lagged second-hand commentary about X. Returns readable text (HTML stripped), the page title, and the final URL; binary resources (PDFs, images) are reported honestly, not downloaded.",
@@ -742,18 +687,13 @@ export const systemTools: readonly RegisteredTool[] = [
     execute: async (input) => {
       return await runFetchUrl({ url: input.url });
     },
-    // #293: the tool owns sensitivity — scrub credential-bearing query/fragment
-    // values from the URL before the dispatcher persists it to a sink (span
-    // always; proposed_input when autonomous). The hash + execute still see the
-    // raw URL, so idempotency and the in-tool credential block are unaffected.
+    // Scrub credential values from the URL before it reaches a trace or a staging row.
     redactInput: (input) => ({ ...input, url: redactCredentialUrl(input.url) }),
   }),
   liveTool({
     integration: "system",
     action: "create_artifact",
     executionLane: "artifact_mutation",
-    // Authors a synced artifact row for the user's own sidebar — no external
-    // side effect, so it stays off the approvals path like other system tools.
     riskTier: "no_risk",
     description:
       "Produce a rich artifact the user reads in a side panel: a written `document` (markdown) or a deck/PDF of `pages` (HTML). Use this when the user asks you to write, draft, or build something substantial, instead of dumping it all into the chat reply. Pick the medium by how the deliverable is meant to be consumed, not by which looks more impressive: if it is read as prose — a brief, an overview, a primer, a report, notes, an explainer, a write-up — author a `document`. Reserve `pages` for deliverables that are inherently presentational or visually laid out — a slide deck or presentation to show, a pitch, a designed one-pager, a résumé, a printable PDF. When the ask is ambiguous, default to `document`: it is the right home for reading material and far cheaper to produce, so only reach for `pages` when the user actually signals slides, a deck, a presentation, or a designed/printable page. Opens the artifact; for a `document` author the opening section here (≤~1,800 words) and continue with append_artifact_section — do not attempt the whole document in one call; for `pages` follow with append_artifact_page per page. Each page is body-level HTML authored against the Alfred house shell: write only the page body, not a full standalone document. This is in-app content, not a downloadable file.",

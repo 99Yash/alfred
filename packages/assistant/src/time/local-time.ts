@@ -1,34 +1,11 @@
 /**
- * The one home for the two concepts this module owns: **"which calendar day is
- * it in this zone"** and **"what is the UTC offset at this instant"**. Every
- * locale trick, DST edge, and memoized `Intl` formatter in the API lives here —
- * `packages/api/CLAUDE.md` forbids per-call-site `Intl` glue, and the reason is
- * that the hand-rolls diverge: three different locale hacks for the same day
- * key, and a triage date that came out a day early because it read
- * `getUTCDate()` on the user's evening mail.
- *
- * Two representations, deliberately distinct **and separately typed**:
- *   - a {@link LocalDateKey} (`"2026-06-11"`) — a calendar day with no instant.
- *     Day arithmetic ({@link addDays}) happens here, never in milliseconds, so a
- *     DST transition can't shift the day.
- *   - an **instant** (`Date`) — a point in time. Reading anything off it needs a
- *     zone, which is what {@link inZone} binds.
- *
- * That split is also the module's whole public shape, so a caller never has to
- * recall a name:
- *
- *   - **Needs a zone** → hangs off {@link inZone}. `inZone(tz).day()`,
- *     `.hour()`, `.dayBounds()`, `.startOf(day)`, `.clock()`, `.format(at)`.
- *     The zone binds once, so it stops being an argument — the previous shape
- *     was nine free functions, seven taking the zone last and two taking it
- *     first, which is how `localStartOfDay(timezone, key)` used to compile.
- *   - **Doesn't need a zone** → a free function on the key. {@link addDays},
- *     {@link weekdayIndex}, {@link formatDay}. A day key has no zone left to
- *     re-project through, and taking one is how a UTC+14 user's weekday came
- *     out a day late.
- *
- * Both the day key and the zone are branded, so the compiler — not the argument
- * name — decides which slot a value may occupy.
+ * The one home for "which calendar day is it in this zone" and "what is the UTC
+ * offset now". Do not write `Intl` date code at call sites.
+ * - A {@link LocalDateKey} is a day with no instant. Day math happens on keys,
+ *   never in milliseconds, so DST cannot shift the day.
+ * - An instant needs a zone to read: {@link inZone} binds it.
+ * Zone-free key helpers are free functions: {@link addDays}, {@link weekdayIndex},
+ * {@link formatDay}.
  */
 
 import { type IanaTimezone } from "@alfred/contracts";
@@ -38,17 +15,9 @@ import { type IanaTimezone } from "@alfred/contracts";
 declare const localDateKeyBrand: unique symbol;
 
 /**
- * A calendar day, with no instant and no zone attached: `"2026-06-11"`.
- *
- * Branded because the un-branded version silently confused the two
- * representations. `localStartOfDay(timezone, key)` compiled — both parameters
- * were `string` and the order differed from its sibling `localDateInTimezone`
- * — and `dateParts("2026")` returned `[2026, 0, 1]`, so a truncated key became
- * a plausible wrong answer rather than an error.
- *
- * `inZone(tz).day()` and `inZone(tz).clock()` are the only minters. A plain
- * string arriving from persistence, a workflow's state, or a wire payload enters
- * through {@link parseLocalDateKey} or {@link isLocalDateKey}.
+ * A calendar day with no instant or zone: `"2026-06-11"`. Branded so a key and
+ * a zone cannot swap places (before, `localStartOfDay(timezone, key)` compiled). Strings from storage or the wire enter through
+ * {@link parseLocalDateKey} or {@link isLocalDateKey}.
  */
 export type LocalDateKey = string & { readonly [localDateKeyBrand]: true };
 
@@ -56,12 +25,8 @@ const LOCAL_DATE_KEY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**
  * Parse an untrusted string into a {@link LocalDateKey}, or throw.
- *
- * The gate for every day key that did not come from this module: persisted
- * workflow state, a `briefing_date` column, a validated request field. Rejects
- * both the wrong shape (`"2026"`, `"11/06/2026"`) and a well-formed day that
- * does not exist (`"2026-02-30"`) — `Date.UTC` rolls the latter over in
- * silence, which is the failure mode the brand exists to make impossible.
+ * Rejects a bad shape and a day that does not exist (`"2026-02-30"`), which
+ * `Date.UTC` would silently roll over.
  */
 export function parseLocalDateKey(value: string): LocalDateKey {
   const match = LOCAL_DATE_KEY_RE.exec(value);
@@ -77,18 +42,11 @@ export function parseLocalDateKey(value: string): LocalDateKey {
     throw new Error(`[timezone] not a real calendar day: ${value}`);
   }
 
-  // SAFETY: value passed isLocalDateKey above, which accepts exactly the
-  // YYYY-MM-DD calendar-day shape the brand names.
+  // SAFETY: the regex and the round-trip above prove a real YYYY-MM-DD day.
   return value as LocalDateKey;
 }
 
-/**
- * Whether `value` is a well-formed, existing calendar day in `YYYY-MM-DD` form.
- *
- * The same gate as {@link parseLocalDateKey} for the boundaries that must not
- * throw — a Zod `refine`, a filter over persisted rows. Reach for this instead
- * of re-writing `/^\d{4}-\d{2}-\d{2}$/`, which accepts `"2026-02-30"`.
- */
+/** Non-throwing {@link parseLocalDateKey}. A bare `\d{4}-\d{2}-\d{2}` regex accepts `"2026-02-30"`. */
 export function isLocalDateKey(value: unknown): value is LocalDateKey {
   if (typeof value !== "string") return false;
 
@@ -101,22 +59,14 @@ export function isLocalDateKey(value: unknown): value is LocalDateKey {
   }
 }
 
-/**
- * A key is validated at its minter, so the split is total and needs no
- * `?? 0` fallbacks — the ones this used to carry read as guards but caught
- * nothing, since `??` does not catch the `NaN` that `Number()` produces here.
- */
+/** No fallbacks: the key is valid by its brand. */
 function dateParts(key: LocalDateKey): [year: number, monthIndex: number, day: number] {
   const [year, month, day] = key.split("-");
 
   return [Number(year), Number(month) - 1, Number(day)];
 }
 
-/**
- * Midday UTC on a local date key — the anchor for reading or rendering a key
- * without a zone. Noon, not midnight, so no offset on earth can push the
- * instant into a neighbouring day.
- */
+/** Noon UTC on the key. No offset can push noon into a neighbouring day. */
 function noonUtcOn(key: LocalDateKey): Date {
   return new Date(Date.UTC(...dateParts(key), 12));
 }
@@ -124,23 +74,9 @@ function noonUtcOn(key: LocalDateKey): Date {
 // ─── Formatters ───────────────────────────────────────────────────────────
 
 /**
- * A locale + options pair, declared once at module scope.
- *
- * Constructing an `Intl.DateTimeFormat` allocates dozens of objects per locale
- * lookup, and these run per request (`inZone(tz).dayBounds()`) and three times
- * per converge loop (`inZone(tz).startOf(day)`), so they are memoized. The cache
- * is keyed by the recipe **object** rather than by a hand-written string: a key
- * like `"dayShort"` or `` `date:${tz}` `` has no enforced relationship to the
- * options it stands for, so a later entry could reuse one and get back a
- * formatter built from different options. Object identity cannot drift from what
- * it identifies.
- *
- * Keeping the recipes in one table is also the only place the locale choices
- * are comparable. They are not interchangeable — `sv-SE` is the ISO-shaped day
- * key, `en-GB` is day-month-year prose, `en-US` is the terse `Jun 11` a rail
- * todo carries — and the table is what makes a divergence visible instead of
- * hiding one per function. Weekday *logic* never reads these: see
- * {@link weekdayIndex}.
+ * A locale and options pair. The formatter cache keys on the recipe object, so
+ * a key cannot point at the wrong options. `Intl.DateTimeFormat` is expensive
+ * to build. Decisions never read formatted text: use {@link weekdayIndex}.
  */
 interface FormatRecipe {
   readonly locale: string;
@@ -167,15 +103,7 @@ function formatterFor(recipe: FormatRecipe, timeZone: string): Intl.DateTimeForm
   return formatter;
 }
 
-/**
- * Read one `formatToParts` field, or throw.
- *
- * One posture for a missing part, everywhere in this module. The alternative —
- * substituting `""` — assembled `"--"` for a date and `"::"` for a time and
- * handed them to `system.current_time` and the agent's `<runtime_context>`
- * line, where a malformed clock string is strictly worse than a failure the
- * run can surface: the model reads it verbatim and reasons from it.
- */
+/** Throw on a missing part. A `"--"` date would reach the model as fact. */
 function requirePart(
   parts: readonly Intl.DateTimeFormatPart[],
   type: Intl.DateTimeFormatPartTypes,
@@ -190,7 +118,7 @@ function requirePart(
   return value;
 }
 
-/** `sv-SE` formats dates as `YYYY-MM-DD` natively — the shortest path to a stable day key. */
+/** `sv-SE` formats dates as `YYYY-MM-DD`. */
 const DAY_KEY_RECIPE: FormatRecipe = {
   locale: "sv-SE",
   options: { year: "numeric", month: "2-digit", day: "2-digit" },
@@ -218,11 +146,7 @@ const INSTANT_RECIPE: FormatRecipe = {
   },
 };
 
-/**
- * `en-CA` with `hourCycle: "h23"` gives zero-padded numeric parts in every
- * field, so the date and time strings assemble without per-field locale
- * guessing.
- */
+/** `en-CA` with `h23` gives zero-padded numeric parts in every field. */
 const WALL_CLOCK_RECIPE: FormatRecipe = {
   locale: "en-CA",
   options: {
@@ -244,35 +168,23 @@ export function addDays(key: LocalDateKey, days: number): LocalDateKey {
   const next = noonUtcOn(key);
   next.setUTCDate(next.getUTCDate() + days);
 
-  // SAFETY: the first ten chars of an ISO instant are exactly YYYY-MM-DD,
-  // which is the LocalDateKey brand's whole claim.
+  // SAFETY: the first ten chars of an ISO instant are YYYY-MM-DD.
   return next.toISOString().slice(0, 10) as LocalDateKey;
 }
 
 /**
- * Day-of-week for a local date key, `0` = Sunday … `6` = Saturday.
- *
- * The reading every weekend/weekday *decision* uses. Deriving one from a
- * formatted weekday name — `formatDay(key, "weekday") === "Saturday"` — couples
- * a policy to a locale choice in another file, where changing the locale looks
- * cosmetic and silently breaks the decision.
+ * `0` = Sunday ... `6` = Saturday. Use this for weekday decisions, never a
+ * formatted weekday name: a locale change would silently break the check.
  */
 export function weekdayIndex(key: LocalDateKey): 0 | 1 | 2 | 3 | 4 | 5 | 6 {
-  // SAFETY: getUTCDay returns exactly 0-6 by spec; the literal union restates
-  // that domain fact for the compiler.
+  // SAFETY: getUTCDay returns 0-6 by spec.
   return noonUtcOn(key).getUTCDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6;
 }
 
 /**
- * How to render a {@link LocalDateKey} as prose. A closed set, so adding the
- * next presentation is one entry in {@link DAY_STYLE_RECIPES} and an unhandled
- * one is a type error — where three separate `formatLocalDay*` exports grew a
- * new name per call site instead.
- *
- * - `short` — `"Jun 11"`, the fragment a rail todo's `assist` line carries.
- * - `long` — `"Wednesday, 10 June 2026"`, the agent's date grounding.
- * - `weekday` — `"Wednesday"`, for display only; decisions use
- *   {@link weekdayIndex}.
+ * - `short`: `"Jun 11"`.
+ * - `long`: `"Wednesday, 10 June 2026"`.
+ * - `weekday`: `"Wednesday"`, for display only.
  */
 export type LocalDayStyle = "short" | "long" | "weekday";
 
@@ -286,12 +198,8 @@ const DAY_STYLE_RECIPES = {
 } satisfies Record<LocalDayStyle, FormatRecipe>;
 
 /**
- * Render a local date key as prose in the given style.
- *
- * Renders the key at noon UTC *in UTC*, and takes no zone at all: a key is
- * already a calendar day, so re-projecting it through a zone is how a UTC+14
- * user's weekday came out a day late. Not having the parameter is what makes
- * that unrepresentable rather than merely documented.
+ * Render a key in UTC, with no zone parameter. Projecting a key through a zone
+ * once showed a UTC+14 user's weekday a day late.
  */
 export function formatDay(key: LocalDateKey, style: LocalDayStyle): string {
   return formatterFor(DAY_STYLE_RECIPES[style], "UTC").format(noonUtcOn(key));
@@ -299,90 +207,52 @@ export function formatDay(key: LocalDateKey, style: LocalDayStyle): string {
 
 // ─── The zone clock: every reading that needs a zone ──────────────────────
 
-/** Wall-clock reading in a zone — every field the `system.current_time` tool reports. */
+/** Every field the `system.current_time` tool reports. */
 export interface LocalWallClock {
-  /** Local date key, `YYYY-MM-DD`. */
   localDate: LocalDateKey;
-  /** 24-hour local time, `HH:MM:SS`. */
+  /** 24-hour `HH:MM:SS`. */
   localTime: string;
-  /** Full local weekday name, e.g. `"Monday"`. */
+  /** `"Monday"`. */
   weekday: string;
-  /** Signed ISO offset at this instant, e.g. `"+05:30"`. */
+  /** `"+05:30"`. */
   utcOffset: string;
 }
 
-/**
- * Every reading that needs a zone, with the zone already bound. Obtained from
- * {@link inZone}; there is no other way to get one, and no reading here is
- * reachable without one.
- *
- * `at` defaults to now on every reading, because "now" is what the overwhelming
- * majority of call sites mean and threading `new Date()` through them added
- * nothing. Tests and replay pass the instant explicitly.
- */
+/** Zone-bound readings from {@link inZone}. `at` defaults to now. */
 export interface ZoneClock {
-  /** The bound zone, so a `ZoneClock` can be passed where a zone was. */
   readonly timezone: IanaTimezone;
 
-  /**
-   * Which calendar day it is here. The day-segment of the briefing idempotency
-   * key, so the same machine-day in a user's zone never sends twice.
-   *
-   * The mint is re-parsed rather than cast: if a future ICU release changed what
-   * `sv-SE` emits, this throws instead of poisoning every day key in the system.
-   */
+  /** Re-parsed, not cast, so an ICU change throws instead of corrupting keys. */
   day(at?: Date): LocalDateKey;
 
-  /** 0–23 hour-of-day here. */
+  /** 0-23. */
   hour(at?: Date): number;
 
-  /**
-   * Signed offset from UTC, in milliseconds. The only place the `longOffset`
-   * string is parsed — {@link LocalWallClock.utcOffset} and the day-boundary
-   * converge loop both derive from this one reader.
-   */
+  /** The only parser of the `longOffset` string. */
   offsetMs(at?: Date): number;
 
-  /** The whole wall clock here, in one `Intl` pass. */
   clock(at?: Date): LocalWallClock;
 
   /**
-   * The UTC instant at which `hour:00` begins on `day` here — midnight by
-   * default. Converges, because the offset depends on the answer (it changes
-   * across a DST boundary); three passes is enough for every real zone.
+   * UTC instant where `hour:00` starts on `day`. Iterates, because the offset
+   * depends on the answer across DST. Three passes suffice for every real zone.
    */
   startOf(day: LocalDateKey, hour?: number): Date;
 
   /**
-   * `[start, end)` for the calendar day containing `at`. Each bound converges on
-   * *its own* offset, so a DST transition day correctly yields a 23h or 25h
-   * window — where deriving "tomorrow" as `now + 86_400_000` collapsed a
-   * fall-back morning to a **one-hour** window.
+   * `[start, end)` of the day holding `at`. Each bound uses its own offset, so a
+   * DST day is 23h or 25h. `now + 86_400_000` gets this wrong.
    */
   dayBounds(at?: Date): { start: Date; end: Date };
 
-  /**
-   * Render an instant as it reads here: `"Mon, Jun 11, 3:04 PM"`. One style, so
-   * it takes no style argument; a second one arrives as a closed enum the way
-   * {@link LocalDayStyle} did.
-   */
+  /** `"Mon, Jun 11, 3:04 PM"`. */
   format(at: Date): string;
 }
 
-// Declared before `inZone` so a module-scope caller can't hit the temporal dead
-// zone. Bounded in practice by the valid IANA zones (~600), same argument as the
-// formatter cache above.
+// Declared before `inZone` to avoid the temporal dead zone. Bounded by the IANA zone count.
 const clockCache = new Map<IanaTimezone, ZoneClock>();
 
-/**
- * Bind a zone and get every reading that needs one.
- *
- * Memoized per zone: the returned clock holds no expiring resource and no
- * lifetime rule — it is a pure binding over the module-scope formatter cache —
- * so `inZone(tz).day()` inline at a call site is as cheap as holding one. That
- * is deliberately unlike a memo around a *credential*, which would convert a
- * cache into a lifetime rule for the caller; there is nothing here to expire.
- */
+/** Bind a zone. Memoized per zone and holds nothing that expires, so call it inline. */
 export function inZone(timezone: IanaTimezone): ZoneClock {
   const cached = clockCache.get(timezone);
 
@@ -435,8 +305,7 @@ function bindZone(timezone: IanaTimezone): ZoneClock {
 
     hour: (at: Date = new Date()): number => {
       const parts = formatterFor(HOUR_RECIPE, timezone).formatToParts(at);
-      // `hour: 'numeric'` with `hour12: false` returns "0".."23"; some engines
-      // emit "24" at midnight. Normalize.
+      // Some engines emit "24" at midnight.
       const value = Number(requirePart(parts, "hour", timezone));
 
       return value === 24 ? 0 : value;
@@ -466,7 +335,7 @@ function bindZone(timezone: IanaTimezone): ZoneClock {
   };
 }
 
-/** A signed offset in milliseconds as an ISO fragment (`"+05:30"`, `"-04:00"`). */
+/** `"+05:30"`, `"-04:00"`. */
 function isoOffset(offsetMs: number): string {
   const sign = offsetMs < 0 ? "-" : "+";
   const totalMinutes = Math.abs(offsetMs) / 60_000;

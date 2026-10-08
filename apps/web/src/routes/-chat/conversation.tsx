@@ -41,17 +41,10 @@ import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
 
 /**
- * Scrollable message feed. Renders the synced (durable) messages, then — if a
- * turn is mid-flight and its durable copy hasn't synced yet — the live
- * streaming bubble. Auto-sticks to the bottom as content grows unless the
- * user has scrolled up to read history.
- *
- * The durable transcript is windowed by react-virtuoso (issue #496): because
- * backend compaction never deletes raw messages, a long thread's rendered node
- * count would otherwise grow without bound. Only rows near the viewport stay
- * mounted; the rest are virtualized in on scroll. The full message array still
- * lives in memory (Replicache syncs the whole thread and only ever appends), so
- * this is pure DOM windowing — no prepend/`firstItemIndex` paging is needed.
+ * Scrollable message feed: synced messages, then the live streaming bubble.
+ * Sticks to the bottom unless the user scrolls up.
+ * react-virtuoso windows the DOM (#496): compaction never deletes messages, so long threads grow forever.
+ * Replicache only appends, so no prepend paging is needed.
  */
 export function Conversation({
   messages,
@@ -66,73 +59,44 @@ export function Conversation({
   messages: SyncedChatMessage[];
   stream: StreamingMessage | null;
   onFollowUp?: ((text: string) => void) | undefined;
-  /**
-   * Re-send the user turn behind a failed reply (the "Retry" affordance). The
-   * second arg carries that turn's attachment ids, and the third binds those ids
-   * to their source user message so the server can scope the copy.
-   */
+  /** Re-send the user turn behind a failed reply, with its attachment ids and source message. */
   onRetry?:
     | ((text: string, retryAttachmentIds?: string[], retryAttachmentMessageId?: string) => void)
     | undefined;
-  /** Follow-up chips rendered under the last completed reply (built by the parent). */
+  /** Follow-up chips under the last completed reply. */
   followUps?: ReadonlyArray<FollowUpSuggestion> | undefined;
-  /** Opens an artifact in the sidebar (from a message's trigger card). */
   onOpenArtifact?: ((artifactId: string) => void) | undefined;
-  /** The artifact currently open in the sidebar, so its card shows "Viewing". */
+  /** The artifact open in the sidebar, so its card shows "Viewing". */
   openArtifactId?: string | null | undefined;
   /**
-   * Staged actions for the live run awaiting the user's decision. Rendered
-   * inline at the tail of the streaming turn, right under the tool trail whose
-   * action they gate (ChatApprovalTray). Empty once every row is decided — the
-   * rows disappear the moment a decision syncs out, so the cards clear with
-   * them, and stay up while any remain pending in a multi-step approval.
+   * Pending approvals for the live run, shown at the tail of the streaming turn.
+   * Each row disappears when its decision syncs.
    */
   approvals?: readonly SyncedActionStaging[] | undefined;
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
-  // The raw Virtuoso scroller element, captured via `scrollerRef`. The live
-  // reply streams into the list *Footer* (not a data row); Virtuoso's own
-  // `autoscrollToBottom` is gated by `atBottomThreshold`, so it ignores the
-  // small per-drip growth and only nudges once the gap crosses the threshold —
-  // leaving the newest text streaming in just below the fold ("the chat doesn't
-  // go down as the response streams in"). Pinning this element straight to
-  // `scrollHeight` each drip follows the footer exactly, with no threshold lag.
+  // Virtuoso's `autoscrollToBottom` waits for `atBottomThreshold`, so small stream growth stays below the fold.
+  // Pinning this element to `scrollHeight` follows the footer with no lag.
   const scrollerElRef = useRef<HTMLElement | null>(null);
-  // The streaming footer's outer element and a ResizeObserver over it. The pin
-  // effect below only fires on React `[messages, stream]` updates, but the footer
-  // also grows *asynchronously* between updates — the tool trail's auto-animate
-  // slides rows in, the accordion expands, markdown reflows as code/images
-  // render. A one-shot pin then lands against the pre-growth height, leaving the
-  // newest content below the fold (reads as "autoscroll stopped") and crammed
-  // against the composer (the footer's bottom padding scrolled out of view). The
-  // observer re-pins through that async growth; it fires only on real box changes
-  // (no polling, no forced reflow), routing through the same coalesced pin.
+  // The footer also grows between React updates (auto-animate, accordion, markdown reflow).
+  // A ResizeObserver on it re-pins through that growth.
   const footerElRef = useRef<HTMLElement | null>(null);
   const footerResizeRef = useRef<ResizeObserver | null>(null);
   const stickRef = useRef(true);
-  // Bottom-most mounted row index, so a jump can pick smooth (the live edge is
-  // near, animating through it reads as "catching up") over instant (the edge
-  // is hundreds of unmeasured rows away — a smooth scroll would animate toward a
-  // guessed height and stall partway, never reaching the bottom).
+  // Smooth jumps stall across many unmeasured rows, so use smooth only when the live edge is near.
   const lastRenderedIndexRef = useRef(0);
-  // Body of the just-finished stream, so its copy button can lift the rendered
-  // HTML before the durable copy syncs in and takes over (see the footer).
+  // Lets the finished stream's copy button read the HTML before the durable copy syncs.
   const streamBodyRef = useRef<HTMLDivElement | null>(null);
-  // Drives the floating "scroll to latest" button — shown only while the user
-  // has scrolled up off the live edge.
   const [showJump, setShowJump] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
 
   const showStream = shouldShowStream(messages, stream);
 
-  // Attachments for this thread, grouped by message id (ADR-0065). One
-  // subscription for the whole feed; each row looks up its own.
+  // Attachments grouped by message id (ADR-0065). One subscription for the feed.
   const threadId = messages[0]?.threadId;
   const attachmentsByMessage = useChatAttachmentsByMessage(threadId);
 
-  // Agent-produced artifacts for this thread (ADR-0075), grouped by the
-  // assistant message that authored each one — that message renders a trigger
-  // card. A run can produce more than one artifact, so the value is a list.
+  // Artifacts grouped by authoring message (ADR-0075). A run can make more than one.
   const threadArtifacts = useThreadArtifacts(threadId);
 
   const artifactsByMessage = useMemo(() => {
@@ -149,9 +113,7 @@ export function Conversation({
     return map;
   }, [threadArtifacts]);
 
-  // Per-row data handed to Virtuoso's `context`. Stable between durable updates
-  // (it does not carry the streaming snapshot), so windowed rows stay memoized
-  // and do not re-render on every streaming frame — only the footer does.
+  // Leaves out the stream snapshot, so windowed rows do not re-render each streaming frame.
   const itemContext = useMemo<FeedItemContext>(
     () => ({
       messages,
@@ -167,11 +129,7 @@ export function Conversation({
   const streamTimingRefs = useStreamRenderTiming(showStream ? stream : null);
 
   // ---- Follow the live edge -------------------------------------------
-  // While a turn is in flight the viewport rides the bottom so the newest
-  // activity — reasoning, the tool group's current step, the reply text —
-  // stays in view without the user touching the scrollbar. Scrolling up to
-  // read history detaches it (see `onAtBottomChange`); sending a new message
-  // re-engages it so the next turn follows from the start.
+  // Scrolling up detaches; sending a new message re-attaches.
   const lastUserId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -182,17 +140,9 @@ export function Conversation({
     return null;
   }, [messages]);
 
-  // Re-engage stick-to-bottom when the user sends a new message (the last
-  // user-message id changes) — even if they had scrolled up to read history.
-  // `followOutput`/`autoscrollToBottom` only pin when already near the bottom,
-  // so from far up we jump explicitly to the live edge. Skip the mount run
-  // (`initialTopMostItemIndex` + the thread-switch effect already open at the
-  // edge); this fires only on genuinely new user turns after that. An assistant
-  // message landing while detached is not a user turn, so it never yanks.
-  //
-  // The jump-button reset is a state-on-prop-change, so it happens inline during
-  // render via a prev-id compare — routing it through the effect would leave the
-  // stale button up for a frame. The effect below only does the imperative jump.
+  // A new user message jumps to the live edge, even from far up.
+  // `followOutput` only pins near the bottom, so the jump is explicit. Skip the mount run.
+  // The jump-button reset happens during render; through the effect, a stale button shows for a frame.
   const firstUserTurn = useRef(true);
   const [prevLastUserId, setPrevLastUserId] = useState(lastUserId);
 
@@ -213,12 +163,7 @@ export function Conversation({
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
   }, [lastUserId]);
 
-  // Re-attach when the viewport returns to the bottom. Detach is driven by
-  // `releasePin` below, not here: the streaming pin re-writes `scrollTop` every
-  // drip, so by the time Virtuoso re-evaluates `atBottom` the pin has already
-  // yanked us back — this callback would never see the scroll-up. It still
-  // handles the re-attach edge (returning to the bottom flips `atBottom` true)
-  // and keeps the jump button in sync with a genuine bottom arrival.
+  // Re-attach only. `releasePin` detaches, because the pin rewrites `scrollTop` before `atBottom` can flip.
   const onAtBottomChange = useCallback((atBottom: boolean) => {
     if (atBottom) {
       stickRef.current = true;
@@ -226,14 +171,9 @@ export function Conversation({
     }
   }, []);
 
-  // Release the pin the instant the user tries to scroll up. We detect the
-  // *intent* (a wheel-up or a touch drag) rather than a scroll-position delta:
-  // the pin re-writes `scrollTop` every drip, so any position-based check either
-  // loses the race to the next pin or misses a slow drag whose per-event steps
-  // never accumulate. Intent fires ahead of the pin and needs no accumulation.
-  // Downward wheels are ignored — at the live edge there's nowhere further down,
-  // and this must not fight the feed's own downward pins. Re-attach (returning
-  // to the bottom) is handled by `onAtBottomChange`.
+  // Detect scroll-up intent (wheel up, touch drag), not a position delta.
+  // The pin rewrites `scrollTop` every drip, so a position check loses the race.
+  // Ignore downward wheels so this does not fight the pin.
   const releasePin = useCallback(() => {
     if (!stickRef.current) return;
     stickRef.current = false;
@@ -247,8 +187,7 @@ export function Conversation({
     [releasePin],
   );
 
-  // Capture the scroller element and own its input listeners. Stable identity so
-  // Virtuoso doesn't tear the listeners down and rebuild them every render.
+  // Stable identity, so Virtuoso does not rebuild the listeners each render.
   const attachScroller = useCallback(
     (ref: HTMLElement | Window | null) => {
       const prev = scrollerElRef.current;
@@ -273,36 +212,19 @@ export function Conversation({
     lastRenderedIndexRef.current = range.endIndex;
   }, []);
 
-  // Follow the live edge as the footer's streaming bubble grows. `stream` is a
-  // fresh snapshot each drip tick, so this fires per frame during a turn and on
-  // each new durable message. The footer is fully rendered (not a virtualized
-  // row), so its height is exact in the DOM — pinning the scroller straight to
-  // its bottom rides the newest text with zero lag. `autoscrollToBottom` alone
-  // can't: it's gated by `atBottomThreshold`, so it skips the small per-drip
-  // growth and only jerks the view down once the gap exceeds the threshold,
-  // leaving the live text below the fold. We still call it afterward — it's a
-  // no-op while pinned, but for a freshly appended durable row whose height
-  // Virtuoso hasn't measured yet it supplies the measurement-aware scroll a raw
-  // `scrollTop` would land short of.
-  //
-  // The `scrollHeight` read + `scrollTop` write are deferred into one rAF rather
-  // than run inline in the effect. Running inline reads layout immediately after
-  // React's commit mutated the footer, forcing a synchronous reflow every drip
-  // (a ~1.1s ForcedReflow window in the streaming trace). Coalescing into a
-  // single rAF means at most one read+write per frame no matter how many drips
-  // land, and the read happens at the frame's natural layout point — the pending
-  // rAF always reads the *live* `scrollHeight`, so a burst still lands at the
-  // true bottom.
+  // Pin to the bottom on each stream tick. The footer is not virtualized, so its height is exact.
+  // `autoscrollToBottom` still runs to measure a new durable row that Virtuoso has not measured yet.
+  // The read and write share one rAF; inline, they forced a reflow every drip.
   const pinRafRef = useRef<number | null>(null);
 
   const schedulePin = useCallback(() => {
     if (!stickRef.current) return;
 
-    if (pinRafRef.current != null) return; // one pin per frame — coalesce the burst
+    if (pinRafRef.current != null) return; // one pin per frame
     pinRafRef.current = requestAnimationFrame(() => {
       pinRafRef.current = null;
 
-      if (!stickRef.current) return; // user scrolled up before the frame ran
+      if (!stickRef.current) return; // user scrolled up meanwhile
       const el = scrollerElRef.current;
 
       if (el) el.scrollTop = el.scrollHeight;
@@ -314,21 +236,9 @@ export function Conversation({
     schedulePin();
   }, [messages, stream, schedulePin]);
 
-  // Re-pin on *asynchronous* footer growth the effect above can't see. A React
-  // `[messages, stream]` update fires once per streamed snapshot, but the footer
-  // keeps growing between snapshots: the tool trail's auto-animate slides rows
-  // in, the accordion expands, markdown reflows as code/images finish rendering.
-  // Observing the footer's box catches every such change (and only real ones —
-  // no polling).
-  //
-  // The pin here is *synchronous*, not deferred through the rAF above: a
-  // ResizeObserver callback runs after the browser's layout pass, so `scrollHeight`
-  // is already computed (a cheap read, no forced reflow) and the `scrollTop` write
-  // lands before paint — the frame of lag a rAF would add is exactly what left the
-  // view trailing the growing trail by ~30px through every animation window.
-  // Writing `scrollTop` doesn't change the observed box's size, so it can't
-  // re-trigger the observer (no feedback loop). The observer target is swapped
-  // live by `setFooterEl` as the footer mounts/unmounts across turns.
+  // Re-pin on footer growth between React updates.
+  // Pin synchronously here: after layout the read is cheap, and a rAF left the view ~30px behind.
+  // Writing `scrollTop` does not resize the footer, so there is no feedback loop.
   useEffect(() => {
     if (typeof ResizeObserver === "undefined") return;
 
@@ -359,9 +269,7 @@ export function Conversation({
     if (ro && el) ro.observe(el);
   }, []);
 
-  // Cancel any pending pin on unmount (the coalescing guard means the effect
-  // above never returns a per-run cleanup — that would cancel the burst's pin
-  // before it fires).
+  // Cancel a pending pin on unmount. A per-run cleanup would cancel the burst's pin.
   useEffect(
     () => () => {
       if (pinRafRef.current != null) cancelAnimationFrame(pinRafRef.current);
@@ -369,14 +277,8 @@ export function Conversation({
     [],
   );
 
-  // Jump back to the live edge and re-engage stick-to-bottom. `scrollToIndex` is
-  // measurement-aware — it re-targets as it mounts unmeasured rows, so it lands
-  // exactly at the bottom (a raw `scrollTo(scrollHeight)` chases an estimated
-  // height and stalls partway). Smooth reads as "catching up" but can only
-  // animate through already-measured rows, so it's used only when the live edge
-  // is close; from far up (or under reduced motion) the jump is instant so it
-  // reliably reaches the bottom. If a turn is streaming, stick-to-bottom then
-  // rides the footer into view on the next drip tick.
+  // `scrollToIndex` measures rows as it goes, so it lands at the true bottom.
+  // Smooth only near the edge or it stalls; instant under reduced motion.
   const jumpToBottom = useCallback(() => {
     stickRef.current = true;
     setShowJump(false);
@@ -389,8 +291,7 @@ export function Conversation({
     });
   }, [reducedMotion, messages.length]);
 
-  // The finish toast's "Open" action jumps back to the live edge — useful when
-  // the user had scrolled up before the away-reply landed.
+  // The finish toast's "Open" action.
   const onScrollRequest = useEffectEvent(() => jumpToBottom());
   useEffect(() => {
     const handler = () => onScrollRequest();
@@ -399,11 +300,8 @@ export function Conversation({
     return () => window.removeEventListener(SCROLL_CHAT_TO_BOTTOM_EVENT, handler);
   }, []);
 
-  // Re-land at the bottom when the user switches threads. The component stays
-  // mounted across `/chat/$threadId` navigations (only `messages` swaps), so
-  // `initialTopMostItemIndex` — which applies once on mount — can't do it. As
-  // above, the jump-button reset is a state-on-prop-change done inline during
-  // render (a prev-id compare); the effect just performs the imperative jump.
+  // The component stays mounted across thread navigations, so `initialTopMostItemIndex` cannot re-land.
+  // The jump-button reset happens during render; the effect only jumps.
   const [prevThreadId, setPrevThreadId] = useState(threadId);
 
   if (threadId !== prevThreadId) {
@@ -449,10 +347,7 @@ export function Conversation({
 
   const followOutput = useCallback(() => (stickRef.current ? ("auto" as const) : false), []);
 
-  // Open at the live edge. Virtuoso reads this once on mount, so a lazy initial
-  // state (rather than a memo over `messages`) captures the initial count
-  // without re-computing as the thread grows. Thread switches are re-landed by
-  // the `threadId` effect above.
+  // Virtuoso reads this once on mount. Thread switches re-land through the effect above.
   const [initialIndex] = useState(() => ({
     index: Math.max(0, messages.length - 1),
     align: "end" as const,
@@ -507,10 +402,8 @@ const renderItem = (index: number, message: SyncedChatMessage, context: FeedItem
 );
 
 /**
- * One durable message and any artifact trigger cards it authored. Memoized on
- * message identity so streaming re-renders (which change only the footer) leave
- * the windowed rows untouched. The `pb-5` replaces the feed's old inter-row
- * `gap-5`, since virtualized items stack with no gap of their own.
+ * One message and its artifact cards. Memoized so streaming leaves rows alone.
+ * `pb-5` replaces a gap, because virtualized items have none.
  */
 const FeedRow = memo(function FeedRow({
   index,
@@ -553,10 +446,8 @@ const FeedRow = memo(function FeedRow({
 });
 
 // ---- Header / List / Footer chrome ------------------------------------
-// Stable module-level component set so Virtuoso never remounts the chrome.
-// The footer reads the live streaming snapshot from React context, keeping it
-// out of Virtuoso's `context` (which would re-render every windowed row per
-// streaming frame).
+// Module-level so Virtuoso never remounts them. The footer reads the stream from context,
+// not Virtuoso's `context`, which would re-render every row per frame.
 
 interface FeedFooterValue {
   showStream: boolean;
@@ -566,7 +457,7 @@ interface FeedFooterValue {
   followUps: ReadonlyArray<FollowUpSuggestion>;
   onFollowUp?: ((text: string) => void) | undefined;
   approvals: readonly SyncedActionStaging[];
-  /** Registers the footer's outer element with the parent's re-pin observer. */
+  /** Registers the footer with the parent's re-pin observer. */
   setFooterEl: (el: HTMLElement | null) => void;
 }
 
@@ -605,19 +496,12 @@ function FeedFooter() {
     setFooterEl,
   } = ctx;
 
-  // Order the pending approvals to match the tool trail above, so each card sits
-  // under the call it gates. Approvals whose tool card isn't in the live stream
-  // (e.g. a cold reload that missed the transient `started` event) fall to the
-  // end in `createdAt` order.
+  // Sort approvals in tool-trail order. Ones with no tool card in the stream go last.
   const orderedApprovals = orderApprovalsByTool(approvals, stream);
 
   return (
-    // Match FeedList's column: Virtuoso renders the Footer as a *sibling* of the
-    // List (not a child), so without this the streaming bubble spans the full
-    // viewport width and then snaps into the padded column the instant the
-    // durable message syncs in as a list row. `setFooterEl` registers this
-    // element with the parent's re-pin observer so async footer growth (the tool
-    // trail auto-animating, markdown reflow) keeps riding the live edge.
+    // Virtuoso renders the Footer as a sibling of the List, so match its column here.
+    // Without it the bubble snaps width when the durable row syncs.
     <div ref={setFooterEl} className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pb-6">
       {onFollowUp && followUps.length > 0 ? (
         <FollowUpSuggestions suggestions={followUps} onPick={onFollowUp} />
@@ -635,8 +519,7 @@ function FeedFooter() {
             </div>
           ) : null}
 
-          {/* No `tools.length` gate: a step whose cards all bounced still has
-           * prose to draw, and `ToolCallGroup` owns that emptiness rule. */}
+          {/* No `tools.length` gate: `ToolCallGroup` owns the empty case. */}
           <ToolCallGroup
             tools={stream.tools}
             narration={stream.narration}
@@ -644,9 +527,7 @@ function FeedFooter() {
             active={!stream.done}
           />
 
-          {/* The action(s) a gated run is parked on, inline right under the tool
-           * trail that proposed them. The tray no-ops when there's nothing to
-           * decide. */}
+          {/* The actions a gated run waits on, under the trail that proposed them. */}
           <ChatApprovalTray
             runId={stream.runId}
             approvals={orderedApprovals}
@@ -670,8 +551,7 @@ function FeedFooter() {
             </div>
           ) : null}
 
-          {/* A connection-health bounce can land mid-turn (#378 item 3); the
-           * repair offer shows the moment it does, not when the turn lands. */}
+          {/* A connection bounce can land mid-turn (#378 item 3). */}
           {stream.connectNudges.length > 0 ? (
             <ConnectNudgeRows nudges={stream.connectNudges} />
           ) : null}
@@ -687,9 +567,7 @@ function FeedFooter() {
 
           {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
 
-          {/* The live bubble holds the copy affordance during the brief window
-           * between "done" and the durable copy syncing in (which then renders
-           * its own MessageBubble copy button). */}
+          {/* Holds the copy button until the durable copy syncs in. */}
           {stream.done && stream.text.length > 0 ? (
             <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
           ) : null}
@@ -708,12 +586,9 @@ const FEED_COMPONENTS: Components<SyncedChatMessage, FeedItemContext> = {
 };
 
 /**
- * Resolves the user message preceding a failed reply into a bound retry handler.
- * A turn is retryable when it has text *or* at least one ready attachment — the
- * latter is what makes an image-only turn (empty content) retryable. The ready
- * attachments' ids ride along so the server can copy their bytes onto the new
- * message (ADR-0065). Attachment-specific failures also get a text-only retry
- * when there is text to salvage.
+ * Bind a retry for the user turn before a failed reply.
+ * Retryable with text or a ready attachment; attachment ids go along (ADR-0065).
+ * Attachment failures also get a text-only retry when there is text.
  */
 function prevUserTurn(
   messages: readonly SyncedChatMessage[],
@@ -745,13 +620,8 @@ function prevUserTurn(
 }
 
 /**
- * Floating jump-to-latest control, doubling as a live-activity pill. Appears
- * only when the user has scrolled up off the live edge; clicking re-attaches
- * stick-to-bottom. While a turn is streaming it widens into a pill that names
- * the current step ("Checking your calendar…", "Responding…") behind a breathing
- * Alfred mark, so a user reading history still sees what Alfred is doing without
- * scrolling back down. With no turn in flight it stays the quiet round arrow.
- * Borrowed from dimension's chat, whose long threads surface the same affordance.
+ * Jump-to-latest button, shown when the user scrolls up.
+ * While streaming it widens into a pill that names the current step.
  */
 function ActivityPill({
   show,
@@ -763,8 +633,7 @@ function ActivityPill({
   onClick: () => void;
 }) {
   return (
-    // A centered non-interactive band so the pill can grow/shrink around its
-    // midpoint; only the button itself takes pointer events.
+    // Only the button takes pointer events.
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
       <button
         type="button"
@@ -809,12 +678,7 @@ const EMPTY_FOLLOW_UPS: ReadonlyArray<FollowUpSuggestion> = [];
 
 const EMPTY_APPROVALS: readonly SyncedActionStaging[] = [];
 
-/**
- * Orders pending approvals to match the live tool trail so each decision card
- * sits under the call it gates. Any approval whose tool card isn't in the stream
- * (a cold reload that missed the transient `started` event) sorts after the
- * matched ones, by `createdAt`.
- */
+/** Sort approvals in tool-trail order. Ones with no tool card go last, by `createdAt`. */
 function orderApprovalsByTool(
   approvals: readonly SyncedActionStaging[],
   stream: StreamingMessage | null,
@@ -833,10 +697,7 @@ function orderApprovalsByTool(
   });
 }
 
-/**
- * Tracks the user's reduced-motion preference reactively (SSR-safe). Used to
- * turn the jump-to-latest scroll animation into an instant jump.
- */
+/** Reduced-motion preference, SSR-safe. */
 function usePrefersReducedMotion(): boolean {
   return useSyncExternalStore(
     subscribeReducedMotion,
@@ -916,9 +777,7 @@ function useRefCallback<T extends Element>(
   callback: (el: T | null) => void,
 ): (el: T | null) => void {
   const callbackRef = useRef(callback);
-  // No dep array: `callback` is a fresh closure every render, so the ref must
-  // resync every commit. Listing `[callback]` would only pretend the effect is
-  // conditional while still firing every render.
+  // No dep array: `callback` is new each render, so resync every commit.
   useEffect(() => {
     callbackRef.current = callback;
   });
@@ -926,7 +785,7 @@ function useRefCallback<T extends Element>(
   return useMemo(() => (el: T | null) => callbackRef.current(el), []);
 }
 
-/** True on Apple platforms — picks the ⌥ glyph over the "Alt+" prefix in kbd hints. */
+/** Apple platforms show ⌥ instead of "Alt+". */
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iP(hone|ad|od)/.test(navigator.userAgent);
 
 function FollowUpSuggestions({
@@ -937,9 +796,8 @@ function FollowUpSuggestions({
   onPick: (text: string) => void;
 }) {
   const onPickEvent = useEffectEvent(onPick);
-  // ⌥1…⌥9 picks a chip from anywhere on the page. `e.code` (not `e.key`)
-  // because Option+digit types a glyph ("¡", "™"…) on macOS keyboards.
-  // Alt+digit is unreserved in every browser, unlike ⌘digit (tab switching).
+  // ⌥1…⌥9 picks a chip. Use `e.code`: Option+digit types a glyph on macOS.
+  // Alt+digit is free in browsers; ⌘digit switches tabs.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
@@ -999,9 +857,7 @@ function FollowUpSuggestions({
 function ThinkingIndicator({ label = "Thinking…" }: { label?: string }) {
   return (
     <div className="animate-chat-in flex items-center gap-2.5 text-[14px] text-app-fg-3">
-      {/* Branded pulsing mark in place of a generic spinner — the Alfred glyph
-       * breathes inside a soft halo while the turn spins up. Mirrors
-       * dimension's pulsing AI icon to the left of its working state. */}
+      {/* Pulsing Alfred mark instead of a spinner. */}
       <span className="chat-think-mark inline-flex shrink-0">
         <img src="/images/logo/alfred-logo.svg" alt="" className="size-[18px] rounded-[5px]" />
       </span>

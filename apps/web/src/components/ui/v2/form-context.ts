@@ -1,10 +1,4 @@
-/**
- * The contexts the app-form hook binds.
- *
- * They live apart from `form.ts` so the field components can read
- * `useFieldContext` without importing the module that registers them, which
- * would be a cycle.
- */
+/** The app-form contexts, apart from `form.ts` so field components avoid an import cycle. */
 
 import { createFormHookContexts } from "@tanstack/react-form";
 

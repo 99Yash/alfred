@@ -19,10 +19,7 @@ import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 import { MCP_TOOL_POLICY_QUERY_KEY, type McpToolPolicyState } from "./helpers";
 
-/**
- * The reviewed fields the owner edits. `note` is normalized to `null` when the
- * field is blank, matching the contract's nullable note.
- */
+/** `note` is `null` when blank, as the contract expects. */
 export interface McpToolPolicyDraft {
   readonly riskTier: ToolRiskTier;
   readonly effectClass: McpEffectClass;
@@ -31,13 +28,8 @@ export interface McpToolPolicyDraft {
 }
 
 /**
- * The conservative defaults a first review opens with: an unknown effect
- * handled as effectful, and no retry — the persisted column defaults.
- *
- * `riskTier` is deliberately NOT defaulted. The floor a freshly connected
- * tool carries lives on the gate (`MCP_CALL_RISK_FLOOR`); a browser copy of it
- * would silently turn a first save into a raise the day the floor moves, so the
- * owner must choose the tier explicitly.
+ * First-review defaults, matching the column defaults. `riskTier` has no default:
+ * the floor lives on the server (`MCP_CALL_RISK_FLOOR`), and a browser copy would drift.
  */
 const MCP_TOOL_POLICY_CONSERVATIVE_DEFAULTS = {
   effectClass: "unknown",
@@ -75,13 +67,9 @@ export interface McpToolPolicyController {
 }
 
 /**
- * One exact tool's review state plus its two writes, flattened for the view.
- *
- * The read is keyed by the full tool identity (connection, remote name, catalog
- * revision) because a review binds to a descriptor, not to a connection. Both
- * mutations invalidate the whole policy family on settle, so a failed write and
- * a succeeded one both leave the read honest; neither is a local cache patch,
- * because the server owns `policyRevision` and the drifted classification.
+ * One tool's review state and its two writes. Keyed by connection, remote name,
+ * and catalog revision, since a review binds to a descriptor.
+ * Both writes invalidate on settle; the server owns `policyRevision`.
  */
 export function useMcpToolPolicy(
   connectionId: string,
@@ -190,20 +178,14 @@ function draftFromPolicy(state: Extract<McpToolPolicyState, { status: "reviewed"
 }
 
 interface McpToolPolicyFormProps {
-  /** Starting values. `riskTier` is absent for a first review, which must be an explicit choice. */
+  /** `riskTier` is absent on a first review; the owner must pick it. */
   initial: Partial<McpToolPolicyDraft>;
   pending: boolean;
   onSave: (draft: McpToolPolicyDraft) => void;
-  /** Present only when there is a review to clear. */
   onClear?: (() => void) | undefined;
 }
 
-/**
- * The review form. Local state only, and the container keys it by the identity
- * of both the tool and the state it renders, so a refetch after a save, or a
- * switch to another tool that shares a status, remounts it with the server's
- * values rather than mirroring props into state with an effect.
- */
+/** Local state only. The container keys it by tool and state, so new server values remount it. */
 function McpToolPolicyForm({ initial, pending, onSave, onClear }: McpToolPolicyFormProps) {
   const [riskTier, setRiskTier] = useState<ToolRiskTier | undefined>(initial.riskTier);
   const [effectClass, setEffectClass] = useState(initial.effectClass ?? "unknown");
@@ -216,7 +198,6 @@ function McpToolPolicyForm({ initial, pending, onSave, onClear }: McpToolPolicyF
       onSubmit={(event) => {
         event.preventDefault();
 
-        // The tier is the approval decision; a form without one cannot save.
         if (riskTier === undefined) return;
         const trimmed = note.trim();
 
@@ -288,13 +269,8 @@ function McpToolPolicyForm({ initial, pending, onSave, onClear }: McpToolPolicyF
 export interface McpToolPolicyReviewViewProps extends McpToolPolicyController {}
 
 /**
- * The review surface's presentation, without hooks.
- *
- * Every arm of the wire union is reachable from `renderToStaticMarkup`
- * (apps/web has no jsdom): loading, read failure, and each of `reviewed`,
- * `unreviewed`, `drifted`, `catalog_stale`, and `not_found`. `catalog_stale`
- * and `not_found` are states, not errors: the read succeeded and is telling the
- * owner the tool they selected is no longer the one the server has.
+ * The review view without hooks, so `renderToStaticMarkup` reaches every arm (no jsdom).
+ * `catalog_stale` and `not_found` are states, not errors.
  */
 export function McpToolPolicyReviewView({
   state,
@@ -371,10 +347,7 @@ export function McpToolPolicyReviewView({
   );
 }
 
-/**
- * The container the catalog panel mounts beneath the inspected descriptor. It
- * owns the read and the two mutations and hands them to the hook-free view.
- */
+/** Owns the read and the two writes; hands them to the hook-free view. */
 export function McpToolPolicyReview({
   connectionId,
   toolRef,

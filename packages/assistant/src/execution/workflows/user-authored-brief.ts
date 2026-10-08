@@ -67,8 +67,7 @@ import { pendingToolCallSchema } from "./pending-tool-call";
 import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";
 import { checkWorkflowReadiness } from "./readiness-port";
 
-// This workflow is the one sub-agents run on (see SUB_AGENT_WORKFLOW_SLUG);
-// keep the slug single-sourced so the two never drift.
+// Sub-agents run on this workflow, so the slugs are one value.
 export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = SUB_AGENT_WORKFLOW_SLUG;
 
 type BriefToolRunIdentity =
@@ -97,20 +96,13 @@ function briefToolRunIdentity(
 
 const briefRunStateSchema = z
   .object({
-    // The durable tool surface, shared with the chat turn (see
-    // `toolSurfaceStateFields`) and resolved by `foldToolSurfaceState` below.
     ...toolSurfaceStateFields,
-    // ADR-0053 connected summary, snapshotted once at run start (first boss turn)
-    // and reused every turn so the system-prompt prefix stays cache-stable.
+    // Snapshotted on the first turn so the prompt prefix stays cache-stable (ADR-0053).
     connectedSummary: z.string().optional(),
-    // Deployment identity block (`selfIdentityGrounding`), snapshotted with the
-    // connected summary so the prompt prefix stays stable across a redeploy.
     selfIdentity: z.string().optional(),
-    // User's IANA timezone, snapshotted once per run so tool-dispatch windows
-    // match the date grounding shown to the boss. Stored as a plain string and
-    // re-parsed into a zone at each read (`parseIanaTimezone`).
+    // Snapshotted so tool windows match the date grounding the boss saw.
     timezone: z.string().optional(),
-    // Exact immutable-revision envelope. Undefined only on legacy sub-agent runs.
+    // Undefined only on legacy sub-agent runs.
     allowedTools: z.array(z.string()).optional(),
     requiredCapabilities: z.array(workflowRequiredCapabilitySchema).optional(),
     pendingToolCalls: z.array(pendingToolCallSchema),
@@ -118,16 +110,11 @@ const briefRunStateSchema = z
     inFlightTailStart: z.number().int().min(0),
     turnCount: z.number().int().min(0),
     /**
-     * Input tokens reported by the last boss-turn (ADR-0035). `dispatch-tools`
-     * adds an estimate of tool-result chars-to-tokens on top to decide
-     * whether to route through the compactor before the next turn. Default
-     * 0 — the first boss-turn always fits under threshold.
+     * Billed input of the last boss turn; `dispatch-tools` adds the new tail to decide on
+     * compaction (ADR-0035).
      */
     lastInputTokens: z.number().int().min(0).default(0),
-    // Consecutive empty completions retried this run (see EMPTY_COMPLETION_MAX_RETRIES).
-    // Reset to 0 on any productive turn (tool calls or a real final), so this counts a
-    // provider stuck returning empties — not scattered empties across a long run.
-    // Default 0 for runs minted before the field existed.
+    // Consecutive empties only; a productive turn resets it.
     emptyRetries: z.number().int().min(0).default(0),
     readinessDeferrals: z.number().int().min(0).default(0),
   })
@@ -141,22 +128,13 @@ const CHECK_READINESS_STEP_ID = "check-readiness";
 
 const READINESS_RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const;
 
-/**
- * Skip the compactor call when the prior transcript is below this byte
- * size — the boss has barely begun and the round-trip would cost more
- * than the deferred compaction. The constant is intentionally inside the
- * workflow rather than `@alfred/contracts`; only this workflow makes the
- * skip decision today.
- */
+/** Below this many chars of prior transcript, a compactor call costs more than it saves. */
 const COMPACTION_MIN_PRIOR_CHARS = 20_000;
 
 const TRIGGER_EVENT_EXCERPT_CHARS = 4_000;
 
-// Structured after the Anthropic prompt template: role first, operating rules
-// in a labelled block, then log-sourced boundary exemplars (the failure modes
-// we observed — tool-name invention and date-bouncing; see boss-grounding-gaps
-// notes). `buildBossSystemPrompt` appends the date and the ADR-0053 connected
-// catalog last, keeping the tool-grounding anchor at the end of the prompt.
+// `buildBossSystemPrompt` appends the date and connected catalog last, so tool grounding stays at
+// the end.
 const BOSS_SYSTEM_PROMPT_BASE = [
   "You are Alfred, the user's personal assistant agent. Be concise and practical — briefly state the next action before calling tools.",
   [
@@ -205,10 +183,7 @@ function buildSubAgentSystemPromptBase(subId: string): string {
       "- When a result points at something richer — a link, a profile, a PR, a doc, a task, a thread — go into it (read the page, open the record) instead of stopping at the snippet or the summary.",
       "- Corroborate: a claim you can confirm from two independent sources is worth more than one you can't.",
       "- Do not spawn other agents. Use only tools that exist — never invent a tool name — and reach for the tool that directly advances the investigation.",
-      // The sub-agent must know its own id to address its scratch zone — the
-      // scratch key format is scratch.<subId>.<path> and a literal "<subId>"
-      // (or a guessed one) is rejected by parseScratchToolKey. Inject the real
-      // id so manual writes land in a valid, boss-readable key.
+      // `parseScratchToolKey` rejects a literal or guessed id, so give the real one.
       `- Your sub-agent id is "${subId}". When you write findings, write them to scratch.${subId}.summary or a more specific scratch.${subId}.<path> key — always use "${subId}" as the sub-agent id in the key; never write a literal "<subId>" or any other value.`,
     ].join("\n"),
     "Know when to stop: once distinct angles stop yielding new signal, conclude. End with a concise summary of what you found, how confident you are, what you corrected or ruled out, and the one identifier, source, or access that would unlock more — never padding a thin result to sound fuller than it is.",
@@ -230,13 +205,7 @@ export function buildSubAgentSystemPrompt(
 
 const bossTurnStep: Step<BriefRunState> = {
   id: "boss-turn",
-  // A sub-agent boss turn is a non-streaming model call with no stream
-  // circuit-breaker capping it (unlike chat), and can run several minutes on the
-  // slow boss model. The default 60s stale window would let a brief heartbeat
-  // lapse reclaim a live turn → a duplicate full-price model call. Widen to 6min
-  // so only sustained heartbeat loss trips a reclaim; a genuinely dead worker
-  // still recovers here (just after 6min rather than 60s), an acceptable trade
-  // for a rare, expensive step.
+  // One non-streaming model call can run minutes. A reclaim would pay for it twice.
   staleAfterMs: 6 * 60_000,
   async run(ctx) {
     if (ctx.state.turnCount >= BRIEF_TURN_CAP_MAX) {
@@ -255,11 +224,9 @@ const bossTurnStep: Step<BriefRunState> = {
       state.timezone = await resolveTimezone(ctx.userId);
     }
 
-    // Persisted state carries the zone as a plain string; re-establish the type.
     const grounding = formatDateGrounding(parseIanaTimezone(state.timezone));
-    // This is a background interaction. Even a chat-spawned child only reports
-    // through its parent. Its chat address is a display channel, not permission
-    // to read or change that conversation.
+    // A chat-spawned child reports through its parent. Its chat address does not let it read or
+    // change the chat.
     const toolRunContext = briefToolRunIdentity(subAgent).runContext;
     const availability = await readIntegrationAvailability(ctx.userId);
 
@@ -306,15 +273,11 @@ const bossTurnStep: Step<BriefRunState> = {
       },
     });
 
-    // Bind the retry to the transcript as it stands before the model call, so
-    // the failure site below cannot reach for `nextTranscript` (whose empty
-    // assistant message Anthropic 400s on) — it has no transcript to pass.
     const retries = openBriefTurnRetries(transcript);
 
     const result = await agent.turn({
       ctx,
-      // SAFETY: AgentTranscriptMessage is the persisted superset view of the
-      // SDK's ModelMessage transcript.
+      // SAFETY: AgentTranscriptMessage is the persisted view of ModelMessage.
       transcript: transcript as ModelMessage[],
       attribution: {
         stepId: ctx.idempotencyKey,
@@ -323,20 +286,15 @@ const bossTurnStep: Step<BriefRunState> = {
       },
     });
 
-    // Drop the SDK's synthesized tool-result dups (emitted when the model hands
-    // a tool a schema-invalid input) — the dispatch-tools step authors the real
-    // result, and keeping both makes Anthropic 400 ("each tool_use must have a
-    // single result") on the next turn, failing the whole sub-agent/boss run.
-    // stepCallIds is the set of calls this turn produced; empty otherwise, so a
-    // non-tool turn filters nothing.
+    // On invalid tool input the SDK adds its own tool result. `dispatch-tools` writes the real one,
+    // and two results for one call make Anthropic return a 400.
     const stepCallIds = new Set(
       result.kind === "tool-calls" ? result.toolCalls.map((call) => call.toolCallId) : [],
     );
 
     const nextTranscript = appendModelResponseMessages(
       transcript,
-      // SAFETY: response.messages is the SDK's transcript output; the agent
-      // transcript message type is its persisted view.
+      // SAFETY: AgentTranscriptMessage is the persisted view of the SDK messages.
       result.raw.responseMessages as AgentTranscriptMessage[],
       stepCallIds,
     );
@@ -345,11 +303,7 @@ const bossTurnStep: Step<BriefRunState> = {
     state.lastInputTokens = result.usage.inputTokens ?? 0;
 
     if (result.kind === "empty") {
-      // Retryable empty completion (see isRetryableEmptyCompletion): this turn came
-      // back with no text and no tool calls on a clean/errored finish — the
-      // Anthropic→Gemini quota-fallback anomaly. `withFallback` can't catch it (the
-      // SDK call succeeded with an empty stream), so degrade here: regenerate up to
-      // a bounded budget, then fail the run loudly.
+      // The call succeeded with an empty stream, so `withFallback` cannot catch it.
       const retry = retries.afterEmptyCompletion(state);
 
       if (retry) {
@@ -383,7 +337,6 @@ const bossTurnStep: Step<BriefRunState> = {
     }
 
     if (result.kind === "tool-calls") {
-      // Productive turn — reset the consecutive-empty counter.
       state.emptyRetries = 0;
       state.pendingToolCalls = result.toolCalls.map((call) => ({
         toolCallId: call.toolCallId,
@@ -414,15 +367,8 @@ const bossTurnStep: Step<BriefRunState> = {
 };
 
 /**
- * Whether a parent chat run is still building its turn, so a spawned sub-agent
- * may (re)publish a `chat.tool` card under it.
- *
- * The client arms a replay-recovery barrier on the parent's `runId` and releases
- * it only on the parent's terminal `chat.message/completed`. Once the parent run
- * reaches a terminal `agent_runs.status` — or is gone — no further release will
- * come, so a republished barrier-arming card would leak. Both cases answer
- * "closed": a terminal run, and a missing one. Exported so the DB-backed test
- * drives the real reader (`getRun`) rather than a stand-in.
+ * False when the parent run is terminal or missing; then a sub-agent card would arm a barrier
+ * nothing releases.
  */
 export async function parentRunStillOpen(parentRunId: string, userId: string): Promise<boolean> {
   const status = (await getRun(parentRunId, userId))?.status;
@@ -443,15 +389,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
 
     const runIdentity = briefToolRunIdentity(state.subAgent);
 
-    // A sub-agent spawned from a chat turn streams its own tool calls back into
-    // that turn's bubble, nested under the `spawn_sub_agent` card — otherwise
-    // the parent's trail goes silent for the child's whole lifetime. ADR-0073
-    // addresses these cards to the PARENT run's `(runId, messageId)`. The door
-    // returns null (no card is published) for the boss, for a child whose parent
-    // had no chat turn, AND — the 37-MF1 gate, now folded into the door — for an
-    // already-terminal parent whose replay barrier `parentRunStillOpen` reports
-    // closed. See {@link subAgentToolCardTarget} for why an ungated target is
-    // unconstructible.
+    // Stream this child's tool calls into the parent's chat turn (ADR-0073); null means no card.
     const chatTarget = await subAgentToolCardTarget(
       state.subAgent,
       ctx.runId,
@@ -496,10 +434,6 @@ const dispatchToolsStep: Step<BriefRunState> = {
 
     for (const completion of round.calls) {
       if (!chatTarget) continue;
-      // Terminal card for the nested trail. `nonExecution` rides along so the
-      // client retracts an optimistic card for a dispatcher bounce instead of
-      // showing internal plumbing as a failed step — derived by the shared
-      // `toolEventOutcome` so this surface cannot drift from the chat turn's.
       await publishEvent({
         untransacted: true,
         userId: ctx.userId,
@@ -513,17 +447,9 @@ const dispatchToolsStep: Step<BriefRunState> = {
     transcript = round.transcript;
     state.pendingToolCalls = [];
 
-    // ADR-0035: estimate next-turn input size and route through compaction
-    // (boss) or fail back to the parent (sub-agent) when over threshold.
-    //
-    // `lastInputTokens` captures the input billed for the just-completed
-    // boss-turn — which read the transcript up to but NOT including the
-    // assistant tool-call message it produced. Everything the next
-    // boss-turn will see on top of that is the entire suffix starting at
-    // `inFlightTailStart` (assistant tool-call message + every tool
-    // result we appended above), so size the whole tail, not just the
-    // tool results — large tool-call argument blobs or assistant prose
-    // would otherwise sneak the estimate under the threshold.
+    // Over the threshold, the boss compacts and a sub-agent fails back to its parent (ADR-0035).
+    // Size the whole tail from `inFlightTailStart`, tool-call arguments included, not just the
+    // results.
     const isSubAgent = state.subAgent !== null;
     const threshold = await resolvePressureThresholdTokens(isSubAgent);
 
@@ -542,9 +468,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
     }
 
     if (isSubAgent) {
-      // ADR-0026 / ADR-0035: sub-agents do not compact. Write the
-      // structured error into the sub-agent's own scratch zone so the
-      // boss can read it via `system.read_scratch` and re-decompose.
+      // Sub-agents do not compact; the error goes to scratch so the boss can split the work again.
       const subAgent = state.subAgent!;
       await writeScratch({
         runId: subAgent.parentRunId,
@@ -572,8 +496,7 @@ const compactTranscriptStep: Step<BriefRunState> = {
     const state = ctx.state;
     const transcript = ctx.transcript;
 
-    // Guard 1: nothing to compact — the boss has not yet captured an
-    // in-flight tail boundary. Skip silently; the next turn will set it.
+    // No tail boundary yet; the next turn sets it.
     if (state.inFlightTailStart === 0) {
       return { kind: "next", state, nextStep: "boss-turn" };
     }
@@ -581,10 +504,7 @@ const compactTranscriptStep: Step<BriefRunState> = {
     const prior = transcript.slice(0, state.inFlightTailStart);
     const inFlightTail = transcript.slice(state.inFlightTailStart);
 
-    // Guard 2: prior transcript is below the round-trip-worth-it floor
-    // and the full transcript is still under the smaller-window threshold.
-    // If the in-flight tail itself caused pressure, continue through the
-    // compactor so Guard 3 can fail loud if the tail cannot fit.
+    // Skip a small prior, unless the tail itself causes the pressure.
     const priorChars = JSON.stringify(prior).length;
     const pressureThreshold = await resolvePressureThresholdTokens(false);
 
@@ -604,9 +524,6 @@ const compactTranscriptStep: Step<BriefRunState> = {
       return { kind: "next", state, nextStep: "boss-turn" };
     }
 
-    // Background work, so back off between attempts: riding out a transient
-    // provider blip is worth the added delay here in a way it is not on the
-    // live chat path (see `compactWithRetry`).
     const result = await compactWithRetry(
       (attempt) =>
         compactTranscript({
@@ -620,23 +537,17 @@ const compactTranscriptStep: Step<BriefRunState> = {
             idempotencyKey: `${ctx.idempotencyKey}:compact-${attempt}`,
           },
         }),
-      // No abort signal on this path: the step runs in the background with no
-      // user waiting on it and nothing to stop it mid-flight.
+      // Background: no user can stop it, and a backoff is affordable.
       { abortSignal: "none", delayBeforeRetryMs: (attempt) => attempt * 100 },
     );
 
-    // Guard 3: post-compaction the in-flight tail itself blows the
-    // threshold. There is no further reduction we can make — fail loud
-    // rather than risk hallucination from overflow.
+    // The tail alone is over the threshold and cannot shrink further, so fail.
     const postTokens = estimateTranscriptTokens(result.transcript);
 
     if (postTokens > pressureThreshold) {
       throw new Error("context_overflow_post_compaction");
     }
 
-    // After compaction, the next boss-turn rebuilds its in-flight tail
-    // from scratch; the `<run_summary>` system note plus tail is the new
-    // baseline.
     const nextState: BriefRunState = { ...state, inFlightTailStart: 0 };
 
     return {
@@ -748,16 +659,8 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
     [COMPACT_TRANSCRIPT_STEP_ID]: compactTranscriptStep,
   },
   stateSchema: briefRunStateSchema,
-  // Sub-agent spawns are singleton on (parentRunId, parentToolCallId) (#375 F1).
-  // `spawnSubAgent`'s createRun+enqueue are eager side effects in the
-  // `dispatch-tools` step body — NOT `stageAction`'d — so the attempt-guard
-  // fence (which only gates the step commit) does not protect them. A false
-  // lease-reclaim that double-executes the step, or a TOCTOU on the
-  // check-then-create guard, would otherwise spawn two token-burning children
-  // for one tool call. This key lands on the child's `dedup_key` so the second
-  // createRun collides on the sub-agent-only unique index; `spawnSubAgent`
-  // catches that and folds into the already-spawned path. Regular authored
-  // briefs (no subAgent metadata) return null and are unaffected.
+  // One child per (parentRunId, parentToolCallId) (#375). The spawn runs in the step body, not
+  // through `stageAction`, so a double-run step could otherwise spawn two paid children.
   dedupKey(input) {
     const sub = readSubAgentMetadata(input.metadata);
 
@@ -792,10 +695,8 @@ function integrationAllowed(slug: string, allowedIntegrations: readonly string[]
 }
 
 /**
- * The revision fields copied into run metadata. Derive them from the canonical
- * revision contract so a new constraint cannot land in authoring without also
- * governing execution. They stay optional because sub-agent runs carry only
- * `allowedIntegrations`, while legacy manual runs may carry none of the three.
+ * Derived from the revision contract, so a new authoring constraint also binds execution.
+ * Optional: sub-agent runs carry only `allowedIntegrations`, and legacy runs carry none.
  */
 const briefAuthoredMetadataSchema = workflowRevisionDefinitionSchema
   .pick({
@@ -913,12 +814,8 @@ async function buildTriggerEventMessage(
 }
 
 /**
- * The `<trigger_event>` for an inbound receipt (ADR-0097, #990). The run
- * carries only the receipt pointer, and the receipt's body is never handed to
- * the model as JSON: the corpus document the receive path wrote for it already
- * holds the describe slot's title, summary, body, and provider URL, so the
- * message reads that row through `readReceiptDocument` (the key's one owner)
- * and bounds the body. `documents.raw` is the stored payload and stays out.
+ * The `<trigger_event>` for an inbound receipt (ADR-0097). It reads the receipt's document,
+ * not the raw payload, and bounds the body. `documents.raw` never reaches the model.
  */
 async function buildReceiptTriggerMessage(input: {
   userId: string;
@@ -973,14 +870,13 @@ async function buildReceiptTriggerMessage(input: {
   };
 }
 
-/** The bounded body every `<trigger_event>` carries, and whether the bound cut it. */
 function triggerEventExcerptTags(content: string): string[] {
   const excerpt = content.slice(0, TRIGGER_EVENT_EXCERPT_CHARS);
 
   return [xmlTag("truncated", String(content.length > excerpt.length)), xmlTag("excerpt", excerpt)];
 }
 
-/** The 7 Gmail trigger keys `<trigger_event>` carries; everything else is dropped. */
+/** The Gmail trigger keys `<trigger_event>` keeps; others are dropped. */
 interface TriggerMetadata {
   from?: JsonValue | undefined;
   to?: JsonValue | undefined;

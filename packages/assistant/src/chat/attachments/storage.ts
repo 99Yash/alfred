@@ -3,22 +3,10 @@ import { Files } from "files-sdk";
 import { s3 } from "files-sdk/s3";
 
 /**
- * Object storage for chat file uploads (ADR-0065). Backed by **Cloudflare R2**,
- * which speaks the S3 protocol (`ENDPOINT=https://<accountid>.r2.cloudflarestorage.com`,
- * `REGION=auto`, private-only — presigned URLs, no public CDN). `files-sdk`'s `s3`
- * adapter talks that protocol; the `@aws-sdk/client-s3` dependency is just the S3
- * *protocol client* (the standard way to reach any S3-compatible store), not AWS
- * the service. Provider-agnostic on purpose: this began on Railway buckets and
- * moved to R2 with no call-site changes — to move again, point the `CHAT_S3_*`
- * vars elsewhere or swap the adapter here, never the call sites.
- *
- * What the model sees is the degraded artifact (text + images, ADR-0065):
- * phase-1 pass-through images are read back via `readObject` and inlined as
- * bytes, while richer media (audio/video/docs) only ever reaches the model as
- * extracted text plus keyframes. Lifecycle is keyed to a
- * `chat/{userId}/{threadId}/{messageId}/{file}` key convention so a thread or
- * account delete reaps the objects with a single prefix delete (FK cascade can't
- * reach object storage).
+ * Chat upload storage on Cloudflare R2, through the S3 protocol (ADR-0065). Private
+ * bucket, presigned URLs. To change provider, change the `CHAT_S3_*` vars or this adapter.
+ * Keys are `chat/{userId}/{threadId}/{messageId}/{file}`, so one prefix delete reaps
+ * a thread or account. FK cascades cannot reach object storage.
  */
 
 /** How long a minted upload/download URL stays valid. */
@@ -31,11 +19,7 @@ const STORAGE_RETRIES = { max: 1 };
 
 let _files: Files | undefined;
 
-/**
- * True when every required `CHAT_S3_*` var is set. The upload route gates on
- * this and returns a clean 503 when storage isn't provisioned yet — the same
- * boot-before-setup posture as the transcription / Notion / Vercel integrations.
- */
+/** True when every required `CHAT_S3_*` var is set. The upload route returns 503 otherwise. */
 export function isStorageConfigured(): boolean {
   const env = serverEnv();
 
@@ -44,9 +28,7 @@ export function isStorageConfigured(): boolean {
     env.CHAT_S3_REGION &&
     env.CHAT_S3_ACCESS_KEY_ID &&
     env.CHAT_S3_SECRET_ACCESS_KEY &&
-    // The provider is Railway storage, which requires an endpoint. Include it so
-    // a half-configured deploy (creds set, endpoint missing) 503-gates cleanly
-    // instead of silently falling back to the AWS-native S3 host.
+    // Without an endpoint the client silently falls back to the AWS S3 host.
     env.CHAT_S3_ENDPOINT,
   );
 }
@@ -91,16 +73,13 @@ function files(): Files {
   const adapter = s3({
     bucket: env.bucket,
     region: env.region,
-    // R2's S3 endpoint (https://<accountid>.r2.cloudflarestorage.com). Any
-    // S3-compatible endpoint works here; left unset only in tests / AWS-native setups.
     ...(env.endpoint ? { endpoint: env.endpoint } : {}),
     forcePathStyle: env.forcePathStyle,
     credentials: {
       accessKeyId: env.accessKeyId,
       secretAccessKey: env.secretAccessKey,
     },
-    // When set, reads return `${base}/${key}` (CDN/public bucket). Otherwise
-    // `attachmentUrl()` mints a presigned GET.
+    // When set, reads return `${base}/${key}`; otherwise `attachmentUrl()` presigns a GET.
     ...(env.publicBaseUrl ? { publicBaseUrl: env.publicBaseUrl } : {}),
     defaultUrlExpiresIn: SIGNED_URL_TTL_SECONDS,
   });
@@ -118,11 +97,6 @@ function sanitizeFileName(name: string): string {
   return cleaned.length > 0 ? cleaned.slice(0, 120) : "file";
 }
 
-/**
- * Build the canonical object key for an attachment. The `{messageId}` segment is
- * the message the file is attached to; deletion of a thread/account drops the
- * `chat/{userId}/{threadId}/` or `chat/{userId}/` prefix wholesale.
- */
 export function buildAttachmentKey(opts: {
   userId: string;
   threadId: string;
@@ -141,10 +115,7 @@ export function pdfDegradedArtifactKey(storageKey: string): string {
   return `${storageKey}${PDF_DEGRADED_ARTIFACT_SUFFIX}`;
 }
 
-/**
- * Every degraded artifact that shares the raw attachment's lifecycle. Add new
- * sidecar families here so exact-key cleanup cannot forget them.
- */
+/** Every sidecar that lives and dies with the raw object. Add new kinds here so cleanup finds them. */
 export function degradedArtifactKeysFor(storageKey: string): readonly string[] {
   return [pdfDegradedArtifactKey(storageKey)];
 }
@@ -154,39 +125,19 @@ export function attachmentObjectKeys(storageKey: string): readonly string[] {
   return [storageKey, ...degradedArtifactKeysFor(storageKey)];
 }
 
-/**
- * A short-lived read URL for an object — used for the composer's image preview
- * (the model gets inlined bytes via `readObject`, not a URL). Presigned GET
- * unless a public base URL is set.
- */
+/** A short-lived read URL, for the composer preview. The model gets bytes, not a URL. */
 export async function attachmentUrl(key: string): Promise<string> {
   return files().url(key, { expiresIn: SIGNED_URL_TTL_SECONDS });
 }
 
-/**
- * Read an object's raw bytes back from the bucket (ADR-0065). Backs the image
- * **bytes path**: pass-through images are inlined into the model message as
- * bytes rather than handed off as a presigned URL. The providers can't fetch
- * our private, short-lived Railway storage URLs (no CDN, no public host), so a
- * URL-valued image part fails the turn on the boss and its fallback alike;
- * inlining the bytes removes that dependency entirely. Bounded by the same
- * `STORAGE_TIMEOUT_MS` as every other object-store call.
- */
+/** Read an object's bytes. Images go to the model as bytes: providers cannot fetch our private URLs. */
 export async function readObject(key: string): Promise<Uint8Array> {
   const file = await files().download(key);
 
   return new Uint8Array(await file.arrayBuffer());
 }
 
-/**
- * Write bytes straight to the bucket from the server (ADR-0065). Backs the
- * server-proxied upload route: the client posts the bytes to our API and we
- * relay them here. This server-side relay is provider-independent (it sidestepped
- * Railway's missing CORS `Access-Control-Allow-Origin` header on the old bucket);
- * R2 *does* support a CORS policy, so direct browser→bucket presigned PUTs are a
- * possible future optimization, but the relay stays the v1 path. Size is already
- * policy-checked by the caller before this runs.
- */
+/** Write bytes from the server; the upload route relays them. The caller checks the size. */
 export async function writeObject(
   key: string,
   bytes: Uint8Array,
@@ -207,12 +158,7 @@ export async function headObject(key: string): Promise<{ size: number; contentTy
   return { size: file.size, contentType: file.type };
 }
 
-/**
- * Server-side copy of one object to a new key — no body re-transfer (ADR-0065).
- * Used by faithful retry: re-sending a failed image-only turn re-attaches the
- * prior message's bytes under the *new* message's key prefix, so each message
- * still owns its objects and the thread-prefix cleanup sweep covers them.
- */
+/** Server-side copy. A retry copies bytes under the new message key, so each message owns its objects. */
 export async function copyObject(from: string, to: string): Promise<void> {
   await files().copy(from, to);
 }
@@ -230,11 +176,7 @@ export async function deleteObjects(keys: readonly string[]): Promise<number> {
   return result.deleted.length;
 }
 
-/**
- * Delete every object under a key prefix — the thread/account cleanup primitive.
- * Object stores have no FK cascade, so we list-and-delete in pages. Idempotent:
- * a missing prefix is a no-op. Returns the number of objects removed.
- */
+/** List and delete every object under a prefix, in pages. Idempotent. Returns the count removed. */
 export async function deletePrefix(prefix: string): Promise<number> {
   const client = files();
   let removed = 0;

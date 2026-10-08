@@ -51,11 +51,7 @@ export function registerWorkflowRecoveryHandler(handler: WorkflowRecoveryHandler
   };
 }
 
-/**
- * Revalidate one workflow draft after a connection flow and select its SPA
- * redirect. Workflow result details stay behind the registered adapter; this
- * module owns only the connection-facing ready, blocked, and failure states.
- */
+/** Revalidate a workflow draft after a connection flow and pick its SPA redirect. */
 export async function resolveWorkflowRecoveryTarget(request: unknown): Promise<string> {
   try {
     const parsedRequest = workflowRecoveryRequestSchema.parse(request);

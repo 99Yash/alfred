@@ -3,12 +3,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { validateFile } from "~/lib/chat/upload-attachments";
 import { toast } from "~/lib/toast";
 
-/** A file staged in the composer, with a local preview, before send. */
+/** A staged file with a local preview. */
 export interface PendingAttachment {
-  /** Local key for React + removal; the real attachment id is minted at upload. */
+  /** Local key; the real id is minted at upload. */
   key: string;
   file: File;
-  /** Object URL for the inline preview thumbnail; revoked on removal/clear. */
+  /** Object URL for the thumbnail; revoked on removal or clear. */
   previewUrl: string;
 }
 
@@ -17,34 +17,24 @@ export interface ComposerAttachments {
   addFiles: (files: FileList | File[]) => void;
   remove: (key: string) => void;
   clear: () => void;
-  /** The raw files, in staged order, for the send handler. */
+  /** Raw files in staged order. */
   files: () => File[];
 }
 
 /**
- * Composer-local attachment staging (ADR-0065). Holds picked files with object-
- * URL previews until send; validation rejects unsupported/oversized files with a
- * toast. The bytes upload at send time (see `useSendMessage`), so this only
- * tracks the pending selection — object URLs are revoked on removal, clear, and
- * unmount to avoid leaks.
+ * Composer attachment staging (ADR-0065). Bytes upload at send (`useSendMessage`).
+ * Object URLs are revoked on removal, clear, and unmount.
  */
 export function useComposerAttachments(): ComposerAttachments {
   const [items, setItems] = useState<PendingAttachment[]>([]);
-  // Mirror the latest staged items into a ref so the memoized handlers below
-  // read the current selection without depending on `items`. Written in an
-  // effect (not during render): a render-phase ref write can leak if React
-  // discards the render, and every reader here runs post-commit.
+  // Synced in an effect: a render-phase ref write can leak from a discarded render.
   const itemsRef = useRef(items);
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
 
-  // Cap the staged count/bytes *before* upload — the turn endpoint and server
-  // mutator also enforce the caps, but bounding here means a user picking 11
-  // images never uploads the 11th only to have the turn rejected. All revocation
-  // + toasts happen here in the event handler (against the live `itemsRef`), so
-  // the `setItems` updater stays pure — React can double-invoke updaters under
-  // StrictMode, and revoking inside one would kill a preview that's still in use.
+  // Enforce the caps before upload too (the server also does).
+  // Revoke and toast here, not in the `setItems` updater: StrictMode can run updaters twice.
   const addFiles = useCallback((files: FileList | File[]) => {
     const candidates: PendingAttachment[] = [];
 
@@ -105,7 +95,6 @@ export function useComposerAttachments(): ComposerAttachments {
 
   const files = useCallback(() => itemsRef.current.map((a) => a.file), []);
 
-  // Revoke any still-staged previews on unmount.
   useEffect(
     () => () => {
       for (const a of itemsRef.current) URL.revokeObjectURL(a.previewUrl);

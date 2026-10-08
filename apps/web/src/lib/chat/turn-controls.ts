@@ -1,19 +1,9 @@
-/**
- * Small fetch helpers for the chat turn's side-channels: voice transcription
- * and stop-generation. Plain `fetch` against the API origin with the session
- * cookie, matching `use-send-message`'s turn start (these are imperative
- * one-shots, not synced state — Replicache and the SSE bus stay the source of
- * truth for everything durable).
- */
+/** One-shot fetches for voice transcription and stop. */
 
 import { apiErrorMessage, getStringPath } from "@alfred/contracts";
 import { API_URL } from "~/lib/eden";
 
-/**
- * Send recorded composer audio for transcription; resolves with the
- * transcript text. Throws with the server's message (e.g. the
- * OPENAI_API_KEY-missing 503) so the composer can surface it inline.
- */
+/** Throws with the server's message so the composer can show it inline. */
 export async function transcribeRecording(blob: Blob): Promise<string> {
   const ext = blob.type.includes("webm") ? "webm" : blob.type.includes("mp4") ? "m4a" : "audio";
   const form = new FormData();
@@ -34,20 +24,13 @@ export async function transcribeRecording(blob: Blob): Promise<string> {
   return getStringPath(await res.json(), "text") ?? "";
 }
 
-/**
- * Ask the server to stop an in-flight chat turn. Best-effort: the worker
- * notices the flag within ~400ms, finalizes the partial reply, and the
- * normal `chat.message completed` flow reconciles the UI — so callers only
- * need to know whether the request landed.
- */
+/** Best effort. The worker sees the flag within ~400ms and the normal completion updates the UI. */
 export async function stopChatRun(runId: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/api/chat/runs/${runId}/stop`, {
       method: "POST",
       credentials: "include",
-      // Best-effort one-shot: bound it so a wedged connection doesn't hang the
-      // stop button on the browser's default network timeout. A miss just
-      // reports `false` — the normal completion flow still reconciles the UI.
+      // Bound it so a wedged connection does not hang the stop button.
       signal: AbortSignal.timeout(10_000),
     });
 

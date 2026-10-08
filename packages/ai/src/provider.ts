@@ -3,10 +3,7 @@ import type { SharedV4ProviderOptions } from "@ai-sdk/provider";
 import { chatEffortSchema, type ChatEffort, type ChatModelTier } from "@alfred/contracts";
 import { findApiCallError, isCallerAbort } from "./abort";
 import { APICallError, type ToolSet } from "ai";
-// ai-retry's `LanguageModel` alias is `LanguageModelV4` — the concrete model
-// instances our provider factories return, deliberately narrower than `ai`'s
-// `LanguageModel` union (which also admits gateway string ids). Same narrowing
-// warden does; see its packages/ai/src/models.ts.
+// Narrower than `ai`'s `LanguageModel`, which also admits gateway string ids.
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 import { createRetryableModel, error, or, timeout } from "ai-retry/language-model";
 import {
@@ -19,60 +16,37 @@ import {
 } from "./provider-adapter";
 import { identifyLanguageModel } from "./models";
 
-// Re-export so existing `@alfred/ai` consumers keep importing `ChatModelTier`
-// from here; the literal itself is owned by `@alfred/contracts` (single source
-// of truth shared with the web bundle, which can't import `@alfred/ai`).
 export type { ChatModelTier };
 
-// Owned by @ai-sdk/provider: `Record<string, JSONObject>` where each value is the provider's own
-// `*LanguageModelOptions` shape. Replacing the hand-rolled `NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>`
-// indirection from the original `provider-adapter.ts:CallOptions` alias.
 export type ChatProviderOptions = SharedV4ProviderOptions;
 
 export const MEDIA_INPUT_MODALITIES = ["text", "image", "audio", "video", "pdf"] as const;
 
 export type MediaInputModality = (typeof MEDIA_INPUT_MODALITIES)[number];
 
-/**
- * The generic AI SDK `reasoning` maps to Google `thinkingLevel`/`thinkingBudget`
- * but never enables thought summaries. Alfred asks for them — the retired
- * `reasoning-policy.ts` always sent `includeThoughts: true` on a reasoning-on
- * Google leg — so a Google-bearing route with reasoning on carries this
- * provider-option exception: the Google analogue of Anthropic's package-owned
- * `display: "summarized"`. It rides on the whole route; non-Google primaries
- * ignore the namespace.
- */
+/** The generic `reasoning` setting never turns on Google thought summaries, so ask for them here. */
 const GOOGLE_THOUGHT_SUMMARIES = {
   google: { thinkingConfig: { includeThoughts: true } },
 } as const satisfies SharedV4ProviderOptions;
 
 interface ModelRoute {
-  /** Validated leg makers, in fallback order. A bare model cannot be spelled here. */
+  /** In fallback order. */
   readonly legs: readonly (() => RouteLeg)[];
-  /** Generic AI SDK reasoning ceiling; the provider package maps/clamps it. */
+  /** The provider package maps and clamps it. */
   readonly reasoning: RouteReasoning;
-  /** Provider-option exception the generic reasoning setting cannot express (e.g. OpenAI `max`). */
+  /** What the generic reasoning setting cannot express, for example OpenAI `max`. */
   readonly providerOptions?: SharedV4ProviderOptions;
 }
 
-/**
- * Product model routes. A route is the ordered leg list plus the reasoning
- * policy that travels with every leg. Every leg is constructed directly by its
- * installed provider package and carries its matching adapter; the model
- * object, not a second registry entry, supplies provider and model id.
- */
+/** Product model routes: ordered legs plus the reasoning level every leg gets. */
 const MODEL_ROUTES = {
-  // Background boss runs `gpt-6-luna` for cost and capability (2026-09-24):
-  // briefings, triage deepen, cold start, and skill compose resolve this route.
-  // Same legs as `standard`; rollback restores `gpt-5.6-luna` as the primary.
+  // Background work: briefings, triage deepen, cold start, skill compose.
   boss: {
     legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
     providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
-  // Sub-agents follow the chat tiers onto Luna so a delegating chat turn stays
-  // one vendor end to end. The background boss is on Luna too, so no route
-  // mixes vendors.
+  // Same model as chat, so a delegating turn stays on one vendor.
   subAgent: {
     legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
@@ -94,19 +68,13 @@ const MODEL_ROUTES = {
     legs: [() => googleLeg("gemini-3.8-flash")],
     reasoning: "none",
   },
-  // Both chat tiers run `gpt-6-luna` and differ only in effort. It keeps the
-  // 1.05M-token context window and full reasoning-effort vocabulary Alfred
-  // already uses, while OpenAI's standard rates fall to $0.10 input, $0.01
-  // cached input, and $0.50 output per MTok. `gemini-3.8-flash` remains the
-  // cross-provider degrade leg on both tiers.
+  // The chat tiers differ only in effort.
   standard: {
     legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
     providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
-  // Deep is the same model at its strongest effort. `xhigh` is the generic AI
-  // SDK ceiling; the OpenAI leg pins the provider-only `max` value and the
-  // Gemini leg maps `xhigh` to its own `high`.
+  // `xhigh` is the generic ceiling. OpenAI gets its provider-only `max`; Gemini maps `xhigh` to `high`.
   deep: {
     legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "xhigh",
@@ -118,9 +86,8 @@ export type ModelRouteName = keyof typeof MODEL_ROUTES;
 
 export interface ModelRouteHandle {
   model(): LanguageModelV4;
-  /** Alfred's provider-option exceptions; the generic reasoning rides on the model defaults. */
+  /** Only the exceptions. The generic reasoning is already on the model. */
   providerOptions(): ChatProviderOptions;
-  /** The generic reasoning ceiling this route selects. */
   reasoning(): RouteReasoning;
 }
 
@@ -141,7 +108,7 @@ function createRouteHandle(definition: ModelRoute): ModelRouteHandle {
 
 const namedRouteHandles = new Map<ModelRouteName, ModelRouteHandle>();
 
-/** Resolve a named product route. Handles are memoized per name. */
+/** Memoized per name. */
 export function route(name: ModelRouteName): ModelRouteHandle {
   let handle = namedRouteHandles.get(name);
 
@@ -153,23 +120,12 @@ export function route(name: ModelRouteName): ModelRouteHandle {
   return handle;
 }
 
-/**
- * Build a one-model probe/eval route from an already-validated {@link RouteLeg}.
- * Takes the leg triple so identity is carried, not reconstructed from a
- * handwritten model-to-provider table. Not memoized — probe callers pick a
- * fresh leg each time.
- */
+/** A one-leg route for probes and evals. Not memoized. */
 export function probeRoute(leg: RouteLeg, reasoning: RouteReasoning): ModelRouteHandle {
   return createRouteHandle({ legs: [() => leg], reasoning });
 }
 
-/**
- * The displayable reasoning effort a named route selects. `route(name)`
- * exposes the raw SDK `reasoning` value, which admits `provider-default` —
- * "let the provider decide", not a level and nothing the readout can show.
- * No named route selects it today, so this throws rather than rendering a
- * non-level; a route that does must decide what its turns claim.
- */
+/** The route's effort as a displayable level. Throws on `provider-default`, which is not a level. */
 export function routeEffort(name: ModelRouteName): ChatEffort {
   const reasoning = route(name).reasoning();
   const parsed = chatEffortSchema.safeParse(reasoning);
@@ -185,21 +141,12 @@ interface MediaEnrichmentLeg {
   readonly make: () => LanguageModelV4;
 }
 
-/**
- * Inline attachment ceilings: the largest payload each provider reads natively
- * before Alfred must degrade it to text. Alfred product policy, not a model
- * registry — the provider package still owns how the model reads the bytes.
- */
+/** Largest inline attachment each provider reads natively. Larger ones degrade to text. */
 const GOOGLE_INLINE_MEDIA_BYTES = 50 * 1024 * 1024;
 
 const ANTHROPIC_INLINE_MEDIA_BYTES = 32 * 1024 * 1024;
 
-/**
- * Ordered multimodal legs, filtered before any provider receives the payload.
- * These are Alfred product policy (which leg attempts a given attachment), not
- * a second model-mechanics catalog: the provider package still owns how the
- * model reads the bytes. The order is the enrichment attempt order.
- */
+/** Multimodal legs in attempt order. */
 const MEDIA_ENRICHMENT_LEGS: readonly MediaEnrichmentLeg[] = [
   {
     modalities: ["text", "image", "audio", "video", "pdf"],
@@ -223,19 +170,12 @@ const MEDIA_ENRICHMENT_LEGS: readonly MediaEnrichmentLeg[] = [
   },
 ];
 
-/**
- * Select the generic `none` ceiling. The provider package maps it to the
- * generation's closest-to-off value: Gemini 2.5 gets `thinkingBudget: 0`, while
- * Gemini 3 reaches its model-specific minimum `thinkingLevel` — the package
- * documents that full disable is unavailable there. The retired policy's
- * `thinkingBudget: 0` for a Gemini 3 model was a shape that generation does not
- * own; this is the SDK-owned equivalent, not a new budget.
- */
+/** Reasoning `none`. Gemini 3 cannot fully disable thinking, so it gets its minimum level. */
 function withDisabledReasoning(leg: RouteLeg): LanguageModelV4 {
   return createProviderRouteModel([() => leg], withFallback, { reasoning: "none" });
 }
 
-/** Ordered multimodal route legs for a payload, filtered by modality and inline size. */
+/** The legs that can read this payload, in attempt order. */
 export function getMediaEnrichmentModels(
   modality: MediaInputModality,
   byteSize: number,
@@ -252,52 +192,16 @@ export function getMediaEnrichmentModels(
 }
 
 /**
- * Provider tool set that turns on live Google Search grounding. Pass into the
- * `tools` field of a `meteredGenerateText` call alongside
- * `route("webSearch").model()`; the model searches server-side and returns a
- * grounded answer with source uris + citation spans under
- * `providerMetadata.google.groundingMetadata`.
+ * Google Search grounding. Use with `route("webSearch")`.
+ * Sources land in `providerMetadata.google.groundingMetadata`.
  */
 export function googleSearchGroundingTools(): ToolSet {
   return { google_search: google.tools.googleSearch({}) };
 }
 
 /**
- * Wrap a primary model so a failed call degrades to `fallback` (warden's
- * `createRetryable` pattern — memory `feedback_ai_retry_preference`; the
- * earlier V2/V3 spec-mismatch blocker cleared with `@ai-sdk/*@3.0.x`, which
- * emit `LanguageModelV4`).
- *
- * Cascade, evaluated per failed attempt:
- *   1. Transient errors (provider-flagged retryable — 429/529/overload — or
- *      timeout) retry the primary once after a short delay, honoring
- *      `Retry-After` headers.
- *   2. Anything else switches to `fallback` for a single attempt — EXCEPT a
- *      non-retryable 4xx client error, which means OUR request is malformed
- *      (e.g. an illegal tool name) rather than the provider being down.
- *      Switching providers on a 4xx just hides the bug behind a weaker model:
- *      that is exactly how the dotted-tool-name 400 silently ran the chat boss
- *      on Gemini for weeks. A 4xx (other than 408/429, which are transient and
- *      a legit reason to try the other provider) now surfaces loudly instead.
- *      A caller-initiated abort is excluded for a different reason: the request
- *      was cancelled on purpose, so there is nothing to degrade to.
- *
- * Streaming caveat: fallback only covers errors raised before the stream
- * starts; a provider dying mid-stream after tokens flowed is not replayable.
- */
-/**
- * True when a 4xx is a billing/quota *capacity* condition (a workspace spend
- * cap, exhausted credits, or a usage-limit ceiling) rather than a malformed
- * request. Anthropic surfaces the workspace spend cap as a 400 whose body
- * carries the signature message "...workspace API usage limits..."; out-of-
- * credit and usage-limit errors read similarly ("credit balance is too low",
- * "usage limit"). These should degrade to the fallback like a 429, not
- * hard-fail the turn (#303).
- *
- * Matches defensively across the parsed message and the raw response body so a
- * provider tweak to either field still trips the carve-out, and the phrases are
- * specific enough not to catch a request-shape 4xx (illegal tool name, bad
- * schema), which must keep surfacing loudly.
+ * A 4xx that means a spend cap or exhausted credit, not a malformed request.
+ * Anthropic sends its workspace spend cap as a 400. Checks both message and body.
  */
 function isQuotaOrBillingError(e: APICallError): boolean {
   const haystack = `${e.message} ${e.responseBody ?? ""}`.toLowerCase();
@@ -310,22 +214,9 @@ function isQuotaOrBillingError(e: APICallError): boolean {
 }
 
 /**
- * True when a failed call is worth WAITING for rather than terminating over:
- * a 429, 408, or 5xx `APICallError`, direct or as the newest attempt inside a
- * `RetryError`. The chat turn's capacity retries (`afterCapacityError`) gate
- * on this to convert termination into latency.
- *
- * Structural only, per ADR-0072 — no message sniffing. That deliberately
- * excludes the classifier's `overloaded` message net (`fetch failed`,
- * `econnreset`, …): those stay terminal-tagged with the client's retry
- * affordance rather than auto-waited, so a fault that never clears (DNS, TLS)
- * cannot park a run.
- *
- * Excludes quota/billing 4xx even though they degrade: money does not refill
- * on a backoff schedule, so waiting burns attempts without landing the turn.
- * Excludes timeouts, which already own a retry budget (the streaming
- * circuit-breaker's single regeneration) — counting them here too would
- * double-spend a ~180s anomaly. Caller aborts carry no status and never match.
+ * A 429, 408, or 5xx worth waiting for (`afterCapacityError`). Status only, no message
+ * matching (ADR-0072), so a fault that never clears cannot park a run.
+ * Quota and billing errors are excluded: money does not refill on a backoff.
  */
 export function isCapacityError(err: unknown): boolean {
   const apiError = findApiCallError(err);
@@ -339,79 +230,29 @@ export function isCapacityError(err: unknown): boolean {
 }
 
 /**
- * Compose a primary leg with a fallback leg: retry the primary twice, then
- * degrade to the fallback on any capacity condition.
+ * Retry the primary on transient errors, then switch to `fallback`.
+ * A plain 4xx does not switch: it means our request is wrong, and a weaker model would hide the bug.
+ * Fallback covers only errors raised before a stream starts.
  *
- * The returned object is a STATELESS FACADE, and that is load-bearing. It
- * builds a fresh `createRetryableModel` per call instead of holding one.
- * ai-retry's `RetryableLanguageModel` keeps the serving leg in an INSTANCE
- * field (`currentModel`, plus `stickyState`): `doGenerate` assigns the start
- * model, the retry loop re-reads the field at dispatch time, and the backoff
- * delay sits between the two. One instance therefore cannot serve two calls at
- * once. `createRouteHandle` memoizes one model per named route, so before this
- * facade every concurrent caller of a route shared that field — a call whose
- * attempt 1 failed on OpenAI was directly observed dispatching attempt 2 to
- * Google, because a sibling call moved the field during the 1-second sleep.
- * The retry budget was mis-charged the same way, since `findRetryModel` counts
- * attempts by `getModelKey(attempt.model)`.
+ * Stateless on purpose: it builds a new retryable model per call. ai-retry keeps the serving leg
+ * in an instance field, so concurrent calls on one memoized route sent retries to the wrong leg.
  *
- * The memo stays: the facade is built once per route, so `route(name).model()`
- * keeps returning the same object and referential-identity callers still hold.
- * Only the mutable retry state is now per call.
- *
- * `provider` and `modelId` name the PRIMARY leg and never move. Do not read
- * them to learn which leg answered — they cannot tell you. `wrapLanguageModel`
- * copies both into plain properties when `createProviderRouteModel` installs
- * the reasoning middleware, so even ai-retry's own live values were frozen at
- * the primary before any call ran. `providerForServedModel` plus the SDK's
- * `result.response.modelId` is the seam that does know.
+ * `provider` and `modelId` always name the primary. Use `providerForServedModel` with
+ * `result.response.modelId` to learn which leg answered.
  */
 export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4): LanguageModelV4 {
-  // True for any error worth degrading to the fallback; false for a
-  // non-retryable client bug we want to surface. Built with the raw `error`
-  // helper (not `.not()`) so it is inherently error-only — `.not()` of an error
-  // condition also matches *successful* results, which the retry loop consults.
+  // Raw `error`, not `.not()`: `.not()` of an error condition also matches successful results.
   const shouldSwitch = error((e) => {
-    // A caller-initiated cancel is never a capacity condition — the request was
-    // abandoned deliberately (a hedged-request loser, a stop button, shutdown),
-    // so re-issuing it on the fallback bills a second call for an answer nobody
-    // is waiting for. Without this, the triage hedge (#436) would have made
-    // every cancelled duplicate fan out to `gemini-2.5-flash`.
+    // A deliberate cancel (hedge loser, stop button) must not bill a second call.
     if (isCallerAbort(e)) return false;
 
     if (APICallError.isInstance(e) && e.statusCode !== undefined) {
-      // A 429 degrades, INCLUDING a Cloudflare `2018` "Wholesale Rate limited"
-      // from the gateway edge — but for a smaller reason than an earlier
-      // comment here claimed, and the distinction matters to anyone reading
-      // this as a reliability guarantee.
-      //
-      // Unified Billing meters ONE budget per gateway, shared across
-      // providers. Two order-reversed bursts on 2026-09-13 show it: whichever
-      // provider fires first takes the slots and the one that fires second
-      // gets 13-20 percent. So on a `2018` the fallback leg draws on the same
-      // exhausted bucket as the primary, and degrading is NOT what lands the
-      // turn. It lands roughly one attempt in five, which still beats failing
-      // outright, and it costs one request.
-      //
-      // The switch stays for the case it is actually good at: a 429 the
-      // PROVIDER raised (an Anthropic or OpenAI account limit), which is per
-      // provider and which the other leg genuinely escapes. Nothing here can
-      // separate the two from the status code alone — the `2018` body is the
-      // only tell, and a TERMINAL failure records it on
-      // `api_call_log.response_body` (via `transportFacts`, which unwraps the
-      // `RetryError` to the last `APICallError`). A degrade that SUCCEEDS
-      // writes no body anywhere — the success row carries only the
-      // `servedModelId` / `requestedModelId` divergence — so do not read this
-      // as a guarantee that every 2018 is queryable from the ledger.
+      // A 429 switches, but a gateway `2018` budget 429 is shared across providers,
+      // so the fallback rarely escapes it. A provider's own account limit it does escape.
       const code = e.statusCode;
       const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;
 
-      // A spend-cap / workspace-usage-limit error is a *capacity* condition we
-      // want to degrade through, but Anthropic returns it as a 4xx billing
-      // error (not 408/429), so the generic client-bug guard would surface it
-      // and hard-fail the turn (#303). Carve it out so it degrades like a 429,
-      // while genuine request-shape 4xx (dotted tool name, malformed schema)
-      // still surface loudly.
+      // A spend cap arrives as a 4xx but is capacity, so it switches like a 429.
       if (isClientBug && !isQuotaOrBillingError(e)) return false;
     }
 
@@ -431,20 +272,14 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
     specificationVersion: primary.specificationVersion,
     provider: primary.provider,
     modelId: primary.modelId,
-    // Either leg can serve, so the facade accepts what either leg accepts. A
-    // primary-only value would reject the fallback's inputs (or vice versa) on
-    // the one turn the other leg answers.
+    // Either leg can serve, so accept what either accepts.
     supportedUrls: mergeSupportedUrls(primary.supportedUrls, fallback.supportedUrls),
     doGenerate: (options) => compose().doGenerate(options),
     doStream: (options) => compose().doStream(options),
   };
 }
 
-/**
- * Union of two legs' URL patterns, keyed by media kind. Both sides are
- * awaited rather than branched on: the field admits a plain record or a
- * promise of one, and awaiting covers both without a shape check.
- */
+/** Union of both legs' URL patterns. Await covers both a record and a promise of one. */
 function mergeSupportedUrls(
   primary: LanguageModelV4["supportedUrls"],
   fallback: LanguageModelV4["supportedUrls"],
@@ -463,12 +298,7 @@ function mergeSupportedUrls(
   })();
 }
 
-/**
- * Every (provider, model) pair any route in this module can serve — every leg
- * of every named route plus every media-enrichment leg. The boot guard
- * verifies this set rather than the route facades: a facade reports only its
- * primary leg, so verifying facades silently skips every fallback.
- */
+/** Every leg of every route, for the boot guard. A route facade reports only its primary. */
 export function allRouteLegIdentifiers(): Array<{
   route: string;
   provider: string;

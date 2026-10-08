@@ -10,10 +10,7 @@ import type { ClientMutators } from "@alfred/sync";
 import type { ReplicacheSnapshot } from "./client";
 import { useReplicache, useReplicacheStatus } from "./context";
 
-/**
- * Reactive list of the user's chat threads, newest activity first. Mirrors
- * the `use-todos` subscription pattern (scan a prefix, zod-validate each row).
- */
+/** Chat threads, newest activity first. */
 export function useChatThreads(): SyncedChatThread[] {
   const rep = useReplicache();
   const [snapshot, setSnapshot] = useState<ReplicacheSnapshot<SyncedChatThread[]> | null>(null);
@@ -38,7 +35,7 @@ export interface ChatThreadState {
   loading: boolean;
 }
 
-/** Reactive single-thread lookup with unresolved and resolved-empty kept distinct. */
+/** Keeps "not loaded" apart from "not found". */
 export function useChatThread(threadId: string | undefined): ChatThreadState {
   const { rep, loadError, pullError, initialPullPending } = useReplicacheStatus();
 
@@ -78,7 +75,7 @@ export interface ChatMessagesState {
   retry: () => void;
 }
 
-/** Reactive message list that does not expose an unresolved subscription as empty. */
+/** Does not report an unresolved subscription as empty. */
 export function useChatMessages(threadId: string | undefined): ChatMessagesState {
   const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
 
@@ -115,12 +112,7 @@ export function useChatMessages(threadId: string | undefined): ChatMessagesState
   };
 }
 
-/**
- * Reactive map of a thread's attachments grouped by message id (ADR-0065).
- * Read once per thread (a flat `chatatt/` scan, filtered/grouped client-side)
- * and looked up per bubble — cheaper than one subscription per message. The
- * empty object is stable-enough; consumers index by `message.id`.
- */
+/** A thread's attachments by message id (ADR-0065). One subscription per thread, not per message. */
 export function useChatAttachmentsByMessage(
   threadId: string | undefined,
 ): Record<string, SyncedChatAttachment[]> {

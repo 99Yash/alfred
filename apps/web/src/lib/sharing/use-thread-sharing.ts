@@ -9,21 +9,11 @@ import { responseErrorMessage } from "~/lib/api-error";
 import { client, parseEdenBody } from "~/lib/eden";
 
 /**
- * Client half of thread sharing (ADR-0102).
- *
- * Publishing is a mutation and never a render-time effect: a share mints a
- * world-readable URL, so it must happen because the user pressed a button, not
- * because a component mounted or a query refetched.
- *
- * Every failure here travels as a {@link SharingRequestError}, which carries
- * two things a bare `Error` loses. The server's own message — "This thread has
- * no messages to share yet.", the message cap, the size cap — is the only text
- * that tells the user what to DO, and a generic "Could not create a link."
- * throws it away. The status is what lets the public page tell a revoked link
- * (404, and final) apart from a server or network failure (retry, and say so).
+ * Thread sharing (ADR-0102). Publish only on a button press, never in an effect:
+ * it mints a public URL.
  */
 
-/** A failed share request, carrying the server's message and its status. */
+/** Keeps the server's message (it tells the user what to do) and the status (404 means revoked). */
 export class SharingRequestError extends Error {
   readonly status: number;
 
@@ -34,7 +24,6 @@ export class SharingRequestError extends Error {
   }
 }
 
-/** Turn an Eden error into one of ours, keeping the server's wording. */
 function sharingError(
   error: { status: number; value: unknown },
   action: string,
@@ -51,7 +40,7 @@ export const sharesKey = (threadId: string) => ["threads", threadId, "shares"] a
 
 const SHARES_STALE_MS = 30_000;
 
-/** Read one thread's live shares. Extracted so the prefetch below hits the same URL + parse. */
+/** Shared by the query and the prefetch, so both hit the same URL and parse. */
 export async function fetchThreadShares(threadId: string): Promise<SharedThreadSummary[]> {
   const res = await client.api.threads({ threadId }).shares.get();
 
@@ -60,11 +49,7 @@ export async function fetchThreadShares(threadId: string): Promise<SharedThreadS
   return parseEdenBody(sharesResponseSchema, res.data).shares;
 }
 
-/**
- * Live shares of one thread. `enabled` is left to the caller so the dialog can
- * hold off until it opens — this list is only ever read inside the dialog, and
- * fetching it for every thread view would be a request per navigation.
- */
+/** The caller sets `enabled`, so the dialog fetches only when it opens. */
 export function useThreadShares(threadId: string | undefined, enabled: boolean) {
   return useQuery({
     queryKey: sharesKey(threadId ?? ""),
@@ -78,14 +63,7 @@ export function useThreadShares(threadId: string | undefined, enabled: boolean) 
   });
 }
 
-/**
- * Warm the shares list before the dialog opens (hover/focus on the Share
- * button). The dialog gates its query on `open`, so a cold first click mounts
- * the entrance animation and the loading spinner in the same frame: the list
- * popping in mid-animation is the first-open jank. A hover prefetch lets the
- * first open read from cache like every later one, with no per-navigation
- * fetch. Fire-and-forget — a miss just falls back to the loading row.
- */
+/** Prefetch on hover or focus, so the first open does not pop the list in mid-animation. */
 export function prefetchThreadShares(queryClient: QueryClient, threadId: string | undefined): void {
   if (!threadId) return;
   void queryClient.prefetchQuery({
@@ -95,12 +73,7 @@ export function prefetchThreadShares(queryClient: QueryClient, threadId: string 
   });
 }
 
-/**
- * Publish the thread. The server reuses an existing share when re-publishing
- * would produce the same page, so the returned summary is not necessarily new —
- * the dialog treats "just minted" and "already published" identically on
- * purpose, because the user asked for a link, not for a fresh one.
- */
+/** The server can return an existing share for the same page. The dialog treats both the same. */
 export function useShareThread(threadId: string | undefined) {
   const queryClient = useQueryClient();
 
@@ -119,11 +92,7 @@ export function useShareThread(threadId: string | undefined) {
   });
 }
 
-/**
- * Revoke a share. The server hard-deletes the row, so this is not reversible.
- * `ShareRow` asks for a second click before calling it — a claim this comment
- * used to make while the dialog revoked on the first one.
- */
+/** Not reversible: the server deletes the row. */
 export function useRevokeShare(threadId: string | undefined) {
   const queryClient = useQueryClient();
 
@@ -139,15 +108,7 @@ export function useRevokeShare(threadId: string | undefined) {
   });
 }
 
-/**
- * Read a published thread by slug. This is the one query in the app that runs
- * without a session; a signed-out visitor is the expected caller.
- *
- * `retry: false` only for 404. A revoked or never-existing slug will answer the
- * same way however many times it is asked, so retrying it just delays the page
- * that says so; a 429, a 500, or a dropped connection is worth a second try,
- * and the page offers the visitor a third.
- */
+/** Runs without a session. A 404 is final, so only it skips retry. */
 export function useSharedThreadPage(urlSlug: string) {
   return useQuery({
     queryKey: ["shared-thread", urlSlug],
@@ -163,7 +124,7 @@ export function useSharedThreadPage(urlSlug: string) {
   });
 }
 
-/** The absolute URL a visitor opens. Built from the current origin, so dev and prod each get their own. */
+/** Uses the current origin, so dev and prod each get their own URL. */
 export function sharedThreadUrl(urlSlug: string): string {
   return `${window.location.origin}/c/${urlSlug}`;
 }

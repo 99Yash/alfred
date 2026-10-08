@@ -3,18 +3,9 @@ import { createRedisConnection } from "@alfred/db/redis";
 import { dispatchDueCronWorkflows } from "./tick";
 
 /**
- * Generic workflow-dispatch queue (ADR-0027).
- *
- * Mirrors `briefing-cron` in shape but its only responsibility is to
- * drive the per-minute `workflows.tick` repeatable. The tick query is a
- * partial-index scan on `workflows.next_run_at`; per-row work is one
- * `startRunInTx({ claim, enqueue: { jobId } })` (CAS-claim + create in one
- * transaction, enqueue after commit).
- *
- * Distinct from the per-feature `briefing-cron` and `memory-cron` queues
- * to keep the operational lanes obvious: one queue per dispatch
- * cadence. m12 ships this as a sibling; a follow-up pass migrates the
- * per-feature ticks onto this one and retires them.
+ * Workflow dispatch queue (ADR-0027). It only drives the per-minute `workflows.tick`.
+ * Each row is one `startRunInTx` (claim and create in one transaction, enqueue after commit).
+ * `briefing-cron` and `memory-cron` are separate queues.
  */
 const WORKFLOWS_QUEUE_NAME = "workflows-tick";
 
@@ -31,8 +22,7 @@ export function getWorkflowsQueue(): Queue<WorkflowsJobData> {
     defaultJobOptions: {
       attempts: 2,
       backoff: { type: "exponential", delay: 30_000 },
-      // Tick fires every minute; keep a tight rolling history so a
-      // restart doesn't flood Redis with old data.
+      // Ticks every minute; keep a short history so Redis does not fill up.
       removeOnComplete: { count: 120, age: 4 * 60 * 60 },
       removeOnFail: { count: 200, age: 24 * 60 * 60 },
     },
@@ -49,8 +39,7 @@ export async function startWorkflowsWorker(opts: StartWorkflowsWorkerOpts = {}):
   if (_worker) return;
   _worker = new Worker<WorkflowsJobData>(WORKFLOWS_QUEUE_NAME, processWorkflowsJob, {
     connection: createRedisConnection("queue"),
-    // The tick handler is cheap (one indexed SELECT + a small per-row
-    // enqueue loop); single-threaded is right.
+    // The handler is cheap; one at a time is right.
     concurrency: opts.concurrency ?? 1,
   });
   _worker.on("error", (err) => {
@@ -83,11 +72,7 @@ async function processWorkflowsJob(job: Job<WorkflowsJobData>): Promise<unknown>
   }
 }
 
-/**
- * Idempotent boot-time registration of the `workflows.tick` repeatable.
- * Mirrors `scheduleRepeatableBriefingJobs` — `upsertJobScheduler` keys
- * by id, so re-boots don't duplicate schedules.
- */
+/** Register the tick at boot. `upsertJobScheduler` keys by id, so reboots do not duplicate it. */
 export async function scheduleRepeatableWorkflowsJobs(): Promise<void> {
   const queue = getWorkflowsQueue();
   await queue.upsertJobScheduler(

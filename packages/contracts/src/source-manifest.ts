@@ -14,59 +14,19 @@ import { INTEGRATION_DISPLAY_NAMES, INTEGRATION_SLUGS, integrationEntry } from "
 import { IDENTITY_KINDS, identityKindSchema } from "./user-model";
 
 /**
- * The source capability manifest (#466; epic #422; ADR-0101).
- *
- * A manifest is one source's own statement of what it can know and how it can
- * be read. It is the source-DISCOVERY contract, and it is deliberately separate
- * from the tool registry: ADR-0093's `INTEGRATIONS` record says what an
- * integration can DO (its actions, its credential, its passthrough transport),
- * while a manifest says what a registered evidence source can ANSWER. A native
- * integration names its slug here and the shared facts — display name, domain —
- * are read back out of that record, so the two never carry two spellings of the
- * same fact.
- *
- * `id` is the join key. It equals the producing `ContextSource.id` and the
- * `EvidenceCard.source.id` of every card that source returns, so a card, a
- * ranking row, and a manifest all address one source without a translation
- * table.
- *
- * Almost every field is optional, and that is the contract's point rather than
- * laxity. An MCP server Alfred has never seen can describe itself in one field
- * (`kind: "mcp"`) and no more. The reader's job is to treat that silence
- * conservatively — an undescribed source is never treated as trusted — not
- * to invent a value for it. Declaration grants trust; silence never does.
- *
- * Pure module, no Node imports: the server boundary reads this shape today, and
- * it lives in contracts so a future web catalog can read the same shape without
- * a move. No web surface reads it yet.
+ * The source capability manifest (ADR-0101): what a source can answer and how to read it.
+ * ADR-0093 `INTEGRATIONS` says what an integration can do; shared facts are read from there.
+ * `id` is the join key with `ContextSource.id` and `EvidenceCard.source.id`.
+ * Most fields are optional: an unknown MCP server may declare only `kind`.
+ * Silence never grants trust.
  */
 
 /**
- * What a source can be ASKED for. This is read semantics, not a tool list: it
- * says how a query reaches the source's records, so the boundary can tell a
- * searchable source from a merely callable one.
- *
- * - `semantic_search` — ranked retrieval over an embedding or equivalent index.
- * - `keyword_search` — literal term matching over the same records.
- * - `exact_lookup` — resolve a caller-declared identity or key to one record.
- * - `enumerate` — list recent records with no query at all.
- * - `expand` — dereference an `EvidenceCard.expansion` handle into live
- *   provider data (#428).
- *
- * A source that declares none of these is callable and not searchable. That is
- * the undescribed-MCP case, and it is why the list is a declaration rather than
- * something inferred from the fact that a tool exists.
- *
- * The first four answer the REQUEST. `expand` answers a different question: it
- * takes a handle a card already carries and reads the record behind it, so it
- * is never selected by the query and always by a handle. A source that declares
- * `expand` must also name the handle kinds it dereferences in
- * {@link SourceManifest.expansionKinds}; registration rejects either half
- * without the other (#1077).
- *
- * `enumerate` is declared vocabulary and is still not selectable: listing
- * recent records ignores the question, so a source declaring only `enumerate`
- * is excluded as unanswerable for this request.
+ * How a query reaches the source's records.
+ * A source that declares none is callable but not searchable.
+ * `expand` reads the record behind a card's expansion handle and needs
+ * {@link SourceManifest.expansionKinds}; registration rejects either without the other (#1077).
+ * `enumerate` ignores the question, so it alone never makes a source selectable.
  */
 export const SOURCE_READ_CAPABILITIES = [
   "semantic_search",
@@ -81,13 +41,9 @@ export type SourceReadCapability = (typeof SOURCE_READ_CAPABILITIES)[number];
 export const sourceReadCapabilitySchema = z.enum(SOURCE_READ_CAPABILITIES);
 
 /**
- * Whether Alfred holds a local copy of the source's content.
- *
- * `indexed` means the content is in a local index now, `indexable` means it
- * could be ingested but is not, `live_only` means the provider is the only copy
- * and every read is a remote call, and `unknown` is the honest tail. This is a
- * property of the CONTENT, distinct from {@link SourceFreshness}, which is a
- * property of how current that copy is.
+ * Whether Alfred holds a local copy of the content.
+ * `live_only` means every read is a remote call.
+ * Distinct from {@link SourceFreshness}, which says how current that copy is.
  */
 export const SOURCE_INDEXABILITY_LEVELS = ["indexed", "indexable", "live_only", "unknown"] as const;
 
@@ -95,15 +51,7 @@ export type SourceIndexability = (typeof SOURCE_INDEXABILITY_LEVELS)[number];
 
 export const sourceIndexabilitySchema = z.enum(SOURCE_INDEXABILITY_LEVELS);
 
-/**
- * What one read of the source costs.
- *
- * `local` reads a local store, `remote` calls a provider over the network,
- * `metered` costs money per read (a provider that bills calls, an embedding),
- * and `unknown` is the honest tail. A cheap source is preferred on a tie, never
- * over relevance — the ranker's `sourcePriority` weight is small for exactly
- * this reason.
- */
+/** What one read costs. The ranker's `sourcePriority` weight is small, so cost only breaks ties. */
 export const SOURCE_COST_CLASSES = ["local", "remote", "metered", "unknown"] as const;
 
 export type SourceCostClass = (typeof SOURCE_COST_CLASSES)[number];
@@ -111,33 +59,18 @@ export type SourceCostClass = (typeof SOURCE_COST_CLASSES)[number];
 export const sourceCostClassSchema = z.enum(SOURCE_COST_CLASSES);
 
 /**
- * What a caller is willing to spend on one read (#1078).
- *
- * The same vocabulary as {@link SOURCE_COST_CLASSES}, minus `unknown`: a budget
- * is a statement, and "I do not know what I will pay" is not one. It is derived
- * rather than respelled so a new cost class joins both ends at once.
- *
- * The budget names the MOST expensive class the read will pay for. What the
- * ladder between the classes is, and what an undeclared cost is read as, are
- * decisions for the reader that spends the money, not facts about a source, so
- * they live beside the selection policy and not here.
+ * The most expensive cost class a caller will pay for one read (#1078).
+ * Derived from {@link SOURCE_COST_CLASSES} minus `unknown`, so a new class joins both.
  */
 export const sourceCostBudgetSchema = sourceCostClassSchema.exclude(["unknown"]);
 
 export type SourceCostBudget = z.infer<typeof sourceCostBudgetSchema>;
 
 /**
- * Whether the source can be read AT ALL right now.
- *
- * `unavailable` is a STATIC, registration-time admission — a source the
- * composition root knows is out of service at boot — and the boundary does not
- * consult it. It is not a live health reading: the manifest is parsed and
- * frozen once at registration, so a source that disconnects mid-process still
- * carries its boot value and the failure surfaces as an `error` report, not via
- * this field. `unknown` is NOT read as unavailable: silence is not a
- * confession, so an undeclared source is still consulted and reports its own
- * outcome. A source that becomes unusable mid-read is an `error` report, not
- * this field.
+ * Whether the source can be read now.
+ * `unavailable` is set once at boot, and the boundary skips the source.
+ * A mid-process failure is an `error` report, not this field.
+ * `unknown` does not mean unavailable: the source is still consulted.
  */
 export const SOURCE_AVAILABILITY_STATES = ["available", "unavailable", "unknown"] as const;
 
@@ -145,16 +78,13 @@ export type SourceAvailability = (typeof SOURCE_AVAILABILITY_STATES)[number];
 
 export const sourceAvailabilitySchema = z.enum(SOURCE_AVAILABILITY_STATES);
 
-/** Ceiling on a declared freshness window, in minutes: one year. */
+/** Cap on a freshness window: one year. */
 export const SOURCE_FRESHNESS_WINDOW_MAX_MINUTES = 525_600;
 
 /**
  * How current the source's copy normally is.
- *
- * `typical` is the `EvidenceTime.freshness` its cards normally declare, so a
- * reader can rank a source before it has seen one card. `windowMinutes` is the
- * age past which the source's own copy should be read as stale; an absent
- * window means the source cannot say, never "never stale".
+ * `typical` lets a reader rank a source before it sees a card.
+ * An absent `windowMinutes` means the source cannot say, not "never stale".
  */
 export const sourceFreshnessSchema = z.object({
   typical: evidenceFreshnessSchema,
@@ -163,150 +93,95 @@ export const sourceFreshnessSchema = z.object({
 
 export type SourceFreshness = z.infer<typeof sourceFreshnessSchema>;
 
-/** Ceiling on a declared typical latency, in milliseconds: ten minutes. */
+/** Cap on typical latency: ten minutes. */
 export const SOURCE_LATENCY_MAX_MS = 600_000;
 
-/** What one read costs in time and money. Both readings are declarations. */
+/** What one read costs in time and money. */
 export const sourceCostSchema = z.object({
   class: sourceCostClassSchema,
-  /** Typical wall time of one read. A hint for budgeting, never a timeout. */
+  /** Typical wall time of one read. A hint, never a timeout. */
   typicalLatencyMs: z.number().int().positive().max(SOURCE_LATENCY_MAX_MS).optional(),
 });
 
 export type SourceCost = z.infer<typeof sourceCostSchema>;
 
-/** Ceiling on the discovery topic list. A hint set, not a routing table. */
+/** Cap on the discovery topic list. */
 export const SOURCE_DISCOVERY_MAX_TOPICS = 30;
 
-/**
- * Human-facing hints about when this source is worth reading.
- *
- * These are prose and loose terms for a person reading a trace or a catalog
- * page. Nothing in the boundary branches on them: a hint that became a router
- * would be the hard-coded source switch this whole contract exists to remove.
- */
+/** Human hints about when to read this source. Nothing branches on them; keep it that way. */
 export const sourceDiscoverySchema = z.object({
   /** One line: what this source is good for. */
   summary: z.string().min(1).max(300).optional(),
-  /** Loose subject terms — `deployments`, `meeting notes`. */
+  /** Loose subject terms such as `deployments`. */
   topics: z.array(z.string().min(1).max(60)).max(SOURCE_DISCOVERY_MAX_TOPICS).optional(),
 });
 
 export type SourceDiscovery = z.infer<typeof sourceDiscoverySchema>;
 
-/** Ceiling on an open string list, so one manifest cannot grow unbounded. */
+/** Cap on an open string list. */
 export const SOURCE_MANIFEST_MAX_LIST = 50;
 
-/**
- * Declared lists name distinct capabilities, hosts, or kinds: repeats carry no
- * meaning, so every list below rejects duplicates. The bound on an enum list is
- * the enum's own length (repeats are the only thing a larger cap could bind,
- * and zod does not deduplicate); only the open string lists (`domains`,
- * `objectKinds`) use {@link SOURCE_MANIFEST_MAX_LIST}.
- */
+/** Zod does not dedupe, so each declared list rejects repeats. */
 function uniqueValues(values: readonly string[]): boolean {
   return new Set(values).size === values.length;
 }
 
 /**
  * One source's capability manifest.
- *
- * Read it as four groups: WHO the source is (`id`, `kind`, `integration`,
- * `displayName`, `domains`), WHAT it holds (`objectKinds`, `mediaKinds`,
- * `identityKeys`), HOW it can be read (`read`, `expansionKinds`,
- * `indexability`, `freshness`, `availability`), and HOW MUCH to trust and spend
- * (`authority`, `cost`, `discovery`).
- *
- * The boundary acts on a subset in this slice: `read` and `availability` drive
- * selection, `read` + `expansionKinds` route a card's expansion handle (#1077),
- * `mediaKinds` bounds the modality a card may carry (#429), `authority` /
- * `freshness.typical` / `cost.class` fold into the ranker's `sourcePriority`,
- * and `id` / `kind` / `displayName` (+ `domains` via the integration join)
- * stamp each card's source ref. The rest — `objectKinds`, `identityKeys`,
- * `indexability`, `freshness.windowMinutes`, `cost.typicalLatencyMs`,
- * `discovery`, and the `enumerate` read capability — are catalog-reserved
- * declarations for a future catalog slice. Nothing in the boundary branches on
- * them yet, and production manifests leave them unset rather than paying for a
- * derivation no reader consumes.
+ * The boundary reads `read`, `availability`, `expansionKinds`, `mediaKinds`, `authority`,
+ * `freshness.typical`, `cost.class`, and the source-ref fields. The rest are catalog-reserved:
+ * nothing branches on them yet, and production manifests leave them unset.
  */
 export const sourceManifestSchema = z.object({
-  /** The join key: the producing `ContextSource.id` and `EvidenceCard.source.id`. */
+  /** Equals `ContextSource.id` and `EvidenceCard.source.id`. */
   id: z.string().min(1).max(200),
-  /** Structural trust signal, shared with the card contract. Never a name switch. */
+  /** Structural trust signal. Never a name switch. */
   kind: evidenceSourceKindSchema,
   /**
-   * The ADR-0093 integration this source reads, when it reads one.
-   *
-   * This is the whole non-duplication mechanism: a native source names its slug
-   * and {@link sourceManifestDisplayName} / {@link sourceManifestDomains} read
-   * the display name and host back out of `INTEGRATIONS`. Alfred's own stores
-   * (the corpus, memory, object state) span every ingested provider and name no
-   * slug.
+   * The ADR-0093 integration this source reads. Display name and host come from `INTEGRATIONS`.
+   * Alfred's own stores span every provider and name no slug.
    */
   integration: z.enum(INTEGRATION_SLUGS).optional(),
-  /** Display name, when the source is not an integration or overrides it. */
+  /** Set when the source is not an integration or overrides its name. */
   displayName: z.string().min(1).max(200).optional(),
-  /** Hosts this source's records live on, for grouping and citation. */
+  /** Hosts this source's records live on. */
   domains: z
     .array(z.string().min(1).max(253))
     .max(SOURCE_MANIFEST_MAX_LIST)
     .refine(uniqueValues, "must not contain duplicates")
     .optional(),
-  /** Provider-declared object kinds — `pull_request`, `issue`. Open strings. */
+  /** Provider object kinds such as `pull_request`. Open strings. */
   objectKinds: z
     .array(z.string().min(1).max(100))
     .max(SOURCE_MANIFEST_MAX_LIST)
     .refine(uniqueValues, "must not contain duplicates")
     .optional(),
   /**
-   * The payload modalities this source can return (#429).
-   *
-   * The card side of the modality vocabulary and the manifest side name the
-   * same enum from the two ends: a card mints one `mediaKind`, and a source
-   * declares every kind its cards may carry. It stays optional HERE for the
-   * catalog case — an MCP server that describes itself in one field says
-   * nothing about what it holds — and becomes required on
-   * {@link retrievalSourceManifestSchema}, which a registered source takes.
-   *
-   * It is a statement about the RECORDS, never about extraction: a source that
-   * declares `image` says it can return a picture as evidence, not that Alfred
-   * can read the picture. What a card could not extract rides on the card's own
-   * `note`.
+   * The modalities this source can return (#429). Optional here for the catalog case;
+   * required on {@link retrievalSourceManifestSchema}.
+   * `image` means it can return a picture, not that Alfred can read it.
    */
   mediaKinds: z
     .array(evidenceMediaKindSchema)
     .max(EVIDENCE_MEDIA_KINDS.length)
     .refine(uniqueValues, "must not contain duplicates")
     .optional(),
-  /** How a query reaches the records. Silence means callable, not searchable. */
+  /** Silence means callable, not searchable. */
   read: z
     .array(sourceReadCapabilitySchema)
     .max(SOURCE_READ_CAPABILITIES.length)
     .refine(uniqueValues, "must not contain duplicates")
     .optional(),
   /**
-   * The `EvidenceCard.expansion` handle kinds this source can dereference
-   * (#1077).
-   *
-   * Open strings bounded by {@link EVIDENCE_EXPANSION_HANDLE_KIND_MAX_CHARS},
-   * the same constant as `EvidenceExpansionHandle.kind`, because
-   * they name the same vocabulary from the two ends: a card mints `kind`, and a
-   * source declares the kinds it reads. The expansion phase routes a handle by
-   * this list ALONE — it never reads the handle's `sourceId` and never names a
-   * source — so a provider can gain a live reader by registering one manifest.
-   *
-   * Paired with the `expand` read capability in both directions: a registered
-   * source that declares one without the other fails at boot. The pairing is
-   * what stops a silently dead declaration, in either shape — a source that
-   * claims it expands and routes nothing, and a source that lists kinds no
-   * reader can dereference.
+   * The `EvidenceCard.expansion` handle kinds this source reads (#1077).
+   * Expansion routes a handle by this list alone, never by its `sourceId`.
+   * Must pair with the `expand` read capability; a registered source with only one fails at boot.
    */
   expansionKinds: z
     .array(z.string().min(1).max(EVIDENCE_EXPANSION_HANDLE_KIND_MAX_CHARS))
     .max(SOURCE_MANIFEST_MAX_LIST)
     .refine(uniqueValues, "must not contain duplicates")
     .optional(),
-  /** Identity kinds this source can resolve or attach to its evidence. */
   identityKeys: z
     .array(identityKindSchema)
     .max(IDENTITY_KINDS.length)
@@ -314,33 +189,22 @@ export const sourceManifestSchema = z.object({
     .optional(),
   freshness: sourceFreshnessSchema.optional(),
   indexability: sourceIndexabilitySchema.optional(),
-  /** Provenance trust. An undeclared source is never promoted toward `high`. */
+  /** An undeclared source is never promoted toward `high`. */
   authority: evidenceAuthoritySchema.optional(),
   cost: sourceCostSchema.optional(),
   discovery: sourceDiscoverySchema.optional(),
-  /** Whether the source can be read now. Absent reads as `unknown`, not `unavailable`. */
+  /** Absent reads as `unknown`, not `unavailable`. */
   availability: sourceAvailabilitySchema.optional(),
 });
 
 export type SourceManifest = z.infer<typeof sourceManifestSchema>;
 
 /**
- * A manifest that may back a registered retrieval source.
- *
- * `SourceManifest` stays loose for the catalog case — an undescribed MCP
- * server is still describable as `{ id, kind: "mcp" }` and the reader treats
- * that silence conservatively. A `ContextSource` registration takes this
- * strict subtype instead: at least one read capability, an authority above
- * `unknown`, and at least one media kind (#429). A source that forgets any of
- * the three then fails at boot (a compile error for a literal, a parse throw
- * otherwise) rather than going dark for the life of the process with only a
- * `skipped` line as evidence.
- *
- * `mediaKinds` is required here for the reason the other two are, read through
- * the modality: the boundary rejects a card whose modality its own source never
- * declared, so an optional list would make silence the one declaration that
- * admits everything. A source states what it can return, and the cards it
- * returns are then held to that statement.
+ * The strict manifest a registered `ContextSource` takes: at least one read capability,
+ * an authority above `unknown`, and at least one media kind (#429).
+ * A source that misses one fails at boot instead of going dark.
+ * The boundary rejects a card whose modality the source did not declare,
+ * so silence must not admit everything.
  */
 export const retrievalSourceManifestSchema = sourceManifestSchema.safeExtend({
   read: sourceManifestSchema.shape.read.unwrap().min(1),
@@ -351,10 +215,8 @@ export const retrievalSourceManifestSchema = sourceManifestSchema.safeExtend({
 export type RetrievalSourceManifest = z.infer<typeof retrievalSourceManifestSchema>;
 
 /**
- * The display name for a source: its own, else the ADR-0093 integration's, else
- * the id. The fallback chain is the point — a manifest that names an
- * integration never restates the name, so renaming an integration renames its
- * source too.
+ * The display name: its own, else the ADR-0093 integration's, else the id.
+ * A manifest never restates an integration name, so a rename carries through.
  */
 export function sourceManifestDisplayName(manifest: SourceManifest): string {
   if (manifest.displayName !== undefined) return manifest.displayName;
@@ -366,11 +228,7 @@ export function sourceManifestDisplayName(manifest: SourceManifest): string {
   return manifest.id;
 }
 
-/**
- * The hosts a source's records live on: its own list, else the ADR-0093
- * integration's single `domain`, else none. A planned or internal integration
- * entry carries no domain, so the empty list is a real answer.
- */
+/** The source hosts: its own list, else the integration's `domain`, else none. */
 export function sourceManifestDomains(manifest: SourceManifest): readonly string[] {
   if (manifest.domains !== undefined) return manifest.domains;
 
@@ -383,25 +241,12 @@ export function sourceManifestDomains(manifest: SourceManifest): readonly string
   return [];
 }
 
-/**
- * The `EvidenceCard.expansion` handle kinds this source dereferences (#1077).
- *
- * The empty list is the answer for a source that declares no expansion, so a
- * route builder folds every manifest the same way and never branches on
- * absence.
- */
+/** The expansion handle kinds this source reads (#1077). Empty when it declares none. */
 export function sourceManifestExpansionKinds(manifest: SourceManifest): readonly string[] {
   return manifest.expansionKinds ?? [];
 }
 
-/**
- * Whether the source declared it can return evidence of this modality (#429).
- *
- * The single owner of the modality join, so the boundary's per-card check and a
- * future catalog read the declaration the same way. Silence answers `false`:
- * a manifest that names no modality has not declared this one, and the whole
- * point of the declaration is that it buys nothing by omission.
- */
+/** Whether the source declared this modality (#429). Silence answers `false`. */
 export function sourceManifestDeclaresMediaKind(
   manifest: SourceManifest,
   mediaKind: EvidenceMediaKind,
@@ -417,26 +262,14 @@ export function sourceManifestSupportsRead(
   return manifest.read?.includes(capability) === true;
 }
 
-/**
- * Whether the source stated HOW it can be read at all — any read capability.
- *
- * A source with no declared read semantics may still be a perfectly good tool;
- * it is simply not something a retrieval boundary knows how to question.
- */
+/** Whether the source declared any read capability. */
 export function declaresReadSemantics(manifest: SourceManifest): boolean {
   return (manifest.read?.length ?? 0) > 0;
 }
 
 /**
  * The card source ref for a manifest's own cards.
- *
- * Single owner for the `id` / `kind` / `displayName` / `domain` join key: an
- * adapter calls this with its manifest constant instead of restating the id
- * and display name a third time beside the manifest literal. `displayName` is
- * included only when the manifest declares one (directly or via its
- * integration); otherwise the card cites the bare id and the packer renders
- * it once, never `id [id]`. The domain is the manifest's first declared host,
- * when it declares one.
+ * Omits `displayName` when the manifest has none, so the packer never renders `id [id]`.
  */
 export function sourceRefFromManifest(manifest: SourceManifest): EvidenceSourceRef {
   const domains = sourceManifestDomains(manifest);
@@ -454,14 +287,7 @@ export function sourceRefFromManifest(manifest: SourceManifest): EvidenceSourceR
   return { id: manifest.id, kind: manifest.kind, ...domain };
 }
 
-/**
- * The card authority snapshot for a manifest's own cards.
- *
- * Returns a copy of the manifest's declared authority, or `undefined` when
- * the manifest declares none — the card then reads `unknown` at rank time.
- * The copy matters: the manifest stored in the registry is frozen, and a card
- * must never alias it.
- */
+/** Copy the manifest authority for a card. The registry manifest is frozen, so never alias it. */
 export function sourceAuthorityFromManifest(
   manifest: SourceManifest,
 ): EvidenceAuthority | undefined {

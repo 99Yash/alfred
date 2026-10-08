@@ -1,14 +1,8 @@
 /**
- * Recipient policy for the live-send path behind `gmail.send_draft` (#134).
- *
- * The action name is historical: the tool sends live mail. Approval remains a
- * hard floor, but approval alone does not stop an injected inbound message from
- * choosing a new exfiltration address. The final execute boundary therefore
- * permits only the active mailbox or a person the user has emailed before.
- *
- * An inbound-only person row is deliberately insufficient. Passive Gmail
- * capture creates those rows, so treating every row as "known" would let an
- * attacker place their own address on the allow-list by sending one message.
+ * `gmail.send_draft` sends live mail despite its name. Approval alone cannot stop an
+ * injected message from naming a new address, so only the mailbox itself or a person
+ * the user has emailed before may receive it. Inbound-only rows do not count:
+ * an attacker creates one by sending one message.
  */
 
 import {
@@ -72,10 +66,7 @@ function addPreviouslyContactedAliases(
   }
 }
 
-/**
- * Fail closed before Gmail is called when any live-send recipient is new.
- * The loader is injectable so the policy branches can be tested without a DB.
- */
+/** Throw before Gmail is called when any recipient is new. The loader is injectable for tests. */
 export async function assertGmailRecipientsAllowed(
   args: {
     userId: string;

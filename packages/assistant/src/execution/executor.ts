@@ -31,56 +31,34 @@ import { startQueueLeaseSpan, type QueueLeaseFromStatus } from "./runtime-spans"
 import type { StagedAction, Step, StepContext, StepResult, Workflow } from "./registry";
 
 /**
- * What `runOnce` reports back to the caller (the BullMQ worker). The worker
- * uses this to decide whether to re-enqueue (when a step yielded `next`)
- * or step away (terminal / parked).
- */
-/**
- * ADR-0070 §1.4 — a step reclaimed this many times since its last successful
- * run is treated as non-progressing and the run is failed terminally. The
- * first reclaim is free (a genuine worker death recovers), so this trips on
- * the 3rd consecutive reclaim of the same step.
+ * A step reclaimed this many times since its last commit fails the run (ADR-0070 §1.4).
+ * The first reclaim is free, so a real worker death still recovers.
  */
 const BACKSTOP_RECLAIM_LIMIT = 3;
 
 /**
- * Why this worker no longer owns the run it is about to write to.
- *  - `reclaim`  — the run's `attempt` moved on (a stale-lease reclaim owns it).
- *  - `terminal` — the run reached a terminal status mid-step (#530: a cancel
- *    landed while this worker was inside the step body).
+ * Why this worker no longer owns the run:
+ * `reclaim` means a stale-lease reclaim bumped `attempt`;
+ * `terminal` means a cancel landed during the step body (#530).
  */
 export type SupersedeCause = "reclaim" | "terminal";
 
-/** Benign `skipped` reason reported for each {@link SupersedeCause}. */
 const SUPERSEDE_SKIP_REASON = {
   reclaim: "superseded_by_reclaim",
   terminal: "run_already_terminal",
 } as const satisfies Record<SupersedeCause, string>;
 
-/**
- * Every reason `runOnce` reports a benign `skipped` — nothing ran, nothing to
- * re-enqueue. A closed union rather than `string` so the reporting decision can
- * be made per member and checked; see {@link SKIP_REASON_VOLUME}.
- */
+/** Reasons `runOnce` reports a benign skip: nothing ran, nothing to re-enqueue. */
 export type RunSkipReason =
   | "no_lease"
   | "step_already_committed"
   | (typeof SUPERSEDE_SKIP_REASON)[SupersedeCause];
 
 /**
- * How loudly the worker reports each skip. Declared as data and checked
- * exhaustively for the same reason {@link SUPERSEDE_SKIP_REASON} is: the
- * hand-written `reason === "superseded_by_reclaim" || reason === "run_already_terminal"`
- * this replaces answered "quiet" for a third {@link SupersedeCause} — silently,
- * and a new supersede cause is exactly the kind that would want reporting.
- * Adding one now widens `RunSkipReason` and fails this `satisfies`.
- *
- *  - `loud` — never free. Both supersede causes mean two workers reached commit
- *    on one step, so the model was called twice at full price; a
- *    `superseded_by_reclaim` additionally says the step's stale window is too
- *    tight. Without a log the only trace is the bill.
- *  - `quiet` — routine and high-volume. `no_lease` fires whenever a sweep and a
- *    worker race for a run, `step_already_committed` on every re-delivered job.
+ * Which skips the worker logs. A new skip reason fails this `satisfies` until it picks one.
+ * Supersedes are loud: two workers called the model for one step, and the bill is the only other
+ * trace.
+ * The quiet ones are routine races and re-delivered jobs.
  */
 const SKIP_REASON_VOLUME = {
   no_lease: "quiet",
@@ -89,40 +67,15 @@ const SKIP_REASON_VOLUME = {
   run_already_terminal: "loud",
 } as const satisfies Record<RunSkipReason, "loud" | "quiet">;
 
-/** Should the worker log this skip? See {@link SKIP_REASON_VOLUME}. */
 export function skipReasonIsLoud(reason: RunSkipReason): boolean {
   return SKIP_REASON_VOLUME[reason] === "loud";
 }
 
 /**
- * Thrown inside a commit transaction when {@link guardRunOwnership} finds this
- * worker no longer owns the run. Two things cause that:
- *
- *  - `reclaim` — the run's `attempt` no longer equals the one this step ran
- *    under, i.e. a stale-lease reclaim (executor lease, §`leaseRun`) bumped
- *    `attempt` and another worker is (or already finished) re-running this step.
- *  - `terminal` — the run reached a terminal status while the step body was
- *    executing (#530), which in practice means `cancelRun` flipped it to
- *    `cancelled`. Its only production trigger is the approvals panel's
- *    `cancel_run` decision ("Reject and end run"); the composer's stop button is
- *    a *different* path (a Redis flag, see `chat/stop-signal.ts`) and never
- *    reaches here. The worker holds no row lock during the step body, so the
- *    cancel's `FOR UPDATE` gives no protection; only this guard does.
- *
- * Throwing rolls back the executor-owned commit (step row, pending actions,
- * traces and outbox rows), so
- * the superseded worker's wasted LLM result lands nowhere — and, for the
- * terminal case, the cancelled run is not resurrected into
- * `runnable`/`completed`/`waiting` and no `approval.requested` is re-fired on a
- * run whose action stagings were just rejected. Caught at each commit boundary
- * and reported as a benign `skipped` outcome (no re-enqueue).
- *
- * This closes the double-advance / transcript-divergence hazard a too-tight
- * stale threshold (STALE_RUN_LEASE_MS) opens against long model turns. It does
- * NOT un-bill the duplicate model call — both workers already called the model
- * before either reached commit; reducing false reclaims (the threshold) is the
- * lever for that. Same for a mid-step cancel: the guard prevents the zombie
- * run, not the model call already in flight when the cancel landed.
+ * Thrown in a commit tx when this worker lost the run. It rolls back the whole commit,
+ * so a cancelled run is not resurrected and no `approval.requested` fires.
+ * The worker holds no row lock during the step body, so only this guard stops a mid-step cancel.
+ * It cannot un-bill the model call that already ran.
  */
 class RunSupersededError extends Error {
   readonly supersedeCause: SupersedeCause;
@@ -138,55 +91,14 @@ class RunSupersededError extends Error {
 }
 
 /**
- * Does this worker still own the run? Returns `null` when it does, otherwise the
- * {@link SupersedeCause} that took it away.
+ * Return `null` if this worker still owns the run, else why not.
+ * One `SELECT ... FOR UPDATE`: the lock makes the status read here the one the write lands on.
+ * `reclaim` wins a tie with `terminal` because it is the more actionable signal.
  *
- * `SELECT ... FOR UPDATE`, deliberately, and deliberately in ONE statement:
- *
- *  - The lock is the guard. Once it is held, a concurrent cancel's own
- *    `FOR UPDATE` blocks until this commit's transaction ends, so the status
- *    this read observes is the status the subsequent write lands against. The
- *    earlier shape — a guarded UPDATE, then a separate classifying SELECT on the
- *    miss path — took a *newer* READ COMMITTED snapshot than the write it was
- *    explaining, so a pure reclaim miss re-labelled itself `terminal` whenever
- *    the reclaimer committed in the gap (#530/#531 review, D3).
- *  - `reclaim` wins ties. A worker can be superseded by BOTH at once (reclaimed,
- *    then the reclaimer completed the run), and only one label survives.
- *    `reclaim` is strictly the more actionable of the two: it means a duplicate
- *    full-price model call happened and the stale threshold wants tuning, where
- *    `run_already_terminal` reads as "the user cancelled" and closes the
- *    investigation.
- *
- * Lock order — stated rather than claimed clean, because it is not. The commit
- * transactions call this after their `agent_steps` / `pending_actions` / trace
- * writes, so they hold an `agent_steps` row lock before they ask for this
- * `agent_runs` one. `leaseRun` takes the two in the opposite order: `agent_runs`
- * `FOR UPDATE SKIP LOCKED` at the top of its tx, then — on the reclaim path — the
- * orphan `agent_steps` UPDATE for the same `(run, step, attempt)` this commit is
- * writing. That is an ABBA pair, and a reclaim racing a commit of the same step
- * can resolve as a Postgres deadlock (40P01) rather than as a supersede.
- *
- * Pre-existing, not opened by this guard: the shape it replaced (a status-guarded
- * UPDATE) took the same `agent_runs` row lock at the same point of the same
- * transaction. What happens when it fires: 40P01 is not a
- * {@link RunSupersededError}, so it is rethrown, `processAgentJob` fails, and
- * BullMQ retries — by which time the run is reclaimed or terminal and the retry
- * skips. Noisy (an error log for a benign race) but not a correctness hole: the
- * aborted transaction rolled the whole commit back, which is what this guard
- * would have done anyway. Closing it is not as simple as taking this guard
- * first: that would let a commit already holding `agent_runs` beat a cancel
- * that arrived mid-commit, publish `approval.requested`, and only then allow the
- * cancel through. The present late guard intentionally lets a cancellation
- * that lands during the step-owned writes win before any outbox event is
- * published. Removing the ABBA pair therefore needs a transaction design that
- * preserves that cancellation precedence, not just a lock-order shuffle.
- *
- * `cancelRunInTx` is not part of that pair: it takes its own `agent_runs` row and
- * then possibly the parent's, and touches no `agent_steps`.
- *
- * This is also not the last statement in its transaction — `publishEvent` writes
- * the outbox after it in every commit branch. It is the last `agent_runs` write,
- * which is what the pair above turns on.
+ * Known deadlock: commits lock `agent_steps` then `agent_runs`; `leaseRun`'s reclaim locks the
+ * reverse.
+ * A 40P01 rolls back and BullMQ retries, so it is noisy but safe.
+ * Moving this guard earlier would let a commit beat a mid-commit cancel, so do not just reorder.
  */
 async function guardRunOwnership(
   tx: DbTransaction,
@@ -206,44 +118,22 @@ async function guardRunOwnership(
 
   const row = rows[0];
 
-  // A vanished row is a reclaim-shaped miss (nothing to resurrect).
   if (!row) return "reclaim";
 
   if (row.attempt !== attempt) return "reclaim";
 
-  // #559b: the monotonic cancellation fence. `cancelRunInTx` bumps the
-  // generation the moment it lands; a step that started under an older value
-  // must not commit, even if a future path ever advances the fence without
-  // terminalizing the status. Today the only generator is cancel, so a
-  // mismatch and a terminal status coincide — either way this worker rolls back
-  // and reports `run_already_terminal`.
+  // Cancel bumps the generation (#559b); a step started under an older one must not commit.
   if (row.cancellationGeneration !== expectedGeneration) return "terminal";
   const status = runStatusSchema.safeParse(row.status);
 
-  // Persisted protocol drift must fail closed. Treat an unknown status as
-  // terminal so this worker rolls back and skips instead of retrying forever
-  // against the same unparsable row.
+  // An unknown status counts as terminal, so the worker skips instead of retrying forever.
   return !status.success || isTerminalStatus(status.data) ? "terminal" : null;
 }
 
 /**
- * THE door for every `agent_runs` status write the executor makes: take the row
- * lock, refuse if this worker was superseded, then apply `set`.
- *
- * A stale-lease reclaim bumps `attempt`; a cancel flips `status` without
- * touching `attempt` (#530). Either way, being superseded means throwing
- * {@link RunSupersededError} so the caller rolls back rather than
- * double-advancing / double-parking / double-completing the run, or writing a
- * live status over a terminal one.
- *
- * Callers, all five in this file: the `next` / `done` / `interrupt` branches of
- * `commitStepSuccessTx`, `commitStepFailure`, and `markRunFailed`. The last one
- * was the miss the docstring here used to paper over — it wrote `failed` with a
- * bare `where(eq(id))`, so a cancel landing during workflow resolution was
- * overwritten and a failure bubble was rendered on a turn the user had ended
- * (#530/#531 review, D1). The fifth writer, `leaseRun`'s backstop, is safe by a
- * different mechanism: it already holds `FOR UPDATE` on the row from the top of
- * its own transaction and has checked the status under that lock.
+ * Every executor status write on `agent_runs` goes through here: lock the row,
+ * throw {@link RunSupersededError} if this worker lost the run, then apply `set`.
+ * Only `leaseRun` skips it, because it already holds the row lock.
  */
 async function commitGuardedRunUpdate(
   tx: DbTransaction,
@@ -259,25 +149,9 @@ async function commitGuardedRunUpdate(
 }
 
 /**
- * THE single builder for the executor's `agent.run`/`failed` frame. Every
- * terminal-fail site — `commitStepFailure`, `markRunFailed`, and the lease
- * backstop — mints the identical `{ runId, phase: "failed", step, attempt,
- * error }` payload through here, so a fourth writer cannot drift the shape
- * (ADR-0073:19, mirroring `tool-card-events.ts` as the sole `chat.tool`
- * builder; ADR-0073:23, every terminal path publishes one `agent.run` frame).
- *
- * `tx` is required, not optional: the frame MUST commit with the caller's
- * status write so a cancel that supersedes the write rolls the frame back too —
- * no `failed` frame leaks over `cancelled` (#530).
- *
- * `error` is an `AgentRunError` — a branded string the caller minted through
- * `boundAgentRunError`, so it is ALREADY stripped and bounded by construction
- * (the type states what item 61's prose used to). This helper does NOT
- * sanitize: sanitize-once keeps the safe string coupled to each site's DB write
- * (`commitStepFailure` / `markRunFailed` reuse their `safeError`), and the lease
- * backstop's `backstopError` is a synthetic clean string that ADR-0070 forbids
- * re-stripping. Folding the sanitize or the DB write here would corrupt the
- * backstop path — the helper owns the frame publish only.
+ * The one builder for the executor's `agent.run` failed frame (ADR-0073).
+ * `tx` is required so a cancel that rolls back the status write also drops this frame.
+ * `error` is already bounded, so this does not sanitize again.
  */
 async function publishRunFailed(
   tx: DbTransaction,
@@ -297,6 +171,7 @@ async function publishRunFailed(
   });
 }
 
+/** What `runOnce` tells the worker: re-enqueue on `advanced`, else stop. */
 export type RunOutcome =
   | { kind: "advanced"; runId: string; nextStep: string }
   | { kind: "completed"; runId: string }
@@ -307,29 +182,19 @@ export type RunOutcome =
   | { kind: "skipped"; runId: string; reason: RunSkipReason };
 
 /**
- * Result of attempting to lease a run for a step:
- *  - `leased` — we hold it; run the step at `attempt`.
- *  - `backstopped` — the non-progressing-step backstop (ADR-0070 §1.4) tripped
- *    and terminal-failed `run` inside the lease tx; no step runs, but the
- *    caller must still drive workflow-level failure finalization.
- *  - `none` — no lease: held by a live worker, already terminal, or waiting.
+ * `backstopped`: the lease tx already failed the run (ADR-0070 §1.4);
+ * the caller must still drive workflow failure closure.
  */
 export type LeaseResult =
   | { kind: "leased"; run: RunRow; attempt: number; queue: LeaseQueueInfo }
   | { kind: "backstopped"; run: RunRow; error: string; queue: LeaseQueueInfo }
   | { kind: "none" };
 
-/**
- * Queue-timing snapshot captured while leasing, threaded out so `runOnce` can
- * emit the `runtime.queue.lease` span *outside* the `FOR UPDATE` tx (#409) —
- * keeping tracing off the hot lock path.
- */
+/** Queue timing from the lease, so the span is emitted outside the `FOR UPDATE` tx (#409). */
 interface LeaseQueueInfo {
-  /** now - last_checkpoint_at at lease time (ms); null when the row was never checkpointed. */
+  /** Null when the row was never checkpointed. */
   staleMs: number | null;
-  /** Run status observed just before this lease flipped it to `running`. */
   fromStatus: QueueLeaseFromStatus;
-  /** True when a stale `running` row was reclaimed (previous worker presumed dead). */
   reclaimed: boolean;
 }
 
@@ -354,35 +219,22 @@ type RunRow = Omit<
 };
 
 export interface RunOnceOptions {
-  /**
-   * Called after a run is leased and its per-attempt step row is inserted, right
-   * before the step body starts. The worker uses this to heartbeat the specific
-   * leased attempt; a superseded worker must not refresh a newer attempt.
-   */
+  /** Runs just before the step body, so the worker heartbeats only its own attempt. */
   onLeased?: (lease: { runId: string; stepId: string; attempt: number }) => void;
 }
 
 /**
- * Execute exactly one step of a run, atomically commit its result, and
- * report what happened. Idempotent across crashes: re-running the same
- * `(runId, stepId, attempt)` either no-ops (a prior commit already
- * landed) or starts a fresh attempt.
- *
- * Concurrency is enforced by the `SELECT ... FOR UPDATE SKIP LOCKED` lease
- * — two workers racing the same run will only see one commit go through.
+ * Run one step and commit its result atomically.
+ * Safe to re-run after a crash: the same `(runId, stepId, attempt)` no-ops.
  */
 export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise<RunOutcome> {
-  // 1) Lease the run. If another worker holds it, or it's terminal, skip.
   const leased = await leaseRun(runId);
 
   if (leased.kind === "none") {
     return { kind: "skipped", runId, reason: "no_lease" };
   }
 
-  // The backstop already terminal-failed the run inside the lease tx (and
-  // published `agent.run failed`). It runs *outside* any step body, so a
-  // workflow that owns client-facing closure (chat-turn) hasn't finalized —
-  // drive its `onTerminal` failure branch here, then report the terminal failure.
+  // No step body ran, so drive the workflow's failure closure here.
   if (leased.kind === "backstopped") {
     pokeWorkflowOwner(leased.run);
     await finalizeFailedRun(leased.run, leased.error);
@@ -394,10 +246,6 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   const stepId = run.currentStep;
   const idempotencyKey = `${run.id}:${stepId}:${attempt}`;
 
-  // #409: record the queue/reclaim wall-clock this lease just closed — the time
-  // the run sat between steps (or, on reclaim, since the dead worker's last
-  // heartbeat). Emitted here, outside `leaseRun`'s FOR UPDATE tx, so tracing
-  // never touches the hot lock path; the helper swallows any SDK fault.
   startQueueLeaseSpan({
     runId: run.id,
     workflow: run.workflowSlug,
@@ -408,8 +256,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     leasedAt: new Date(),
   }).end();
 
-  // 2) Resolve workflow + step. If the deploy dropped them, fail hard —
-  //    silent skip would leave a zombie run.
+  // A deploy that dropped the workflow or step must fail the run, not leave a zombie.
   let workflow: Workflow<unknown>;
   let step: Step<unknown>;
 
@@ -423,29 +270,18 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     step = requireStep(workflow, stepId);
   } catch (err) {
     const error = toMessage(err);
-    // Guarded like every other terminal write. A cancel can land in the window
-    // between the lease committing and the resolve throwing — it is narrower
-    // than the step body but the same invariant, and overwriting `cancelled`
-    // with `failed` discarded the cancel's reason/`endedAt` and then rendered a
-    // failure bubble on a turn the user had already ended (D1). On a miss the
-    // cancel path owns closure, so we must not drive failure closure here.
+    // A cancel can land before this point; then the cancel path owns closure.
     const superseded = await markRunFailed(run, stepId, attempt, error);
 
     if (superseded) {
       return { kind: "skipped", runId: run.id, reason: SUPERSEDE_SKIP_REASON[superseded] };
     }
 
-    // A post-deploy step-resolution failure also never enters a step body, so
-    // drive workflow-level closure (e.g. chat-turn's failed-message finalize)
-    // the same way the backstop does.
     await finalizeFailedRun(run, sanitizeErrorMessage(error));
 
     return { kind: "failed", runId: run.id, error };
   }
 
-  // 3) Insert the per-attempt step row. Conflict means a previous run of
-  //    this exact attempt already committed — re-enqueue so the worker
-  //    picks up whatever the row says happened.
   const inserted = await tryInsertStepRow(run.id, stepId, attempt, run.state);
 
   if (!inserted) {
@@ -461,8 +297,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     payload: { runId: run.id, phase: "step_started", step: stepId, attempt },
   });
 
-  // 4) Run the step body outside the commit transaction. Side effects are
-  //    deferred via `stageAction` and committed atomically below.
+  // The step body runs outside the tx; `stageAction` defers side effects to the commit.
   const staged: StagedAction[] = [];
   const traces: DecisionTraceBase[] = [];
   const seenTraceKeys = new Set<string>();
@@ -516,15 +351,10 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     return outcome;
   }
 
-  // 5) Commit success in one tx: step row, run row, staged actions, decision
-  //    traces, lifecycle event.
   return await commitStepSuccess(run, stepId, attempt, result, staged, traces);
 }
 
-/**
- * Exported for the lease-test harness (#137 / ADR-0070 §1.4). Not part of the
- * public executor surface — `runOnce` is the only production caller.
- */
+/** Exported for tests only; `runOnce` is the production caller. */
 export async function leaseRun(runId: string): Promise<LeaseResult> {
   return await db().transaction(async (tx) => {
     const result = await tx.execute(sql`
@@ -546,47 +376,31 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
 
     if (isTerminalStatus(status)) return { kind: "none" };
 
-    if (status === "waiting") return { kind: "none" }; // signal will flip to runnable first
+    if (status === "waiting") return { kind: "none" }; // a signal flips it to runnable first
 
     if (status === "deferred" && row.deferredUntil && row.deferredUntil > new Date()) {
       return { kind: "none" };
     }
 
-    // A `running` row is normally held by another worker. But if its
-    // heartbeat (`last_checkpoint_at`) is older than the lease window,
-    // the previous worker is presumed dead and we reclaim — bumping the
-    // attempt so the in-flight `agent_steps` row's unique key (run, step,
-    // attempt) doesn't collide on the next insert. The orphan step row
-    // is marked failed for audit visibility.
-    // now - last_checkpoint_at at lease time. Doubles as the queue/reclaim delay
-    // the `runtime.queue.lease` span reports (#409); computed for every status,
-    // not just `running`. Null when the row was never checkpointed (fresh pending).
+    // A `running` row with a stale heartbeat has a dead worker: reclaim it and bump
+    // `attempt` so the new step row does not collide with the orphan.
     const staleMs = row.staleMs == null ? null : Number(row.staleMs);
 
     let isStaleRunning = false;
 
     if (status === "running") {
-      // Per-step stale window (ADR-0070 §1.4, Lever A): a long model-call step
-      // (a boss turn) declares a wider window so a heartbeat blip can't reclaim
-      // a live, expensive turn. Unset steps use the default STALE_RUN_LEASE_MS.
+      // Long model steps declare a wider window (ADR-0070 §1.4).
       const staleAfterMs = resolveStaleAfterMs(row.workflowSlug, row.currentStep);
 
       if (staleMs == null || staleMs >= staleAfterMs) {
         isStaleRunning = true;
       } else {
-        return { kind: "none" }; // another worker has it, heartbeat is fresh
+        return { kind: "none" }; // a live worker holds it
       }
     }
 
-    // ADR-0070 §1.4 — non-progressing-step backstop. A step that can never
-    // commit (e.g. a result the DB refuses to persist that somehow bypassed
-    // the sanitizer) would be reclaimed forever. Before re-leasing a
-    // stale-`running` row, count how many times THIS step has already been
-    // reclaimed since its last *successful* run; if this reclaim would be the
-    // Nth, fail the run terminally instead of looping. One genuine worker
-    // death still recovers (the first reclaim is free). We match on the
-    // structured `error->>'reason'='lease_reclaimed'` marker, never the prose
-    // message, so rewording the message can't silently disable the safety net.
+    // Backstop (ADR-0070 §1.4): a step that can never commit would be reclaimed forever.
+    // Count reclaims since its last commit by the structured `reason`, not the message text.
     if (isStaleRunning) {
       const countResult = await tx.execute(sql`
         SELECT count(*)::int AS "reclaims"
@@ -619,8 +433,6 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
           `step ${row.currentStep} not progressing: reclaimed ${priorReclaims + 1} times`,
         );
 
-        // Mark the orphan step failed for audit, with the same structured
-        // marker so the history reads consistently.
         await tx
           .update(agentSteps)
           .set({
@@ -640,16 +452,8 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
             ),
           );
 
-        // Terminal-fail the run. The message MUST be this synthetic clean
-        // string and must NOT echo the original error — else the terminal
-        // write would re-throw on the same poison and the run would survive
-        // its own backstop.
-        //
-        // The one terminal write that does NOT go through
-        // `commitGuardedRunUpdate`, and safely so: this transaction has held
-        // `FOR UPDATE` on the row since the SELECT at the top and has already
-        // checked the status under that lock, so no concurrent cancel can be
-        // interleaved. Adding the guard here would re-read a row we already own.
+        // Use the synthetic message, never the original error: a poisoned error
+        // would make this write throw too, and the run would outlive its backstop.
         const backstopOutcome = await deriveRunOutcome(tx, row, {
           status: "failed",
           code: "non_progressing",
@@ -681,14 +485,10 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
           error: backstopError,
         });
 
-        // Do not re-lease — the run is now terminal. Hand the caller the run
-        // row + clean message so it can drive workflow-level failure closure.
         return {
           kind: "backstopped",
           run: { ...row, status, attempt: row.attempt },
           error: backstopError,
-          // A backstop only trips on a stale `running` row, so this is always a
-          // reclaim from `running`.
           queue: { staleMs, fromStatus: "running", reclaimed: true },
         };
       }
@@ -718,8 +518,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
     }
 
     await tx
-      // drift-ok: this IS the lease. FOR UPDATE SKIP LOCKED held since the
-      // SELECT above, which rejected every terminal status under that lock.
+      // drift-ok: this is the lease; the SELECT above holds the lock and rejected terminal rows.
       .update(agentRuns)
       .set({
         status: "running",
@@ -739,8 +538,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
       });
     }
 
-    // SAFETY: the branches above leave `status` as pending | runnable |
-    // running | deferred, which is exactly QueueLeaseFromStatus.
+    // SAFETY: the branches above leave only pending, runnable, running, or deferred.
     const queue: LeaseQueueInfo = {
       staleMs,
       fromStatus: status as QueueLeaseFromStatus,
@@ -762,10 +560,7 @@ function requireStep<S>(workflow: Workflow<S>, stepId: string): Step<S> {
 }
 
 /**
- * Insert the step row before running the body. Returns false if a row
- * already exists for this `(runId, stepId, attempt)` — that means a
- * prior crashed run already committed; the executor skips and the
- * caller will re-enter to read the current state.
+ * Return false if this `(runId, stepId, attempt)` row exists: an earlier delivery already ran it.
  */
 async function tryInsertStepRow(
   runId: string,
@@ -781,25 +576,18 @@ async function tryInsertStepRow(
         stepId,
         attempt,
         status: "running",
-        // SAFETY: workflow state is a JSON tree persisted to the jsonb
-        // `input` column verbatim.
+        // SAFETY: workflow state is a JSON tree for the jsonb column.
         input: state as object,
       });
 
     return true;
   } catch (err) {
-    // Treat a unique-violation as "already committed" — that's the only
-    // way `(runId, stepId, attempt)` collides. Any other error rethrows.
     if (isUniqueViolation(err)) return false;
     throw err;
   }
 }
 
-/**
- * Exported for the attempt-guard test harness (see
- * `test/agent/commit-attempt-guard.test.ts`). `runOnce` is the only production
- * caller.
- */
+/** Exported for tests only; `runOnce` is the production caller. */
 export async function commitStepSuccess(
   run: RunRow,
   stepId: string,
@@ -808,17 +596,8 @@ export async function commitStepSuccess(
   staged: StagedAction[],
   traces: DecisionTraceBase[],
 ): Promise<RunOutcome> {
-  // ADR-0070 §1.1/1.3: every jsonb sink this commit writes — `agent_runs.state`,
-  // `agent_runs.transcript`, the step/run `output`, each staged action payload,
-  // and the interrupt `wake` — can carry model-derived poison (U+0000 / a lone
-  // surrogate) that the dispatch-boundary sanitizer never saw: e.g. assistant
-  // text or a tool-call *input* the model emitted, replayed in the transcript.
-  // The chat row is sanitized in its own transaction *before* this commit
-  // (chat-turn `finalizeAssistantMessage`), so an unsanitized sink here would
-  // throw on the jsonb write *after* the user-visible message is already
-  // `complete`, leaving the run stuck `running` → reclaim/backstop — the exact
-  // message/run split ADR-0072 kills. Strip every sink once, here, for ALL
-  // workflows. Clean values pass through by reference (no extra allocation).
+  // Model output can carry U+0000 or a lone surrogate that jsonb rejects (ADR-0070 §1.1).
+  // A throw here would strand a run whose chat message already says `complete`.
   const cleanState = sanitizeToolResult(result.state).value;
 
   const cleanTranscript =
@@ -845,16 +624,12 @@ export async function commitStepSuccess(
       cleanWake,
     );
 
-    // #561: the `workflows.last_run_*` roll-up committed with the run, so the
-    // owner's synced workflow list and history tab are stale until poked.
+    // The owner's synced workflow list is stale until poked (#561).
     if (outcome.kind === "completed" || outcome.kind === "blocked") pokeWorkflowOwner(run);
 
     return outcome;
   } catch (err) {
-    // This worker lost the run while the step ran — reclaimed (attempt bumped)
-    // or gone terminal (a cancel landed, #530). Either way the guard refused and
-    // the whole commit rolled back. Report a benign skip — do NOT re-enqueue
-    // (the reclaimer owns it, or nobody does). Never resurrects the run.
+    // The commit rolled back. Do not re-enqueue: the reclaimer owns the run, or nobody does.
     if (err instanceof RunSupersededError) {
       if (err.supersedeCause === "terminal") {
         await rejectLateCancelledRunStagings(run.id, "run cancelled before step commit");
@@ -904,9 +679,7 @@ async function commitStepSuccessTx(
         ),
       );
 
-    // Stage outbound actions with their per-step idempotency key. Unique
-    // index on `idempotency_key` means a re-attempt that re-stages the
-    // same action will be silently dropped — exactly what we want.
+    // The unique `idempotency_key` drops a re-staged action on a re-attempt.
     for (const action of staged) {
       const key = action.idempotencyKey ?? `${run.id}:${stepId}:${attempt}:${action.kind}`;
 
@@ -924,9 +697,6 @@ async function commitStepSuccessTx(
       }
     }
 
-    // Durable decision traces (#219 PR-A). Same poison-strip as every other
-    // jsonb sink above; `(run_id, step_id, attempt, kind, decision_key)` is
-    // unique, so a re-run within the same trace slot is a no-op.
     if (traces.length > 0) {
       await tx
         .insert(agentDecisionTraces)
@@ -950,17 +720,8 @@ async function commitStepSuccessTx(
         // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
         currentStep: result.nextStep,
-        // Monotonic per-run execution counter, NOT reset to 0. The
-        // `agent_steps` row identity is `(run_id, step_id, attempt)`, and a
-        // workflow that loops back into a step it already ran (e.g. chat-turn
-        // -> dispatch-tools -> chat-turn) would re-enter at attempt 0 and
-        // collide with the earlier visit's row. That collision made
-        // `tryInsertStepRow` return false -> `runOnce` reported
-        // `step_already_committed` and the worker did NOT re-enqueue, so the
-        // run stalled ~60-90s until the stale-lease sweep reclaimed it with
-        // attempt+1. Carrying the counter forward keeps every step execution
-        // unique, so each loop iteration runs immediately. (attempt is only
-        // used for attribution/idempotency keys, never as a retry cap.)
+        // Never reset: a loop back into an earlier step would collide with its old step row
+        // and stall until the stale-lease sweep. `attempt` is not a retry cap.
         attempt: attempt + 1,
         status: "runnable",
         lastCheckpointAt: now,
@@ -979,16 +740,11 @@ async function commitStepSuccessTx(
     }
 
     if (result.kind === "done") {
-      // #561: the typed verdict rides in the same guarded `.set()` as the
-      // status, so a superseded commit rolls both back together.
       const outcome = await deriveRunOutcome(tx, run, {
         status: "completed",
         summary: result.summary,
       });
 
-      // Guarded like the `next` branch: abort rather than mark a run completed
-      // under a stale attempt while the reclaimer is mid-step, or over a
-      // terminal status a cancel just wrote.
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
         // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
         state: cleanState as object,
@@ -1044,7 +800,7 @@ async function commitStepSuccessTx(
     }
 
     if (result.kind === "defer") {
-      // Outcome only: a deferred run is not over, so no `last_run_*` roll-up.
+      // A deferred run is not over, so no `last_run_*` roll-up.
       const outcome = await deriveRunOutcome(tx, run, {
         status: "deferred",
         reason: result.reason,
@@ -1079,12 +835,7 @@ async function commitStepSuccessTx(
       return { kind: "deferred", runId: run.id, retryAt: result.retryAt };
     }
 
-    // interrupt
     const wake = cleanWake!;
-    // Guarded like the `next` branch: abort rather than park the run (and fire an
-    // approval / signal wake) under a stale attempt the reclaimer no longer
-    // owns, or on a run a cancel just took terminal and whose stagings it
-    // already rejected.
     await commitGuardedRunUpdate(tx, run, stepId, attempt, {
       // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
       state: cleanState as object,
@@ -1104,8 +855,7 @@ async function commitStepSuccessTx(
         payload: {
           runId: run.id,
           approvalId: wake.approvalId,
-          // Default to "step" for the legacy approval kind — pre-m13 steps
-          // returning HIL wakes didn't carry this field.
+          // Older HIL wakes have no kind.
           approvalKind: wake.approvalKind ?? "step",
           prompt: wake.prompt ?? "Approval requested",
         },
@@ -1135,13 +885,8 @@ async function commitStepFailure(
   attempt: number,
   error: string,
 ): Promise<RunOutcome> {
-  // ADR-0070 §1.3 + §8: the throw-poison class AND the length class. A tool/step
-  // that throws a NUL-byte message would re-throw on the jsonb error write here,
-  // and an over-cap message would make the `agent.run` frame's `safeParse` throw —
-  // either escapes the catch, rolls the `failed` write back, and leaves the run
-  // `running` → the reclaim loop. `boundAgentRunError` strips AND bounds once, and
-  // its branded result is the frame's `error` type, so the persisted
-  // `error.message` and the frame `error` carry the identical string.
+  // A NUL byte or an over-cap message would make the failed write throw and loop
+  // the run through reclaims (ADR-0070 §1.3, §8). Bound it once for the row and the frame.
   const safeError = boundAgentRunError(error);
 
   try {
@@ -1187,10 +932,7 @@ async function commitStepFailure(
       });
     });
   } catch (err) {
-    // Same races as success commits: a reclaim bumped attempt, or a cancel made
-    // the run terminal, while this worker was running. Roll back the step
-    // failure — writing `failed` over `cancelled` is exactly #530, and it would
-    // also drive a failure bubble on a turn the user deliberately ended.
+    // Do not write `failed` over a cancel (#530).
     if (err instanceof RunSupersededError) {
       if (err.supersedeCause === "terminal") {
         await rejectLateCancelledRunStagings(run.id, "run cancelled before step commit");
@@ -1208,18 +950,10 @@ async function commitStepFailure(
 }
 
 /**
- * Terminal-fail a run from *outside* a step body — currently only a post-deploy
- * step-resolution failure, which has no `agent_steps` row to update alongside it.
- *
- * Goes through {@link commitGuardedRunUpdate} like every other terminal write.
- * Returns the {@link SupersedeCause} when the run was taken away (the caller must
- * then report a skip and NOT drive failure closure — whoever won the race owns
- * it), or `null` when the failure landed.
- *
- * Exported for the terminal-write guard test harness (see
- * `test/agent/commit-cancel-race.test.ts`). `runOnce` is the only production
- * caller, and its window — between the lease committing and workflow resolution
- * throwing — is too narrow to drive deterministically from outside.
+ * Fail a run whose workflow or step did not resolve, so there is no step row.
+ * Returns the {@link SupersedeCause} if the run was lost; then the caller must not drive failure
+ * closure.
+ * Exported for tests only.
  */
 export async function markRunFailed(
   run: RunRow,
@@ -1227,11 +961,7 @@ export async function markRunFailed(
   attempt: number,
   error: string,
 ): Promise<SupersedeCause | null> {
-  // ADR-0070 §8: `boundAgentRunError` strips the throw-poison class AND bounds
-  // ONCE, so the persisted `error.message` and the release frame's `error` carry
-  // the identical string. Without the bound an over-cap message makes the frame
-  // `safeParse` throw, rolls this guarded `failed` write back, and re-enters the
-  // reclaim loop.
+  // Bound once (ADR-0070 §8): an over-cap message would make the frame throw and loop the run.
   const safeError = boundAgentRunError(error);
 
   try {
@@ -1252,13 +982,8 @@ export async function markRunFailed(
       });
       await recordWorkflowLastRun(tx, run, "failed", now);
 
-      // ADR-0073:23 — every terminal path publishes `agent.run`. This one is
-      // the resolve-failure path (no `agent_steps` row, so no step-body writer
-      // publishes it). `publishRunFailed` puts the frame inside the tx AFTER the
-      // guard, so a cancel that supersedes the write rolls this frame back too —
-      // the cancel path then owns the terminal frame and no `failed` frame leaks
-      // over `cancelled`. Releases the client's `approval.requested`-armed replay
-      // barrier for a non-chat run (`replay-state.ts` `releasedRunId`).
+      // Every terminal path publishes `agent.run` (ADR-0073). The client's replay barrier
+      // for a non-chat run waits for it (`replay-state.ts` `releasedRunId`).
       await publishRunFailed(tx, {
         userId: run.userId,
         runId: run.id,

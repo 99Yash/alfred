@@ -1,46 +1,14 @@
 /**
- * Grounded `works_at` edge fold (ADR-0067 `entity_edges`, issue #1108 deferred half).
+ * Grounded `works_at` edge fold (ADR-0067 `entity_edges`, #1108).
  *
- * The legacy graph minted `works_at` from the sender domain, which restates the
- * `From:` header and carries no evidence. This fold mints `works_at` only from
- * STATED evidence: an inbound message whose body holds the sender's OWN
- * signature block naming the sender and stating the org domain, sent by an
- * address the kind classifier reads as `person` from the SAME per-identity
- * inputs the kind fold classifies from (that identity's display names +
- * header signals — never the display names of other participants on the
- * sender's messages, which would fire the person fast path for every
- * sender). Never from the address.
+ * Invariant: every `works_at` row names a live-head `gmail/email_message`
+ * observation and the `documentId` whose body has a signature that states the
+ * org domain. A domain seen only in the `From:` header never mints an edge.
  *
- * Invariant: after any allowed sequence of Gmail projection runs, refolds, and
- * activation flips, every `works_at` row in `entity_edges` names in its
- * provenance a live-head `gmail/email_message` observation plus the `documentId`
- * whose inbound body holds a signature block stating the edge's org domain —
- * and no `works_at` row exists whose org domain appears only in the message's
- * `From:` header.
- *
- * Deterministic core, no LLM anywhere in v1: the signature read is a pure
- * function over body text, the sender-name match compares whole name TOKENS
- * under a stated normalization (case-fold + whitespace/punctuation collapse,
- * no fuzzy match), and the domain clears the `domain.ts` leaf + a real
- * public-suffix gate + a `classifyBareDomain` deny-gate. An "introduction" is
- * free prose that needs judgment and has no edge propose-dispose pipeline, so
- * introductions mint NOTHING in v1 (item 70 owns the LLM follow-up).
- * Name-only signatures (company without a stated domain) mint NOTHING — no
- * org-name→domain resolution exists.
- *
- * Split of the all-must-hold bar: `parseEmploymentSignature` extracts the
- * block's stated name line + org domain from body text alone; the sender-name
- * match lives in `projectGmailWorksAtEdges`, which is the only side holding
- * the observation's sender display name. Both stay module-private to this
- * file's importers: the barrel fronts ONLY the fold, because the parse result
- * is not employment evidence until the name match and the person gate clear
- * (item 70 imports the pieces from this file directly when it needs them).
- *
- * Shadow-only writer: the committed Gmail shadow backfill invokes this under
- * the same `projectionRunId` as the kind fold and records `entity_edges` in
- * `rowCounts`, WITHOUT activation. Activation + consumer cutover belong to the
- * ADR-0067 P5 item, not here — `readUserContext` still reads the legacy graph
- * until then (item 18 owns that section).
+ * Deterministic, no LLM. Introductions and name-only signatures mint nothing.
+ * The sender must classify as `person` from its own display names and header
+ * signals, never from other participants' names. Shadow-only: the backfill runs
+ * it without activation, so `readUserContext` still reads the legacy graph.
  */
 import {
   USER_MODEL_PROJECTION_NAME,
@@ -76,13 +44,13 @@ import { classifyEntityKind, type GmailPayloadSignals } from "./entity-kind-clas
 import { gmailHighWatermarkCondition, payloadSignalsFromObservation } from "./gmail-kind-fold";
 import { liveObservationHeadJoin } from "./observations";
 
-/** The block's stated name + org domain, read out of body prose. */
+/** The block's stated name and org domain. */
 export interface EmploymentSignature {
-  /** First content line of the signature block, as stated (the fold matches it to the sender). */
+  /** First content line of the block. */
   readonly personName: string;
-  /** Prose-stated org domain, normalized by `domainSchema`; never the header domain. */
+  /** Stated in prose, normalized by `domainSchema`; never the header domain. */
   readonly orgDomain: string;
-  /** Unset in v1 — no title extraction exists, so no role is claimed. */
+  /** Unset: no title extraction exists. */
   readonly role?: string | undefined;
 }
 
@@ -90,65 +58,34 @@ export interface ProjectGmailWorksAtEdgesArgs {
   readonly userId: string;
   readonly projectionRunId: string;
   readonly projectionVersion: number;
-  /**
-   * Inclusive Gmail replay bound captured before the run starts — the SAME
-   * prefix the kind fold consumes under this run (shared helper, not a copy).
-   */
+  /** Inclusive replay bound, the same one the kind fold uses in this run. */
   readonly gmailHighWatermark?: ProjectionCursorValue | undefined;
-  /**
-   * Account-holder email identities to exclude: an inbound message whose
-   * sender is one of the user's own addresses never mints `works_at` on the
-   * user's own node. The resulting edge would be TRUE, but user affiliation
-   * belongs to the identity-facts projection, not this contact fold.
-   * Same canonical-lowercase membership rule as the kind fold.
-   */
+  /** The user's own addresses. User affiliation belongs to the identity-facts projection, not here. */
   readonly excludeEmailValues: readonly string[];
 }
 
 export interface ProjectGmailWorksAtEdgesResult {
   readonly edgesWritten: number;
-  /**
-   * Canonical hash of the minted edge set (sender identity, org domain,
-   * `valid_from`), so the backfill compares edge SETS across dry runs, not a
-   * scalar count two different sets can share.
-   */
+  /** Hash of the edge set, so dry runs compare sets, not counts. */
   readonly checksum: string;
 }
 
-/**
- * The tier this fold mints under: the sender's own signature about the sender.
- * Pinned with `satisfies` so a renamed tier fails here, not silently below.
- */
+/** The sender's own signature about the sender. */
 const WORKS_AT_GROUNDING_TIER =
   "self_authored_profile_or_signature" as const satisfies GroundingTier;
 
-/**
- * Edge numerics for v1. Below 1 (this is signature evidence, not
- * directory-verified truth); weight 1 (one stated-employment observation class).
- */
+/** Below 1: a signature is not directory-verified. */
 const WORKS_AT_CONFIDENCE = 0.8;
 
 const WORKS_AT_WEIGHT = 1;
 
-/**
- * Provenance this fold writes. `ProjectionProvenance` is a `z.looseObject`
- * that passes undeclared keys through, so a misspelled literal compiles
- * against the column type — this local annotation makes the two keys the
- * headline invariant is about REQUIRED at the writer (the reader half needs
- * the frozen-contracts PR as closer).
- */
+/** `ProjectionProvenance` is a loose object, so this makes the invariant's two keys required at the writer. */
 interface WorksAtEdgeProvenance extends ProjectionProvenance {
   readonly groundingTier: GroundingTier;
   readonly documentId: string;
 }
 
-/**
- * Provenance key the supersede predicate matches on, derived from the typed
- * shape above: renaming the interface key fails the build HERE instead of
- * silently matching zero rows (`->>` on a missing key is NULL, NULL never
- * equals, so a stale literal would stop closing with no error — the repo
- * documents this silent-NULL hazard at `triage/floors/spam.ts:65`).
- */
+/** Typed so a key rename fails the build: `->>` on a missing key is NULL and silently matches nothing. */
 const GROUNDING_TIER_KEY = "groundingTier" satisfies keyof WorksAtEdgeProvenance;
 
 /** A signature delimiter: RFC-3676 `-- ` or its bare `--` structural equivalent. */
@@ -157,38 +94,26 @@ const SIGNATURE_DELIMITER_RE = /^--\s*$/;
 /** A plain-text quote line. Quoted regions are the correspondent's, never the sender's. */
 const QUOTED_LINE_RE = /^\s*>/;
 
-/** Fail-closed bounds: a "signature" bigger than this is a quoted thread, not a footer. */
+/** A "signature" longer than this is a quoted thread, not a footer. */
 const MAX_SIGNATURE_LINES = 30;
 
 const MAX_SIGNATURE_CHARS = 2000;
 
 const MAX_PERSON_NAME_CHARS = 120;
 
-/** `jane@acme.com` inside prose — the domain half is an org-domain candidate. */
+/** `jane@acme.com` in prose; the domain half is a candidate. */
 const EMAIL_DOMAIN_RE =
   /[A-Za-z0-9._%+-]+@([A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,})/g;
 
-/** Bare `acme.com` / `https://acme.com/about` hosts inside prose. */
+/** Bare `acme.com` or `https://acme.com/about` in prose. */
 const BARE_DOMAIN_RE =
   /(?<![A-Za-z0-9@_.-])([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+)(?![A-Za-z0-9.-])/g;
 
 /**
- * Pure deterministic signature read. Returns the block's stated name line +
- * org domain only when ALL hold: an RFC-3676 `-- ` (or bare-`--`) delimiter is
- * present in the SENDER-AUTHORED text (quote lines stripped first, FIRST
- * delimiter wins — a backwards scan returns the oldest QUOTED footer on a
- * reply); the trailing block is footer-sized; its first content line is
- * name-shaped; and the block states EXACTLY ONE distinct org domain that
- * parses via `domainSchema`, is a registrable domain under a real public
- * suffix, and reads `corporate_domain` under `classifyBareDomain` (a signature
- * claiming `gmail.com` is not an employer claim; a block naming two orgs is
- * ambiguous and mints nothing).
- *
- * Quote-awareness covers `>`-quoted plain-text replies. HTML mail arrives
- * here already flattened (ingest `stripHtml` drops `<blockquote>` with no `>`
- * substitute), so an HTML reply's quoted footer is indistinguishable from
- * sender prose at projection time — the sender-name token match below is the
- * backstop there, and fixing ingest is out of scope.
+ * Read the sender's signature: the first `--` delimiter after quote lines are
+ * stripped, a footer-sized block, a name-shaped first line, and exactly one
+ * corporate org domain. Two domains are ambiguous and mint nothing.
+ * HTML mail arrives flattened with no `>` quotes, so the name match is the backstop there.
  */
 export function parseEmploymentSignature(body: string): EmploymentSignature | null {
   const block = signatureBlock(body);
@@ -216,16 +141,9 @@ export function parseEmploymentSignature(body: string): EmploymentSignature | nu
 }
 
 /**
- * Per-edge-type allowability over the `GroundingTier` ordered vocabulary. v1:
- * `works_at` allows ONLY `self_authored_profile_or_signature` (the sender's own
- * signature about the sender) and `user_correction` (explicit user statement;
- * unreachable from the Gmail fold in practice, allowed so the predicate stays
- * source-honest). `corporate_affiliation` and `directory_verified` are REJECTED
- * for contacts — both are user-scoped tiers, and admitting them would
- * reintroduce domain-derived minting through the back door. `weak_mentions`
- * never promotes (ADR-0080 invariant 6). Every other edge type answers false:
- * no grounding path for it exists in v1. The `never` default is a tier-1
- * coverage gate — a sixth `ENTITY_EDGE_TYPES` member fails the build here.
+ * `works_at` allows only `self_authored_profile_or_signature` and `user_correction`.
+ * User-scoped tiers would bring back domain-derived minting. `weak_mentions` never
+ * promotes (ADR-0080 invariant 6). Other edge types have no grounding path yet.
  */
 export function canGroundEdgeType(tier: GroundingTier, edge: EntityEdgeType): boolean {
   switch (edge) {
@@ -268,35 +186,19 @@ interface SenderMessage {
 interface SenderGroup {
   readonly senderIdentity: IdentityRef;
   readonly displayNames: Set<string>;
-  /** Header list/bulk signals from this sender's subject observations (sent included). */
+  /** Header list/bulk signals from this sender's observations, sent included. */
   readonly payloadSignals: GmailPayloadSignals[];
   readonly messages: SenderMessage[];
 }
 
 /**
- * Fold live-head inbound `gmail/email_message` observations in the watermark
- * window into grounded `works_at` edges. Envelope (sender identity,
- * `occurredAt`, `documentId`) comes from the observation; prose comes from a
- * `documents` join on `payload.documentId`, decoded through
- * `extractGmailDocumentBody` so the `From:`-header exclusion holds by the
- * extractor's contract rather than by layout accident (the observation log
- * stays prose-free — the payload schema is `.strict()` with no body text).
+ * Fold live-head inbound `gmail/email_message` observations into grounded
+ * `works_at` edges. Bodies come from `documents` through `extractGmailDocumentBody`,
+ * so the `From:` header cannot reach the signature read.
  *
- * One edge per distinct (sender, org-domain) pair: `valid_from` is the earliest
- * grounding observation (replay purity — no wall-clock default), provenance
- * carries every grounding observation plus the tier + the first grounding
- * `documentId`. Repeat pairs in one run collapse before the write; replays
- * collide on the unique `(user, name, version, relation, from, to)` index and
- * are a no-op. Identity links (`recordEntityIdentity`) are deliberately NOT
- * written here — the kind fold already binds the sender email, and domain
- * binding waits on the merge-signal owner.
- *
- * Supersede: when a sender gains an edge to a new org, the sender's other
- * SAME-TIER open `works_at` rows in this (name, version) scope close with
- * `valid_until` at the newest grounding — a changed employer leaves one open
- * row, not two. Only this fold's own tier is touched, so a future
- * LLM-proposed edge (item 70) is never closed from here. Residual: two
- * genuinely concurrent employers collapse to the latest-grounded one.
+ * One edge per (sender, org domain); `valid_from` is the earliest grounding, so
+ * replays are a no-op. A new org closes the sender's other same-tier open rows.
+ * Two real concurrent employers collapse to the latest one.
  */
 export async function projectGmailWorksAtEdges(
   args: ProjectGmailWorksAtEdgesArgs,
@@ -354,10 +256,7 @@ export async function projectGmailWorksAtEdges(
         groups.set(key, group);
       }
 
-      // Subject observations feed classification signals whether or not the
-      // message is inbound — the kind fold pushes signals for every parsed,
-      // non-excluded subject (sent included), so the gate below sees the
-      // same signal list. Only inbound messages can mint (messages).
+      // Signals come from every subject observation, sent included, like the kind fold. Only inbound mints.
       group.payloadSignals.push(payloadSignalsFromObservation(observation));
 
       if (payload.data.isSent) continue;
@@ -374,15 +273,8 @@ export async function projectGmailWorksAtEdges(
       });
     }
 
-    // Per-identity display names across the whole window (any role),
-    // mirroring `collectIdentities`: a name counts for the identity whose
-    // participant entry carries it, never for the sender of a message it
-    // appears on. Harvesting every participant name onto the sender fires
-    // the classifier's existential person fast path for almost every
-    // sender (the account holder's own person-shaped name sits on the
-    // `to:` line of nearly every inbound message). Observations without a
-    // `from` display name still contribute signals above — dropping them
-    // before classification hides list evidence the kind fold sees.
+    // A display name counts only for its own participant, like `collectIdentities`.
+    // Else the user's name on every `to:` line makes almost every sender a person.
     for (const { observation } of rows) {
       for (const participant of observation.participants.items) {
         const group = groups.get(senderKey(participant.identity));
@@ -397,16 +289,8 @@ export async function projectGmailWorksAtEdges(
 
     if (groups.size === 0) return { edgesWritten: 0, checksum: checksumForEdges([]) };
 
-    // Sender-person gate FIRST, over the sender's WHOLE window state: the call
-    // below feeds the classifier the SAME inputs the kind fold feeds it for
-    // this identity (per-identity display names + header payload signals, no
-    // `observations` — passing observations would harvest every OTHER
-    // participant's display name into this sender through
-    // `normalizedDisplayNames`, and `classifyEntityKind` is evidence-monotone
-    // toward `group`/`service`, so a per-message read can answer `person`
-    // here while the profile for the same sender reads `group`). One
-    // classification per sender, same inputs. Bodies load only for surviving
-    // senders, after the gate.
+    // Person gate first, with the kind fold's exact inputs and no `observations`,
+    // so this answer matches the sender's profile. Bodies load only for survivors.
     const personGroups: SenderGroup[] = [];
 
     for (const group of groups.values()) {
@@ -552,12 +436,8 @@ export async function projectGmailWorksAtEdges(
       }
     }
 
-    // One open row per sender: the latest-grounded new edge wins, every other
-    // same-tier open row for that sender in this scope closes — including a
-    // same-run co-mint (a changed employer) and a prior run's row. Winner
-    // election is total (latest validFrom, then greatest org key), so replays
-    // converge. The `validFrom <= winner` floor keeps the
-    // `entity_edges_valid_window` CHECK un-tripped on future-dated rows.
+    // One open row per sender. Winner: latest validFrom, then greatest org key, so replays converge.
+    // The `validFrom <= winner` floor keeps the `entity_edges_valid_window` CHECK passing.
     for (const outcome of senderOutcomes.values()) {
       const winner = outcome.newEdges.reduce((a, b) =>
         b.validFrom > a.validFrom ||
@@ -590,12 +470,7 @@ export async function projectGmailWorksAtEdges(
   return tx ? run(tx) : db().transaction(run);
 }
 
-/**
- * The sender's own trailing footer: FIRST `--` delimiter in the
- * sender-authored text (quote lines stripped first). A backwards scan returns
- * the oldest QUOTED footer on a reply or forward, binding the sender to
- * another person's org domain.
- */
+/** The first `--` after quote lines are stripped. The last one on a reply is a quoted footer. */
 function signatureBlock(body: string): string | null {
   const lines = body
     .replace(/\r\n?/g, "\n")
@@ -627,12 +502,7 @@ function signatureBlock(body: string): string | null {
   return block;
 }
 
-/**
- * Distinct prose-stated org domains in the block, normalized + sorted. Email
- * halves and bare hosts both count — both are prose, never the header — but
- * each must clear `domainSchema`, name a REGISTRABLE domain under a real
- * public suffix, AND read `corporate_domain` under `classifyBareDomain`.
- */
+/** Distinct corporate, registrable org domains in the block, sorted. */
 function signatureOrgDomains(block: string): string[] {
   const candidates = new Set<string>();
 
@@ -661,25 +531,14 @@ function signatureOrgDomains(block: string): string[] {
   return [...new Set(passing)].sort();
 }
 
-/**
- * One leading `www.` label is the web-host spelling of the org domain, not a
- * different org — footers state `www.acme.com` far more often than the bare
- * domain. Stripped by decision (not by accident): exactly one label, only the
- * literal `www`, before validation runs. `www.com` still fails (single label
- * is not a hostname); `www2.`/`www2acme.` are left alone.
- */
+/** Strip one literal `www.` label: footers usually state `www.acme.com`. */
 function stripWwwHost(domain: string): string {
   return domain.toLowerCase().startsWith("www.") ? domain.slice("www.".length) : domain;
 }
 
 /**
- * Real public-suffix gate (MF3): the candidate must be EXACTLY a registrable
- * domain — one label above a public suffix the list knows (`isIcann`), not an
- * IP, not a bare suffix (`co.uk` has no registrable domain), not a subdomain
- * (`ops.acme.com` states a host, fail-closed). This is what rejects the
- * invented strings the letter floor admitted: `inc.all` and `acme-logo.png`
- * are not ICANN-suffixed, so they mint nothing and no permanent node.
- * The suffix snapshot is pinned with the `tldts` version in package.json.
+ * True only for a registrable domain under an ICANN suffix: not an IP, a bare
+ * suffix, or a subdomain. This rejects strings like `acme-logo.png`.
  */
 function isRegistrableDomain(domain: string): boolean {
   const parsed = parseDomainName(domain);
@@ -692,7 +551,7 @@ function isRegistrableDomain(domain: string): boolean {
   );
 }
 
-/** Stated normalization for the sender-name match: case-fold + whitespace/punctuation collapse. */
+/** Case-fold and collapse whitespace and punctuation. */
 function normalizeSignatureName(value: string): string {
   return collapseWhitespace(value.toLowerCase().replace(/[^a-z0-9]+/g, " "));
 }
@@ -703,13 +562,7 @@ function signatureNameTokens(value: string): string[] {
     .filter((token) => token.length >= 2);
 }
 
-/**
- * True iff every sender-display-name token (length ≥ 2) appears as a WHOLE
- * token in the block's stated name — no fuzzy match, no substring. The raw
- * `includes` admitted `Ann` inside `Joanna Reed` and `Jo` inside
- * `John Smith`; whole-token comparison rejects both while still accepting a
- * first-name-only footer (`Bob` in `Bob Smith`).
- */
+/** Every sender name token (2+ chars) must be a whole token in the block name. `Ann` must not match `Joanna`. */
 function signatureNamesSender(blockName: string, senderDisplayName: string): boolean {
   const blockTokens = new Set(signatureNameTokens(blockName));
   const senderTokens = signatureNameTokens(senderDisplayName);
@@ -719,7 +572,7 @@ function signatureNamesSender(blockName: string, senderDisplayName: string): boo
   return senderTokens.every((token) => blockTokens.has(token));
 }
 
-/** The sender's stated display name: the `from` participant bound to the subject identity. */
+/** The `from` participant's display name for the subject identity. */
 function senderDisplayName(observation: Observation, sender: IdentityRef): string | null {
   for (const participant of observation.participants.items) {
     if (participant.role !== "from") continue;
@@ -758,12 +611,7 @@ function checksumForEdges(rows: readonly EdgeChecksumRow[]): string {
   return sha256Canonical(stable);
 }
 
-/**
- * Decoded bodies for the grounding `documentId`s, keyed by `documents.id`.
- * Missing rows read as absent. Decoded through `extractGmailDocumentBody`
- * against the stored envelope (metadata + title) so the header half of the
- * stored representation never reaches the signature read.
- */
+/** Bodies keyed by `documents.id`, decoded so the stored header never reaches the signature read. */
 async function readDocumentBodies(
   ex: DbTransaction,
   userId: string,

@@ -4,15 +4,7 @@ import { isoDateTimeStringSchema, MAX_ATTACHMENTS_PER_MESSAGE } from "@alfred/co
 import { SYNC_MODEL } from "../sync-model";
 import type { SyncedChatAttachment, SyncedChatMessage, SyncedChatThread } from "../schemas";
 
-/**
- * Client-side chat mutators (streaming-chat plan). Only the *user* side is a
- * Replicache mutator: creating a thread and appending the user's message.
- * The assistant reply streams live over SSE and is persisted server-side by
- * the chat worker, then synced via pull — there is no client mutator for it.
- *
- * Optimistic patches are best-effort; a missing-row race no-ops and lets the
- * next pull rebase over the canonical state.
- */
+// Only the user side has mutators. The worker writes assistant replies, and they arrive by pull.
 
 const chatId = z.string().min(1).max(100);
 
@@ -28,7 +20,7 @@ export const chatMessageCreateArgsSchema = z.object({
   id: chatId,
   threadId: chatId,
   userId: z.string().min(1).max(100),
-  // May be empty when the message carries only an attachment (image-only send).
+  // Empty for an attachment-only message.
   content: z.string().min(0).max(100_000),
   createdAt: isoDateTimeStringSchema,
 });
@@ -58,8 +50,7 @@ export type ChatThreadDeleteArgs = z.infer<typeof chatThreadDeleteArgsSchema>;
 export const chatAttachmentCreateArgsSchema = z.object({
   id: chatId,
   messageId: chatId,
-  // The thread the message belongs to — the server rebuilds the storage key
-  // from it; not stored on the synced row.
+  // The server builds the storage key from it. Not on the synced row.
   threadId: chatId,
   name: z.string().min(1).max(255),
   mime: z.string().min(1).max(255),
@@ -99,7 +90,7 @@ export async function chatThreadCreateClient(
   await SYNC_MODEL.chatthread.put(tx, value);
 }
 
-/** Patch a thread's optimistic field set. No-op if the row hasn't synced yet. */
+/** No-op if the row has not synced yet. */
 async function patchThread(
   tx: WriteTransaction,
   id: string,
@@ -115,7 +106,6 @@ async function patchThread(
   } satisfies SyncedChatThread);
 }
 
-/** Rename a thread's title optimistically. */
 export async function chatThreadRenameClient(
   tx: WriteTransaction,
   args: ChatThreadRenameArgs,
@@ -123,7 +113,6 @@ export async function chatThreadRenameClient(
   await patchThread(tx, args.id, { title: args.title });
 }
 
-/** Pin / unpin a thread optimistically. */
 export async function chatThreadSetPinnedClient(
   tx: WriteTransaction,
   args: ChatThreadSetPinnedArgs,
@@ -131,10 +120,7 @@ export async function chatThreadSetPinnedClient(
   await patchThread(tx, args.id, { pinned: args.pinned });
 }
 
-/**
- * Delete a thread and its messages optimistically. The canonical delete is a
- * hard DB delete (messages cascade); the next pull confirms the removal.
- */
+/** Delete a thread with its messages and their attachments. */
 export async function chatThreadDeleteClient(
   tx: WriteTransaction,
   args: ChatThreadDeleteArgs,
@@ -150,8 +136,6 @@ export async function chatThreadDeleteClient(
     }
   }
 
-  // Drop the deleted messages' attachments too (server cascades the rows +
-  // reaps the bucket objects; this keeps the optimistic store consistent).
   const attachments = await SYNC_MODEL.chatatt.scan(tx);
 
   for (const attachment of attachments) {
@@ -162,12 +146,8 @@ export async function chatThreadDeleteClient(
 }
 
 /**
- * Optimistically record an uploaded attachment on a just-sent message
- * (ADR-0065). The bytes are already in the bucket (uploaded during
- * composition); this writes the display row so the image renders in its bubble
- * without waiting for the pull. Phase 1 is images — the row lands `ready`. The
- * HTTP turn endpoint verifies the stored object and persists the canonical row;
- * this mutator is only the client-side optimistic display patch. Idempotent on id.
+ * Show an already-uploaded attachment before the pull (ADR-0065). Idempotent on id.
+ * The turn endpoint checks the object and writes the real row.
  */
 export async function chatAttachmentCreateClient(
   tx: WriteTransaction,
@@ -219,7 +199,6 @@ export async function chatMessageCreateClient(
     await SYNC_MODEL.chatmsg.put(tx, message);
   }
 
-  // Optimistically float the thread to the top of the list.
   const thread = await readThread(tx, args.threadId);
 
   if (thread) {

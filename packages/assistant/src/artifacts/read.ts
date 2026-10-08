@@ -6,30 +6,25 @@ import { and, desc, eq } from "drizzle-orm";
 import { artifactContentHash } from "./content-hash";
 
 /**
- * Read path for agent-authored artifacts (ADR-0075). Each chat turn is its own
- * run, and persisted chat messages do not retain prior tool results, so the boss
- * otherwise loses both the artifact id and the exact body needed for an edit.
- *
- * Trust boundary: artifact titles/content can originate in user files or web
- * content. Generated ids/enums may enter the per-turn facts block, but authored
- * text is supplied only as a lower-trust assistant reference message.
- *
- * The invariant edit rules (#896) are prompt text, not read-path data: they
- * live beside the chat prompt base in `chat/chat-turn.ts`.
+ * Read path for artifacts (ADR-0075). Chat messages drop old tool results, so without
+ * this the boss loses the artifact id and the body it needs to edit.
+ * Titles and content can come from user files or the web, so authored text goes only in
+ * a lower-trust assistant message; ids and enums may go in the facts block.
+ * The edit rules (#896) are prompt text in `chat/chat-turn.ts`.
  */
 
-/** A complete reference larger than this is omitted, never truncated. */
+/** A larger reference is omitted, never truncated. */
 const MAX_REFERENCE_CONTENT_CHARS = 20_000;
 
-/** Keep per-turn metadata work bounded even in artifact-heavy threads. */
+/** Bound per-turn work in artifact-heavy threads. */
 const MAX_LISTED_ARTIFACTS = 20;
 
 export interface ThreadArtifactsContext {
-  /** Per-thread facts: default id, selection resolution, bounded index. Ephemeral. */
+  /** Default id, selection, and a bounded index. Ephemeral. */
   readonly threadFacts: string;
-  /** Lower-trust assistant message with the exact selected body when bounded. */
+  /** Lower-trust message with the selected body, when it fits. */
   readonly referenceMessage: string;
-  /** Selected artifact medium, used to inject only the relevant design guide. */
+  /** Picks the one design guide to inject. */
   readonly designMedium: ArtifactFormat | undefined;
 }
 
@@ -72,10 +67,9 @@ export function buildArtifactReference(row: ArtifactReferenceRow): string {
 }
 
 /**
- * Build safe system guidance plus a lower-trust reference message for artifacts
- * already in the conversation. Metadata is bounded and excludes user-authored
- * titles. Only the selected/default row's body is fetched; if it exceeds the
- * reference budget, no partial body or replacement hash is exposed.
+ * Facts plus a lower-trust reference message for this thread's artifacts. Metadata
+ * excludes user-authored titles. Only the selected body is read; if too large, no
+ * partial body or hash is shown.
  */
 export async function buildThreadArtifactsContext(
   userId: string,

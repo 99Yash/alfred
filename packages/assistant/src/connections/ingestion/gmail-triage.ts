@@ -52,8 +52,7 @@ export const gmailTriageRelabelResultSchema = z.discriminatedUnion("applied", [
   z
     .object({
       applied: z.literal(false),
-      // Mirrors triage's hand-written ReconcileResult vocabulary. The typed
-      // composition mapper makes an added triage reason fail the build.
+      // Mirrors triage's ReconcileResult; the composition mapper fails the build on a new reason.
       reason: z.enum([
         "tag-not-found",
         "document-not-found",

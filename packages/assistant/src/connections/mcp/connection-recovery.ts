@@ -23,13 +23,9 @@ const task = new PeriodicTask({
       if (signal.aborted) return;
 
       try {
-        // The manager owns the new generation, catalog publication and row state.
         await getMcpConnectionManager().getReadyClient(id);
       } catch {
-        // The manager already persisted the outcome (`failed`, `auth_required`,
-        // or a concurrent owner's write). Re-parking a transport failure as
-        // `connecting` here is what stuck dead hosts on "Reconnecting…"
-        // permanently, so the probe leaves the stored row alone.
+        // The manager already stored the outcome. Writing `connecting` here would stick dead hosts on "Reconnecting".
       }
     }
   },

@@ -1,7 +1,7 @@
 /**
- * Every tool call (boss or sub-agent) flows through `dispatchToolCall`: validate,
- * hash for retry suppression, consult policy, then stage an `action_stagings` row
- * (the audit surface) and execute/park; `join`/`fast_path` execute inline with no row. Owner: this file. History: ADR-0034, ADR-0069. Glossary: `docs/reference/glossary.md`.
+ * Every tool call goes through `dispatchToolCall`: validate, check for repeats,
+ * apply policy, then write an `action_stagings` row and execute or park.
+ * `join` and `fast_path` tools execute inline with no row (ADR-0034, ADR-0069).
  */
 
 import type {
@@ -118,15 +118,11 @@ let toolSpanStarter: (args: ToolSpanInput) => ToolSpanCloser = startToolSpan;
 let integrationAvailabilityReader: (userId: string) => Promise<IntegrationAvailabilitySnapshot> =
   readIntegrationAvailability;
 
-/** Zod-issue shape we read for the rejection signature (loose by design). */
 type RejectionIssue = { code?: string; path?: readonly PropertyKey[] };
 
 /**
- * PII-free fingerprint of a dispatch rejection (#345). For a Zod miss it folds
- * in each issue's `code@path` so the boss re-proposing the same broken input
- * yields the same signature — the "bounce on the same wall" pattern becomes a
- * single countable bucket in the Traces view. Issue order is normalized so the
- * signature is stable regardless of Zod's emission order.
+ * PII-free fingerprint of a rejection. Adds sorted Zod `code@path` pairs, so
+ * the same broken input repeated gives one countable signature.
  */
 function rejectionSignature(
   toolName: string,
@@ -209,11 +205,11 @@ export function buildDispatchRejectionTraceInput(args: {
   issues?: readonly RejectionIssue[] | undefined;
   /** Safe grouping identity. Raw undeclared names must use `<unknown>`. */
   toolName?: string | undefined;
-  /** Optional sanitized + bounded model-supplied name hint for unknown tools. */
+  /** Sanitized, bounded name the model asked for, for unknown tools. */
   candidateToolName?: string | undefined;
-  /** Actual payload rejected by this branch. Callers must pass only payloads safe for trace I/O. */
+  /** Pass only payloads safe for trace I/O. */
   input?: unknown;
-  /** Present only when `input` is already schema-valid for this tool. */
+  /** Set only when `input` is schema-valid for this tool. */
   tool?: RegisteredTool | undefined;
   startedAt?: Date;
 }): DispatchRejectionInput {
@@ -237,12 +233,7 @@ export function buildDispatchRejectionTraceInput(args: {
   };
 }
 
-/**
- * Emit a trace node for a dispatch attempt that short-circuited before execute
- * (#345). Pulls the common identity off `ToolCallDispatchArgs` so each early-return
- * branch is a one-liner. Fire-and-forget — `recordDispatchRejection` swallows
- * everything, so this can never affect the dispatch result.
- */
+/** Trace a call that stopped before execute. Never throws: the recorder swallows errors. */
 function recordRejection(args: {
   dispatch: ToolCallDispatchArgs;
   outcome: DispatchRejectionOutcome;
@@ -257,17 +248,9 @@ function recordRejection(args: {
 }
 
 /**
- * The one place a {@link ToolUnavailabilityCode} becomes a dispatch result, so
- * the availability evaluator stays the sole authority on *whether* a tool may
- * run and this decides only how the refusal is carried.
- *
- * Two arms because they route differently downstream, not because the reasons
- * differ in kind. `feature_disabled` is hidden plumbing — the user turned the
- * ADR-0074 tier off and the model must not narrate a capability they disabled —
- * while every other code is a real, explainable obstacle ("Gmail needs to be
- * reconnected") the model should surface. Both are `nonExecution` (see
- * `isNonExecutionFailure`): neither reached the side-effect path, so neither
- * counts against the #346 honesty guard.
+ * Turn a {@link ToolUnavailabilityCode} into a dispatch result.
+ * `feature_disabled` stays hidden: the user turned the ADR-0074 tier off, so the
+ * model must not mention it. Other codes are obstacles the model should explain.
  */
 function unavailableToolResult(args: {
   toolName: ToolName;
@@ -295,24 +278,14 @@ function unavailableToolResult(args: {
       integration: args.integration,
       message: args.reason,
     },
-    // The floor is the only producer of this fact. Workflow-cap and
-    // resource-scope refusals below construct their results inline and carry
-    // no `unavailability` — they are policy, not connection health, so no
-    // connect nudge may derive from them.
+    // Only the availability floor sets this. Policy refusals must not cause a connect nudge.
     unavailability: args.code,
   };
 }
 
-/**
- * The one contract every dispatch stage obeys. A stage reads the state the
- * previous stage built and either SETTLES the call (the value the caller
- * receives) or CONTINUES carrying the next state. `dispatchToolCall` runs the
- * four stages in order and returns the first settled value, so the initial
- * dispatch and the post-approval resume stay one pass with one entry point.
- */
+/** A stage either settles the call with a result or continues with the next state. */
 export type DispatchStageOutcome<Next> = DispatchResult | { readonly continueWith: Next };
 
-/** One named stage of the dispatch pipeline. */
 export type DispatchStage<In, Next> = (input: In) => Promise<DispatchStageOutcome<Next>>;
 
 function continueWith<Next>(next: Next) {
@@ -325,7 +298,6 @@ function isContinue<Next>(
   return "continueWith" in outcome;
 }
 
-/** Stage 1 output — the resolved registry entry and its authorization envelope. */
 interface ResolvedDispatch {
   args: ToolCallDispatchArgs;
   toolName: ToolName;
@@ -334,29 +306,20 @@ interface ResolvedDispatch {
   workflowCapabilities: NonNullable<ToolCallDispatchArgs["requiredCapabilities"]>;
 }
 
-/** Stage 2 output — the validated input plus the execute/approval context. */
 interface ValidatedDispatch extends ResolvedDispatch {
   input: unknown;
   ctx: ToolExecuteContext;
-  /** The gated arm the routing switch selected; the staged path's one policy row. */
   arm: GatedArmPolicy;
 }
 
-/** Stage 3 output — the gate hashes the staging upsert persists. */
 interface SuppressedDispatch extends ValidatedDispatch {
   proposedInputHash: string;
   requestHash: string;
 }
 
 /**
- * Tool dispatch seam — one contract, four named stages, one entry.
- * The map (owners named by glossary term, docs/reference/glossary.md):
- *   registry resolution      → `resolveRegistryStage` ("registry" in registry.ts)
- *   input validation         → `validateInputStage` (param-ergonomics + tool schema)
- *   retry suppression        → `suppressRepeatedStage` (fence + prior-rejection store)
- *   staging/approval resume  → `stageOrResumeStage` (staging-store, ADR-0034/0099)
- * A stage settles the call or hands the next state on, so approval resume is
- * the same pass and no caller needs a separate resume entry point.
+ * Run the four stages in order: resolve, validate, suppress repeats, then stage
+ * or resume. Approval resume uses this same entry point.
  */
 export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<DispatchResult> {
   const registry = await resolveRegistryStage(args);
@@ -373,19 +336,13 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
 
   const terminal = await stageOrResumeStage(suppressed.continueWith);
 
-  // `stageOrResumeStage` always settles; its `continue` arm exists only so every
-  // stage shares the one contract, and `never` makes it unreachable here.
+  // Always settles: `continueWith` is `never` here.
   if (!isContinue(terminal)) return terminal;
 
   return terminal.continueWith;
 }
 
-/**
- * Stage 1 — registry resolution. Resolve the registry entry, then enforce the
- * workflow capability envelope, the availability floor, and the active-surface
- * membership in the order they must run. Settles for any refusal; otherwise
- * hands the resolved entry to input validation.
- */
+/** Stage 1: find the tool, then check the workflow envelope, availability, and the active surface. */
 const resolveRegistryStage: DispatchStage<ToolCallDispatchArgs, ResolvedDispatch> = async (
   args,
 ) => {
@@ -452,20 +409,9 @@ const resolveRegistryStage: DispatchStage<ToolCallDispatchArgs, ResolvedDispatch
     };
   }
 
-  // The declared tool contract, enforced where it decides. `callers`,
-  // `requiresLiveChat`, `passthrough`, `credential` and the workflow integration
-  // cap are declared once on the registration and evaluated by ONE evaluator, so
-  // discovery, load, the SDK projection and this floor agree by construction —
-  // no branch here re-derives a permission from a tool name.
-  //
-  // Unconditional on purpose. The surface the model was shown was built at turn
-  // start; a grant revoked, a workflow cap narrowed, or an ADR-0074 kill switch
-  // flipped since then must bounce the call, and a tool auto-activated by an
-  // inactive bounce (#407) never passed the surface's checks at all. Two things
-  // keep it cheap: the read is lazy inside `resolveToolAvailability` (a `system.*`
-  // or `mcp.*` call resolves from the registration alone and costs no query), and
-  // `readIntegrationAvailability` memoizes per user for a few seconds, so a round
-  // of parallel calls into one integration shares a single snapshot.
+  // Always re-check: the surface was built at turn start, and a grant, cap, or
+  // kill switch can change since then. Cheap: the snapshot read is lazy and
+  // memoized per user for a few seconds.
   const availability = await resolveToolAvailability({
     tool,
     allowed: new Set(args.allowedIntegrations ?? []),
@@ -510,34 +456,17 @@ const resolveRegistryStage: DispatchStage<ToolCallDispatchArgs, ResolvedDispatch
   return continueWith({ args, toolName, tool, integration, workflowCapabilities });
 };
 
-/**
- * Stage 2 — input validation. The param-ergonomics pass, the tool's zod schema,
- * the workflow resource-scope check, the scratch-key policy, and the routing
- * switch that dispatches `join`/`fast_path` inline and narrows the staging arm
- * for the gated path.
- */
+/** Stage 2: validate input, then run `join` and `fast_path` tools inline. */
 const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = async (resolved) => {
   const { args, toolName, tool, integration, workflowCapabilities } = resolved;
   const caller = args.caller;
 
-  // Normalize casing/underscore variants of real param names to the schema key
-  // before validation (param-ergonomics pass) — kills the dominant
-  // `unrecognized_keys` failure family (`max_results`→`maxResults`, snake↔camel)
-  // across every tool with one mechanism. Synonyms and the query DSL are still
-  // handled by the schema's own preprocess wrappers, which run inside safeParse.
-  //
-  // Reads the MODEL-facing schema, which is the surface the model was shown and
-  // the one `acceptedParamNames` documents. On every tool but `system.ask_user`
-  // the two are the same object; on that one the runtime schema also accepts
-  // `answers`, and normalizing against it would rename a model key into the
-  // user's field (ADR-0099).
+  // Fix key casing (`max_results` -> `maxResults`). Use the model-facing schema:
+  // the runtime one for `system.ask_user` also has the user's `answers` (ADR-0099).
   const normalized = normalizeToolInputKeys(args.input, tool.modelInputSchema);
 
   if (normalized.renamed.length > 0) {
-    // Surface the auto-repaired keys so prod traces can measure how often the
-    // ergonomics pass fires, and on which tools/keys, without re-running the
-    // 400-run scan — this is the signal for whether the tolerance is earning
-    // its keep or a schema key drifted from what the model reaches for.
+    // Shows how often this repair fires, and on which keys.
     logger.debug(
       { event: "tool_input_keys_normalized", toolName, renamed: normalized.renamed },
       "Normalized tool-input param keys before validation",
@@ -547,8 +476,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
   const parsed = tool.inputSchema.safeParse(normalized.input);
 
   if (!parsed.success) {
-    // Repair advice the model reads, so it lists the model-facing parameters.
-    // Naming a runtime-only field here would invite the model to send it.
+    // List model-facing params only, so the model is not invited to send a runtime-only field.
     const message = enrichInvalidInputMessage(
       parsed.error.message,
       tool.modelInputSchema,
@@ -587,10 +515,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     };
   }
 
-  // `toolExecuteContext` derives the provider bind from `userId`, so every
-  // provider client this call reaches is wired to THIS user's credentials and no
-  // tool resolves a credential itself. The bind is lazy — nothing is built and no
-  // credential read unless the tool actually calls one.
+  // Provider clients bind to this user's credentials, lazily.
   const ctx = toolExecuteContext({
     runId: args.runId,
     scratchpadRunId: args.scratchpadRunId ?? args.runId,
@@ -628,32 +553,16 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     };
   }
 
-  // Routing declared by the registration (`RegisteredTool.staging`), not
-  // re-derived from the tool name here. `join` and `fast_path` intercept BEFORE
-  // the staging/execute path below; `question` refuses one input shape and then
-  // takes the staged path with a forced approval; everything else falls through
-  // to it. The availability and active-surface checks above already authorized
-  // the call, so the bypass is of the approval gate only.
+  // `join` and `fast_path` skip only the approval gate; the checks above still ran.
   switch (tool.staging) {
     case "join":
-      // ADR-0073. Park the parent on the child's completion signal instead of
-      // returning a result the boss would have to poll. A terminal (or
-      // timed-out) child returns its real outcome inline.
+      // ADR-0073: park on the child instead of making the boss poll.
       return await resolveAwaitSubAgentWithSpan(tool, input, ctx);
     case "fast_path":
       return executeFastPath(tool, input, ctx);
     case "question": {
-      // ADR-0099. `answers` is the user's half of the exchange: the decision
-      // route writes it into the decided input and the `approved` case below
-      // re-parses it. A fresh call that already carries answers is the model
-      // answering its own question, so refuse it before any row is written.
-      // PARSED with the question contract the registry proved at boot, not cast.
-      //
-      // Kept as a backstop, not as the first line of defence. The tool's
-      // `modelInputSchema` has no `answers` key, so a well-behaved model cannot
-      // reach this branch; a hallucinated key, a replayed call, or a future
-      // caller that bypasses the surface still can, and this is the one place
-      // that names the repair.
+      // ADR-0099: only the user fills `answers`. A fresh call with answers is the
+      // model answering itself. Backstop: the model schema has no `answers` key.
       const question = questionToolInput.parse(input);
 
       if (question.answers !== undefined) {
@@ -682,8 +591,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     case "staged":
       break;
     default: {
-      // A fourth policy must not silently inherit the staged path — the whole
-      // point of declaring routing is that extending it is a decision.
+      // A new policy must not silently take the staged path.
       const unhandled: never = tool.staging;
       throw new Error(
         `[dispatch] unhandled staging policy '${String(unhandled)}' on '${toolName}'`,
@@ -691,20 +599,15 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     }
   }
 
-  // The routing switch returned for `join` and `fast_path` and refused an
-  // answered `question`, so this is `staged` or `question` and the arm is
-  // non-null. Narrowing `tool.staging` happens here, where the switch's control
-  // flow still proves it; the later stage reads the arm off this record.
+  // Only `staged` and `question` reach here, so the arm is non-null.
   const arm: GatedArmPolicy = STAGING_ARM[tool.staging];
 
   return continueWith({ ...resolved, input, ctx, arm });
 };
 
 /**
- * Stage 3 — retry suppression. The refusal gate before any staging write: a
- * moved cancellation fence, an identical effect still marked unresolved, or a
- * prior settled row for the same run/tool/input must not become a new effect or
- * a second approval card.
+ * Stage 3: refuse before any write if the run was cancelled, an identical effect
+ * is still `unknown`, or the user already settled this exact proposal.
  */
 const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch> = async (
   validated,
@@ -713,16 +616,9 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
 
   const proposedInputHash = hashToolInput(toolName, input);
 
-  // #559b: recheck the cancellation fence before any staging write. The step
-  // started under `args.fence`; `cancelRunInTx` bumps the run's generation
-  // the moment it lands, so a current value past the captured one means the run
-  // was cancelled while this step was in flight. Refuse BEFORE the barrier and
-  // the status machine: no new approval may be raised and no staging row may be
-  // written on a cancelled run (the #530 re-fire and the effect-after-cancel
-  // hole). The barrier, retry, status, and upsert awaits below re-open the
-  // window this read closes, so `executeAndCommit` reads the fence a second
-  // time immediately before `tool.execute`. Reads keep the fast path and are
-  // not fenced — they have no external effect.
+  // `cancelRunInTx` bumps the generation, so a newer one means the run was
+  // cancelled mid-step. `executeAndCommit` reads it again before execute,
+  // because the awaits below reopen the window.
   const fence = await stagingStore().readCancellationFence(args.runId);
 
   if (fence.generation > args.fence.generation) {
@@ -733,18 +629,10 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
     };
   }
 
-  // #559a: the canonical request hash scopes the effect to the account/resource
-  // it lands on, so the same args against a different target are a different
-  // effect. Non-workflow calls have no resolved account ref yet — the target
-  // binding is appended when the gate knows it.
+  // Includes the target account, so the same args on another account are a different effect.
   const requestHash = hashToolRequest(toolName, input, ctx.accountRef);
 
-  // #559a: the ambiguity barrier. BEFORE inserting a fresh row, ask whether an
-  // identical logical effect (same user + canonical request) is still marked
-  // `unknown`. If it is, a new tool-call id must not slip past it: the write
-  // may have been delivered but never confirmed, so repeating it risks a
-  // duplicate. The model receives the same non-actionable unknown envelope the
-  // MCP broker produces, and no staging row is written.
+  // An identical effect still `unknown` may have been delivered, so a repeat risks a duplicate.
   const unresolvedBarrier = await stagingStore().findUnresolvedUnknown({
     userId: args.userId,
     requestHash,
@@ -758,11 +646,8 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
     };
   }
 
-  // Retry suppression — Phase 3c. A prior settled row for this run + tool +
-  // input hash (the arm says which statuses count) means the user has already
-  // answered this exact proposal; synthesize the same result without writing a
-  // new row or firing a new notification. Limited to the same run because
-  // ADR-0034 scopes the partial index that way.
+  // The user already answered this exact proposal in this run (ADR-0034 scopes
+  // the index per run). Replay the answer without a new row or notification.
   const priorReject = await stagingStore().findPriorRejection({
     runId: args.runId,
     toolName,
@@ -771,9 +656,6 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
   });
 
   if (priorReject) {
-    // The boss re-proposed byte-identical input the user already settled. This
-    // is exactly the "bounce on the same wall" pattern #345 wants countable —
-    // the shared signature buckets every repeat.
     return settleWithoutExecution(arm, {
       dispatch: args,
       tool,
@@ -789,21 +671,15 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
 };
 
 /**
- * Stage 4 — staging/approval resume. Resolve risk and policy, write the
- * idempotent staging row, then run the status machine: a pending row parks or
- * executes, an approved row is the resume and executes the decided input, and a
- * settled/executed/failed row replays. Always settles.
+ * Stage 4: upsert the staging row, then act on its status. Pending parks or
+ * executes, approved executes the decided input, and settled rows replay.
  */
 const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (suppressed) => {
   const { args, tool, toolName, integration, input, ctx, arm, proposedInputHash, requestHash } =
     suppressed;
 
-  // Cancellation is allowed while a step body is running. The staging insert
-  // below is its own autocommit, so the executor's later commit guard cannot
-  // roll it back. Check at the effect boundary; the cancel post-commit sweep
-  // and the losing executor repeat the cleanup to close the remaining race.
-  // `null` covers both an absent run and an unparseable status — the store owns
-  // that distinction and the gate treats either as "the run is unavailable".
+  // The staging insert autocommits, so the executor cannot roll it back. Check
+  // the run first. `null` means absent or unparseable.
   const runStatus = await stagingStore().readRunStatus(args.runId);
 
   if (runStatus === null || isTerminalStatus(runStatus)) {
@@ -820,11 +696,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     };
   }
 
-  // Most tools carry a static `riskTier`. A tool may instead resolve its
-  // EFFECTIVE tier from validated input at the gate: Calendar raises an invite
-  // from medium to high, while `mcp.call` can use a reviewed per-descriptor
-  // downgrade (#541). The central resolver clamps undeclared downgrades. The
-  // effective tier drives both the approval decision and the persisted row.
+  // Some tools resolve their tier from input (Calendar invites go up, `mcp.call` can go down).
   const riskTier = await resolveEffectiveRiskTier(tool, input, ctx);
   const policyMode = await resolvePolicyMode(args.userId, toolName);
   const requiresApproval = arm.forcesApproval || toolRequiresApproval(policyMode, riskTier);
@@ -836,32 +708,15 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   const notifyAfterAt =
     approvalNotifyDelayMs !== null ? new Date(Date.now() + approvalNotifyDelayMs) : null;
 
-  // Gated rows get a hard expiry so an undecided approval can't park the
-  // run forever (Phase 5e). The `staging-expire` worker fires at this
-  // time and auto-rejects if still pending.
+  // The `staging-expire` worker auto-rejects at this time, so an approval cannot park a run forever.
   const expiresAt = requiresApproval ? new Date(Date.now() + APPROVAL_EXPIRY_MS) : null;
 
-  // Single upsert, idempotent on `(run_id, tool_call_id)`; the store owns the
-  // conflict idiom and the `wasInserted` verdict the Replicache poke is gated
-  // on. The stored row comes back verbatim on conflict, which is what the
-  // resume path below reads `status` / `decidedInput` off.
-  // #293/#374: one redaction, two routing decisions. `redactedInput` is the
-  // display-safe projection; `proposedInputForRow` keeps raw when gated (it
-  // doubles as the approval-resume payload) and redacts when autonomous.
-  // The hash + execute always use raw `input`.
+  // A gated row keeps raw input, because resume executes it. An autonomous row stores it redacted.
   const redactedInput = tool.redactInput ? tool.redactInput(input) : input;
   const proposedInputForRow = !requiresApproval ? redactedInput : input;
-  // The staged `proposed_input` doubles as the approval-resume payload a
-  // gated tool executes from, so it parses strictly: a value that is not a
-  // `JsonValue` must throw loudly here rather than persist a silent
-  // `{ unserializable }` marker the resume path would then execute as the
-  // user's approved input. The `gmail.read_message` undefined-key shape that
-  // once threw here is fixed at the source (`tool-schemas.ts` omits the key
-  // instead of writing it as `undefined`).
+  // Strict parse: resume executes this value, so a bad value must throw, not persist.
   const persistedProposedInput = jsonValueSchema.parse(proposedInputForRow);
-  // #374: notification sinks (approval email, delivery payload) read this
-  // column — never raw `proposed_input`, which a gated tool keeps verbatim
-  // for resume.
+  // Notifications read this column, never the raw `proposed_input`.
   const persistedDisplayInput = jsonValueSchema.parse(redactedInput);
 
   const upserted = await stagingStore().upsertStaging({
@@ -885,13 +740,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   let row = upserted.row;
   const insertedNew = upserted.wasInserted;
 
-  // Defensive: the (run_id, tool_call_id) unique index says one tool call id
-  // maps to one row. If a caller re-dispatches the same id with a different
-  // `toolName`, the model emitted two tools under the same call id — a
-  // programming/model bug, not a dispatcher policy decision. Fail loud rather
-  // than silently executing the new tool while updating the original row's
-  // audit trail. (No-op on a fresh insert: the stored toolName equals the
-  // dispatched one.)
+  // Two tools under one call id is a bug. Do not execute one against the other's row.
   if (row.toolName !== toolName) {
     throw new Error(
       `[dispatch] toolName mismatch on re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId}, stored='${row.toolName}', got='${toolName}')`,
@@ -930,17 +779,9 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
   switch (row.status) {
     case "pending":
-      // Approval requirements are monotonic while a row is pending. The
-      // promotion above lets a newly-raised risk floor add a gate, while this
-      // stored value prevents a later policy change (gated → autonomy) from
-      // removing one. Policy changes apply normally to fresh calls, but an
-      // in-flight call can only become safer. See ADR-0034 / ADR-0088.
+      // A pending row can gain a gate but never lose one (ADR-0034, ADR-0088).
       if (row.requiresApproval) {
-        // Park. The executor emits the transient `approval.requested`
-        // event when it commits the interrupt; Replicache carries the
-        // durable approvals queue. Emit the poke only when the row first enters
-        // that queue, by insertion or promotion, so ordinary resumes do not spam
-        // connected clients.
+        // Poke only when the row first enters the approvals queue.
         if (insertedNew || promotedPendingApproval) emitReplicachePokes([args.userId], row.id);
 
         if (!row.notifiedAt) {
@@ -956,10 +797,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
           });
         }
 
-        // Schedule the hard-expiry fallback. Idempotent on the
-        // deterministic job id, so a crash/resume re-dispatch of the same
-        // staged call won't double-schedule. Delay derives from the
-        // row's stored `expires_at` so the timer survives restarts.
+        // Idempotent on the job id. The delay comes from the stored `expires_at`.
         {
           const expiryDelayMs =
             row.expiresAt instanceof Date
@@ -973,9 +811,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
           });
         }
 
-        // The wake is the only place the approval kind is written. The decision
-        // route and the expiry worker match on (runId, approvalId) alone and
-        // never re-derive it (ADR-0099), so nothing can disagree with this row.
+        // The only place the approval kind is written (ADR-0099).
         return {
           kind: "staged",
           stagingId: row.id,
@@ -1000,20 +836,11 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       });
 
     case "approved": {
-      // Resume after user approval — execute with the decided input if
-      // they edited it, otherwise with the originally-proposed input
-      // STORED on the row. Never use `args.input` here: the user
-      // approved the row's `proposed_input`, not whatever the caller
-      // re-supplied on this dispatch. A caller that re-dispatches with
-      // a mutated payload should not be able to slip an unapproved
-      // input past the gate via the resume path.
+      // Execute what the user approved from the row, never `args.input`, so a
+      // re-dispatch cannot slip in an unapproved payload.
       const editedByUser = row.decidedInput !== null && row.decidedInput !== undefined;
       const useInput = editedByUser ? row.decidedInput : row.proposedInput;
-      // Re-validate so an edited payload that violates the schema
-      // becomes a failed row rather than a thrown executor. The
-      // originally-proposed input was already validated on insert; the
-      // decided input came from the user via the approval API and may
-      // not have been validated there.
+      // A user edit may break the schema. Fail the row instead of throwing.
       const reparsed = tool.inputSchema.safeParse(useInput);
 
       if (!reparsed.success) {
@@ -1024,10 +851,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
           error,
           executedAt: new Date(),
         });
-        // A post-approval reparse failure never reaches `executeToolWithSpan`
-        // (no execution happened), so without this it would be a `failed` row
-        // with no trace node (#345) — e.g. a user-edited approval payload that
-        // violates the schema.
+        // No execution, so no span. Trace it here.
         recordRejection({
           dispatch: args,
           outcome: "failed",
@@ -1068,12 +892,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       });
 
     case "executed":
-      // Idempotent re-dispatch. The model proposed the same tool call
-      // again (step re-attempt) and the row already carries the
-      // result — hand it straight back without re-executing. Carry the
-      // persisted sanitize verdict so the "may be incomplete" notice survives
-      // the replay (ADR-0070 §1.1); a stripped result must never read as
-      // pristine on a second look.
+      // Replay the stored result. Keep the sanitize flag so the "may be incomplete" notice survives (ADR-0070 §1.1).
       return {
         kind: "executed",
         stagingId: row.id,
@@ -1090,9 +909,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       };
 
     default: {
-      // Unknown statuses surface as a failure rather than throwing —
-      // the agent loop turns them into a tool result the boss can
-      // reason about.
+      // Fail instead of throwing, so the boss gets a tool result.
       const diagnostic = `dispatcher saw unexpected staging status '${row.status}'`;
       const error = publicAppError("tool_execution_failed");
       recordRejection({
@@ -1114,30 +931,17 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 };
 
 /**
- * Whether a tool call must be staged for human approval. Two independent
- * triggers, OR'd:
- *
- *   1. The user's policy resolves to `gated` (tool override → integration mode
- *      → user default, per ADR-0034).
- *   2. A risk-tier floor: a `high`-tier tool ALWAYS confirms, regardless of
- *      policy. The global "Auto" autonomy toggle is a chat-convenience control
- *      (stop nagging me about reads); it must not silently authorize the
- *      handful of genuinely-irreversible actions (send a real email, redeploy a
- *      service — including a shared team workspace). riskTier was previously a
- *      display-only hint (registry.ts header); this makes `high` load-bearing
- *      for the gate. Amends ADR-0034 — see decisions.md.
- *
- * Keep this the single definition of the gate so the live dispatch path and the
- * `toolCallWouldGate` scheduling hint can never drift apart.
+ * Approval is needed when policy is `gated` or the tier is `high`.
+ * "Auto" must not authorize an irreversible action, such as a real email send.
+ * Dispatch and `toolCallWouldGate` both use this one gate.
  */
 export function toolRequiresApproval(policyMode: PolicyMode, riskTier: ToolRiskTier): boolean {
   return policyMode === "gated" || riskTier === "high";
 }
 
 /**
- * Resolve input-dependent risk without letting a new resolver silently lower
- * its tool's approval floor. Intentional downgrades are reviewed declarations
- * on the tool and are logged without the proposed input (ADR-0088).
+ * Resolve input-dependent risk. A downgrade needs a declared
+ * `riskTierDowngradeReason`; otherwise it is clamped (ADR-0088).
  */
 export async function resolveEffectiveRiskTier(
   tool: RegisteredTool,
@@ -1198,29 +1002,10 @@ export async function resolveEffectiveRiskTier(
 }
 
 /**
- * Best-effort prediction of whether a *fresh* dispatch of this tool would gate
- * (stage for approval) instead of executing autonomously. Mirrors the policy +
- * STATIC risk-tier gate in {@link dispatchToolCall} by calling the same two
- * functions it calls: `resolvePolicyMode` and {@link toolRequiresApproval}.
- *
- * `resolvePolicyMode` owns the `system.*` rule — it answers `autonomy` for those
- * tools before it reads anything, so this function needs no carve-out of its own
- * and performs no policy read for them. A `system.*` tool can therefore still be
- * reported as gating: `system.activate_workflow` is `high`-tier, and the ADR-0069
- * floor outranks autonomy.
- *
- * Two arms it does NOT mirror, both over-reports:
- *   - a tool with `resolveRiskTier` (see below) — no validated input here.
- *   - `staging: "fast_path"`, which returns from `dispatchToolCall` before the
- *     gate. `mcp.list_tools` is the one holder.
- *
- * This is a scheduling hint, not a correctness gate — `dispatchToolCall` stays
- * the source of truth and still honors the row's stored `requires_approval` on
- * resume. Batch callers use it to avoid staging more than one gated write at
- * once: gated writes only *stage* during dispatch (the real work runs after
- * approval), so parallelizing them buys no latency while breaking the HIL
- * contract (the run parks on a single `approvalId`; sibling approval cards 409
- * on `wake_mismatch` and each fires its own email).
+ * Predict whether a fresh dispatch would park for approval. A scheduling hint,
+ * not a gate: batch callers run gated calls one at a time, because a run parks
+ * on one `approvalId` and a sibling card fails with 409 `wake_mismatch`.
+ * Over-reports `resolveRiskTier` tools and `fast_path` tools.
  */
 export async function toolCallWouldGate(userId: string, toolName: string): Promise<boolean> {
   if (!isToolName(toolName)) return false;
@@ -1229,15 +1014,10 @@ export async function toolCallWouldGate(userId: string, toolName: string): Promi
 
   if (!tool) return false;
 
-  // An arm that forces its approval (the `question` arm, ADR-0099) parks on
-  // every dispatch, so it belongs in the serial approval lane, where the batch
-  // loop stops at the first park. In the concurrent bucket it would park the
-  // turn beside a gated sibling that then stages a second card.
+  // The `question` arm always parks (ADR-0099).
   if (STAGING_ARM[tool.staging]?.forcesApproval) return true;
 
-  // The hint has no validated input or execution context. Keep any dynamic
-  // resolver in the serial approval lane; the live dispatch remains the source
-  // of truth and may still execute a lower-tier call without parking.
+  // No validated input here, so assume a dynamic tier may gate.
   if (tool.resolveRiskTier) return true;
 
   return toolRequiresApproval(policyMode, tool.riskTier);
@@ -1253,7 +1033,7 @@ const dispatchToolCallRoundAdapter: DispatchToolCallRoundAdapter = {
   },
 };
 
-/** Install the guarded dispatcher as tool-runtime's call-round adapter at boot. */
+/** Install the dispatcher as the call-round adapter at boot. */
 export function registerDispatchToolCallRoundAdapter(): void {
   registerToolCallRoundAdapter(dispatchToolCallRoundAdapter);
 }
@@ -1278,12 +1058,8 @@ export function undeclaredToolMessage(
         ? `Use '${suggestion.toolName}' instead.`
         : `Integration tools use qualified names like '${suggestion.toolName}'.`;
 
-  // The exact-name hint stays a `load_tool` call: the model asked for one
-  // specific tool, which is not what the search fold activates. The bare-slug
-  // hint has no specific name, and a slug query has no action intent, so the
-  // search's top hit can be a write the model did not mean. The hint tells the
-  // model to choose by intent, and says how each candidate loads. A qualified
-  // name with no close action also reaches this branch.
+  // With no exact name, the search top hit can be a write the model did not
+  // mean, so the hint tells it to choose by intent.
   const loadHint = suggestion.toolName
     ? `Call system.load_tool with name '${suggestion.toolName}' first,`
     : `Call system.search_tools for '${suggestion.integration}', then call the candidate that matches your intent by its exact name. The search loads its top registered hit, and any other candidate loads when you first call it.`;
@@ -1327,18 +1103,13 @@ function integrationActionSuggestion(
     return { integration, toolName, validActions: actions, inputWasQualified: true };
   }
 
-  // A bare integration slug (`calendar`) — the boss mistook the integration for
-  // a single tool and called it with an `action` arg. We can't recover the
-  // intended action from the tool name alone (it lived in the rejected args),
-  // so enumerate the integration's tools and point at exact search/load; the
-  // model picks the right `integration.action` on retry.
+  // A bare slug (`calendar`): the action was in the rejected args, so list the integration's actions.
   if (isIntegrationSlug(input) && input !== "system") {
     if (allowedIntegrations.length > 0 && !allowedIntegrations.includes(input)) {
       return null;
     }
 
-    // No tools to point at — recovering would loop the boss through a
-    // a discovery loop that yields nothing callable (#286 review).
+    // No actions: a hint would loop the boss through discovery for nothing.
     if (INTEGRATION_ACTIONS[input].length === 0) return null;
 
     return {
@@ -1349,8 +1120,7 @@ function integrationActionSuggestion(
     };
   }
 
-  // SAFETY: INTEGRATION_ACTIONS is keyed by IntegrationSlug, so Object.keys of
-  // that very table enumerates exactly those slugs.
+  // SAFETY: INTEGRATION_ACTIONS is keyed by IntegrationSlug.
   const matches = (Object.keys(INTEGRATION_ACTIONS) as IntegrationSlug[]).filter((integration) => {
     if (integration === "system") return false;
 
@@ -1403,12 +1173,8 @@ function toolNameForAction(integration: IntegrationSlug, action: string): ToolNa
 }
 
 /**
- * Action-name tokens that signal an *enumeration* intent — an invented
- * `list_*`/`find_*`/`search_*`/`all_*` tool is asking to list many items, which
- * a single-item `get_<thing>` (needs a known id) can never satisfy. Plain token
- * overlap routes `list_pull_requests` → `get_pull_request` (shared "pull"),
- * which is exactly the wrong hint; an integration's `search` action is the one
- * that can actually enumerate.
+ * Tokens that mean "list many". Token overlap alone would send
+ * `list_pull_requests` to `get_pull_request`; `search` is the right hint.
  */
 const ENUMERATION_TOKENS = new Set(["list", "find", "all", "search"]);
 
@@ -1421,8 +1187,6 @@ function closestAction(input: string, actions: readonly string[]): string | null
 
   const inputTokens = actionTokens(input);
 
-  // Enumeration intent → `search` when the integration exposes one, before the
-  // generic overlap below can mis-route it to a single-item `get_*`.
   if (actions.includes("search") && inputTokens.some((t) => ENUMERATION_TOKENS.has(t))) {
     return "search";
   }
@@ -1449,18 +1213,8 @@ function actionTokens(action: string): string[] {
 }
 
 /**
- * Run a tool inside a Langfuse span nested under the run trace (#214). Both
- * execution paths (staged + scratch fast-path) funnel through here so every
- * actual execution lands as a `tool:<name>` span in the run tree. The span
- * records timing and metadata always; I/O rides the `LANGFUSE_CAPTURE_IO` gate.
- * Errors close the span and rethrow so each caller keeps its own poison-aware
- * error handling.
- *
- * The pre-execution short-circuits (unknown/invalid/rejected/reparse-failed) no
- * longer go dark: #345 reversed the execution-only policy — they emit their own
- * zero-duration `tool:<name>` node via `recordDispatchRejection`, tagged with
- * the dispatch `outcome` and a countable `rejectionSignature`. A `staged`/parked
- * call still gets its span later, when the approved/resumed step executes.
+ * Run a tool inside a `tool:<name>` Langfuse span. I/O is recorded only when
+ * `LANGFUSE_CAPTURE_IO` is on. Errors close the span and rethrow.
  */
 async function executeToolWithSpan(
   tool: ReturnType<typeof getTool> & object,
@@ -1474,19 +1228,14 @@ async function executeToolWithSpan(
     userId: ctx.userId,
     caller: callerLabel(ctx.caller),
     stepId: ctx.stepId,
-    // #293: the trace/span sink ALWAYS gets the redacted input — unlike
-    // `proposed_input`, a span is never a resume payload, so there's no gated
-    // exception. `execute` below still receives the raw `input`.
+    // Always redacted: a span is never a resume payload.
     input: tool.redactInput ? tool.redactInput(input) : input,
     startedAt: new Date(),
   });
 
   try {
     const result = await tool.execute(input, ctx);
-    // ADR-0074 thermometer: a clipped passthrough result carries a
-    // `handleEligible` truncation marker. Fold the structured signal onto the
-    // tool span's metadata (recorded even with I/O capture off) and mirror it to
-    // a log line so the L0-trigger review can be answered without Langfuse I/O.
+    // ADR-0074: record passthrough truncation in span metadata, which is kept even with I/O capture off.
     const thermometer = passthroughTruncationTelemetry(tool.name, ctx.runId, result);
 
     if (thermometer) {
@@ -1501,9 +1250,6 @@ async function executeToolWithSpan(
 
     return result;
   } catch (err) {
-    // Strip NUL-byte poison before the span records the message (the span
-    // itself also redacts secrets + bounds length — see `startToolSpan`).
-    // Mirrors the `execute_error` DB-write sanitization below.
     span.error(safeErrorDiagnostic(err));
     throw err;
   }
@@ -1514,11 +1260,7 @@ async function resolveAwaitSubAgentWithSpan(
   input: unknown,
   ctx: ToolExecuteContext,
 ): Promise<DispatchResult> {
-  // PARSED, not cast. This arm is selected by a declared `staging: "join"`, so
-  // the guarantee that `childRunId` is here comes from the join contract
-  // (`joinToolInput`, proven for every declarer at boot) rather than from the
-  // `toolName === "system.await_sub_agent"` equality this replaced. Parse before
-  // the span opens so a contract violation can't leave a span dangling.
+  // Parse before the span opens, so a bad input cannot leave a span open.
   const { childRunId } = joinToolInput.parse(input);
 
   const span = toolSpanStarter({
@@ -1576,14 +1318,9 @@ function awaitSubAgentSpanOutput(result: DispatchResult): SubAgentSpanOutput {
 }
 
 /**
- * ADR-0074 per-run passthrough ceiling. Before a passthrough tool executes,
- * count how many raw passthrough calls already ran in this run; at or over the
- * ceiling, DON'T execute — commit the staged row with a VISIBLE
- * `budget_exhausted` envelope and return it as a normal `executed` result so the
- * boss reads it and stops paginating (never a silent drop). Returns `null` for a
- * non-passthrough tool or when the run is under budget, so the caller proceeds
- * to a real execution. Persisting the envelope on the row keeps replay idempotent
- * (a re-dispatch hits the `executed` short-circuit and re-serves the same notice).
+ * ADR-0074 per-run passthrough ceiling. Over it, commit a visible
+ * `budget_exhausted` result instead of executing, so the boss stops paging.
+ * Returns `null` when the call may run.
  */
 async function guardPassthroughBudget(
   row: StagingRow,
@@ -1596,8 +1333,7 @@ async function guardPassthroughBudget(
   if (priorCalls < PASSTHROUGH_PER_RUN_CEILING) return null;
   const envelope = passthroughBudgetExhausted(priorCalls);
   const persistedEnvelope = jsonValueSchema.parse(envelope);
-  // The envelope is minted here, never through the tool, so it cannot carry
-  // persistence poison — `sanitized: false` is the verdict, not a default.
+  // Minted here, not by the tool, so there is nothing to sanitize.
   await commitAndPoke(row, ctx, {
     status: "executed",
     outcome: "succeeded",
@@ -1615,11 +1351,8 @@ async function guardPassthroughBudget(
 }
 
 /**
- * The only door onto a terminal staging write. Committing and poking are one
- * step because they must stay in that order and must never be separated: the
- * poke tells a connected client to re-pull the approvals queue, so a poke that
- * beats its commit shows the row in its pre-terminal state. Gated on the row's
- * `requires_approval` because an autonomous row was never in that queue.
+ * Commit a terminal staging write, then poke. A poke before the commit shows a
+ * stale row. Autonomous rows are never in the approvals queue, so no poke.
  */
 async function commitAndPoke(
   row: StagingRow,
@@ -1642,14 +1375,8 @@ async function executeAndCommit(
   ctx: ToolExecuteContext,
   opts: { expectedFence: CancellationFence; editedByUser: boolean },
 ): Promise<DispatchResult> {
-  // #559b: the second fence read, immediately before the effect. The gate's
-  // first read refuses a step whose cancel landed before dispatch; this one
-  // refuses a cancel that landed DURING dispatch — the barrier, retry, status,
-  // and upsert awaits sit between the two. The staging row already exists
-  // here, so close it `failed`/`refused` rather than leave a pending/approved
-  // row claiming an effect that will never resolve. The residual window between
-  // this read and the provider call inside `tool.execute` is irreducible
-  // without transactional effects; this narrows it to one DB round-trip.
+  // Second fence read, for a cancel that landed during dispatch. The row exists
+  // now, so close it instead of leaving it pending.
   const fence = await stagingStore().readCancellationFence(ctx.runId);
 
   if (fence.generation > opts.expectedFence.generation) {
@@ -1671,16 +1398,10 @@ async function executeAndCommit(
   let error: PublicAppError | undefined;
 
   try {
-    // Thread the committing staging row id to execution. Only the staged path
-    // has one; the fast path (executeFastPath) intentionally leaves it undefined.
-    // The MCP broker mints its durable ledger row 1:1 with this staging row.
+    // The MCP broker mints its ledger row 1:1 with this staging row.
     result = await executeToolWithSpan(tool, input, { ...ctx, stagingId: row.id });
   } catch (err) {
-    // Throw-poison class (ADR-0070 §1.3): a tool that *throws* a NUL-byte
-    // message. The result-boundary sanitizer below can't reach this — a throw
-    // carries no result — so strip the error string before it hits the
-    // `execute_error` jsonb write. Project through the closed public-error
-    // registry so arbitrary exception text cannot reach persistence or users.
+    // ADR-0070 §1.3: map to a public error, so raw exception text never persists.
     error = toPublicAppError(err);
     logger.error(
       { err, event: "tool_execution_failed", toolName: tool.name, runId: ctx.runId },
@@ -1701,10 +1422,7 @@ async function executeAndCommit(
     return { kind: "failed", stagingId: row.id, error };
   }
 
-  // ADR-0070 §1.1: sanitize at the dispatch boundary, the instant the tool
-  // returns and before the value touches any persisted sink. This cleans the
-  // `execute_result` jsonb write below AND the `toolResult` returned to the
-  // caller (which flows into the transcript/state — the same poison sinks).
+  // ADR-0070 §1.1: sanitize before the value reaches the row or the transcript.
   const sanitizedResult = sanitizeToolResult(result);
   const persistedResult = toJsonValue(sanitizedResult.value);
   const didSanitize = sanitizedResult.removed > 0 || sanitizedResult.collisions > 0;
@@ -1717,10 +1435,7 @@ async function executeAndCommit(
     );
   }
 
-  // #559a: an executed write that returns the unknown-outcome envelope (today
-  // only the MCP broker's ambiguous attempt) is recorded as `unknown`, not
-  // `succeeded` — it may have been delivered without confirmation, which is
-  // exactly the case the ambiguity barrier must hold against.
+  // Possibly delivered without confirmation, so the repeat barrier must see `unknown`.
   const outcome = isUnknownEffectEnvelope(persistedResult) ? "unknown" : "succeeded";
   await commitAndPoke(row, ctx, {
     status: "executed",
@@ -1746,8 +1461,7 @@ async function executeFastPath(
 ): Promise<DispatchResult> {
   try {
     const result = await executeToolWithSpan(tool, input, ctx);
-    // ADR-0070 §1.1: sanitize at the boundary even on the fast path — this
-    // result flows into the transcript/state just like the staged path.
+    // ADR-0070 §1.1: the fast path result also reaches the transcript.
     const sanitized = sanitizeToolResult(result);
     const jsonResult = toJsonValue(sanitized.value);
     const didSanitize = sanitized.removed > 0 || sanitized.collisions > 0;
@@ -1768,8 +1482,7 @@ async function executeFastPath(
       sanitized: didSanitize,
     };
   } catch (err) {
-    // Throw-poison class (ADR-0070 §1.3). The public-error registry also keeps
-    // arbitrary exception text out of the model and transport boundaries.
+    // ADR-0070 §1.3: raw exception text never reaches the model.
     const error = toPublicAppError(err);
     logger.error(
       { err, event: "tool_execution_failed", toolName: tool.name, runId: ctx.runId },
@@ -1790,12 +1503,7 @@ interface SynthesizeRejectionArgs {
   reason: string;
 }
 
-/**
- * #559a: the ambiguity-barrier envelope. An identical logical effect is still
- * `unknown` — possibly delivered, never confirmed — so this call must not be
- * attempted. Minted through the shared schema so the barrier's shape is exactly
- * the one `isUnknownEffectEnvelope` recognizes and the MCP broker produces.
- */
+/** Refusal for a call whose identical effect is still `unknown`. Same shape the MCP broker returns. */
 function synthesizeBlockedByUnknownEffect(): UnknownEffectEnvelope {
   return unknownEffectEnvelopeSchema.parse({
     status: "unknown",
@@ -1828,11 +1536,8 @@ function synthesizeRejection(args: SynthesizeRejectionArgs): RejectedToolResult 
 }
 
 /**
- * The dispatch result for a call whose row the user settled without an
- * execution: a `rejected` or `expired` row met on resume, or a prior such row
- * matched by retry suppression. Records the trace node and shapes the result
- * per the arm (ADR-0099): a write reads back as a rejection, a question as
- * `unanswered`. The one place the two terminal shapes are spelled.
+ * Result for a rejected or expired row. A write reads as a rejection, a
+ * question as `unanswered` (ADR-0099).
  */
 function settleWithoutExecution(
   arm: GatedArmPolicy,
@@ -1882,14 +1587,8 @@ function settleWithoutExecution(
 }
 
 /**
- * The tool result a `staging: "question"` call yields when the user dismissed
- * the card or let it expire (ADR-0099). Carries the questions back so the model
- * can name the assumption it proceeds on, and tells it in plain words not to
- * park the turn on the same set again — the retry-suppression check above
- * enforces that for byte-identical input; this is the instruction that keeps a
- * reworded repeat from happening either. `input` is a stored or validated
- * question-tool input; the question contract parse is the same one the routing
- * switch and the registry's boot proof use.
+ * Result for a dismissed or expired question card (ADR-0099). Retry suppression
+ * blocks an identical repeat; the message stops a reworded one.
  */
 function synthesizeUnansweredQuestions(args: {
   toolName: ToolName;
@@ -1918,9 +1617,7 @@ function synthesizeUnansweredQuestions(args: {
 }
 
 function extractStoredError(stored: unknown): PublicAppError {
-  // Legacy rows may contain raw exception text or a deleted code, and a
-  // parametrized row may carry a poisoned param. The catalog re-validates and
-  // re-renders; nothing stored is replayed to the model as text.
+  // Old rows may hold raw exception text, so re-render from the catalog.
   return publicAppErrorFromStored(stored);
 }
 
@@ -1962,9 +1659,7 @@ function validateScratchToolAccess(args: {
   }
 
   if (args.toolName === "system.promote") {
-    // Who may call it is `availability.callers: ["boss"]` on the registration,
-    // already enforced at the floor. What remains here is the input-shaped part:
-    // which scratch keys a promote may name.
+    // The floor already limits callers to the boss. This checks the keys.
     const from = parseScratchAccessKey(getStringPath(args.input, "fromKey") ?? null);
 
     if (from.error !== null) return from.error;

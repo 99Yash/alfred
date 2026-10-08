@@ -14,16 +14,10 @@ import { syncEntity } from "./sync-entity";
 
 const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
-/** Brief preview cap on the synced card row — full text stays server-side. */
 const BRIEF_PREVIEW_CHARS = 280;
 
-// The approvals surface only syncs rows that still require a user
-// decision. Autonomy rows may briefly be `pending` while the dispatcher
-// is executing the tool; those are audit rows, not approval cards.
-//
-// One authored membership, shared by both stages. The inner join to
-// `agentRuns` is part of membership, not of display: a staging with no run is
-// not synced, so the version query must not count it either.
+// Only rows that need a decision. Autonomy rows can be `pending` briefly but are not cards.
+// Both stages also inner-join `agentRuns`: a staging with no run is not synced.
 const awaitingApproval = (userId: string) =>
   and(
     eq(actionStagings.userId, userId),
@@ -55,9 +49,7 @@ async function loadRecentRejectionsByTool(
 ): Promise<Map<string, RecentRejection>> {
   if (pendingRows.length === 0) return new Map();
 
-  // A dismissed question is not a rejection the next question card should
-  // warn about (ADR-0099); every question shares one tool name, so the note
-  // would follow every card.
+  // Skip questions: they share one tool name, so a dismissal would warn on every card (ADR-0099).
   const toolNames = Array.from(
     new Set(pendingRows.map((r) => r.staging.toolName).filter((name) => !isQuestionApproval(name))),
   );
@@ -98,11 +90,7 @@ async function loadRecentRejectionsByTool(
   return byTool;
 }
 
-/**
- * Project the run trigger down to the display-only fields the card needs.
- * Never forwards `eventId`/`payload`/document ids (ADR-0034 amendment). The
- * shape is the synced entity's own `trigger`, so the two cannot drift.
- */
+/** Display fields only. Never forward `eventId`, `payload` or document ids (ADR-0034 amendment). */
 type NarrowedTrigger = SyncedActionStaging["trigger"];
 
 function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
@@ -120,9 +108,7 @@ function narrowTrigger(trigger: AgentRunTrigger | null): NarrowedTrigger {
 }
 
 export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
-  // The version stage reads the staging row's own columns only. The run,
-  // workflow and recent-rejection joins are display values, so they belong to
-  // the load stage and run for changed rows only.
+  // The run join is membership. Workflow and rejection joins are display, so only the load stage reads them.
   versionQuery: (tx, userId) =>
     tx
       .select({ id: actionStagings.id, rowVersion: actionStagings.rowVersion })

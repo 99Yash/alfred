@@ -1,17 +1,10 @@
 /**
- * Change detection for `sync-prices`. Pure and IO-free so it is testable
- * without running the sync itself.
- *
- * Both comparisons take one side that Postgres round-tripped and one side the
- * script just built. That asymmetry is the whole difficulty: `jsonb` does not
- * preserve object key order (it sorts keys by length, then bytewise), so the
- * stored form of `{cacheWrite1hPerMtok, tiers}` reads back as
- * `{tiers, cacheWrite1hPerMtok}`. Compare those with `JSON.stringify` and every
- * catalog row looks changed on every run.
+ * Change detection for `sync-prices`.
+ * `jsonb` reorders object keys, so a stored row never `JSON.stringify`-equals a fresh one.
  */
 import { canonicalJson, isRecord } from "@alfred/contracts";
 
-/** The pricing dimensions held in flat columns rather than in `metadata`. */
+/** The prices held in columns, not in `metadata`. */
 export interface ComparablePrice {
   inputPerMtok: number;
   outputPerMtok: number;
@@ -33,14 +26,8 @@ export function pricesEqual(a: ComparablePrice, b: ComparablePrice): boolean {
 }
 
 /**
- * Compare pricing dimensions and the audited capability subset stored in
- * metadata. Folded into change detection so tier/TTL or capability changes
- * insert a fresh snapshot even when the flat columns are unchanged.
- *
- * `canonicalJson` sorts keys recursively, which makes the comparison immune to
- * the `jsonb` key reordering described above. Do not swap it for
- * `JSON.stringify`: that reintroduces a diff on every catalog row, and the
- * script then appends a full snapshot on every run and every predeploy.
+ * Compare the audited `metadata` fields, so a tier or capability change adds a row.
+ * Keep `canonicalJson`. `JSON.stringify` would see a change on every row, every run.
  */
 export function auditedMetadataEqual(
   latestMetadata: unknown,

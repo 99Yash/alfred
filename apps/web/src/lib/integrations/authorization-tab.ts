@@ -1,23 +1,7 @@
 /**
- * Authorization opens in a NEW tab; the original tab refreshes on focus.
- *
- * Most call sites need one name: `openAuthorizationTab(url)`. Two cases need
- * more, and both are owned here:
- *
- * - `mcp-add-server-form` POSTs before it knows the authorize URL. A tab
- *   opened after `await` loses the user gesture and trips the popup blocker,
- *   so it calls `reserveAuthorizationTab()` in the click handler and
- *   `navigateAuthorizationTab(tab, url)` once the POST answers.
- * - The return tab (`root-layout` + `authorization-return-page`) reads
- *   `isAuthorizationReturnTab()` / `continueAfterAuthorization()`.
- *
- * Refresh on return has two layers: every `useIntegrationStatus` reader
- * refetches on window focus, and `useAuthorizationRefresh` (in
- * `routes/-integrations`) force-invalidates integration + MCP reads even
- * inside `staleTime` for the integrations page. All auth entry points —
- * integrations detail + MCP cards + add-server form, the three global
- * banners, onboarding, and both workflow recovery buttons — route through
- * this module, so no same-tab `window.location.href` connect remains.
+ * Authorization opens in a new tab; the original tab refreshes on focus.
+ * A tab opened after `await` trips the popup blocker, so async callers reserve
+ * it in the click handler and navigate it later.
  */
 const AUTHORIZATION_TAB_KEY = "alfred:integration-authorization-tab";
 
@@ -30,8 +14,7 @@ export function reserveAuthorizationTab(): Window | null {
   if (!tab) return null;
 
   try {
-    // The initial about:blank page shares this origin. Its session storage
-    // stays with this tab through the provider redirect and the callback.
+    // about:blank shares this origin; its session storage survives the provider redirect.
     tab.sessionStorage.setItem(AUTHORIZATION_TAB_KEY, String(Date.now()));
     tab.document.title = "Connecting to Alfred";
     tab.document.body.textContent = "Opening authorization…";

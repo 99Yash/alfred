@@ -1,18 +1,14 @@
-// Shared string helpers. Side-effect-free (formatRelative reads the clock) and
-// presentation-only — anything that needs locale/timezone awareness belongs
-// with its domain hook, not here.
+// Zone-aware formatting belongs with its domain hook, not here.
 
-/** "foo" → "Foo". Empty strings pass through untouched. */
 export function capitalize(value: string): string {
   return value.length > 0 ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }
 
-/** "Foo" → "foo". Empty strings pass through untouched. */
 export function lowerFirst(value: string): string {
   return value.length > 0 ? value.charAt(0).toLowerCase() + value.slice(1) : value;
 }
 
-/** Local display date and time. Invalid dates retain the input, as formatRelative does. */
+/** An invalid date returns the input. */
 export function formatDateTime(iso: string): string {
   const date = new Date(iso);
 
@@ -26,10 +22,7 @@ export function formatDateTime(iso: string): string {
   });
 }
 
-/**
- * ISO timestamp → coarse "5m ago" / "3h ago" / "2d ago". Returns the raw input
- * when it isn't a parseable date.
- */
+/** "5m ago", "3h ago", "2d ago". An invalid date returns the input. */
 export function formatRelative(iso: string): string {
   const d = new Date(iso);
 

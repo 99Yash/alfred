@@ -2,16 +2,7 @@ import { Moon } from "lucide-react";
 import { FadeInOnScroll } from "~/components/landing/fade-in-on-scroll";
 import { cn } from "~/lib/utils";
 
-/**
- * Positioning statement — a quiet, large-type manifesto in the Apple register.
- * The page's emotional crescendo: the *why* after the *what* and the *how*.
- *
- * This is the one place on the page allowed to break the section grammar.
- * Every other band is `py-16 sm:py-20` with a header and a grid; this one is
- * a single sentence in large type with air around it and nothing to click.
- * That is what makes it land — a page of evenly-packed sections has no
- * crescendo, and a page where every band shouts has no quiet.
- */
+/** The positioning statement: one large sentence with air around it, the page's one quiet band. */
 export function LandingStatement({ className }: { className?: string }) {
   return (
     <section className={cn("relative w-full py-20 sm:py-28", className)}>
@@ -23,8 +14,7 @@ export function LandingStatement({ className }: { className?: string }) {
         </FadeInOnScroll>
 
         <FadeInOnScroll delay={80}>
-          {/* Largest type on the page after the hero, so the tightest tracking
-           * on the page after the hero. */}
+          {/* Second-largest type, so the second-tightest tracking. */}
           <h2
             className={cn(
               "mt-6 font-semibold text-balance text-white",

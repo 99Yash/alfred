@@ -1,13 +1,6 @@
 /**
- * Shared integration primitives — the cross-provider building blocks that no
- * single provider module owns: the bearer-credential store and the one
- * authenticated REST transport the general read-only passthrough tier
- * (ADR-0074 rung-a) shares across every REST provider.
- *
- * Transient retry is deliberately absent from this surface: it is an internal
- * composition detail of `defineProviderClient`, whose configured client is the
- * public door. Only `RetryPolicy` crosses, because a bind site states the
- * envelope. A sibling inside this package still imports `./retry` directly.
+ * Cross-provider building blocks. Retry stays internal: only `RetryPolicy` and its
+ * base delay cross, because a bind site states its own envelope.
  */
 
 export * from "./credentials";

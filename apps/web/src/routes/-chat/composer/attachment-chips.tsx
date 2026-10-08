@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { PendingAttachment } from "./use-composer-attachments";
 
-/** Inline preview row for staged attachments above the editor. */
+/** Staged attachment previews above the editor. */
 export function AttachmentChips({
   items,
   disabled,
@@ -13,10 +13,7 @@ export function AttachmentChips({
   disabled?: boolean | undefined;
   onRemove: (key: string) => void;
 }) {
-  // auto-animate (already the app's motion primitive — tool trail, todo feed)
-  // owns the tile enter/exit/reflow; it honors prefers-reduced-motion on its
-  // own, so newly added tiles pop in and removed ones fade out while the row
-  // reflows, with no second animation runtime.
+  // auto-animate owns enter, exit, and reflow, and honors reduced motion.
   const [listRef] = useAutoAnimate<HTMLDivElement>();
 
   return (

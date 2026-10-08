@@ -9,21 +9,12 @@ interface Step {
   icon: LucideIcon;
   title: string;
   body: string;
-  /** Small illustration rendered above the copy. */
   figure: FunctionComponent;
 }
 
 /**
- * "Set up in three steps" — visitors.now's `Get started in minutes` row,
- * which answers the question a hero never can: *what actually happens after
- * I click the button?* A visitor who cannot picture the next three minutes
- * does not click.
- *
- * The three steps are the three real onboarding steps, not an invented
- * narrative — see `components/onboarding/onboarding-flow.tsx`, where `STEPS`
- * is literally Unlock → Connect → Finish, and the finish step promises the
- * first briefing "tomorrow" with approval gates already on. Copy here has to
- * keep matching that flow, because the visitor walks straight into it.
+ * The three real onboarding steps (`STEPS` in onboarding-flow.tsx: unlock, connect, finish).
+ * Keep the copy in step with that flow; the visitor walks straight into it.
  */
 export function HowItWorks() {
   return (
@@ -32,9 +23,7 @@ export function HowItWorks() {
       eyebrow="How it works"
       title="Set up once, in three steps."
       lead="Link your account, choose what Alfred may touch, and go to bed. The first briefing lands in the morning."
-      // One tonal change in the middle of the scroll, so the page reads as
-      // three regions (the pitch, the mechanics, the caveat) rather than one
-      // long fall through black.
+      // The one tonal change mid-scroll.
       surface="raised"
     >
       <ol className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-5">
@@ -83,8 +72,7 @@ function StepCard({ step, index }: { step: Step; index: number }) {
         "hover:-translate-y-0.5 hover:border-white/[0.12] motion-reduce:hover:translate-y-0",
       )}
     >
-      {/* Figure sits above the copy: the reader sees the shape of the step
-       * before reading what it is. */}
+      {/* Figure first: the reader sees the step before reading it. */}
       <div className="relative grid h-[124px] place-items-center overflow-hidden border-b border-white/[0.05] bg-black/20 px-5">
         <Figure />
       </div>
@@ -107,13 +95,9 @@ function StepCard({ step, index }: { step: Step; index: number }) {
   );
 }
 
-/* ----------------------------------------------------------------------
- * Step figures — one small true illustration each, built from the same
- * primitives the rest of the page uses. Static: three looping animations
- * competing side by side would be noise, not life.
- * ------------------------------------------------------------------- */
+/* Step figures. Static on purpose: three loops side by side are noise. */
 
-/** Step 1 — the providers one Google consent actually covers. */
+/** Step 1: the providers one Google consent covers. */
 function ConnectFigure() {
   return (
     <div className="flex items-center gap-2.5">
@@ -129,7 +113,7 @@ function ConnectFigure() {
   );
 }
 
-/** Step 2 — the approval gate, shown as the prompt the user actually sees. */
+/** Step 2: the approval prompt the user sees. */
 function GuardrailFigure() {
   return (
     <div className="w-full max-w-[220px] rounded-xl border border-white/[0.08] bg-neutral-950/80 p-3">
@@ -146,7 +130,7 @@ function GuardrailFigure() {
   );
 }
 
-/** Step 3 — the briefing landing at its real default hour. */
+/** Step 3: the briefing at its default hour. */
 function BriefedFigure() {
   return (
     <div className="flex w-full max-w-[220px] items-center gap-3 rounded-xl border border-white/[0.08] bg-neutral-950/80 px-3 py-2.5">

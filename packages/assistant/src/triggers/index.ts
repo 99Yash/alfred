@@ -48,32 +48,28 @@ export type GmailMessageEventReason = NonNullable<
 >;
 
 /**
- * The fact triage's `classify` step publishes once it owns a thread's canonical
- * row (`email-triage.classified`, ADR-0098). It is a bounded pointer plus the
- * deterministic facts a downstream gate needs to decide WITHOUT re-reading the
- * row: the triage snapshot, who sent it, which mailbox received it, and the
- * thread's reply state. Dates travel as ISO strings because the payload is a
- * JSON object. No body text: a consumer that needs content loads the document.
+ * Published by triage `classify` once it owns the thread row (ADR-0098).
+ * Carries the facts a downstream gate needs without re-reading the row. No body text.
  */
 export const emailTriageClassifiedPayloadSchema = z
   .object({
     triage: replyDraftTriageSnapshotSchema,
-    /** The classify step that decided, so a consumer can trace under the same run. */
+    /** So a consumer can trace under the same run. */
     triageStep: z.object({
       runId: z.string().min(1),
       stepId: z.string().min(1),
       attempt: z.number().int().nonnegative(),
     }),
-    /** Why triage ran; `reply` is the outbound-reply re-eval (#282). */
+    /** `reply` is the outbound-reply re-eval (#282). */
     triageReason: z.enum(GMAIL_MESSAGE_EVENT_REASONS).nullable(),
     sender: z.object({
-      /** Canonical `local@domain`, or null when `From:` was unparseable. */
+      /** Canonical `local@domain`, or null when `From:` did not parse. */
       address: z.string().nullable(),
       effectiveAuthor: z.enum(EFFECTIVE_AUTHOR),
     }),
     mailbox: z.object({
       accountId: z.string().min(1),
-      /** Authoritative mailbox address, or null when unknown. */
+      /** Null when unknown. */
       address: z.string().nullable(),
     }),
     thread: z.object({
@@ -86,7 +82,7 @@ export const emailTriageClassifiedPayloadSchema = z
 
 export type EmailTriageClassifiedPayload = z.infer<typeof emailTriageClassifiedPayloadSchema>;
 
-/** The three Gmail insert job kinds that can raise `gmail.documents_ingested`. */
+/** Gmail insert jobs that can raise `gmail.documents_ingested`. */
 export const GMAIL_INSERT_JOB_KINDS = [
   "gmail.ingest_recent",
   "gmail.poll_recent",
@@ -97,12 +93,8 @@ export const GMAIL_INSERT_JOB_KINDS = [
 const ingestedIdListSchema = z.array(z.string().min(1).max(500)).max(10_000);
 
 /**
- * The batch fact `queue.ts` publishes after a Gmail insert job: the raw document
- * sets, with no pre-computed side-effect plan. Each consumer (corpus embed,
- * user-model capture, inbox rail, triage post-insert) owns its own policy over
- * these fields. `unembeddedDocumentIds` is the docs still needing an embed — the
- * realtime inserts on `poll_recent`, and `[]` on the bulk/catch-up paths, which
- * embed inline in the ingestor — so the corpus consumer never double-embeds.
+ * Published by `queue.ts` after a Gmail insert job. Each consumer owns its own policy.
+ * `unembeddedDocumentIds` is empty on paths that embed inline, so nothing embeds twice.
  */
 export const gmailDocumentsIngestedPayloadSchema = z
   .object({
@@ -120,11 +112,7 @@ export const gmailDocumentsIngestedPayloadSchema = z
 
 export type GmailDocumentsIngestedPayload = z.infer<typeof gmailDocumentsIngestedPayloadSchema>;
 
-/**
- * The payload every inbound webhook source publishes (ADR-0097): a pointer to
- * the stored `event_receipts` row and its dedup key, never the body. A consumer
- * that needs the body reads the receipt by id.
- */
+/** Every inbound webhook publishes a pointer to its `event_receipts` row, never the body (ADR-0097). */
 export const inboundDeliveryPayloadSchema = z
   .object({
     receiptId: z.string().min(1).max(200),
@@ -135,15 +123,8 @@ export const inboundDeliveryPayloadSchema = z
 export type InboundDeliveryPayload = z.infer<typeof inboundDeliveryPayloadSchema>;
 
 /**
- * The strict payload rule for one `source`/`type` pair. Every inbound webhook
- * source shares the receipt-pointer rule above, decided by the contracts
- * record's `producer` field. Gmail owns two distinct facts — the per-received-doc
- * `message_received` and the batch `documents_ingested` — so its schema is
- * chosen by `type`. The other in-process sources are enumerated, not defaulted:
- * each validates its payload as an opaque JSON object by its own explicit case,
- * and the closing `never` assertion makes a future in-process `EventSource` fail
- * to compile until it declares a payload rule rather than silently falling
- * through to the permissive default.
+ * Payload rule per `source`/`type`. Gmail picks by `type`. Other in-process sources are
+ * listed one by one; the `never` check makes a new source fail to compile until it has a rule.
  */
 function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unknown> {
   if (isInboundEventSource(source)) return inboundDeliveryPayloadSchema;
@@ -167,14 +148,9 @@ function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unkno
 }
 
 /**
- * The legal source/type taxonomy stays owned by `@alfred/contracts` because it
- * also shapes persisted run identity and browser workflow authoring. This
- * module adds only the source-specific payload rule it owns.
- *
- * A raw event (#990) is `type: "raw"` plus `rawKind`, published only for an
- * inbound source by the `ingress.deliver` job; its payload is the same receipt
- * pointer a typed inbound event carries. Every consumer that narrows on
- * `source`/`type` equality is unaffected: `raw` equals no declared type.
+ * The source/type taxonomy lives in `@alfred/contracts`; this adds only the payload rule.
+ * A raw event (#990) is `type: "raw"` plus `rawKind`, from `ingress.deliver` only.
+ * `raw` equals no declared type, so `source`/`type` matches are unaffected.
  */
 export const domainEventSchema = z
   .object({
@@ -184,14 +160,13 @@ export const domainEventSchema = z
       (value) => isEventType(value) || (typeof value === "string" && isRawEventType(value)),
       "Unknown event type",
     ),
-    /** The provider's own kind of a raw event; present exactly when `type` is `raw`. */
+    /** Present exactly when `type` is `raw`. */
     rawKind: rawEventKindSchema.optional(),
     payload: jsonObjectSchema.optional(),
   })
   .strict()
   .superRefine((event, context) => {
-    // The raw pairing rule (`raw` needs an inbound source and a rawKind; every
-    // other type leaves rawKind unset) is the shared contracts rule (#990).
+    // Shared raw pairing rule (#990).
     const tierIssue = rawEventTriggerIssue(event);
 
     if (tierIssue) {
@@ -230,68 +205,38 @@ export interface PublishedEvent {
 }
 
 /**
- * How the seam treats a consumer's own `accept` failure.
- *
- * - `best-effort`: the reaction is a side effect that must never fail the
- *   publish — its non-boot rejection is logged and swallowed at the seam. The
- *   producer (e.g. a completed ingestion write) cannot be rolled back by a
- *   reaction that failed.
- * - `propagate`: the consumer's rejection is a first-class failure and rejects
- *   the publish exactly as an unhandled consumer error always has.
- *
- * A `TriggerConsumerBootError` is exempt from the `best-effort` swallow — a
- * broken boot path still fails the publish so it surfaces on retry.
+ * How the seam treats a consumer's `accept` failure.
+ * `best-effort`: log and swallow; a failed reaction cannot undo the producer's write.
+ * `propagate`: reject the publish.
+ * A `TriggerConsumerBootError` always propagates, so a broken boot shows up on retry.
  */
 export type TriggerConsumerMode = "best-effort" | "propagate";
 
 export interface TriggerConsumer {
   name: string;
-  /** Required so a new consumer cannot compile without choosing how the seam
-   *  treats its failures — the swallow rule lives here as data, not as prose. */
+  /** Required, so every consumer must choose. */
   mode: TriggerConsumerMode;
   accept(event: DomainEvent): Promise<unknown>;
 }
 
-/**
- * Register one durable trigger consumer during runtime composition.
- *
- * The returned function removes that exact registration during teardown or a
- * test. Product modules publish through this module and never import the
- * consumers that react to the event.
- */
+/** Register a trigger consumer. Returns the function that removes it. */
 export function registerTriggerConsumer(consumer: TriggerConsumer): () => void {
   return registerConsumer(consumer);
 }
 
 /**
- * Publish one application domain event to every registered trigger consumer.
- *
- * Delivery is in-process. `acceptedConsumers` counts consumers whose `accept`
- * method returned normally; consumer-specific result details stay private to
- * that consumer. A thrown consumer failure rejects publication after every
- * registered consumer has been called.
+ * Publish to every registered consumer, in process. A thrown failure rejects
+ * the publish after every consumer has run.
  */
 export async function publishDomainEvent(event: DomainEvent): Promise<PublishedEvent> {
   return publishToConsumers(domainEventSchema.parse(event));
 }
 
 /**
- * Arguments for {@link publishEvent}. The outbox is the sole realtime fan-out
- * substrate (ADR-0005: "domain rows + an `events_outbox` row in one
- * transaction"), so the target the row is written on is not optional — the
- * author states one of two intents:
- *
- * - `tx`: a Drizzle transaction handle. The outbox row commits or rolls back
- *   with the domain write it describes. Pass this for every domain-write frame,
- *   so a rolled-back tx cannot leak a phantom event. The type is `DbTransaction`,
- *   not the pool-level `db()` root — passing the autocommitting root here no
- *   longer typechecks.
- * - `untransacted: true`: a deliberate non-domain publish (streaming progress, a
- *   post-commit release, a best-effort SSE poke, the dev demo). The row is
- *   written on the pool root and stands alone.
- *
- * Neither field is a default: omitting both is a no-overload type error, so the
- * old tier-5 "always pass `tx` for a domain write" rule is now the type.
+ * The outbox is the only realtime fan-out (ADR-0005), so the caller must pick one:
+ * `tx` commits the outbox row with the domain write, so a rollback cannot leak an event.
+ * `untransacted: true` is for non-domain publishes such as progress or an SSE poke.
+ * Omitting both is a type error.
  */
 export type PublishEventArgs<K extends EventKind> = {
   userId: string;
@@ -300,11 +245,8 @@ export type PublishEventArgs<K extends EventKind> = {
 } & ({ tx: DbTransaction; untransacted?: never } | { untransacted: true; tx?: never });
 
 /**
- * Insert one event into the outbox. Validates the payload against the kind's
- * zod schema BEFORE writing — a bad row is replayed to the client for as long
- * as it is retained (`OUTBOX_RETENTION_MS`, #533), and an unpublishable one is
- * never reaped at all. Throws on invalid payloads; callers should treat this as
- * a programming error, not a runtime fallback.
+ * Insert one outbox event. Validates first: a bad row replays to clients until
+ * `OUTBOX_RETENTION_MS` reaps it (#533). Throws on an invalid payload; that is a bug.
  */
 export async function publishEvent<K extends EventKind>(args: PublishEventArgs<K>): Promise<void> {
   const schema = eventPayloadSchemas[args.kind];
@@ -331,14 +273,8 @@ export interface ReplicachePokeAdapter {
 let replicachePokeAdapter: ReplicachePokeAdapter | null = null;
 
 /**
- * Register the concrete Replicache poke adapter.
- *
- * A process that wants pokes actually delivered (the server, or a script/test asserting poke
- * behavior) registers the concrete adapter — typically at startup via the composition root —
- * which bridges to the Redis/EventEmitter poke bus in api. A process that does not register
- * simply drops pokes (see `emitReplicachePokes`); emitting is always safe without it.
- *
- * Returns an unregister function for test cleanup.
+ * Register the Replicache poke adapter. Without one, pokes are dropped.
+ * Returns an unregister function.
  */
 export function registerReplicachePokeAdapter(adapter: ReplicachePokeAdapter): () => void {
   const prev = replicachePokeAdapter;
@@ -354,18 +290,8 @@ export function unregisterReplicachePokeAdapter(): void {
 }
 
 /**
- * Emit pokes to notify connected clients of data changes.
- *
- * CONTRACT: Best-effort, fire-and-forget. A poke is a client cache-invalidation hint, not a
- * durable event — losing one only means a client refetches slightly later. When no adapter is
- * registered (a process that never booted the composition root: DB-backed tests, one-off
- * backfills/probes, a terminal-closure tick that fires after a test unregistered its adapter)
- * this is a silent no-op, exactly as the pre-inversion concrete emitter behaved for a process
- * with no Redis bridge. It must NEVER throw: a UI-hint bus being absent must not fail the
- * domain flow that emitted the poke. The composition root registers the real adapter at
- * startup (`apps/server/src/runtime.ts` via the RUNTIME_ADAPTERS manifest); the bootPort-has-
- * installer check guards that wiring. See `packages/assistant/src/realtime/replicache-events.ts` for
- * the concrete Redis/EventEmitter bus.
+ * Poke connected clients. Best-effort and never throws: a poke is only a cache hint.
+ * A no-op when no adapter is registered (tests, scripts). `RUNTIME_ADAPTERS` registers it at boot.
  */
 export function emitReplicachePokes(userIds: string[], assetId?: string): void {
   replicachePokeAdapter?.emitReplicachePokes(userIds, assetId);
@@ -382,13 +308,8 @@ export interface ChatAttachmentEnrichmentScheduler {
 let chatAttachmentEnrichmentScheduler: ChatAttachmentEnrichmentScheduler | null = null;
 
 /**
- * Register the concrete chat-attachment-enrichment scheduler.
- *
- * The concrete scheduler bridges to the ingestion queue (`enqueueChatAttachmentEnrichment` in
- * `packages/assistant/src/connections/ingestion/queue.ts`), which conversation compaction cannot import
- * directly without forming a module cycle. The runtime
- * registers it at startup via the RUNTIME_ADAPTERS manifest. Returns an unregister function for
- * test cleanup.
+ * Register the enrichment scheduler. Compaction cannot import the ingestion queue
+ * without a cycle, so `RUNTIME_ADAPTERS` registers it at boot. Returns an unregister function.
  */
 export function registerChatAttachmentEnrichmentScheduler(
   scheduler: ChatAttachmentEnrichmentScheduler,
@@ -406,14 +327,8 @@ export function unregisterChatAttachmentEnrichmentScheduler(): void {
 }
 
 /**
- * Enqueue background enrichment for a chat attachment.
- *
- * CONTRACT: best-effort. When no scheduler is registered (a process that never booted the
- * composition root: DB-backed tests, one-off backfills/probes) this is a silent no-op that
- * reports `"existing"` — nothing is scheduled and the domain flow proceeds unharmed. It must
- * NEVER throw: the ingestion queue being absent must not fail conversation compaction. The
- * composition root registers the real scheduler at startup (`apps/server/src/runtime.ts` via
- * the RUNTIME_ADAPTERS manifest).
+ * Enqueue enrichment for a chat attachment. Best-effort and never throws.
+ * With no scheduler (tests, scripts) it reports `"existing"` and does nothing.
  */
 export function enqueueChatAttachmentEnrichment(args: {
   userId: string;

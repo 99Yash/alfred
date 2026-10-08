@@ -12,13 +12,8 @@ import type {
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
 
-// Todos (ADR-0050). User-authored creates + user-initiated lifecycle
-// transitions. Alfred's proposals enter server-side via the
-// `system.suggest_todo` tool, not here. Every transition is guarded on the
-// source status so Replicache's at-least-once redelivery is a harmless no-op
-// the second time.
+// ADR-0050. Each transition checks the source status, so a redelivery is a no-op.
 
-/** Add a user-authored todo. Idempotent on id (client mints it before push). */
 export async function todoCreate(
   tx: DbTransaction,
   args: TodoCreateArgs,
@@ -38,7 +33,6 @@ export async function todoCreate(
     .onConflictDoNothing();
 }
 
-/** Check the box: `open → done`, stamp `completed_at`. Direct UI write: `user`. */
 export async function todoComplete(
   tx: DbTransaction,
   args: TodoCompleteArgs,
@@ -56,11 +50,7 @@ export async function todoComplete(
     .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "open")));
 }
 
-/**
- * Mark a suggestion done directly: `suggested → done`, stamp `completed_at`.
- * Provenance (`created_by`, `sources`, `assist`) is left untouched, so the
- * completed row keeps the suggestion's context. Guarded on `suggested`.
- */
+/** `suggested → done`. Keeps the suggestion's provenance. */
 export async function todoCompleteSuggestion(
   tx: DbTransaction,
   args: TodoCompleteSuggestionArgs,
@@ -78,7 +68,6 @@ export async function todoCompleteSuggestion(
     .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "suggested")));
 }
 
-/** Uncheck the box: `done → open`, clear `completed_at`. Direct UI write: `user`. */
 export async function todoReopen(
   tx: DbTransaction,
   args: TodoReopenArgs,
@@ -96,7 +85,6 @@ export async function todoReopen(
     .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "done")));
 }
 
-/** Accept a suggestion: `suggested → open`. `created_by` is preserved. Direct UI write: `user`. */
 export async function todoPromote(
   tx: DbTransaction,
   args: TodoPromoteArgs,
@@ -113,10 +101,6 @@ export async function todoPromote(
     .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "suggested")));
 }
 
-/**
- * Decline a suggestion or drop an open todo → terminal `dismissed`. The pull
- * fetcher excludes `dismissed`, so the next pull deletes the client row.
- */
 export async function todoDismiss(
   tx: DbTransaction,
   args: TodoDismissArgs,
@@ -139,12 +123,7 @@ export async function todoDismiss(
     );
 }
 
-/**
- * Personally clear a completed todo → terminal `cleared`. The pull fetcher
- * excludes `cleared` (like `dismissed`), so the next pull deletes the client
- * row. Guarded on `done` so it can't drop a live todo; reopening stays a
- * separate `done → open` transition.
- */
+/** `done → cleared`. Only from `done`, so it cannot drop a live todo. */
 export async function todoClear(
   tx: DbTransaction,
   args: TodoClearArgs,
@@ -161,7 +140,6 @@ export async function todoClear(
     .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "done")));
 }
 
-/** Edit a todo's name and/or description. */
 export async function todoEdit(
   tx: DbTransaction,
   args: TodoEditArgs,

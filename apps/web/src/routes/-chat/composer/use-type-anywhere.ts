@@ -5,9 +5,7 @@ export function useTypeAnywhere(
   editorRef: RefObject<TiptapComposerHandle | null>,
   disabled: boolean,
 ): void {
-  // Type-anywhere autofocus: any printable keystroke on the page lands in
-  // the composer. Skipped when the user is already inside an input / when a
-  // modifier (⌘ / Ctrl / Alt) is held so app shortcuts still fire.
+  // Printable keys anywhere go to the composer. Skipped inside inputs or with ⌘/Ctrl/Alt held.
   useEffect(() => {
     if (disabled) return;
 

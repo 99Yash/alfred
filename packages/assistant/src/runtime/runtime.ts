@@ -80,26 +80,16 @@ import { registerRuntimeAdapters, unregisterRuntimeAdapters } from "./adapters/r
 /** Called once per newly created user, after the host installs the hook. */
 export type RuntimeUserCreatedHandler = (user: { id: string }) => Promise<void>;
 
-/**
- * The capabilities the host process owns and the runtime cannot import.
- *
- * Every member is here because the assistant package must not reach transport,
- * authentication, or the server process (ADR-0089). The host keeps the values and
- * the registration doors; the runtime keeps the order they are used in.
- */
+/** What the host owns and the assistant package must not import: transport, auth, the server (ADR-0089). */
 export interface RuntimeConfig {
-  /** Concurrency for the agent worker. The shared pool ceiling derives from it. */
+  /** Agent worker concurrency. The shared pool ceiling derives from it. */
   readonly workerConcurrency: number;
-  /**
-   * Register built-in workflows and tools, plus the tool-call-round adapter.
-   * Runs before any worker can lease a job that names one of them.
-   */
+  /** Register built-in workflows, tools, and the tool-call-round adapter before any worker starts. */
   registerRecipes(): void;
-  /** Install the per-user seed hook on the host's authentication layer. */
   registerUserCreated(handler: RuntimeUserCreatedHandler): void;
   /** Fail the boot when persisted credentials are not fully sealed (#453). */
   assertCredentialsReady(): Promise<void>;
-  /** Flush metering rows and traces, under the host's own time bound. */
+  /** Flush metering and traces. The host bounds the wait. */
   flushObservability(): Promise<void>;
 }
 
@@ -109,14 +99,7 @@ export interface AssistantRuntime {
   stop(): Promise<void>;
 }
 
-/**
- * Run one teardown step and report whether it finished.
- *
- * It never rethrows: `stop` must attempt every remaining step, so one unrelated
- * failure cannot leave a worker live while the adapters it needs disappear. The
- * boolean is read by the adapter-retention decisions in `stop`. Exported for
- * `test/runtime/runtime-contract.test.ts`; the manifest does not carry it.
- */
+/** Run one teardown step and return whether it finished. Never rethrows, so `stop` tries every step. */
 export async function runShutdownStep(label: string, step: () => Promise<void>): Promise<boolean> {
   try {
     await step();
@@ -130,28 +113,17 @@ export async function runShutdownStep(label: string, step: () => Promise<void>):
 }
 
 /**
- * Delete every repeatable job scheduler persisted on the cron queues, and report
- * how many were removed.
- *
- * Skipping `scheduleRepeatable*` is not enough on its own, because BullMQ stores
- * a scheduler in Redis and it keeps firing across restarts — the ingestion module
- * says so in its own doc comment ("The schedulers survive restarts in Redis").
- * So a process that once ran with schedules enabled leaves live timers behind,
- * and the next process picks the jobs straight back up even though it registered
- * nothing. Measured: a boot with schedules off still ran the briefing tick, both
- * Gmail sweeps, and the memory sweep off nine schedulers a prior run had left.
- *
- * Reads the live scheduler set rather than a hand-maintained list of ids, so a
- * scheduler added later is covered without anyone remembering to register it
- * here — the failure this whole gate exists to prevent is the one nobody
- * remembered.
+ * Delete every persisted repeatable job scheduler and return the count.
+ * BullMQ keeps schedulers in Redis across restarts, so skipping
+ * `scheduleRepeatable*` alone still fires a prior run's crons.
+ * Reads the live set, so a scheduler added later is covered too.
  */
 async function clearPersistedJobSchedulers(): Promise<number> {
   const queues = [getIngestionQueue(), getMemoryQueue(), getBriefingQueue(), getWorkflowsQueue()];
   let removed = 0;
 
   for (const queue of queues) {
-    // Never let cleanup of a dev convenience take down boot.
+    // A dev convenience must never fail boot.
     try {
       for (const scheduler of await queue.getJobSchedulers()) {
         await queue.removeJobScheduler(scheduler.key);
@@ -165,45 +137,28 @@ async function clearPersistedJobSchedulers(): Promise<number> {
   return removed;
 }
 
-/**
- * Build the assistant runtime for one host process.
- *
- * The returned object owns registration order, worker start order, and the reverse
- * teardown order. A host supplies configuration and drives `start`/`stop`; it does
- * not reach the adapters, the queues, or the workers by name.
- */
+/** The runtime owns registration order, worker start order, and reverse teardown order. */
 export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime {
   return {
     async start(): Promise<void> {
       await warmPool();
-      // #453 boot gate, before anything can serve a request or lease a job. A
-      // process that starts against a half-converted credential table would throw
-      // on every token read AND rewrite plaintext behind the operator's back, so
-      // an unfinished backfill must fail the boot instead of degrading quietly.
+      // #453: a half-converted credential table must fail the boot, not degrade.
       // See `docs/runbooks/oauth-credential-vault-rollout.md`.
       await config.assertCredentialsReady();
-      // ADR-0035 guard: every agent model must have a populated
-      // `model_prices.context_window`. A missing value means the compactor
-      // can't size its 60% threshold, so the boss would loop unbounded.
+      // ADR-0035: without `model_prices.context_window` the compactor cannot size
+      // its threshold, and the boss loops unbounded.
       await verifyMeteringModels();
 
-      // Crash-recovery barrier sweep (ADR-0018): resolve MCP invocations that a
-      // prior process left in-flight — abandoned `prepared` rows and idempotent
-      // reads clear; genuinely ambiguous writes stay blocked so an identical repeat
-      // keeps rejecting until a host-minted successor. Runs once the pool is warm
-      // and before any worker can pick up an MCP call.
+      // ADR-0018: settle MCP invocations a prior process left in flight, before
+      // any worker can pick up an MCP call. Ambiguous writes stay blocked.
       await reconcileInflightInvocations();
 
       await initEventBridge();
       await initReplicachePokeBridge();
 
-      // Register built-ins before any worker can pick up a job that references
-      // their workflow or tool names. The host owns this step because the built-in
-      // recipes and the dispatch tool-call-round adapter sit above this package.
+      // Built-ins first: a leased job may name one of them.
       config.registerRecipes();
-      // Runtime composition installs the agent, chat, workflow, knowledge,
-      // and task system-tool ports after the built-ins exist and before a worker can
-      // dispatch its first call. Their disposers run with the other adapters.
+      // System-tool ports, after the built-ins and before any dispatch.
       registerRuntimeAdapters();
 
       config.registerUserCreated(async (user) => {
@@ -214,10 +169,7 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       await seedBuiltinWorkflowsForAllUsers();
       await startPolicyBustSubscriber();
 
-      // Concurrency is env-tunable (#437). It is also the *only* knob: the shared
-      // `pg.Pool` ceiling every one of these workers draws from is derived from the
-      // same value (`@alfred/env/pool`), so raising throughput can't silently
-      // outrun the pool it runs against.
+      // The pool ceiling derives from this same value (#437), so throughput cannot outrun the pool.
       await startAgentWorker({ concurrency: config.workerConcurrency });
       await startSubAgentJoinWakeWorker();
       await startIngestionWorker();
@@ -229,24 +181,13 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       await startApprovalNotificationWorker();
       await startApprovalExpiryWorker();
 
-      // The repeatable schedules are the only jobs a *timer* enqueues, so they
-      // are the only ones that spend money and send mail with nobody watching.
-      // Off outside production unless asked for: `pnpm dev` runs this process
-      // under a `tsx watch` supervisor that listens on no port, so it outlives
-      // its terminal, hides from a port check, and respawns the child on every
-      // file change. An orphan like that once ran for three days.
-      //
-      // The workers above stay running either way. A worker only acts on a job
-      // somebody enqueued, and locally that somebody is the developer, so gating
-      // them would break interactive work while fixing nothing.
+      // Crons spend money and send mail with nobody watching, so they are off
+      // outside production unless enabled. `pnpm dev` runs under `tsx watch`,
+      // which can outlive its terminal: one orphan once ran for three days.
+      // Workers still run: they only act on jobs someone enqueued.
       if (scheduledJobsEnabled()) {
         startMcpConnectionRecovery();
-        // Releases the BODY of an `event_receipts` row past its retention
-        // window. Same gate as the repeatable schedules it starts beside, for
-        // the same reason: a timer that mutates rows with nobody watching.
-        // Unlike the outbox reaper, which `realtime/bridge.ts` owns because the
-        // event bridge starts it, nothing else owns this one, so `stop()` below
-        // stops it too.
+        // Frees old `event_receipts` bodies. Gated like the crons; `stop()` stops it.
         startReceiptPayloadReaper();
         await scheduleRepeatableIngestionJobs();
         await scheduleRepeatableMemoryJobs();
@@ -263,24 +204,14 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
     },
 
     async stop(): Promise<void> {
-      // Preserve the required stop order, but attempt every step. One unrelated
-      // worker failure must not leave ingestion live while its adapters disappear.
-      // The reaper leads the list because no step below waits on it, so its
-      // position is not load-bearing. That is the whole reason. It is NOT a claim
-      // that it reads nothing the workers write — the opposite holds, and the
-      // predicate and row locks are what make it safe: the ingestion worker owns
-      // the `processing_status` and corpus documents this reaper reads, and the
-      // ingestion backfill and the briefing read the `payload` it writes.
-      // `stop()` may return while one `UPDATE` is still running once `drainMs`
-      // elapses, so the reaper's between-batch `signal` check bounds the overrun
-      // to that one statement rather than preventing it. This step is a no-op when
-      // the scheduled-jobs gate kept the reaper from starting.
+      // Keep the order, but attempt every step. The reaper's position is not
+      // load-bearing: no step waits on it. Row locks keep it safe beside the workers.
+      // After `drainMs`, `stop()` may return while one reaper `UPDATE` still runs.
       await runShutdownStep("receipt-payload reaper", stopReceiptPayloadReaper);
       await runShutdownStep("MCP connection recovery", stopMcpConnectionRecovery);
       const agentWorkerStopped = await runShutdownStep("agent worker", stopAgentWorker);
       await runShutdownStep("sub-agent join-wake worker", stopSubAgentJoinWakeWorker);
-      // The chat-memory debounce worker's fire creates + enqueues an agent run, so
-      // it must stop before the agent queue closes — same rationale as join-wake.
+      // This worker enqueues agent runs, so it stops before the agent queue closes.
       await runShutdownStep("chat-memory worker", stopChatMemoryWorker);
       await runShutdownStep("conversation-compaction worker", stopConversationCompactionWorker);
       await runShutdownStep("agent queue", closeAgentQueue);
@@ -301,9 +232,7 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       await runShutdownStep("workflows queue", closeWorkflowsQueue);
       console.log("Worker shutdown attempted");
 
-      // These adapters serve agent and ingestion jobs. Keep each worker's adapters
-      // registered if stopping that worker failed, so an already-leased job cannot
-      // observe missing composition.
+      // A worker that failed to stop keeps its adapters, so a leased job still finds them.
       if (!agentWorkerStopped) {
         console.warn("System-tool adapters retained because the agent worker did not stop");
       }
@@ -315,17 +244,8 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       unregisterRuntimeAdapters({ agentWorkerStopped, ingestionWorkerStopped });
 
       try {
-        // Workers are stopped, so no new metering rows or Langfuse spans will be
-        // produced. Flush both before the DB pool and Redis close below: metering
-        // writes are fire-and-forget into `api_call_log` and need the pool alive,
-        // and Langfuse batches spans on a 15-event / 10s timer — so a short turn's
-        // trace is otherwise dropped when a redeploy SIGTERM recycles the process
-        // inside that window (the missing follow-up-turn trace). Sentry already
-        // flushes on shutdown; this closes the same gap for the LLM observability.
-        //
-        // The host bounds the wait, because the same bound also covers its crash
-        // handler: a stalled network flush must not hold graceful shutdown open
-        // until the platform SIGKILLs.
+        // Flush before the pool and Redis close: metering writes need the pool,
+        // and Langfuse batches spans, so a redeploy would drop a short turn's trace.
         await config.flushObservability();
         console.log("Observability flushed");
       } catch (err) {

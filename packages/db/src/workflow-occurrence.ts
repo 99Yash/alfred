@@ -22,7 +22,7 @@ export type WorkflowOccurrenceIdentity =
       revisionChoice: "original" | "latest";
     };
 
-/** Stable, bounded database identity for one workflow occurrence (#558). */
+/** Stable key for one workflow occurrence. The hash keeps it short. */
 export function workflowOccurrenceKey(identity: WorkflowOccurrenceIdentity): string {
   return `occ_v1:${identity.kind}:${sha256Canonical(identity)}`;
 }

@@ -20,12 +20,7 @@ export interface AssembledChatContext {
   invalidSummary: boolean;
 }
 
-/**
- * Assemble persisted chat context before attachment hydration and the exact
- * foreground request guard. A valid summary replaces only records at or before
- * its compound watermark; unsummarized and invalid-summary threads retain raw
- * history behavior.
- */
+/** A valid summary replaces only records at or before its watermark. Otherwise keep raw history. */
 export function assembleChatContext({
   messages,
   context,
@@ -53,8 +48,7 @@ export function assembleChatContext({
 
   return {
     summaryMessage: applied ? conversationSummaryMessage(applied.summary) : null,
-    // None of these records are represented by the summary yet. Dropping a
-    // middle span here would create a context hole until the next roll.
+    // The summary does not cover these yet; dropping any would leave a hole.
     verbatimMessageIds: eligibleTail.map((message) => message.id),
     summaryApplied: applied !== null,
     invalidSummary: context?.invalidSummary ?? false,

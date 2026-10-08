@@ -8,9 +8,7 @@ const CONTACT = "yashgouravkar@gmail.com";
 export function SupportPage() {
   return (
     <LandingBackground className="min-h-[100dvh] w-full overflow-x-hidden">
-      {/* `<main>` gives this chromeless public page its required primary
-       * landmark (the authed shell supplies one for app routes; chromeless
-       * routes must bring their own). */}
+      {/* Chromeless routes must bring their own primary landmark. */}
       <main className="relative mx-auto w-full max-w-3xl px-5 pt-16 pb-24 sm:px-8 sm:pt-24">
         <a
           href="/"

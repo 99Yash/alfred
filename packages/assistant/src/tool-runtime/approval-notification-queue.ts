@@ -1,17 +1,6 @@
 /**
- * Approval notification queue (m13 Phase 5e / ADR-0034) — scheduling side.
- *
- * When a gated `action_stagings` row is staged, the dispatcher schedules a
- * debounced `staging-notify:<id>` job so the user is emailed if they do not
- * decide in-app first. The decision API removes the queued job when a human
- * acts first (`removeApprovalNotificationJob`), so the common path never fires.
- *
- * This file deliberately holds ONLY the queue + scheduling helpers and imports
- * nothing outside `queue/connection` + `@alfred/contracts`, keeping
- * `tool-runtime` a 0-outgoing-edge sink: the dispatcher (`../dispatch`) and the
- * decision API (`@alfred/http`'s `approvals` route) schedule/remove through it. The
- * worker side that renders + sends the email lives in
- * `agent/approval-notification-worker.ts`, imported only at server boot.
+ * Schedules the debounced approval email (ADR-0034). A decision in the app removes the job.
+ * The worker is `execution/approval-notification-worker.ts`.
  */
 
 import { Queue } from "bullmq";
@@ -29,17 +18,12 @@ export const approvalNotificationJobDataSchema = z.object({
 
 export type ApprovalNotificationJobData = z.infer<typeof approvalNotificationJobDataSchema>;
 
-/**
- * #561: a workflow that just became blocked owes its owner one email. It rides
- * the same queue and worker as approval notifications so no new boot wiring is
- * needed; the `kind` discriminator is what tells the worker which branch runs
- * (legacy approval jobs carry no `kind`).
- */
+/** One email when a workflow becomes blocked. Same queue; approval jobs carry no `kind`. */
 export const workflowBlockedNotificationJobDataSchema = z.object({
   kind: z.literal("workflow_blocked"),
   workflowId: z.string().min(1),
   userId: z.string().min(1),
-  /** `workflowBlockedGeneration(blocked)` at enqueue time; the worker sends only while it still matches. */
+  /** `workflowBlockedGeneration` at enqueue. The worker sends only while it still matches. */
   generation: z.string().min(1),
 });
 
@@ -57,8 +41,7 @@ export type NotificationJobData = z.infer<typeof notificationJobDataSchema>;
 let _queue: Queue<NotificationJobData> | undefined;
 
 export function approvalNotificationJobId(stagingId: string): string {
-  // BullMQ custom job ids cannot contain `:`, so this mirrors the
-  // plan's `staging-notify:<id>` logical id with a dot separator.
+  // BullMQ custom job ids cannot contain `:`.
   return `staging-notify.${stagingId}`;
 }
 
@@ -106,12 +89,7 @@ export async function scheduleApprovalNotificationJob(args: {
   }
 }
 
-/**
- * Job id keyed by workflow AND blocker generation: the same blocker never
- * enqueues twice while its job is still known to BullMQ, but a new generation
- * does. The generation string is hashed only because BullMQ ids must be short
- * and free of `:`; the identity itself is `workflowBlockedGeneration`.
- */
+/** One job per workflow and blocker generation. Hashed because BullMQ ids must be short and free of `:`. */
 export function workflowBlockedNotificationJobId(args: {
   workflowId: string;
   generation: string;

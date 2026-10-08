@@ -37,24 +37,8 @@ export { joinToolInput } from "./join-contract";
 
 export { questionToolInput, QUESTION_TOOL_PROBE_INPUT } from "./question-contract";
 
-// The tool catalog. `internal/registry.ts` owns the one
-// `Map<ToolName, RegisteredTool>` every reader in every package resolves; the
-// map itself and its sorted cache are module-locals that no export can name.
-// The FILE remains reachable through the package's wildcard deep export until
-// campaign item 105 fences `internal/` imports. Two groups below, and the split
-// is deliberate.
-//
-// GROUP A — permanent, 8 names. The registration + tool-contract door.
-// `docs/plans/agent-friendly-module-structure.md:210` gives this module the
-// interface "registerTools, resolveSurface, executeCalls, resolveApproval;
-// registry and queues stay private", so `registerTools` is plan-sanctioned. The
-// other three plan names are not symbols in this repo: `resolveToolSurface` and
-// `executeToolCallRound` further down this file are their live equivalents, and
-// approval resolution sits in `dispatch`. Built-in definition files build
-// entries with `liveTool`, and `builtin-tools.ts` makes every production
-// registration call. `registerTool` (singular) remains the fixture door.
-// `riskTierCountsForIntegration` is the permanent web-facing projection used
-// by `@alfred/http`; it cannot read the private registry implementation.
+// The registry map stays private to `internal/registry.ts`. `builtin-tools.ts`
+// makes every production registration; `registerTool` is the fixture door.
 export {
   liveTool,
   registerTool,
@@ -85,11 +69,7 @@ export {
   type WorkflowToolFacts,
 } from "./workflow-tool-catalog";
 
-// Action-staging approval SCHEDULING surface (ADR-0034). The delayed-job
-// wrappers stay here because they import only queue/connection + contracts,
-// keeping tool-runtime a 0-outgoing-edge sink; the dispatcher and the decision
-// API schedule/remove through this door. The worker side (wake/notify) lives in
-// `agent/` (execution), which drives the run-wake primitive + `delivery.send`.
+// Approval job scheduling (ADR-0034). The workers live in execution.
 export {
   APPROVAL_EXPIRY_QUEUE_NAME,
   approvalExpiryJobId,
@@ -152,13 +132,7 @@ interface ToolCallRunBase {
   stepId: string;
   userId: string;
   workflow: string;
-  /**
-   * The cancellation fence this step started under (#559b). The dispatch gate
-   * re-reads the run's current fence before each effect and refuses the call
-   * when the current value has moved past it. Bounded contract from
-   * `@alfred/contracts` — the tool runtime consumes it without importing any
-   * execution implementation.
-   */
+  /** Dispatch refuses an effect once the run's fence moves past this value. */
   fence: CancellationFence;
   threadId?: string | undefined;
   messageId?: string | undefined;
@@ -176,13 +150,7 @@ type ToolCallActor =
       runContext: ToolRunContext & { caller: "sub_agent" };
     };
 
-/**
- * Caller label for trace metadata: `boss` or `sub:<id>`. The single source for
- * this format — execute spans, reject spans, sub-agent-await spans, and the
- * workflow's `runtime.dispatch.batch` span all derive their caller through here,
- * so a run's spans tag the same caller identically and the format lives in one
- * place if it ever changes.
- */
+/** Trace caller label: `boss` or `sub:<id>`. Every span uses this one format. */
 export function callerLabel(caller: ToolCallActor["caller"] | undefined): string {
   if (caller === undefined || caller === "boss") return "boss";
 
@@ -207,11 +175,7 @@ export interface CompletedToolCall<Call extends ProposedToolCall = ProposedToolC
   execution: "completed" | "failed" | "not_reached";
   sanitized: boolean;
   nonExecution: boolean;
-  /**
-   * Set only when the floor refused this call on connection health (#378 item
-   * 3): the user-meaningful repair the chat surfaces as a connect nudge, live
-   * and on the durable row. Absent on every other refusal.
-   */
+  /** Set only when the floor refused the call on connection health. */
   connectNudge?: ChatConnectNudge | undefined;
 }
 
@@ -227,14 +191,10 @@ export type ToolCallRoundOutcome<Call extends ProposedToolCall = ProposedToolCal
 
 /**
  * Surface:  chat.
- * Owns/hides: owns the executable tool surface — surface restore, surface
- *   resolve, integration-name projection, and preload selection. Hides the tools
- *   IMPLEMENTATION that answers them: the credential and availability gates,
- *   integration projection, and preload selector. That implementation lives in
- *   `tool-runtime/surface-adapter.ts` and reaches `connections` -> `@alfred/db`.
- * Why the seam: it keeps that implementation and its database-bearing import
- *   graph out of this barrel's eager load graph.
- * Wiring: tool-runtime/surface-adapter.ts installs; the tool-runtime forwarders
+ * Owns/hides: restore, resolve, and preload of the tool surface. Hides the
+ *   credential and availability gates.
+ * Why the seam: keeps the database import graph out of this eager barrel.
+ * Wiring: tool-runtime/surface-adapter.ts installs; the forwarders
  *   (resolveToolSurface, restoreToolSurface, selectToolPreload) read.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
@@ -264,12 +224,10 @@ const toolRuntimeAdapterPort = bootPort<ToolRuntimeAdapter>("tool runtime adapte
 
 /**
  * Surface:  chat.
- * Owns/hides: the ToolCallRoundAdapter interface lives in ./internal/adapter;
- *   this seam owns the guarded dispatch of one tool-call round. Hides the
- *   dispatch module.
- * Why the seam: it inverts tool-runtime -> dispatch, so the call-round runs the
- *   guarded dispatcher without an import edge to dispatch.
- * Wiring: dispatch/index.ts installs; executeToolCallRound (this file) reads.
+ * Owns/hides: guarded dispatch of one tool-call round. Hides the dispatch module.
+ *   The interface lives in ./internal/adapter.
+ * Why the seam: inverts tool-runtime -> dispatch.
+ * Wiring: internal/dispatch/pipeline.ts installs; executeToolCallRound reads.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
 const toolCallRoundAdapterPort = bootPort<ToolCallRoundAdapter>("tool call-round adapter");
@@ -286,10 +244,7 @@ export function registerToolCallRoundAdapter(adapter: ToolCallRoundAdapter): () 
 
 type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
 
-// The workflow-authoring seam carries the exact tool inputs the model produces,
-// not the branded `@alfred/contracts` activation type. The tool schemas coerce
-// JSON array fields, so their inferred shape (for example `allowedTools:
-// string[]`) is what the workflow owner receives and re-validates.
+// Raw tool input, not the branded activation type. The workflow owner re-validates it.
 type AuthorWorkflowToolInput = z.infer<typeof authorWorkflowInput>;
 
 type ActivateWorkflowToolInput = z.infer<typeof activateWorkflowInput>;
@@ -299,11 +254,7 @@ export type SpawnSubAgentRequest = SpawnSubAgentInput & {
   parentRunId: string;
   userId: string;
   parentToolCallId: string;
-  /**
-   * The parent's chat turn, when it has one — the child streams its trail
-   * there. Kept structural (not the agent's `SubAgentChatOrigin`) so this seam
-   * adds no `tool-runtime -> agent` edge.
-   */
+  /** The parent's chat turn. The child streams its trail there. */
   chat?: { threadId: string; messageId: string } | undefined;
 };
 
@@ -316,11 +267,8 @@ export interface JoinChildRunRequest {
 declare const safeToParkSignalBrand: unique symbol;
 
 /**
- * A signal name whose dead-man wake is already scheduled.
- *
- * Execution owns the only mint, after its scheduler returns `scheduled`. The
- * brand crosses the adapter seam so another adapter cannot return a plain
- * signal name and accidentally park a run without that backstop.
+ * A signal name whose dead-man wake is already scheduled. Only execution mints it,
+ * so no adapter can park a run without that backstop.
  */
 export type SafeToParkSignal = string & {
   readonly [safeToParkSignalBrand]: true;
@@ -355,12 +303,7 @@ export interface SystemToolScratchPromote {
   writtenBy?: string | undefined;
 }
 
-/**
- * The spawn receipt `system.spawn_sub_agent` returns to the model. Mirrors
- * the `spawnSubAgent` result in `execution/sub-agents.ts`, which stays the
- * source of truth — this seam type exists so tool-runtime never imports
- * execution (ADR-0089).
- */
+/** Mirrors the `spawnSubAgent` result in `execution/sub-agents.ts` (ADR-0089). */
 export interface SpawnSubAgentResult {
   readonly ok: true;
   readonly status: "spawned" | "already_spawned";
@@ -369,36 +312,23 @@ export interface SpawnSubAgentResult {
   readonly subId: string;
 }
 
-/**
- * A spawned child run's real outcome for a joining parent. Mirrors
- * `ChildRunOutcome` in `execution/sub-agents.ts`, which stays the source of
- * truth — this seam type exists so tool-runtime never imports execution
- * (ADR-0089). `output`/`error` stay `unknown`: the child's payload is
- * untyped at this boundary by design.
- */
+/** Mirrors `ChildRunOutcome` in `execution/sub-agents.ts` (ADR-0089). */
 export interface ChildRunOutcomeResult {
   readonly ok: boolean;
-  /** True once the child reached a terminal status (completed/failed/cancelled). */
+  /** True once the child reached a terminal status. */
   readonly done: boolean;
   readonly status: string;
-  /** Present for a completed child — its run output. */
   readonly output?: unknown;
-  /** Present for a failed child — its terminal error. */
   readonly error?: unknown;
-  /** ms the child has been running, used by the await wait-ceiling. */
+  /** Feeds the await wait ceiling. */
   readonly runningMs?: number | undefined;
-  /** Why the call could not return the child's result, if applicable. */
   readonly reason?: string;
 }
 
 /**
  * Surface:  chat.
- * Owns/hides: owns the agent-behavior door the system tools reach — spawn a
- *   sub-agent, read a child run outcome. Hides the agent runtime and its state
- *   (`agentRuns`). Each method returns a named seam result, so no agent result
- *   type crosses the seam.
- * Why the seam: it inverts tool-runtime -> execution, so tool-runtime never
- *   imports the agent runtime.
+ * Owns/hides: sub-agent spawn and join, and run scratch. Hides the agent runtime.
+ * Why the seam: inverts tool-runtime -> execution.
  * Wiring: execution/system-tool-adapter.ts installs; internal/tools/system.ts reads.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
@@ -418,17 +348,13 @@ export function registerSystemToolAgentAdapter(adapter: SystemToolAgentAdapter):
   return systemToolAgentAdapterPort.install(adapter);
 }
 
-/**
- * A bounded excerpt of a stored text field. The model sees `text` plus the
- * truncation facts, so a cut excerpt never reads as a complete field.
- */
+/** A bounded excerpt. The truncation facts stop a cut excerpt from reading as complete. */
 export interface ChatHistoryExcerpt {
   readonly text: string;
   readonly truncated: boolean;
   readonly originalChars: number;
 }
 
-/** One message's model-facing evidence inside a chat-history read. */
 export interface ChatHistoryMessageEvidence {
   readonly kind: "message";
   readonly id: string;
@@ -438,7 +364,6 @@ export interface ChatHistoryMessageEvidence {
   readonly toolCallIds: readonly string[];
 }
 
-/** One attachment's model-facing evidence inside a chat-history read. */
 export interface ChatHistoryAttachmentEvidence {
   readonly kind: "attachment";
   readonly id: string;
@@ -452,7 +377,6 @@ export interface ChatHistoryAttachmentEvidence {
   readonly failureReason: ChatHistoryExcerpt | null;
 }
 
-/** One tool call's model-facing evidence inside a chat-history read. */
 export interface ChatHistoryToolCallEvidence {
   readonly kind: "tool_call";
   readonly id: string;
@@ -465,13 +389,7 @@ export interface ChatHistoryToolCallEvidence {
   readonly sanitized: boolean;
 }
 
-/**
- * The packed result `system.read_chat_history` returns to the model. Search
- * mode answers with bounded message evidence; fetch mode answers with one
- * message, attachment, or tool-call evidence, or a not-found note carrying
- * the requested kind and id. Error cases carry `error`, never a throw —
- * a direct caller that skips the dispatch-layer parse still gets a value.
- */
+/** `system.read_chat_history` result. Errors return as `error`, never a throw. */
 export type ChatHistoryToolResult =
   | { readonly ok: false; readonly mode: "search"; readonly error: string }
   | {
@@ -500,15 +418,8 @@ export type ChatHistoryToolResult =
 
 /**
  * Surface:  chat.
- * Owns/hides: owns the chat-history door the `system.read_chat_history` tool
- *   reaches — read bounded raw evidence from the current chat thread. Hides the
- *   `chat` retrieval implementation and its chat-message/attachment
- *   state. The method returns the named `ChatHistoryToolResult`, so the
- *   result shape the model consumes is owned here rather than widened to
- *   `unknown`.
- * Why the seam: it inverts tool-runtime -> chat, so tool-runtime never
- *   imports a product recipe. `chat` installs its own half over the
- *   existing `chat -> tool-runtime` edge, so no new module edge is added.
+ * Owns/hides: the `system.read_chat_history` read. Hides chat retrieval.
+ * Why the seam: inverts tool-runtime -> chat.
  * Wiring: chat/system-tool-adapter.ts installs; internal/tools/system.ts reads.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
@@ -531,12 +442,10 @@ export function registerSystemToolChatHistoryAdapter(
   return systemToolChatHistoryAdapterPort.install(adapter);
 }
 
-/** Spawn one focused sub-agent run behind the registered agent-behavior seam. */
 export function spawnSubAgent(args: SpawnSubAgentRequest): Promise<SpawnSubAgentResult> {
   return requireSystemToolAgentAdapter().spawnSubAgent(args);
 }
 
-/** Read a spawned child run's real outcome for a joining parent. */
 export function readChildRunOutcome(args: {
   parentRunId: string;
   userId: string;
@@ -545,24 +454,20 @@ export function readChildRunOutcome(args: {
   return requireSystemToolAgentAdapter().readChildRunOutcome(args);
 }
 
-/** Resolve the join protocol while preserving execution's safe-to-park proof. */
 export function resolveAwaitSubAgent(
   args: JoinChildRunRequest,
 ): Promise<AwaitSubAgentDispatchResult> {
   return requireSystemToolAgentAdapter().resolveAwaitSubAgent(args);
 }
 
-/** Read one run-local scratch entry behind the execution-owned adapter. */
 export function readScratch(args: SystemToolScratchRead): Promise<ScratchEntry<unknown> | null> {
   return requireSystemToolAgentAdapter().readScratch(args);
 }
 
-/** Write one run-local scratch entry behind the execution-owned adapter. */
 export function writeScratch(args: SystemToolScratchWrite): Promise<void> {
   return requireSystemToolAgentAdapter().writeScratch(args);
 }
 
-/** Promote one sub-agent scratch entry behind the execution-owned adapter. */
 export function promoteScratch(
   args: SystemToolScratchPromote,
 ): Promise<ScratchEntry<unknown> | null> {
@@ -579,13 +484,7 @@ export type SystemToolRequest<Name extends keyof typeof TOOL_INPUT_SCHEMAS> = {
   };
 };
 
-/**
- * The user context `system.read_user_context` returns to the model. Mirrors
- * `UserContext` in `knowledge/user-context.ts`, which stays the source of
- * truth — this seam type exists so tool-runtime never imports knowledge
- * (ADR-0089). Dynamic leaves (`value`, `aliases`, `metadata`) stay `unknown`:
- * they are untyped at this boundary by design.
- */
+/** Mirrors `UserContext` in `knowledge/user-context.ts` (ADR-0089). */
 export interface ReadUserContextResult {
   readonly profile: {
     readonly name: string;
@@ -629,31 +528,20 @@ export interface ReadUserContextResult {
   readonly recentMemory: readonly { readonly kind: string; readonly preview: string }[];
 }
 
-/**
- * One web-search source inside a `system.web_search` result. Mirrors the
- * source shape in `knowledge/web-search.ts`, which stays the source of truth.
- */
+/** Mirrors the source shape in `knowledge/web-search.ts`. */
 export interface WebSearchResultSource {
   readonly url: string;
   readonly title?: string | undefined;
 }
 
-/**
- * One web-search hit inside a `system.web_search` result. Mirrors the hit
- * shape in `knowledge/web-search.ts`, which stays the source of truth.
- */
+/** Mirrors the hit shape in `knowledge/web-search.ts`. */
 export interface WebSearchResultHit {
   readonly url: string;
   readonly title?: string;
   readonly snippet?: string;
 }
 
-/**
- * The result `system.web_search` returns to the model. The evidence shapes
- * mirror `WebSearchResult` in `knowledge/web-search.ts`, which stays the
- * source of truth; the `ok`/`query` envelope is minted here, beside the
- * adapter that adds it.
- */
+/** `WebSearchResult` from `knowledge/web-search.ts` plus the `ok`/`query` envelope. */
 export interface WebSearchToolResult {
   readonly ok: true;
   readonly query: string;
@@ -664,11 +552,8 @@ export interface WebSearchToolResult {
 }
 
 /**
- * The single-sender result `system.remember` returns to the model. The
- * suppression half mirrors `RememberSenderSuppressionResult` in
- * `knowledge/standing-instructions.ts`, which stays the source of truth; the
- * `resolvedTodos` half is the task dismissal the coordinator runs after the
- * write lands.
+ * Single-sender `system.remember` result: `RememberSenderSuppressionResult` from
+ * `knowledge/standing-instructions.ts` plus the todo dismissal after the write.
  */
 export type RememberSenderSuppressionAndDismissResult =
   | {
@@ -678,26 +563,14 @@ export type RememberSenderSuppressionAndDismissResult =
       readonly instruction: StandingInstructionValue;
       readonly resolvedSenderEmail: string;
       /**
-       * Active instructions that strictly contain, or are strictly contained
-       * by, the stored target — drawn from the same row snapshot that decided
-       * `status`. A concurrent nesting write can be absent on either axis: the
-       * write lock reads the sender alone, the snapshot filter reads the
-       * transaction timestamp rather than the lock order, and the
-       * `already_exists` path returns before the lock. The field on
-       * `RememberSenderSuppressionResult` states the three limits. Capped;
-       * `overlapCount` carries the true total.
+       * Instructions that nest with the stored target. Can miss a concurrent write
+       * (see `RememberSenderSuppressionResult`). Capped; `overlapCount` is the total.
        */
       readonly overlaps: readonly StandingInstructionOverlap[];
       readonly overlapCount: number;
       /** Set when the caller asked for `scope:"domain"` and got one address. */
       readonly scopeNarrowing: StandingInstructionScopeNarrowing | null;
-      /**
-       * Inputs the write could not store because the stored target names a
-       * CLASS: a `directive` the derived domain sentence supersedes, a
-       * `senderLabel` the domain arm has no field for. Empty when the write
-       * stored everything the model sent. The model reads this and tells the
-       * user, the same way it reads `scopeNarrowing`.
-       */
+      /** Inputs a domain target cannot store, such as `directive` or `senderLabel`. */
       readonly droppedInputs: readonly StandingInstructionDroppedInput[];
       readonly resolvedTodos: ResolveTodoResult;
     }
@@ -708,28 +581,15 @@ export type RememberSenderSuppressionAndDismissResult =
       readonly message: string;
     };
 
-/**
- * One sender's outcome inside a batch `system.remember` result: the
- * single-sender result, or the error a throw mid-batch produced for that
- * sender alone.
- */
+/** One sender in a batch: its result, or the error its own throw produced. */
 export type RememberBatchEntryResult =
   | RememberSenderSuppressionAndDismissResult
   | { readonly ok: false; readonly status: "failed"; readonly message: string };
 
 /**
- * The batch result `system.remember` returns when several senders were named.
- * Minted beside the coordinator in `runtime/adapters/system-tool-product.ts`;
- * the entries inside it are the derived single-sender result.
- *
- * UNIT SPLIT. `rememberedCount` is DISTINCT INSTRUCTION ROWS the batch wrote
- * or affirmed — several senders collapsing onto one domain instruction report
- * 1 with one entry each, because the second remember of the same target
- * collapses onto the first row instead of writing again. `clarificationCount`
- * keeps the other unit: per-sender ENTRIES that clarified, derived from the
- * ok-ENTRY count and never from `rememberedCount`, or the two units mix.
- * `ok` stays `rememberedCount > 0`, so a batch that fully collapses onto an
- * existing row still reports success.
+ * Batch `system.remember` result. The counts use different units:
+ * `rememberedCount` counts instruction rows, `clarificationCount` counts sender entries.
+ * `ok` is `rememberedCount > 0`.
  */
 export interface RememberBatchResult {
   readonly ok: boolean;
@@ -738,18 +598,13 @@ export interface RememberBatchResult {
     readonly senderEmail: string;
     readonly result: RememberBatchEntryResult;
   }[];
-  /** Distinct `factId`s across ok entries — instruction rows, not senders. */
+  /** Distinct `factId`s across ok entries. */
   readonly rememberedCount: number;
-  /** Per-sender entries that clarified — entry count, never row count. */
   readonly clarificationCount: number;
   readonly failedCount: number;
 }
 
-/**
- * One standing instruction inside a `system.list_instructions` result.
- * Mirrors `StandingInstructionSummary` in
- * `knowledge/standing-instructions.ts`, which stays the source of truth.
- */
+/** Mirrors `StandingInstructionSummary` in `knowledge/standing-instructions.ts`. */
 export interface StandingInstructionSummaryResult {
   readonly factId: string;
   readonly action: StandingInstructionValue["action"];
@@ -759,11 +614,7 @@ export interface StandingInstructionSummaryResult {
   readonly validFrom: Date;
 }
 
-/**
- * The result `system.list_instructions` returns to the model. Mirrors
- * `StandingInstructionListResult` in `knowledge/standing-instructions.ts`,
- * which stays the source of truth.
- */
+/** Mirrors `StandingInstructionListResult` in `knowledge/standing-instructions.ts`. */
 export interface ListInstructionsResult {
   readonly instructions: readonly StandingInstructionSummaryResult[];
   readonly totalActive: number;
@@ -771,11 +622,7 @@ export interface ListInstructionsResult {
   readonly limit: number;
 }
 
-/**
- * The result `system.forget_instruction` returns to the model. Mirrors
- * `ForgetStandingInstructionResult` in `knowledge/standing-instructions.ts`,
- * which stays the source of truth.
- */
+/** Mirrors `ForgetStandingInstructionResult` in `knowledge/standing-instructions.ts`. */
 export type ForgetInstructionResult =
   | {
       readonly ok: true;
@@ -785,11 +632,7 @@ export type ForgetInstructionResult =
     }
   | { readonly ok: false; readonly status: "not_found" };
 
-/**
- * The result `system.edit_instruction` returns to the model. Mirrors
- * `EditStandingInstructionResult` in `knowledge/standing-instructions.ts`,
- * which stays the source of truth.
- */
+/** Mirrors `EditStandingInstructionResult` in `knowledge/standing-instructions.ts`. */
 export type EditInstructionResult =
   | {
       readonly ok: true;
@@ -797,12 +640,7 @@ export type EditInstructionResult =
       readonly factId: string;
       readonly previousFactId: string;
       readonly instruction: StandingInstructionValue;
-      /**
-       * Edits the row could not take because its target names a CLASS — a
-       * domain row's sentence is its target's, and the arm has no label
-       * field. Empty on an address row. Without it, `edited` and `unchanged`
-       * both answer a dropped request with no reason.
-       */
+      /** Edits a domain row cannot take. Empty on an address row. */
       readonly droppedInputs: readonly StandingInstructionDroppedInput[];
     }
   | {
@@ -810,16 +648,13 @@ export type EditInstructionResult =
       readonly status: "unchanged";
       readonly factId: string;
       readonly instruction: StandingInstructionValue;
-      /** Same reading as the `edited` arm: edits the row could not take. */
       readonly droppedInputs: readonly StandingInstructionDroppedInput[];
     }
   | { readonly ok: false; readonly status: "not_found" };
 
 /**
  * Surface: chat.
- * Owns/hides: knowledge reads — the user-context read behind
- *   `system.read_user_context`. Hides the knowledge retrieval and its
- *   memory and entity state.
+ * Owns/hides: the `system.read_user_context` read. Hides knowledge retrieval.
  * Why the seam: tool-runtime must not import knowledge or create a module cycle.
  * Wiring: runtime/adapters/system-tool-product.ts installs; internal/tools/system.ts reads.
  */
@@ -831,10 +666,8 @@ export interface SystemToolKnowledgeAdapter {
 
 /**
  * Surface: chat.
- * Owns/hides: standing-instruction writes — remember, list, forget, and edit
- * behind `system.remember` and the instruction tools. Hides the knowledge
- * instruction store. Split out of the knowledge grab-bag so each port names
- * one product owner (ADR-0089 amendment 2026-09-19).
+ * Owns/hides: remember, list, forget, and edit of standing instructions.
+ *   Hides the instruction store.
  * Why the seam: tool-runtime must not import knowledge or create a module cycle.
  * Wiring: runtime/adapters/system-tool-product.ts installs; internal/tools/system.ts reads.
  */
@@ -855,9 +688,7 @@ export interface SystemToolInstructionAdapter {
 
 /**
  * Surface: chat.
- * Owns/hides: live web search behind `system.web_search`. Hides the search
- * provider wiring. Split out of the knowledge grab-bag so each port names one
- * product owner (ADR-0089 amendment 2026-09-19).
+ * Owns/hides: `system.web_search`. Hides the search provider.
  * Why the seam: tool-runtime must not import knowledge or create a module cycle.
  * Wiring: runtime/adapters/system-tool-product.ts installs; internal/tools/system.ts reads.
  */
@@ -865,12 +696,7 @@ export interface SystemToolWebSearchAdapter {
   webSearch(args: SystemToolRequest<"system.web_search">): Promise<WebSearchToolResult>;
 }
 
-/**
- * The result `system.resolve_todo` returns to the model. Mirrors
- * `ResolveTodosForGmailSourceResult` in `tasks/resolve.ts`, which stays the
- * source of truth — this seam type exists so tool-runtime never imports
- * tasks (ADR-0089).
- */
+/** Mirrors `ResolveTodosForGmailSourceResult` in `tasks/resolve.ts` (ADR-0089). */
 export type ResolveTodoResult =
   | {
       readonly ok: true;
@@ -889,11 +715,8 @@ export type ResolveTodoResult =
     };
 
 /**
- * The result `system.suggest_todo` returns to the model. The first three
- * variants mirror `SuggestTodoResult` in `tasks/suggest.ts`, which stays the
- * source of truth; the fourth is the tool path's own already-answered guard,
- * which consults the same `readGmailThreadClosure` owner as the triage mint
- * (see `runtime/adapters/system-tool-product.ts`).
+ * The first three arms mirror `SuggestTodoResult` in `tasks/suggest.ts`. The
+ * fourth is the tool path's already-replied guard.
  */
 export type SuggestTodoResult =
   | { readonly ok: true; readonly status: "created"; readonly todoId: string }
@@ -1006,50 +829,28 @@ export function suggestTodo(
   return systemToolTaskAdapterPort.read().suggestTodo(args);
 }
 
-/**
- * The packed result `system.search_context` returns to the model. It carries the
- * packer's truncation facts (`includedCount` / `omittedCount` / `truncated`) so
- * the model can disclose partial evidence instead of presenting an incomplete
- * read as complete. `ok` is true whenever the read ran — per-source empty and
- * failed outcomes are honest notes in `text`, because an empty read is a real
- * result, not a failed call. Typing this shape at the seam keeps the truncation
- * hazard in the type, not only in a docstring (structural-review "hazard rule").
- */
+/** `system.search_context` result. The truncation facts let the model disclose a partial read. */
 export interface ContextSearchToolResult {
-  /** True whenever the read ran; the packer's per-source notes carry failures. */
+  /** True whenever the read ran. Per-source failures are notes in `text`. */
   readonly ok: boolean;
-  /** Bounded, cited, model-facing evidence text. */
   readonly text: string;
-  /** How many cards made it into `text`. */
   readonly includedCount: number;
   /** Cards dropped by the budget or by the read's own `limit`. */
   readonly omittedCount: number;
-  /** True when any card, note, or source line was left out of `text`. */
   readonly truncated: boolean;
 }
 
 /**
  * Surface:  chat.
- * Owns/hides: the cross-source evidence read the `system.search_context` tool
- *   reaches — one bounded query envelope in, packed evidence text out. Hides the
- *   `context-search` module (its registered source set, the vector/object
- *   adapters, and the packer) and its `@alfred/db` / `@alfred/corpus` reach. It
- *   returns the named `ContextSearchToolResult`, so the result shape the model
- *   consumes is owned here rather than widened to `unknown`.
- * Why the seam: tool-runtime must not import `@alfred/assistant/context-search`,
- *   whose adapters pull the database and corpus graphs into the eager tool
- *   barrel that every tool declaration imports (ADR-0101, ADR-0089).
+ * Owns/hides: the `system.search_context` read. Hides the `context-search` module.
+ * Why the seam: `@alfred/assistant/context-search` pulls the database and corpus
+ *   graphs, which must stay out of this eager barrel.
  * Wiring: runtime/adapters/system-tool-context-search.ts installs;
  *   internal/tools/context-search.ts reads.
  * See: ADR-0101, ADR-0089, and docs/reference/tool-runtime-map.md.
  */
 export interface SystemToolContextSearchAdapter {
-  /**
-   * Named `runContextSearch`, not `searchContext`: the boundary already exports
-   * `searchContext` for the read verb (ADR-0101), and two same-named doors — one
-   * the read, one the seam that reaches it — made the adapter import alias the
-   * only clue. The forwarder keeps the same name.
-   */
+  /** Not `searchContext`: that name is the read verb itself (ADR-0101). */
   runContextSearch(
     args: SystemToolRequest<"system.search_context">,
   ): Promise<ContextSearchToolResult>;
@@ -1059,21 +860,18 @@ const systemToolContextSearchAdapterPort = bootPort<SystemToolContextSearchAdapt
   "system-tool context-search adapter",
 );
 
-/** Runtime composition installs the cross-source evidence read at boot. */
 export function registerSystemToolContextSearchAdapter(
   adapter: SystemToolContextSearchAdapter,
 ): () => void {
   return systemToolContextSearchAdapterPort.install(adapter);
 }
 
-/** Read packed cross-source evidence behind the registered context-search seam. */
 export function runContextSearch(
   args: SystemToolRequest<"system.search_context">,
 ): Promise<ContextSearchToolResult> {
   return systemToolContextSearchAdapterPort.read().runContextSearch(args);
 }
 
-/** Read bounded raw evidence from the current chat thread. */
 export function readChatHistory(args: {
   userId: string;
   threadId: string;
@@ -1082,11 +880,7 @@ export function readChatHistory(args: {
   return requireSystemToolChatHistoryAdapter().readChatHistory(args);
 }
 
-/**
- * One readiness blocker inside a workflow tool result. The persisted problem
- * shape is contracts-owned; the code narrows to the live codes the readiness
- * module assigns (`readiness.ts`), which stays the source of truth.
- */
+/** A persisted readiness problem, narrowed to the codes `automation/readiness.ts` assigns. */
 export type WorkflowReadinessBlocker = PersistedWorkflowReadinessProblem & {
   readonly code:
     | ToolUnavailabilityCode
@@ -1097,12 +891,7 @@ export type WorkflowReadinessBlocker = PersistedWorkflowReadinessProblem & {
     | "trigger_degraded";
 };
 
-/**
- * One definition problem inside a workflow failure. Mirrors
- * `WorkflowRevisionProblem` in `automation/revisions.ts`, which stays the
- * source of truth — this seam type exists so tool-runtime never imports
- * automation (ADR-0089).
- */
+/** Mirrors `WorkflowRevisionProblem` in `automation/revisions.ts` (ADR-0089). */
 export interface WorkflowDefinitionProblem {
   readonly code:
     | "invalid_definition"
@@ -1117,17 +906,13 @@ export interface WorkflowDefinitionProblem {
     | "tool_without_capability"
     | "ambiguous_tool_capability"
     | "integration_outside_derived_ceiling";
-  /** One safe sentence. Rendered on the activation card and in the blocked-draft state. */
+  /** One sentence safe to show the user. */
   readonly message: string;
-  /** Dotted path into the definition, when the problem belongs to one field. */
+  /** Dotted path into the definition. */
   readonly field?: string;
 }
 
-/**
- * A workflow service failure inside a tool result. Mirrors
- * `WorkflowServiceFailure` in `automation/revisions.ts`, which stays the
- * source of truth.
- */
+/** Mirrors `WorkflowServiceFailure` in `automation/revisions.ts`. */
 export type WorkflowServiceFailureResult =
   | { readonly kind: "not_found" }
   | { readonly kind: "builtin_immutable" }
@@ -1144,7 +929,6 @@ export type WorkflowServiceFailureResult =
     }
   | { readonly kind: "validation_failed"; readonly problems: readonly WorkflowDefinitionProblem[] };
 
-/** Shared blocked-draft shape for author and recover results. */
 export interface BlockedWorkflowDraftResult {
   readonly ok: true;
   readonly status: "blocked";
@@ -1154,7 +938,6 @@ export interface BlockedWorkflowDraftResult {
   readonly recovery?: WorkflowRecoveryNavigation;
 }
 
-/** The result `system.author_workflow` returns to the model. */
 export type AuthorWorkflowResult =
   | {
       readonly ok: false;
@@ -1177,7 +960,6 @@ export type AuthorWorkflowResult =
       readonly activationProposal: ActivateWorkflowInput;
     };
 
-/** The result `system.recover_workflow` returns to the model. */
 export type RecoverWorkflowResult =
   | {
       readonly ok: false;
@@ -1193,7 +975,6 @@ export type RecoverWorkflowResult =
       readonly activationProposal: ActivateWorkflowInput;
     };
 
-/** The result `system.activate_workflow` returns to the model. */
 export type ActivateWorkflowResult =
   | {
       readonly ok: false;
@@ -1213,14 +994,9 @@ export type ActivateWorkflowResult =
 
 /**
  * Surface:  chat.
- * Owns/hides: owns the workflow-behavior door the system tools reach
- *   (`system.author_workflow` / `system.recover_workflow` /
- *   `system.activate_workflow`) — author, recover, and activate a workflow, then
- *   shape the tool result. Hides workflow authoring, revision, recovery, and
- *   readiness policy. Each method returns a named seam result, so no workflow
- *   result type crosses the seam.
- * Why the seam: it inverts tool-runtime -> workflows, so tool-runtime never imports
- *   workflows.
+ * Owns/hides: author, recover, and activate a workflow. Hides revision and
+ *   readiness policy.
+ * Why the seam: inverts tool-runtime -> workflows.
  * Wiring: automation/system-tool-adapter.ts installs; internal/tools/system.ts reads.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
@@ -1247,12 +1023,10 @@ const systemToolWorkflowAdapterPort = bootPort<SystemToolWorkflowAdapter>(
   "system-tool workflow adapter",
 );
 
-/** Runtime composition installs the workflow-behavior handler at boot. */
 export function registerSystemToolWorkflowAdapter(adapter: SystemToolWorkflowAdapter): () => void {
   return systemToolWorkflowAdapterPort.install(adapter);
 }
 
-/** Author or revise a workflow draft behind the registered workflow-behavior seam. */
 export function authorWorkflow(args: {
   userId: string;
   runId: string;
@@ -1262,7 +1036,7 @@ export function authorWorkflow(args: {
   return requireSystemToolWorkflowAdapter().authorWorkflow(args);
 }
 
-/** Revalidate a blocked workflow draft after setup behind the registered seam. */
+/** Revalidate a blocked workflow draft after setup. */
 export function recoverWorkflow(args: {
   userId: string;
   workflowId: string;
@@ -1271,7 +1045,7 @@ export function recoverWorkflow(args: {
   return requireSystemToolWorkflowAdapter().recoverWorkflow(args);
 }
 
-/** Publish an approved workflow revision behind the registered seam. */
+/** Publish an approved workflow revision. */
 export function activateWorkflow(args: {
   userId: string;
   input: ActivateWorkflowToolInput;
@@ -1280,15 +1054,12 @@ export function activateWorkflow(args: {
   return requireSystemToolWorkflowAdapter().activateWorkflow(args);
 }
 
-/** Restore one explicit persisted-surface shape against today's tool catalog. */
+/** Restore a persisted surface against today's tool catalog. */
 export function restoreToolSurface(source: ToolSurfaceSource): ToolName[] {
   return requireToolRuntimeAdapter().restore(source);
 }
 
-/**
- * Project names that already passed load-time allowlist and credential gates.
- * Tool-runtime registration is part of worker boot; calling before boot fails.
- */
+/** Project names that already passed the load-time gates. Throws before boot. */
 export function resolveToolSurface(input: {
   activeNames: readonly ToolName[];
   context: ToolRunContext;
@@ -1300,13 +1071,7 @@ export function toolNamesForIntegrations(integrations: readonly string[]): ToolN
   return requireToolRuntimeAdapter().namesForIntegrations(integrations);
 }
 
-/**
- * Project the exact executable tool names, grouped by integration slug, under a
- * run's availability, allowlist, and caller/interaction context. The connected
- * summary reads this to ground the boss in the live `integration.action` names;
- * registry entries, availability calculation, and the no-database fast path stay
- * behind this seam. Names are sorted within each integration for stable output.
- */
+/** Executable tool names for a run, grouped by integration slug and sorted. */
 export function availableToolNamesByIntegration(input: {
   availability: IntegrationAvailabilitySnapshot;
   allowedIntegrations: readonly string[];
@@ -1326,7 +1091,7 @@ export function selectToolPreload(input: {
   return requireToolRuntimeAdapter().selectPreload(input);
 }
 
-/** Execute one complete run-local tool round or return its durable wait. */
+/** Run one tool round, or return its durable wait. */
 export function executeToolCallRound<Call extends ProposedToolCall>(input: {
   calls: readonly Call[];
   transcript: readonly AgentTranscriptMessage[];

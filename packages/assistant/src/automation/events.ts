@@ -20,22 +20,13 @@ export interface AcceptEventResult {
   failed: number;
 }
 
-/**
- * Generic event-trigger dispatcher (ADR-0047).
- *
- * This is intentionally a direct DB query + run creation path, not the
- * realtime outbox/SSE event bus, which is `@alfred/assistant/realtime` plus the
- * SSE endpoint in `@alfred/http`.
- */
+/** Event-trigger dispatcher (ADR-0047). Direct DB query and run creation; not the realtime outbox. */
 export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult> {
-  // Keep validation at this public automation seam as well as at publication,
-  // so a direct caller cannot bypass the owning domain-event contract.
+  // Validate here too, so a direct caller cannot skip the contract.
   const args = domainEventSchema.parse(input);
 
-  // Only `message_received` carries the message-shaped payload. The batch
-  // `documents_ingested` fact has a different (non-message) payload and no
-  // workflow trigger, so parsing it with the strict message schema would throw
-  // and — via publishToConsumers' AggregateError — fail the ingestion job.
+  // Only `message_received` has a message payload. Parsing `documents_ingested` with it
+  // would throw and fail the ingestion job.
   const gmailPayload =
     args.source === "gmail" && args.type === "message_received"
       ? gmailMessagePayloadSchema.parse(args.payload ?? {})
@@ -43,14 +34,10 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
 
   const reason = gmailPayload?.reason;
   const documentId = gmailPayload?.documentId;
-  // Threaded into the run input so a re-key on an already-classified doc (the
-  // outbound-reply re-eval, issue #282) bypasses the triage already-tagged
-  // skip guard instead of no-op'ing.
+  // Lets the outbound-reply re-eval (#282) skip triage's already-tagged guard.
   const force = gmailPayload?.force;
 
-  // An inbound receipt (typed or raw) carries the pointer to its
-  // `event_receipts` row, not the body (ADR-0097). The run keeps the pointer so
-  // the trigger message can read the receipt's describe-slot document (#990).
+  // Inbound events carry a receipt pointer, not the body (ADR-0097). The run keeps it (#990).
   const receiptId = isInboundEventSource(args.source)
     ? inboundDeliveryPayloadSchema.parse(args.payload ?? {}).receiptId
     : undefined;
@@ -74,9 +61,7 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
           and(
             sql`${workflows.trigger}->>'source' = ${args.source}`,
             sql`${workflows.trigger}->>'type' = ${args.type}`,
-            // A raw trigger names the provider kind it subscribes to; a typed
-            // trigger and a typed event both leave it unset, so the two empty
-            // strings compare equal (#990).
+            // Typed triggers and events both have no rawKind, so '' equals '' (#990).
             sql`coalesce(${workflows.trigger}->>'rawKind', '') = ${args.rawKind ?? ""}`,
             or(
               sql`${workflows.trigger}->>'accountRef' IS NULL`,
@@ -119,9 +104,7 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
         let created: boolean;
 
         try {
-          // `startRun` persists the occurrence and delivers it in one call. The
-          // duplicate-run throw comes from the persist before any deliver, so
-          // the dedup catch below still short-circuits on a raced insert.
+          // A duplicate throws in the persist, before deliver, so the catch below still works.
           ({ created } = await startRun({
             userId: args.userId,
             workflowSlug: row.slug,
@@ -161,16 +144,9 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
             },
           }));
         } catch (err) {
-          // The concurrent dispatch that beat us to the insert owns this event.
-          // Nothing was created, so drop it as a duplicate rather than a
-          // failure — the same outcome the fast path above reports.
-          //
-          // Either duplicate-run index can be the one that fires: the event
-          // identity index normally, or the general dedup-key index when the
-          // target workflow also declares a `dedupKey` (a singleton like
-          // cold-start-research). Both mean "already exists"; matching only the
-          // first counted the second as a failure and logged an error for a
-          // benign drop. Anything else really is a fault and rethrows.
+          // A concurrent dispatch won the insert: count a duplicate, not a failure.
+          // Either duplicate index can fire: the event identity index, or the dedup-key
+          // index for a singleton workflow. Anything else rethrows.
           if (!isDuplicateRunIndex(uniqueViolationConstraint(err))) throw err;
           result.skippedDuplicate++;
 
@@ -193,11 +169,8 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
 }
 
 /**
- * Bridges the brief deploy-window gap between this code shipping and the
- * seeder re-writing builtin triggers to the new `{ source, type }` shape
- * (ADR-0047). Only the legacy triage trigger (`source: 'gmail.ingest'`) needs
- * this; any future event source must add its own mapping here, otherwise it
- * falls through to `false` (no legacy form to match).
+ * Matches the pre-ADR-0047 triage trigger `source: 'gmail.ingest'` until the boot re-seed
+ * rewrites it. Other sources have no legacy form and return `false`.
  */
 function legacyEventTriggerCondition(args: DomainEvent) {
   if (args.source === "gmail" && args.type === "message_received") {

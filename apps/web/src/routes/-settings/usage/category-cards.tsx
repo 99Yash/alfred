@@ -12,11 +12,7 @@ interface CategoryCardsProps {
   onToggle: (category: UsageRunCategory) => void;
 }
 
-/**
- * Per-category spend cards. Each card is a toggle: clicking it filters the
- * activity table below to that category (the cards ARE the table's filter
- * control). Sorted by spend, so the biggest cost driver leads.
- */
+/** Spend cards, sorted by spend. Each card toggles the activity table's filter. */
 export function CategoryCards({ start, end, selected, onToggle }: CategoryCardsProps) {
   const { data, isLoading } = useUsageBreakdown({ start, end });
   const selectedSet = new Set(selected);
@@ -34,9 +30,7 @@ export function CategoryCards({ start, end, selected, onToggle }: CategoryCardsP
   const categories = data?.categories ?? [];
 
   if (categories.length === 0) {
-    // Empty state rather than null: the parent renders the "By category" header
-    // above this, so returning null would leave that header dangling over
-    // nothing on an empty window.
+    // Not null: the parent's header would hang over nothing.
     return (
       <AppCard>
         <p className="text-sm text-app-fg-3">No categorized spend in this window.</p>

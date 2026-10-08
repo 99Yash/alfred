@@ -4,10 +4,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
 /**
- * Close an abandoned tool call before its workflow completes. A dispatcher
- * insert can survive a failed step checkpoint, so workflow state cannot prove
- * that no approval exists. The conditional write is safe to repeat and cannot
- * change a user decision or an executed action.
+ * Reject a pending approval for an abandoned tool call. A staging insert can outlive a
+ * failed step checkpoint. Safe to repeat; it never touches a decided row.
  */
 export async function withdrawToolCallApproval(args: {
   userId: string;
@@ -20,8 +18,7 @@ export async function withdrawToolCallApproval(args: {
   const now = new Date();
 
   const withdrawn = await db().transaction(async (tx) => {
-    // A reclaimed worker must not withdraw the current worker's approval.
-    // Hold the run lease while changing the action, as cancellation does.
+    // Hold the run lease, so a reclaimed worker cannot withdraw the current worker's approval.
     const [run] = await tx
       .select({ id: agentRuns.id })
       .from(agentRuns)

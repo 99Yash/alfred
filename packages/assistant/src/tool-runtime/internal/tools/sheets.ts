@@ -1,18 +1,4 @@
-/**
- * Google Sheets tools registered into the boss's tool surface.
- *
- * `sheets.get_values` is a read path; everything else mutates the user's
- * Drive (create a spreadsheet, overwrite/append a range, structural
- * batchUpdate, add a tab) and so registers at a write-grade risk tier. The
- * dispatcher's gate is `user_action_policies`, not the tier — the tier only
- * drives the staging-card UX (per the registry note / ADR-0034).
- *
- * Each execute selects the user's active Sheets-scoped Google credential, then
- * calls the user-bound integrations root. The `spreadsheets` scope is granted
- * when the user connects the Sheets feature; a connected account lacking it raises
- * `MissingScopesError` before any `[sheets] 403` can happen. The dispatcher maps
- * that class to a catalog code in typed-failures PR 2 (`docs/plans/typed-failures-v1.md`).
- */
+/** Google Sheets tools. A missing `spreadsheets` scope throws `MissingScopesError` before any 403. */
 
 import {
   restPassthroughInput,

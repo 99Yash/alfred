@@ -1,27 +1,9 @@
 /**
- * Smoke test for m13 Phase 7 — transcript compaction (ADR-0035).
+ * Run fixture transcripts through the live `compactTranscript` (ADR-0035) and check
+ * each `<run_summary>` section. Fixtures: `packages/assistant/src/execution/run-compaction/__fixtures__/*.json`.
+ * Treat one miss as a failure: tighten the compactor prompt, not the check.
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-compaction.ts
- *
- * Runs fixture transcripts through the live `compactTranscript` primitive
- * (real compactor model via `meteredGenerateText`) and asserts section-
- * scoped handoff expectations against the `<run_summary>` output.
- *
- * Fixtures live at:
- *   `packages/assistant/src/execution/run-compaction/__fixtures__/*.json`
- *
- * Phase 7f acceptance is gated on every fixture passing the flakiness
- * gate. Treat a single miss as a failure: the compactor system prompt
- * almost certainly needs tightening, not the test loosening.
- *
- * What this DOES NOT verify:
- *   - Sub-agent fail-back to the boss (exercise via a real sub-agent run
- *     with an inflated transcript; covered by `smoke-sub-agents.ts` once
- *     that smoke gains a context-pressure case).
- *   - The 3-attempt in-step retry path (a transient cheap-model failure
- *     is hard to induce deterministically; covered by code review).
- *   - The cache breakpoint hit on the second post-compaction turn
- *     (requires an end-to-end boss run after this fixture-level smoke).
  */
 import {
   compactTranscript,
@@ -66,7 +48,7 @@ async function loadFixtures(): Promise<Fixture[]> {
 
   for (const f of files) {
     const raw = await readFile(resolve(FIXTURES_DIR, f), "utf8");
-    // SAFETY: fixtures are committed test inputs authored to the Fixture shape.
+    // SAFETY: committed fixtures written to the Fixture shape.
     out.push(JSON.parse(raw) as Fixture);
   }
 

@@ -9,14 +9,8 @@ import {
 } from "./receipt-document";
 
 /**
- * Bounded recovery for receipts stored before corpus projection was installed.
- *
- * Each receipt is projected in its own try/catch. The caller runs one backfill
- * per inbound source inside a single `Promise.all` in the `gmail.embed_sweep`
- * job, so an unhandled throw here would fail the whole sweep — every source's
- * batch, plus the Gmail and attachment batches — on one bad row. A row that
- * cannot be projected is logged and skipped; the next tick retries it, because
- * the `notExists` filter still selects it.
+ * Project receipts that have no corpus document, in a bounded batch. Catch per row: one bad row
+ * must not fail the whole `gmail.embed_sweep` `Promise.all`. A skipped row is retried next tick.
  */
 export async function backfillReceiptDocuments(source: InboundEventSource): Promise<void> {
   const rows = await db()

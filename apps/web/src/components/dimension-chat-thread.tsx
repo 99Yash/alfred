@@ -109,9 +109,7 @@ export type ChatPreviewState =
   | "active-tool"
   | "rich-content";
 
-// Styleguide demo state selecting which mock UI to render — deliberately NOT
-// the storage `ArtifactStatus` (`generating`/`complete`/`error`) from
-// `@alfred/contracts`. `empty` has no lifecycle analog; this drives the demo.
+// Styleguide demo state, not the storage `ArtifactStatus`.
 export type ArtifactPreviewState = "completed" | "generating" | "empty";
 
 const COMPANY_RESULTS: SearchResult[] = [
@@ -972,8 +970,7 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   const [value, setValue] = useState("");
   const [autoMode, setAutoMode] = useState(true);
   const [model, setModel] = useState("alfred");
-  // Latest submit closure routed through a ref so TipTap's once-registered
-  // handleKeyDown always sees the current state.
+  // A ref, so TipTap's once-registered handleKeyDown sees the latest submit.
   const submitRef = useRef<() => void>(() => undefined);
 
   const editor = useEditor({
@@ -1019,10 +1016,7 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
     queueMicrotask(() => editor?.commands.focus());
   };
 
-  // Keep the ref pointing at the latest `submit` for the editor's Enter
-  // handler (created once in `useEditor`). Mirrored in an effect rather than
-  // during render — a render-phase ref write can leak if React discards the
-  // render; the Enter handler only fires post-commit.
+  // In an effect, not render: a discarded render would leak the ref write.
   useEffect(() => {
     submitRef.current = submit;
   });

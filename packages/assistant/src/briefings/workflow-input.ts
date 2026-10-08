@@ -2,48 +2,28 @@ import { briefingSlotSchema } from "@alfred/contracts";
 import { z } from "zod";
 import { isLocalDateKey } from "@alfred/assistant/time";
 
-/** Canonical live briefing workflow: both morning and evening slots. */
+/** The live briefing workflow, for both slots. */
 export const DAILY_BRIEFING_WORKFLOW_SLUG = "daily-briefing";
 
 const briefingWorkflowInputBaseSchema = z.object({
-  /**
-   * `morning` can suppress on quiet cron runs; `evening` always sends.
-   * Defaults to morning for existing callers that predate ADR-0048.
-   */
+  /** `morning` may suppress on quiet cron runs; `evening` always sends. */
   slot: briefingSlotSchema.default("morning"),
   /**
-   * The user's local date this briefing is *for* (YYYY-MM-DD). Used as
-   * the day-segment of the idempotency key; a duplicate enqueue with
-   * the same date short-circuits at the `email_sends` unique index.
-   *
-   * Optional: when omitted, the workflow computes it from the user's
-   * preferred timezone at run time. Pass it explicitly from the cron
-   * tick so the date the cron evaluated lines up with the date the
-   * workflow uses.
+   * The user's local date this briefing is for; part of the idempotency key.
+   * Omit it and the workflow computes it. The cron tick passes it so both agree.
    */
   briefingDate: z
     .string()
-    // `isLocalDateKey`, not a `YYYY-MM-DD` regex: the regex accepts
-    // "2026-02-30", which `Date.UTC` then rolls over in silence — the exact
-    // failure the `LocalDateKey` brand exists to make impossible.
+    // Not a regex: "2026-02-30" passes a regex and `Date.UTC` silently rolls it over.
     .refine(isLocalDateKey, "expected an existing calendar day, YYYY-MM-DD")
     .optional(),
-  /**
-   * `cron` — fired by the hourly tick.
-   * `manual` — invoked by smoke script or future settings-page button.
-   * `forced` — bypasses the "send only at delivery_hour" check.
-   */
+  /** `cron` from the tick; `manual` from the smoke script or button; `forced` skips the delivery-hour check. */
   reason: z.enum(["cron", "manual", "forced"]).default("cron"),
 });
 
 /**
- * Input schema for the live daily briefing. One workflow definition covers
- * the morning and evening slots.
- *
- * `dryRun` short-circuits the `send` step (no Resend call, no email_sends
- * row) and leaves the `briefings` row at `status='composed'` — a
- * non-terminal state that `fetchLatestWatermark` ignores, so the next
- * real run still sees the full email window. Use this for prompt iteration.
+ * `dryRun` skips send and leaves the row `composed`. `fetchLatestWatermark` ignores that
+ * state, so the next real run still sees the full window. Use it for prompt work.
  */
 export const dailyBriefingWorkflowInputSchema = briefingWorkflowInputBaseSchema.extend({
   slot: briefingSlotSchema,
@@ -52,10 +32,7 @@ export const dailyBriefingWorkflowInputSchema = briefingWorkflowInputBaseSchema.
 
 export type DailyBriefingWorkflowInput = z.infer<typeof dailyBriefingWorkflowInputSchema>;
 
-/**
- * Compatibility-only identity and input parser for persisted nonterminal runs
- * created before the daily-briefing cutover. New code must not enqueue it.
- */
+/** Only for old in-flight runs from before the daily-briefing cutover. Do not enqueue. */
 export const LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG = "morning-briefing";
 
 export const legacyMorningBriefingWorkflowInputSchema = briefingWorkflowInputBaseSchema;

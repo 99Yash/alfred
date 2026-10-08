@@ -55,14 +55,7 @@ export function startToolCallBatchSpan(run: ToolCallRun, callCount: number): Too
   };
 }
 
-/**
- * Record a lazy tool activation that the round made on its own, not through a
- * `system.load_tool` call. It closes the load span immediately: the tool is
- * already resolved when the round adds it (`latencyMs: 0`, `loaded: true`). It
- * shares `startToolLoadSpan` with the explicit `system.load_tool` path so every
- * load source emits an identically shaped span and one count covers every lazy
- * activation (#414).
- */
+/** Record a load the round made itself. Same span shape as `system.load_tool`, closed at once. */
 export function recordRoundToolActivation(
   run: ToolCallRun,
   toolName: ToolName,
@@ -77,38 +70,30 @@ export function recordRoundToolActivation(
   }).end({ outcome: "ok", latencyMs: 0 });
 }
 
-/** Stable observation name for the exact-tool-load runtime span (PRD #405). */
 export const RUNTIME_TOOL_LOAD = "runtime.tool_load";
 
-/** Outcome of an exact tool load — mirrors `resolveExactToolLoad`. */
+/** Mirrors `resolveExactToolLoad`. */
 type ToolLoadOutcome = "ok" | "unknown_tool" | ToolUnavailabilityCode;
 
 /**
- * How a lazy tool reached the active surface. A `runtime.tool_load` span is
- * emitted for each, so a count of the span reflects every lazy activation — not
- * only the explicit path (#414). `model_load`: the model called
- * `system.load_tool`. `inactive_bounce`: the model called the tool directly, the
- * dispatcher bounced the schema-blind call, and the round activated it for the
- * next turn. `search_fold`: the model called `system.search_tools`, and the
- * round activated the best available registered hit for the next turn.
+ * `model_load`: `system.load_tool`. `inactive_bounce`: the model called an inactive
+ * tool, so the round loaded it. `search_fold`: the round loaded the best search hit.
  */
 type ToolLoadSource = "model_load" | RoundToolLoadSource;
 
-/** The load sources the tool-call round records itself (`recordRoundToolActivation`). */
 export type RoundToolLoadSource = "inactive_bounce" | "search_fold";
 
 export interface ToolLoadSpanArgs {
   runId: string;
   /** `boss` or `sub:<id>`. */
   caller: string;
-  /** Bounded exact-name candidate requested by the model (`loadToolInput` caps it at 120 chars). */
+  /** `loadToolInput` caps it at 120 chars. */
   toolName: string;
-  /** Which path activated the tool; separable in dashboards without splitting the span name. */
   source: ToolLoadSource;
   startedAt: Date;
 }
 
-/** Pure builder for the `runtime.tool_load` opening span. Exported for tests. */
+/** Exported for tests. */
 export function buildToolLoadSpanInput(args: ToolLoadSpanArgs): RuntimeSpanInput {
   return {
     runId: args.runId,
@@ -123,22 +108,13 @@ export function buildToolLoadSpanInput(args: ToolLoadSpanArgs): RuntimeSpanInput
 }
 
 export interface ToolLoadSpanCloser {
-  /** Close with the load outcome and measured latency. */
   end(result: { outcome: ToolLoadOutcome; latencyMs: number }): void;
   error(): void;
 }
 
 /**
- * Open a `runtime.tool_load` span around an exact tool load. A failed load is
- * recoverable (the model can search again), so a non-`ok` outcome closes at
- * WARNING rather than ERROR — visible for discovery tuning without reading as a
- * fault. Idempotent — only the first `end`/`error` closes.
- *
- * This is the single owner of the `runtime.tool_load` span shape. Both load
- * paths route through it: the explicit `system.load_tool` tool (`tools/system.ts`,
- * via the `tool-runtime` public re-export) and the round's own activations — the
- * inactive bounce and the search fold (`recordRoundToolActivation` above). None
- * may hand-copy the shape.
+ * The one owner of the `runtime.tool_load` span shape. A failed load is recoverable,
+ * so it closes at WARNING, not ERROR. Only the first `end`/`error` closes.
  */
 export function startToolLoadSpan(args: ToolLoadSpanArgs): ToolLoadSpanCloser {
   const span = runtimeSpanStarter(buildToolLoadSpanInput(args));
@@ -162,29 +138,18 @@ export function startToolLoadSpan(args: ToolLoadSpanArgs): ToolLoadSpanCloser {
   };
 }
 
-/* ---------------------------------------------------------------------------
- * Model-facing tool-search span (#414, PRD #405)
- *
- * The load span above records what reaches the active surface. This one records
- * the model-facing catalog search that finds a tool to load. It lives beside the
- * load span so tool-load and tool-search — the two lazy-tool discovery spans —
- * share one owner and one `runtimeSpanStarter`. `tools/system.ts` is its only
- * caller (the `system.search_tools` tool), so no agent code imports it back.
- * ------------------------------------------------------------------------- */
-
-/** Stable observation name for the model-facing tool-search runtime span (PRD #405). */
 export const RUNTIME_TOOL_SEARCH = "runtime.tool_search";
 
 export interface ToolSearchSpanArgs {
   runId: string;
   /** `boss` or `sub:<id>`. */
   caller: string;
-  /** Length of the search query in chars — never the raw query text. */
+  /** Never the raw query text. */
   queryChars: number;
   startedAt: Date;
 }
 
-/** Pure builder for the `runtime.tool_search` opening span. Exported for tests. */
+/** Exported for tests. */
 export function buildToolSearchSpanInput(args: ToolSearchSpanArgs): RuntimeSpanInput {
   return {
     runId: args.runId,
@@ -199,25 +164,12 @@ export function buildToolSearchSpanInput(args: ToolSearchSpanArgs): RuntimeSpanI
 }
 
 export interface ToolSearchSpanCloser {
-  /**
-   * Close with the candidate tool names the search returned and measured
-   * latency. An empty list is a `miss`. The names are recorded (bounded) so
-   * discovery tuning can tell "found the wrong tools" from "found nothing" —
-   * the more common metadata gap — instead of collapsing to a hit/miss binary.
-   */
+  /** Names are kept so tuning can tell "found the wrong tools" from "found nothing". */
   end(result: { candidateNames: readonly ToolName[]; latencyMs: number }): void;
   error(): void;
 }
 
-/**
- * Open a `runtime.tool_search` span around a model-facing catalog search. A
- * search returning no candidates is a `miss` — the discovery-metadata gap the
- * PRD wants visible (User Story 17) — not an error, so it closes at DEFAULT with
- * `status:"miss"`. The returned candidate names (not PII) are recorded bounded
- * so an operator can see *what* was surfaced, not just how many. Latency is
- * judged against the `tool_search` debug band. Idempotent — only the first
- * `end`/`error` closes.
- */
+/** No candidates is a `miss`, not an error. Only the first `end`/`error` closes. */
 export function startToolSearchSpan(args: ToolSearchSpanArgs): ToolSearchSpanCloser {
   const span = runtimeSpanStarter(buildToolSearchSpanInput(args));
   let ended = false;

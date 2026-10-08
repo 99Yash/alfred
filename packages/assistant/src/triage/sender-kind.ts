@@ -12,12 +12,7 @@ export const TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD = 0.8;
 
 export const TRIAGE_SENDER_KIND_FEATURE_KEY = "feature.internal.triage_sender_kind_projection";
 
-/**
- * Entity kinds that trigger triage person-treatment demotion — a 2-member
- * subset of EntityNodeKind. Single source for the literal set: the membership
- * check ({@link isTriageDemotingEntityKind}), the signal's `kind`, and the
- * decision-trace's `senderKind` all derive from this.
- */
+/** Kinds that lose person treatment. The one source for this literal set. */
 const TRIAGE_DEMOTING_ENTITY_KINDS = [
   "group",
   "service",
@@ -41,12 +36,7 @@ export async function triageSenderKindProjectionEnabled(userId: string): Promise
   return row ? flagOn(row.value) : true;
 }
 
-/**
- * Active-projection sender kind read for triage. Returns a signal only when the
- * projection confidently says this address is a group/service identity. Missing
- * projection data, DB blips, invalid addresses, or person/unknown profiles are
- * no-op by design.
- */
+/** A signal only when the projection is confident the sender is a group or service; else null. */
 export async function resolveSenderKind(
   userId: string,
   senderAddress: string | null,

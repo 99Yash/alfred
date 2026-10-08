@@ -1,71 +1,27 @@
 /**
- * The one authenticated `fetch` transport every integration client shares. It
- * owns exactly the mechanism they had each copied inline — bearer/version headers
- * pinned by the caller, the shared {@link INTEGRATION_FETCH_TIMEOUT_MS} timeout,
- * JSON body encoding, and redirect policy — and nothing else. It returns the raw
- * {@link Response} so each caller keeps its own genuinely-different post-fetch
- * step and error mapping.
- *
- * Everything else builds on this one core rather than re-implementing the wire
- * mechanics beside it:
- *
- *   authedFetch  → Response          (GitHub's zod path, Railway's GraphQL envelope)
- *     ├ authedJson → unknown         (Notion / Vercel / Google: throw-and-parse JSON)
- *     └ restPassthroughFetch         (ADR-0074 rung-a read-only passthrough envelope)
- *
- * so the 30s timeout and header mechanics live in exactly one place instead of
- * being re-declared per client.
- *
- * A transport failure (timeout/DNS/reset/TLS) throws for the caller to classify;
- * a non-2xx does not — the returned `Response` carries `ok`/`status` and the
- * caller decides how to surface it.
+ * The one authenticated `fetch` for integration clients: pinned headers, the shared
+ * timeout, JSON body, redirect policy. Returns the raw `Response`; a non-2xx does not
+ * throw, a transport failure does. `authedJson` and `restPassthroughFetch` build on it.
  */
 
-/** Shared request timeout for every integration client HTTP call. */
 export const INTEGRATION_FETCH_TIMEOUT_MS = 30_000;
 
-/**
- * Per-provider transport policy — the data-only inputs pinning auth + wire
- * behavior. Carries no URL or business logic; that lives in the vendor module.
- */
 export interface AuthedFetchProfile {
-  /**
-   * Pinned request headers (authorization + any provider/version/accept the API
-   * mandates). `Content-Type: application/json` is added by the transport only
-   * when a body is sent, so it must not be listed here.
-   */
+  /** Do not list `Content-Type`: the transport adds it when a body is sent. */
   headers: Record<string, string>;
-  /**
-   * Redirect handling. Defaults to `"follow"`. GraphQL/passthrough-style callers
-   * pass `"manual"`: a signed provider redirect can carry credentials in its URL,
-   * so a 3xx should be treated as an HTTP outcome, not silently followed.
-   */
+  /** Default `"follow"`. Use `"manual"` when a signed redirect URL could carry credentials. */
   redirect?: "follow" | "error" | "manual" | undefined;
 }
 
-/** A single authenticated request. `body`, when present, is JSON-encoded. */
 export interface AuthedFetchRequest {
   url: string | URL;
-  /** HTTP method; defaults to `"GET"`. */
   method?: string | undefined;
-  /**
-   * Request body. When defined it is `JSON.stringify`-ed and the transport adds
-   * `Content-Type: application/json`; when omitted no body or content type is
-   * sent (a bare read).
-   */
+  /** JSON-encoded when defined. */
   body?: unknown;
-  /**
-   * Caller-driven abort (a phase deadline, a user Stop). Combined with the
-   * shared transport timeout — whichever fires first wins — so a deadline
-   * cancels the fetch rather than abandoning it.
-   */
+  /** Caller abort, combined with the shared timeout. */
   signal?: AbortSignal | undefined;
 }
 
-/**
- * Issue an authenticated request with the provider's pinned headers, the shared
- * timeout, and JSON body encoding. Returns the raw {@link Response} untouched.
- */
 export async function authedFetch(
   profile: AuthedFetchProfile,
   request: AuthedFetchRequest,

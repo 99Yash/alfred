@@ -8,26 +8,17 @@ import { QuestionSheet } from "./question-sheet";
 import type { QuestionStaging } from "./ask-user";
 
 /**
- * A parked `system.ask_user` question in the `/approvals` queue and in a
- * workflow's Approvals tab (ADR-0099).
- *
- * The sibling of the chat tray's inline question card: same staged row, same
- * decision route, and the same {@link QuestionSheet} body, so an answer sheet
- * cannot drift between the two surfaces. Only the chrome differs — this card
- * leads with the queue's row metadata (workflow, trigger, run, time), because
- * a queue reader has no transcript above the card to say where the question
- * came from.
- *
- * The headline states the question count and no tool chip appears. The chip
- * would read "Ask you a question" directly under a headline saying the same
- * thing, and the tool name is not what a reader of this card needs.
+ * A parked `system.ask_user` question in the approvals queue (ADR-0099).
+ * Shares {@link QuestionSheet} with the chat card; leads with row metadata,
+ * since a queue has no transcript to say where the question came from.
+ * No tool chip: it would repeat the headline.
  */
 export function QuestionApprovalCard({
   question,
   onDecide,
 }: {
   question: QuestionStaging;
-  /** Resolves when the decision is recorded; throws with a message on failure. */
+  /** Throws with a message on failure. */
   onDecide: (decision: QuestionDecision) => Promise<void>;
 }) {
   const staging = question.staging;
@@ -35,8 +26,7 @@ export function QuestionApprovalCard({
   const { draftInput, setDraftInput, busy, decided, error, approveDecision, run } =
     useApprovalDecision(staging);
 
-  // On success the row leaves the pending queue and Replicache removes the
-  // card; `run` leaves `busy` set and no local cleanup is needed.
+  // On success Replicache removes the card, so `busy` needs no cleanup.
   const decide = (decision: QuestionDecision) => void run(() => onDecide(decision));
   const count = question.input.questions.length;
 
@@ -87,8 +77,7 @@ export function QuestionApprovalCard({
         settledLabel="Continuing…"
         className="p-5"
         onContinue={() => decide(approveDecision())}
-        // A dismissal IS the answer, so it goes on the wire as a plain
-        // reason-less rejection — the shape the route accepts for a question.
+        // A dismissal is the answer: a plain reason-less reject.
         onDismiss={() => decide({ decision: "reject", expectedRowVersion: staging.rowVersion })}
       />
     </AppCard>

@@ -1,43 +1,10 @@
 /**
- * The dispatch gate's persistence port (`action_stagings` + the owning run's
- * status).
+ * The dispatch gate's only SQL: `action_stagings` and the owning run's status.
+ * `test/tool-runtime/dispatch/staging-store-contract.ts` runs the same suite on
+ * this and the in-memory test adapter.
  *
- * Every statement the gate needs to read or advance a staging row lives here,
- * behind this small port, so the gate itself holds no SQL. That buys two things:
- *
- *   1. The four terminal `UPDATE`s the gate used to hand-write become one
- *      `commitStaging` over the closed {@link StagingCommit} union — a fifth
- *      outcome cannot be invented at a call site, because the adapter's
- *      exhaustive `switch` stops compiling.
- *   2. The gate's ordering rules (retry suppression, cancellation, the upsert
- *      idiom, the status machine, resume re-validation, the approval floor) can
- *      be driven against an in-memory adapter, so they are testable without a
- *      live migrated Postgres. `test/dispatch/staging-store-contract.ts` is what
- *      keeps that adapter honest: both adapters run the same suite, so the fake
- *      cannot drift into a machine Postgres does not run.
- *
- * The in-memory adapter deliberately lives in `test/`, not here — a fake in
- * `src/` is a runtime someone can select in production.
- *
- * `action_stagings` has a SECOND owner, and it is declared here so it is not a
- * hidden one: `tool-runtime/mcp`. The MCP broker settles an invocation and its
- * staging row as one aggregate, because the two rows are one ambiguity barrier
- * and must move together. Its writers, all outside this port:
- *
- *   - `mcp/broker.ts` — the aggregate settle after a `tools/call`, and the
- *     `unknown` mark a failed settlement leaves behind for a later repair;
- *   - `mcp/invocations.ts` — boot reconciliation aligns a split barrier;
- *   - `mcp/recovery.ts` — a user decision resolves the row, and an explicit
- *     successor supersedes it and mints the next attempt of the SAME effect
- *     (same `effect_key`, next `attempt_key`).
- *
- * The second WHERE arm in `commitStaging` exists for that owner: when the
- * broker's aggregate has already written the terminal outcome the dispatcher is
- * about to commit, the dispatcher's commit must still land its result payload
- * instead of reading as a lost update. A `tx`-accepting `settleEffect` /
- * `supersede` pair on this port would fold the MCP writers back into the one
- * minter; that is the shape to reach for when this port gains a transaction
- * parameter.
+ * Second owner: `tool-runtime/mcp` (`broker.ts`, `invocations.ts`, `recovery.ts`)
+ * writes staging rows together with its invocation rows, outside this port.
  */
 
 import type {
@@ -65,11 +32,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
 
-/**
- * The staging columns the gate actually reads. Narrower than
- * {@link ActionStaging} on purpose: a column absent here is one the gate cannot
- * branch on, which is why the status machine stays readable.
- */
+/** The columns the gate reads. A column absent here is one it cannot branch on. */
 export type StagingRow = Pick<
   ActionStaging,
   | "id"
@@ -88,8 +51,6 @@ export type StagingRow = Pick<
   | "notifyAfterAt"
   | "notifiedAt"
   | "expiresAt"
-  // #559a: the effect dimension. The gate reads these off the stored row to
-  // thread the effect identity downstream and to run the ambiguity barrier.
   | "outcome"
   | "effectKey"
   | "attemptKey"
@@ -97,14 +58,8 @@ export type StagingRow = Pick<
 >;
 
 /**
- * What the gate supplies to create a staging row. Deliberately NOT the raw
- * `NewActionStaging`: `effect_key` / `attempt_key` / `outcome` are minted by the
- * store (mint-once, keep-on-replay is the conflict idiom), and `request_hash`
- * is required here because only the gate knows the target account/resource
- * binding the canonical hash must scope to. `displayInput` is required — every
- * writer must pair it with `proposedInput` (raw for resume, redacted for
- * notification sinks) so a naive `.set({ proposedInput: x })` does not compile
- * into a leak; the column stays nullable only for pre-#374 legacy rows.
+ * The store mints the effect keys and `outcome`. `displayInput` is required so
+ * redacted input always travels with the raw `proposedInput`.
  */
 export type StagingInsertValues = Omit<
   NewActionStaging,
@@ -119,17 +74,12 @@ export function effectKeyFor(runId: string, toolCallId: string): string {
   return `eff:${runId}:${toolCallId}`;
 }
 
-/** The first (and, until the retry/reclaim slice, only) attempt of an effect. */
+/** The first attempt of an effect. */
 export function attemptKeyFor(runId: string, toolCallId: string): string {
   return `${effectKeyFor(runId, toolCallId)}:1`;
 }
 
-/**
- * The statuses `findPriorRejection` may match. `rejected` is the classic
- * retry-suppression match. The `question` arm (ADR-0099) adds `expired`,
- * because a question set the user let lapse must not park the turn again on
- * the next step. Each staging arm names its own list in `STAGING_ARM`.
- */
+/** `STAGING_ARM` picks the list per arm. The question arm adds `expired` (ADR-0099). */
 export type PriorRejectionStatus = Extract<ActionStaging["status"], "rejected" | "expired">;
 
 export type PendingApprovalPromotion = Pick<
@@ -143,14 +93,8 @@ export type PendingApprovalPromotion = Pick<
 >;
 
 /**
- * The two terminal outcomes a dispatched row can reach. A closed union so the
- * "which columns does this outcome write" decision is made once, in the
- * adapter, instead of at each of the four sites that used to hand-write the
- * `UPDATE`. The `outcome` member is per-arm and mandatory: an `executed` row
- * must declare whether the effect provably happened (`succeeded`) or may have
- * happened without confirmation (`unknown` — the ambiguity-barrier case). A
- * `failed` row is either `failed` (the provider was called and the call did not
- * succeed) or `refused` (#559b) — the gate refused to call the provider at all.
+ * The terminal outcomes. `unknown`: the effect may have happened without
+ * confirmation. `refused`: the gate never called the provider.
  */
 export type StagingCommit =
   | { status: "failed"; outcome: "failed" | "refused"; error: PublicAppError; executedAt: Date }
@@ -163,13 +107,7 @@ export type StagingCommit =
     };
 
 export interface StagingStore {
-  /**
-   * Most recent row in one of `statuses` for this run + tool + input hash, or
-   * `null`. Scoped to the run because ADR-0034 scopes the partial index that
-   * way. The matched row's own status comes back so a caller that asked for
-   * several can tell which one it hit; the WHERE admits only `statuses`, so the
-   * caller narrows it by comparison, not by a second parse.
-   */
+  /** Most recent row in `statuses` for this run, tool, and input hash. */
   findPriorRejection(query: {
     runId: string;
     toolName: ToolName;
@@ -178,55 +116,29 @@ export interface StagingStore {
   }): Promise<{ reason: string | null; status: ActionStaging["status"] } | null>;
 
   /**
-   * An unresolved `unknown` staging row for this user + canonical request hash,
-   * or `null` (#559a). The gate runs this BEFORE inserting a fresh row: an
-   * identical logical effect whose outcome is still `unknown` blocks a new
-   * tool-call id (the model must not repeat a possibly-delivered write). The
-   * `(user_id, request_hash) WHERE outcome = 'unknown'` partial unique index is
-   * the DB backstop against two rows racing to `unknown`.
+   * An unresolved `unknown` row for this user and request hash. It blocks a
+   * repeat of a write that may have been delivered. A unique index backs it.
    */
   findUnresolvedUnknown(query: { userId: string; requestHash: string }): Promise<StagingRow | null>;
 
-  /**
-   * The owning run's status. `null` means the row is absent OR its value does
-   * not parse — the gate treats both as "the run is unavailable", so the
-   * distinction never escapes this module.
-   */
+  /** `null` when the run is absent or its status does not parse. */
   readRunStatus(runId: string): Promise<RunStatus | null>;
 
-  /**
-   * The run's current cancellation fence (workflows-v1 #559b). Total: an absent
-   * row reads as `{ generation: 0 }` — a run that does not exist is trivially
-   * not-cancelled, and production dispatch always has a real run. The dispatch
-   * gate re-reads this immediately before each effect and refuses when it has
-   * moved past the generation the step started under.
-   */
+  /** An absent run reads as `{ generation: 0 }`. */
   readCancellationFence(runId: string): Promise<CancellationFence>;
 
-  /**
-   * Idempotent on `(runId, toolCallId)`. `wasInserted` distinguishes a genuine
-   * insert from a conflict; on conflict the STORED row comes back verbatim with
-   * no decision/result column touched, because the resume path reads `status` /
-   * `decidedInput` off it. The store mints `effectKey` / `attemptKey` /
-   * `outcome` on a genuine insert; a re-dispatch of the same key keeps the
-   * minted values (the conflict SET is a no-op).
-   */
+  /** Idempotent on `(runId, toolCallId)`. On conflict, returns the stored row unchanged. */
   upsertStaging(values: StagingInsertValues): Promise<{ row: StagingRow; wasInserted: boolean }>;
 
-  /**
-   * Monotonically raise an old pending autonomous row into the approval queue.
-   * Returns null when the row is no longer pending and autonomous.
-   */
+  /** Move a pending autonomous row into the approval queue, or return null. */
   promotePendingApproval(
     stagingId: string,
     promotion: PendingApprovalPromotion,
   ): Promise<StagingRow | null>;
 
   /**
-   * Terminal commit onto the exact state the dispatcher observed, or enrich the
-   * same terminal outcome after the broker aggregate advanced it without a
-   * model-facing result. Returns false for a different terminal outcome, so a
-   * stale outer dispatch cannot reopen only the staging half of a settled effect.
+   * Commit from the observed state, or fill the result when the MCP broker
+   * already wrote the same outcome. False for any other outcome.
    */
   commitStaging(
     stagingId: string,
@@ -258,12 +170,7 @@ const STAGING_COLUMNS = {
   requestHash: actionStagings.requestHash,
 } as const;
 
-/**
- * `status` and `outcome` are plain `text` columns carrying a `$type`
- * assertion, so a value written by an older deploy (or by hand) reaches us
- * unvalidated. Parse them at the read — the owning boundary — rather than
- * letting the gate branch on a string TypeScript merely believes.
- */
+/** `status` and `outcome` are `text` columns with only a `$type` assertion, so parse them. */
 function parseStagingRow(row: StagingRow): StagingRow {
   return {
     ...row,
@@ -272,18 +179,10 @@ function parseStagingRow(row: StagingRow): StagingRow {
   };
 }
 
-/** The `outcome` a fresh row is born with (#559a). */
 export function outcomeForInsert(values: StagingInsertValues): EffectOutcome {
-  // A row that gates is in the approval queue the moment it is inserted; a row
-  // the gate will dispatch immediately is `dispatching` from birth. `planned`
-  // remains the DB default for writers that do not set it.
   return values.requiresApproval ? "awaiting_approval" : "dispatching";
 }
 
-/**
- * Column set for one commit arm. Exhaustive over {@link StagingCommit}: adding
- * a third outcome is a type error here, not a silently-unhandled branch.
- */
 function commitColumns(commit: StagingCommit) {
   switch (commit.status) {
     case "failed":
@@ -297,13 +196,9 @@ function commitColumns(commit: StagingCommit) {
       return {
         status: "executed",
         outcome: commit.outcome,
-        // A tool legitimately returning `undefined` is stored as SQL NULL.
-        // `status = 'executed'` is the discriminator for "execution happened" —
-        // readers must never infer "no result yet" from a null payload.
+        // `undefined` is stored as NULL. `status` alone says the tool ran.
         executeResult: commit.result === undefined ? null : commit.result,
-        // Persist the sanitize verdict alongside the scrubbed result so the
-        // idempotent `executed` replay re-emits the same "may be incomplete"
-        // notice rather than replaying it as pristine (ADR-0070 §1.1).
+        // A replay must repeat the "may be incomplete" notice (ADR-0070 §1.1).
         executeSanitized: commit.sanitized,
         executedAt: commit.executedAt,
       } as const;
@@ -382,22 +277,12 @@ export const postgresStagingStore: StagingStore = {
   },
 
   async upsertStaging(values) {
-    // Single upsert. On a `(run_id, tool_call_id)` conflict we do a *no-op*
-    // UPDATE purely so the existing row is RETURNED — `onConflictDoNothing`
-    // returns nothing on conflict, which previously forced a second SELECT-back
-    // round-trip. The no-op set MUST NOT touch any decision/result column: a
-    // re-dispatch of an already-staged/approved/executed call has to read the
-    // stored row verbatim (the gate's resume path depends on it). `xmax = 0`
-    // distinguishes a freshly-inserted row from an updated (conflict) one — the
-    // standard Postgres upsert idiom — so the Replicache poke stays gated to
-    // genuinely-new rows.
+    // The no-op conflict UPDATE exists only to RETURN the stored row, and must not
+    // touch decision or result columns. `xmax = 0` is true only for a fresh insert.
     const upserted = await db()
       .insert(actionStagings)
       .values({
         ...values,
-        // #559a: mint-once identity. On a conflict the no-op SET below keeps
-        // whatever was stored, so a re-dispatch of the same (run, tool call)
-        // never rotates the effect key.
         effectKey: effectKeyFor(values.runId, values.toolCallId),
         attemptKey: attemptKeyFor(values.runId, values.toolCallId),
         outcome: outcomeForInsert(values),
@@ -487,12 +372,7 @@ export function stagingStore(): StagingStore {
   return activeStagingStore;
 }
 
-/**
- * Swap the store for a test, returning a restore closure. Mirrors
- * `_setDispatchTraceSinksForTests` — the module-binding injection precedent in
- * this feature — so no production caller of `dispatchToolCall` has to learn a
- * persistence port to serve a test.
- */
+/** Swap the store for a test. Returns a restore closure. */
 export function _setStagingStoreForTests(store: StagingStore): () => void {
   const previous = activeStagingStore;
   activeStagingStore = store;

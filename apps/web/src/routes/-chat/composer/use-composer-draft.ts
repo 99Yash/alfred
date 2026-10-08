@@ -12,13 +12,10 @@ interface ComposerDraft {
 }
 
 export function useComposerDraft(threadId: string | undefined): ComposerDraft {
-  // Persist drafts per thread (and a shared "new chat" bucket for the empty
-  // /chat hero). Survives refresh; cleared on submit.
+  // Per-thread drafts, plus a "new" bucket for /chat. Cleared on submit.
   const draftKey = `alfred:chat-draft:${threadId ?? "new"}`;
 
-  // Seed the editor once on mount. Stored drafts are Tiptap JSON; we also
-  // accept the legacy plain-string format so drafts written by the previous
-  // textarea+mirror composer survive the migration.
+  // Tiptap JSON, or a legacy plain-string draft.
   const initialJSON = useMemo(() => readDraftJSON(draftKey), [draftKey]);
 
   const [editorState, setEditorState] = useState<{
@@ -62,10 +59,8 @@ function readDraftJSON(draftKey: string): JSONContent | undefined {
 
   if (!raw) return undefined;
 
-  // Drafts written before JSON storage hold plain text: unparseable content
-  // wraps as a single-paragraph doc rather than reading as an empty draft.
-  // (`safeJsonParse` maps both malformed input and a literal "null" to null,
-  // so the literal is answered explicitly.)
+  // Legacy drafts are plain text: wrap them in a paragraph.
+  // `safeJsonParse` maps both bad input and a literal "null" to null, so handle the literal here.
   const parsed = safeJsonParse(raw);
 
   if (parsed === null && raw !== "null") {
@@ -76,20 +71,14 @@ function readDraftJSON(draftKey: string): JSONContent | undefined {
   }
 
   if (isRecord(parsed) && "type" in parsed) {
-    // SAFETY: the guards above proved the draft JSON is an object carrying
-    // `type`, which is JSONContent's load-bearing shape here.
+    // SAFETY: the guards proved an object with `type`, the shape JSONContent needs here.
     return parsed as JSONContent;
   }
 
   return undefined;
 }
 
-/**
- * Mirrors what Tiptap's `editor.getText()` would produce for the given JSON,
- * used to seed the `canSend` check from a restored draft before the first
- * onUpdate fires. Each mention node contributes `@<label>` to match the
- * editor's configured `renderText`.
- */
+/** Match `editor.getText()` for a restored draft, before the first onUpdate. Mentions give `@<label>`. */
 function extractTextFromJSON(json: JSONContent): string {
   let out = "";
 
@@ -102,7 +91,7 @@ function extractTextFromJSON(json: JSONContent): string {
     }
 
     if (Array.isArray(node.content)) {
-      // ProseMirror block separators show up as newlines in getText().
+      // Block separators become newlines in getText().
       let first = true;
 
       for (const child of node.content) {

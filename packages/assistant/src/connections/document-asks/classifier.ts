@@ -2,25 +2,10 @@ import { collapseWhitespace } from "@alfred/contracts";
 import type { ContentFormat, DocumentAskKind } from "@alfred/contracts";
 
 /**
- * Versioned content-heading policy for Gmail attachment evidence. The policy is
- * deliberately asymmetric toward false negatives, because a `resolved` ask is
- * absorbing and nothing corrects a wrong close. A kind matches only when:
- *
- * - one of its primary headings is present,
- * - no primary heading of the other kind is present,
- * - no job-posting heading is present, because a job description reuses the
- *   resume headings (`work experience`, `skills`, `education`), and
- * - at least two distinct supporting markers match.
- *
- * Each supporting marker counts once, however many lines it matches. The
- * supporting sets are disjoint from both primary sets and from each other, so
- * one heading can never count twice. Headings both kinds use (`experience`,
- * `projects`, `work`, `contact`) are not markers at all. A filename, MIME type,
- * generic career word, or technical extraction format never selects a kind.
- *
- * Nothing persists a classification: the reducer reclassifies stored content
- * on every read, so `version` marks a policy change for review and replay
- * only. Version 2 made the sets disjoint and added the two vetoes.
+ * Heading rules for attachment evidence. Biased to false negatives: a `resolved` ask never reopens.
+ * A match needs its own primary heading, no other primary, no job-posting heading
+ * (job ads reuse resume headings), and two supporting markers.
+ * Keep the marker sets disjoint so no heading counts twice.
  */
 const DOCUMENT_ASK_CONTENT_MARKERS = {
   version: 2,
@@ -78,11 +63,7 @@ function matchesPolicy(
   return supporting.length >= DOCUMENT_ASK_CONTENT_MARKERS.minimumSupportingMarkers;
 }
 
-/**
- * Classify already-extracted attachment content into the semantic product kind
- * requested by a document ask. `filename`, `mimeType`, and `format` are caller
- * context and audit fields, intentionally not signals here.
- */
+/** Content only: `filename`, `mimeType`, and `format` are not signals. */
 export function classifyGmailAttachmentContent(input: {
   content: string;
   filename: string | null;

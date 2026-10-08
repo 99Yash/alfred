@@ -15,48 +15,12 @@ import {
 } from "./skill-documentation-workflow-input";
 
 /**
- * `skill-documentation` — async phase 2 of dimension's two-phase Learn
- * (ADR-0017). Enqueued by `learn-skill`'s persist step once a v1
- * (`distilled`) revision commits.
- *
- * Steps:
- *   1. gather-context  — pull the skill row + v1 body + active facts +
- *                        top-K hits from `documents`/`chunks`
- *                        (search) and `memory_chunks`
- *                        (recallMemory). Both queries use the v1 body
- *                        verbatim — distill already produced the
- *                        canonical statement of the skill's intent.
- *   2. compose         — one boss-tier `meteredGenerateText` call that
- *                        rewrites the body integrating the retrieved
- *                        evidence (without softening the v1 directives).
- *   3. persist-revision — write a `skill_revisions` row with
- *                         `kind='documented'`, advance
- *                         `skills.current_revision_id`. Subsequent Learn
- *                         clicks will distill against this v2 body.
- *   4. notify          — `notify({ kind: 'skill_documented' })` with
- *                        idempotency key per revision so a worker-crash
- *                        retry of the step doesn't double-send.
- *
- * Idempotency:
- *   - Trigger-side: per-skill dedup via the partial unique index. If a
- *     second Learn click lands while this run is still executing, the
- *     second skill-documentation insert fails with 23505 — the first
- *     run continues and re-reads `current_revision_id` in
- *     `gather-context`, so it documents whatever the latest v1 is at
- *     gather time.
- *   - Step-side: `commitSkillRevision` is append-only on a unique row;
- *     `notify()` is idempotent on `(user_id, idempotency_key)`. A
- *     worker-crash retry inside compose re-bills the boss-tier call —
- *     acceptable at single-skill cadence; not worth a checkpoint cache.
- *   - The notify idempotency key uses the v2 revision id so a re-Learn
- *     that produces a NEW documented revision sends a fresh email,
- *     while a worker retry of the SAME revision is a no-op.
- *
- * Cancellation: there is no per-doc HIL gate. Reject in the UI cancels
- * `agent_runs.status = 'cancelled'`; the executor stops scheduling
- * further steps. If the run already passed `notify`, the email is gone.
- * That matches dimension's "the email dispatches even when I don't
- * approve, as long as I don't reject" behavior.
+ * `skill-documentation`: async phase 2 of Learn (ADR-0017), enqueued by `learn-skill`.
+ * Steps: gather the v1 body plus facts, documents, and memory hits; one boss-tier call
+ * rewrites the body with that evidence; write a `documented` revision; notify once.
+ * The per-skill dedup index makes a second Learn click fail with 23505; the running doc
+ * re-reads the latest v1. A crash inside compose re-bills the call, which is acceptable.
+ * There is no approval gate. A reject cancels the run, but a sent email stays sent.
  */
 
 const skillDocumentationContextSchema = z.object({
@@ -76,12 +40,8 @@ const skillDocumentationContextSchema = z.object({
       confidence: z.number(),
     }),
   ),
-  // The hit shapes are large; persist them opaquely rather than
-  // re-validating jsonb between steps. State is checkpointed to DB
-  // and re-loaded on resume — full round-trips through zod for the
-  // raw search hits buy nothing here. The hits are already model-facing
-  // (`ModelFacingHit`: the collect step stripped the corpus `record`), so
-  // no credential-scoping identity enters the run store through this field.
+  // Stored opaquely: zod round-trips buy nothing. The hits are already model-facing
+  // (`ModelFacingHit`), so no credential identity enters the run store.
   documentHits: z.array(z.custom<SkillDocumentationContext["documentHits"][number]>()),
   memoryHits: z.array(z.custom<SkillDocumentationContext["memoryHits"][number]>()),
   sourceCounts: z.record(z.string(), z.number()),
@@ -108,9 +68,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
   name: "Skill documentation",
   description:
     "Async deep-documentation pass for a skill — hybrid search + boss-tier compose + email notify (ADR-0017).",
-  // Spawned by the parent `learn-skill` workflow once the sync phase
-  // commits a revision; `event.source = 'learn-skill'` captures that
-  // relationship for History filters.
+  // `source = 'learn-skill'` lets History filter by parent.
   trigger: { kind: "event", source: "learn-skill", type: "completed" },
   initialStep: "gather-context",
   stateSchema,
@@ -124,18 +82,14 @@ export const skillDocumentationWorkflow: Workflow<State> = {
     };
   },
 
-  // Per-skill singleton. Two Learn clicks in quick succession produce
-  // one doc run, not two; the surviving run re-reads the latest v1.
+  // One doc run per skill; the survivor re-reads the latest v1.
   dedupKey: ({ input }) => {
     const parsed = skillDocumentationInputSchema.parse(input ?? {});
 
     return skillDocumentationDedupKey(parsed.skillId);
   },
 
-  // Same closure obligation as learn-skill, and the same reason each branch
-  // records its own status: the skill-detail UI reads `skill_runs.status`, and
-  // `finalizeSkillRun` records the terminal status it is handed — so a cancel is
-  // recorded as a cancel rather than as a failure.
+  // Each branch records its own status, so a cancel is not recorded as a failure.
   closure: {
     kind: "client",
     async onTerminal(ctx) {
@@ -162,8 +116,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
     "gather-context": {
       id: "gather-context",
       async run(ctx) {
-        // Record the doc run row up-front so the skill-detail UI can
-        // render "documenting…" the moment this workflow picks up.
+        // Record the run first, so the UI shows "documenting" at once.
         await recordSkillRun({
           userId: ctx.userId,
           skillId: ctx.state.skillId,
@@ -278,9 +231,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
         const result = await send({
           userId: ctx.userId,
           kind: "skill_documented",
-          // Per-revision idempotency: a worker retry of this step is a
-          // no-op (same key); a fresh re-Learn produces a different
-          // revisionId and therefore a fresh email.
+          // Same revision: a retry is a no-op. A re-Learn has a new revision and a new email.
           idempotencyKey: `skill-doc:${ctx.state.revisionId}`,
           subject: email.subject,
           html: email.html,

@@ -5,20 +5,15 @@ import { CostFlow } from "./cost-flow";
 import { Tip } from "./tip";
 
 /**
- * Roll a thread's durable messages up into the economics totals.
- *
- * Exported because two surfaces read the same numbers — the `ThreadTotal`
- * above the composer and the thread menu's usage row — and a second copy of this arithmetic would be
- * free to disagree with the first. The in-flight stream is not in `messages`
- * yet, so every consumer must say the total excludes it.
+ * Thread usage totals, shared by `ThreadTotal` and the thread menu so they cannot disagree.
+ * Excludes the in-flight stream; consumers must say so.
  */
 export function useThreadUsageSummary(messages: readonly SyncedChatMessage[]) {
   return useMemo(() => {
     let inputTokens = 0;
     let outputTokens = 0;
     let cachedInputTokens = 0;
-    // Null until a turn carries the field, so a thread of pre-field rollups
-    // reports "unknown" rather than a zero cold-token total it can't support.
+    // Null until a turn has the field, so old threads show "unknown", not zero.
     let cacheWriteInputTokens: number | null = null;
     let costUsd = 0;
     let calls = 0;
@@ -60,16 +55,7 @@ export function useThreadUsageSummary(messages: readonly SyncedChatMessage[]) {
   }, [messages]);
 }
 
-/**
- * Thread-level rollup drawn once per thread, directly above the composer — the
- * same surface family as the per-turn `UsageLine` under each reply, so the
- * running total sits beside the receipts it sums rather than in the sticky
- * `TopBar` chrome next to the title. Derived during render from the durable
- * `messages` array: no new subscription, no mirrored state. The in-flight
- * stream isn't in `messages` yet, so the tooltip says the total excludes it
- * rather than looking wrong mid-turn. Renders nothing before a turn lands
- * with usage.
- */
+/** Thread total above the composer. The tooltip says it excludes the in-flight turn. */
 export function ThreadTotal({ messages }: { messages: readonly SyncedChatMessage[] }) {
   const summary = useThreadUsageSummary(messages);
 

@@ -1,26 +1,6 @@
 /**
- * App theme system — provider + context hook.
- *
- * Three modes:
- *   - "system" (default) → tracks prefers-color-scheme; the `.app` element
- *     carries no data-app-theme attribute so the @media block in index.css
- *     resolves it.
- *   - "dark"  → forces data-app-theme="dark"
- *   - "light" → forces data-app-theme="light"
- *
- * Preference is persisted to localStorage under "app-theme" so a refresh
- * keeps the user's choice.
- *
- * Usage:
- *   <AppThemeProvider>
- *     <AppThemed>
- *       <AppThemeToggle />
- *       ...
- *     </AppThemed>
- *   </AppThemeProvider>
- *
- * Companion components (`AppThemed`, `AppThemeToggle`) live in their own
- * files so each module exports a single component.
+ * App theme provider. "system" (default) sets no `data-app-theme`, so the
+ * index.css media query decides; "dark" and "light" force it.
  */
 
 import {
@@ -39,15 +19,14 @@ import {
   type LocalStorageValue,
 } from "~/lib/storage/storage";
 
-/** The persisted theme choice — defined once, in the `app-theme` storage schema. */
 export type AppThemeMode = LocalStorageValue<"app-theme">;
 
 export type AppResolvedTheme = "dark" | "light";
 
 export interface AppThemeContextValue {
-  /** What the user has selected — may be "system". */
+  /** May be "system". */
   mode: AppThemeMode;
-  /** What's actually applied right now (resolved against prefers-color-scheme). */
+  /** Applied theme, with "system" resolved. */
   resolved: AppResolvedTheme;
   setMode: (mode: AppThemeMode) => void;
 }
@@ -58,11 +37,7 @@ const STORAGE_KEY = "app-theme";
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
-/**
- * The `window.matchMedia` capability probe both theme readers share. Returns
- * `null` when there is no window (SSR) or no `matchMedia`, so each reader
- * states its own fallback instead of repeating the probe.
- */
+/** `null` without a window (SSR) or `matchMedia`, so each caller picks its own fallback. */
 function safeMatchMedia(query: string): MediaQueryList | null {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return null;
 
@@ -74,7 +49,7 @@ function readPersistedMode(): AppThemeMode {
 }
 
 function getSystemPreference(): AppResolvedTheme {
-  // Alfred defaults to dark when nothing is detectable.
+  // Dark when nothing is detectable.
   return safeMatchMedia(DARK_QUERY)?.matches === false ? "light" : "dark";
 }
 
@@ -82,7 +57,6 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<AppThemeMode>(() => readPersistedMode());
   const [systemPref, setSystemPref] = useState<AppResolvedTheme>(() => getSystemPreference());
 
-  // Track changes to the OS preference while the component is mounted.
   useEffect(() => {
     const mql = safeMatchMedia(DARK_QUERY);
 
@@ -95,12 +69,8 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
 
   const resolved: AppResolvedTheme = mode === "system" ? systemPref : mode;
 
-  // Keep <html> in sync with the resolved theme so the UA canvas (scrollbars,
-  // overscroll, the area behind `.app`) matches the app surface. The inline
-  // script in index.html stamps this on first paint to avoid a FOUC; this
-  // effect keeps it correct after a runtime toggle or OS change. `.app` itself
-  // is stamped by <AppThemed>; the hex values mirror `--app-background`
-  // (dark #0a0a0a / light #ffffff) in index.css.
+  // Sync <html> so scrollbars and overscroll match. index.html stamps first paint;
+  // this covers later changes. Hex values mirror `--app-background` in index.css.
   useEffect(() => {
     const el = document.documentElement;
     el.classList.toggle("dark", resolved === "dark");
@@ -108,8 +78,7 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
     el.style.backgroundColor = resolved === "dark" ? "#0a0a0a" : "#ffffff";
   }, [resolved]);
 
-  // Keep the user's choice in sync across tabs — the `storage` event fires in
-  // every *other* tab when one writes, so a theme change here lands there too.
+  // The `storage` event syncs a change made in another tab.
   useEffect(() => subscribeToStorage(STORAGE_KEY, setModeState), []);
 
   const setMode = useCallback((next: AppThemeMode) => {

@@ -5,29 +5,14 @@ import {
 } from "@alfred/assistant/connections/ingestion";
 
 /**
- * The one inbound webhook door (ADR-0097).
- *
- *   provider ──webhook──> POST /webhooks/inbound/:source
- *
- * The route knows nothing about any provider. It hands the exact request bytes
- * and headers to `receiveInboundDelivery`, which looks the `:source` segment up
- * in the descriptor registry, verifies the RAW body before any parse, stores one
- * `event_receipts` row and enqueues its delivery. The status map is the whole
- * transport contract: an unknown source is 404, a bad signature is 401 (the
- * provider shows it in its delivery log and does not spin retries), and every
- * other outcome is 200 so a provider never retries a body we already stored or
- * deliberately dropped.
- *
- * `POST /webhooks/github` is the legacy alias: the GitHub App's hook URL on
- * Railway points there. It runs the same path with `source` fixed to `github`.
- *
- * Gmail is not here. Its Pub/Sub push is OIDC-authenticated and carries a
- * pointer, not the event, so `gmail-webhook.ts` keeps its own route.
+ * Generic webhook receiver (ADR-0097): unknown source 404, bad signature 401,
+ * anything else 200 so the provider never retries.
+ * `POST /webhooks/github` is a legacy alias; the GitHub App still points there.
+ * Gmail uses `gmail-webhook.ts` (OIDC, and it carries a pointer, not the event).
  */
 
 const rawBodyRoute = {
-  // Hand the handler the raw body string so the descriptor's HMAC is over the
-  // provider's exact bytes, not a re-serialized parse.
+  // Raw text, so the HMAC covers the provider's exact bytes.
   parse: ({ request }: { request: Request }) => request.text(),
   body: t.String(),
 } as const;

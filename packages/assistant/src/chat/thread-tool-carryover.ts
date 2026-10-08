@@ -10,35 +10,15 @@ import { toolNamesFromState, uniqueToolNames } from "@alfred/assistant/execution
 import { availableToolNamesByIntegration } from "@alfred/assistant/tool-runtime";
 
 /**
- * How many of the thread's previous runs the carry-over looks back through for
- * a surface worth inheriting. The latest run alone is not enough: a run that
- * failed before its own carry-over ran, or one written before this feature,
- * persisted a kernel-only surface and would shadow the useful one behind it.
- * Because carry-over chains (each run's surface includes what it inherited),
- * anything older than a few runs holds nothing the newer ones lack.
+ * More than one: a run that failed early saved a kernel-only surface. Carry-over
+ * chains, so older runs add nothing.
  */
 const THREAD_TOOL_CARRYOVER_LOOKBACK = 3;
 
 /**
- * Seed a new chat run's tool surface from the thread's previous runs.
- *
- * Every run starts from the system kernel, and the deterministic preload ranks
- * only the latest user message — so a short follow-up ("apply to all") on a
- * thread whose previous turn already loaded `gmail.search` and
- * `system.remember` paid two model steps per tool to load them again (prod
- * `run_tsevusjk1poq`: six of its twenty-four steps). A thread is one
- * conversation; the tools its last turn needed are the best prior for the
- * next, so carry them over instead of rediscovering them.
- *
- * Re-gated, not trusted: a carried name enters `activeTools` only if it is
- * loadable right now under this run's allowlist, credential health, and caller
- * context — `availableToolNamesByIntegration`, the same evaluator behind
- * `system.load_tool` — so a tool whose integration disconnected since the last
- * turn is dropped here rather than bouncing at dispatch. Names retired since the
- * checkpoint fall out in `toolNamesFromState`. Reads the thread's latest runs
- * regardless of how they ended (a failed turn's loaded tools are as good a prior
- * as a completed one's), takes the newest that carries anything, and excludes
- * this run itself so a step retry is idempotent.
+ * Seed a run's tools from the thread's last turn. The preload ranks only the latest
+ * message, so a short follow-up would reload the same tools step by step.
+ * Each name is gated again by `availableToolNamesByIntegration`, so a disconnected tool drops here.
  */
 export async function carryForwardThreadTools(args: {
   userId: string;

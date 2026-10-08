@@ -12,25 +12,8 @@ import {
 import { CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG } from "./idle-capture-queue";
 
 /**
- * End-of-thread chat → memory capture (chat-memory-capture-v1.md, #398;
- * decisions D6/D9). Triggered by the per-thread idle debounce
- * (`chat-memory` queue) once a conversation has gone quiet.
- *
- * Steps:
- *   1. load-transcript — read the thread's finished turns (role + content, D9).
- *   2. extract         — cheap-model pass → crisp, tagged propositions (D6),
- *                        or injected proposals in manual/test mode.
- *   3. finalize        — record the tally + return the propositions as the run
- *                        output.
- *
- * SCOPE (#398): this slice does NOT write anything durable. The propositions it
- * produces are the input to #399, which will route them through
- * `insertObservation`. See the TODO(#399) in `finalize`.
- *
- * Mirrors `memory-extraction.ts`: the LLM lives in a pure extractor
- * (`@alfred/assistant` `extractPropositionsFromThread`) so manual mode can inject
- * proposals without the AI SDK, and a single `process`-style shape keeps the
- * executor's `(runId, stepId, attempt)` key happy.
+ * Extract tagged propositions from an idle chat thread (#398, D6/D9).
+ * Writes nothing durable yet; see the TODO(#399) in `finalize`.
  */
 
 const threadTurnSchema = z.object({
@@ -42,17 +25,13 @@ const stateSchema = z.object({
   mode: z.enum(["auto", "manual"]),
   threadId: z.string().min(1),
   captureAfterMessageId: z.string().min(1),
-  /** Injected transcript (manual mode) — bypasses the DB read. */
+  /** Manual mode: skips the DB read. */
   manualTranscript: z.array(threadTurnSchema).optional(),
-  /** Injected propositions (manual mode) — bypasses the LLM. */
+  /** Manual mode: skips the model. */
   manualPropositions: z.array(chatPropositionSchema).optional(),
-  /** Populated by load-transcript. */
   transcriptText: z.string(),
-  /** Populated by load-transcript. */
   turnCount: z.number().int().nonnegative(),
-  /** Populated by extract. */
   propositions: z.array(chatPropositionSchema),
-  /** ISO timestamp captured at run-create. */
   startedAt: z.string(),
 });
 
@@ -69,8 +48,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
   name: "Chat memory capture",
   description:
     "End-of-thread extraction of crisp, tagged propositions from an idle chat thread (chat-mem v1, #398).",
-  // Dispatched by the per-thread idle-debounce queue (chat-memory), not the
-  // generic cron/event tick — declared manual like the chat-turn workflow.
+  // Started by the idle debounce, not a cron or event.
   trigger: { kind: "manual" },
   initialStep: "load-transcript",
   stateSchema,
@@ -105,10 +83,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
     };
   },
 
-  // One capture per settled transcript anchor at a time. The anchor is the
-  // completed assistant message that armed the debounce: duplicates for that
-  // exact settled turn collide, while a later turn in the same thread can still
-  // produce a fresh capture.
+  // One capture per arming assistant message; a later turn still gets its own.
   dedupKey(input) {
     const threadId = input.metadata?.threadId;
     const captureAfterMessageId = input.metadata?.captureAfterMessageId;
@@ -122,7 +97,6 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
     "load-transcript": {
       id: "load-transcript",
       async run(ctx) {
-        // Manual mode: the test supplies the transcript, skip the DB read.
         if (ctx.state.mode === "manual" && ctx.state.manualTranscript) {
           const transcript = ctx.state.manualTranscript;
           const transcriptText = buildThreadTranscript(transcript);
@@ -135,8 +109,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
           };
         }
 
-        // Guard: the thread must be the run owner's. A run is minted per user by
-        // the debounce worker, but re-assert ownership before reading content.
+        // Re-check ownership before reading content.
         const [thread] = await db()
           .select({ id: chatThreads.id })
           .from(chatThreads)
@@ -212,11 +185,9 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
 
     extract: {
       id: "extract",
-      // A single cheap-model call — give it a wider stale-lease window than the
-      // 60s default so a brief heartbeat lapse can't reclaim a live call.
+      // Wider than the 60s default, so a heartbeat lapse cannot reclaim a live call.
       staleAfterMs: 120_000,
       async run(ctx) {
-        // Manual mode: inject proposals, bypass the LLM (test fixtures).
         if (ctx.state.mode === "manual" && ctx.state.manualPropositions) {
           return {
             kind: "next",
@@ -245,9 +216,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
             nextStep: "finalize",
           };
         } catch (err) {
-          // A model blip must not fail the run — capture is best-effort. Land
-          // zero propositions and finish cleanly (the thread stays eligible for
-          // a later capture once new turns re-arm the debounce).
+          // Best-effort: land zero propositions. A later turn re-arms the debounce.
           await ctx.log(`extract failed for thread=${ctx.state.threadId}: ${toMessage(err)}`);
 
           return { kind: "next", state: { ...ctx.state, propositions: [] }, nextStep: "finalize" };
@@ -263,11 +232,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
           `finalize: thread=${threadId} turns=${turnCount} propositions=${propositions.length}`,
         );
 
-        // TODO(#399): write these propositions into the ADR-0067 observation log
-        // via `insertObservation` (mapping `attribution` → source/kind). #398 is
-        // trigger + extractor only — no durable writes. For now the propositions
-        // are surfaced solely as the run output, so the loop is observable end
-        // to end and #399 can build directly on this shape.
+        // TODO(#399): write these to the observation log via `insertObservation` (ADR-0067).
         return {
           kind: "done",
           state: ctx.state,

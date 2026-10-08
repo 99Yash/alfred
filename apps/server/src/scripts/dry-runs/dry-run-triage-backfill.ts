@@ -1,15 +1,8 @@
 /**
- * Dry-run triage backfill (ADR-0050/0051 amendment 2026-06-09) — READ-ONLY.
- *
- * Re-classifies the SOURCE EMAIL of every agent-authored todo with the NEW
- * stringency prompt and diffs against the live state, in two buckets:
- *   - KILLS  — a currently-suggested/done agent todo the new bar would drop.
- *   - KEEPS  — still proposed; shows the new (terser) title + category.
- * Plus a category line per row so AGM/ceremonial → fyi flips are visible.
- *
- * Writes NOTHING to `todos` or `email_triage`. (It does emit an `api_call_log`
- * cost row per classify via the metered model call — that's cost attribution,
- * not state under test.)
+ * Read-only: re-classify the source email of every agent todo with the current
+ * prompt, and print KILL (the todo would not be minted now) or KEEP with the new
+ * title and category. Writes no todo or triage state, but each classify logs an
+ * `api_call_log` cost row.
  *
  * Run:  pnpm --filter server tsx --env-file=.env src/scripts/dry-runs/dry-run-triage-backfill.ts
  */
@@ -55,8 +48,7 @@ async function main() {
 
   for (const t of rows) {
     const src = Array.isArray(t.sources)
-      ? // SAFETY: email_triage.sources is the jsonb { provider, kind, id }
-        // envelope written by the triage workflow.
+      ? // SAFETY: todos.sources holds { provider, kind, id } entries.
         (t.sources as Array<{ provider: string; kind: string; id: string }>).find(
           (s) => s.provider === "gmail" && s.kind === "thread",
         )
@@ -70,7 +62,7 @@ async function main() {
       continue;
     }
 
-    // thread id → newest document for that thread
+    // thread id to its newest document
     const docRow = (
       await db()
         .select({ id: documents.id })
@@ -192,9 +184,7 @@ async function main() {
     const cat = classification.category;
     const author = `author=${senderContext.effectiveAuthor}${senderContext.botSlug ? `/${senderContext.botSlug}` : ""}`;
 
-    // Mirror production: the rail only mints what `resolveTodoSuggestion` keeps
-    // (proposed outcome + todo-eligible category) AND survives the structural
-    // suppressor (GitHub PR-review thread / Alfred's own approval mail).
+    // Like prod: keep only what `resolveTodoSuggestion` and the structural suppressor keep.
     const resolved = resolveTodoSuggestion(
       classification,
       ctxData.document.authoredAt
@@ -233,8 +223,7 @@ async function main() {
 main()
   .then(() => process.exit(0))
   .catch((e) => {
-    // Log only the message — serializing the full Error can leak DATABASE_URL,
-    // query state, and connection credentials into CI / shared-machine logs.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exit(1);
   });

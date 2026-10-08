@@ -5,14 +5,8 @@ import { briefingMarkdownComponents, briefingRefsPlugin } from "./briefing-markd
 import { briefingPlainText } from "./briefing-prose-utils";
 
 /**
- * Renders composer prose (`breaking_summary` or a section `body`) as real
- * markdown — headings, lists, emphasis, links — with the opaque
- * `[[<kind>:<id>]]` tokens resolved into inline entity chips against the row's
- * synced `gather` (ADR-0049). Resolution runs client-side through the shared
- * `@alfred/contracts` resolver — the same truth the server email renderer uses
- * — via a remark plugin, so chips sit naturally inside the rendered markdown
- * tree rather than splitting it. Without a gather (older rows, never-composed
- * slots) the prose still renders; tokens simply collapse to their inner label.
+ * Composer prose as markdown, with `[[<kind>:<id>]]` tokens as entity chips (ADR-0049).
+ * Uses the same contracts resolver as the email renderer.
  */
 export function BriefingProse({
   markdown,
@@ -30,7 +24,7 @@ export function BriefingProse({
     [gather],
   );
 
-  // No gather → strip tokens to plain labels so raw `[[…]]` never reaches the page.
+  // No gather: strip tokens to labels so raw `[[…]]` never shows.
   const content = gather ? markdown : briefingPlainText(markdown, null);
 
   return (

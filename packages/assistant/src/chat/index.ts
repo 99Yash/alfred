@@ -1,14 +1,5 @@
-// Public seam for the chat module. Owns the chat recipe (chatTurnWorkflow),
-// turn admission and attachment ingest, chat context assembly + summaries +
-// compaction, and the end-of-thread idle-capture trigger.
-//
-// The chat HTTP routes live in `packages/http/src/chat.ts` and hold
-// transport only, so every decision a chat send takes reaches them through this
-// seam. Four entry points carry those decisions — `startChatTurn`,
-// `stopChatTurn`, `uploadChatAttachment`, `resolveChatAttachmentContentUrl`.
-// The storage, quota and dedup helpers under them are module-private on
-// purpose: a caller that reaches past these four takes a decision this module
-// owns.
+// Public seam for chat. The HTTP routes in `packages/http/src/chat.ts` are transport only:
+// they call `startChatTurn`, `stopChatTurn`, `uploadChatAttachment`, and `resolveChatAttachmentContentUrl`.
 
 export { chatTurnWorkflow } from "./chat-turn";
 

@@ -1,27 +1,7 @@
 import { z } from "zod";
 import type { JsonObject } from "@alfred/contracts";
 
-/**
- * Tool input schemas are pure zod and almost always `.strict()`, so when a
- * model guesses a parameter name that doesn't exist it gets a bare
- * `Unrecognized key: "x"` back — which says what's *wrong* but never what's
- * *right*, leaving the model to blindly re-guess. (Observed in a real trace: a
- * `calendar.list_events` call invented `timeframe`, was rejected, then bailed
- * to explicit RFC3339 bounds instead of the `window` enum it already had —
- * burning two turns on a "what's on my calendar today" question.) Enrich the
- * `unrecognized_keys` message with the parameters the schema actually accepts so
- * the next turn can self-correct. Best-effort and structural (no prompt patch);
- * it never throws and leaves every other validation message untouched.
- *
- * Kept dependency-free (zod only) so it can be unit-tested without dragging in
- * the dispatcher's db/queue imports.
- */
-// Tool input schemas are static module constants, so their accepted-key set is
-// invariant. `normalizeToolInputKeys` now calls this on the happy path of every
-// dispatch, so memoize per schema identity — `z.toJSONSchema` walks the whole
-// schema (every `.describe`, refine, wrapper) and that work is pure waste to
-// repeat. WeakMap keyed on the schema object so a schema that's ever GC'd
-// doesn't pin its cache entry.
+// Runs on every dispatch, and `z.toJSONSchema` walks the whole schema, so memoize per schema.
 const acceptedParamCache = new WeakMap<z.ZodType<any>, readonly string[]>();
 
 export function acceptedParamNames(schema: z.ZodType<any>): readonly string[] {
@@ -31,8 +11,7 @@ export function acceptedParamNames(schema: z.ZodType<any>): readonly string[] {
   let names: readonly string[];
 
   try {
-    // SAFETY: z.toJSONSchema emits a JSON Schema document; this reads only the
-    // top-level `properties` keyword off it.
+    // SAFETY: reads only the top-level `properties` of a JSON Schema document.
     const json = z.toJSONSchema(schema, { io: "input" }) as {
       properties?: JsonObject;
     };
@@ -49,6 +28,7 @@ export function acceptedParamNames(schema: z.ZodType<any>): readonly string[] {
 
 const EMPTY: readonly string[] = Object.freeze([]);
 
+/** A bare `Unrecognized key` says what is wrong, so add the accepted names. Never throws. */
 export function enrichInvalidInputMessage(
   baseMessage: string,
   schema: z.ZodType<any>,

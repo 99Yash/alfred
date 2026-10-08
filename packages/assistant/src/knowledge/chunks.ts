@@ -17,10 +17,7 @@ import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
-/**
- * `memory_chunks.kind` values. The text column is validated at this app
- * boundary; the union derives from the tuple so a new kind cannot drift.
- */
+/** `memory_chunks.kind` values. The union derives from the tuple. */
 export const MEMORY_CHUNK_KINDS = [
   "thread_summary",
   "extraction_run",
@@ -32,19 +29,10 @@ export const memoryChunkKindSchema = z.enum(MEMORY_CHUNK_KINDS);
 
 export type MemoryChunkKind = (typeof MEMORY_CHUNK_KINDS)[number];
 
-/**
- * Kinds that record Alfred's own operational bookkeeping, never something
- * Alfred knows about the user. An `extraction_run` chunk is run telemetry
- * ("processed 20 documents; proposed 0 facts"), so it must never render as
- * user memory. Kept as a set so the classification reads as membership.
- */
+/** Alfred's own run telemetry, never user memory. */
 const OPERATIONAL_MEMORY_CHUNK_KINDS: ReadonlySet<MemoryChunkKind> = new Set(["extraction_run"]);
 
-/**
- * The memory chunk kinds a user-facing read may surface. Derived by subtraction
- * so a newly added kind is included by default rather than silently hidden; a
- * new operational kind is one line in the set above.
- */
+/** Derived by subtraction, so a new kind shows by default. */
 export const USER_FACING_MEMORY_CHUNK_KINDS: readonly MemoryChunkKind[] = MEMORY_CHUNK_KINDS.filter(
   (kind) => !OPERATIONAL_MEMORY_CHUNK_KINDS.has(kind),
 );
@@ -63,13 +51,7 @@ export const writeMemoryChunkArgsSchema = memoryChunkInsertSchema
 
 export type WriteMemoryChunkArgs = z.infer<typeof writeMemoryChunkArgsSchema>;
 
-/**
- * Like the DB row, but with the parsed enum/jsonb columns narrowed and
- * `embedding` collapsed to a `hasEmbedding` boolean. Every other column tracks
- * `MemoryChunk` ($inferSelect) automatically; lifecycle dates are intentionally
- * excluded (this row isn't synced). Only the columns `rowToChunk` transforms
- * are restated.
- */
+/** `MemoryChunk` with parsed columns narrowed and `embedding` reduced to `hasEmbedding`. Not synced, so no lifecycle dates. */
 export type MemoryChunkRow = Omit<
   MemoryChunk,
   "kind" | "source" | "metadata" | "embedding" | "createdAt" | "updatedAt"
@@ -97,12 +79,8 @@ function hashContent(s: string): string {
 }
 
 /**
- * Insert a memory chunk. Idempotent on `(user_id, kind, content_hash)`
- * so re-running an extraction over the same source is a no-op.
- *
- * `embedding` is left NULL — the caller (or a sweep job) backfills it
- * via `embedMemoryChunk`. Same write-then-embed pattern as `chunks`
- * (see m7b).
+ * Insert a memory chunk, idempotent on `(user_id, kind, content_hash)`.
+ * `embedding` starts NULL; `embedMemoryChunk` fills it later.
  */
 export async function writeMemoryChunk(args: WriteMemoryChunkArgs): Promise<MemoryChunkRow> {
   const parsed = writeMemoryChunkArgsSchema.parse(args);
@@ -120,8 +98,7 @@ export async function writeMemoryChunk(args: WriteMemoryChunkArgs): Promise<Memo
     })
     .onConflictDoUpdate({
       target: [memoryChunks.userId, memoryChunks.kind, memoryChunks.contentHash],
-      // No-op update returns the existing row; required because plain
-      // `onConflictDoNothing` doesn't return on conflict.
+      // A no-op update, because `onConflictDoNothing` returns no row on conflict.
       set: { metadata: sql`${memoryChunks.metadata}` },
     })
     .returning();
@@ -131,7 +108,7 @@ export async function writeMemoryChunk(args: WriteMemoryChunkArgs): Promise<Memo
   return rowToChunk(row);
 }
 
-/** Backfill `embedding` for an existing chunk. */
+/** Fill `embedding` for an existing chunk. */
 export async function embedMemoryChunk(
   chunkId: string,
   userId: string,
@@ -143,31 +120,19 @@ export async function embedMemoryChunk(
 
   await db()
     .update(memoryChunks)
-    // Clear any prior poison-pill streak on success so the wall-clock grace is
-    // per-failure-streak, not lifetime — a resurrected chunk that embeds cleanly
-    // must not carry a stale `embed_first_failed_at` into its next blip.
+    // Reset the failure streak, so the grace window is per streak, not lifetime.
     .set({ embedding, ...EMBED_SUCCESS_RESET })
     .where(and(eq(memoryChunks.id, chunkId), eq(memoryChunks.userId, userId)));
 }
 
-/**
- * The embed-sweep candidate predicate: a chunk with no embedding yet that hasn't
- * been dead-lettered. Shared by both the per-user and global finders so a third
- * finder can't silently forget the `embedFailedAt` guard and re-embed a
- * dead-lettered row forever.
- */
+/** No embedding yet and not dead-lettered. Shared by both finders, so neither forgets the guard. */
 function memoryChunkEmbedCandidateFilter() {
   return and(isNull(memoryChunks.embedding), isNull(memoryChunks.embedFailedAt));
 }
 
 /**
- * Record an embed failure on the chunk row via the shared poison-pill guard
- * (`buildEmbedFailureSet` in `@alfred/db/helpers`): a permanent error
- * dead-letters the chunk immediately; a transient error is retried by the sweep
- * until it has persisted past the shared retry window. `userId` scopes the
- * write (single-ownership); the dead-letter policy itself is table-agnostic and
- * owned by the shared helper. Best-effort; the caller still logs the original
- * error.
+ * Record an embed failure with the shared poison-pill guard (`buildEmbedFailureSet`).
+ * Permanent errors dead-letter at once; transient ones retry until the window passes.
  */
 export async function recordMemoryEmbedFailure(
   chunkId: string,
@@ -189,7 +154,7 @@ export async function recordMemoryEmbedFailure(
     .where(and(eq(memoryChunks.id, chunkId), eq(memoryChunks.userId, userId)));
 }
 
-/** Chunks awaiting embedding — used by the embed-sweep job. */
+/** Chunks waiting for an embedding, for the embed sweep. */
 export async function pendingEmbedChunkIds(userId: string, limit = 50): Promise<string[]> {
   const rows = await db()
     .select({ id: memoryChunks.id })
@@ -200,11 +165,7 @@ export async function pendingEmbedChunkIds(userId: string, limit = 50): Promise<
   return rows.map((r) => r.id);
 }
 
-/**
- * Pending chunks across all users — drives the system-wide embed sweep.
- * Returns id + userId + content so the worker can embed without a
- * second roundtrip per row.
- */
+/** Pending chunks for all users, with content, so the worker needs no second read. */
 export async function findPendingEmbedChunks(
   limit = 50,
 ): Promise<Array<{ id: string; userId: string; content: string }>> {
@@ -224,19 +185,11 @@ export async function findPendingEmbedChunks(
 export interface RecallMemoryArgs {
   userId: string;
   query: string;
-  /**
-   * Precomputed query embedding. Use this when recall is paired with other
-   * retrieval over the same query to avoid duplicate embedding calls.
-   */
+  /** Pass this to reuse an embedding computed for other retrieval. */
   queryEmbedding?: number[];
-  /**
-   * Restrict to these kinds. Defaults to `USER_FACING_MEMORY_CHUNK_KINDS`: an
-   * operational chunk (`extraction_run`) is Alfred's own run telemetry and must
-   * not surface as user memory unless a caller explicitly asks for it. An empty
-   * set means "no kinds", not "any".
-   */
+  /** Defaults to `USER_FACING_MEMORY_CHUNK_KINDS`. An empty list means no kinds, not any. */
   kinds?: readonly MemoryChunkKind[];
-  /** Top-K. Default 10. */
+  /** Default 10. */
   limit?: number;
 }
 
@@ -244,19 +197,12 @@ export interface RecallMemoryHit {
   chunkId: string;
   kind: MemoryChunkKind;
   preview: string;
-  /** Cosine similarity in [-1, 1]; higher = more similar. */
+  /** Cosine similarity in [-1, 1]. */
   similarity: number;
   source: MemorySource;
 }
 
-/**
- * Semantic recall over `memory_chunks`. Same shape as `search`
- * over the integration corpus, but the indexed surface here is alfred's
- * *interpretation* layer — distilled summaries, not raw provider data.
- *
- * Embeds the query once, sorts by `<=>` (cosine distance) ascending,
- * returns similarity = 1 - distance.
- */
+/** Semantic recall over `memory_chunks`, ranked by cosine distance. */
 export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemoryHit[]> {
   const limit = args.limit ?? 10;
 
@@ -270,24 +216,17 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
 
   assertQueryEmbedding(queryVec);
   const vectorLiteral = formatVectorFloat32(queryVec);
-  // Pull a wider pool from the approximate halfvec index, then rerank with
-  // the full-precision vector distance below.
+  // A wide pool from the approximate halfvec index, then a full-precision rerank.
   const candidateLimit = Math.max(limit * 5, 50);
 
   const filters = [eq(memoryChunks.userId, args.userId), isNotNull(memoryChunks.embedding)];
 
-  // The kind restriction belongs in the candidate query, before the HNSW pool
-  // and top-K, so excluding a kind does not let it displace a real hit. The
-  // default is the user-facing set, not "any": a reader that forgets to narrow
-  // cannot surface operational telemetry. An empty set is an explicit "no
-  // kinds", not an accidental "every kind".
+  // Filter kinds in the candidate query, so an excluded kind cannot displace a hit.
   const kinds = args.kinds ?? USER_FACING_MEMORY_CHUNK_KINDS;
   filters.push(kinds.length > 0 ? inArray(memoryChunks.kind, [...kinds]) : sql`false`);
 
-  // HNSW returns at most `hnsw.ef_search` rows per scan (default 40), so the
-  // candidate pool is silently truncated unless we raise it to cover
-  // candidateLimit. SET LOCAL scopes the bump to this transaction; pgvector
-  // caps ef_search at 1000.
+  // HNSW returns at most `hnsw.ef_search` rows (default 40), so raise it for this
+  // transaction. pgvector caps it at 1000.
   const rows = await db().transaction(async (tx) => {
     await tx.execute(sql.raw(`SET LOCAL hnsw.ef_search = ${Math.min(candidateLimit, 1000)}`));
 
