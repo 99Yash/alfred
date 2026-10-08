@@ -3,16 +3,11 @@ import { describe, test } from "node:test";
 
 import { parseEmailAddress } from "@alfred/contracts";
 
-// serverEnv() validates the whole schema on first read, so populate the
-// required slots before `selfSenderEmail()` triggers it. `??=` lets a real
-// loaded .env win — this test does NOT pin RESEND_FROM_EMAIL to a fixed value;
-// it derives the self address from `selfSenderEmail()` itself and asserts the
-// envelope-form matching AROUND it, so it holds whatever the address is.
+// `serverEnv()` validates every field on first read. `??=` lets a real .env win.
 const SERVER_ENV_FIXTURES = {
   DATABASE_URL: "postgres://user:pass@localhost:5432/test",
   REDIS_URL: "redis://localhost:6379",
   BETTER_AUTH_SECRET: "test better auth secret with length",
-  // #453: `serverEnv()` requires a 32-byte credential KEK in every environment.
   OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
   BETTER_AUTH_URL: "http://localhost:3001",
   ALFRED_ALLOWED_EMAIL: "test@example.com",
@@ -37,36 +32,16 @@ for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
   process.env[key] ??= value;
 }
 
-// Imported AFTER env is seeded. `selfSenderEmail()` reads serverEnv() lazily on
-// first call (inside the tests), so it observes the seeded env.
+// Import after the env is seeded.
 const { isSelfAuthored, selfSenderEmail } = await import("../src/google/index");
 
 /**
- * Regression guard for the self-ingestion drop (#211 / #266). Alfred's OWN
- * outbound — the daily briefing AND the HIL-approval mail — both ship through a
- * single path (`notify.ts` → `from: RESEND_FROM_EMAIL`), so one exact-address
- * match covers every Alfred-authored envelope. This locks the two properties the
- * ingestion drop AND the retirement backfill both rely on:
- *   1. the match is on the EXACT parsed address, in BOTH envelope forms (bare
- *      and `"Alfred <addr>"`), so a display-name form is dropped just like a bare
- *      one;
- *   2. a look-alike — a different address, or the same "Alfred" display name over
- *      a DIFFERENT address (spoof) — is NOT dropped.
- *
- * It deliberately does not pin the address: it derives it from `selfSenderEmail()`
- * and builds the cases around it, so it passes for any configured value and can't
- * rot when RESEND_FROM_EMAIL changes.
+ * Alfred sends all its mail from `RESEND_FROM_EMAIL`, so one exact-address match drops it.
+ * Both envelope forms match. A look-alike address, or "Alfred" over another address, does not.
  */
 describe("isSelfAuthored — self-ingestion drop (#211/#266)", () => {
   const self = selfSenderEmail();
-  // Deliberately NOT `dbBackedSkip`, and deliberately outside the
-  // `db-backed-skip-hand-rolled` rule's vocabulary. Two reasons. This `SKIP` sits
-  // on `test(…, { skip })`, not on a `describe`, so `node:test` registers these
-  // subtests and prints them under `# skipped` — it is not the invisible
-  // suite-level class that helper exists to delete. And `RESEND_FROM_EMAIL` is
-  // provider configuration, not a service the job stands a container up for;
-  // `ServiceRequirement` names containers, so giving it a provider arm would turn
-  // it into a bag of every variable.
+  // Not `dbBackedSkip`: a test-level skip still shows in `# skipped`, and this is config, not a service.
   const SKIP = self ? false : "RESEND_FROM_EMAIL has no parseable address — skipping";
 
   test("drops the self address in its bare form", { skip: SKIP }, () => {

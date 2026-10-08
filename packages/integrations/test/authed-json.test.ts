@@ -4,14 +4,7 @@ import { afterEach, describe, test } from "node:test";
 
 import { authedJson } from "../src/shared/authed-json";
 
-/**
- * `authedJson` is the JSON layer built on `authedFetch` that Notion, Vercel, and
- * Google collapsed onto: *a non-2xx is an `HttpError`, a 2xx is parsed JSON.*
- * These pin that post-fetch contract — parse on success, empty body → `{}`, the
- * default `HttpError` mapping (provider/status/redacted label), and the
- * `bodyPolicy: "omit"` posture Notion uses. It stubs the global `fetch`, so it
- * runs offline.
- */
+/** `authedJson`: a non-2xx is an `HttpError`, a 2xx is parsed JSON, and an empty body is `{}`. */
 
 interface RecordedFetchCalls {
   calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }>;
@@ -20,9 +13,7 @@ interface RecordedFetchCalls {
 const realFetch = globalThis.fetch;
 
 interface RecordedFetchCalls {
-  // Recorded as `fetch` received it: a call made without an `init` records a
-  // present `undefined`, so the declaration says `| undefined` rather than
-  // claiming the key is absent.
+  // A call without `init` records a present `undefined`.
   calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }>;
 }
 
@@ -80,7 +71,6 @@ describe("authedJson", () => {
         assert.equal(err.status, 404);
         assert.equal(err.url, "the/redacted/path");
         assert.equal(err.method, "GET");
-        // The bounded upstream body rides along on the default mapping.
         assert.match(err.body, /upstream said no/);
 
         return true;
@@ -116,11 +106,10 @@ describe("authedJson", () => {
         ),
         (err: unknown) => {
           assert.ok(err instanceof HttpError);
-          // The structured error still carries everything a caller branches on…
           assert.equal(err.provider, "notion-like");
           assert.equal(err.status, 403);
           assert.equal(err.url, "/v1/pages/x");
-          // …but the upstream body does not ride along into telemetry.
+          // The upstream body stays out of telemetry.
           assert.equal(err.body, "");
 
           return true;
@@ -130,7 +119,7 @@ describe("authedJson", () => {
       console.error = realError;
     }
 
-    // The body survives exactly one place: the server-side log.
+    // The server-side log is the only place the body survives.
     assert.equal(logged.length, 1);
     assert.match(logged[0] ?? "", /secret page fragment/);
     assert.match(logged[0] ?? "", /\[notion-like\] 403 POST \/v1\/pages\/x/);

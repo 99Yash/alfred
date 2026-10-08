@@ -3,11 +3,7 @@ import { describe, test } from "node:test";
 
 import { decideDbBackedSkip } from "./support/db-backed";
 
-// The three arms of the guard that replaces "read the skip count" for
-// `assistant-unit-tests`. This suite reads no service variable, so it registers
-// and runs in every `assistant-unit-tests` run — including one that reaches no
-// database. That is the point: the arm that must fire when the job is
-// misconfigured is proven by a test the misconfiguration cannot silence.
+// This suite reads no service variable, so a misconfigured CI job cannot skip it.
 describe("decideDbBackedSkip", () => {
   test("runs when nothing is missing, on a laptop and in CI alike", () => {
     assert.deepEqual(decideDbBackedSkip({ missing: [], ci: false }), { kind: "run" });

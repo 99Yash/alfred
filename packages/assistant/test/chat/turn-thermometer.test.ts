@@ -19,10 +19,9 @@ import {
 } from "@alfred/assistant/chat/turn-thermometer";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 
-/** Build a full run state from the schema so the transform's defaults apply. */
+/** Parse through the schema so its defaults apply. */
 function state(overrides: Record<string, unknown> = {}): ChatRunState {
-  // The schema transform restores the tool surface, which reads the
-  // tool-runtime adapter; register the fixture adapter so the parse resolves.
+  // The schema transform reads the tool-runtime adapter.
   resetToolFixtures();
 
   return chatRunStateSchema.parse({
@@ -168,7 +167,7 @@ describe("emitTurnPhaseThermometer", () => {
 
     assert.equal(input.startedAt, startedAt);
 
-    // No run-start stamp (legacy checkpoint) falls back to now rather than epoch.
+    // A legacy checkpoint has no run-start stamp: fall back to now, not epoch.
     const fallback = buildTurnPhaseSpanInput({
       runId: "run_2",
       startedAt: undefined,
@@ -194,7 +193,6 @@ describe("park attribution (#902)", () => {
     const folded = foldResumedPark(parked, Date.parse("2026-08-26T00:01:00.000Z"));
     assert.equal(folded, 50_000);
     assert.equal(parked.dispatchMs, 50_000);
-    // The markers clear so a later park stamps fresh.
     assert.equal(parked.parkedAt, undefined);
     assert.equal(parked.parkKind, undefined);
   });

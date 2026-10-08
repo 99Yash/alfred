@@ -25,20 +25,9 @@ import { userAuthoredBriefWorkflow } from "@alfred/assistant/execution/workflows
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * Tests for the per-step stale-lease window (ADR-0070 §1.4, Lever A). Lever A
- * lets a step declare a `staleAfterMs` wider (or narrower) than the 60s default
- * so a heartbeat blip can't reclaim a live, multi-minute model turn — which,
- * because the LLM idempotency key includes `attempt` (bumped on reclaim), would
- * be a duplicate full-price call. Two mechanisms consume the window and both
- * must agree:
- *   - `leaseRun` (under the row lock) — the authoritative reclaim gate.
- *   - `findResumableRunIds` (the sweep) — selects `running` candidates at the
- *     `minStaleAfterMs` floor in SQL, then refines each against its precise
- *     per-step window in JS so healthy long turns aren't re-enqueued every
- *     sweep only to be declined by `leaseRun`.
- *
- * The pure-resolver block always runs. The lease/sweep block is opt-in: it runs
- * only when `DATABASE_URL` points at a reachable migrated Postgres.
+ * Per-step `staleAfterMs` (ADR-0070 §1.4). A reclaim bumps `attempt`, which is in
+ * the LLM idempotency key, so a wrong reclaim pays for a duplicate model call.
+ * `leaseRun` and the `findResumableRunIds` sweep must agree on the window.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -46,11 +35,7 @@ const SLUG = "__test-stale-window";
 
 const ID_PREFIX = "test-stale-window-";
 
-// Wide: a long non-streaming model turn (mirrors the sub-agent boss-turn's
-// 6min). Narrow: below the 60s default — no production step declares this
-// today, but it's the only way to exercise `minStaleAfterMs`'s floor loop and
-// prove the window can move in *either* direction. Quick: leaves `staleAfterMs`
-// unset → default 60s.
+// No production step is narrower than the 60s default; narrow tests the `minStaleAfterMs` floor.
 const WIDE_MS = 5 * 60_000;
 
 const NARROW_MS = 30_000;
@@ -60,8 +45,6 @@ const GIANT_MS = 60 * 60_000;
 const noopStep = (id: string, staleAfterMs?: number): Workflow<unknown>["steps"][string] => ({
   id,
   ...(staleAfterMs === undefined ? {} : { staleAfterMs }),
-  // Never invoked: leaseRun/findResumableRunIds inspect the step's declared
-  // window, they don't run its body.
   run: async (): Promise<StepResult<unknown>> => ({ kind: "done", state: {}, output: {} }),
 });
 
@@ -105,11 +88,7 @@ describe("per-step stale-lease resolution (pure)", () => {
   });
 
   test("resolveStaleAfterMs applies shared user-authored step windows to authored slugs", () => {
-    // User-authored workflow rows keep their own DB slug on agent_runs, but
-    // execute the shared userAuthoredBriefWorkflow body. The stale-window
-    // resolver must therefore recognize boss-turn even when the slug is not in
-    // the in-memory registry; otherwise authored workflow boss turns fall back
-    // to the too-tight 60s default.
+    // Authored rows keep their own slug but run the shared `userAuthoredBriefWorkflow` body.
     assert.equal(
       resolveStaleAfterMs("my-authored-workflow", "boss-turn"),
       userAuthoredBriefWorkflow.steps["boss-turn"]?.staleAfterMs,
@@ -117,14 +96,8 @@ describe("per-step stale-lease resolution (pure)", () => {
   });
 
   test("the sweep paginates past a page filled by per-step refinement", async () => {
-    // Regression: applying LIMIT before the JS per-step refinement meant a live
-    // long-window row could consume the whole SQL page, get filtered out, and
-    // hide a genuinely reclaimable row behind it until a later sweep.
-    //
-    // The page reader is injected rather than seeded into Postgres. The real
-    // sweep reads `agent_runs` for EVERY user, so in the shared CI database
-    // another suite's pending row takes the one-row page and the assertion
-    // becomes a race — it did, and this test was the flake.
+    // A live row refined out of a full page must not hide a stale row behind it.
+    // The page reader is injected: the real sweep reads every user's rows, which raced in CI.
     const candidate = (id: string, currentStep: string, staleMs: number): ResumeSweepCandidate => ({
       id,
       workflowSlug: SLUG,
@@ -134,9 +107,7 @@ describe("per-step stale-lease resolution (pure)", () => {
     });
 
     const pages: ResumeSweepCandidate[][] = [
-      // Fresh inside its 60min window: selected at the 30s floor, refined out.
       [candidate("run_giant_fresh", "giant-step", 90_000)],
-      // Stale past the 60s default: the row the page-consuming bug hid.
       [candidate("run_quick_stale", "quick-step", 80_000)],
     ];
 
@@ -160,9 +131,7 @@ describe("per-step stale-lease resolution (pure)", () => {
   });
 
   test("minStaleAfterMs is the smallest declared window (the SQL sweep floor)", () => {
-    // The fast-step declares below the default, so the floor drops to it. This
-    // is the invariant the sweep depends on: selecting at the floor can never
-    // miss a genuinely-stale run because every step's window is >= the floor.
+    // The sweep selects at the floor, so every step's window must be >= the floor.
     assert.equal(minStaleAfterMs(), NARROW_MS);
     assert.ok(minStaleAfterMs() <= STALE_RUN_LEASE_MS, "floor is never above the default");
 
@@ -193,8 +162,7 @@ async function seedRunningRun(step: string, checkpointAt: Date, attempt = 3): Pr
     attempt,
     lastCheckpointAt: checkpointAt,
   });
-  // The in-flight orphan step row a live worker would hold (leaseRun marks it
-  // failed on reclaim).
+  // The step row a live worker would hold. `leaseRun` marks it failed on reclaim.
   await db().insert(agentSteps).values({ runId, stepId: step, attempt, status: "running" });
 
   return runId;
@@ -228,8 +196,7 @@ describe("per-step stale-lease window honored by lease + sweep (DB-backed)", { s
   });
 
   test("leaseRun does NOT reclaim a wide-window step within its window", async () => {
-    // 90s silent: past the 60s default (old behavior would reclaim here — the
-    // exact double-spend Lever A kills) but well inside the 5min window.
+    // Past the 60s default, inside the 5min window.
     const runId = await seedRunningRun("wide-step", ago(90_000));
     const leased = await leaseRun(runId);
     assert.equal(leased.kind, "none", "a live wide-window turn must not be reclaimed at 60s");
@@ -246,7 +213,6 @@ describe("per-step stale-lease window honored by lease + sweep (DB-backed)", { s
   });
 
   test("leaseRun keeps the 60s default for a step that declares no window", async () => {
-    // Lever A must not widen every step — the default reclaim still bites at 60s.
     const reclaimable = await seedRunningRun("quick-step", ago(90_000));
     assert.equal((await leaseRun(reclaimable)).kind, "leased", "default step reclaims past 60s");
 
@@ -255,16 +221,12 @@ describe("per-step stale-lease window honored by lease + sweep (DB-backed)", { s
   });
 
   test("leaseRun reclaims a narrow-window step sooner than the default would", async () => {
-    // 45s silent: still fresh for a default step, but past this step's 30s
-    // window — proves the declared window is genuinely consulted, not just the
-    // default compared against a hard-coded 60s.
+    // Fresh for a default step, but past this step's 30s window.
     const runId = await seedRunningRun("fast-step", ago(45_000));
     assert.equal((await leaseRun(runId)).kind, "leased", "narrow window reclaims before 60s");
   });
 
   test("findResumableRunIds refines per-step after selecting at the floor", async () => {
-    // Every seeded row is `running`; the SQL floor (minStaleAfterMs = 30s)
-    // over-selects, then the JS refinement applies each step's real window.
     const included: string[] = [];
     const excluded: string[] = [];
 

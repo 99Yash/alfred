@@ -16,9 +16,7 @@ import {
   startSubAgentWaitSpan,
 } from "@alfred/assistant/execution/runtime-spans";
 
-// Capture what a wait/lease closer forwards to the underlying runtime span, so
-// the tests exercise the real emission path (built input + folded end metadata
-// + level) without a live Langfuse client. Mirrors dispatch-batch-span.test.ts.
+// Captures what a closer forwards to the runtime span, so no live Langfuse client is needed.
 interface CapturedSpans {
   opened: RuntimeSpanInput[];
   ended: RuntimeSpanEndArgs[];
@@ -78,7 +76,7 @@ describe("runtime.approval.wait", () => {
 
     assert.equal(opened.length, 1);
     assert.equal(opened[0]?.name, "runtime.approval.wait");
-    // Expected, not an error: approval waits always close at DEFAULT (level unset).
+    // Approval waits are expected, so the level stays unset (DEFAULT).
     assert.deepEqual(ended, [
       { status: "approved", metadata: { outcome: "approved", waitMs: 5000 } },
     ]);

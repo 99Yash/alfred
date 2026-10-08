@@ -15,36 +15,16 @@ import { z } from "zod";
 import { classifyStreamFinish } from "../src/agent";
 
 /**
- * Streaming integration coverage for the empty-completion contract (2026-07-10
- * chat-turn dig). The sibling `empty-completion.test.ts` unit-tests
- * `classifyStreamFinish` on hand-fed inputs; it can't prove the *real* SDK
- * streaming machinery actually surfaces an empty Gemini candidate as
- * `finishReason:"stop"` + no tool calls + zero text — the exact runtime shape
- * the whole retry hinges on.
- *
- * So these tests drive the genuine `streamText` pipeline with a
- * `MockLanguageModelV4` `doStream`, drain `stream` accumulating text the
- * same way `chat-turn.ts` accumulates `state.assistantText`, then feed the
- * awaited `toolCalls` / `finishReason` into the production `classifyStreamFinish`
- * — mirroring `chat-turn.ts` line-for-line (drain → `Promise.all` →
- * `classifyStreamFinish({ toolCalls, finishReason, textLength })`). This closes
- * the streaming half of the handoff's "NOT verified" gap without standing up the
- * durable runtime.
- *
- * `withFallback` is deliberately out of scope: it degrades on *thrown* errors,
- * and an empty stream is a *successful* call (the exact reason degrading is the
- * executor's job). Faking an empty candidate at the model layer is the faithful
- * reproduction.
+ * Proves the real `streamText` pipeline surfaces an empty candidate as a clean "stop" with no content.
+ * Mirrors how `chat-turn.ts` drains the stream and calls `classifyStreamFinish`.
+ * `withFallback` is out of scope: an empty stream is a successful call, not a throw.
  */
 
-// Derive the V4 stream-part union off the mock itself (same `ai` copy) rather
-// than importing `@ai-sdk/provider`, which is only a transitive dependency —
-// the same approach with-fallback.test.ts uses for its generate-result shape.
+// From the mock, because `@ai-sdk/provider` is only a transitive dependency.
 type StreamResult = Awaited<ReturnType<MockLanguageModelV4["doStream"]>>;
 
 type StreamPart = StreamResult["stream"] extends ReadableStream<infer P> ? P : never;
 
-// V4 usage shape, copied verbatim from with-fallback.test.ts's proven fixture.
 const USAGE = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
@@ -67,7 +47,6 @@ const RESPONSE_META = streamPart({
   timestamp: new Date(0),
 });
 
-/** Text parts for a single streamed span with the given body. */
 function textParts(body: string): StreamPart[] {
   return [
     streamPart({ type: "text-start", id: "txt-0" }),
@@ -95,12 +74,8 @@ function toolCallParts(): StreamPart[] {
 // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
 const asModel = (m: MockLanguageModelV4) => m as unknown as LanguageModel;
 
-// An `execute`-less tool: same as production (dispatch happens in a later step),
-// so `stopWhen: isStepCount(1)` means the SDK surfaces the call without running it.
-// SAFETY: same cast production makes (`tool-surface.ts` builds a
-// `Partial<Record<ToolName, Tool>>` and hands it over as a `ToolSet`) and for
-// the same reason: under `exactOptionalPropertyTypes` a bare `Tool` and the
-// `ToolSet[string]` union stop being mutually assignable.
+// No `execute`, as in production, so the SDK surfaces the call without running it.
+// SAFETY: under `exactOptionalPropertyTypes` a bare `Tool` is not assignable to `ToolSet[string]`.
 const pingTools = {
   ping: tool({
     description: "test tool",
@@ -108,10 +83,6 @@ const pingTools = {
   }),
 } as ToolSet;
 
-/**
- * Drive the real SDK streaming path exactly as `chat-turn.ts` does and return
- * the production classification plus the drained primitives for assertion.
- */
 async function driveStream(parts: StreamPart[]) {
   const model = new MockLanguageModelV4({
     provider: "mock",
@@ -123,13 +94,11 @@ async function driveStream(parts: StreamPart[]) {
     model: asModel(model),
     prompt: "hi",
     tools: pingTools,
-    // Mirror the agent: one model request, no SDK-level dispatch or retry.
+    // One model request, no SDK dispatch or retry, as in the agent.
     stopWhen: isStepCount(1),
     maxRetries: 0,
   });
 
-  // Accumulate assistant text off the live stream the way the executor builds
-  // `state.assistantText` — the value it passes to `classifyStreamFinish`.
   let assistantText = "";
 
   for await (const part of stream.stream) {
@@ -149,8 +118,7 @@ async function driveStream(parts: StreamPart[]) {
 
 describe("classifyStreamFinish over a real streamText drain", () => {
   test("empty stop candidate → empty (the Anthropic→Gemini quota-fallback anomaly)", async () => {
-    // What the Gemini fallback may return under quota pressure: a clean finish with
-    // zero content. The SDK call SUCCEEDS, so nothing upstream can catch it.
+    // The SDK call succeeds, so nothing upstream can catch it.
     const { outcome, toolCalls, finishReason, assistantText } = await driveStream([
       START,
       RESPONSE_META,
@@ -194,8 +162,6 @@ describe("classifyStreamFinish over a real streamText drain", () => {
   });
 
   test("streamed tool call with no prose → tool-calls (tool calls outrank empty)", async () => {
-    // A tool-call turn legitimately emits zero assistant text; the empty check
-    // must not swallow it. `finishReason` is `tool-calls` here.
     const { outcome, toolCalls, assistantText } = await driveStream([
       START,
       RESPONSE_META,

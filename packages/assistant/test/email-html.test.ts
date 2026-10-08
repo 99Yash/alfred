@@ -4,10 +4,8 @@ import { describe, test } from "node:test";
 import { EMAIL_CSP_META, sanitizeEmailHtml } from "@alfred/assistant/triage/email-html";
 
 /**
- * Pins the #294 invariant: the Original email body always carries a strict CSP
- * meta as the FIRST thing in `<head>`, so the in-rail iframe makes zero
- * sender-host requests on open (no tracking pixel). DOMPurify strips `<meta>`,
- * so the sanitizer re-injects it — these tests prove it survives + leads.
+ * The email body leads `<head>` with a strict CSP meta, so opening it loads no tracking pixel (#294).
+ * DOMPurify strips `<meta>`, so the sanitizer re-adds it.
  */
 describe("sanitizeEmailHtml CSP (#294)", () => {
   test("injects the strict CSP meta first in <head>, before <base>", () => {
@@ -28,7 +26,7 @@ describe("sanitizeEmailHtml CSP (#294)", () => {
     assert.match(EMAIL_CSP_META, /img-src data: cid:/);
     assert.match(EMAIL_CSP_META, /media-src 'none'/);
     assert.match(EMAIL_CSP_META, /script-src 'none'/);
-    // No bare http:/https: in img-src — that's the remote-media opt-in only.
+    // Remote images in img-src only after the user opts in.
     assert.doesNotMatch(EMAIL_CSP_META, /img-src[^;]*https?:/);
   });
 
@@ -40,7 +38,6 @@ describe("sanitizeEmailHtml CSP (#294)", () => {
   });
 
   test("strips a sender-supplied permissive CSP meta and bakes our strict one", () => {
-    // An attacker's own `<meta>` is removed by DOMPurify; only ours survives.
     const out = sanitizeEmailHtml(
       `<html><head><meta http-equiv="Content-Security-Policy" content="default-src *"></head><body><p>x</p></body></html>`,
     );

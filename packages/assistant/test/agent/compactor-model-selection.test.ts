@@ -9,14 +9,8 @@ import {
 } from "@alfred/assistant/execution/run-compaction/compactor";
 
 /**
- * #371: `chooseCompactorModel` picks the compaction model by asking "does the
- * request fit the window". The bug it locks was comparing a bare `prior`
- * estimate to the full window, ignoring the system prompt + payload wrapper +
- * reserved output tokens that ride along in the same request. A `prior` sized
- * just under the window then produced `prior + overhead > window` → a
- * deterministic provider 400 the workflow retries 3× and then fails on; the
- * opposite boundary silently routed near-window compactions to the full-price
- * fallback. These lock the reserved headroom.
+ * `chooseCompactorModel` must count the system prompt, wrapper, and reserved
+ * output with `prior`. A bare `prior` just under the window gets a provider 400.
  */
 describe("chooseCompactorModel headroom (#371)", () => {
   const compactorWindow = 200_000;
@@ -38,9 +32,7 @@ describe("chooseCompactorModel headroom (#371)", () => {
   });
 
   test("a prior in the un-budgeted margin routes to fallback, not a 400 on the primary", () => {
-    // Bare `prior` fits the window (`priorTokens < compactorWindow`) — the old
-    // check would have picked the primary and 400'd. With headroom reserved,
-    // `prior + overhead > compactorWindow`, so it correctly steps to fallback.
+    // `prior` alone fits, but `prior + overhead` does not.
     const priorTokens = compactorWindow - 1;
     assert.ok(priorTokens < compactorWindow, "prior alone still fits the raw window");
     assert.ok(

@@ -21,14 +21,9 @@ import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { buildSubAgentSystemPrompt } from "@alfred/assistant/execution/workflows/user-authored-brief";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
-// ADR-0077 amendment: behavioral guard for the boss charter. The old rulebook
-// routed people questions inward (memory + Gmail) and never mentioned the live
-// web; the 2026-07-02 Sakshi production thread re-asked for "more" three times
-// and still made zero web_search calls, including on Deep/Opus. These cases test
-// the source class the model reaches for, not a brittle exact path.
-//
-// Run locally with apps/server/.env populated (ANTHROPIC_API_KEY +
-// GOOGLE_GENERATIVE_AI_API_KEY, matching serverEnv): `pnpm --filter @alfred/assistant eval`.
+// ADR-0077: guards the boss charter. In one prod thread the user asked for "more" three times
+// and the boss never called web_search. Cases check the source class, not an exact path.
+// Run with apps/server/.env populated: `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
@@ -60,9 +55,7 @@ const GITHUB_GET_PR_TOOL = "github.get_pull_request";
 
 const TIERS: ChatModelTier[] = ["standard", "deep"];
 
-// Case-specific source tools. A thorough investigation discovers leads and then
-// drills into one named record from the same source class; unrelated tool spam
-// must not satisfy the depth check.
+// Depth means a lead and then a drill into a record from the same source. Unrelated calls do not count.
 const WEB_INVESTIGATION_TOOLS = new Set<string>([
   READ_CONTEXT_TOOL,
   WEB_SEARCH_TOOL,
@@ -101,23 +94,20 @@ interface ToolCall {
 
 interface TaskOutput {
   toolNames: string[];
-  /** Every tool call in order, with its input — needed to tell distinct
-   * research angles apart (e.g. two web_search calls with different queries). */
+  /** Inputs tell apart two web_search calls with different queries. */
   calls: ToolCall[];
   first: string | null;
   text: string;
 }
 
-// Structural view of the bits of a generateText result we read — avoids
-// threading the SDK's TOOLS/OUTPUT generics through a shared helper.
+// Avoids threading the SDK's TOOLS/OUTPUT generics through a shared helper.
 interface GenerateTextView {
   steps: ReadonlyArray<{ toolCalls: ReadonlyArray<{ toolName: string; input: unknown }> }>;
   text: string;
 }
 
 function collectOutput(result: GenerateTextView): TaskOutput {
-  // `result.steps` holds every step (a single generateText with no stopWhen
-  // still yields one step), so this reads both single-shot and multi-step runs.
+  // A single-shot run still has one step.
   const calls: ToolCall[] = result.steps.flatMap((step) =>
     step.toolCalls.map((call) => ({ name: call.toolName, input: call.input })),
   );
@@ -132,11 +122,8 @@ function callQuery(input: unknown): string | null {
 }
 
 /**
- * The Sakshi bug in one assertion: after a thin first pass the boss ran a
- * single web_search, accepted the punt, and stopped — 2 of 24 tool-steps used.
- * "Depth" is satisfied by any of: two distinct web_search angles, a web_search
- * followed by a fetch_url drill, or delegating the whole investigation to a
- * sub-agent (which runs its own loop). Anything less is one-and-done.
+ * The prod bug: one web_search, then stop. Depth means two distinct web_search queries,
+ * a web_search then a fetch_url, or a delegation to a sub-agent.
  */
 interface DepthVerdict {
   ok: boolean;
@@ -170,13 +157,7 @@ function bossDepthVerdict(calls: ToolCall[]): DepthVerdict {
   };
 }
 
-/**
- * The integration-agnostic version of the same idea, for the research
- * sub-agent: it should work at least two distinct investigative actions AND
- * open at least one specific record (drill), whatever the source — a person on
- * the web, a PR on GitHub, a task in Gmail. This is what makes depth a
- * *capability*, not a web-only behavior.
- */
+/** For the research sub-agent on any source: two distinct actions and one drill into a record. */
 function investigationDepthVerdict(calls: ToolCall[], kind: "web" | "github"): DepthVerdict {
   const allowed = kind === "web" ? WEB_INVESTIGATION_TOOLS : GITHUB_INVESTIGATION_TOOLS;
   const relevant = calls.filter((c) => allowed.has(c.name) && c.name !== READ_CONTEXT_TOOL);
@@ -220,7 +201,6 @@ const SOURCE_CASES: SourceCase[] = [
 ];
 
 function toolSurface(): Record<string, Tool> {
-  // The AI SDK owns the `Record<string, Tool>` shape; hand it a plain record.
   const surface = {
     [READ_CONTEXT_TOOL]: tool({
       description:
@@ -411,10 +391,7 @@ async function runThinPersonResearchReplay(
       [WEB_SEARCH_TOOL]: tool({
         description: WEB_SEARCH_DESCRIPTION,
         inputSchema: webSearchInput,
-        // Post-A return shape: `{ ok, query, answer, citations, results, searchQueries }`.
-        // Here the public web genuinely has nothing on point (a private-work
-        // colleague), so the honest depth move is to name the hidden richer
-        // source (ClickUp), not to keep hammering the web.
+        // The web has nothing on this private colleague. The right move is to name ClickUp.
         execute: async ({ query }) => ({
           ok: true,
           query,
@@ -467,7 +444,7 @@ interface ReplayCase {
 const REPLAY_MESSAGES = ["find more about her", "can we know something more about her?"];
 
 evalite<ReplayCase, TaskOutput, null>("Boss judgment — thin person research replay", {
-  // The bug appeared on Deep/Opus as well as the everyday tier, so exercise both.
+  // The bug appeared on both tiers.
   data: () =>
     TIERS.flatMap((tier) =>
       REPLAY_MESSAGES.map((message) => ({ input: { message, tier }, expected: null })),
@@ -544,16 +521,8 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — thin person research re
   ],
 });
 
-// ---------------------------------------------------------------------------
-// Depth on a genuinely findable public person, on BOTH tiers.
-//
-// The ClickUp replay above tests recognizing a hidden *internal* source. This
-// one is the actual Sakshi/Opus failure: a person the public web CAN answer,
-// where the bug was running one web_search, accepting the punt, and stopping.
-// The post-A web_search mock surfaces a candidate + a drillable citation even
-// at low confidence (the old tool collapsed to "no confident match"), so the
-// right move is to investigate — a second angle, a fetch_url drill, or delegate.
-// ---------------------------------------------------------------------------
+// Depth on a public person the web can answer, on both tiers. The web_search mock returns a
+// low-confidence candidate with a citation, so the right move is to investigate further.
 
 async function runPersonResearchDepth(
   userMessage: string,
@@ -685,13 +654,8 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — person research depth",
   ],
 });
 
-// ---------------------------------------------------------------------------
-// Genericity guard (Yash's steer): depth is a *capability*, not a web-only
-// behavior. The research sub-agent must investigate in depth across ANY source
-// — a person on the web (search -> fetch_url) or a PR on GitHub (search ->
-// get_pull_request). Same prompt (buildSubAgentSystemPrompt), two unrelated
-// briefs; both must work >=2 distinct actions AND drill into a real record.
-// ---------------------------------------------------------------------------
+// Depth is not web-only. The sub-agent must go deep on the web (search, fetch_url) and on
+// GitHub (search, get_pull_request) with the same prompt.
 
 const SUB_CONNECTED_SUMMARY = [
   "You are connected to these tools right now — call each as integration.action:",

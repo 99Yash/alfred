@@ -5,20 +5,9 @@ import { toMessage } from "@alfred/contracts";
 import { createAssistantRuntime, runShutdownStep } from "../../src/runtime/runtime";
 
 /**
- * The process-facing door of the assistant runtime, held to three claims.
- *
- * 1. The returned object carries `start` and `stop` and nothing else, so a host
- *    cannot reach a queue, a worker or an adapter by name and cannot reorder the
- *    lifecycle from outside.
- * 2. Building a runtime runs no step. `createAssistantRuntime` reads no
- *    configuration callback and touches no service until `start` is awaited.
- * 3. One failing teardown step does not stop the rest. `stop` iterates every step
- *    through `runShutdownStep`, which swallows, logs and reports `false`; the one
- *    decision that reads the boolean is the ingestion retention rule.
- *
- * What this file does NOT pin is the full start/stop trace. The steps are
- * module-level imports rather than injected dependencies, so a trace fake needs an
- * interface this item did not build. Campaign item 150 owns it.
+ * The runtime exposes only `start` and `stop`, does nothing until `start`,
+ * and one failing teardown step (`runShutdownStep`) does not stop the rest.
+ * The full start/stop order is not pinned: the steps are imports, not injected.
  */
 
 function neverCalled(name: string): () => never {
@@ -45,8 +34,7 @@ describe("assistant runtime door", () => {
   });
 
   test("construction runs no configuration callback", () => {
-    // Every member of `inertConfig` throws. Reaching the assertion at all is the
-    // claim: a runtime built at module scope must not start anything.
+    // Every `inertConfig` member throws, so reaching the assertion is the proof.
     assert.doesNotThrow(() => createAssistantRuntime(inertConfig));
   });
 });
@@ -95,9 +83,7 @@ describe("runtime package doors", () => {
   });
 
   test("keeps every runtime adapter private", () => {
-    // The adapters are runtime implementation. No manifest key may name one, and
-    // none of the four ingestion leaf keys that the moved tests used to need may
-    // come back — those tests now live in this package and import relatively.
+    // No manifest key may expose an adapter or an ingestion leaf.
     const forbidden = [
       "@alfred/assistant/runtime/adapters/runtime-adapters",
       "@alfred/assistant/runtime/adapters/chat-media",

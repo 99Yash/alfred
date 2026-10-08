@@ -5,11 +5,7 @@ import { EVENT_KINDS } from "@alfred/contracts/events";
 
 import { sseResponse } from "../src/realtime/sse";
 
-/**
- * The frame and teardown contract of the shared SSE primitive. DB-free and
- * env-free on purpose: it runs in `http-tests` with nothing configured, which
- * is the same property the two routes that adopt it must keep.
- */
+// DB-free and env-free on purpose, like the two routes that use the primitive.
 
 async function readAvailable(res: Response): Promise<string> {
   const reader = res.body?.getReader();
@@ -20,10 +16,7 @@ async function readAvailable(res: Response): Promise<string> {
   return new TextDecoder().decode(value);
 }
 
-/**
- * Read the first `count` chunks as text. One `enqueue` is one chunk, so each
- * chunk is exactly one frame and the assertions can be byte-exact.
- */
+/** One `enqueue` is one chunk, so each chunk is one frame and asserts can be byte-exact. */
 async function readChunks(res: Response, count: number): Promise<string[]> {
   const reader = res.body?.getReader();
   assert.ok(reader, "response has a body");
@@ -42,11 +35,7 @@ async function readChunks(res: Response, count: number): Promise<string[]> {
   return chunks;
 }
 
-/**
- * Count heartbeat arms and clears across `fn`. `getActiveResourcesInfo()`
- * cannot see an unref'd timer, so counting the calls is the only way to assert
- * that a stream torn down by a throwing `open` did not orphan its interval.
- */
+/** Count heartbeat arms and clears. `getActiveResourcesInfo()` cannot see an unref'd timer. */
 async function countingIntervals(fn: () => Promise<void> | void): Promise<{
   armed: number;
   cleared: number;
@@ -88,10 +77,7 @@ describe("sseResponse", () => {
   });
 
   test("carries exactly the four base headers, including the proxy-buffering posture", async () => {
-    // There is no caller-supplied header door, so this is a property no route
-    // can vary: `Content-Type` cannot be replaced and neither SSE route can
-    // diverge on `X-Accel-Buffering`. The name set is asserted whole, because
-    // "the four headers" is the claim — a fifth would be a new decision.
+    // Routes cannot supply headers. Assert the whole set: a fifth header is a new decision.
     const res = sseResponse(() => {});
     await res.body?.cancel();
 
@@ -108,8 +94,7 @@ describe("sseResponse", () => {
   });
 
   test("gives every response its own headers, so one cannot edit another", async () => {
-    // `Headers` is mutable. A module-scope instance shared by every response
-    // would carry an edit made through one response into every later one.
+    // `Headers` is mutable, so a shared instance would leak one response's edit into the next.
     const first = sseResponse(() => {});
     const second = sseResponse(() => {});
     await first.body?.cancel();
@@ -140,19 +125,13 @@ describe("sseResponse", () => {
     assert.equal(multiline, "data: one\ndata: two\n\n");
     // CR, CRLF and LF are all line terminators to an SSE reader.
     assert.equal(mixedBreaks, "data: a\ndata: b\ndata: c\n\n");
-    // An id-only frame: advances `Last-Event-ID`, dispatches nothing.
+    // An id-only frame advances `Last-Event-ID` and dispatches nothing.
     assert.equal(cursor, "id: 7\n\n");
   });
 
   test("no event kind can end a frame early", () => {
-    // `SseFrame.event` is the closed union `EventKind | "poke"`, so `frame()`
-    // needs no run-time check for the line break that would terminate a frame
-    // early and let the payload write a second one. That trades a throw for a
-    // compile error (`test/type/sse-event-name.type-test.ts` is the gate), and
-    // it trusts the union: every name in it holds no line break. `"poke"` is a
-    // literal in this package, but `EventKind` is owned by `@alfred/contracts`,
-    // where a kind is added without reading this file. This detects such a kind;
-    // it does not prevent one.
+    // `frame()` trusts the `EventKind | "poke"` union to hold no line break.
+    // `EventKind` lives in `@alfred/contracts`, so this detects a bad new kind.
     for (const kind of EVENT_KINDS) {
       assert.ok(!/[\r\n]/.test(kind), `event kind ${JSON.stringify(kind)} holds a line break`);
     }
@@ -204,10 +183,7 @@ describe("sseResponse", () => {
   });
 
   test("runs a teardown registered after teardown already ran, immediately and once", async () => {
-    // The shape this exists for: an `open` that must await a subscribe before
-    // it can register the matching unsubscribe. A client that disconnects
-    // inside that await tears the stream down first, so the handler arrives
-    // after the list has already been drained.
+    // `open` awaits a subscribe; the client disconnects first, so the handler arrives after teardown.
     let calls = 0;
     let releaseOpen: () => void = () => {};
 
@@ -227,16 +203,14 @@ describe("sseResponse", () => {
 
     releaseOpen();
     await subscribed;
-    // Let the continuation of `open` past its await actually run.
+    // Let `open` continue past its await.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     assert.equal(calls, 1);
   });
 
   test("runs teardown and clears the heartbeat when open throws synchronously", async () => {
-    // A synchronous throw is still inside `new ReadableStream`, so it leaves
-    // `sseResponse` and reaches the error middleware: the client gets 500 and
-    // no stream. Measured against the package's own `errorHandler` on Node 22.
+    // A sync throw escapes `sseResponse` to the error middleware: the client gets 500 and no stream.
     let calls = 0;
 
     const counts = await countingIntervals(() => {
@@ -257,11 +231,8 @@ describe("sseResponse", () => {
   });
 
   test("runs teardown and clears the heartbeat when open rejects", async () => {
-    // The path a rejected `start` takes: WHATWG moves the stream to `errored`,
-    // and that transition never invokes the underlying source's `cancel`. So
-    // without the primitive's own catch, this leaks the armed interval and
-    // every registered handler for the life of the process — the round-1
-    // measurement was `armed=1 cleared=0 teardown=0`.
+    // A rejected `start` errors the stream, and WHATWG then never calls `cancel`.
+    // Without the primitive's own catch, the interval and handlers leak.
     let calls = 0;
     let failOpen: (err: Error) => void = () => {};
 
@@ -279,8 +250,7 @@ describe("sseResponse", () => {
         await gate;
       });
 
-      // The body read must be caught: the stream errors, and an uncaught
-      // rejection here would fail the process rather than the assertion.
+      // Catch the read: an uncaught rejection would fail the process, not the assert.
       const drained = readChunks(res, 4).then(
         () => "ended",
         (err: unknown) => (err instanceof Error ? err.message : String(err)),
@@ -296,13 +266,8 @@ describe("sseResponse", () => {
   });
 
   test("runs teardown when open returns a foreign promise that rejects", async () => {
-    // `Promise<T>` is structural, so a promise whose prototype chain does not
-    // include this realm's `Promise` — one from `node:vm`, or from a library
-    // class that implements the interface — satisfies the signature of `open`.
-    // A prototype test would send it down the synchronous path and never
-    // attach the rejection handler, which is the leak this seam exists to
-    // close. The cast stands in for that class: it is what the type system
-    // already admits, not a widening of the contract.
+    // `Promise<T>` is structural, so a foreign thenable (`node:vm`, a library class) fits `open`.
+    // A prototype check would treat it as sync and miss the rejection.
     let calls = 0;
 
     // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
@@ -336,9 +301,7 @@ describe("sseResponse", () => {
   });
 
   test("a throwing teardown handler does not stop the handlers after it", async () => {
-    // One handler per route today, which is exactly why this needs pinning:
-    // the reason teardown is a LIST is that a later adopter registers a second
-    // one beside the first.
+    // Teardown is a list so a later route can register a second handler.
     const ran: string[] = [];
 
     const res = sseResponse((conn) => {
@@ -373,10 +336,7 @@ describe("sseResponse", () => {
   });
 
   test("unrefs the heartbeat timer", async () => {
-    // `getActiveResourcesInfo()` cannot see an unref'd timer, so the handle
-    // delta is blind to this claim. Count the arm instead: wrap
-    // `setInterval` across the call and assert `.unref()` ran on the handle it
-    // returned.
+    // `getActiveResourcesInfo()` cannot see an unref'd timer, so wrap `setInterval` and spy on `.unref()`.
     const realSetInterval = globalThis.setInterval;
     const unreffed: boolean[] = [];
 

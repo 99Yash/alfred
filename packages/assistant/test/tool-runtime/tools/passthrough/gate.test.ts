@@ -12,11 +12,8 @@ import {
 } from "../../../../src/tool-runtime/internal/tools/passthrough";
 
 /**
- * The read gate is the security boundary of the general read-only passthrough
- * tier, so it gets the most exhaustive table. Every row asserts external
- * behavior: which (provider, method, path) combinations pass, and which reason a
- * denial carries — a wrong-path denial must be a clear, self-correctable reason,
- * never a silent pass.
+ * The read gate is the passthrough tier's security boundary. A denial must carry a reason the
+ * model can fix.
  */
 
 function rest(partial: Partial<RestPassthroughRequest> & { path: string }): RestPassthroughRequest {
@@ -123,8 +120,7 @@ describe("assertReadableRestRequest — path hardening", () => {
   });
 
   test("a legitimate deep path with colons (Google-style method suffix) passes", () => {
-    // Colons are legal in real API paths (e.g. `documents/{id}:batchGet`); the
-    // gate must not blanket-reject them.
+    // Real paths use colons, such as `documents/{id}:batchGet`.
     const r = assertReadableRestRequest(
       REST_GATE_CONFIG.docs,
       rest({ path: "/v1/documents/abc:get" }),
@@ -212,8 +208,7 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
   });
 
   test("a mixed document (query + mutation) is rejected even when a query is named", () => {
-    // Deny the WHOLE document: an injected mutation the caller didn't select
-    // must not ride along, even if operationName picks the query.
+    // An injected mutation must not ride along when operationName picks the query.
     const r = assertReadableGraphqlRequest(
       graphql({
         document: "query Q { me { id } } mutation M { x }",
@@ -271,7 +266,7 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
 
 describe("read gate — every denial reason is reachable", () => {
   test("the full ReadGateReason set is exercised across the REST and GraphQL suites", () => {
-    // Pinned so a new reason can't be added without a test somewhere in this file.
+    // A new reason must come with a test in this file.
     const restReachable: ReadGateReason[] = [
       "method_not_read",
       "path_not_allowlisted",

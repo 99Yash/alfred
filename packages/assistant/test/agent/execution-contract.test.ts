@@ -21,27 +21,10 @@ import type { TerminalOutcome } from "@alfred/assistant/execution/terminal-closu
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * Generic execution contract for the durable-execution module (campaign item
- * 06; Phase 3 "Done when"). ONE product-free recipe family (`__exec-contract-*`
- * — `__` marks it internal, excluded from catalogs) driven through the six
- * lifecycle transitions the plan names: start, retry, signal, cancellation,
- * resume, and terminal closure. It consumes the public service surface unchanged
- * (`registerRecipe`, `startRun`, `signalRun`, `cancelRun`, `getRun`) and drives
- * attempts with `runOnce`/`leaseRun` directly — never the worker — so no product
- * recipe (`chat`, `triage`, …) is touched anywhere in this file.
- *
- * Invariant pinned here: given a product-free recipe registered via
- * `registerRecipe`, after any allowed sequence of `startRun` -> `runOnce`
- * attempts (including a deferred retry) -> `signalRun` -> `cancelRun` ->
- * stale-lease reclaim -> terminal commit, `getRun` reflects exactly the terminal
- * `status`/`output` the recipe's `StepResult`s imply, a retry bumps `attempt`
- * without re-running an already-committed `(runId, stepId, attempt)`, and no step
- * body executes once the run is terminal.
- *
- * Opt-in: runs only when `DATABASE_URL` and `REDIS_URL` point at reachable test
- * services (`startRun` enqueues, so Redis is required). Seeds throwaway
- * `test-exec-contract-*` users and cascades them away on teardown; the enqueued
- * jobs are removed directly because no worker runs here. A skip is NOT a pass.
+ * Product-free recipes (`__` slugs stay out of catalogs) through start, retry,
+ * signal, cancel, resume, and terminal closure, via `runOnce`/`leaseRun`, not the worker.
+ * A retry bumps `attempt`, and no step body runs once the run is terminal.
+ * Needs Redis too: `startRun` enqueues. No worker runs, so teardown removes the jobs.
  */
 const SKIP = dbBackedSkip("database+redis");
 
@@ -92,10 +75,9 @@ const createdUserIds: string[] = [];
 
 const createdRunIds: string[] = [];
 
-/** Every step-body entry, in order — proves what ran (and at which attempt). */
+/** Every step-body entry, in order. */
 const bodyRuns: { runId: string; attempt: number }[] = [];
 
-/** Every client-closure invocation — records WHICH branch fired, and its reason. */
 const terminalCalls: { runId: string; outcome: TerminalOutcome["outcome"]; reason: string }[] = [];
 
 function recordBody(ctx: StepContext<ContractState>): void {
@@ -106,7 +88,6 @@ function attemptsFor(runId: string): number[] {
   return bodyRuns.filter((entry) => entry.runId === runId).map((entry) => entry.attempt);
 }
 
-/** A client closure that records which terminal branch drove it (never resurrects the run). */
 const recordingClosure: Extract<Workflow<ContractState>["closure"], { kind: "client" }> = {
   kind: "client",
   async onTerminal(ctx) {
@@ -134,16 +115,14 @@ function contractRecipe(
   };
 }
 
-// start: never leaves `pending` here — the test asserts persist, not execution.
+// The start test checks the persisted row; this body never runs.
 const startRecipe = contractRecipe(START_SLUG, async (ctx) => {
   recordBody(ctx);
 
   return { kind: "done", state: {}, output: {} };
 });
 
-// retry: attempt 0 defers to a retry instant already in the past; the re-lease
-// runs the SAME step at the bumped attempt 1 and completes. Deferring is the
-// executor's bounded-retry seam — a THROW is terminal, not a retry.
+// A defer is the retry seam. A throw is terminal, not a retry.
 const retryRecipe = contractRecipe(RETRY_SLUG, async (ctx) => {
   recordBody(ctx);
 
@@ -154,8 +133,6 @@ const retryRecipe = contractRecipe(RETRY_SLUG, async (ctx) => {
   return { kind: "done", state: {}, output: { retriedAt: ctx.attempt } };
 });
 
-// signal: attempt 0 parks on a signal wake; after `signalRun` matches, the
-// re-lease runs the same step at the bumped attempt 1 and completes.
 const signalRecipe = contractRecipe(SIGNAL_SLUG, async (ctx) => {
   recordBody(ctx);
 
@@ -166,7 +143,6 @@ const signalRecipe = contractRecipe(SIGNAL_SLUG, async (ctx) => {
   return { kind: "done", state: {}, output: { woken: true } };
 });
 
-// cancel: the body must never run — the run is cancelled while still pending.
 const cancelRecipe = contractRecipe(
   CANCEL_SLUG,
   async (ctx) => {
@@ -177,8 +153,7 @@ const cancelRecipe = contractRecipe(
   recordingClosure,
 );
 
-// terminal closure (success): completes in one attempt; client closure must NOT
-// fire (it fires only on failed/cancelled).
+// Client closure fires only on failed or cancelled.
 const completeRecipe = contractRecipe(
   COMPLETE_SLUG,
   async (ctx) => {
@@ -189,8 +164,6 @@ const completeRecipe = contractRecipe(
   recordingClosure,
 );
 
-// terminal closure (failure): the body throws → terminal `failed`; client
-// closure fires with `outcome: "failed"`.
 const failRecipe = contractRecipe(
   FAIL_SLUG,
   async (ctx) => {
@@ -200,8 +173,7 @@ const failRecipe = contractRecipe(
   recordingClosure,
 );
 
-// resume: body is never invoked — leaseRun only inspects the step's declared
-// (default) stale window when reclaiming a presumed-dead worker.
+// `leaseRun` reads only this step's default stale window.
 const resumeRecipe = contractRecipe(RESUME_SLUG, async (ctx) => {
   recordBody(ctx);
 
@@ -234,7 +206,6 @@ async function seedUser(): Promise<string> {
   return userId;
 }
 
-/** Start a run through the public entry point and track it for teardown. */
 async function startContractRun(workflowSlug: string): Promise<{ userId: string; runId: string }> {
   const userId = await seedUser();
 
@@ -263,7 +234,6 @@ async function removeQueuedContractRuns(): Promise<void> {
   );
 }
 
-/** The terminal `agent.run`/`failed` frames this run emitted (phase === "failed"). */
 async function failedRunFrames(userId: string, runId: string): Promise<unknown[]> {
   const rows = await db()
     .select({ payload: eventsOutbox.payload })
@@ -391,14 +361,11 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
       "#559b: cancel advances the monotonic cancellation fence exactly once",
     );
 
-    // Forbidden effect: a later lease attempt must not run the step body.
     const late = await runOnce(runId);
     assert.equal(late.kind, "skipped", "a terminal run is never leased for another attempt");
     assert.deepEqual(attemptsFor(runId), [], "the step body never executed on a cancelled run");
 
-    // Idempotency: a second cancel is a no-op and must not bump the fence
-    // again — the dispatch gate compares `>` against the captured value, so an
-    // extra bump is harmless, but the count stays honest for observability.
+    // An extra bump would not break the `>` dispatch gate, but the count must stay honest.
     const again = await cancelRun({ runId, reason: "exec-contract cancel again" });
     assert.equal(again, "already_terminal", "the second cancel is a no-op");
     assert.equal(
@@ -434,7 +401,6 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
       "client closure fires only on failed/cancelled — a `done` completes inside the step body",
     );
 
-    // Forbidden effect: a completed run is terminal; a later lease runs nothing.
     const late = await runOnce(runId);
     assert.equal(late.kind, "skipped");
     assert.deepEqual(attemptsFor(runId), [0], "the body ran exactly once, at attempt 0");
@@ -464,7 +430,6 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
       "exactly one terminal agent.run/failed frame released the run",
     );
 
-    // Forbidden effect: a failed run is terminal; a later lease runs nothing.
     const late = await runOnce(runId);
     assert.equal(late.kind, "skipped");
     assert.deepEqual(
@@ -475,8 +440,7 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
   });
 
   test("resume — leaseRun reclaims a stale `running` row with a bumped attempt", async () => {
-    // A presumed-dead worker: a `running` row whose heartbeat lapsed past the
-    // default stale window, plus the orphan step row it left behind.
+    // A dead worker's lapsed `running` row and its orphan step row.
     const userId = await seedUser();
     const runId = `run_${randomUUID().slice(0, 12)}`;
     createdRunIds.push(runId);

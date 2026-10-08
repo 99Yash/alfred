@@ -5,19 +5,9 @@ import { TOOL_INPUT_SCHEMAS } from "@alfred/contracts/tool-schemas";
 import { normalizeToolInputKeys } from "../../../src/tool-runtime/internal/dispatch/normalize-keys";
 
 /**
- * Regression guard for the param-ergonomics pass (query/DSL-flawless work,
- * 2026-07-14). The measured cross-integration failure was NOT the query DSL but
- * the tool-input *parameter surface*: the model reaches for a natural param
- * name/shape the strict schema rejects → `unrecognized_keys`/`invalid_input` →
- * a wasted boss turn + a "Couldn't {integration}" flash. Each case below is a
- * shape drawn from the 400-run failure scan; it must now VALIDATE first-try
- * through the exact two-step the dispatcher runs (`normalizeToolInputKeys` then
- * `schema.safeParse`), so a future schema change that reintroduces the bounce
- * fails here instead of in production.
- *
- * This is the deterministic complement to the live-model *grounding* evals: it
- * pins boundary TOLERANCE (accept the fumbled shape) rather than model behavior
- * (construct the right query), so it needs no provider and never flakes.
+ * Param shapes the model really sends, which the strict schemas used to reject.
+ * Each must validate on the first try through the dispatcher's two steps:
+ * `normalizeToolInputKeys`, then `schema.safeParse`.
  */
 
 type InputSchemaToolName = keyof typeof TOOL_INPUT_SCHEMAS;
@@ -34,7 +24,6 @@ interface Case {
   readonly name: string;
   readonly tool: InputSchemaToolName;
   readonly input: Record<string, unknown>;
-  /** Optional assertions on the parsed output. */
   readonly expect?: (data: Record<string, unknown>) => void;
 }
 
@@ -90,10 +79,8 @@ const CASES: readonly Case[] = [
     expect: (d) => assert.equal(d.perPage, 5),
   },
   {
-    // A cased/underscored variant of an ALIAS (not an accepted key) can't be
-    // reached by the generic dispatch normalizer, so withKeyAliases matches the
-    // alias case/underscore-insensitively — otherwise `Limit`/`Body` would fall
-    // through both layers and re-open the exact bounce the wrapper closes.
+    // The dispatch normalizer only knows accepted keys, so withKeyAliases must match aliases
+    // case-insensitively.
     name: "github.search Limit (cased alias) → perPage",
     tool: "github.search",
     input: { query: "repo:99Yash/alfred", Limit: 5 },
@@ -107,8 +94,6 @@ const CASES: readonly Case[] = [
   },
   // ── scalar → array (wrapScalarRecipients, #363) ──────────────────────────
   {
-    // The measured first-try shape (traces run_4tvphr6ymih7 / run_daol4yqz8919):
-    // a single recipient emitted as a bare string, not a one-element array.
     name: "gmail.send_draft bare-string to → [to]",
     tool: "gmail.send_draft",
     input: { to: "a@example.com", subject: "Hi", bodyText: "Body." },
@@ -130,8 +115,6 @@ const CASES: readonly Case[] = [
     },
   },
   {
-    // The two #363 fumbles compound in the same call: bare-string `to` AND the
-    // `body` synonym. Both layers must fold so the first attempt validates.
     name: "gmail.send_draft bare-string to + body synonym (compound #363)",
     tool: "gmail.send_draft",
     input: { to: "a@example.com", subject: "Hi", body: "Body." },
@@ -141,14 +124,13 @@ const CASES: readonly Case[] = [
     },
   },
   {
-    // A JSON-array *string* still routes through coerceJsonArrayFields (not the
-    // scalar wrap), proving the two mechanisms compose rather than double-wrap.
+    // coerceJsonArrayFields handles it, not the scalar wrap, so nothing double-wraps.
     name: "gmail.send_draft JSON-array-string to → array (coerceJsonArrayFields)",
     tool: "gmail.send_draft",
     input: { to: '["a@example.com","b@example.com"]', subject: "Hi", bodyText: "Body." },
     expect: (d) => assert.deepEqual(d.to, ["a@example.com", "b@example.com"]),
   },
-  // ── wrong shape (github url/number decompose — the biggest offender) ─────
+  // ── wrong shape (github url/number decompose) ───────────────────────────
   {
     name: "github.get_pull_request url → owner/repo/pull_number",
     tool: "github.get_pull_request",
@@ -172,9 +154,6 @@ const CASES: readonly Case[] = [
     expect: (d) => assert.equal(d.pull_number, 305),
   },
   {
-    // Live-caught (run_zontenz6gh4e, 2026-07-14): the search→fetch step emitted
-    // a combined `owner/repo` slug AND the `pullRequestNumber` synonym, bouncing
-    // the first fetch attempt. Both must now fold.
     name: "github.get_pull_request combined slug + pullRequestNumber synonym",
     tool: "github.get_pull_request",
     input: { repo: "99Yash/alfred", pullRequestNumber: "503" },
@@ -238,10 +217,7 @@ describe("param-ergonomics: measured fumbles validate first-try through dispatch
 });
 
 describe("param-ergonomics: the github number-synonym fold stays a closed allowlist", () => {
-  // An unrelated numeric field must NOT be folded into the item number. Folding
-  // `comment_number` → `issue_number` would silently fetch the WRONG entity — a
-  // failure strictly worse than a bounce, which self-corrects. So this MUST
-  // bounce (unknown key + missing issue_number), never quietly succeed.
+  // Folding `comment_number` would fetch the wrong entity. A bounce self-corrects; that does not.
   test("github.get_issue comment_number is not folded into issue_number", () => {
     const parsed = dispatchParse("github.get_issue", {
       owner: "99Yash",
@@ -254,10 +230,7 @@ describe("param-ergonomics: the github number-synonym fold stays a closed allowl
 });
 
 describe("param-ergonomics: the send_draft scalar recipient wrap is not a blanket accept-anything", () => {
-  // Wrapping only fixes shape, never content: a bare string that isn't a valid
-  // address is wrapped into a one-element array and then bounces on the email
-  // regex, exactly as `to: ["not-an-email"]` would. So a garbage recipient must
-  // still fail — the wrap must not launder an invalid address into a "send".
+  // The wrap fixes shape, not content. An invalid address must still fail.
   test("gmail.send_draft bare-string non-email to still bounces", () => {
     const parsed = dispatchParse("gmail.send_draft", {
       to: "not-an-email",
@@ -268,9 +241,7 @@ describe("param-ergonomics: the send_draft scalar recipient wrap is not a blanke
     assert.equal(parsed.success, false);
   });
 
-  // A `[`-prefixed string that fails to JSON-parse is a malformed array, not a
-  // recipient; coerceJsonArrayFields declines it and the scalar wrap leaves it
-  // alone, so it bounces rather than being wrapped into a bogus one-element list.
+  // A malformed JSON array is not a recipient. Neither layer may wrap it.
   test("gmail.send_draft malformed JSON-array to still bounces", () => {
     const parsed = dispatchParse("gmail.send_draft", {
       to: '["a@example.com"',

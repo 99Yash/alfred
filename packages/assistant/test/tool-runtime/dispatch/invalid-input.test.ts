@@ -10,10 +10,7 @@ import {
 
 describe("enrichInvalidInputMessage", () => {
   test("appends the accepted params when the model invents an unknown key", () => {
-    // `gibberish` is not a real param, and its value isn't a window value, so
-    // it isn't promoted to `window` — it trips strict validation. (A key
-    // carrying a real window value like "today" WOULD be promoted, which is why
-    // the value here is deliberately not one.)
+    // Not a window value on purpose: a key holding "today" would be promoted to `window`.
     const parsed = calendarListEventsInput.safeParse({ gibberish: "nonsense" });
     assert.equal(parsed.success, false);
 
@@ -26,13 +23,11 @@ describe("enrichInvalidInputMessage", () => {
     );
 
     assert.match(enriched, /This tool accepts only these parameters:/);
-    // The field the model SHOULD have used is now surfaced for self-correction.
     assert.match(enriched, /window/);
     assert.match(enriched, /timeMin, timeMax, window, partOfDay, maxResults/);
   });
 
   test("leaves non-unrecognized-key errors untouched", () => {
-    // A malformed value (not an unknown key) should pass through verbatim.
     const parsed = calendarListEventsInput.safeParse({ timeMin: "not-a-datetime" });
     assert.equal(parsed.success, false);
 
@@ -59,7 +54,6 @@ describe("enrichInvalidInputMessage", () => {
   });
 
   test("acceptedParamNames is best-effort and never throws", () => {
-    // A schema with no object properties yields an empty list rather than an error.
     assert.deepEqual(acceptedParamNames(z.string()), []);
   });
 });

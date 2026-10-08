@@ -17,8 +17,7 @@ function scanTransaction(
   prefixes: string[],
 ): Pick<ReadTransaction, "scan"> {
   return {
-    // SAFETY: the model only calls the unindexed scan overload and consumes
-    // values().toArray(); this fake implements that exact capability.
+    // SAFETY: the model calls only the unindexed scan and values().toArray(), which this fake implements.
     scan: ((options?: { prefix?: string }) => {
       prefixes.push(options?.prefix ?? "");
 

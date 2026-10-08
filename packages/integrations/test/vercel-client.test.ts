@@ -6,21 +6,9 @@ import { createVercelClient } from "../src/vercel/client";
 import { readVercelTeamId, vercelCredentialMetadata } from "../src/vercel/credential";
 
 /**
- * The Vercel client is now the ONE door to `api.vercel.com` on a user's behalf.
- * These pin what is genuinely Vercel-specific — the seam's own mechanics (pinned
- * query beating a caller's, POST never retried, bounded error bodies) are pinned
- * once in `provider-client.test.ts` and not restated here.
- *
- * The team scope gets the most coverage because its failure mode is silent. A
- * team token sent WITHOUT `?teamId=` does not 401 — Vercel answers in
- * personal-account scope with a `200` and an empty list, which reaches the model
- * as a confident "you have no projects". That is exactly the bug the reader/writer
- * pair in `src/vercel/credential.ts` exists to prevent, so the round trip is
- * pinned rather than assumed.
- *
- * `createVercelClient` (not `vercelClientForUser`) is used deliberately: it takes
- * the resolver directly, so this runs offline with no DB and no memoization
- * hiding the resolve count.
+ * Vercel-specific cases only; `provider-client.test.ts` covers the shared mechanics.
+ * A team token without `?teamId=` gets a `200` with an empty list, not a 401, so team scope gets the most cases.
+ * `createVercelClient` takes the resolver directly, so no DB and no memo hides the resolve count.
  */
 
 const realFetch = globalThis.fetch;
@@ -56,8 +44,6 @@ function client(teamId: string | null, onResolve?: () => void) {
 
       return { token: redacted("vercel_secret_token"), teamId };
     },
-    // Stated, not defaulted: `retry` is required at every client constructor so a
-    // test cannot silently exercise a different envelope than production.
     retry: "none",
   });
 }
@@ -82,8 +68,7 @@ const DEPLOYMENTS = {
 
 describe("vercel credential metadata", () => {
   test("what connect writes is what the client reads back", () => {
-    // The regression guard for the real bug: a reader spelled `teamId` while the
-    // route persisted `team_id`, so this round trip silently returned null.
+    // Regression: the reader used `teamId` while connect wrote `team_id`.
     const metadata = vercelCredentialMetadata({
       tokens: {
         accessToken: "vercel_secret_token",
@@ -118,7 +103,7 @@ describe("vercel credential metadata", () => {
     assert.equal(readVercelTeamId("team_abc"), null);
     assert.equal(readVercelTeamId({ team_id: 42 }), null);
     assert.equal(readVercelTeamId({ team_id: "" }), null);
-    // The spelling that caused the bug must NOT be honoured — one key, one home.
+    // The old spelling must not work.
     assert.equal(readVercelTeamId({ teamId: "team_abc" }), null);
   });
 });
@@ -140,8 +125,7 @@ describe("vercel client team scope", () => {
   });
 
   test("the passthrough capability carries the same pinned team scope internally", async () => {
-    // Otherwise a raw `vercel.request` would read personal scope on a team
-    // install and report an empty result as a confident zero.
+    // Otherwise a raw `vercel.request` reads personal scope and reports an empty result.
     const teamCalls = stubFetch({ ok: true });
     await client("team_abc").passthrough.execute({
       method: "GET",
@@ -162,7 +146,7 @@ describe("vercel client auth", () => {
     const call = calls[0];
     assert.ok(call);
     assert.equal(call.headers.Authorization, "Bearer vercel_secret_token");
-    // The secret must never ride the URL — that is what reaches logs and errors.
+    // URLs reach logs and errors.
     assert.ok(!call.url.includes("vercel_secret_token"));
   });
 
@@ -196,9 +180,7 @@ describe("vercel client auth", () => {
 
     await vercel.projects();
     await vercel.passthrough.execute({ method: "GET", path: "/v9/projects", query: {} });
-    // Two methods, two reads. `vercelClientForUser` behaves identically, so a
-    // rotated credential is picked up on the next call rather than at the next
-    // bind — and there is no lifetime rule for a caller to get wrong.
+    // One read per call, so a rotated credential applies on the next call.
     assert.equal(resolves, 2, "a client must not cache its credential");
   });
 });
@@ -222,8 +204,7 @@ describe("vercel client redeploy", () => {
   });
 
   test("a failed redeploy is attempted exactly once — never re-sent", async () => {
-    // A live deploy is the one call in this file that must not double-apply: the
-    // POST may have landed before the failure. Pinned here, not just at the seam.
+    // The POST may have landed before the failure, so a retry could deploy twice.
     const calls = stubFetch({ error: "boom" }, 500);
     await assert.rejects(
       client("team_abc").redeploy({ deploymentId: "dpl_1", name: "alfred" }),

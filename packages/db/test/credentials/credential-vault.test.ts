@@ -8,10 +8,7 @@ import {
   type CredentialVaultFailure,
 } from "@alfred/db/credential-vault";
 
-/**
- * Unit coverage for the credential envelope (#453). Keys are injected, so
- * nothing here needs `OAUTH_CREDENTIAL_KEK`, a database, or a network.
- */
+/** Keys are injected, so no `OAUTH_CREDENTIAL_KEK`, database, or network is needed. */
 
 const KEY = randomBytes(32);
 
@@ -110,8 +107,7 @@ describe("credential vault: round trip", () => {
     const envelope = vault.seal(plaintext);
     assert.ok(!envelope.includes(plaintext));
     assert.ok(!envelope.includes("super-secret"));
-    // The kid is a truncated hash of the KEK, so the KEK itself must not appear
-    // in the same alphabet the envelope is written in.
+    // The kid is a truncated KEK hash, so the KEK must not appear in the envelope.
     assert.ok(!envelope.includes(KEY.toString("base64url")));
   });
 
@@ -141,8 +137,7 @@ describe("credential vault: open fails closed", () => {
   const envelope = vault.seal("ya29.the-real-token");
 
   test("rejects plaintext", () => {
-    // The rollout's whole risk is a row the backfill missed. It must throw, not
-    // pass the token through.
+    // A row the backfill missed must throw, not pass the token through.
     assertFailure(() => vault.open("ya29.plain-token"), "malformed_envelope");
     assertFailure(() => vault.open(""), "malformed_envelope");
   });
@@ -174,8 +169,7 @@ describe("credential vault: open fails closed", () => {
 
   test("rejects a wrong key", () => {
     const other = createCredentialVault(OTHER_KEY);
-    // The key id is derived from the KEK, so a foreign key is named as such
-    // rather than surfacing as a generic tag failure.
+    // The kid comes from the KEK, so a foreign key gets its own error, not a tag failure.
     assertFailure(() => other.open(envelope), "unknown_key");
     assert.equal(other.open(other.seal("mine")), "mine");
   });
@@ -230,8 +224,7 @@ describe("credential vault: open fails closed", () => {
   });
 
   test("cross-role substitution fails", () => {
-    // The wrapped DEK and the payload use distinct AAD, so a payload fed to the
-    // unwrap step (or the reverse) cannot be interpreted.
+    // Distinct AAD stops the DEK and payload being swapped.
     const parts = envelope.split(".");
     const swapped = [...parts];
     swapped[PART.wrapNonce] = parts[PART.nonce] ?? "";
@@ -243,8 +236,7 @@ describe("credential vault: open fails closed", () => {
 describe("credential vault: isSealed", () => {
   test("recognizes the envelope family without claiming it is openable", () => {
     assert.equal(vault.isSealed(vault.seal("token")), true);
-    // A foreign key's envelope is still an envelope — the shape test is
-    // deliberately not an authorization check.
+    // A shape check, not an authorization check.
     assert.equal(vault.isSealed(createCredentialVault(OTHER_KEY).seal("token")), true);
     assert.equal(vault.isSealed("acv1.A256GCM.short.a.b.c.d.e.f"), true);
     assert.equal(

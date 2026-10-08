@@ -15,17 +15,9 @@ import {
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed test for the sub-agent republish guard (campaign item 38, 37-MF1).
- *
- * A spawned sub-agent republishes its `chat.tool` cards under the PARENT chat
- * run's `runId` (ADR-0073) on every resume or stale-lease reclaim. The client
- * arms a replay-recovery barrier on that `runId` and releases it only on the
- * parent's `chat.message/completed`. Once the parent run is terminal, no release
- * will come, so `dispatchToolsStep` must stop republishing under it.
- * `parentRunStillOpen` is that gate: it says "open" only for a run that both
- * exists and is non-terminal.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
+ * A sub-agent republishes its cards under the parent run's `runId` (ADR-0073).
+ * Only the parent's `chat.message/completed` releases that barrier, so
+ * `parentRunStillOpen` is true only for a parent that exists and is not terminal.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -69,8 +61,7 @@ describe("parentRunStillOpen (campaign 38, 37-MF1, DB-backed)", { skip: SKIP }, 
     await closeRedis();
   });
 
-  // A live parent is still building its turn, so its bubble can still absorb the
-  // republished card and its own `completed` will release the barrier.
+  // A live parent's own `completed` will still release the barrier.
   for (const status of ["running", "waiting", "pending"] as const) {
     test(`open when the parent run is ${status}`, async () => {
       const { userId, runId } = await seedRun(status);
@@ -78,8 +69,7 @@ describe("parentRunStillOpen (campaign 38, 37-MF1, DB-backed)", { skip: SKIP }, 
     });
   }
 
-  // A terminal parent will never publish `completed` again, so a card
-  // republished under it arms a barrier nothing releases.
+  // A terminal parent never publishes `completed` again.
   for (const status of ["completed", "cancelled", "failed"] as const) {
     test(`closed when the parent run is ${status}`, async () => {
       const { userId, runId } = await seedRun(status);

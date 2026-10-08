@@ -7,32 +7,14 @@ import { dbBackedSkip } from "./support/db-backed";
 import { applyServerEnvFixtures } from "./support/server-env";
 
 /**
- * `/ready` against a REAL Redis, on the FIRST request the process ever makes.
- *
- * The endpoint used to build a `"fail-fast"` connection per request and ping it
- * in the same tick. `enableOfflineQueue: false` rejects every command issued
- * before the connection reaches `ready`, and a connection commanded in the tick
- * it was constructed is never ready — so `checks.redis` read `"error"` on every
- * request against a perfectly healthy Redis, and `/ready` always answered 503
- * (#127).
- *
- * The mock is what hid this. `root-app.test.ts` replaces `IORedis.prototype.ping`
- * for all three of its `/ready` arms, so no arm can observe a cold connection.
- * This file therefore mocks NOTHING and dials the real service.
- *
- * ONE REQUEST, and it must be the first. `node:test` gives each file its own
- * process, so the module registry here is cold and the request below constructs
- * the handle. A second request would find a ready connection and pass either
- * way, which is why this file holds exactly one arm.
- *
- * Asserts on `checks.redis` alone, never on `ok`: the `db` check needs a
- * migrated database, and this arm is about Redis.
+ * `/ready` against a real Redis, on the process's first request (regression: #127).
+ * A fail-fast connection pinged in the tick it was built rejects, so `/ready` always gave 503.
+ * `root-app.test.ts` mocks `ping` and cannot see this, so this file mocks nothing.
+ * Exactly one request: a second finds a ready connection and passes either way.
+ * Asserts only `checks.redis`; the `db` check needs a migrated database.
  */
 
-// The plain form of `applyServerEnvFixtures` plants no service URL, so the guard
-// below reads the true ambient environment and still skips on a machine that
-// runs neither service. Read the guard first anyway: the order is what a reader
-// checks, and the fixtures must stay in front of the import either way.
+// The plain fixture form plants no service URL, so the guard still skips without services.
 const skip = dbBackedSkip("database+redis");
 
 applyServerEnvFixtures();

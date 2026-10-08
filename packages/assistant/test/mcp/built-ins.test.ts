@@ -5,11 +5,8 @@ import { GITHUB_MCP_ENDPOINT_HREF } from "../../src/connections/mcp/constants";
 import { resolveBuiltInClient, type BuiltInOAuthConfig } from "../../src/connections/mcp/built-ins";
 
 /**
- * The built-in registry is the ONLY place Alfred can get an OAuth client for a
- * provider whose authorization server refuses dynamic registration (#934).
- * These tests are pure: they drive `process.env` directly, because the lazy
- * per-call read is the property that makes rotation work and makes a test
- * override possible.
+ * The built-in registry is the only OAuth client source for providers that refuse dynamic registration.
+ * Tests set `process.env` directly: the lazy per-call read is what makes rotation work.
  */
 
 const CLIENT_ID = "GITHUB_MCP_CLIENT_ID";
@@ -18,14 +15,7 @@ const CLIENT_SECRET = "GITHUB_MCP_CLIENT_SECRET";
 
 const ENDPOINT = new URL(GITHUB_MCP_ENDPOINT_HREF);
 
-/**
- * The callback every case below would register.
- *
- * The GitHub entry pins no `clientRegistrationRedirects`, so the registry never
- * judges the callback here and no assertion in this suite changes meaning. The
- * field is required precisely so a call site cannot forget the judgement, not
- * because these cases exercise it.
- */
+/** The callback every case registers. GitHub pins no `clientRegistrationRedirects`, so it is never judged here. */
 const CALLBACK = new URL("http://localhost:3001/api/integrations/mcp/callback");
 
 /** The `static` arm's client, for the cases that only assert one of its fields. */
@@ -108,8 +98,7 @@ describe("built-in MCP provider registry (#934)", () => {
     assert.ok(staticClient(new URL("https://api.githubcopilot.com/%6Dcp/readonly")));
   });
 
-  // `dynamic`, not `unavailable`: no built-in claims these endpoints at all, so
-  // there is no pin to refuse and the SDK registers its own client.
+  // `dynamic`, not `unavailable`: no built-in claims these endpoints, so the SDK registers its own client.
   test("a query or a fragment cannot inherit the pre-registered client", () => {
     setEnv("confidential-client", "confidential-secret");
     assert.equal(
@@ -154,8 +143,7 @@ describe("built-in MCP provider registry (#934)", () => {
     );
   });
 
-  // The sharp one. A refused issuer must NOT read as "register a client
-  // dynamically", or the pin sends the caller to the very origin it refused.
+  // A refused issuer must not read as "register dynamically", or the pin sends the caller to the refused origin.
   test("a discovered issuer on another origin refuses the client", () => {
     setEnv("confidential-client", "confidential-secret");
     assert.deepEqual(

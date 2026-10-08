@@ -1,18 +1,7 @@
 /**
- * `serverEnv()` is all-or-nothing and MEMOIZES on its first call, so a test that
- * wants a `REDIS_URL` of its own must set it before anything in the process
- * reads the environment — and must supply the other ~20 variables too, or the
- * parse throws and the `REDIS_URL` never matters.
- *
- * The dummies below mirror the `env:` block of the `db-tests` CI job, so a
- * developer running this tree in a shell with no env file gets a parse that
- * succeeds. They do NOT reproduce the CI run: in `db-tests` the identical
- * `DATABASE_URL` points at a live migrated Postgres service, and the two
- * DB-backed suites in this tree reach it. Only the four Redis suites call this
- * helper, and `@alfred/db/redis` reads exactly one field, `REDIS_URL`, so no
- * value below reaches a service from here — the rest exist only to make the
- * parse succeed. Each one is assigned with `??=`, so a real value from
- * `pnpm --filter @alfred/db test:db`, which loads `apps/server/.env`, wins.
+ * `serverEnv()` parses every variable at once and memoizes, so a Redis test must set
+ * `REDIS_URL` first and fill the rest. These dummies mirror the `db-tests` CI `env:` block
+ * and exist only to make the parse pass. `??=` lets a real value from `apps/server/.env` win.
  */
 const DUMMIES = {
   DATABASE_URL: "postgresql://ci:ci@localhost:5432/alfred_ci",
@@ -37,13 +26,8 @@ const DUMMIES = {
 } satisfies Readonly<Record<string, string>>;
 
 /**
- * Point the process at `redisUrl` and fill in whatever else `serverEnv()`
- * demands. Call this BEFORE the first `createRedisConnection(...)` in the file:
- * that call is what memoizes the parse, and a later override is silently
- * ignored. `REDIS_URL` is assigned unconditionally — an ambient one from a
- * developer shell or a CI `env:` block must not win over the caller's choice,
- * because a probe that quietly talked to a real Redis instead of the endpoint it
- * built would pass while proving nothing.
+ * Call before the first `createRedisConnection(...)`, which memoizes the parse.
+ * `REDIS_URL` always overrides, so a probe never talks to an ambient real Redis by accident.
  */
 export function applyServerEnv(redisUrl: string): void {
   for (const [key, value] of Object.entries(DUMMIES)) process.env[key] ??= value;

@@ -3,12 +3,7 @@ import { describe, test } from "node:test";
 
 import { detectAiTells, summarizeTells } from "../../src/voice/voice-detector";
 
-/**
- * Locks the machine-checkable slice of DEFAULT_VOICE_PROMPT: every rule must
- * fire on a known offender and stay quiet on clean, grounded prose. If a rule
- * regexp drifts, the corresponding case here fails before it can silently pass
- * a tell through the eval scorer.
- */
+/** Each machine-checkable DEFAULT_VOICE_PROMPT rule must fire on an offender and stay quiet on clean prose. */
 
 function ruleIds(text: string): string[] {
   return detectAiTells(text).map((t) => t.ruleId);

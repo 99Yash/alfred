@@ -10,19 +10,13 @@ import {
 } from "@alfred/assistant/triage/hedge";
 
 /**
- * Hedged classify (#436). The tail of `triage.classify` is provider scheduling
- * jitter, so a duplicate draw recovers p90/p95 — but only if four properties
- * hold, and each of them is a way to burn money or precision if it doesn't:
- *
- *  - a fast call never duplicates (otherwise every classify costs double);
- *  - a slow call does, and the faster draw wins;
- *  - the loser is actually cancelled (an uncancelled hedge is pure spend);
- *  - a hedge is not a retry — a failure inside the window is the answer.
+ * Hedged classify. A slow call gets a duplicate draw and the faster one wins.
+ * A fast call never duplicates, the loser is cancelled, and a failure is not retried.
  */
 
 const DELAY = 20;
 
-/** Deterministic scheduling: resolve after `ms`, or reject early if aborted. */
+/** Resolve after `ms`, or reject early if aborted. */
 function after<T>(ms: number, value: T, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => resolve(value), ms);
@@ -42,45 +36,28 @@ function recorder(): Recorder {
   return { attempts: [], aborted: [] };
 }
 
-/** Track which attempts ran and which of them were cancelled. */
 function track(rec: Recorder, attempt: HedgeAttempt, signal: AbortSignal): void {
   rec.attempts.push(attempt);
   signal.addEventListener("abort", () => rec.aborted.push(attempt));
 }
 
 interface CeilingHarness {
-  /** Pass this to `runHedged` in place of the raw budget. */
   budget: HedgeBudget;
   /** Resolves once every caller has decided whether to duplicate. */
   decided: Promise<void>;
-  /** Resolves once every granted duplicate has produced its answer. */
+  /** Resolves once every granted duplicate has answered. */
   answered: Promise<void>;
   /** Call from a hedge draw, just before it resolves. */
   hedgeSettled(): void;
 }
 
 /**
- * Sequencing for the concurrent-ceiling case, built out of counted events
- * rather than durations.
- *
- * Elapsed time cannot separate "all five callers decided" from "a hedge settled
- * and released its slot". On a loaded runner the five `delayMs` timers land in
- * different millisecond buckets, the event loop turns between them, and a short
- * hedge settles in the middle of the decisions — at which point a later caller
- * takes the freed slot, a cumulative count of 3 becomes correct behaviour, and
- * the test fails while the code is right. This was the single largest source of
- * red builds on `main`, so the case is sequenced on `tryAcquire`, which
- * `runHedged` calls exactly once per caller that reaches the hedge point: for
- * the ones that win a slot and for the ones the ceiling turns away.
- *
- * `answered` waits for the duplicates that were actually GRANTED, never for a
- * fixed two. A mutant that grants none would otherwise leave every original
- * waiting on a hedge that never runs, and the case would hang to the job
- * timeout instead of failing.
+ * Sequence the ceiling case on `tryAcquire` counts, not durations.
+ * On a loaded runner a hedge can free its slot mid-decision, so timers made this flaky.
+ * `answered` waits for the granted count, so a grant-none bug fails instead of hanging.
  */
 function ceilingHarness(callers: number, inner: HedgeBudget): CeilingHarness {
-  // Both executors run synchronously, so the openers are assigned before
-  // `tryAcquire` can reach them.
+  // Promise executors run synchronously, so the openers exist before `tryAcquire` runs.
   let openDecided = (): void => {};
 
   const decided = new Promise<void>((resolve) => {
@@ -97,8 +74,7 @@ function ceilingHarness(callers: number, inner: HedgeBudget): CeilingHarness {
   let granted = 0;
   let settled = 0;
 
-  // Only meaningful once every caller has decided: until then `granted` is
-  // still climbing, so an early equality would open the gate on a prefix.
+  // Wait for all decisions; before that, `granted` is still climbing.
   const openWhenAllGrantedHaveAnswered = (): void => {
     if (decisions >= callers && settled >= granted) openAnswered();
   };
@@ -261,13 +237,7 @@ describe("runHedged", () => {
   });
 });
 
-/**
- * The budget is what stops the hedge from amplifying the condition it fires on.
- * A slow call is a per-call observation; a *burst* of slow calls is capacity
- * pressure, and duplicating every one of them doubles load into a provider that
- * is already 429ing. So the ceiling has to hold under exactly the case where
- * every call wants to hedge at once.
- */
+/** A burst of slow calls is provider pressure; hedging all of them doubles load into a 429ing provider. */
 describe("hedge budget", () => {
   test("a slow call past the ceiling runs un-hedged instead of failing", async () => {
     const budget = createHedgeBudget(0);
@@ -289,8 +259,7 @@ describe("hedge budget", () => {
 
   test("concurrent slow calls duplicate only up to the ceiling", async () => {
     const recs = Array.from({ length: 5 }, recorder);
-    // NO duration decides this outcome. `delayMs` is the only timer left,
-    // because wanting to hedge is what the case is about. See `ceilingHarness`.
+    // No duration decides this outcome; see `ceilingHarness`.
     const gate = ceilingHarness(recs.length, createHedgeBudget(2));
 
     const results = await Promise.all(
@@ -301,15 +270,10 @@ describe("hedge budget", () => {
           run: ({ attempt, signal }) => {
             track(rec, attempt, signal);
 
-            // Every call is slow enough to want a hedge — the burst case. The
-            // original answers only after the granted duplicates have, which is
-            // what an over-budget call falls back to waiting for, and which makes
-            // the hedge win its race by construction rather than by arithmetic
-            // on two timeouts.
+            // The original answers only after the granted duplicates, so the hedge always wins.
             if (attempt === 0) return gate.answered.then(() => "slow" as const);
 
-            // A granted duplicate holds its slot until every caller has decided,
-            // so it cannot hand a freed slot to a caller still making up its mind.
+            // Hold the slot until every caller has decided, so no late caller gets a freed slot.
             return gate.decided.then(() => {
               gate.hedgeSettled();
 
@@ -347,8 +311,7 @@ describe("hedge budget", () => {
     assert.equal(first, "hedge");
     assert.equal(budget.inFlight(), 0, "the winning hedge released its slot on settle");
 
-    // The next slow call is free to hedge again — a budget that leaked would
-    // silently turn hedging off for the rest of the process's life.
+    // A leaked slot would turn hedging off for the rest of the process.
     const rec = recorder();
 
     const second = await runHedged({
@@ -368,8 +331,7 @@ describe("hedge budget", () => {
   test("a cancelled loser also returns its slot", async () => {
     const budget = createHedgeBudget(1);
 
-    // The original lands first, so the *hedge* is the one aborted — the slot
-    // has to come back from that path too.
+    // The original lands first, so the hedge is the aborted one.
     const result = await runHedged({
       delayMs: DELAY,
       budget,
@@ -385,8 +347,7 @@ describe("hedge budget", () => {
   test("the ceiling is a quarter of agent-worker concurrency, and never zero", () => {
     assert.equal(hedgeCeilingFor(8), 2, "the default: 8 primaries + 2 duplicates, not 16");
     assert.equal(hedgeCeilingFor(16), 4);
-    // A single-concurrency process still gets to hedge its one call — the
-    // pathology the budget prevents needs a burst, which it can't produce.
+    // One worker cannot make a burst, so it may still hedge.
     assert.equal(hedgeCeilingFor(1), 1);
     assert.equal(hedgeCeilingFor(2), 1);
   });

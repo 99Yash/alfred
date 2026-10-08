@@ -22,52 +22,9 @@ import { and, eq, inArray } from "drizzle-orm";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed regression test for the ADR-0067 P0 integrity rails (migrations
- * 0053–0066). For this PR the schema constraints ARE the product — the prior
- * rounds verified them only in throwaway rollback-only `psql` probes, so a
- * future migration could silently drop one and nothing would notice. This pins
- * the load-bearing rails as committed tests:
- *
- *   1. composite (user_id, entity_id) FK → a row can't reference another user's node;
- *   2. composite (user_id, family_key, supersedes_observation_id) self-FK → a
- *      supersession can't cross event families;
- *   3. partial-unique no-fork index → ≤1 successor per predecessor per family;
- *  3b. partial-unique single-root index → ≤1 unsuperseded root per family (the
- *      no-fork index's mirror: it serializes successors but is silent on the head);
- *  3c. bounded non-empty/no-edge-whitespace CHECKs on family_key / evidence_hash
- *      → the two idempotency rails can't be empty, whitespace-padded, or oversized
- *      strings that collapse families, fork exact-key lookups, or bloat indexes;
- *   4. version-bound run FK → a versioned row can't point at a run of another version;
- *   5. name-bound run FK → a versioned row can't bind to a run of another named
- *      projection (projection_runs is generic — the #2 finding);
- *   6. entity_edges self-relation CHECK → no from == to traversable edge;
- *  6b. entity_edges valid_from has no default and valid_until can't precede it;
- *   7. entity_edges + entity_co_occurrence run FKs reject name/version mismatch;
- *  7b. entity_co_occurrence counters reject impossible family/count/weight states;
- *   8. active-pointer + cursor run FKs reject a run of another name/version;
- *   9. entity_nodes id-shape CHECK → only `ent_<26 base32>` content-addressed ids;
- *  10. entity_identities active partial-unique → ≤1 LIVE `(kind, value)`, but a
- *      CLOSED row may repeat it (mutable-handle reuse the temporal columns exist for);
- *  11. version-positive CHECK → projection/schema/reducer versions are 1-based;
- *  12. observation_family_heads composite FK → a head can't point at an
- *      observation from a different (user, family);
- *  13. entity_identities value CHECKs + temporal window → the live dedup key
- *      can't be empty / whitespace-padded / oversized, and valid_from is semantic.
- *  14. projection identity-key non-empty/bounded CHECKs → projection_name and the
- *      sync-state slug/key/hash (replay/sync keys feeding the unique indexes)
- *      can't be empty / whitespace-padded slots that collapse unrelated rows;
- *  15. projection_runs status + completed_at + checksum CHECKs → status is one
- *      of the legal three, completed_at agrees with it, and completed runs carry
- *      the deterministic checksum activation later compares.
- *
- * Each rail asserts BOTH the rejection and a consistent positive control, so a
- * green test means "the constraint rejects the bad shape" not "the insert just
- * always fails."
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres
- * (mirrors the other DB-backed suites); skipped otherwise so the pure suites
- * still run without a database. Seeds throwaway `test-umrails-*` users and
- * cascades them away on teardown.
+ * Pins the ADR-0067 user-model DB constraints, so a migration cannot drop one unnoticed.
+ * Most rails also run a positive control, so green does not mean "every insert fails".
+ * Needs a migrated Postgres; seeds `test-umrails-*` users and cascades them away.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -76,15 +33,9 @@ const ID_PREFIX = "test-umrails-";
 const createdUserIds: string[] = [];
 
 /**
- * Drizzle wraps the pg error as `"Failed query: …"` with the real constraint
- * details on `.cause`, so we walk the whole cause chain rather than the wrapper
- * message. Asserts the expected SQLSTATE AND the expected constraint name
- * SEPARATELY — an OR over `(code | constraint)` would pass for ANY violation
- * sharing the SQLSTATE (e.g. any FK is 23503), so a different constraint firing
- * would still go green and give false confidence that the intended rail fired.
- * Requiring both proves THIS constraint rejected the bad shape, not just "some
- * insert with this SQLSTATE failed". 23503 = FK violation, 23505 = unique
- * violation, 23514 = check violation.
+ * Drizzle puts the pg error on `.cause`, so walk the cause chain.
+ * Match the SQLSTATE and the constraint name separately: every FK shares 23503.
+ * 23502 = not null, 23503 = FK, 23505 = unique, 23514 = check.
  */
 function rejectsConstraint(
   fn: () => Promise<unknown>,
@@ -122,27 +73,16 @@ async function seedUser(): Promise<string> {
   return userId;
 }
 
-/**
- * 32+ char, no surrounding whitespace — clears `computeStableEntityId`'s secret
- * gate. The id-shape CHECK (`entity_nodes_id_shape`) rejects the old
- * `ent_test_<uuid>` shape (uuids carry `0`/`1`/`8`/`9`, outside base32 `[a-z2-7]`),
- * so seeds must mint a REAL content-addressed id — which also makes the seeded
- * `canonical_identity` consistent with the id, the way a P1 writer would.
- */
+/** Passes the 32-char secret gate. `entity_nodes_id_shape` rejects hand-made ids, so seeds mint real ones. */
 const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
 
-// Fixed observation time for seeds — `makeEntityNodeInsert` requires the earliest
-// observation timestamp (the merge tie-break, D2), never a wall clock, so replay
-// ordering stays deterministic. A constant is fine for these structural rails.
+// `first_seen_at` is the merge tie-break (D2), so seeds use a fixed time, not the clock.
 const SEED_FIRST_SEEN_AT = new Date("2026-06-23T00:00:00.000Z");
 
 const SEED_VALID_UNTIL = new Date("2026-06-24T00:00:00.000Z");
 
 async function seedNode(userId: string, value: string): Promise<string> {
-  // Route through `makeEntityNodeInsert` (the write API) so the seeded id is, by
-  // construction, the content address of its `canonical_identity` — the way a P1
-  // writer must mint it; a hand-assembled `{ id, canonicalIdentity }` could put
-  // the two out of sync, which the id-shape CHECK would NOT catch.
+  // A hand-built row could let id and `canonical_identity` disagree; the CHECK would not see it.
   const row = makeEntityNodeInsert(
     TEST_ENTITY_ID_SECRET,
     userId,
@@ -169,10 +109,7 @@ async function seedRun(
       userId,
       projectionName: name,
       projectionVersion: version,
-      // A run defaults to `running`. Activation is a completed-only cutover (the
-      // guard lives in the P1 activation helper — a FK can't assert status), so
-      // any test that activates a run must seed it as a legitimately finished one
-      // rather than normalizing a domain-invalid "activate a still-running run."
+      // Runs default to `running`. Only a completed run may be activated, so tests that activate seed one.
       ...(completed
         ? {
             status: "completed" as const,
@@ -214,8 +151,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     const userB = await seedUser();
     const nodeB = await seedNode(userB, "owner-b@example.com");
 
-    // userA tries to attach an identity to userB's node — the (userA, nodeB)
-    // pair does not exist in entity_nodes, so the composite FK rejects it.
+    // (userA, nodeB) is not a row in entity_nodes.
     await rejectsConstraint(
       () =>
         db().insert(entityIdentities).values({
@@ -229,7 +165,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23503", constraint: "entity_identities_entity_fk" },
     );
 
-    // Positive control: the rightful owner can attach an identity to its node.
+    // Positive control: the owner can attach an identity.
     await assert.doesNotReject(() =>
       db().insert(entityIdentities).values({
         userId: userB,
@@ -252,9 +188,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
     assert.ok(obsA);
 
-    // An observation in famB cannot supersede one in famA — the composite FK is
-    // (user_id, family_key, supersedes_observation_id) → observations(user_id,
-    // family_key, id), and (userId, "famB", obsA.id) has no match.
+    // (userId, "famB", obsA.id) has no match in observations(user_id, family_key, id).
     await rejectsConstraint(
       () =>
         db()
@@ -266,7 +200,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23503", constraint: "observations_supersedes_fk" },
     );
 
-    // Positive control: a later evidence version within the SAME family supersedes fine.
+    // Positive control: same family.
     await assert.doesNotReject(() =>
       db()
         .insert(observations)
@@ -287,15 +221,12 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
     assert.ok(root);
 
-    // First successor is allowed.
     await assert.doesNotReject(() =>
       db()
         .insert(observations)
         .values({ ...gmailObs(userId, "famFork", "succ-1"), supersedesObservationId: root.id }),
     );
 
-    // A second row superseding the same predecessor forks the chain — rejected by
-    // the partial-unique (user_id, family_key, supersedes_observation_id).
     await rejectsConstraint(
       () =>
         db()
@@ -308,20 +239,14 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
   test("rail 3b: single-root partial-unique rejects a second root in the same family", async () => {
     const userId = await seedUser();
 
-    // The first observation in a family is its root (supersedes IS NULL).
     await assert.doesNotReject(() =>
       db()
         .insert(observations)
         .values(gmailObs(userId, "famRoot", "root-1")),
     );
 
-    // A second root for the same (user, family_key) — different evidence_hash, so
-    // it dodges the dedup index, and supersedes IS NULL, so it dodges no-fork
-    // (which is partial on IS NOT NULL). That forks the family at the HEAD. The
-    // single-root partial-unique (user_id, family_key) WHERE supersedes IS NULL
-    // rejects it, so a family stays one linear chain end-to-end. This is the race
-    // two writers hit when both see "no head yet" — the second must retry against
-    // the now-existing head instead of planting a rival root.
+    // A new evidence_hash and a NULL supersedes slip past dedup and no-fork.
+    // This is the race when two writers both see "no head yet".
     await rejectsConstraint(
       () =>
         db()
@@ -330,8 +255,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23505", constraint: "observations_single_root_idx" },
     );
 
-    // Positive control: a proper successor (supersedes set) is still allowed — the
-    // index only constrains the unsuperseded root, not the chain below it.
+    // Positive control: the index constrains only the root, not its successors.
     const [root] = await db()
       .insert(observations)
       .values(gmailObs(userId, "famRootB", "root"))
@@ -419,7 +343,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       },
     );
 
-    // Positive control: both clean bounded keys insert.
+    // Positive control.
     await assert.doesNotReject(() =>
       db()
         .insert(observations)
@@ -432,8 +356,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     const node = await seedNode(userId, "profile-subject@example.com");
     const runV1 = await seedRun(userId, { name: "user-model", version: 1 });
 
-    // A profile tagged version 2 that names a version-1 run — the run FK spans
-    // projection_version, so (userId, "user-model", 2, runV1) has no matching run row.
+    // Version 2 row, version 1 run.
     await rejectsConstraint(
       () =>
         db().insert(entityProfiles).values({
@@ -448,7 +371,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23503", constraint: "entity_profiles_run_fk" },
     );
 
-    // Positive control: name + version match the run → accepted.
+    // Positive control.
     await assert.doesNotReject(() =>
       db().insert(entityProfiles).values({
         userId,
@@ -463,11 +386,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("rail 5: versioned-row run FK rejects a row whose projection_name != its run's", async () => {
-    // The #2 finding: a versioned output row could bind to a run of a DIFFERENT
-    // named projection (projection_runs is generic — P4's user_facts projection
-    // reuses it). The run FK now spans projection_name, so an entity_profiles row
-    // claiming "not-user-model" can't point at the "user-model" run, and the unique
-    // (user, name, version, entity) slot can't be blocked by a foreign projection.
+    // projection_runs is shared by every projection, so the run FK must include the name.
     const userId = await seedUser();
     const node = await seedNode(userId, "name-bound@example.com");
     const runV1 = await seedRun(userId, { name: "user-model", version: 1 });
@@ -493,8 +412,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     const other = await seedNode(userId, "other-edge@example.com");
     const runV1 = await seedRun(userId);
 
-    // A node can't be a frequent_collaborator with itself — the check would let a
-    // recursive traversal ingest a 1-cycle.
+    // A self-edge is a 1-cycle for a recursive traversal.
     await rejectsConstraint(
       () =>
         db().insert(entityEdges).values({
@@ -510,7 +428,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23514", constraint: "entity_edges_no_self_relation" },
     );
 
-    // Positive control: a genuine edge between two distinct nodes is accepted.
+    // Positive control.
     await assert.doesNotReject(() =>
       db().insert(entityEdges).values({
         userId,
@@ -583,7 +501,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     const a = await seedNode(userId, "aaa@example.com");
     const b = await seedNode(userId, "bbb@example.com");
     const runV1 = await seedRun(userId, { name: "user-model", version: 1 });
-    // a < b lexicographically is required for entity_co_occurrence; normalize.
+    // entity_co_occurrence requires a < b.
     const [lo, hi] = a < b ? [a, b] : [b, a];
 
     await rejectsConstraint(
@@ -614,7 +532,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23503", constraint: "entity_co_occurrence_run_fk" },
     );
 
-    // Positive control: matching name + version on both tables.
+    // Positive control.
     await assert.doesNotReject(() =>
       db().insert(entityCoOccurrence).values({
         userId,
@@ -680,12 +598,9 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
   test("rail 8: active pointer + cursor run FKs reject a run of another name/version", async () => {
     const userId = await seedUser();
-    // Completed: the active-pointer positive control activates this run, and a
-    // real cutover only ever activates a finished run.
+    // Completed, because the positive control below activates it.
     const runV1 = await seedRun(userId, { name: "user-model", version: 1, completed: true });
 
-    // The active pointer's (user, name, version, run) must all belong to one run
-    // row — claiming version 2 while naming the v1 run is rejected.
     await rejectsConstraint(
       () =>
         db().insert(activeProjectionVersions).values({
@@ -702,7 +617,6 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         .values({ userId, projectionName: "user-model", activeVersion: 1, activeRunId: runV1 }),
     );
 
-    // The cursor's (user, name, version, run) is bound the same way.
     await rejectsConstraint(
       () =>
         db().insert(projectionCursors).values({
@@ -728,8 +642,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
   test("rail 9: entity_nodes id-shape CHECK rejects a non-content-addressed id", async () => {
     const userId = await seedUser();
 
-    // The id is the FK contract surface — it may ONLY be a `computeStableEntityId`
-    // output (`ent_<26 base32>`). A hand-written id can't be persisted.
+    // Only a `computeStableEntityId` output (`ent_<26 base32>`) may be stored.
     await rejectsConstraint(
       () =>
         db()
@@ -738,27 +651,21 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
             id: "not_a_stable_entity_id",
             userId,
             canonicalIdentity: { kind: "email", value: "shape@example.com" },
-            // Supply `first_seen_at` so this insert is rejected by the id-shape
-            // CHECK specifically — the column is NOT NULL with no default, so
-            // omitting it would trip a NOT-NULL violation first (see rail 9b).
+            // Without it, NOT NULL fires before the id-shape CHECK.
             firstSeenAt: SEED_FIRST_SEEN_AT,
           }),
       { code: "23514", constraint: "entity_nodes_id_shape" },
     );
 
-    // Positive control: a real minted id is accepted (seedNode mints via computeStableEntityId).
+    // Positive control.
     await assert.doesNotReject(() => seedNode(userId, "valid-shape@example.com"));
   });
 
   test("rail 9b: entity_nodes.first_seen_at has NO default — a writer that omits it fails loud", async () => {
     const userId = await seedUser();
 
-    // `first_seen_at` is the merge-survivor tie-break (D2), read at the fold and
-    // therefore replay-determinism-critical, so the column is NOT NULL with NO
-    // DEFAULT: a writer that bypasses `makeEntityNodeInsert` and forgets it must
-    // fail loud (NOT NULL violation) rather than silently record wall-clock time.
-    // A valid content-addressed id is used so the ONLY violation is the missing
-    // timestamp.
+    // A wall-clock default would break replay of the merge tie-break (D2).
+    // The id is valid, so the missing timestamp is the only violation.
     const id = computeStableEntityId(TEST_ENTITY_ID_SECRET, {
       userId,
       identityKind: "email",
@@ -774,7 +681,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
             userId,
             canonicalIdentity: { kind: "email", value: "no-first-seen@example.com" },
           } as never),
-      // 23502 = not_null_violation; the message names the offending column.
+      // The 23502 message names the column.
       { code: "23502", constraint: "first_seen_at" },
     );
   });
@@ -784,9 +691,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     const nodeA = await seedNode(userId, "reuse-a@example.com");
     const nodeB = await seedNode(userId, "reuse-b@example.com");
 
-    // A live `email` on nodeA. The kind is one the `gmail` reducer really
-    // mints: `entity_identities.source` is an `ObservationSource`, so a
-    // fixture must not pair a kind with a source that cannot write it (#987).
+    // Pair the kind with a source that can write it (#987).
     const [live] = await db()
       .insert(entityIdentities)
       .values({
@@ -801,8 +706,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
     assert.ok(live);
 
-    // A SECOND live row for the same (kind, value) — even on a different entity —
-    // collides on the partial unique (an address resolves to one live entity).
+    // One live entity per address, even across entities.
     await rejectsConstraint(
       () =>
         db().insert(entityIdentities).values({
@@ -816,10 +720,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23505", constraint: "entity_identities_active_unique_idx" },
     );
 
-    // Close the original (the address was freed when its owner left), then a NEW
-    // live row for the reclaimed address on a DIFFERENT entity is allowed — the
-    // mutable-handle reuse the temporal columns exist for, which a
-    // globally-unique index would block.
+    // After the first row closes, another entity may reuse the address.
     await db()
       .update(entityIdentities)
       .set({ validUntil: SEED_VALID_UNTIL })
@@ -893,16 +794,12 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23514", constraint: "projection_runs_version_positive" },
     );
 
-    // Positive control: version 1 is accepted.
+    // Positive control.
     await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 1 }));
   });
 
   test("rail 12: family-head composite FK rejects a head whose (user, family) != its observation's", async () => {
-    // The schema calls observation_family_heads_obs_fk load-bearing — it binds
-    // (user_id, family_key, head_observation_id) → observations(user_id,
-    // family_key, id) so a head can't point at another user's (or family's)
-    // observation — but no prior rail exercised it. A plain FK on
-    // head_observation_id alone would prove only that the observation exists.
+    // A plain FK on head_observation_id would not check the user or the family.
     const userId = await seedUser();
 
     const [obs] = await db()
@@ -912,8 +809,6 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
     assert.ok(obs);
 
-    // A head claiming family "wrongFam" but pointing at an observation in
-    // "famHead" — (userId, "wrongFam", obs.id) has no matching observations row.
     await rejectsConstraint(
       () =>
         db().insert(observationFamilyHeads).values({
@@ -924,7 +819,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23503", constraint: "observation_family_heads_obs_fk" },
     );
 
-    // Positive control: a head bound to the observation's real (user, family) is accepted.
+    // Positive control.
     await assert.doesNotReject(() =>
       db().insert(observationFamilyHeads).values({
         userId,
@@ -935,11 +830,8 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("rail 13: entity_identities value CHECK rejects empty / padded / oversized values", async () => {
-    // `value` is the live dedup key (`entity_identities_active_unique_idx`) and the
-    // join target observations resolve through — an empty or whitespace-padded
-    // value is a merge magnet / split-brain. The DB pins the kind-independent floor
-    // (non-empty + no surrounding whitespace + bounded bytes); per-kind CASE
-    // canonicalization is enforced above the DB at the write boundary.
+    // `value` is the live dedup key; an empty or padded one merges unrelated identities.
+    // The DB checks only the kind-independent floor. Per-kind case rules live at the write boundary.
     const userId = await seedUser();
     const node = await seedNode(userId, "value-rail@example.com");
 
@@ -994,7 +886,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23514", constraint: "entity_identities_value_nonempty" },
     );
 
-    // Positive control: a clean canonical value inserts.
+    // Positive control.
     await assert.doesNotReject(() =>
       db().insert(entityIdentities).values({
         userId,
@@ -1008,10 +900,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("rail 14: projection identity-key CHECKs reject empty / padded / oversized keys", async () => {
-    // `projection_name` (and the sync-state slug/key/hash) are replay/sync identity
-    // keys feeding the unique indexes — an empty or padded value collapses unrelated
-    // projections or sync rows into one slot. Same bounded kind-independent floor
-    // as the family_key / evidence_hash / entity_identities.value rails.
+    // These keys feed unique indexes; an empty or padded one collapses unrelated rows into one slot.
     const userId = await seedUser();
 
     await rejectsConstraint(
@@ -1109,7 +998,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       );
     }
 
-    // Positive controls: clean keys insert.
+    // Positive controls.
     await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 1 }));
     await assert.doesNotReject(() =>
       db().insert(projectionSyncState).values({
@@ -1122,11 +1011,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("rail 15: projection_runs lifecycle CHECKs reject illegal terminal states", async () => {
-    // `status` is bare text the TS union can't police at a raw writer, and
-    // `completed_at` must agree with it (a `running` run has no completion time; a
-    // `completed` run must have one — the active pointer only cuts over to completed
-    // runs). Completed runs must also carry the replay checksum the activation
-    // guard compares. The completed-only ACTIVATION guard still lives in P1.
+    // `status` is bare text, so a raw writer escapes the TS union. Activation compares the checksum.
     const userId = await seedUser();
 
     await rejectsConstraint(
@@ -1141,7 +1026,6 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           }),
       { code: "23514", constraint: "projection_runs_status_valid" },
     );
-    // running + a completion time is contradictory.
     await rejectsConstraint(
       () =>
         db()
@@ -1155,7 +1039,6 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           }),
       { code: "23514", constraint: "projection_runs_completed_at_consistency" },
     );
-    // completed with no completion time is contradictory.
     await rejectsConstraint(
       () =>
         db().insert(projectionRuns).values({
@@ -1166,7 +1049,6 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         }),
       { code: "23514", constraint: "projection_runs_completed_at_consistency" },
     );
-    // completed + completed_at but no checksum is still not activation-safe.
     await rejectsConstraint(
       () =>
         db()
@@ -1195,8 +1077,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23514", constraint: "projection_runs_completed_checksum_present" },
     );
 
-    // Positive controls: a default `running` run (no completedAt) and a finished
-    // `completed` run (with completedAt + checksum) both insert.
+    // Positive controls.
     await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 5 }));
     await assert.doesNotReject(() =>
       seedRun(userId, { name: "user-model", version: 6, completed: true }),

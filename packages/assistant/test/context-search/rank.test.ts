@@ -10,18 +10,9 @@ import {
 } from "@alfred/assistant/context-search/test-support";
 
 /**
- * Behavioral tests for the deterministic evidence ranker (#427).
- *
- * They assert ORDER and the presence or absence of a feature, never a score
- * literal. A score is arithmetic over weights that are allowed to be tuned; the
- * order those weights are supposed to produce, and the rule that an unavailable
- * OPTIONAL signal is dropped rather than zeroed, are the properties the slice
- * promises. (`semantic`, `freshness`, and `authority` are the deliberate
- * exceptions: each reads silence as a defined row.) A test pinned to `0.5417`
- * would go red on a tuning change that kept every promise.
- *
- * `now` is an input to the ranker, so every case here is a fixed clock and the
- * results do not drift as the repository ages.
+ * Deterministic evidence ranker. Tests assert order and feature presence, never a score
+ * literal, so tuning weights does not break them. An unavailable optional signal is dropped,
+ * not zeroed; `semantic`, `freshness`, and `authority` read silence as a defined row.
  */
 
 /** A fixed clock. Every relative instant below is measured back from this. */
@@ -33,10 +24,7 @@ function daysAgo(days: number): string {
   return new Date(NOW.getTime() - days * DAY_MS).toISOString();
 }
 
-/**
- * A minimal valid card. Tests override only the field under test, so a case
- * reads as "these two cards differ in exactly one way, and that way decides".
- */
+/** A minimal valid card. Each case overrides only the field under test. */
 function card(overrides: Partial<EvidenceCard> & Pick<EvidenceCard, "id">): EvidenceCard {
   return {
     source: { id: "documents", kind: "internal" },
@@ -76,9 +64,7 @@ describe("rankEvidenceCards — exact match against semantic hits", () => {
   });
 
   test("an unresolved object-state miss ranks below a weak semantic hit", () => {
-    // The miss card is honest evidence that a lookup happened and found
-    // nothing, but it resolved no object, so `exactMatch` must not reward it
-    // for merely coming from the object-state source.
+    // The miss card resolved no object, so `exactMatch` must not reward it for its source.
     const weakChunk = card({ id: "documents:chunk", score: 0.2 });
 
     const miss = card({
@@ -112,9 +98,7 @@ describe("rankEvidenceCards — stale against fresh", () => {
   });
 
   test("a declared-stale card ranks below one that could not declare freshness", () => {
-    // `stale` is the source admitting its copy is past its window; `unknown` is
-    // a source that said nothing. A declared problem is worse evidence than an
-    // undeclared one, and neither is inferred from the missing timestamp.
+    // `stale` is a declared problem, so it ranks below `unknown`. Neither is inferred from a missing timestamp.
     const stale = card({ id: "documents:a", score: 0.5, time: { freshness: "stale" } });
     const silent = card({ id: "documents:b", score: 0.5, time: { freshness: "unknown" } });
 
@@ -159,17 +143,13 @@ describe("rankEvidenceCards — tie-breaking", () => {
     const forward = orderOf([a, b, c]);
     const reversed = orderOf([c, b, a]);
 
-    // The literal is the oracle: a tie resolves to ascending id. Comparing the
-    // two runs as well proves the sort is TOTAL — the answer does not depend on
-    // the order the sources happened to be registered in.
+    // A tie resolves to ascending id. Comparing two runs proves the sort is total, not registration order.
     assert.deepEqual(forward, ["documents:a", "documents:b", "documents:c"]);
     assert.deepEqual(reversed, forward);
   });
 
   test("scores that differ only by floating-point noise count as a tie", () => {
-    // 0.1 + 0.2 !== 0.3 in binary floating point. Two cards built from
-    // arithmetically equal but bit-different scores must still tie and fall
-    // through to the id comparison, or the order depends on rounding.
+    // 0.1 + 0.2 !== 0.3: bit-different equal scores must still tie and fall through to the id.
     const noisy = card({ id: "documents:b", score: 0.1 + 0.2 });
     const exact = card({ id: "documents:a", score: 0.3 });
 
@@ -197,10 +177,8 @@ describe("rankEvidenceCards — degradation when a signal is absent", () => {
       ranked.evidence.map((entry) => entry.id),
       ["mcp:unscored", "documents:zero"],
     );
-    // The difference is a defined low reading, not a zero and not an absence:
-    // the unscored card carries `semantic` at the unknown floor, while the
-    // zero-scored one carries it at 0. An explicit non-match still ranks below
-    // an unmeasured match.
+    // An unscored card carries `semantic` at the unknown floor; a zero-scored one carries 0.
+    // An explicit non-match still ranks below an unmeasured match.
     assert.equal(ranked.ranking[0]?.features.semantic, 0.3);
     assert.equal(ranked.ranking[1]?.features.semantic, 0);
   });
@@ -246,9 +224,7 @@ describe("rankEvidenceCards — degradation when a signal is absent", () => {
   });
 
   test("an arbitrary source scale is normalized within its own source", () => {
-    // The MCP source scores on 0-100 and the document source on cosine
-    // similarity. Without per-source normalization the MCP source's worst hit
-    // would outrank every document card by two orders of magnitude.
+    // MCP scores on 0-100 and documents on cosine similarity. Without per-source normalization, MCP always wins.
     const mcpBest = card({ id: "mcp:best", source: { id: "mcp:notes", kind: "mcp" }, score: 90 });
     const mcpWorst = card({ id: "mcp:worst", source: { id: "mcp:notes", kind: "mcp" }, score: 10 });
     const document = card({ id: "documents:good", score: 0.8 });
@@ -285,15 +261,12 @@ describe("rankEvidenceCards — user-model signal", () => {
       ["documents:known", "documents:unknown"],
     );
     assert.equal(ranked.ranking[0]?.features.userModel, 1);
-    // The entity the projection does not know gets no feature, rather than a
-    // zero that would punish it for the projection's incompleteness.
+    // An entity the projection does not know gets no feature, not a zero.
     assert.equal(ranked.ranking[1]?.features.userModel, undefined);
   });
 
   test("with no active projection the order falls back to id, and no card carries the feature", () => {
-    // This is the ADR-0067 degradation path: `buildEntitySignificance` returns
-    // `undefined` when no projection is active, so the two cards tie on every
-    // remaining feature and the stable id comparison decides.
+    // ADR-0067 degradation path: no `entitySignificance` map, so the two cards tie and the id decides.
     const ranked = rankEvidenceCards([known, unknown], { now: NOW });
 
     assert.deepEqual(
@@ -396,9 +369,7 @@ describe("rankEvidenceCards — the caller's declared focus", () => {
 
 describe("searchContext — ranking runs before the limit truncation", () => {
   test("a strong card from a late-registered source survives a limit of one", async () => {
-    // The regression #427 fixes. Before the ranker, `searchContext`
-    // concatenated cards in registration order and sliced, so `weak` filled the
-    // budget and `strong` was dropped without ever being compared to it.
+    // Regression #427: cards were concatenated in registration order and sliced, so `strong` was dropped unseen.
     const disposeWeak = registerContextSource(
       defineTestContextSource("rank-test:weak", async () => {
         return {
@@ -441,8 +412,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
         result.evidence.map((entry) => entry.id),
         ["rank-test:strong:1"],
       );
-      // The dropped source still reports what it returned, so the packer can
-      // say the evidence budget hid it.
+      // The dropped source still reports what it returned, so the packer can name the budget cut.
       assert.equal(
         result.sources.find((report) => report.sourceId === "rank-test:weak")?.evidenceCount,
         1,
@@ -484,7 +454,7 @@ describe("searchContext — ranking runs before the limit truncation", () => {
         result.ranking.map((entry) => entry.cardId),
         result.evidence.map((entry) => entry.id),
       );
-      // tautology-ok: cross-check that the parallel array tracks evidence order, anchored at rank.test.ts:483-486
+      // tautology-ok: cross-check that the parallel array tracks evidence order, anchored at rank.test.ts:453-456
       assert.deepEqual(
         result.evidence.map((entry) => entry.id),
         ["rank-test:pair:2", "rank-test:pair:1"],

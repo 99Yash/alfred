@@ -1,19 +1,8 @@
 /**
- * The shared `StagingStore` contract — run against BOTH adapters.
- *
- * This file is the whole mitigation for the one risk the seam carries: if the
- * in-memory adapter drifts from Postgres, the DB-free gate suite goes green
- * against a machine the real adapter does not honour, and every claim it makes
- * is worthless — strictly worse than an honest skip. So the rule is: if this
- * suite is dropped, or is run against only one adapter, the seam has made
- * verification worse and should be reverted.
- *
- * What it pins is the store's own promises, not the gate's. The gate's ordering
- * rules are `staging-machine.test.ts`.
- *
- * Postgres-only semantics that a fake structurally cannot prove — the `xmax = 0`
- * insert-vs-conflict flag and the no-op `SET row_version = row_version` — stay
- * in `staging.test.ts`. Faking them would delete the subject.
+ * The `StagingStore` contract. Run it against both adapters, or the memory store
+ * can drift from Postgres and the DB-free gate suite proves nothing.
+ * Gate ordering lives in `staging-machine.test.ts`.
+ * Postgres-only behavior lives in `staging.test.ts`.
  */
 
 import assert from "node:assert/strict";
@@ -29,9 +18,8 @@ import type {
 
 export interface StagingStoreHarness {
   readonly store: StagingStore;
-  /** Mint an owning run this adapter's rows can reference. */
   seedRun(status: RunStatus, fenceGeneration?: number): Promise<{ userId: string; runId: string }>;
-  /** Out-of-band decision write — models the approval API, which is not the store's job. */
+  /** Models the approval API. Deciding a row is not the store's job. */
   decide(
     stagingId: string,
     decision: {
@@ -41,7 +29,7 @@ export interface StagingStoreHarness {
       decidedAt?: Date;
     },
   ): Promise<void>;
-  /** Read the stored row back, including columns `StagingRow` does not carry. */
+  /** Includes columns `StagingRow` does not carry. */
   readBack(stagingId: string): Promise<{
     status: ActionStagingStatus;
     outcome: EffectOutcome;
@@ -91,12 +79,8 @@ function stagingValues(
 }
 
 /**
- * @param label how this adapter shows up in test output
- * @param harness returns the adapter under test plus its seeding/read-back
- *   seams. A thunk, not a value, so a suite whose harness only exists after a
- *   `before()` hook can still register its tests at module load. It must return
- *   the SAME store on every call — the tests share state within a test.
- * @param opts `skip` mirrors node:test's — `false`, or a string reason
+ * @param harness a thunk, so a harness built in `before()` can still register tests at load.
+ *   It must return the same store on every call.
  */
 export function runStagingStoreContract(
   label: string,
@@ -142,9 +126,7 @@ export function runStagingStoreContract(
     });
 
     test("a conflicting upsert returns the STORED row and clobbers no decision column", async () => {
-      // This is what the resume path rests on: the gate re-sends `status:
-      // "pending"` plus the original proposed input, and must read back the
-      // approval the user made in between.
+      // Resume re-sends `pending` and must read back the user's approval.
       const h = harness();
       const run = await h.seedRun("running");
       const values = stagingValues(run);
@@ -193,9 +175,8 @@ export function runStagingStoreContract(
       assert.equal(promoted?.proposedInputHash, "hash_promoted");
       assert.deepEqual(promoted?.notifyAfterAt, notifyAfterAt);
       assert.deepEqual(promoted?.expiresAt, expiresAt);
-      // #374: the promotion rewrites the input pair together — raw for resume,
-      // redacted for display. Read back through the harness because
-      // `StagingRow` (the store's gate-facing view) does not carry it.
+      // Promotion rewrites raw and display input together. `StagingRow` lacks them, so use
+      // `readBack`.
       const promotedBack = await h.readBack(row.id);
       assert.deepEqual(
         promotedBack?.displayInput,
@@ -308,9 +289,7 @@ export function runStagingStoreContract(
     });
 
     test("findPriorRejection surfaces a null reason rather than inventing one", async () => {
-      // The gate's `?? "rejected by user"` default is the gate's decision, not
-      // the store's. A store that substituted a default here would move that
-      // decision somewhere nobody reviews it.
+      // The default reason belongs to the gate, not the store.
       const h = harness();
       const run = await h.seedRun("running");
       const values = stagingValues(run);
@@ -386,9 +365,7 @@ export function runStagingStoreContract(
     });
 
     test("commitStaging executed stores an undefined result as null, not as absent", async () => {
-      // `status = 'executed'` is the discriminator for "execution happened".
-      // A tool that legitimately returns nothing must not read back as
-      // "no result yet".
+      // A tool that returns nothing must not read back as "no result yet".
       const h = harness();
       const run = await h.seedRun("running");
       const { row } = await h.store.upsertStaging(stagingValues(run));

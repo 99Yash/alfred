@@ -17,20 +17,10 @@ import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
-// GROUND / #312: behavioral guard that when the user names a sender by
-// DESCRIPTION ("the onboarding emails", "the recruiter") and asks to stop
-// surfacing it, the boss resolves the concrete address itself with gmail.search
-// FIRST, instead of asking the user for an address it could look up. This was a
-// real regression surfaced while adjudicating a cheaper Auto-tier model (Haiku
-// 4.5): the prompt said to act "after resolving a concrete sender email" but
-// never said *resolving = search Gmail*, so a more literal model read it as
-// "ask the user". The #312 prompt fix makes search-before-ask explicit; this
-// eval pins it so a future model swap (or prompt edit) can't silently regress
-// back to asking. We expose gmail.search / system.remember / system.resolve_todo
-// with no `execute`, so the run halts on the first tool call and we assert on it.
-//
-// Run locally with apps/server/.env populated (ANTHROPIC_API_KEY +
-// GOOGLE_GENERATIVE_AI_API_KEY, matching serverEnv): `pnpm --filter @alfred/assistant eval`.
+// #312: when the user describes a sender ("the recruiter") and asks to mute it, the boss must
+// find the address with gmail.search, not ask the user for it. A literal model once asked.
+// The tools have no `execute`, so the run stops at the first call and we check it.
+// Run with apps/server/.env populated: `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
@@ -86,9 +76,7 @@ interface ResolutionCase {
   expectedRememberEmail: string | null;
 }
 
-// Each names the sender by DESCRIPTION, never an exact address — so the only
-// way to act correctly is to search Gmail to resolve it. A model that asks for
-// the address is the regression we're guarding against.
+// Each case describes the sender and never gives an address.
 const CASES: Case[] = [
   { input: "the acme onboarding emails are noise, stop surfacing them as todos or in briefings" },
   { input: "stop showing me todos from the recruiter emails, they're not useful" },
@@ -104,8 +92,6 @@ function runFirstCall(input: string) {
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     providerOptions: modelRoute.providerOptions(),
-    // Real tool surface, execute-less so the run halts on the first tool call
-    // and we can inspect what the model reached for first.
     tools: {
       [SEARCH_TOOL]: tool({
         description:
@@ -296,17 +282,14 @@ evalite<string, GroundingTaskOutput, null>(
     task: async (input) => {
       void serverEnv().ANTHROPIC_API_KEY;
 
-      // Per the eval-lane lesson (project_triage_eval_provider_coupling): an eval
-      // must never throw, or evalite's reporter hangs the whole job on a transient
-      // provider blip. Degrade to an empty result so the scorers just score 0.
+      // Never throw: evalite's reporter hangs the job on an error. Score 0 instead.
       try {
         const result = await runFirstCall(input);
         const call = result.toolCalls[0];
 
         return {
           toolName: call?.toolName ?? null,
-          // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
-          // tolerates absence via ??.
+          // SAFETY: diagnostic view of the tool-call input; `??` covers absence.
           args: (call?.input as Record<string, unknown> | undefined) ?? null,
           text: result.text,
         };
@@ -321,9 +304,7 @@ evalite<string, GroundingTaskOutput, null>(
     },
     scorers: [
       {
-        // The core regression: the FIRST move must be gmail.search to resolve the
-        // sender — not a text reply asking for the address, and not a blind
-        // system.remember without an address it could have looked up.
+        // Not a text reply asking for the address, and not a blind system.remember.
         name: "First move is gmail.search (resolves the sender itself)",
         scorer: ({ output }) => ({
           score: output.toolName === SEARCH_TOOL ? 1 : 0,
@@ -336,8 +317,7 @@ evalite<string, GroundingTaskOutput, null>(
         }),
       },
       {
-        // Separate, blunter signal: did it act at all, or punt back to the user?
-        // Catches the exact Haiku failure mode ("what's the sender's address?").
+        // A blunter signal: did it act at all?
         name: "Did not punt — made a tool call instead of asking",
         scorer: ({ output }) => ({
           score: output.toolName !== null ? 1 : 0,

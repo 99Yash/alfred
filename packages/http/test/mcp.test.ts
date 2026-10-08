@@ -4,8 +4,7 @@ import type { McpAuthorizedOAuth } from "@alfred/assistant/connections/mcp";
 import { mcpRecoveryDecisionBodySchema, type McpRecoveryDecision } from "@alfred/contracts";
 import { applyServerEnvFixtures } from "./support/server-env";
 
-// This suite makes only anonymous requests, so it never dials either service.
-// The complete fixtures let the auth boundary parse its environment first.
+// Anonymous requests only, so no service is dialed; the URLs only make the env parse.
 applyServerEnvFixtures({
   databaseUrl: "postgresql://localhost:5432/alfred_test",
   redisUrl: "redis://localhost:6379",
@@ -133,9 +132,7 @@ describe("mcpIntegrationRoutes", () => {
       limit: 5,
     });
 
-    // The connection identity is the path segment alone. A client that names a
-    // different `connectionId` — or the owner-wide `namespace` — is refused
-    // before the handler runs, so the read can only ever target `params.id`.
+    // Only the path segment names the connection; other query keys are refused before the handler.
     for (const query of ["connectionId=conn_2", "namespace=server_2", "ref=anything"]) {
       const rejected = await toolsProbe.handle(new Request(`http://localhost/tools?${query}`));
 

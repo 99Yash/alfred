@@ -37,7 +37,7 @@ test("isIndexable accepts every non-null reference isRecord rejects", () => {
   const err = new Error("boom");
   (err as Error & { code?: string }).code = "23505";
 
-  // Runtime objects isRecord deliberately rejects — the whole point of the guard.
+  // Objects that isRecord rejects.
   assert.equal(isIndexable({ a: 1 }), true);
   assert.equal(isIndexable(["a"]), true);
   assert.equal(isIndexable(new Date("2026-07-01T00:00:00Z")), true);
@@ -49,7 +49,6 @@ test("isIndexable accepts every non-null reference isRecord rejects", () => {
     true,
   );
 
-  // Primitives and null are the only things excluded.
   assert.equal(isIndexable(null), false);
   assert.equal(isIndexable(undefined), false);
   assert.equal(isIndexable("23505"), false);
@@ -77,31 +76,27 @@ test("getStringPath narrows only string leaves", () => {
 test("enumGuard narrows to tuple members and rejects everything else", () => {
   const isColor = enumGuard(["red", "green", "blue"] as const);
 
-  // Members of the tuple pass.
   assert.equal(isColor("red"), true);
   assert.equal(isColor("blue"), true);
 
-  // A non-member string fails — the whole point over a bare `typeof === "string"`.
   assert.equal(isColor("yellow"), false);
   assert.equal(isColor(""), false);
 
-  // The `typeof` arm makes the `unknown` overload sound: no non-string value can
-  // slip through `Set.has`, so persisted/wire junk is rejected, not coerced.
+  // Non-strings must not slip through `Set.has`.
   assert.equal(isColor(null), false);
   assert.equal(isColor(undefined), false);
   assert.equal(isColor(42), false);
   assert.equal(isColor(["red"]), false);
   assert.equal(isColor({ toString: () => "red" }), false);
 
-  // Two guards keep independent lookup sets — no cross-talk through the closure.
+  // Two guards share no lookup set.
   const isSize = enumGuard(["sm", "lg"] as const);
   assert.equal(isSize("red"), false);
   assert.equal(isColor("sm"), false);
 });
 
 test("isToolRiskTier is the enumGuard projection that gates the MCP approval floor", () => {
-  // The security-relevant use: a persisted `riskTier` is `unknown` until proven,
-  // and only a recognized tier may lower the `mcp.call` approval floor.
+  // Only a recognized tier may lower the `mcp.call` approval floor.
   assert.equal(isToolRiskTier("high"), true);
   assert.equal(isToolRiskTier("no_risk"), true);
   assert.equal(isToolRiskTier("critical"), false);
@@ -112,9 +107,7 @@ test("isToolRiskTier is the enumGuard projection that gates the MCP approval flo
 test("withDefaults ignores present-undefined overrides that a spread would honor", () => {
   const DEFAULT_POLICY = { maxAttempts: 3, baseDelayMs: 250, maxDelayMs: 4_000 };
 
-  // The regression this helper exists for. A spread honors a present `undefined`,
-  // so the retry loop's `attempt <= policy.maxAttempts` reads `undefined` and the
-  // request is never sent — silently, with nothing thrown.
+  // Regression: a spread keeps a present `undefined`, so the retry loop silently never sent.
   const override = { maxAttempts: undefined };
   const spread = { ...DEFAULT_POLICY, ...override };
   assert.equal(spread.maxAttempts, undefined);
@@ -122,7 +115,7 @@ test("withDefaults ignores present-undefined overrides that a spread would honor
   const merged = withDefaults(DEFAULT_POLICY, override);
   assert.equal(merged.maxAttempts, 3);
 
-  // A real override still wins, and 0 / false are real values, not absence.
+  // 0 and false are real values, not absence.
   assert.deepEqual(withDefaults(DEFAULT_POLICY, { maxAttempts: 5 }), {
     ...DEFAULT_POLICY,
     maxAttempts: 5,
@@ -130,19 +123,17 @@ test("withDefaults ignores present-undefined overrides that a spread would honor
   assert.equal(withDefaults({ retries: 3 }, { retries: 0 }).retries, 0);
   assert.equal(withDefaults({ force: true }, { force: false }).force, false);
 
-  // No overrides at all, and an undefined overrides argument, both yield the
-  // defaults — and never the defaults object itself, so callers may mutate.
+  // Returns a copy, never the defaults object itself.
   assert.deepEqual(withDefaults(DEFAULT_POLICY, {}), DEFAULT_POLICY);
   assert.deepEqual(withDefaults(DEFAULT_POLICY), DEFAULT_POLICY);
   assert.notEqual(withDefaults(DEFAULT_POLICY), DEFAULT_POLICY);
 
-  // Injected dependencies are the other call shape: a function-valued key must
-  // fall back to the real collaborator, not become undefined and blow up on call.
+  // An undefined function-valued key falls back to the real collaborator.
   const deps = { fetchRow: () => "real" };
   assert.equal(withDefaults(deps, { fetchRow: undefined }).fetchRow(), "real");
   assert.equal(withDefaults(deps, { fetchRow: () => "stub" }).fetchRow(), "stub");
 
-  // Faithful to spread semantics for a key the defaults object doesn't enumerate.
+  // Spread semantics for a key the defaults object lacks.
   interface SparseDefaultable {
     a: number;
     b?: number;

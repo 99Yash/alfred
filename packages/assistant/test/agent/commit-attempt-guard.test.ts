@@ -17,15 +17,9 @@ import type { StepResult, Workflow } from "@alfred/assistant/execution";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed tests for the commit attempt-guard. A stale-lease reclaim bumps
- * `agent_runs.attempt`, so the original worker (which leased the lower attempt)
- * and the reclaimer run the same step concurrently. The `(run,step,attempt)`
- * unique index protects the step ROWS, but they carry different attempts — so
- * without an attempt-guarded `agent_runs` UPDATE the original's late commit
- * would double-advance the run / overwrite the reclaimer's transcript. The
- * guard makes the superseded commit match 0 rows → roll back → benign skip.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
+ * After a reclaim, the old worker and the reclaimer run the same step at
+ * different attempts, so the unique step index does not stop them. The
+ * attempt-guarded run update makes the old commit roll back as a benign skip.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -48,9 +42,7 @@ const supersededFailureWorkflow: Workflow<Record<string, never>> = {
     [STEP]: {
       id: STEP,
       run: async (ctx): Promise<StepResult<Record<string, never>>> => {
-        // Simulate a stale-lease reclaim winning while this worker is still in
-        // the step body. The subsequent throw must not let this stale worker
-        // terminal-fail the newer attempt.
+        // A reclaim wins mid-step. The throw must not fail the newer attempt.
         await db()
           .update(agentRuns)
           .set({ attempt: ctx.attempt + 1 })
@@ -229,7 +221,7 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
 
   test("superseded: a commit at a stale attempt is rejected and rolls back", async () => {
     const { userId, runId } = await seedRunningRun(5);
-    // Simulate a stale-lease reclaim bumping the attempt out from under us.
+    // A reclaim bumps the attempt.
     await db().update(agentRuns).set({ attempt: 6 }).where(eq(agentRuns.id, runId));
 
     const outcome = await commitStepSuccess(

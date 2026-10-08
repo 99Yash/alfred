@@ -25,11 +25,7 @@ const app = new Elysia({ normalize: "typebox" })
     guarded.get("/guarded", () => ({ ok: true })),
   );
 
-/**
- * Relative to now, not a fixed instant. The absolute session cap (#454) revokes
- * any session older than 30 days on read, so a hard-coded `createdAt` turns this
- * suite into a time bomb that starts failing 30 days after it was written.
- */
+/** Relative to now: the 30-day absolute session cap (#454) would expire a fixed date. */
 const SIGNED_IN_AT = new Date(Date.now() - 60_000);
 
 const userSession = {

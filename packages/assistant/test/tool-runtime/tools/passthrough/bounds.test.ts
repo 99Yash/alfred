@@ -56,7 +56,7 @@ describe("boundPassthroughBody — array-item cap (any depth)", () => {
 
 describe("boundPassthroughBody — total byte cap", () => {
   test("an oversized body is pruned to valid JSON under (approximately) 32 KiB", () => {
-    // 50 rows (already at the array cap) each ~2 KB of short strings → ~100 KB.
+    // 50 rows (the array cap) of ~2 KB each, about 100 KB.
     const rows = Array.from({ length: 50 }, (_, i) => ({
       id: i,
       blob: "y".repeat(2000),
@@ -68,9 +68,8 @@ describe("boundPassthroughBody — total byte cap", () => {
     const cause = r.truncation?.causes.find((c) => c.kind === "body_bytes");
     assert.ok(cause, "expected a body_bytes cause");
 
-    // Always valid JSON.
     assert.doesNotThrow(() => JSON.parse(JSON.stringify(r.value)));
-    // Meaningfully reduced, and close to the cap (small slack for sentinels).
+    // Small slack for sentinels.
     assert.ok(r.truncation!.returnedBytes < r.truncation!.originalBytesApprox);
     assert.ok(bytes(r.value) <= PASSTHROUGH_MAX_BODY_BYTES + 1024);
   });
@@ -78,7 +77,7 @@ describe("boundPassthroughBody — total byte cap", () => {
 
 describe("boundPassthroughBody — simultaneous causes", () => {
   test("string, array, and byte caps can all fire in one PassthroughTruncation", () => {
-    // 60 rows (>50) each carrying a >8000-char string → all three bounds trip.
+    // Over 50 rows, each with a string over 8,000 chars.
     const rows = Array.from({ length: 60 }, (_, i) => ({
       id: i,
       note: "z".repeat(8500),

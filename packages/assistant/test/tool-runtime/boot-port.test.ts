@@ -3,10 +3,7 @@ import { describe, test } from "node:test";
 
 import { bootPort } from "@alfred/assistant/tool-runtime/boot-port";
 
-// The factory owns the one identity-guard idiom every boot-seam shares: a slot
-// the composition root installs once, a peer reads, and a disposer that clears
-// only its own value. These tests pin that contract directly, so a future seam
-// inherits it by construction instead of re-copying a sibling's guard.
+// A slot installed once at boot. The disposer clears only its own value.
 
 describe("bootPort factory", () => {
   test("read() on an empty port throws the boot-order error", () => {

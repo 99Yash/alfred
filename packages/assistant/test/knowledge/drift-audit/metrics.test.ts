@@ -92,7 +92,7 @@ async function seedBreachingAttentionShare(userId: string): Promise<void> {
 describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
   after(async () => {
     if (createdUserIds.length > 0) {
-      // drift_metrics + documents/email_triage/todos all CASCADE on user delete.
+      // drift_metrics, documents, email_triage, and todos all CASCADE on user delete.
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
 

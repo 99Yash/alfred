@@ -11,8 +11,7 @@ import {
 } from "@alfred/contracts";
 
 import { findSenderSuppression } from "@alfred/assistant/knowledge";
-// `ActiveSuppressionInstruction` is internal-by-intent (dropped from the barrel,
-// item 15) — read from its owning file directly.
+// Internal type, not in the `knowledge` barrel.
 import { type ActiveSuppressionInstruction } from "@alfred/assistant/knowledge/standing-instructions";
 
 function instruction(overrides: Partial<StandingInstructionValue> = {}): StandingInstructionValue {

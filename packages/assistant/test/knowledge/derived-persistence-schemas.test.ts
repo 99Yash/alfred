@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { proposeFactArgsSchema } from "@alfred/assistant/knowledge";
-// `upsertStyleProfileArgsSchema` is internal-by-intent (dropped from the barrel,
-// item 15) — read from its owning file directly.
+// Internal schema, not in the `knowledge` barrel.
 import { upsertStyleProfileArgsSchema } from "@alfred/assistant/knowledge/style-profiles";
 
 describe("derived memory persistence schemas", () => {

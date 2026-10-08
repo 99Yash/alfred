@@ -32,9 +32,9 @@ async function seedEmail(args: {
   subject: string;
   authoredAt: Date;
   ingestedAt: Date;
-  /** Gmail internalDate, i.e. actual inbox receipt time. Defaults to authoredAt. */
+  /** Gmail internalDate (receipt time). Defaults to authoredAt. */
   receivedAt?: Date;
-  /** Omit to simulate a row ingested before labelIds were captured. */
+  /** Omit for a row ingested before labelIds were captured. */
   labelIds?: string[];
 }): Promise<string> {
   const threadId = `thread_${randomUUID().slice(0, 12)}`;
@@ -95,7 +95,7 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
 
   test("unread reflects the UNREAD label as a tri-state, and receivedAtLocal renders in tz", async () => {
     const userId = await seedUser();
-    // The #284 evidence: 21:40 UTC = 03:10 the next morning in India.
+    // 21:40 UTC is 03:10 the next morning in India (#284).
     const authored = new Date("2026-06-26T04:00:00.000Z");
     const overnight = new Date("2026-06-26T21:40:00.000Z");
 
@@ -148,7 +148,7 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
     assert.equal(byId.get(readEmptyLabelsDoc)?.unread, false);
     assert.equal(byId.get(unknownDoc)?.unread, null);
 
-    // Every item renders Gmail internalDate (receipt time), not the RFC Date header.
+    // Render internalDate, not the RFC Date header.
     const local = byId.get(unreadDoc)?.receivedAtLocal;
     assert.ok(local?.includes("3:10 AM"), `expected 3:10 AM local, got: ${local}`);
   });

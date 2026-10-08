@@ -13,8 +13,7 @@ const call = (
 describe("runSummary", () => {
   test("describes what landed, not what was attempted", () => {
     assert.equal(runSummary([call("google_calendar.list_events", "succeeded")]).length > 0, true);
-    // The same call, failed, must not be narrated as done work — the trail's
-    // own failure marker is what says a step went wrong.
+    // A failed call is not done work; the trail's failure marker reports it.
     assert.notEqual(
       runSummary([call("google_calendar.list_events", "failed")]),
       runSummary([call("google_calendar.list_events", "succeeded")]),
@@ -35,8 +34,7 @@ describe("runSummary", () => {
       call("linear.search", "failed", "c3"),
     ];
 
-    // One source landed, so this reads as that one read — not as the
-    // "Searched multiple sources" a three-call tally would produce.
+    // Only one source succeeded, so the summary must not count all three calls.
     assert.equal(mixed.filter((t) => t.status === "succeeded").length, 1);
     assert.notEqual(runSummary(mixed), "Searched multiple sources");
     assert.equal(runSummary(mixed), runSummary([call("gmail.search", "succeeded")]));

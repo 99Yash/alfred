@@ -7,24 +7,10 @@ import { toolExecuteContext } from "../../src/tool-runtime/context";
 import type { ToolExecuteContextFields } from "../../src/tool-runtime/internal/registry";
 
 /**
- * `toolExecuteContext` is the ONLY constructor of a `ToolExecuteContext`, and it
- * exists so the provider bind cannot disagree with `userId`. That guarantee
- * splits across two enforcement layers, and this file only carries one of them:
- *
- * - **Runtime (here).** The bind is DERIVED, not passed: the result is the input
- *   fields untouched plus exactly one added key. That is what stops a future
- *   caller from smuggling its own `integrations` through.
- * - **Compiler (the `@ts-expect-error` pin below).** The userId-AGREEMENT half is
- *   not runtime-observable — `Integrations` exposes no `userId` to read back — so
- *   a body mutated to `integrations({ userId: "someone-else" })` would pass every
- *   assertion here. What the compiler enforces is the reason such a mutation has
- *   to be written inside this one function to happen at all:
- *   `ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations">`, so no
- *   caller can supply a bind. Do not read the runtime cases as proving agreement.
- *
- * Env-free by construction: every provider on the bind is a memoized lazy getter,
- * so constructing a context builds no client, opens no connection, and reads no
- * credential.
+ * `toolExecuteContext` derives the provider bind, so it cannot disagree with `userId`.
+ * Runtime checks prove only "input fields plus one key". `Integrations` exposes no
+ * `userId`, so the `@ts-expect-error` below carries the rest.
+ * Providers are lazy, so this is env-free.
  */
 describe("toolExecuteContext", () => {
   const fields: ToolExecuteContextFields = {
@@ -86,8 +72,6 @@ describe("toolExecuteContext", () => {
       integrations: {},
     } satisfies ToolExecuteContextFields;
 
-    // The runtime half is incidental — spreading an unknown key through is what
-    // the compiler above exists to prevent, not something to assert about.
     assert.ok(smuggled);
   });
 });

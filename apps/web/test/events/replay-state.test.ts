@@ -12,10 +12,7 @@ import {
 
 const emptyState = (): ReplayState => ({ cursor: 0, activeRuns: {}, completedRuns: {} });
 
-// One base payload per kind, spread with only the field a test is actually
-// about. Hand-copied per-frame literals let one test's premise drift from its
-// neighbours' —
-// see .lessons/an-assertions-premise-needs-enforcing-not-typing.md.
+// One base payload per kind, so a test's premise cannot drift from its neighbours'.
 const CHAT_MESSAGE: EventPayload<"chat.message"> = {
   runId: "run-1",
   threadId: "thread-1",
@@ -59,10 +56,7 @@ const APPROVAL_REQUESTED: EventPayload<"approval.requested"> = {
 
 const INBOX_UPDATED: EventPayload<"inbox.updated"> = { reason: "ingested" };
 
-// The kinds `SPEAKS_FOR_NO_RUN` names. Typed as `EventPayload<K>` so a kind whose
-// payload is run-scoped carries a `runId` because the contract requires it, not
-// because a literal was hand-copied — that `runId` is the premise the exclusion
-// assertion rests on.
+// The `SPEAKS_FOR_NO_RUN` kinds. The contract type forces `runId` where the payload has one.
 const AGENT_RUN: EventPayload<"agent.run"> = { runId: "run-1", phase: "started" };
 
 const AGENT_PROGRESS: EventPayload<"agent.progress"> = { runId: "run-1", step: "triage" };
@@ -156,13 +150,8 @@ const excludedFrames = (id: number): readonly EventStreamFrame[] => [
   { id, createdAt: "", kind: "memory.fact_learned", payload: MEMORY_FACT_LEARNED },
 ];
 
-// The kinds `SPEAKS_FOR_A_RUN` names, hand-listed. Membership in that table compels
-// no `switch` arm to arm a barrier — `case "chat.tool": return null` retires a
-// named kind and still compiles — so these assertions are the only cover for
-// that direction, at tier 4, and nothing makes the list track the table. Each
-// expected run id is read off its own fixture rather than re-typed, so the
-// assertion cannot drift from its premise
-// (.lessons/an-assertions-premise-needs-enforcing-not-typing.md).
+// The `SPEAKS_FOR_A_RUN` kinds, hand-listed. `case "chat.tool": return null` still compiles,
+// so only these assertions catch a kind that stops arming.
 const barrierFrames = (
   id: number,
 ): readonly { readonly frame: EventStreamFrame; readonly runId: string }[] => [
@@ -187,11 +176,7 @@ describe("event replay state", () => {
     assert.equal(replaySince(state), 41);
   });
 
-  // The kinds `SPEAKS_FOR_NO_RUN` names today: each advances the cursor and arms
-  // nothing. Some of them carry a `runId` their typed payload requires, so this
-  // is the exclusion policy and not a statement about which payloads have the
-  // field. Hand-listed like `barrierFrames` — nothing makes it track the
-  // table, so it covers the entries present today and not future ones.
+  // Hand-listed, so it covers today's `SPEAKS_FOR_NO_RUN` entries only. Some carry a `runId`.
   test("an excluded kind advances the cursor without arming a barrier", () => {
     for (const frame of excludedFrames(42)) {
       assert.deepEqual(
@@ -212,26 +197,16 @@ describe("event replay state", () => {
     }
   });
 
-  // Gap characterization, NOT desired behaviour — see the `artifact.delta` reason
-  // in `SPEAKS_FOR_NO_RUN` and campaign item 41. A client that first observes a run
-  // mid-flight through `artifact.delta` alone (a fresh tab, or a reconnect whose
-  // resume floor already exceeds the run's `started` id) arms no barrier: the cursor
-  // floats past the deltas and a reload re-loses them. The contrast pins that this is
-  // `artifact.delta`-only — `chat.delta` self-arms and floors `since` below its own
-  // id, so a reload replays it. Both start states and both ids are identical, so the
-  // frame kind is the only difference. Fixed server-side by item 41's follow-up; the
-  // window self-heals through the durable `artifacts` row meanwhile.
+  // Pins a known gap, not the desired behavior. A tab that joins a run mid-flight through
+  // `artifact.delta` alone arms no barrier, so a reload loses those deltas.
+  // The durable `artifacts` row heals it. Only the frame kind differs between the two cases.
   test("a mid-join artifact.delta floats the cursor past itself; a chat.delta does not", () => {
     const start: ReplayState = { cursor: 104, activeRuns: {}, completedRuns: {} };
 
-    // artifact.delta arms nothing, so the resume floor advances to the delta's id
-    // and a reload resends only ids strictly above it — these deltas are lost.
     const afterArtifact = advanceReplayState(start, artifactDelta(105));
     assert.deepEqual(afterArtifact.activeRuns, {});
     assert.equal(replaySince(afterArtifact), 105);
 
-    // chat.delta arms this run's barrier at `id - 1`, so the resume floor sits below
-    // the delta and a reload replays it back.
     const afterChat = advanceReplayState(start, chatDelta(105));
     assert.deepEqual(afterChat.activeRuns, { [CHAT_DELTA.runId]: 104 });
     assert.equal(replaySince(afterChat), 104);
@@ -267,8 +242,7 @@ describe("event replay state", () => {
       chatMessage(81, { runId: "run-1", phase: "completed" }),
     );
 
-    // run-1's completion at 81 sits above the floor run-2 (60) holds, so it is
-    // remembered against a later stray. run-2 is untouched.
+    // 81 is above run-2's floor (60), so run-1 stays remembered against a later stray.
     assert.deepEqual(completed, {
       cursor: 81,
       activeRuns: { "run-2": 60 },
@@ -284,27 +258,19 @@ describe("event replay state", () => {
     assert.equal(replaySince(idle), 82);
   });
 
-  // `/api/events` is user-scoped, and `?since` / `Last-Event-ID` resend historical
-  // frames for every thread, so a terminal frame arriving *behind* the persisted
-  // cursor is the routine reload shape rather than an edge case. If clearing ever
-  // falls through to the arming branch, the barrier is re-armed and persisted to
-  // localStorage and every later page load replays from an id that never advances.
+  // Replay resends old frames for every thread, so a completion behind the cursor is routine.
+  // If it re-armed instead, every later reload would replay from an id that never advances.
   test("a completion replayed behind the cursor still releases its run", () => {
     const state: ReplayState = { cursor: 500, activeRuns: { "run-1": 41 }, completedRuns: {} };
     const replayed = advanceReplayState(state, chatMessage(42, { phase: "completed" }));
 
-    // The completion at 42 is below the floor (500), so the prune drops its
-    // terminal record: replay never resends an id at or below the cursor, so no
-    // stray for this run can arrive to be rejected.
+    // 42 is below the floor, so no stray can arrive and the prune drops the record.
     assert.deepEqual(replayed, { cursor: 500, activeRuns: {}, completedRuns: {} });
     assert.equal(replaySince(replayed), 500);
   });
 
-  // A compile-time guard riding a runtime test: this stops compiling if the frame
-  // parameter re-widens to `unknown` *and* if it decorrelates to the union of every
-  // kind's payload. `@ts-expect-error` cannot express that — reading a field off
-  // `unknown` is itself an error, so the expect-error would stay satisfied and never
-  // fire. The `assert` keeps `phase` alive against `noUnusedLocals`.
+  // A compile-time guard: fails if the frame widens to `unknown` or loses the kind-to-payload link.
+  // `@ts-expect-error` cannot do this, because a read off `unknown` already errors.
   test("the frame parameter keeps its payload narrowed to its kind", () => {
     const frame: Parameters<typeof advanceReplayState>[1] = chatMessage(81, {
       phase: "completed",
@@ -337,12 +303,7 @@ describe("event replay state", () => {
     assert.equal(stored.cursor, 100);
   });
 
-  // The probe from item 31 review r1 must-fix 3: a recoverable frame that merely
-  // *names* a run whose `completed` was already applied must not re-arm that run's
-  // barrier. The clearing branch is id-tolerant (a completion releases under any
-  // arrival order); the arming branch must refuse a run recorded as terminal, or
-  // `since` freezes at the stray's barrier forever because a run publishes
-  // `completed` at most once.
+  // A run publishes `completed` once, so a re-armed barrier would freeze `since` forever.
   test("a frame after a run's completion does not re-arm its barrier", () => {
     const started = advanceReplayState(emptyState(), chatMessage(10, { phase: "started" }));
     const delta = advanceReplayState(started, chatDelta(11, { seq: 0 }));
@@ -356,9 +317,7 @@ describe("event replay state", () => {
     assert.equal(replaySince(stray), 31);
   });
 
-  // Sub-agent `chat.tool` frames carry the *parent's* `runId`, and `dispatchBatch`
-  // republishes non-terminal frames on every resume and stale-lease reclaim, so a
-  // `chat.tool` naming an already-completed parent run is an ordinary occurrence.
+  // Sub-agent `chat.tool` frames carry the parent's `runId` and can arrive after the parent completes.
   test("a chat.tool naming an already-completed parent run does not re-arm it", () => {
     const started = advanceReplayState(emptyState(), chatMessage(10, { phase: "started" }));
     const completed = advanceReplayState(started, chatMessage(20, { phase: "completed" }));
@@ -375,10 +334,7 @@ describe("event replay state", () => {
     assert.equal(replaySince(republished), 21);
   });
 
-  // The prune floor is `completedRuns[id] < replaySince(next)`, strictly below.
-  // A run that completes *above* the floor another active run holds must stay
-  // remembered so its own strays are still rejected; a completion at or below the
-  // floor is dropped. An off-by-one here is silent, so assert both directions.
+  // The prune keeps `completedRuns[id] >= replaySince(next)`. An off-by-one is silent, so test both sides.
   test("a completion above the active floor is remembered; one below it is dropped", () => {
     const state: ReplayState = {
       cursor: 80,
@@ -391,11 +347,9 @@ describe("event replay state", () => {
       chatMessage(81, { runId: "run-1", phase: "completed" }),
     );
 
-    // `run-low` holds the floor at 5; run-1's completion at 81 sits above it.
     assert.equal(replaySince(completed), 5);
     assert.equal(completed.completedRuns["run-1"], 81);
 
-    // A stale completion behind the floor is dropped by the prune.
     const stale: ReplayState = {
       cursor: 80,
       activeRuns: { "run-low": 5 },
@@ -421,10 +375,7 @@ describe("event replay state", () => {
     assert.deepEqual(idle.completedRuns, {});
   });
 
-  // A `completed` for a run this tab never armed leaves `activeRuns` unchanged
-  // (the delete is a no-op) but writes a `completedRuns` entry. The write gate
-  // must persist that record even though the barrier set did not change, or a
-  // fresh tab reloads without the terminal memory and a later stray re-arms.
+  // Only `completedRuns` changes here. The write gate must still persist it, or a fresh tab re-arms on a stray.
   test("persists a completed run recorded while another run stays active", () => {
     let stored: ReplayState = {
       cursor: 80,
@@ -442,9 +393,6 @@ describe("event replay state", () => {
       },
     });
 
-    // run-1 was never armed here; its completion at 81 sits above the floor
-    // run-2 holds (60), so it is recorded. activeRuns still holds run-2, so the
-    // write is gated on the completedRuns change alone.
     replay.noteFrame(chatMessage(81, { runId: "run-1", phase: "completed" }));
 
     assert.equal(writes, 1);
@@ -477,13 +425,8 @@ describe("event replay state", () => {
     assert.equal(stored.cursor, 30);
   });
 
-  // Regression for campaign item 49. A non-chat run (sub-agent or user-authored
-  // workflow) arms a barrier on `approval.requested`, then ends with `agent.run` /
-  // `completed` — it never publishes `chat.message`. Before item 49 only
-  // `chat.message` / `completed` released, so the barrier leaked forever, freezing
-  // `since` below the cursor on every reload. The barrier must release on the run's
-  // `agent.run` terminal. Disable the new `agent.run` arm of `releasedRunId` and this
-  // test dies while the arming-side tests stay green (differential).
+  // A non-chat run never publishes `chat.message`, so `releasedRunId` must release on `agent.run`.
+  // Without that, the barrier leaks and freezes `since` on every reload.
   test("an agent.run/completed releases a barrier its approval.requested armed", () => {
     const runId = APPROVAL_REQUESTED.runId;
     const armed = advanceReplayState(emptyState(), approvalRequested(70, { runId }));
@@ -497,8 +440,7 @@ describe("event replay state", () => {
     assert.equal(replaySince(released), 80);
   });
 
-  // `blocked` is terminal in `RUN_STATUS_KIND` (it sets `endedAt`), so a run that
-  // ends blocked must release its barrier alongside `failed` and `cancelled`.
+  // `blocked` is terminal in `RUN_STATUS_KIND`, so it releases too.
   test("agent.run/failed, cancelled and blocked also release the barrier", () => {
     for (const phase of ["failed", "cancelled", "blocked"] as const) {
       const runId = APPROVAL_REQUESTED.runId;
@@ -513,9 +455,7 @@ describe("event replay state", () => {
     }
   });
 
-  // The seven non-terminal `agent.run` phases continue the run, so they must leave a
-  // barrier the run armed in place. A stray release here would resume from the newest
-  // id and lose the in-flight run's replay.
+  // A release here would lose the in-flight run's replay.
   test("a non-terminal agent.run phase does not release the barrier", () => {
     for (const phase of [
       "started",
@@ -534,9 +474,6 @@ describe("event replay state", () => {
     }
   });
 
-  // Item 37 interaction: once a run's terminal frame is recorded in `completedRuns`,
-  // a later frame that merely names it re-arms nothing — the same guard that protects
-  // a chat run now protects a non-chat run released by `agent.run`.
   test("an approval.requested after an agent.run terminal does not re-arm the run", () => {
     const runId = APPROVAL_REQUESTED.runId;
     const armed = advanceReplayState(emptyState(), approvalRequested(70, { runId }));
@@ -550,9 +487,7 @@ describe("event replay state", () => {
     assert.equal(replaySince(stray), 81);
   });
 
-  // The arming side is untouched: an `agent.run` frame on its own arms nothing at any
-  // phase, terminal or not, because `agent.run` stays in `SPEAKS_FOR_NO_RUN`. Widening
-  // release must not widen arming.
+  // `agent.run` stays in `SPEAKS_FOR_NO_RUN`: it can release a barrier but never arm one.
   test("an agent.run frame on its own never arms a barrier", () => {
     for (const phase of [
       "started",
@@ -568,9 +503,6 @@ describe("event replay state", () => {
     }
   });
 
-  // A chat run is unchanged: `chat.message` / `completed` still releases, and the
-  // executor's following `agent.run` / `completed` for the same run is a redundant
-  // no-op release (the barrier is already gone, the run already recorded).
   test("a chat run releases on chat.message; a trailing agent.run terminal is a no-op", () => {
     const started = advanceReplayState(emptyState(), chatMessage(10, { phase: "started" }));
     const completed = advanceReplayState(started, chatMessage(30, { phase: "completed" }));

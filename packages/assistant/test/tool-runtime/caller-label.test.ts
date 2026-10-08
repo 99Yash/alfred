@@ -3,11 +3,7 @@ import { describe, test } from "node:test";
 
 import { callerLabel } from "@alfred/assistant/tool-runtime";
 
-// `callerLabel` is the single source for the caller trace tag consumed by
-// execute/reject/sub-agent-await spans and the workflow dispatch-batch span, so
-// a run's spans must tag the same caller identically. It projects tool-runtime's
-// own `ToolCallActor["caller"]` type; this pins the format after it moved off
-// the `dispatch` module (slice 05).
+// Every span of a run must tag the caller the same way.
 describe("callerLabel", () => {
   test("an absent caller labels as boss", () => {
     assert.equal(callerLabel(undefined), "boss");

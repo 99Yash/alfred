@@ -6,20 +6,7 @@ import { sanitizeVoice } from "@alfred/ai/voice";
 import { streamModelTurn, type StreamTurnState } from "@alfred/assistant/chat/stream-model-turn";
 import type { TurnStopController } from "@alfred/assistant/chat/turn-stop-controller";
 
-/**
- * Unit tests for the extracted live-stream drain. Exercises the four stream
- * machines (reply-text flush, reasoning flush, artifact-input stream, and the
- * `for await` drain) against a fake async-iterable stream and a capturing event
- * sink injected via the new `publish` seam — no live provider, Redis, or DB.
- *
- * Invariants covered: coalesced reply text emits monotonically-sequenced
- * `chat.delta`; reasoning emits `chat.reasoning`; a tool call emits a `chat.tool`
- * started card only for an active tool; a document artifact's `markdown`
- * argument streams as `artifact.delta` chunked under the event cap; the live
- * voice sanitizer strips em-dashes so the stream matches the persisted bubble;
- * the `reissuePending` gate (#407) withholds the reply until the caller releases
- * it; and a mid-drain stop breaks the loop.
- */
+/** The live-stream drain against a fake stream and a capturing `publish` sink. */
 
 interface CapturedEvent {
   kind: string;
@@ -68,11 +55,7 @@ function makeState(over?: Partial<StreamTurnState>): StreamTurnState {
   };
 }
 
-/**
- * A stop controller stub. `stopAfter` is the number of parts to process before
- * a stop is observed: `checkStop` (called once at the top of each iteration)
- * returns false for the first `stopAfter` calls, then latches `stopped`.
- */
+/** `checkStop` runs once per part, so `stopAfter` parts are processed before the stop. */
 function stubStop(opts?: { stopAfter?: number }): TurnStopController {
   let count = 0;
   let stopped = false;
@@ -90,8 +73,7 @@ function stubStop(opts?: { stopAfter?: number }): TurnStopController {
       return stopped;
     },
     startPolling: () => () => {},
-    // `streamModelTurn` polls; it never backs off. A stub that resolves
-    // immediately keeps the member honest without a timer in the suite.
+    // `streamModelTurn` never calls `wait`, so no timer is needed.
     wait: async () => (stopped ? "stopped" : "elapsed"),
   };
 }
@@ -283,12 +265,10 @@ describe("streamModelTurn", () => {
       publish,
     });
 
-    // Held back during the drain: nothing streamed while the gate was closed.
     assert.equal(events.filter((e) => e.kind === "chat.delta").length, 0);
     assert.equal(state.assistantText, "reissue lead-in");
 
-    // `crossFinalizeBoundary` clears the flag, then releases what the gate
-    // withheld — buffer and sanitizer tail, in that order, in one call.
+    // Mirrors `crossFinalizeBoundary`: clear the flag, then release.
     state.reissuePending = false;
     await releaseWithheldReply();
     const deltas = events.filter((e) => e.kind === "chat.delta");
@@ -306,7 +286,6 @@ describe("streamModelTurn", () => {
       ]),
       state,
       ctx,
-      // Process exactly one part, then observe the stop before the second.
       stopController: stubStop({ stopAfter: 1 }),
       publish,
     });

@@ -69,9 +69,7 @@ describe("senderPriorWriteKeyFor", () => {
   });
 
   test("never learns a human sender — a person's category is per-message", () => {
-    // The single most important learning-exclusion. Asserted on the write-key
-    // gate directly (not just transitively via senderKeyFor) so a reordering of
-    // guards in senderPriorWriteKeyFor can't silently start caching people.
+    // Test the write-key gate directly, so a guard reorder cannot start caching people.
     assert.equal(
       senderPriorWriteKeyFor({
         senderContext: { effectiveAuthor: "person" },
@@ -83,10 +81,5 @@ describe("senderPriorWriteKeyFor", () => {
     );
   });
 
-  // NOTE: incrementSenderPrior's atomic jsonb_set increment-on-conflict (the
-  // concurrency-safety guarantee against lost updates) is intentionally not
-  // unit-tested here — it requires a live Postgres harness, which this package
-  // does not have. The atomicity lives in the SQL (jsonb_set over the column,
-  // not a read-modify-write in app code); add a concurrent-increment test when
-  // a DB test harness lands.
+  // Not covered: incrementSenderPrior's atomic jsonb_set increment. It needs a DB-backed test.
 });

@@ -7,23 +7,14 @@ import { registerBuiltinTools } from "../../../src/tool-runtime/builtin-tools";
 import { listToolsForIntegration } from "../../../src/tool-runtime/internal/registry";
 
 /**
- * Tools that genuinely take no parameters. `normalizeToolInputKeys` correctly
- * no-ops for these; every OTHER tool must expose a non-empty accepted-key set,
- * or the normalizer silently disables casing tolerance for it (the exact
- * regression #505 exists to prevent). Kept as an explicit allowlist so ADDING a
- * param to one — or a wrapper that breaks unwrapping on a rich tool — fails here.
+ * Every other tool must expose accepted keys, or `normalizeToolInputKeys` silently no-ops for
+ * it.
  */
 const PARAMLESS_TOOLS = new Set(["system.list_instructions", "system.current_time"]);
 
 /**
- * Regression guard for the `read_chat_history` 400 (a top-level
- * `z.discriminatedUnion` serialized to a typeless `oneOf`, and Anthropic
- * rejected every chat turn with `tools.N.custom.input_schema.type: Field
- * required`). Every registered tool's `input_schema` must be a JSON Schema
- * object with a top-level `type: "object"` — the shape Anthropic (and OpenAI)
- * require. Uses the SDK's own `asSchema`, the exact converter the providers use
- * to build the tool payload, so `.transform()` tools are checked the way the
- * model actually sees them.
+ * A top-level discriminated union serializes to a typeless `oneOf`, and Anthropic
+ * rejects every chat turn. Uses the SDK's `asSchema`, the converter the providers use.
  */
 test("every registered tool input schema has a top-level object type", () => {
   registerBuiltinTools();
@@ -47,14 +38,8 @@ test("every registered tool input schema has a top-level object type", () => {
 });
 
 /**
- * Guard for the param-ergonomics normalizer (#505). `normalizeToolInputKeys`
- * renames casing/underscore variants to the schema key by reading the accepted
- * keys from `acceptedParamNames` (`z.toJSONSchema(schema, { io: "input" })`).
- * That must (a) survive every `preprocess`/wrapper composition — otherwise it
- * returns `[]` and the normalizer SILENTLY becomes a no-op — and (b) agree with
- * the keys the model is actually shown (the SDK's `asSchema`, the exact payload
- * providers build), or the normalizer would target a different surface than the
- * model uses. Both failure modes are invisible at runtime, so pin them here.
+ * A wrapper that hides the keys makes the normalizer a silent no-op. The keys must
+ * also match what `asSchema` shows the model.
  */
 test("acceptedParamNames survives every wrapper and matches the model-facing surface", () => {
   registerBuiltinTools();

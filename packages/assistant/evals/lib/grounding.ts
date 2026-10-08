@@ -1,8 +1,4 @@
-/**
- * The shape a grounding eval's task returns: the tool the agent chose to call
- * (name + args), or `null`/`text` when it answered without one. Shared by the
- * grounding evals (calendar, github, sender-suppression) so they can't drift.
- */
+/** What a grounding eval's task returns: the tool call the agent chose, or `null` and its text. */
 export interface GroundingTaskOutput {
   toolName: string | null;
   args: Record<string, unknown> | null;

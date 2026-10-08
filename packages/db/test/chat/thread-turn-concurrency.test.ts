@@ -11,19 +11,10 @@ import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed guard for the per-thread turn concurrency invariant (#488).
- *
- * The turn start used to dedupe only on `userMessageId`, so the ONLY thing
- * preventing two concurrent runs on one thread was the client's "not streaming"
- * submit gate. Once the composer can auto-fire queued/steered turns a completion
- * race could start a second run before the first is terminal. The fix is a
- * partial unique index — {@link CHAT_THREAD_ACTIVE_RUN_INDEX} — enforcing at most
- * one non-terminal `__chat-turn__` run per (user, thread). This is the race-safe
- * boundary the start relies on; the endpoint translates a 23505 on THIS index to
- * a typed "thread busy" response and a 23505 on the dedup index to double-submit
- * recovery, so these lock which constraint each collision trips.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
+ * At most one non-terminal `__chat-turn__` run per (user, thread), via
+ * {@link CHAT_THREAD_ACTIVE_RUN_INDEX} (#488). The endpoint maps a 23505 on this
+ * index to "thread busy" and on the dedup index to double-submit recovery,
+ * so the tests pin which index each collision trips. Needs a migrated Postgres.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -82,7 +73,7 @@ async function expectUniqueViolation(fn: () => Promise<unknown>): Promise<string
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
-/** Count of NON-terminal chat-turn runs on the thread — the guarded quantity. */
+/** Count of non-terminal chat-turn runs on the thread. */
 async function countActiveThreadRuns(userId: string, threadId: string): Promise<number> {
   const rows = await db()
     .select({ id: agentRuns.id, status: agentRuns.status, metadata: agentRuns.metadata })
@@ -122,7 +113,7 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
     const { userId, threadId } = await seedUserThread();
     await insertChatTurnRun({ userId, threadId, userMessageId: `m-${randomUUID()}` });
 
-    // A genuinely new turn (different user message) while the first is in flight.
+    // A new user message while the first run is in flight.
     const constraint = await expectUniqueViolation(() =>
       insertChatTurnRun({ userId, threadId, userMessageId: `m-${randomUUID()}` }),
     );
@@ -140,8 +131,7 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
       insertChatTurnRun({ userId, threadId, userMessageId }),
     );
 
-    // Same dedup key → the double-submit index wins the collision, so the
-    // endpoint recovers the in-flight run instead of returning busy.
+    // The dedup index wins, so the endpoint recovers the run instead of returning busy.
     assert.equal(constraint, DEDUP_INDEX);
   });
 
@@ -154,8 +144,7 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
       userMessageId: `m-${randomUUID()}`,
     });
 
-    // Each terminal status frees the thread: the prior run leaves the
-    // active-index predicate, so a fresh turn is admitted (no busy collision).
+    // Each terminal status frees the thread.
     for (const terminal of ["completed", "failed", "cancelled"] as const) {
       await db().update(agentRuns).set({ status: terminal }).where(eq(agentRuns.id, activeRunId));
       activeRunId = await insertChatTurnRun({

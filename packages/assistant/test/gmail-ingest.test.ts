@@ -7,13 +7,7 @@ import { documents, ingestionState, integrationCredentials, user } from "@alfred
 import { findUnembeddedDocumentIds } from "@alfred/corpus";
 import { and, eq, inArray } from "drizzle-orm";
 
-// Imports the RELOCATED consumer module (Phase-5 item 01). The cursor-seed
-// logic used to live in the provider package's `google/watch.ts`
-// (`seedHistoryCursorIfAbsent`); it now lives here so `@alfred/integrations`
-// writes no ingestion-domain tables. This test pins the relocated seam so a
-// byte-identical move is provably unchanged — and it is the one delicate piece
-// of the move (Risk: a watch install that fails to seed a cursor drops a
-// freshly-watched credential into perpetual full re-sync).
+// A watch install that fails to seed a cursor leaves the credential in endless full re-sync.
 import {
   pollGmailRecent,
   runGmailMediaIngest,
@@ -27,7 +21,7 @@ const ID_PREFIX = "test-gmail-ingest-";
 
 const SKIP = dbBackedSkip("database");
 
-/** Test-only media door: supports PDF only, returns the given extract result. */
+/** Supports PDF only and returns the given extract result. */
 function pdfOnlyMedia(
   extract: Extraction["extract"],
 ): Pick<Extraction, "extract" | "isSupported" | "wouldExceed"> {
@@ -67,8 +61,7 @@ async function seedGoogleCredential(userId: string): Promise<string> {
       provider: "google",
       accountId: randomUUID(),
       accountLabel: `${userId}@example.test`,
-      // Deliberate unsealed write: this test never opens the token; the seed
-      // path only reads `user_id` off the credential row.
+      // Unsealed on purpose: the seed path reads only `user_id`.
       // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
       accessToken: "access-token" as unknown as SealedCredentialSecret,
       // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
@@ -126,8 +119,7 @@ describe(
       const credentialId = await seedGoogleCredential(userId);
 
       await seedGmailHistoryCursorIfAbsent({ credentialId, historyId: "1000" });
-      // A renewal re-seeds with a fresh baseline; it must NOT roll the rolling
-      // cursor backward or forward — the poll/webhook deltas own it after seed.
+      // A renewal must not move the cursor; the poll and webhook own it after the seed.
       await seedGmailHistoryCursorIfAbsent({ credentialId, historyId: "500" });
 
       const after = await loadCursor(credentialId);
@@ -510,9 +502,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     assert.equal(attRows.length, 1);
     assert.equal(attRows[0]!.sourceId, `${messageId}:${attachmentId}`);
 
-    // Embed failures are NOT flagged — the corpus sweep is their recovery path
-    // (`gmail.embed_sweep` covers `gmail_attachment` rows). This pins both halves:
-    // the flag cleared, and the sweep candidate query covering the row.
+    // Embed failures are not flagged: `gmail.embed_sweep` recovers `gmail_attachment` rows.
     const mailRow = await loadMailRow(userId, messageId);
     assert.ok(mailRow);
     assert.equal((mailRow.metadata as Record<string, unknown>).mediaPending, undefined);

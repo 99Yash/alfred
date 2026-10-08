@@ -1,16 +1,10 @@
 import { defineConfig } from "evalite/config";
 
 export default defineConfig({
-  // The briefing composer runs a multi-step tool loop up to `dump_briefing`,
-  // which is materially slower than a single generate. Give each case generous
-  // headroom so a slow-but-healthy run isn't killed by evalite's 30s default
-  // and misread as a failure. A genuinely hung run still ends — it just gets a
-  // longer leash.
+  // The composer runs a tool loop up to `dump_briefing`. evalite's 30s default kills healthy runs.
   testTimeout: 180_000,
-  // These evals are regression gates, not dashboards. A single fabricated
-  // progress claim on a machine-notification thread is the bug.
+  // A regression gate: one fabricated progress claim is a failure.
   scoreThreshold: 100,
-  // The suite includes forced fallback-model cases; keep parallelism modest so
-  // provider latency/rate spikes don't masquerade as product regressions.
+  // Low, so provider rate spikes do not look like regressions.
   maxConcurrency: 2,
 });

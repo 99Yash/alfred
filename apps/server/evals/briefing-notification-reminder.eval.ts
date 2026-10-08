@@ -9,29 +9,11 @@ import { z } from "zod";
 import { buildSystemPrompt } from "@alfred/assistant/briefings";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
-// #265 — the briefing composer must NOT assert a progress/status claim ("still
-// no reply", "no progress", "you haven't started X") on an item that arrived as
-// a *machine notification* from a collaboration tool (ClickUp / Slack / Linear /
-// GitHub). The work on those items happens in the tool or the IDE, never in a
-// reply to the notification email, so email-thread silence is zero evidence of
-// task progress. The correct move is a neutral open reminder. The prompt fix
-// adds that principle; this eval pins it so a future prompt edit or model swap
-// can't silently regress back to fabricating "no progress" on a bot thread.
-//
-// Two blocks:
-//   A. machine-notification threads → composed text carries NO asserted-progress
-//      phrasing (the bug).
-//   B. a genuine person-to-person reply-owed thread → the composer STILL surfaces
-//      the person (the fix must not over-correct and gag legitimate "waiting on
-//      you" items).
-//
-// Runs both the production boss getter and a forced Gemini fallback-model
-// variant through the real prompt + fixture-backed briefing tool loop. #265 was
-// observed on the fallback model, while Sonnet can pass without the prompt fix,
-// so the forced-Gemini lane is load-bearing.
-//
-// Run locally with apps/server/.env populated (GOOGLE_GENERATIVE_AI_API_KEY):
-//   pnpm --filter server eval
+// #265: on a machine notification (ClickUp, Slack, Linear, GitHub), the briefing must not claim
+// "no progress". That work happens in the tool, so email silence proves nothing.
+// Block A checks bot threads. Block B checks that a real person waiting on a reply still shows.
+// The bug appeared on the Gemini fallback, so the forced-Gemini lane matters.
+// Run with apps/server/.env populated: `pnpm --filter server eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../.env") });
 
@@ -39,11 +21,7 @@ const NOW = new Date("2026-07-03T02:00:00Z");
 
 const YESTERDAY_MORNING = new Date("2026-07-02T02:30:00Z");
 
-/**
- * Phrasings that assert a progress/status/reply-owed CLAIM. Deliberately tight
- * so a legitimate neutral reminder ("open task", "still assigned to you",
- * "you're assigned") does NOT match — only fabricated-state claims do.
- */
+/** Tight on purpose: a neutral reminder like "still assigned to you" must not match. */
 const ASSERTED_PROGRESS_PATTERNS: RegExp[] = [
   /still\s+no\s+repl/i,
   /\bno\s+repl(?:y|ies)\b/i,
@@ -120,10 +98,8 @@ function priorMorning(subject: string, bodyText: string): PriorBriefingSummary {
   };
 }
 
-// Each machine case: one notification-driven item that was ALREADY surfaced in a
-// prior briefing (so the composer is tempted to "close the loop" — the exact
-// spot the "still no reply / no progress" fabrication comes from), nothing else
-// competing, quiet day. A correct briefing either drops it or reminds neutrally.
+// Each item was already in a prior briefing, which tempts a "still no progress" line.
+// A correct briefing drops it or gives a neutral reminder.
 const MACHINE_CASES: Scenario[] = [
   {
     label: "clickup-task-assignment",
@@ -184,8 +160,7 @@ const MACHINE_CASES: Scenario[] = [
   },
 ];
 
-// Control: a genuine human wrote and is waiting on the user. The fix must not
-// suppress this — the composer should still surface Fabian by name.
+// Control: a real person waits on the user, so Fabian must still appear.
 const PERSON_CASE: Scenario = {
   label: "person-to-person-reply-owed",
   priorBriefings: [
@@ -379,8 +354,7 @@ evalite<ScenarioRun, ComposeOutput, null>(
         name: "No asserted progress/reply-owed claim on a bot thread",
         scorer: ({ output, input }) => {
           if (!output.ok) {
-            // Can't verify a briefing that never composed — score 0 rather than
-            // let an errored/empty run pass the negative check for free.
+            // Score 0, so an empty run does not pass the negative check.
             return {
               score: 0,
               metadata: `[${input.modelLane}/${input.scenario.label}] compose failed: ${output.note}`,
@@ -402,7 +376,7 @@ evalite<ScenarioRun, ComposeOutput, null>(
   },
 );
 
-// ─── Block B: person-to-person reply-owed is still surfaced (no over-correction)
+// ─── Block B: a real reply-owed thread still shows ───────────────────────────
 
 evalite<ScenarioRun, ComposeOutput, null>(
   "Briefing still surfaces a genuine person-to-person reply-owed thread (#265 guard)",

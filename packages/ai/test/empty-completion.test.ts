@@ -6,22 +6,12 @@ import type { FinishReason } from "ai";
 import { classifyStreamFinish, isRetryableEmptyCompletion } from "../src/agent";
 
 /**
- * The empty-completion contract (2026-07-10 chat-turn dig). When Anthropic hits
- * its workspace spend cap, `withFallback` degrades the boss to Gemini 3.5 Flash,
- * which occasionally returns a `finishReason:stop` candidate with **0 output
- * tokens** — no text, no tool calls. `withFallback` cannot catch it (the SDK
- * call *succeeds* with an empty stream), so the executor treats it as a bounded,
- * retryable anomaly instead of dead-ending the turn.
- *
- * `isRetryableEmptyCompletion` owns the retryable-vs-surface decision; both the
- * streaming (`classifyStreamFinish`) and non-streaming (`classifyTurnResult`)
- * classifiers delegate to it. These tests pin the finish-reason matrix so the
- * two never diverge and a content-filter/length empty (which a retry can't
- * clear) keeps surfacing.
+ * A fallback model can return a clean "stop" with no text and no tool calls. The SDK call succeeds,
+ * so the executor retries it. Pins the finish-reason matrix both classifiers share;
+ * content-filter and length empties must still surface, because a retry cannot clear them.
  */
 
-// A single fake tool call — the classifier only reads `.length`, so the shape
-// past that is irrelevant.
+// The classifier reads only `.length`.
 const ONE_TOOL_CALL = [{}];
 
 const NO_TOOL_CALLS: unknown[] = [];
@@ -136,9 +126,7 @@ describe("classifyStreamFinish", () => {
   });
 });
 
-// Exhaustive guard: keep the two exit sets disjoint and total over the finish
-// reasons we handle, so a future FinishReason literal doesn't silently fall into
-// the wrong bucket.
+// Keep the exit sets disjoint and total, so a new FinishReason cannot land in the wrong bucket.
 describe("classifyStreamFinish finish-reason coverage", () => {
   const reasons: FinishReason[] = [
     "stop",

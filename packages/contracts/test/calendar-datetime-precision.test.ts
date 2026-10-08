@@ -4,12 +4,8 @@ import { calendarCreateEventInput } from "@alfred/contracts";
 import * as z from "zod";
 
 /**
- * Zod accepted a minute-precision datetime through 4.4.3. Version 4.5.0 made
- * the seconds field mandatory, which would silently break every
- * `calendar.create_event` call where the model wrote `14:00` instead of
- * `14:00:00`. `padDatetimeSeconds` restores the old accepted input set. These
- * tests pin both halves: what the shim now accepts, and what it must still
- * reject.
+ * Zod 4.5.0 made seconds mandatory, which breaks a model-written `14:00`.
+ * `padDatetimeSeconds` restores the old input set: pin what it accepts and what it still rejects.
  */
 
 const base = { calendarId: "primary", summary: "Sync", timeZone: "Asia/Kolkata" };
@@ -39,8 +35,7 @@ test("datetimes that already carry seconds pass through unchanged", () => {
 });
 
 test("the shim widens nothing: a datetime with no zone is still rejected", () => {
-  // `datetime({ offset: true })` rejected this before the upgrade too. Padding
-  // it would accept input the old validator refused.
+  // The old validator refused this too.
   assert.equal(parse("2026-08-29T14:00", "2026-08-29T15:00").success, false);
 });
 
@@ -74,7 +69,6 @@ test("the model-facing JSON schema still advertises the canonical surface", () =
     "summary",
     "timeZone",
   ]);
-  // The preprocess must not leak into the advertised schema, and must not turn
-  // an optional field required.
+  // The preprocess must not make an optional field required.
   assert.deepEqual((json.required ?? []).sort(), ["end", "start", "summary"]);
 });

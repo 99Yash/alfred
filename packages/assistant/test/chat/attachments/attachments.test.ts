@@ -205,10 +205,7 @@ describe("assertPassThroughImageBytes", () => {
 });
 
 describe("validateStoredMeta", () => {
-  // This is the send-time gate after collapsing assertStoredAttachmentReady to a
-  // cheap HEAD (ADR-0065): /upload already decoded the bytes, so send-time only
-  // needs to prove the stored object matches the declared payload. These are the
-  // security-load-bearing branches — a forged turn payload must not pass.
+  // The send-time gate (ADR-0065): a forged turn payload must not pass.
   test("accepts a stored object that matches the declared size + type", () => {
     assert.doesNotThrow(() =>
       validateStoredMeta({

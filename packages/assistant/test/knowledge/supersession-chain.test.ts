@@ -10,17 +10,8 @@ import { getSupersessionChain } from "@alfred/assistant/knowledge";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed test for `getSupersessionChain`'s recursive-CTE traversal (#189):
- *   1. a multi-hop chain comes back tip-first (the starting row, then each
- *      predecessor it supersedes back to the origin root), in one query
- *      regardless of length;
- *   2. a cyclic `supersedes_id` pointer terminates via the depth bound instead
- *      of looping forever.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated
- * Postgres; skipped otherwise so the pure-function suite still runs without a
- * database. Seeds throwaway `test-superchain-*` users and cascades them away on
- * teardown.
+ * `getSupersessionChain` recursive CTE. Needs a migrated `DATABASE_URL`.
+ * Returns the chain tip-first in one query; a `supersedes_id` cycle stops at the depth bound.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -92,8 +83,7 @@ describe("getSupersessionChain (DB-backed)", { skip: SKIP }, () => {
     const root = `fact_${randomUUID().slice(0, 8)}`;
     const tip = `fact_${randomUUID().slice(0, 8)}`;
     await seedFact(owner, root, null);
-    // `tip` belongs to the intruder but points at the owner's row — the
-    // user-scoped join must not pull `root` into the intruder's chain.
+    // `tip` is the intruder's but points at the owner's row; the user-scoped join must stop there.
     await seedFact(intruder, tip, root);
 
     const chain = await getSupersessionChain(intruder, tip);

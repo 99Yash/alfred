@@ -5,24 +5,10 @@ import { integrations } from "../src/integrations";
 import { once } from "../src/shared/provider";
 
 /**
- * The bind layer's guarantees, all about LIFETIME rather than behavior — the kind
- * of property that is invisible in a passing happy path and only shows up as a
- * duplicated credential read or a stale token in production.
- *
- *   1. {@link once} runs its builder exactly once and hands back the same value.
- *      In this package it memoizes CLIENT CONSTRUCTION only; the async
- *      properties are pinned for a future caller, not exercised by one today.
- *      Deliberately NOT used on a credential resolve — see `provider.ts`.
- *   2. The root provider getters are memoized, so a tool touching `.github`
- *      twice works with ONE client. Since that client resolves its credential per
- *      request, a bind holds nothing that can go stale and imposes no rule about
- *      how long a caller may keep it.
- *
- * No network and no DB: `integrations()` is lazy by construction, so building a
- * client never resolves a credential.
+ * Lifetime guarantees of the bind layer. `once` memoizes client construction, never a credential resolve.
+ * Provider getters are memoized, and each client resolves its credential per request, so nothing goes stale.
  */
 
-/** Any policy will do here; the point is that the bind has to state one. */
 const RETRY = { maxAttempts: 2 } as const;
 
 describe("once", () => {
@@ -51,9 +37,7 @@ describe("once", () => {
       return "value";
     });
 
-    // Deliberately not awaited in sequence: overlapping callers share the promise
-    // rather than each starting their own run. No caller in this package needs
-    // this today — pinned so the memo's contract is a tested property.
+    // Overlapping callers share one promise.
     const [a, b, c] = await Promise.all([run(), run(), run()]);
     assert.equal(runs, 1);
     assert.deepEqual([a, b, c], ["value", "value", "value"]);
@@ -69,8 +53,6 @@ describe("once", () => {
 
     await assert.rejects(run(), /construction failed/);
     await assert.rejects(run(), /construction failed/);
-    // One failure, reported at every call site that needed it, rather than N
-    // retries of a builder that already told us it cannot succeed.
     assert.equal(attempts, 1);
   });
 
@@ -105,9 +87,7 @@ describe("user-bound integrations", () => {
   });
 
   test("binding builds nothing until a provider is touched", () => {
-    // `integrations()` returning without throwing is the assertion: every
-    // provider is behind a getter, so an unconfigured provider cannot fail at
-    // bind time and a tool pays for only the providers it uses.
+    // Every provider sits behind a getter, so an unconfigured one cannot fail at bind time.
     const bound = integrations({ userId: "user_1", retry: RETRY });
     assert.deepEqual(Object.keys(bound).sort(), ["github", "google", "notion", "sentry", "vercel"]);
   });

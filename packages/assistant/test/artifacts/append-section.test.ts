@@ -215,9 +215,7 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
     const created = await createArtifact(ctx, {
       title: "Near the cap",
       kind: "document",
-      // Seed within 5 chars of the stored ceiling (createArtifact does not cap
-      // markdown — the per-call cap is a schema-boundary concern), so a small
-      // append plus the "\n\n" separator overflows DOCUMENT_MARKDOWN_MAX.
+      // 5 chars under the ceiling; createArtifact does not cap markdown.
       markdown: "x".repeat(DOCUMENT_MARKDOWN_MAX - 5),
     });
 
@@ -233,7 +231,6 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
     assert.equal(result.ok, false);
 
     if (!result.ok) assert.equal(result.status, "content_limit");
-    // The body is left untouched when the append would overflow.
     assert.equal((await readMarkdown(created.artifactId)).length, DOCUMENT_MARKDOWN_MAX - 5);
   });
 

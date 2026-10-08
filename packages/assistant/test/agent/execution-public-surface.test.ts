@@ -4,30 +4,12 @@ import { describe, test } from "node:test";
 import * as agentBarrel from "@alfred/assistant/execution";
 
 /**
- * Item 09 removed the raw `createRun` / `enqueueRun` split primitives — and the
- * `enqueueRun as deliverRun` alias — from execution's public surface. After the
- * removal a caller outside `packages/assistant/src/execution/` can reach a run
- * only through `startRun` / `startRunInTx` (folded persist+deliver),
- * `redeliverRun` (deliver an already-persisted run), or — for the chat-turn
- * savepoint — `persistChatTurnRunInTx`. It can no longer persist a run without
- * delivering it or obtain the raw BullMQ queue handle.
- *
- * The module barrel `@alfred/assistant/execution` is now the ONLY public seam
- * that carries these names. Item 149 deleted the second seam this file used to
- * check, the `@alfred/api/backend` facade, together with the whole package
- * subpath. A separate suite in `packages/api` proves that seam is unreachable
- * rather than merely narrow; campaign item 12 deletes that package, so this file
- * names no locator for it.
- *
- * This is the machine form of the item's deletion-test grep: it fails if any
- * later change re-exports the removed pair through the barrel. The primitives
- * themselves stay defined and exported from their own subfiles for in-module
- * callers and white-box tests, so this asserts the *public surface*, not the
- * primitives' existence.
+ * Outside the execution module, a run starts only through `startRun`,
+ * `startRunInTx`, `redeliverRun`, or `persistChatTurnRunInTx`. The barrel must not
+ * re-export the raw `createRun`/`enqueueRun` pair; their subfiles still export them.
  */
 describe("execution public run-start surface (item 09)", () => {
-  // Cast to a string-indexed record so absence checks read a runtime key rather
-  // than a statically-known export (which would be a compile error to name).
+  // Widen to a record: naming a missing export directly is a compile error.
   const asRecord = (m: Record<string, unknown>): Record<string, unknown> => m;
 
   const FOLDED_AND_NARROW = ["startRun", "startRunInTx", "redeliverRun"] as const;

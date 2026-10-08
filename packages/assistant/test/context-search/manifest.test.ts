@@ -17,22 +17,9 @@ import {
 import { defineContextSource } from "@alfred/assistant/context-search/test-support";
 
 /**
- * Behavioral tests for the source capability manifest (#466; ADR-0101
- * sub-decisions 14-16).
- *
- * The manifest is a DISCOVERY contract, so what has to be proved is which
- * sources a read consults and what it says about the ones it does not. The
- * compiler already carries the shape, and `registerContextSource` already
- * carries the parse; neither can carry the selection policy, because that is a
- * decision rather than a type. These tests pin the cases the policy exists
- * for: a fully described source, a described MCP-backed source, a source that
- * declares itself unavailable, and an exact-lookup source facing a free-text
- * query. A source that forgets its read or authority declaration never reaches
- * selection — registration rejects it — so those cases assert a throw rather
- * than an exclusion reason.
- *
- * The selection never reads a source id, so every assertion below is on the
- * DECLARATION a source makes and never on which source made it.
+ * Selection policy for the source capability manifest (ADR-0101 sub-decisions 14-16).
+ * Selection never reads a source id, so each assertion is on what a source declares.
+ * A source missing its read or authority declaration fails at registration, so those cases expect a throw.
  */
 
 /** A card from `sourceId`, so a consulted source is provably consulted. */
@@ -46,13 +33,7 @@ function cardFrom(sourceId: string): EvidenceCard {
   };
 }
 
-/**
- * A source that records whether it was read. "Skipped" must mean no reader
- * ran, not that its output was discarded afterwards — the whole point of
- * excluding a source is not paying for it. The id is stated once on the
- * manifest fixture; the registry mints it into the source and derives `read`
- * from the readers, so the fixture never repeats either beside the manifest.
- */
+/** A source that records whether it was read. "Skipped" must mean no reader ran. */
 function recordingSource(manifest: RetrievalSourceManifest) {
   let read = false;
 
@@ -133,12 +114,7 @@ const EXACT_ONLY: RetrievalSourceManifest = {
   mediaKinds: ["text"],
 };
 
-/**
- * Deterministic lookups plus expansion — more than an expander, so it never
- * takes the `expansion-only` reason even though it declares `expand`. The
- * packer must not call it a source that "only re-reads records other sources
- * found" when it also does exact lookups.
- */
+/** Exact lookups plus expansion, so it must never get the `expansion-only` reason. */
 const EXACT_AND_EXPAND: RetrievalSourceManifest = {
   id: "manifest-test:exact-and-expand",
   kind: "internal",
@@ -151,13 +127,9 @@ const EXACT_AND_EXPAND: RetrievalSourceManifest = {
 const QUERY: ContextSearchRequest = {
   userId: "user-1",
   query: "anything",
-  // The expansion phase (#1077) is on by default. These tests register no
-  // expander, so it routes nothing; stating it keeps the selection assertions
-  // about the FIRST phase alone.
+  // No expander is registered, so the expansion phase routes nothing.
   expand: true,
-  // Every registered source is affordable at the top of the ladder (#1078), so
-  // these assertions stay about read capability alone. The budget's own
-  // exclusions are asserted separately.
+  // Every source is affordable, so these assertions are about read capability alone.
   maxSourceCost: "remote",
   limit: 10,
 };
@@ -183,9 +155,7 @@ describe("selectContextSources — who gets asked", () => {
   });
 
   test("a described MCP source is a candidate on the same terms as a native one", () => {
-    // Trust follows the declaration, not the author: `kind` never appears in
-    // the selection, so a third-party server that declared its read semantics
-    // and its provenance is asked exactly as a first-party source is.
+    // Trust follows the declaration, not the author: `kind` never appears in the selection.
     const selection = select([DESCRIBED_MCP]);
 
     assert.equal(selection.size, 0);
@@ -205,12 +175,8 @@ describe("selectContextSources — who gets asked", () => {
   });
 
   test("a source that declares read semantics but no authority fails at registration", () => {
-    // The half-described case used to go dark behind a `skipped` line for the
-    // life of the process. Registration now rejects it, so a forgotten
-    // authority stops the boot instead of reading as ordinary output.
-    // `mediaKinds` is stated so the missing authority is the only reason to
-    // throw: without it the test would stay green on the mediaKinds rule even
-    // if the authority rule were deleted.
+    // Registration rejects a half-described source, so a missing authority stops the boot.
+    // `mediaKinds` is set so the missing authority is the only reason to throw.
     // SAFETY: intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
     const manifest = NO_AUTHORITY as RetrievalSourceManifest;
 
@@ -247,9 +213,7 @@ describe("selectContextSources — who gets asked", () => {
   });
 
   test("an exact-lookup source that also expands is no-answering-read, not expansion-only, for a query with no object", () => {
-    // `expansion-only` names a source that ONLY expands. This source answers a
-    // different question on other requests, so collapsing it into the expander
-    // reason would misdescribe it to the model.
+    // This source also does exact lookups, so `expansion-only` would misdescribe it.
     const selection = select([EXACT_AND_EXPAND]);
 
     assert.equal(reasonFor(selection, EXACT_AND_EXPAND.id), "no-answering-read");
@@ -289,8 +253,7 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
 
       const report = result.sources.find((one) => one.sourceId === UNAVAILABLE.id);
 
-      // `skipped` is its own status: "never asked" must not read as "asked and
-      // found nothing", or absence becomes evidence of absence.
+      // `skipped` is its own status: "never asked" must not read as "asked and found nothing".
       assert.equal(report?.status, "skipped");
       assert.equal(report?.status === "skipped" ? report.reason : undefined, "unavailable");
       assert.equal(report?.evidenceCount, 0);
@@ -302,9 +265,7 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
   test("a declared manifest gives its cards a sourcePriority feature", async () => {
     const described = recordingSource(DESCRIBED_MCP);
 
-    // Authority is the only axis that differs: both sources are remote with
-    // undeclared (hence `unknown`) freshness, so the order below follows the
-    // authority declaration alone rather than the source that declared less.
+    // Authority is the only axis that differs: both are remote with undeclared freshness.
     const mediumAuthority = recordingSource({
       id: "manifest-test:no-priority",
       kind: "native",
@@ -322,10 +283,7 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
     try {
       const result = await searchContext(QUERY);
 
-      // Cost and freshness are held equal (remote / undeclared), so the order
-      // follows authority alone: `low` must not outrank `medium`. Inverting
-      // the priority weights must not flip this assertion while cost and
-      // freshness agree.
+      // Cost and freshness are equal, so `low` must not outrank `medium`.
       const priorities = new Map(
         result.ranking.map((entry) => [entry.sourceId, entry.features.sourcePriority]),
       );
@@ -344,10 +302,7 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
 
 describe("isTrustedRetrievalSource — both halves are required", () => {
   test("a declared `unknown` authority is never promoted to trust", () => {
-    // The remaining rows are proved behaviorally above: described sources are
-    // selected as candidates, half-described ones fail at registration. This
-    // pins the one case no selection path reaches — registration rejects
-    // `unknown` before selection, so only the predicate can speak for it.
+    // Registration rejects `unknown` before selection, so only the predicate covers that case.
     assert.equal(
       isTrustedRetrievalSource({ ...NO_AUTHORITY, authority: { level: "unknown" } }),
       false,

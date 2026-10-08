@@ -17,23 +17,10 @@ import { resolveSenderKind } from "@alfred/assistant/triage";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * Local activation-gate rehearsal for the Gmail kind projection (#218 PR G).
- *
- * Encodes the runbook's local validation gates as a single re-runnable artifact:
- * seed fixtures covering every classification band, then drive the real
- * fold -> complete -> activate -> reader -> resolveSenderKind chain and assert:
- *
- *  - Gate 1  replay determinism: the same input folds to the same checksum twice.
- *  - Gate 4  list aliases (List-Id) classify `group`, never person-scored.
- *  - Gate 5  noreply/notification senders classify `service`, never person-scored.
- *  - Gate 6  top person-scored profiles exclude lists/services; self is excluded.
- *  - Gate 10 the active reader returns the activated rows.
- *  - Consumer bar: `resolveSenderKind` demotes only confident group/service;
- *    a header-less weak group alias (`unknown`, 0.58) never demotes — absence of
- *    confident data does not demote person treatment.
- *
- * The activation-refusal gate (gate 9, non-`completed` runs) lives in
- * `test/contracts/user-model-writers.test.ts`.
+ * Activation gates for the Gmail kind projection, run through the real
+ * fold, activate, reader, and `resolveSenderKind` chain.
+ * Gate numbers follow `docs/plans/user-model-p1-gmail-shadow.md`.
+ * Gate 9 (refuse a non-`completed` run) lives in `test/contracts/user-model-writers.test.ts`.
  */
 
 const ID_PREFIX = "test-gmail-kind-gates-";
@@ -49,7 +36,7 @@ const createdUserIds: string[] = [];
 const SERVER_ENV_FIXTURES = {
   REDIS_URL: "redis://localhost:6379",
   BETTER_AUTH_SECRET: "test better auth secret with length",
-  // #453: `serverEnv()` requires a 32-byte credential KEK in every environment.
+  // `serverEnv()` needs a 32-byte credential KEK in every environment.
   OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
   BETTER_AUTH_URL: "http://localhost:3001",
   ALFRED_ALLOWED_EMAIL: "test@example.com",
@@ -85,7 +72,7 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
     seedServerEnvForStableIds();
     const userId = await seedUser();
 
-    // List alias with authoritative List-Id header -> confident group (gate 4).
+    // Gate 4: a List-Id header gives a confident group.
     await appendGmailObservation({
       userId,
       messageId: "msg_list",
@@ -94,7 +81,7 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
       listId: "Engineering <engineering.oliv.ai>",
       subject: "Weekly eng digest",
     });
-    // noreply on a service domain -> confident service (gate 5).
+    // Gate 5: noreply on a service domain gives a confident service.
     await appendGmailObservation({
       userId,
       messageId: "msg_service",
@@ -102,7 +89,7 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
       fromName: "GitHub",
       subject: "[alfred] PR opened",
     });
-    // Header-less group alias -> weak unknown/bestGuess=group; must NOT demote.
+    // A header-less group alias is a weak guess; it must not demote.
     await appendGmailObservation({
       userId,
       messageId: "msg_weak_group",
@@ -110,7 +97,7 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
       fromName: "Team",
       subject: "Standup notes",
     });
-    // Plain individual mailbox -> person (gate 6).
+    // Gate 6: a plain mailbox is a person.
     await appendGmailObservation({
       userId,
       messageId: "msg_person",
@@ -119,26 +106,22 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
       subject: "Project update",
     });
 
-    // --- Gate 1: replay determinism. A completed version is immutable, so a
-    // faithful replay folds the SAME observations under a fresh version and
-    // compares checksums (the checksum is over stable entity ids + pure
-    // classification, so it is version-independent).
+    // --- Gate 1: replay under a fresh version gives the same checksum.
     const first = await foldOnce(userId, 1);
     const second = await foldOnce(userId, 2);
     assert.equal(first.checksum, second.checksum, "replay checksum diverged");
     assert.equal(first.profileCount, second.profileCount);
     assert.match(first.checksum, /^sha256:[a-f0-9]{64}$/);
-    // 4 external senders; self (a `to` participant) is excluded from profiles.
+    // Self, a `to` participant, is not a profile.
     assert.equal(first.profileCount, 4);
 
-    // --- Activate the latest completed run.
     await activateProjectionVersion({
       userId,
       projectionName: USER_MODEL_PROJECTION_NAME,
       runId: second.runId,
     });
 
-    // --- Gate 10: the active reader returns the activated classification.
+    // --- Gate 10: the reader returns the activated rows.
     const reader = userModelReader(userId);
 
     const group = await reader.getProfileByIdentity({
@@ -167,7 +150,7 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
     const self = await reader.getProfileByIdentity({ kind: "email", value: SELF_EMAIL });
     assert.equal(self, null);
 
-    // --- Consumer bar: resolveSenderKind demotes confident group/service only.
+    // --- Only a confident group or service demotes.
     const groupSignal = await resolveSenderKind(userId, "engineering@oliv.ai");
     assert.equal(groupSignal?.kind, "group");
     assert.ok((groupSignal?.confidence ?? 0) >= 0.8);
@@ -175,7 +158,7 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
     const serviceSignal = await resolveSenderKind(userId, "noreply@github.com");
     assert.equal(serviceSignal?.kind, "service");
 
-    // Weak header-less alias and a person are never demoted (absence-does-not-demote).
+    // Missing confident data never demotes.
     assert.equal(await resolveSenderKind(userId, "team@startup.example"), null);
     assert.equal(await resolveSenderKind(userId, "alice@example.com"), null);
   });

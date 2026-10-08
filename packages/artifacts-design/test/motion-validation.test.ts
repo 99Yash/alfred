@@ -9,14 +9,10 @@ import {
 } from "../src/validation";
 import { buildArtifactDocument, MOTION_CLASS_NAMES } from "../src/shell";
 
-/* ── motion rejection (ADR-0086 safety floor) — pure, always run ────────────
+/* ── motion rejection (ADR-0086) ──────────────────────────────────────────
  *
- * The shell owns one central print/reduced-motion guard that snaps its own
- * motion classes to their resting frame. An AUTHORED @keyframes/animation has
- * no such guard and can freeze content hidden, so the write boundary rejects it
- * for both slides and pdf. Shell-class motion (art-rise, art-drift, …) is
- * applied via class= and never appears in an authored style source, so it is
- * always allowed.
+ * Only shell motion classes have the print/reduced-motion guard. Authored
+ * animation can freeze content hidden, so the write boundary rejects it.
  */
 
 test("authored @keyframes is a motion violation", () => {
@@ -70,15 +66,13 @@ test("validateSlideArtifactHtml rejects authored animation and accepts clean HTM
 });
 
 test("slideArtifactHtmlViolations checks motion ONLY (no font/root rules)", () => {
-  // A slide with a custom font-size + no art-doc root is fine — slides keep
-  // inline-geometry freedom; only motion is enforced for them.
+  // Slides keep inline-geometry freedom; only motion is enforced.
   const html = `<div style="font-size: 90px; animation: none">A</div>`;
-  // font-size is not a slide violation; `animation: none` IS (still authored).
+  // `animation: none` is still authored.
   assert.deepEqual(slideArtifactHtmlViolations(html), ["authored-animation"]);
 });
 
 test("validatePdfArtifactHtml still enforces the document contract", () => {
-  // No art-doc root -> document-contract violation.
   assert.equal(validatePdfArtifactHtml(`<div class="art-stack">no doc root</div>`).ok, false);
 });
 
@@ -95,12 +89,9 @@ test("a clean art-doc page passes the pdf contract", () => {
   assert.equal(validatePdfArtifactHtml(html).ok, true);
 });
 
-/* ── motion vocabulary is one source of truth ───────────────────────────────
+/* ── motion vocabulary ────────────────────────────────────────────────────
  *
- * MOTION_CLASS_NAMES is the single list the rejection hint reads. Every name in
- * it must render as a real selector in the shell CSS, or the hint would advertise
- * a class authors cannot use — the `art-draw` phantom this guard replaced. These
- * two tests pin both directions so the hint and the shell can never drift apart.
+ * The hint reads MOTION_CLASS_NAMES, so each name must be a real selector in the shell CSS.
  */
 
 test("every MOTION_CLASS_NAMES entry renders as a real shell selector", () => {
@@ -120,7 +111,6 @@ test("the motion rejection hint names exactly the shell motion classes (no phant
       assert.ok(result.reason.includes(name), `hint should name ${name}`);
     }
 
-    // The retired phantom must never come back into the advertised set.
     assert.ok(!result.reason.includes("art-draw"), "hint must not advertise the removed art-draw");
   }
 });

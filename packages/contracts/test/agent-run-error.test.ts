@@ -15,12 +15,10 @@ test("boundAgentRunError strips a NUL byte (ADR-0070 poison)", () => {
 });
 
 test("boundAgentRunError truncation is surrogate-safe at the boundary", () => {
-  // An astral pair (😀) straddles the cap: the high surrogate at index max-1, the
-  // low at max, so a naive slice would orphan the high half into lone poison.
+  // The emoji's surrogate pair straddles the cap, so a naive slice orphans the high half.
   const message = "a".repeat(AGENT_RUN_ERROR_MAX - 1) + "😀";
   const out = boundAgentRunError(message);
   assert.ok(out.length <= AGENT_RUN_ERROR_MAX, "within the bound");
-  // A lone surrogate would be stripped again, so a clean result is a fixed point.
   assert.equal(boundAgentRunError(out), out, "no lone surrogate survives");
 });
 

@@ -13,25 +13,8 @@ import { noWidenThenAssertRule } from "./rules/no-widen-then-assert.ts";
 import { requireReadableSpacingRule } from "./rules/require-readable-spacing.ts";
 
 /**
- * The subset of dmmulroy/anti-slop this repo adopts. See ./README.md for the
- * upstream commit, the sync procedure, and the measured reason each excluded
- * rule stayed out.
- *
- * Eleven rules are enabled at "error" in .oxlintrc.json (pure ratchets: zero
- * violations at adoption, driven to zero at warn and promoted, or promoted
- * after a by-surface scoping with test/eval, ops-scripts, and honest-boundary
- * exemptions). Three
- * rules conflict with repo invariants and are NOT registered:
- * - no-conditional-empty-object-spread: conflicts with exactOptionalPropertyTypes
- * - no-unknown-parameters: conflicts with boundary validator pattern
- * - no-reflect-get: conflicts with Reflect.get for class instances
- * no-shape-in-symbol-names was dropped in #1149 and is NOT registered: a
- * substring ban cannot tell the credential `shape` field from the DayShape
- * domain (see docs/reference/code-style.md).
- * require-safety-comment-for-type-assertion was removed outright: all 281 of
- * its violations lived under the test/eval exemption, so it never fired on a
- * product file — the `SAFETY:` convention it asked for lives on as review
- * judgment in docs/reference/code-style.md instead of as a rule.
+ * The subset of dmmulroy/anti-slop this repo adopts. ./README.md records the upstream commit,
+ * the sync steps, and why each excluded rule stays out.
  */
 const antiSlopPlugin = eslintCompatPlugin({
   meta: { name: "anti-slop" },

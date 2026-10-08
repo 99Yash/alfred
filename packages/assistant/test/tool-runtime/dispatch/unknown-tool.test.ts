@@ -21,8 +21,7 @@ describe("undeclaredToolMessage", () => {
       message,
       /github exposes: `search`, `get_pull_request`, `get_pull_requests`, `get_issue`/,
     );
-    // An invented `list_*` tool wants to enumerate; the recovery hint must point
-    // at `search` (which can list), not `get_pull_request` (needs a known PR #).
+    // A `list_*` guess wants to enumerate, so point at `search`, not `get_pull_request`.
     assert.match(message, /Use 'github\.search' instead/);
     assert.match(message, /system\.load_tool/);
   });
@@ -40,11 +39,8 @@ describe("undeclaredToolMessage", () => {
   });
 
   test("recovers a bare integration slug (the boss mistook the integration for a tool)", () => {
-    // The boss emitted `calendar {action:"list_events"}` — a bare slug, not a
-    // real tool. The recovery must enumerate the integration's qualified tools
-    // and point at exact search, not dead-end at "not declared". It does not
-    // name `system.load_tool`: the search fold activates its top registered
-    // hit, and any other candidate activates when the model first calls it.
+    // No `system.load_tool` here: search activates its top hit, and other tools activate on
+    // first call.
     const message = undeclaredToolMessage("calendar");
 
     assert.match(message, /calendar exposes: `list_events`, `create_event`/);

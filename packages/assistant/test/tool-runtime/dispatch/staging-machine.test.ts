@@ -1,26 +1,9 @@
 /**
- * The dispatch gate's staging state machine — DB-free, and deliberately NOT
- * `DATABASE_URL`-gated.
- *
- * These are the gate's most load-bearing invariants, and until the
- * `StagingStore` seam existed every one of them ran only when a live migrated
- * Postgres happened to be present. Covered here: retry suppression,
- * cancellation, the seven status arms, resume re-validation, the approval
- * floor, the `toolName`-mismatch throw, and the idempotent `executed` replay
- * including its persisted sanitize verdict.
- *
- * It works because for a non-passthrough `system.*` tool with `args.timezone`
- * supplied, the gate's ONLY live-Postgres dependency is the store (availability
- * skips its snapshot for `system`, `resolvePolicyMode` answers `autonomy` for
- * `system.*` BEFORE it reads the policy row, `countRunPassthroughCalls` is behind the
- * passthrough flag, and the pokes / approval queues / Langfuse sinks all
- * degrade to no-ops without their service). The one exception is
- * `resolveApprovalNotifyDelayMs`, which fires the moment a call gates — so the
- * approval-floor case primes the policy cache instead.
- *
- * The memory store this drives is only evidence because
- * `staging-store-contract.ts` runs the same suite against Postgres. Read the
- * risk note there before trusting anything in this file.
+ * The dispatch gate's staging state machine, run DB-free over the memory store.
+ * For a non-passthrough `system.*` tool with `args.timezone` set, the store is the
+ * gate's only Postgres dependency. `resolveApprovalNotifyDelayMs` is the exception,
+ * so the approval-floor case primes the policy cache.
+ * This is only evidence because `staging-store-contract.ts` also runs against Postgres.
  */
 
 import assert from "node:assert/strict";
@@ -60,7 +43,7 @@ const USER_ID = "usr_staging_machine";
 
 const RUN_ID = "run_staging_machine";
 
-/** The gate reads the `"timezone"` pref when this is absent — the one DB trap left. */
+/** Without this, the gate reads the `"timezone"` pref from the DB. */
 const TIMEZONE = parseIanaTimezone("UTC");
 
 let store: MemoryStagingStore;
@@ -134,9 +117,8 @@ function registerDoubles(): void {
 
         if (input.slug === "boom") throw new Error("tool blew up");
 
-        // The `poison` sentinel returns a NUL the dispatch-boundary sanitizer
-        // must strip (ADR-0070 §1.1). Written as the `\x00` ESCAPE, never a
-        // literal NUL byte (a literal one turns this file binary to rg/git).
+        // A NUL the sanitizer must strip (ADR-0070 §1.1). Keep the `\x00` escape: a literal NUL
+        // makes git treat the file as binary.
         if (input.slug === "poison") return { ok: true, note: "tail\x00end", call: executeCount };
 
         if (input.slug === "json-normalization") {
@@ -163,11 +145,8 @@ function registerDoubles(): void {
       },
     }),
   );
-  // A `high`-tier system tool: `system.*` resolves to autonomy, so this is the
-  // risk-tier floor firing on its own (ADR-0069) rather than a policy decision.
-  // The redactor mirrors real fetch_url: scrub a credential query param to
-  // [REDACTED] — making this double exactly the "gated secret-bearing tool"
-  // shape issue #374 is about.
+  // `system.*` is autonomous, so a gate here is the risk-tier floor alone (ADR-0069).
+  // The redactor mirrors real fetch_url: a gated tool that carries a secret.
   registerTool(
     liveTool({
       integration: "system",
@@ -202,10 +181,7 @@ function installMachineFixture(): void {
   store = memoryStagingStore();
   store.seedRun(RUN_ID, "running");
   restoreStore = _setStagingStoreForTests(store);
-  // The Langfuse sinks are the gate's other non-degrading dependency: the real
-  // `startToolSpan` builds its client through `serverEnv()`, which throws
-  // without a populated env rather than no-op'ing. Swap both sinks — this is
-  // what the trace-sink seam is for.
+  // The real `startToolSpan` calls `serverEnv()`, which throws without an env.
   restoreTraceSinks = _setDispatchTraceSinksForTests({
     rejectionRecorder: () => {},
     toolSpanStarter: () => ({ success: () => {}, error: () => {} }),
@@ -235,7 +211,6 @@ function installMachineFixture(): void {
   restoreAvailabilityReader = _setIntegrationAvailabilityReaderForTests(() =>
     Promise.resolve(availability),
   );
-  // Register a no-op poke adapter for tests — pokes degrade gracefully.
   unregisterPokeAdapter = registerReplicachePokeAdapter({
     emitReplicachePokes: () => {},
   });
@@ -368,12 +343,11 @@ describe("dispatch staging machine (DB-free)", () => {
   });
 
   test("retry suppression synthesizes the prior rejection and writes NO new row", async () => {
-    // The boss re-proposes byte-identical input the user already rejected.
     await dispatchToolCall(baseArgs({ toolCallId: "tc_first" }));
     store.decide(store.rows()[0]!.id, { status: "rejected", rejectReason: "not this one" });
 
     const rowsBefore = store.rows().length;
-    // A DIFFERENT tool call id, same input → same hash → suppressed.
+    // A new tool call id with the same input hashes the same.
     const result = await dispatchToolCall(baseArgs({ toolCallId: "tc_retry" }));
 
     assert.equal(result.kind, "rejected");
@@ -415,12 +389,8 @@ describe("dispatch staging machine (DB-free)", () => {
   });
 
   test("#559b: a step whose fence moved past its capture refuses before staging", async () => {
-    // The step started under `baseArgs().fence.generation = 0`; the store's
-    // current value is 1 — the run was cancelled (or its fence otherwise
-    // advanced) while the step was in flight. The gate must refuse BEFORE the
-    // barrier and the status machine: no approval may be raised, no staging row
-    // written, and no effect fired. Seeding status `running` proves the fence
-    // itself is what refuses — not the terminal-status check downstream.
+    // The step holds generation 0 but the store holds 1, so the run was cancelled mid-step.
+    // Status stays `running`, so only the fence can refuse. No row, approval, or effect.
     store.seedRun(RUN_ID, "running", { generation: 1 });
 
     const result = await dispatchToolCall(baseArgs({ toolCallId: "tc_fenced" }));
@@ -436,8 +406,6 @@ describe("dispatch staging machine (DB-free)", () => {
   });
 
   test("#559b: an equal fence passes the gate", async () => {
-    // `installMachineFixture` seeds `running` at generation 0 and `baseArgs`
-    // captures generation 0 — the step is current, so the call executes.
     const result = await dispatchToolCall(baseArgs({ toolCallId: "tc_fence_ok" }));
 
     assert.equal(result.kind, "executed");
@@ -445,12 +413,9 @@ describe("dispatch staging machine (DB-free)", () => {
   });
 
   test("#559b: a cancel landing mid-dispatch is refused immediately before the effect", async () => {
-    // The gate's first fence read passes (0 = 0). Model a cancel landing in
-    // the dispatch window — after the status read at the gate, before the
-    // effect — by advancing the fence as the staging row upserts. Status stays
-    // `running`, so ONLY the pre-execute re-read can refuse: the effect must
-    // not fire, and the already-written row must close `failed` rather than
-    // linger `pending` on a cancelled run.
+    // A cancel lands after the gate's fence read and before the effect.
+    // Only the pre-execute re-read can refuse. The written row must close `failed`, not stay
+    // `pending`.
     const upsert = store.upsertStaging;
     store.upsertStaging = async (values) => {
       const result = await upsert(values);
@@ -524,12 +489,10 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(executeCount, 0, "a staged call must not execute");
 
     const [row] = store.rows();
-    // `proposed_input` stays RAW for a gated call: it doubles as the
-    // approval-resume payload, so redacting it would corrupt resume.
+    // A gated call keeps `proposed_input` raw: it is the resume payload.
     const proposed = row?.proposedInput as { url?: string } | undefined;
     assert.match(proposed?.url ?? "", /code=topsecret42/, "resume needs the real credential");
-    // ...while `display_input` — the column the approval email and the
-    // notification payload read (#374) — scrubs it and keeps safe params.
+    // The approval email reads `display_input`, so that one is scrubbed.
     const display = row?.displayInput as { url?: string } | undefined;
     assert.match(display?.url ?? "", /code=\[REDACTED\]/, "display projection is scrubbed");
     assert.match(display?.url ?? "", /page=2/, "non-credential params survive redaction");
@@ -689,8 +652,8 @@ describe("dispatch staging machine (DB-free)", () => {
   });
 
   test("a pending gated row stays gated when the policy flips to autonomy mid-run", async () => {
-    // The row's stored `requires_approval` is the locked-in decision (ADR-0034);
-    // a policy toggle must not auto-execute an in-flight gated call.
+    // The stored `requires_approval` is locked in (ADR-0034). A policy toggle must not run an
+    // in-flight call.
     const args = baseArgs({
       toolCallId: "tc_sticky",
       toolName: "system.fetch_url",
@@ -710,8 +673,7 @@ describe("dispatch staging machine (DB-free)", () => {
     const [row] = store.rows();
     store.decide(row!.id, { status: "approved" });
 
-    // A caller that re-dispatches with a MUTATED payload must not slip it past
-    // the gate via the resume path.
+    // A mutated payload must not slip past the gate through resume.
     const result = await dispatchToolCall({ ...args, input: { slug: "smuggled" } });
 
     assert.equal(result.kind, "executed");
@@ -757,10 +719,8 @@ describe("dispatch staging machine (DB-free)", () => {
   });
 
   test("the rejected STATUS ARM answers when the input hash has moved on", async () => {
-    // Distinct from retry suppression: the row under this (runId, toolCallId)
-    // is rejected, but the re-dispatched input hashes differently, so the
-    // prior-rejection read misses and the status machine is what answers. The
-    // giveaway is the non-null stagingId.
+    // Not retry suppression: the input hashes differently, so the status machine answers
+    // (non-null stagingId).
     const args = baseArgs({ toolCallId: "tc_rejected_row" });
     await dispatchToolCall(args);
     const rowId = store.rows()[0]!.id;
@@ -803,11 +763,8 @@ describe("dispatch staging machine (DB-free)", () => {
   });
 
   test("an unresolved unknown effect blocks an identical request with no new row", async () => {
-    // #559a barrier: an identical request whose effect was already dispatched
-    // without confirmation must be blocked BEFORE a new staging row exists, so
-    // a sequential attacker replaying with fresh toolCallIds cannot slip past
-    // the (runId, toolCallId) conflict key. The seeded row stands in for a
-    // committed `unknown` from the MCP broker's ambiguous attempt.
+    // An identical request after an unconfirmed effect is blocked before a row exists,
+    // so fresh toolCallIds cannot replay it. The seed stands in for an MCP `unknown`.
     const args = baseArgs({ toolCallId: "tc_seed_unknown" });
 
     const { row } = await store.upsertStaging({
@@ -854,10 +811,8 @@ describe("dispatch staging machine (DB-free)", () => {
   });
 
   test("a tool returning an unknown envelope commits unknown and blocks the replay", async () => {
-    // The other half of #559a's loop, end-to-end through the gate: a tool
-    // whose execution returns the shared unknown envelope (as the MCP broker
-    // does on `ambiguous`) must be persisted as `outcome: "unknown"`, and the
-    // very next identical request must trip the barrier it just created.
+    // An unknown-envelope result persists `outcome: "unknown"`, and the next identical request
+    // trips the barrier.
     clearToolRegistryForTests();
     registerTool(
       liveTool({
@@ -889,18 +844,11 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(store.rows().length, 1, "the blocked replay writes no row");
   });
 
-  // NOT tested here: the gate's `default:` status arm. It is unreachable
-  // through the real adapter — `parseStagingRow` rejects an unknown status at
-  // the read, so Postgres throws before the switch sees it. Driving it through
-  // the fake would assert a machine only the fake runs, which is precisely the
-  // drift this seam's contract suite exists to prevent.
+  // Not tested: the `default:` status arm. `parseStagingRow` rejects an unknown status first,
+  // so only the fake could reach it.
 });
 
-/**
- * The memory adapter's half of the shared contract. Its Postgres twin runs in
- * `staging.test.ts`; if only one of the two ever runs, this seam has made
- * verification worse rather than better.
- */
+/** Memory half of the store contract. The Postgres half runs in `staging.test.ts`. */
 const contractStore = memoryStagingStore();
 
 let contractRunSeq = 0;

@@ -1,10 +1,4 @@
-/**
- * The server env every `@alfred/auth` suite needs before it imports a module
- * that reads one. It lives here rather than in one suite because two suites now
- * import `../src/index`, and a second copy of this list is a copy that drifts.
- *
- * Values are fixtures, not configuration: nothing here reaches a real service.
- */
+/** Fixture server env for `@alfred/auth` suites. Call it before importing a module that reads env. */
 export function ensureAuthTestEnv(): void {
   process.env.DATABASE_URL ??= "postgres://test:test@127.0.0.1:5432/test"; // drift-ok: seeds a fixture value, does not gate a suite
   process.env.REDIS_URL ??= "redis://localhost:6379"; // drift-ok: seeds a fixture value, does not gate a suite

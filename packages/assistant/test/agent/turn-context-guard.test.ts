@@ -13,19 +13,9 @@ import {
 } from "@alfred/assistant/chat/compaction/turn-context-guard";
 
 /**
- * Unit tests for the extracted turn context guard. Two seams are covered here
- * without a live model or DB:
- *
- *  1. `guardTurnContext`'s gate — the only branch it adds over the underlying
- *     compaction primitives. It compacts only before the first provider call of
- *     a run (`turnCount === 1`) or when continuing a within-run tool burst
- *     (`inFlightTailStart > 0`); otherwise the loaded transcript is already
- *     bounded and it must pass through untouched, touching no dependency.
- *  2. The pure transcript helpers that moved into this module verbatim.
- *
- * The deep foreground / within-run compaction paths (which need a real model,
- * pressure assessment, and the chat-message store) stay covered end-to-end by
- * `chat-compaction-continuation.test.ts`.
+ * `guardTurnContext` compacts only on the first turn or inside a tool burst.
+ * Otherwise it passes the transcript through and touches no dependency.
+ * `chat-compaction-continuation.test.ts` covers the compaction paths.
  */
 
 const userMsg = (content: string): AgentTranscriptMessage => ({ role: "user", content });
@@ -33,9 +23,7 @@ const userMsg = (content: string): AgentTranscriptMessage => ({ role: "user", co
 const assistantMsg = (content: string): AgentTranscriptMessage => ({ role: "assistant", content });
 
 describe("guardTurnContext gate", () => {
-  // Dependencies that must never be touched on the passthrough path. If the
-  // gate wrongly enters a compaction branch, invoking these throws and fails
-  // the test loudly rather than hanging on a live call.
+  // These throw if touched, so a wrong compaction branch fails fast instead of hanging.
   // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
   const explodingModel = new Proxy(
     {},
@@ -88,15 +76,12 @@ describe("guardTurnContext gate", () => {
     assert.deepEqual(result.continuationTranscript, stored);
     assert.deepEqual(result.modelTranscript, hydrated);
     assert.equal(result.compacted, false);
-    // Returns fresh copies, not the same references, so the caller can't mutate
-    // the guard's inputs by mutating its outputs.
+    // Fresh copies, so the caller cannot mutate the guard's inputs.
     assert.notEqual(result.continuationTranscript, stored);
     assert.notEqual(result.modelTranscript, hydrated);
   });
 
   test("does not fire onPhase or read deps on the passthrough path", async () => {
-    // The exploding model/tools/onPhase in baseArgs would throw if the gate
-    // entered a compaction branch; reaching the assertion proves it didn't.
     await assert.doesNotReject(
       guardTurnContext({
         ...baseArgs({ turnCount: 3, inFlightTailStart: 0 }),

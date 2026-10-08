@@ -25,9 +25,7 @@ describe("closeLeadInNarration", () => {
   });
 
   test("a reissue lead-in is dropped but the segment still advances", () => {
-    // The withheld text ("tools warming up, retrying") must not reach the trail,
-    // yet the index must advance so the reissued tool cards stay aligned. This is
-    // the `advanceWhenNothingKept: true` half of the lead-in's `NarrationClose`.
+    // The withheld text stays off the trail, but the index advances so tool cards stay aligned.
     const state = {
       narration: [{ index: 0, text: "Pulling everything in at once." }],
       assistantText: "Tools are warming up — retrying all now.",
@@ -56,10 +54,7 @@ describe("closeLeadInNarration", () => {
 });
 
 describe("closeNarrationSegment", () => {
-  // The premature-answer row of the same table: a finalize guard keeps the
-  // rejected prose (the user already saw it stream) but must NOT advance when
-  // there is nothing to close — no delta ever lands on the segment it would move
-  // to, so the live client would stall on an index it never reaches.
+  // With nothing to close, no delta lands on the next segment. An advance would stall the client.
   const prematureAnswer = { keepText: true, advanceWhenNothingKept: false } as const;
 
   test("a rejected answer is kept on the trail and advances the segment", () => {

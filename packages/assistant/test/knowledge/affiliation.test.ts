@@ -21,11 +21,8 @@ import {
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * Pure-builder tests for the connect-time `user_org_affiliation` emitter (ADR-0080
- * §4a / #342, PR A). No DB — `buildOrgAffiliationObservationInput` is deterministic
- * given its inputs, and every produced input is cross-checked against the REAL
- * observation write boundary (`observationInsertSchema`) so the emitter can never
- * construct a row the boundary would reject at runtime.
+ * Connect-time `user_org_affiliation` emitter (ADR-0080 §4a). Every built input is
+ * parsed by the real `observationInsertSchema`, so the emitter cannot build a row the write rejects.
  */
 
 const T0 = new Date("2026-06-01T12:00:00.000Z");
@@ -81,8 +78,7 @@ async function seedGoogleCredential(args: {
       provider: "google",
       accountId: args.accountId,
       accountLabel: accountEmail,
-      // Deliberate unsealed write (#453). This file asserts affiliation folding
-      // off `metadata`/`accountLabel`; no code path here opens either token.
+      // Unsealed on purpose: no code path here opens either token.
       // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
       accessToken: "access-token" as unknown as SealedCredentialSecret,
       // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
@@ -133,8 +129,7 @@ describe("buildOrgAffiliationObservationInput", () => {
       assert.equal(res.ok, true);
 
       if (!res.ok) return;
-      // The boundary re-derives domainClass and re-checks verifiedHostedDomain ===
-      // orgDomain; a throw here means the builder produced a self-inconsistent row.
+      // The boundary re-derives domainClass and re-checks the hosted domain; a throw means a bad row.
       assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
     }
   });
@@ -169,8 +164,7 @@ describe("buildOrgAffiliationObservationInput", () => {
   });
 
   test("a hosted domain that differs from the email domain verifies the Workspace org", () => {
-    // Google's `hd` is the hosted-domain authority. The email claim can carry an
-    // alias/secondary domain, so the org lifecycle is keyed by `hd`.
+    // Key the org by Google's `hd`; the email can carry an alias domain.
     const res = buildOrgAffiliationObservationInput(
       cred({ accountEmail: "contractor@vendor.com", metadata: { googleHostedDomain: "oliv.ai" } }),
       { status: "connected", occurredAt: T0 },

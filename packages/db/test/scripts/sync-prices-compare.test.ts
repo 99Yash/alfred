@@ -4,18 +4,9 @@ import { describe, test } from "node:test";
 import { auditedMetadataEqual, pricesEqual } from "@alfred/db/scripts/sync-prices-compare";
 
 /**
- * `auditedMetadataEqual` compares one value Postgres round-tripped through
- * `jsonb` against one the sync script just built. `jsonb` sorts object keys by
- * length and then bytewise, so the stored value never preserves the order the
- * script wrote. The original implementation compared `JSON.stringify` output,
- * which encodes insertion order, so every models.dev row reported "changed" on
- * every run: `db:sync-prices` appended a full 94-row snapshot each time it ran,
- * and `db:predeploy` runs it on every deploy.
- *
- * The reordered fixtures below are the exact shapes seen in the local database
- * (`{"tiers":[],"cacheWrite1hPerMtok":20}` read back for a value written as
- * `{cacheWrite1hPerMtok, tiers}`). They fail against `JSON.stringify` and pass
- * against `canonicalJson`.
+ * `jsonb` reorders object keys (by length, then bytewise), so comparing with
+ * `JSON.stringify` made every row look changed and `db:sync-prices` wrote a new
+ * snapshot on each run. The fixtures are real read-back shapes; `canonicalJson` handles them.
  */
 describe("auditedMetadataEqual", () => {
   test("ignores the key order jsonb imposes on the stored value", () => {
@@ -102,8 +93,7 @@ describe("auditedMetadataEqual", () => {
   });
 
   test("matches the static rows, which carry no audited metadata", () => {
-    // Voyage rows are inserted with only `source`; these already compared equal
-    // before the fix, which is why they alone reported `unchanged`.
+    // Voyage rows carry only `source`, so key order never mattered for them.
     assert.equal(auditedMetadataEqual({ source: "static" }, undefined), true);
   });
 

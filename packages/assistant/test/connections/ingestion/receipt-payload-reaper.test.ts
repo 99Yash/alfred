@@ -17,31 +17,11 @@ import { receiptDocumentKey } from "../../../src/connections/ingestion/receipt-d
 import { dbBackedSkip } from "../../support/db-backed";
 
 /**
- * Body retention for `event_receipts`, asserted against a real database.
- *
- * NOT a feature test. This pins a predicate, and the two ways that predicate can
- * be wrong are both invisible from outside the module: a pass that releases
- * nothing looks exactly like a pass that works, and a pass that releases too much
- * destroys data without raising. No compiler and no boundary parse sees either,
- * and CLAUDE.md's bar — "a check that lies" — is met by a retention pass that
- * under-reaps.
- *
- * The reaper is not user-scoped, so a pass releases every eligible row in the
- * table and not only the rows its caller seeded. A case that asserts the pass's
- * return value is therefore reading a global count, and two things make that
- * count a per-case fact: `caseClock` gives each case a cutoff window no other
- * case's rows fall inside, and `CLOCK` keeps that window in year 2000, ahead of
- * every real row in the shared dev database. The cases that do not need a count
- * read their own ids back by name. There is no case left that runs the scheduled
- * pass, because the scheduler holds no injectable clock — `runOnStart` would
- * read the shared dev database at the real wall clock, and
- * `periodic-task.test.ts` already covers idempotent start and a restartable
- * stop against the scheduler itself.
- *
- * The seeded rows differ from the one that may be released in EXACTLY ONE
- * dimension each — age, processing status, tier, or the presence of a corpus
- * document — which is what makes each assertion a statement about its own clause
- * rather than about the conjunction.
+ * Body retention for `event_receipts`, against a real database.
+ * A pass that releases nothing, or too much, fails silently, so this pins the predicate.
+ * The reaper is not user-scoped. `caseClock` gives each case its own cutoff window.
+ * Each seeded row differs from the releasable row in exactly one dimension.
+ * No case runs the scheduled pass: the scheduler has no injectable clock.
  */
 
 const SKIP = dbBackedSkip("database");
@@ -50,41 +30,12 @@ const HOUR_MS = 60 * 60 * 1000;
 
 const DAY_MS = 24 * HOUR_MS;
 
-/**
- * The base clock, fixed in year 2000.
- *
- * `deliveredAt` has to be relative to something, and `new Date()` is the
- * obvious choice and the wrong one: seeding relative to the wall clock puts THIS
- * file's rows 90+ days in the past while leaving the reaper free to release
- * every real receipt in the shared dev database that is also past 90 days. A
- * pass would then take page slots, counts and abort placement from rows this
- * file never saw, and the suite's verdict would depend on the order the cases
- * ran in — which is the "check that lies" this file exists to avoid,
- * reintroduced one level up.
- *
- * Anchored in 2000, every cutoff in this file precedes every real row, so the
- * only releasable rows in the database are the ones a case seeded.
- */
+/** Year 2000, so every cutoff here precedes every real row in the shared dev database. */
 const CLOCK = new Date("2000-01-01T00:00:00.000Z");
 
 /**
- * The clock for the next case: `CLOCK` stepped back a day per call.
- *
- * A pass releases every eligible row older than its cutoff, across the whole
- * table, not just the rows the case that asked for the pass seeded. Two cases
- * sharing one cutoff therefore share one page, and a case asserting a return
- * value reads a count the case before it left behind — which is how the abort
- * case's four survivors and the race case's `released === 1` were two facts
- * about file order rather than about the reaper. Stepping each case a day
- * FURTHER BACK gives every case a cutoff older than the rows of every case
- * before it, so an earlier case's rows sit above a later pass's cutoff and are
- * out of its reach, and each count is a per-case fact.
- *
- * The step is a day against rows seeded an hour past their own cutoff, so the
- * windows do not touch. Which offset a case gets depends on how many cases ran
- * before it, so filtering the file with `--test-name-pattern` moves the offsets
- * without moving the spacing: the verdict is a function of the spacing, not of
- * any case's position in a full run.
+ * `CLOCK` stepped back one day per call, so each case has its own cutoff window.
+ * Rows sit one hour past their cutoff, so the windows never overlap.
  */
 let clockStep = 0;
 
@@ -114,8 +65,7 @@ async function seedCredential(userId: string): Promise<string> {
       userId,
       provider: "github",
       accountId: `${userId}-gh`,
-      // Deliberate unsealed write: nothing in this file opens the token; the row
-      // exists only so the receipt has a credential to point at.
+      // Deliberate unsealed write: nothing here opens the token.
       // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
       accessToken: "test-token" as unknown as SealedCredentialSecret,
       installationId: "1",
@@ -170,9 +120,7 @@ async function seedReceipt(args: {
 
   if (!row) throw new Error("receipt insert returned no row");
 
-  // Under the key the reaper's `receiptDocumentJoin` reads, built by the same
-  // helper the writer uses, so a re-key cannot make this suite pass against a
-  // join that no longer matches.
+  // The key the reaper's `receiptDocumentJoin` reads, built by the writer's own helper.
   if (args.withDocument !== false) {
     await db()
       .insert(documents)
@@ -231,9 +179,7 @@ function ages(now: Date) {
 
 describe("event_receipts payload retention", { skip: SKIP }, () => {
   after(async () => {
-    // A cascade from the seeded user, which is the one DELETE path the
-    // append-only trigger allows (`pg_trigger_depth() > 1`). A direct DELETE of
-    // a receipt is refused, which is what the item 01 trigger probe pins.
+    // A cascade from the user is the only DELETE the append-only trigger allows (`pg_trigger_depth() > 1`).
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
@@ -261,9 +207,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
 
     const after = await readOne(releasable);
     assert.equal(after.payload, null, "an expired completed body is released");
-    // The receipt outlives its body. The dedup key, the gap-detection cursor, the
-    // verification hash, the delivery time and the processing audit are the
-    // reason the row is kept at all.
+    // The row stays: the dedup key, cursor, verification hash, and audit live on it.
     assert.equal(after.provider, before.provider);
     assert.equal(after.providerDeliveryId, before.providerDeliveryId);
     assert.equal(after.historyId, before.historyId);
@@ -311,14 +255,10 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     await releaseExpiredReceiptPayloadsOnce(now);
 
     const alive = await withBody([fresh, failed, pending, unprojected]);
-    // `processing_status = 'completed'`, not `<> 'failed'`: a redelivery
-    // re-enqueues any non-completed receipt at any age, and the deliver job
-    // publishes a pointer the object-state fold resolves by reading the body.
+    // `completed`, not `<> 'failed'`: a redelivery re-enqueues any non-completed receipt, and the fold reads the body.
     assert.equal(alive.has(failed), true, "a failed receipt's body is still owed to its retry");
     assert.equal(alive.has(pending), true, "a pending receipt is re-enqueued on redelivery too");
-    // The corpus backfill builds a receipt's document FROM the body, and that
-    // projection is unrecoverable afterwards, so a receipt with no document
-    // waits for the backfill rather than racing it.
+    // The corpus backfill builds the document from the body, so a receipt with no document waits.
     assert.equal(alive.has(unprojected), true, "a receipt with no corpus document keeps its body");
     assert.equal(alive.has(fresh), true, "only age separates a fresh row from a released one");
   });
@@ -373,14 +313,8 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     assert.equal(afterFirst.has(releasable), false);
     assert.equal(afterFirst.has(fresh), true);
 
-    // Nothing to do the second time round. The row is not deleted by the first
-    // pass, it simply leaves the partial index, so there is no second entry to
-    // release. `updated_at` is the observable for that: `payload IS NOT NULL` is
-    // what drops the row out of `event_receipts_payload_live_idx`, and without
-    // it a released row is re-selected and rewritten every hour forever, bumping
-    // `updated_at` and leaving a dead tuple each time. The sleep is there
-    // because `$onUpdate` sends a JS Date, so two writes inside one millisecond
-    // are indistinguishable.
+    // A released row leaves `event_receipts_payload_live_idx`, so a second pass must not rewrite it.
+    // The sleep: `$onUpdate` sends a JS Date, so two writes in one millisecond look the same.
     const updatedAfterFirst = (await readOne(releasable)).updatedAt;
     await new Promise((resolve) => setTimeout(resolve, 5));
     await releaseExpiredReceiptPayloadsOnce(now);
@@ -391,9 +325,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
       "a released row is out of the predicate, so a later pass must not rewrite it",
     );
 
-    // A clock two hours later puts `fresh` past the cutoff too. If the cutoff
-    // were hard-coded, or `now` ignored, this row would keep its body and the
-    // case would fail.
+    // Two hours later, `fresh` is past the cutoff too. This fails if `now` is ignored.
     await releaseExpiredReceiptPayloadsOnce(new Date(now.getTime() + 2 * HOUR_MS));
     assert.equal((await withBody(ids)).size, 0);
   });
@@ -411,8 +343,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
         await seedReceipt({
           userId,
           credentialId,
-          // Distinct ages, so the drain order is the delivery order the page is
-          // ordered by rather than an accident of equal timestamps.
+          // Distinct ages, so the drain order is the delivery order.
           deliveredAt: new Date(expired.getTime() + i * 1000),
           processingStatus: "completed",
         }),
@@ -427,8 +358,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
       "2 batches of 2 must stop at 4 of 5 rather than drain all of them",
     );
 
-    // The next pass picks up where this one stopped — that is what makes the cap
-    // a spread rather than a leak.
+    // The next pass resumes where this one stopped, so the cap delays and does not leak.
     await releaseExpiredReceiptPayloadsOnce(now, { batchSize: 2, maxBatches: 2 });
     assert.equal((await withBody(ids)).size, 0);
   });
@@ -464,12 +394,8 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     assert.equal(skipped, 0);
     assert.equal((await withBody(ids)).size, 6, "an already-aborted pass must not release");
 
-    // Aborted AFTER the first batch. `releaseExpiredReceiptPayloadsOnce` reads
-    // `signal.aborted` once per iteration, so a signal that reports false
-    // exactly once proves the check sits BETWEEN batches: a check placed before
-    // the loop releases nothing, and no check at all releases all six. These
-    // bounds are exact rather than ranged because this case's own cutoff window
-    // (`caseClock`) holds no row another case seeded.
+    // Aborted after the first batch. A signal that reads false once proves the check sits between batches.
+    // Exact bounds hold because `caseClock` keeps other cases' rows out of this window.
     const released = await releaseExpiredReceiptPayloadsOnce(now, {
       batchSize: 2,
       signal: signalAbortingAfterReads(1),
@@ -496,16 +422,13 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
       processingStatus: "completed",
     });
 
-    // Both calls start before either awaits a round trip, so the guard is
-    // exercised deterministically. Without it both passes would select the same
-    // id page and the loser would hold a pool connection to release nothing.
+    // Both calls start before either awaits, so the in-flight guard runs deterministically.
     const [first, second] = await Promise.all([
       releaseExpiredReceiptPayloadsOnce(now),
       releaseExpiredReceiptPayloadsOnce(now),
     ]);
 
-    // Both counts are exact because this case's cutoff window holds only the one
-    // row above: the winner releases it, and the loser releases nothing.
+    // This window holds one row: the winner releases it and the loser releases nothing.
     assert.equal(second, 0, "the second caller must yield — the guard is on the entrypoint");
     assert.equal(first, 1, "the first caller still does the work");
     assert.equal((await withBody([releasable])).size, 0);
@@ -528,13 +451,8 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     await releaseExpiredReceiptPayloadsOnce(now);
     assert.equal((await readOne(releasable)).payload, null, "the body is released");
 
-    // The redelivery's conflict target, not the handler's whole insert: what is
-    // under test is that `(provider, provider_delivery_id)` still conflicts after
-    // a release, so the extra columns the handler sets (`payloadHash`, and the
-    // document it writes in the same transaction) are omitted rather than
-    // restated here. A provider chooses the age at which it repeats a delivery,
-    // and this conflict has to hold at whatever age it chooses — which is the
-    // whole reason a release may not delete the row.
+    // Only the conflict target. `(provider, provider_delivery_id)` must still conflict after a release,
+    // at any redelivery age. That is why a release keeps the row.
     const inserted = await db()
       .insert(eventReceipts)
       .values({
@@ -576,9 +494,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     const credentialId = await seedCredential(userId);
     const { expired } = ages(now);
 
-    // The row the reaper will select, and the row it must leave alone. Both are
-    // releasable by every other clause; the only difference between them is what
-    // the other session does while the reaper is blocked.
+    // Both rows are releasable. Only the other session's write differs.
     const racing = await seedReceipt({
       userId,
       credentialId,
@@ -593,20 +509,10 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
       processingStatus: "completed",
     });
 
-    // Reproduces the review's sequence on the real trigger rather than arguing
-    // it. A second session holds an open transaction that has marked the row
-    // `failed` but not committed, so the reaper's page still sees it as
-    // `completed` and then parks on the row lock. On commit the reaper's
-    // `UPDATE` wakes and Postgres re-checks the row against the OUTER `WHERE`
-    // through EvalPlanQual: the page is an InitPlan fixed before the wait, so
-    // only the outer clauses can catch this.
-    //
-    // The commit is sent on the holder's OWN connection, and that is the point:
-    // the holder is not blocked, so its transaction can be committed while the
-    // reaper is still waiting. Nothing needs a third session.
-    //
-    // It is the control row that proves the pass did work. A pass that released
-    // nothing would pass this case for the wrong reason.
+    // A second session marks the row `failed` without commit, so the reaper's page sees `completed` and waits on the lock.
+    // On commit, EvalPlanQual re-checks only the outer `WHERE` (the page is a fixed InitPlan).
+    // The holder is not blocked, so it commits on its own connection.
+    // The control row proves the pass did work.
     let holdLock: () => void;
 
     const locked = new Promise<void>((resolve) => {
@@ -620,9 +526,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
         .set({ processingStatus: "failed" })
         .where(eq(eventReceipts.id, racing));
       holdLock();
-      // Observe the reaper parked rather than sleeping for a guessed interval: a
-      // fixed wait that expires early lets the reaper's statement commit after
-      // this one, and the case then passes with the outer clause deleted.
+      // Wait for the lock, not a fixed sleep: an early expiry lets the case pass with the outer clause deleted.
       await waitUntilBlockedOn(client);
       await client.query("COMMIT");
     });
@@ -646,20 +550,8 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
 });
 
 /**
- * Resolve once a backend in this database is waiting on a lock.
- *
- * `pg_locks`, and specifically `pg_stat_activity` as the obvious alternative
- * does NOT work here: both report the waiter correctly from an outside session,
- * but the holder runs this poll inside its own open transaction, and from there
- * the waiting backend is absent from `pg_stat_activity` entirely while
- * `pg_locks` reports it. That was measured on the same blocked `UPDATE` rather
- * than assumed, and it is why the poll asks about locks and not about backends.
- *
- * A server-reported wait beats a guessed interval: a fixed sleep either wastes
- * time or expires before the pass reaches its statement, and on a slow machine
- * the expiry lets the commit win, after which the outer `processing_status`
- * clause is never exercised and the case passes for the wrong reason. A timeout
- * here fails loudly rather than passing quietly.
+ * Resolve once a backend in this database waits on a lock.
+ * Uses `pg_locks`: inside the holder's open transaction, `pg_stat_activity` does not show the waiter.
  */
 async function waitUntilBlockedOn(client: {
   query: (sql: string) => Promise<unknown>;
@@ -679,13 +571,8 @@ async function waitUntilBlockedOn(client: {
 }
 
 /**
- * A signal that reports "not aborted" for its first `reads` reads and aborted
- * after.
- *
- * A plain `AbortController` cannot express "abort between batch 1 and batch 2"
- * without a race, and the placement of the check is precisely what is under
- * test. Only `aborted` is overridden, so every other member still behaves like
- * the real signal it proxies.
+ * A signal that reads "not aborted" for its first `reads` reads, then aborted.
+ * A plain `AbortController` cannot abort between batch 1 and batch 2 without a race.
  */
 function signalAbortingAfterReads(reads: number): AbortSignal {
   const controller = new AbortController();

@@ -3,19 +3,9 @@ import { spawn } from "node:child_process";
 const behavior = process.env.PDF_EXTRACTION_TEST_BEHAVIOR;
 
 /**
- * Hold the inherited stdout open past this child's own exit, the way a
- * grandchild that inherits the pipe does in production. The parent settles on
- * `close`, so this delay is what every `*_late_close` case measures against.
- *
- * The duration comes from the test, not from here, because the test asserts
- * against it and one number cannot live in two files. A missing or unusable
- * value THROWS rather than defaulting: a silent fallback to "no delay at all"
- * would turn every late-close case into a plain case that still reads green.
- *
- * It throws rather than exiting with a chosen code, because every caller below
- * exits synchronously on the next line. `process.exit` inside a `write`
- * callback never runs — the caller's own exit wins the race — so the guard
- * would fire in only the two cases that have nothing left to do.
+ * Hold stdout open past this child's exit, as a grandchild that inherits the pipe does.
+ * Throws on a bad duration: a silent "no delay" would make late-close cases pass vacuously.
+ * Throws, not exits, because each caller exits synchronously on the next line.
  */
 function holdInheritedPipes(): void {
   const raw = process.env.PDF_EXTRACTION_TEST_HOLD_MILLISECONDS;
@@ -37,8 +27,7 @@ function holdInheritedPipes(): void {
 }
 
 for await (const _chunk of process.stdin) {
-  // Consume the complete request before the fixture chooses its reply. This
-  // keeps an expected early exit from becoming a parent-side EPIPE race.
+  // Read the whole request first, so an early exit does not cause a parent EPIPE.
 }
 
 switch (behavior) {

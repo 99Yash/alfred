@@ -1,29 +1,12 @@
 /**
- * Compile-only fixture: `@alfred/assistant`'s `exports` map is the gate on which
- * `artifacts`, `tasks`, `skills`, `briefings` and `automation` subpaths a caller
- * outside the package may resolve.
- *
- * `packages/assistant/package.json` lists one key per supported subpath for these
- * five directories and NO wildcard for any of them, so a file the manifest does not
- * name fails module resolution. The mechanism, the Tier-1 claim, and the reason this
- * file lives in `packages/http` rather than in `packages/assistant/test/` are all
- * recorded in the sibling fixture `knowledge-subpath-surface.type-test.ts`. Read that
- * header; this one states only what is specific to these five directories.
- *
- * Each negative below appears TWICE, extensionless and with `.ts`, because the two
- * wildcard target forms republish disjoint specifier sets:
+ * Compile-only fixture: no wildcard export for `artifacts`, `tasks`, `skills`, `briefings`,
+ * `automation` in `@alfred/assistant`. See `knowledge-subpath-surface.type-test.ts` for the mechanism.
+ * Each negative appears twice, because the two wildcard target forms publish disjoint spellings:
  *
  *   "./skills/*": "./src/skills/*.ts"  -> only the extensionless specifiers resolve
  *   "./skills/*": "./src/skills/*"     -> only the `.ts` specifiers resolve
  *
- * Pinning one spelling leaves the other free. No manifest in this repo uses the
- * extensionless form today — every surviving wildcard target carries `.ts` — but
- * nothing rejects the extensionless form either, so both halves stay pinned.
- *
- * `briefings/agent/prompt` is the load-bearing negative of the five. It sits one
- * directory DOWN from `src/briefings/`, so it proves the property that makes a
- * wildcard a Tier-5 surface: Node's `*` matches across `/`, so `"./briefings/*"`
- * published every file in the subtree, not just the directory's own files.
+ * `briefings/agent/prompt` is nested: Node's `*` matches across `/`, so a wildcard publishes the subtree.
  */
 
 // @ts-expect-error - `artifacts/external-file` is not an exported subpath; the exports map is the gate.
@@ -41,7 +24,7 @@ type _BriefingPrompt = typeof import("@alfred/assistant/briefings/agent/prompt")
 // @ts-expect-error - `automation/queue` is not an exported subpath; the exports map is the gate.
 type _AutomationQueue = typeof import("@alfred/assistant/automation/queue");
 
-/** The same five files, spelled WITH `.ts`. See the header for why both halves exist. */
+/** The same five files, spelled with `.ts`. */
 
 // @ts-expect-error - `artifacts/external-file` is not exported under any spelling; see above.
 type _ExternalFileTs = typeof import("@alfred/assistant/artifacts/external-file.ts");
@@ -58,11 +41,7 @@ type _BriefingPromptTs = typeof import("@alfred/assistant/briefings/agent/prompt
 // @ts-expect-error - `automation/queue` is not exported under any spelling; see above.
 type _AutomationQueueTs = typeof import("@alfred/assistant/automation/queue.ts");
 
-/**
- * The positive half, one per directory, taken from the concrete keys the manifest
- * now names. Each dereferences a real exported name, so a negative above cannot pass
- * because of a typo or a missing dependency rather than because of the exports map.
- */
+/** One listed subpath per directory, so the negatives cannot pass on a typo. */
 type _ContentHash = typeof import("@alfred/assistant/artifacts/content-hash");
 
 type _AssertContentHashResolves = _ContentHash["artifactContentHash"];

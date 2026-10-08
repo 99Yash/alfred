@@ -39,10 +39,7 @@ function seedServerEnvForReplicacheTests(): void {
   }
 }
 
-// The fixtures must land before the first `serverEnv()` call in a test body,
-// and `serverEnv()` memoizes. So this stays at module scope. It sets neither
-// DATABASE_URL nor REDIS_URL, so it cannot hide an absent service from the
-// guard below.
+// `serverEnv()` memoizes, so seed at module scope. No service URL here, so the guard still skips.
 seedServerEnvForReplicacheTests();
 
 const SKIP = dbBackedSkip("database+redis");
@@ -64,7 +61,7 @@ async function seedUser(): Promise<string> {
 describe("handlePull cookie monotonicity across client-group forks (#337)", { skip: SKIP }, () => {
   after(async () => {
     if (createdUserIds.length) {
-      // replicache_client_group cascades from user.
+      // Client groups cascade from user.
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
 
@@ -77,18 +74,14 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
     const oldGroup = `${ID_PREFIX}old-${randomUUID()}`;
     const newGroup = `${ID_PREFIX}new-${randomUUID()}`;
 
-    // The old client group reached a high cvr_version (the regression in #337
-    // had the old group at order 724 while a forked group's per-group counter
-    // restarted near 0). Persist that high-water mark.
+    // Regression #337: the old group was at order 724; the fork's counter restarted near 0.
     const STALE_ORDER = 724;
     await db()
       .insert(replicacheClientGroup)
       .values({ id: oldGroup, userId, cvrVersion: STALE_ORDER });
 
-    // The forked client mints a new clientGroupID but its IndexedDB still holds
-    // the old group's cookie. Replicache sends that stale cookie on the new
-    // group's first pull. Before the fix this returned order 1 (prevVersion 0
-    // + 1), regressing below 724 and wedging sync forever.
+    // The fork has a new clientGroupID but sends the old group's cookie.
+    // The bug returned order 1 here and wedged sync.
     const result = await handlePull(userId, {
       pullVersion: 1,
       clientGroupID: newGroup,
@@ -101,14 +94,12 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       result.cookie.order > STALE_ORDER,
       `forked cookie order ${result.cookie.order} must exceed the stale order ${STALE_ORDER}`,
     );
-    // Canonical CVR pattern (replicache-cvr / dimension): the next order is
-    // max(prevVersion, cookie.order) + 1. The fork's group is freshly created at
-    // cvrVersion 0, so it advances to exactly the stale order + 1.
+    // Next order is max(prevVersion, cookie.order) + 1.
     assert.equal(result.cookie.order, STALE_ORDER + 1);
-    // Mismatched cookie group ⇒ cold sync, so the patch leads with a clear.
+    // A cookie from another group means a cold sync, so the patch starts with a clear.
     assert.equal(result.patch[0]?.op, "clear");
 
-    // The new group's persisted cvr_version is the (monotonic) returned order.
+    // The persisted cvr_version equals the returned order.
     const [group] = await db()
       .select({ cvrVersion: replicacheClientGroup.cvrVersion })
       .from(replicacheClientGroup)
@@ -129,9 +120,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
 
     assert.ok(!("forbidden" in first));
 
-    // A second pull with the just-issued cookie and no underlying changes must
-    // return the same order (Replicache's "cookie unchanged ⇒ no LMID changes"
-    // invariant), never a lower one.
+    // Same cookie and no changes must return the same order, never a lower one.
     const second = await handlePull(userId, {
       pullVersion: 1,
       clientGroupID: group,

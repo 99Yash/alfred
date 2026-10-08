@@ -108,8 +108,7 @@ describe("triageTagOverrideClient", () => {
     assert.equal(value.rowVersion, autoTag.rowVersion + 1);
     assert.equal(value.documentId, autoTag.documentId);
     assert.equal(value.appliedLabelId, null);
-    // Sender significance is a property of the sender, not the classification —
-    // a category override must carry it over unchanged (ADR-0064).
+    // A category override keeps the sender's significance (ADR-0064).
     assert.equal(value.senderSignificanceBand, autoTag.senderSignificanceBand);
     assert.equal("confidence" in value, false);
     assert.equal("rationale" in value, false);

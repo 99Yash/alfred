@@ -10,11 +10,7 @@ import {
 } from "@alfred/assistant/briefings/read";
 import { deriveLoopKey } from "@alfred/contracts";
 
-/**
- * Minimal gather carrying only the fields `collectSurfacedThreadIds` reads.
- * `email.categories` is the source of the dedup signal; everything else is
- * filled with empty/quiet defaults so the fixture is a valid `BriefingGather`.
- */
+/** A valid `BriefingGather` where only `email.categories` matters. */
 function gatherWith(categories: BriefingGather["email"]["categories"]): BriefingGather {
   return {
     email: { categories },
@@ -56,8 +52,7 @@ describe("collectSurfacedThreadIds", () => {
   });
 
   test("dedupes the same thread surfaced in two briefings", () => {
-    // The exact repetition the flag prevents: a thread in this morning's
-    // action_needed reappearing in the evening as awaiting_reply.
+    // A morning action_needed thread reappears in the evening as awaiting_reply.
     const morning = gatherWith({ action_needed: [emailItem("d1", "thr_x")] });
     const evening = gatherWith({ awaiting_reply: [emailItem("d2", "thr_x")] });
 
@@ -83,10 +78,7 @@ describe("collectSurfacedThreadIds", () => {
 
 describe("collectSurfacedLoopKeys", () => {
   test("collapses a re-notified ClickUp task across two slots (#283 regression)", () => {
-    // The motivating case: an urgent ClickUp task surfaced in the evening
-    // re-notifies on a NEW thread (a comment) before morning. The thread ids
-    // differ, so a thread-keyed dedup misses it — but the task-title subject is
-    // identical, so the loop key collapses the two.
+    // The task re-notifies on a new thread; the same subject gives the same loop key.
     const subject = "Netsmart: Save view issues";
 
     const evening = gatherWith({
@@ -94,11 +86,9 @@ describe("collectSurfacedLoopKeys", () => {
     });
 
     const morning = gatherWith({
-      // Later notification: different thread, same underlying task.
       urgent: [emailItemWithSubject("d-morn", "thr_morning", `Re: ${subject}`)],
     });
 
-    // Both slots contribute the SAME loop key though their thread ids differ.
     assert.notEqual(
       [...collectSurfacedThreadIds([evening, morning])].length,
       1,
@@ -109,8 +99,7 @@ describe("collectSurfacedLoopKeys", () => {
   });
 
   test("lines up with the current-window derivation", () => {
-    // The persisted-item key and the live-document key must be byte-identical,
-    // since previouslySurfaced compares one against the other.
+    // previouslySurfaced compares the persisted key with the live key.
     const subject = "Re: [OlivAIRepo/baserow-middleware] Harden detection (PR #786)";
     const gather = gatherWith({ action_needed: [emailItemWithSubject("d1", "thr", subject)] });
     const [surfaced] = [...collectSurfacedLoopKeys([gather])];

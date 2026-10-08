@@ -53,21 +53,10 @@ import { dbBackedSkip } from "../../support/db-backed";
 import { awaitGate } from "../../support/gate-timeout";
 
 /**
- * DB-backed tests for the dispatch → MCP seam (PRD #540 #6). These prove the two
- * projected tools cross the dispatcher's boundary the way the design demands:
- *
- *   - `mcp.call` is a static `high`-tier action, so it ALWAYS stages for approval
- *     — even for a user whose policy is autonomy — and only routes through the
- *     durable broker AFTER approval, threading the staging-row id as `ctx.stagingId`
- *     so the broker's ledger row is 1:1 with the staging row.
- *   - `mcp.list_tools` is a bounded cross-connection LOCAL read: it takes the
- *     fast path, writes NO staging row, and returns exact remote refs without
- *     calling the execution provider.
- *
- * The broker itself is exercised offline against a fake protocol elsewhere
- * (`test/mcp/broker.test.ts`); here it is replaced with a capturing fake via
- * `_setMcpExecutionBrokerForTests`, so these assert only the SEAM (gate + fast-path +
- * stagingId threading), not the ledger semantics. Opt-in on `DATABASE_URL`.
+ * DB-backed tests for the dispatch-to-MCP seam. `mcp.call` is `high` tier, so it
+ * stages even under autonomy and reaches the broker only after approval, with
+ * `ctx.stagingId` set. `mcp.list_tools` is a local fast-path read with no staging row.
+ * The broker is a fake here. `test/mcp/broker.test.ts` covers the real one.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -75,12 +64,11 @@ const ID_PREFIX = "test-mcpseam-";
 
 const createdUserIds: string[] = [];
 
-/** The stubbed broker result; every test treats it as an `{ ok: ... }` record. */
 interface BrokerStubResult {
   ok: boolean;
 }
 
-/** A capturing broker double: records what the seam handed it, returns `completed`. */
+/** Records what the seam handed it and returns `completed`. */
 class CapturingBroker {
   lastInput: McpBrokerCallInput | null = null;
   calls = 0;
@@ -203,12 +191,7 @@ async function seedConnectionWithCatalog(
   return conn.id;
 }
 
-/**
- * Seed a real owned connection + one-tool catalog revision, returning the
- * revision + descriptor hashes a reviewed policy binds to. Unlike
- * `seedConnectionWithCatalog`, this surfaces the hashes the resolver keys on so a
- * downgrade can be pinned to the EXACT descriptor.
- */
+/** Like `seedConnectionWithCatalog`, but returns the hashes a reviewed policy binds to. */
 async function seedOwnedCatalog(
   userId: string,
   tools: Tool[],
@@ -232,8 +215,7 @@ async function seedOwnedCatalog(
     descriptors: tools,
   });
 
-  // Publication derives the hash map, so read it back the way the resolver
-  // does rather than minting a second copy here.
+  // Read the hashes back the way the resolver does.
   const descriptorHashes = Object.fromEntries(
     tools.map((entry) => [entry.name, descriptorHash(entry)]),
   );
@@ -241,7 +223,7 @@ async function seedOwnedCatalog(
   return { connectionId: conn.id, revisionHash, descriptorHashes };
 }
 
-/** Put the user in autonomy mode so the resolved risk tier alone drives the gate. */
+/** Autonomy mode, so the resolved risk tier alone drives the gate. */
 async function seedAutonomyPolicy(userId: string): Promise<void> {
   await db()
     .insert(userActionPolicies)
@@ -284,8 +266,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     }
 
     await closeConnections();
-    // mcp.call stages for approval, which enqueues BullMQ jobs — close the Redis
-    // connections so the test process can exit (mirrors the gated-tool tests).
+    // Staging enqueues BullMQ jobs. Close Redis so the process can exit.
     await closeRedis();
   });
 
@@ -320,12 +301,8 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("a reviewed per-descriptor downgrade lets a real mcp.call run without approval", async () => {
-    // The full wiring the resolver rides on (#541 Part 3): the real `mcp.call`
-    // tool's `resolveRiskTier` hook reads the reviewed `low` policy bound to the
-    // exact descriptor, the dispatcher gates on that resolved tier (autonomy +
-    // `low` → no approval), and the SAME tier is persisted on the staging row.
-    // The descriptor asserts `readOnlyHint`: per the ADR-0069 amendment a
-    // reviewed tier lowers below `high` only for a read tool.
+    // `resolveRiskTier` reads the reviewed `low` policy, the gate uses it, and the row persists it.
+    // `readOnlyHint` is set: a reviewed tier goes below `high` only for a read tool (ADR-0069).
     const broker = new CapturingBroker();
     _setMcpExecutionBrokerForTests(asBroker(broker));
 
@@ -369,8 +346,6 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       fence: { generation: 0 },
     });
 
-    // Autonomous: the downgrade waived approval, so the call executed inline
-    // instead of parking — and the broker received it exactly once.
     assert.equal(
       result.kind,
       "executed",
@@ -419,8 +394,6 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const stagingId = staged.kind === "staged" ? staged.stagingId : null;
     assert.ok(stagingId);
 
-    // The user approves; the resume re-dispatch of the same (runId, toolCallId)
-    // must execute against the broker.
     await db()
       .update(actionStagings)
       .set({ status: "approved" })
@@ -439,7 +412,6 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     assert.equal(broker.lastInput?.ref.remoteName, "create_issue");
     assert.deepEqual(broker.lastInput?.arguments, { title: "hi" });
 
-    // The broker outcome is projected to the model-safe `mcp.call` result.
     assert.deepEqual(executed.kind === "executed" ? executed.toolResult : undefined, {
       status: "completed",
       result: { ok: true },
@@ -480,10 +452,8 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const client = await manager.getReadyClient(connection.id);
     const catalogRevision = client.catalog?.revision;
     assert.ok(catalogRevision);
-    // Deliberately split fixture: the descriptor's `readOnlyHint` lets the
-    // reviewed `low` execute under autonomy (ADR-0069), while the policy's
-    // `write` class mints the ambiguity barrier — the broker keys barriers on
-    // the reviewed effect class, not the catalog claim.
+    // Split on purpose: `readOnlyHint` lets `low` run (ADR-0069), and the reviewed `write`
+    // class mints the barrier. Barriers key on the reviewed class, not the catalog claim.
     await upsertToolPolicy({
       userId,
       connectionId: connection.id,
@@ -641,9 +611,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const client = await manager.getReadyClient(connection.id);
     const catalogRevision = client.catalog?.revision;
     assert.ok(catalogRevision);
-    // Split fixture, same as the ambiguity test above: `readOnlyHint` lets the
-    // reviewed `low` execute under autonomy (ADR-0069), while the `write`
-    // effect class mints the ambiguity barrier the stale-commit fencing needs.
+    // Same split fixture as the ambiguity test: the `write` class mints the barrier.
     await upsertToolPolicy({
       userId,
       connectionId: connection.id,

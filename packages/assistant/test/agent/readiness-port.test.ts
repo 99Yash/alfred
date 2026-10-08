@@ -52,13 +52,13 @@ describe("workflow readiness port", () => {
     const unregister = registerWorkflowReadinessCheck(async () => ready);
     unregister();
 
-    // Once cleared, the live call throws again...
+    // Once cleared, the call throws again.
     await assert.rejects(
       () => checkWorkflowReadiness({ runId: "run-3", userId: "user-3" }),
       /no workflow readiness check is registered/,
     );
 
-    // ...and a re-registration succeeds rather than colliding.
+    // A new registration does not collide.
     const reregister = registerWorkflowReadinessCheck(async () => ({
       kind: "deferred",
       reason: "provider warming up",
@@ -84,7 +84,7 @@ describe("workflow readiness port", () => {
     }));
 
     try {
-      // The first unregister is a no-op now — it only clears its own closure.
+      // A no-op now: it clears only its own closure.
       unregisterFirst();
       assert.deepEqual(await checkWorkflowReadiness({ runId: "run-5", userId: "user-5" }), {
         kind: "blocked",

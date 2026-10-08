@@ -10,14 +10,8 @@ import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { llmJudgeScorer } from "./lib/llm-judge";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
-// Behavioral guard on the shipped chat voice contract. Chat relies on the
-// prompt rather than post-processing so explicit tone, persona, and exact-copy
-// requests can override the default. A deterministic scorer catches
-// high-confidence tells and exact-copy drift; a cheap, cross-provider judge
-// verifies that concise prose is still useful and natural.
-//
-// Run locally with apps/server/.env populated:
-// `pnpm --filter @alfred/assistant eval`.
+// Guards the chat voice. Chat uses the prompt, not post-processing, so users can override tone.
+// Run with apps/server/.env populated: `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
@@ -138,11 +132,7 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
     llmJudgeScorer<Case, TaskOutput, undefined>({
       name: "Useful and natural",
       rubric: QUALITY_RUBRIC,
-      // Generation is `route("standard")` (`gpt-6-luna`, an OpenAI leg); use
-      // cheap Gemini as the judge to reduce spend and to keep the grader in
-      // another model family. This RESTATES the current default in
-      // `lib/llm-judge.ts`; keep it, because it is what stops this suite from
-      // following that default if the default ever moves to OpenAI.
+      // Same as the judge default, but pinned: the grader must stay outside the OpenAI family it grades.
       model: route("cheap").model(),
       skipWhen: ({ output }) => (output.text.trim().length === 0 ? "empty output" : null),
       prompt: ({ input, output }) =>

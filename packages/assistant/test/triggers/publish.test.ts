@@ -9,15 +9,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { publishEvent } from "../../src/triggers";
 import { dbBackedSkip } from "../support/db-backed";
 
-/**
- * `publishEvent`'s executor selection, asserted against a real database.
- *
- * The discriminated target replaces the old optional `tx?`: an author supplies
- * either `tx` (the outbox row commits with the domain write) or
- * `untransacted: true` (a deliberate stand-alone publish on the pool root). This
- * proves the selection is behavior-neutral — both arms write exactly one row —
- * and that the `tx` arm is genuinely atomic: a rolled-back tx leaves no row.
- */
+/** `publishEvent` with `tx` or `untransacted: true` writes one row; a rolled-back `tx` leaves none. */
 
 const SKIP = dbBackedSkip("database");
 
@@ -87,8 +79,7 @@ describe("publishEvent executor selection", { skip: SKIP }, () => {
           kind: "inbox.updated",
           payload: { reason: "triaged", count: 1 },
         });
-        // The domain write beside the outbox row fails; the frame must roll back
-        // with it, not survive as a phantom event.
+        // The outbox row must roll back with the failed domain write.
         throw new Error("domain write failed");
       }),
       /domain write failed/,

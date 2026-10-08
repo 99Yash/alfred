@@ -11,33 +11,19 @@ import {
 import { registerBuiltinTools } from "../../../src/tool-runtime/builtin-tools";
 
 /**
- * `readsAvailabilitySnapshot` is what lets the dispatch floor answer a `system.*`
- * or `mcp.*` call without a credential read, and it necessarily RESTATES the
- * conditions phase 2 of the evaluator branches on. That duplication is the hazard
- * this file exists for: add a fourth snapshot gate, forget the predicate, and
- * every affected tool silently resolves `available: true` at the floor while
- * discovery still refuses it — surface and floor disagreeing, invisibly.
- *
- * So the promise is asserted mechanically, over the REAL registered catalog
- * rather than hand-written fixtures (which by construction cannot know about a
- * gate nobody wrote yet): for every tool the predicate excuses from the read, the
- * snapshot phase must resolve available against a snapshot with NOTHING in it —
- * the worst case the skipped read could have returned. A new gate that can reject
- * such a tool fails here.
+ * `readsAvailabilitySnapshot` restates the snapshot gates so the floor can skip the read.
+ * A new gate without a matching predicate change would let the floor and discovery disagree.
+ * So every excused tool in the real catalog must resolve available against an empty snapshot.
  */
 
-/** Nothing connected, nothing enabled: the harshest snapshot phase 2 can see. */
+/** Nothing connected and nothing enabled: the worst case. */
 const EMPTY_SNAPSHOT: IntegrationAvailabilitySnapshot = {
   integrations: new Map(),
   providers: new Map(),
   passthroughEnabled: new Map(),
 };
 
-/**
- * Permissive on purpose. Phase 1 (allowlist / caller / thread) is not under test
- * here and this context clears all of it, so a failure below can only come from
- * the snapshot phase.
- */
+/** Clears phase 1, so a failure can only come from the snapshot phase. */
 const PERMISSIVE = { caller: "boss", interaction: "live_chat" } as const;
 
 before(() => {
@@ -67,8 +53,7 @@ describe("skipping the credential read is a promise phase 2 keeps", () => {
   });
 
   test("the excused set is exactly the integrations absent from the snapshot", () => {
-    // Documents WHY they are excused: `system` has no credential, and `mcp`
-    // connection health lives on `mcp_connections`, not `integration_credentials`.
+    // `system` has no credential. `mcp` health lives on `mcp_connections`.
     const excusedIntegrations = new Set(
       listRegisteredTools()
         .filter((tool) => !readsAvailabilitySnapshot(tool))

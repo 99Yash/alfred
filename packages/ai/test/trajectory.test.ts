@@ -10,12 +10,7 @@ import {
   type TraceObservation,
 } from "../src/replay/trajectory";
 
-/**
- * The replay-diff primitive answers "did my change move the trajectory, and
- * only where I intended" on real recorded runs. These pin extraction (ordering,
- * error status, decided-but-not-executed) and the paired diff (unchanged spine,
- * arg-change pairing, add/remove, order-insensitive args).
- */
+/** Pins trajectory extraction and the paired replay diff. */
 
 function gen(output: unknown, startTime: string): TraceObservation {
   return { type: "GENERATION", name: "agent:chat", startTime, output };
@@ -57,7 +52,7 @@ describe("extractTrajectory", () => {
       observations: [
         span("drive.search_files", { query: "SOW" }, "2026-06-26T01:00:02"),
         span("github.search", { q: "is:open" }, "2026-06-26T01:00:03", { error: "[github] 422" }),
-        // out of order in the array — must sort by startTime
+        // Out of order in the array; must sort by startTime.
         span("system.read_user_context", { query: "client" }, "2026-06-26T01:00:01"),
       ],
     };
@@ -78,7 +73,6 @@ describe("extractTrajectory", () => {
     const trace: TraceLike = {
       id: "run_2",
       observations: [
-        // model decided to call two tools...
         gen(
           {
             toolCalls: [
@@ -88,7 +82,7 @@ describe("extractTrajectory", () => {
           },
           "2026-06-26T01:00:01",
         ),
-        // ...but only the search executed (the write was HIL-gated, no span).
+        // The write was HIL-gated, so it has no span.
         span("github.search", { q: "is:open" }, "2026-06-26T01:00:02", { toolCallId: "c1" }),
       ],
     };
@@ -103,9 +97,7 @@ describe("extractTrajectory", () => {
     ]);
   });
 
-  // The live-data regression (run_wdtn451w1zp0): the model tried calendar.list_events
-  // three times; only the third ran, with SDK-injected `maxResults`. Matching by
-  // canonical args wrongly flagged the executed one too. Match by toolCallId instead.
+  // Regression: matching by args flagged an executed call whose args the SDK changed. Match by toolCallId.
   test("matches decided→executed by toolCallId even when the args were transformed", () => {
     const trace: TraceLike = {
       id: "run_3",
@@ -127,8 +119,7 @@ describe("extractTrajectory", () => {
           },
           "t1",
         ),
-        // Executed with an injected `maxResults` — args differ from the decision,
-        // but the toolCallId matches tc2, so it must NOT be flagged.
+        // Args differ from the decision, but the toolCallId matches tc2.
         span(
           "calendar.list_events",
           { timeMin: "2026-06-26T00:00:00Z", timeMax: "2026-06-26T23:59:59Z", maxResults: 10 },
@@ -198,7 +189,6 @@ describe("diffTrajectories", () => {
     );
     assert.equal(d1.removed.length, 0);
 
-    // reverse direction → removal
     const d2 = diffTrajectories(extractTrajectory(added), extractTrajectory(base()));
     assert.deepEqual(
       d2.removed.map((s) => s.toolName),

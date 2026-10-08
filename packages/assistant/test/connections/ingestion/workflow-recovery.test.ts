@@ -40,10 +40,7 @@ describe("integration workflow recovery", () => {
   });
 
   test("degrades invalid input to the failed redirect, never throws", async () => {
-    // Register a handler that would produce a *ready* redirect for a valid
-    // request. So "failed" here can only come from the request parse failing
-    // inside the guarded path — not from the no-handler branch, and not from a
-    // parse that was skipped and let the extra key reach the handler.
+    // This handler would return a ready redirect, so "failed" can only come from the guarded request parse.
     const unregister = registerWorkflowRecoveryHandler(async () => ({
       status: "ready",
       workflowSlug: "weekly/report",

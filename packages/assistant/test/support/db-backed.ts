@@ -1,55 +1,9 @@
 /**
- * The guard a DB-backed suite in this tree uses instead of a hand-rolled
- * `{ skip: !process.env.DATABASE_URL }`.
- *
- * THERE ARE FIVE COPIES, one per test tree that needs one. Each names the CI
- * job whose absent service variable it must report:
- *
- *   `packages/assistant/test/support/db-backed.ts`    -> `assistant-unit-tests`
- *   `packages/db/test/support/db-backed.ts`           -> `db-tests`
- *   `packages/http/test/support/db-backed.ts`         -> `http-tests`
- *   `packages/corpus/test/support/db-backed.ts`       -> `leaf-db-tests`
- *   `packages/integrations/test/support/db-backed.ts` -> `leaf-db-tests`
- *
- * They differ only in that job name. Each test project sets `rootDir: "."`, so
- * a relative reach into another package's test tree is a TS6059 error by
- * design — the copy is deliberate, not an oversight. Promotion to a workspace
- * package was measured and rejected. Each copy ships beside a
- * `test/db-backed-guard.test.ts`, which drives `decideDbBackedSkip` over its
- * three arms inside the tree that depends on it.
- *
- * WHY THIS EXISTS. A skip count cannot detect an `assistant-unit-tests` job that
- * reached no database. `node:test` prints `# skipped 0` for a SUITE-level skip —
- * the subtests inside a skipped `describe` are never registered, so they land in
- * neither `# tests` nor `# skipped`. A run with `DATABASE_URL` unset therefore
- * prints `# fail 0` and `# skipped 0` and exits 0, which is indistinguishable
- * from a run that reached Postgres. Do not guard this tree by reading a number.
- *
- * WHAT REPLACES IT. `dbBackedSkip` skips on a developer machine that has no
- * Postgres, and THROWS when `CI` is set and a required variable is absent. The
- * throw fires at module scope of the suite file, so `node:test` reports the file
- * as a failing test and the job exits non-zero.
- *
- * SCOPE. A new DB-backed suite that hand-rolls its own `{ skip }` on a service
- * variable no longer goes quiet: the `db-backed-skip-hand-rolled` rule in
- * `scripts/consolidation-rules.mjs` fails `pnpm check` on it and names this
- * helper, and `.claude/hooks/helper-hints.mjs` names it from the same row while
- * the line is being written. The rule polices `DATABASE_URL` and `REDIS_URL`
- * over every `packages/<name>/test/` and `apps/<name>/test/` tree. It is tier 2,
- * not tier 1, and the residue has at least two shapes. An author can build the
- * variable name at runtime. And because the rule reads ONE line, an author can
- * put the reader and the name on DIFFERENT lines: `const env = process.env;`
- * near the top of a file, and a bare `env.DATABASE_URL` later. Neither line
- * carries both halves, so no line-scoped regex sees it. No such alias sits in
- * any tree the rule polices today, but the shape is LIVE outside them —
- * `packages/db/src/index.ts` binds `databaseEnv()` to `env` and reads
- * `env.DATABASE_URL` two lines down — so read this as "not here yet", not as
- * "it cannot happen". `// drift-ok: <reason>` is always available. It stops
- * the accident.
- *
- * This module reads `process.env` directly and asks only about presence. It does
- * not call `databaseEnv()` or `serverEnv()` because those parse and memoize
- * unrelated variables.
+ * Use instead of a hand-rolled `{ skip: !process.env.DATABASE_URL }`.
+ * Skips on a laptop with no Postgres. Throws in CI when a variable is missing, because
+ * `node:test` reports a suite-level skip as `# skipped 0` and the job would exit 0.
+ * Five copies exist, one per test tree (`rootDir: "."` blocks a shared import). They differ only in the CI job name.
+ * Reads `process.env` directly: `databaseEnv()` and `serverEnv()` parse unrelated variables.
  */
 
 /** Which services a suite needs before it can run. */
@@ -61,7 +15,7 @@ const REQUIRED_VARIABLES = {
   "database+redis": ["DATABASE_URL", "REDIS_URL"],
 } satisfies Record<ServiceRequirement, readonly string[]>;
 
-/** The pure decision used by the environment-reading door below. */
+/** The pure decision behind `dbBackedSkip`. */
 export function decideDbBackedSkip(input: {
   readonly missing: readonly string[];
   readonly ci: boolean;
