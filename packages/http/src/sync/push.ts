@@ -17,9 +17,11 @@ import type { DbTransaction } from "@alfred/db";
 
 export type PushRequestBody = ReplicacheModel.Push;
 
-export type PushResponse =
-  | Record<string, never>
-  | { error: "ClientStateNotFound" | "VersionNotSupported" };
+// Only the empty success body. Replicache's `ClientStateNotFound` and
+// `VersionNotSupported` push errors are never sent: the route schema rejects
+// any `pushVersion` but 1, and `handlePush` binds an unknown client group
+// instead of refusing it.
+export type PushResponse = Record<string, never>;
 
 function isKnownMutator(name: string): name is MutatorName {
   return Object.prototype.hasOwnProperty.call(serverMutators, name);
