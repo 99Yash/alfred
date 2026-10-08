@@ -34,9 +34,7 @@ export function EmptyHero({
   const name = firstName(session?.user);
   const now = new Date();
 
-  // Cluster greeting + composer + connect-tools as a single block centered
-  // in the remaining viewport. flex-col + justify-center keeps the group
-  // tight whether the column is 600px or 1000px tall.
+  // Center greeting, composer, and connect bar as one block.
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6">
       <div className="flex flex-col items-center">
@@ -49,14 +47,9 @@ export function EmptyHero({
         </h2>
       </div>
 
-      {/* Composer + connect-tools shelf share a column so the shelf reads
-       * as part of the same affordance — the composer flattens its bottom
-       * edge and the shelf tucks under it, slightly inset. Mirrors
-       * dimension's `ConnectIntegrationsBar` pattern. */}
+      {/* The connect bar tucks under the composer as one control. */}
       <div className="mt-8 w-full max-w-2xl">
-        {/* Key by threadId so the composer (and its Tiptap editor) remounts
-         * on thread switch — draft-seeding from localStorage runs once per
-         * thread and the editor instance starts fresh, no per-render sync. */}
+        {/* Keyed by threadId so the editor remounts and seeds its draft once per thread. */}
         <Composer
           key={threadId ?? "new"}
           threadId={threadId}

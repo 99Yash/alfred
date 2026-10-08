@@ -14,8 +14,7 @@ type SafeErrorLog = {
     table?: string | undefined;
     column?: string | undefined;
   };
-  // Verbose (non-production) diagnostics only — the production allowlist above
-  // never sets these. See {@link devErrorDiagnostics}.
+  // Verbose mode only. See {@link devErrorDiagnostics}.
   message?: string | undefined;
   statusCode?: number | undefined;
   responseBody?: string | undefined;
@@ -24,15 +23,7 @@ type SafeErrorLog = {
 
 const RESPONSE_BODY_LOG_CAP = 4_000;
 
-/**
- * The raw fields the production allowlist deliberately strips: the error
- * `message` and — for AI SDK / HTTP `APICallError`s — the provider's
- * `statusCode`, `responseBody`, and `url`. Only spread in when the logger is
- * built in verbose mode ({@link createLogger}), turning an opaque
- * `{type:"AI_APICallError"}` into the actual cause (e.g. Anthropic's
- * `tools.N.custom.input_schema.type: Field required`). `responseBody` is capped
- * so a large provider body can't flood the logs.
- */
+/** Raw fields that production logs strip: `message`, and an `APICallError`'s status, body, and url. */
 function devErrorDiagnostics(err: unknown): Partial<SafeErrorLog> {
   const out: Partial<SafeErrorLog> = {};
 
@@ -64,14 +55,8 @@ function isPostgresDiagnostic(value: unknown): boolean {
 }
 
 /**
- * Allowlist an exception for logs. In particular, never serialize `message`,
- * `detail`, `query`, or `parameters`: Drizzle/Postgres may place user data and
- * raw SQL there. The first stack line repeats `message`, so retain frames only.
- *
- * `verbose` (non-production only; wired by {@link createLogger}) additionally
- * spreads in the raw {@link devErrorDiagnostics}. It defaults to `false`, so
- * every other caller — and the trace-facing {@link safeErrorDiagnostic} — keeps
- * the strict production shape.
+ * Allowlist an error for logs. Never `message`, `detail`, `query`, or `parameters`:
+ * Postgres can put user data and SQL there. Keep only stack frames, since line one repeats `message`.
  */
 export function serializeError(err: unknown, verbose = false): SafeErrorLog {
   const error = err instanceof Error ? err : undefined;
@@ -120,13 +105,7 @@ export function safeErrorDiagnostic(err: unknown): string {
 }
 
 export function createLogger(destination?: DestinationStream, opts?: { verboseErrors?: boolean }) {
-  // Decided once at construction, and this module builds a logger at import
-  // time, so the read must survive a process that never validated its env — a
-  // bare test run has no `--env-file`. `nodeEnv()` reads that one field and
-  // never throws, which also keeps verbosity independent of the other ~25
-  // variables: a broken DATABASE_URL must not silence dev diagnostics.
-  // Outside production the operator owns the logs, so verbose is safe there.
-  // Tests pass `verboseErrors` explicitly.
+  // Runs at import, before the env is validated, so use `nodeEnv()`, which never throws.
   const verbose = opts?.verboseErrors ?? nodeEnv() !== "production";
 
   const options = {

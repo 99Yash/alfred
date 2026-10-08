@@ -1,9 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
-/**
- * One versioned envelope format. Keep its wire values together so a future
- * format revision changes one declaration.
- */
 const FORMAT = {
   algorithm: "A256GCM",
   cipher: "aes-256-gcm",
@@ -33,10 +29,7 @@ export type CredentialVaultFailure =
   | "plaintext_remaining"
   | "unopenable_remaining";
 
-/**
- * A redacted credential-vault failure. `detail` is only for non-secret
- * operational context, such as a row count.
- */
+/** `detail` must never hold a secret. */
 export class CredentialVaultError extends Error {
   readonly failure: CredentialVaultFailure;
 
@@ -50,9 +43,8 @@ export class CredentialVaultError extends Error {
 declare const sealedCredentialSecret: unique symbol;
 
 /**
- * A sealed token as stored in a Postgres `text` column. It is deliberately not
- * assignable to `string`, so implicit provider use does not compile. The runtime
- * value is still a string; `CredentialVault.open` is the public conversion.
+ * A sealed token. It is a string at runtime but typed as a symbol,
+ * so it cannot reach a provider without `CredentialVault.open`.
  */
 export type SealedCredentialSecret = symbol & {
   readonly [sealedCredentialSecret]: true;
@@ -69,7 +61,6 @@ function encode(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64url");
 }
 
-/** Single-assertion boundary: the sealed envelope is a string at runtime. */
 function toSealedEnvelope(joined: string): SealedCredentialSecret {
   // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: envelope is a string at runtime but branded as symbol to prevent implicit provider use
   return joined as unknown as SealedCredentialSecret;
@@ -95,20 +86,12 @@ function additionalData(kid: string, role: "dek" | "payload"): Buffer {
   return Buffer.from([FORMAT.prefix, FORMAT.algorithm, kid, role].join(FORMAT.separator), "utf8");
 }
 
-/**
- * Recognize every Alfred credential-envelope version before parsing it. This is
- * deliberately broader than the current format: conversion must fail closed on
- * a future, unsupported, or damaged envelope instead of wrapping it as
- * plaintext and making the damaged value look valid.
- */
+/** Matches any `acv<N>.` version, so a damaged or future envelope is never sealed again as plaintext. */
 function belongsToEnvelopeFamily(persisted: unknown): persisted is SealedCredentialSecret {
   return typeof persisted === "string" && ENVELOPE_FAMILY_PATTERN.test(persisted);
 }
 
-/**
- * Build an AES-256-GCM envelope vault around an explicit key-encryption key.
- * Production key resolution belongs to `credential-vault.ts`.
- */
+/** AES-256-GCM envelope vault. `credential-vault.ts` supplies the production key. */
 export function createCredentialVault(kek: Uint8Array): CredentialVault {
   if (kek.length !== FORMAT.keyBytes) {
     throw new CredentialVaultError("invalid_key_length");

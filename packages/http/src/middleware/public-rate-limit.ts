@@ -7,26 +7,10 @@ import {
 import { Elysia } from "elysia";
 
 /**
- * A per-caller request limit for a route that has NO session.
- *
- * Every other route in this API is bounded by the session check: an anonymous
- * caller never reaches the handler, so nothing has ever needed a limiter beside
- * Better Auth's own (`packages/auth/src/rate-limit.ts`, which covers
- * `/api/auth/*` only). The shared-thread read (ADR-0102) removes that bound and
- * has to replace it.
- *
- * The threat is NOT slug enumeration. A slug carries 80 bits, so walking the
- * space is not a strategy. The threat is cost: one known slug returns a whole
- * transcript, from the database, on every request, to a caller who needs no
- * account. This bounds how often that costs anything.
- *
- * IT FAILS OPEN. A Redis outage must not take the public page down — the page
- * is a read of already-published content, and losing it turns a shared link
- * into a broken promise. The counter is a cost control, not an access control;
- * the access control is the slug.
+ * Per-IP limit for routes with no session (ADR-0102). A cost control, not access
+ * control: one known slug reads a whole transcript. Fails open if Redis is down.
  */
 
-/** Requests one caller may make per {@link WINDOW_SECONDS}. */
 const MAX_REQUESTS_PER_WINDOW = 60;
 
 const WINDOW_SECONDS = 60;
@@ -34,22 +18,13 @@ const WINDOW_SECONDS = 60;
 let publicRateRedis: BoundedRedis | undefined;
 
 function getPublicRateRedis(): BoundedRedis {
-  // `"command"`, not `"fail-fast"`: a `"fail-fast"` handle rejects its first
-  // command after construction even against a healthy Redis, which would make
-  // the first public read of every process look rate-limited in the logs.
+  // Not "fail-fast": it rejects the first command even on a healthy Redis.
   publicRateRedis ??= createRedisConnection("command");
 
   return publicRateRedis;
 }
 
-/**
- * Address ranges that are a hop in front of this process rather than a caller.
- *
- * Same list, and the same reasoning, as `TRUSTED_PROXY_RANGES` in
- * `packages/auth/src/rate-limit.ts`: the container is reachable only through
- * Railway's edge, Railway publishes no stable address for it, and every hop
- * between the client and this process is on Railway's internal network.
- */
+/** Railway-internal proxy hops. Same list as `TRUSTED_PROXY_RANGES` in `packages/auth/src/rate-limit.ts`. */
 const INFRASTRUCTURE_PREFIXES = ["10.", "192.168.", "127.", "100.", "::1", "fd", "fc"] as const;
 
 function isInfrastructureHop(address: string): boolean {
@@ -63,18 +38,9 @@ function isInfrastructureHop(address: string): boolean {
 }
 
 /**
- * The caller's address, read RIGHT TO LEFT out of `x-forwarded-for`.
- *
- * Direction is the whole correctness argument. A proxy APPENDS the address it
- * saw, so the leftmost entry is whatever the client chose to send and the
- * rightmost entries are the hops we trust. Reading from the left would let any
- * caller mint a fresh bucket per request by spoofing one header, which is a
- * limiter that limits nothing. Reading from the right past the infrastructure
- * hops gives the address Railway's edge actually observed.
- *
- * Returns `null` when no address survives that walk. The caller then shares one
- * bucket with every other such request, which is the safe direction: it cannot
- * be widened by spoofing, only narrowed.
+ * The caller's address, read right to left from `x-forwarded-for`.
+ * The leftmost entry is client-controlled, so reading it lets a caller spoof a fresh bucket.
+ * `null` puts the caller in one shared bucket.
  */
 export function clientAddressFromForwardedFor(header: string | null | undefined): string | null {
   if (!header) return null;
@@ -94,14 +60,7 @@ export function clientAddressFromForwardedFor(header: string | null | undefined)
   return null;
 }
 
-/**
- * Limit the routes declared on the instance this is `use`d by.
- *
- * `onBeforeHandle` rather than a call inside a handler: a second public route
- * added to the same instance then inherits the limit instead of having to
- * remember it, which is the same reason the public routes live on their own
- * Elysia instance at all.
- */
+/** A hook, not a handler call, so a new route on the same instance inherits the limit. */
 export function publicRateLimit(bucket: string): Elysia {
   return new Elysia({ name: `public-rate-limit-${bucket}` }).onBeforeHandle(async ({ request }) => {
     const caller = clientAddressFromForwardedFor(request.headers.get("x-forwarded-for"));
@@ -113,8 +72,7 @@ export function publicRateLimit(bucket: string): Elysia {
         getPublicRateRedis(),
         key,
         1,
-        // Two windows of TTL so a key minted at the end of one window is not
-        // reclaimed while it is still the current bucket.
+        // Two windows, so a key made late in a window lives to its end.
         WINDOW_SECONDS * 2,
       );
 
@@ -124,8 +82,7 @@ export function publicRateLimit(bucket: string): Elysia {
         });
       }
     } catch (err) {
-      // The rejection above rides the same `catch` as a Redis failure, so let
-      // it through: only an infrastructure error fails open.
+      // Rethrow our own 429; only a Redis error fails open.
       if (isApiError(err, "TOO_MANY_REQUESTS")) throw err;
 
       console.warn("[sharing] public rate limit unavailable:", toMessage(err));

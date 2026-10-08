@@ -1,19 +1,8 @@
 import { isRecord } from "./guards";
 
 /**
- * The one redaction table every log sink pulls from — ADR-0038's promised
- * `SENSITIVE_LOG_PATHS` in `@alfred/contracts`, so Pino, Sentry, and any
- * future logger cannot drift apart on what counts as a secret field.
- *
- * Path syntax is the subset both sinks need:
- *   - an exact dotted path (`req.headers.authorization`) matches that one
- *     nested location;
- *   - a leading `*.` segment (`*.accessToken`) matches the remainder of the
- *     path under any top-level key.
- *
- * {@link redactSensitiveLogPaths} interprets the same table for sinks that
- * take no pino-style path config (Sentry's `beforeSend` / `beforeBreadcrumb`),
- * so adding a path here covers every sink at once.
+ * The one redaction table for every log sink (ADR-0038). Pino reads it as path config;
+ * Sentry uses `redactSensitiveLogPaths`. A leading `*` matches any top-level key.
  */
 export const SENSITIVE_LOG_PATHS = [
   "req.headers.authorization",
@@ -50,14 +39,8 @@ function walk(value: unknown, path: readonly string[]): unknown {
   }, {});
 }
 
-/**
- * Return a copy of `value` with every leaf reached by a {@link SENSITIVE_LOG_PATHS}
- * pattern replaced with `[redacted]`. Pure and total: it never throws and never
- * mutates its input, so a sink hook can apply it to any event payload.
- */
+/** A copy of `value` with each matched path set to `[redacted]`. Never throws or mutates. */
 export function redactSensitiveLogPaths<T>(value: T): T {
-  // SAFETY: walk copies arrays and plain records structurally and passes every
-  // other value through by reference; the only content change is a matched
-  // path's value becoming the CENSOR string, so the tree keeps T's shape.
+  // SAFETY: `walk` keeps the shape; it only swaps matched values for a string.
   return walk(value, []) as T;
 }

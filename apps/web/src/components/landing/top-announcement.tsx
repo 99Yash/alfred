@@ -1,10 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
-/**
- * Top pill banner — fixed at top-center, backdrop-blurred. The dot is a
- * status indicator. The arrow icon translates on hover (group-hover).
- */
+/** Fixed top-center announcement pill. */
 export function TopAnnouncement({
   children,
   href,
@@ -30,7 +27,7 @@ export function TopAnnouncement({
           "group pointer-events-auto relative flex items-center gap-2 sm:gap-2.5",
           "rounded-full px-3 py-1.5 text-[12px] sm:px-3.5 sm:text-[12.5px]",
           "text-white/85 hover:text-white",
-          // blur layer as :before so it doesn't fight transitions on text
+          // Blur on :before, so it does not fight the text transitions.
           "before:absolute before:inset-0 before:-z-10 before:rounded-full",
           "before:bg-black/30 before:backdrop-blur-md hover:before:bg-black/40",
           "ring-1 ring-white/10 ring-inset hover:ring-white/20",

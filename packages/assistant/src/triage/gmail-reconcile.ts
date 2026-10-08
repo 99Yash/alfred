@@ -9,9 +9,9 @@ import { triageThreadLockKey } from "./store";
 export interface ReconcileGmailThreadsArgs {
   credentialId: string;
   userId: string;
-  /** Threads that received a fresh insert this run (`*.touchedThreadIds`). */
+  /** Threads with a fresh insert this run. */
   threadIds: string[];
-  /** Freshly inserted rows from the current job; never delete them in the same repair pass. */
+  /** Rows inserted by this job; never delete them in the same pass. */
   protectedDocumentIds?: readonly string[];
 }
 
@@ -20,7 +20,7 @@ export interface ReconcileGmailThreadsResult {
   threadsReconciled: number;
   docsDeleted: number;
   triageRepointed: number;
-  /** Threads whose triage row was repointed and should have its Gmail label reconciled. */
+  /** Repointed threads that need a relabel. */
   repointedThreadIds: string[];
 }
 
@@ -44,11 +44,7 @@ export interface LiveInboundGmailDocument {
 
 const RECONCILE_CONCURRENCY = 4;
 
-/**
- * Pure planner for one Gmail thread cleanup. It deliberately repoints only to a
- * live, received doc: sent mail can trigger a thread re-eval, but it must never
- * become the triage row's canonical/labeled document (ADR-0051 #7).
- */
+/** Repoint only to a live received doc; sent mail never becomes the labelled doc (ADR-0051 #7). */
 export function planGmailThreadReconcile(args: {
   storedDocs: readonly ReconcileStoredGmailDoc[];
   liveSourceIds: ReadonlySet<string>;
@@ -83,9 +79,7 @@ export function planGmailThreadReconcile(args: {
     if (repointTarget) {
       repointDocumentId = repointTarget.id;
     } else if (args.triageDocumentId && deadIds.has(args.triageDocumentId)) {
-      // Keep the pointed row so briefing's inner join still resolves. A sent doc
-      // is not a valid repair target, so when no live inbound exists we prefer a
-      // stale-but-resolving pointer over inventing a sent canonical document.
+      // No live inbound: keep the dead pointed row so briefing's inner join resolves.
       deadToDelete = confirmedDead.filter(
         (doc) => doc.id !== args.triageDocumentId && !protectedIds.has(doc.id),
       );
@@ -99,25 +93,10 @@ export function planGmailThreadReconcile(args: {
 }
 
 /**
- * Converge a thread's `documents` to the live Gmail message set (issue #279).
- *
- * Gmail reassigns/merges message ids around send/draft transitions, so an id
- * captured at ingest can go dead (404). Left alone, a thread accumulates a tail
- * of dead `documents` rows, and `email_triage.document_id` (a soft pointer, no
- * FK) can land on one — which is exactly what breaks the relabel (#277).
- *
- * Reconcile-on-ingest fires precisely when ids reshuffle (a new message joins
- * the thread). For each touched thread with >1 stored doc (a single-doc thread
- * has no live sibling to converge to), we fetch the live message-id set and:
- *   1. Repoint `email_triage.document_id` off any dead doc to the newest live
- *      inbound doc FIRST — never dangle the pointer, and never make sent mail
- *      the labeled/canonical doc.
- *   2. Delete dead `documents` rows (cascades to chunks + memory junctions).
- *
- * Safety: we only prune when the live fetch SUCCEEDS and returns a non-empty
- * set, and we do not delete rows inserted after the live fetch started. If a
- * thread has no live inbound doc in our DB to repoint to, we keep the one dead
- * doc the triage row points at so the briefing inner-join still resolves.
+ * Converge a thread's `documents` to the live Gmail message set (#279). Gmail
+ * reshuffles ids around sends, so a stored id can die and the triage pointer
+ * with it (#277). Repoint first, then delete dead rows. Prune only after a
+ * non-empty live fetch, and never rows inserted after the fetch began.
  */
 export async function reconcileGmailThreads(
   args: ReconcileGmailThreadsArgs,

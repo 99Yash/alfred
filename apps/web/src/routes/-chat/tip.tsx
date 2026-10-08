@@ -4,12 +4,7 @@ import { Kbd } from "~/components/ui/kbd";
 import { useAppTheme } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 
-/**
- * Curved-tip pointer (dimension's tooltip arrow). Inherits the pill fill via
- * `fill-app-fg-4` so it reads as one piece with the content, and Radix rotates
- * the wrapper per side automatically. The arrow narrows on the horizontal
- * sides to keep the proportions right when it points left/right.
- */
+/** Curved tooltip arrow in the pill's fill. Radix rotates it per side. */
 function TipArrow() {
   return (
     <Tooltip.Arrow asChild>
@@ -29,30 +24,10 @@ function TipArrow() {
 }
 
 /**
- * Styled hover hint for chat chrome buttons (composer + top bar). Mirrors the
- * sidebar's `RailTip` grammar — a dark pill with the action label — and, when a
- * shortcut exists, trails a `Kbd` chip so the binding is discoverable without
- * docs. Borrowed from dimension's elaborate tooltip, whose icon buttons all
- * carry shortcut tooltips and whose richer surfaces add a `description` line.
- *
- * Wrap the surface once in a `Tooltip.Provider`; each `Tip` is a self-contained
- * Root/Trigger/Content. A curved pointer arrow (dimension's rounded-tip shape)
- * ties the pill to its trigger; it inherits the pill fill so it reads as one
- * piece. This is the single tooltip primitive for chat chrome — route every
- * button through it rather than adding a parallel tooltip.
- *
- * Motion lives in the `.app-tip` block in `index.css` and keys off Radix's
- * `data-state`, because a tooltip has two different entrances. A cold reveal
- * (`delayed-open`) fades and scales in. A move onto a neighbouring trigger
- * inside the provider's `skipDelayDuration` opens the next pill instantly
- * (`instant-open`), and repeating the scale-and-rise there makes a sweep along
- * a dense row read as a burst of pops — so that state only crossfades against
- * the outgoing pill's `closed` fade.
- *
- * `disableHoverableContent` drops Radix's grace polygon between trigger and
- * pill. That polygon exists so a pointer can travel into interactive content;
- * ours is a static label, and the polygon holds the old pill open while the
- * next one is already showing, which is the other half of the jitter.
+ * The one tooltip for chat chrome: a dark pill with a label and optional `Kbd` keys.
+ * Needs a `Tooltip.Provider` ancestor.
+ * Motion is in `.app-tip` (`index.css`): `instant-open` only crossfades, so a sweep does not pop.
+ * `disableHoverableContent` drops Radix's grace polygon, which held the old pill open.
  */
 export function Tip({
   label,
@@ -64,16 +39,15 @@ export function Tip({
   delayDuration,
   children,
 }: {
-  /** Primary line. Plain text or rich content. */
+  /** Plain text or rich content. */
   label: ReactNode;
-  /** Optional secondary line — fuller explanation under the label. */
+  /** Second line under the label. */
   description?: ReactNode | undefined;
-  /** Optional shortcut glyphs (e.g. `["↵"]`), rendered as trailing Kbd chips. */
+  /** Shortcut glyphs (e.g. `["↵"]`) as Kbd chips. */
   keys?: readonly string[] | undefined;
   side?: Tooltip.TooltipContentProps["side"] | undefined;
   align?: Tooltip.TooltipContentProps["align"] | undefined;
   sideOffset?: number | undefined;
-  /** Per-tip override of the provider's hover delay. */
   delayDuration?: number | undefined;
   children: ReactNode;
 }) {

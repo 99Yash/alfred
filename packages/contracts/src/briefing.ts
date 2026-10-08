@@ -1,11 +1,4 @@
-/**
- * Daily-briefing contract (ADR-0041). Zero Node deps — safe to import from
- * `apps/web`, `packages/db` (`.$type<T>()` columns), `packages/assistant`, and
- * `packages/sync`. The composer's structured-output schema, the per-source
- * gather shape, the reference-kind enum, and the closed timezone-fallback
- * surface all live here so the briefings table column types and the
- * Replicache read schema agree by construction.
- */
+/** Daily-briefing contract (ADR-0041), shared by the DB columns, sync, and the web. */
 
 import { z } from "zod";
 
@@ -40,33 +33,17 @@ declare const ianaTimezoneBrand: unique symbol;
 
 export type IanaTimezone = string & { readonly [ianaTimezoneBrand]: true };
 
-/**
- * Cached at module scope — `Intl.supportedValuesOf('timeZone')` allocates
- * a ~600-entry array on every call. Guard / schema-refine both run on hot
- * paths (API boundaries, zod parsing), so we pay the allocation once.
- *
- * Mutable (not Readonly) so {@link isSupportedTimezone} can memoize the
- * runtime-trial hits below.
- */
+/** Built once: `supportedValuesOf` allocates ~600 entries per call. Mutable for memoization. */
 const SUPPORTED_TIMEZONES: Set<string> = new Set(Intl.supportedValuesOf("timeZone"));
 
 /**
- * Whether the runtime can resolve `value` as a timezone.
- *
- * `Intl.supportedValuesOf('timeZone')` lists only canonical *region* zones —
- * it omits valid aliases like "UTC" and "Etc/UTC" that `Intl.DateTimeFormat`
- * accepts. (This is exactly the gap that broke briefings: the default
- * `"UTC"` pref passed `DateTimeFormat`-based validation in `@alfred/assistant` but
- * failed the set-membership check here, throwing in every briefing `gather`.)
- *
- * So the set is the fast path and a `DateTimeFormat` trial is the fallback;
- * a successful trial is memoized into the set, keeping repeat lookups O(1).
+ * `supportedValuesOf` omits valid aliases such as "UTC" and "Etc/UTC", and the
+ * default "UTC" pref once failed every briefing. So try `DateTimeFormat` on a miss.
  */
 function isSupportedTimezone(value: string): boolean {
   if (SUPPORTED_TIMEZONES.has(value)) return true;
 
   try {
-    // Throws RangeError on an unknown zone; succeeds for valid aliases.
     new Intl.DateTimeFormat("en-US", { timeZone: value });
     SUPPORTED_TIMEZONES.add(value);
 
@@ -76,24 +53,13 @@ function isSupportedTimezone(value: string): boolean {
   }
 }
 
-/**
- * Runtime guard for IANA timezone strings. Verifies the value against the
- * platform's supported timezones so we don't accept arbitrary text. Throws
- * on miss so callers can rely on the branded type after the call.
- */
 export function assertIanaTimezone(value: string): asserts value is IanaTimezone {
   if (!isSupportedTimezone(value)) {
     throw new Error(`Not a recognized IANA timezone: ${value}`);
   }
 }
 
-/**
- * Parse a string into a branded {@link IanaTimezone}, or throw.
- *
- * The expression form of {@link assertIanaTimezone}, for the boundaries that
- * read a zone back out of persisted state or a workflow payload and need it as
- * a value. Two identical private copies of this existed before it did.
- */
+/** The expression form of {@link assertIanaTimezone}. */
 export function parseIanaTimezone(value: string): IanaTimezone {
   assertIanaTimezone(value);
 
@@ -211,11 +177,7 @@ export const dayOfWeekContributionSchema = z.object({
 export type DayOfWeekContribution = z.infer<typeof dayOfWeekContributionSchema>;
 
 // ─── Day-shape (ADR-0064 / #230) ──────────────────────────────────────────
-// A deterministic read of how busy the day actually was, so the composer never
-// characterizes a day with real shipping/activity as "quiet" (the inverse of
-// #210's over-tagging — presentation not reflecting reality). Sourced from the
-// object-state projection (ADR-0062) + the integration-activity window count;
-// no LLM judgment.
+// How busy the day was, from counts, so the composer does not call a busy day "quiet".
 
 export const DAY_SHAPE_VOLUMES = ["busy", "normal", "quiet"] as const;
 
@@ -224,39 +186,24 @@ export type DayShapeVolume = (typeof DAY_SHAPE_VOLUMES)[number];
 export const dayShapeVolumeSchema = z.enum(DAY_SHAPE_VOLUMES);
 
 export const dayShapeSchema = z.object({
-  /** Activity intensity over the window — derived from deterministic counts. */
   activityVolume: dayShapeVolumeSchema,
-  /** Work objects that reached a shipped/resolved state — the evening recap. */
+  /** Work that shipped or resolved, for the evening recap. */
   shipped: z.array(z.object({ title: z.string().min(1).max(300), url: z.url().optional() })),
   /**
-   * Count of gathered priority emails scored at the `demanding` attention band
-   * (ADR-0064). The morning suppression gate (#259) reads this: a cron morning
-   * with zero demanding email, no integration activity, and no calendar events
-   * is a genuinely quiet day and suppresses — a normal/muted item (a resolved
-   * micro-charge, a cold recruiter ask) no longer forces a send and promotes
-   * itself to the headline. Actionable payment failures/bills are pinned into
-   * this count by the gather scorer. Optional + additive: absent on day-shape
-   * objects persisted before this field, and on a standalone `gatherDayShape()`
-   * call that has no email context — the gate treats absence as "signal
-   * unavailable" and falls back to the raw email count (errs toward sending,
-   * ADR-0048).
+   * Priority emails in the `demanding` band. With no activity and no events, zero
+   * suppresses the morning briefing (#259). Absent on old rows and without email
+   * context; the gate then uses the raw email count (ADR-0048).
    */
   demandingEmailCount: z.number().int().nonnegative().optional(),
-  /**
-   * Highest attention band among the gathered priority emails (`muted` when
-   * there are none). Presentation/logging aid — lets a suppressed morning's log
-   * line say *why* it was quiet. Same optionality as `demandingEmailCount`.
-   */
+  /** Highest email band (`muted` when none), so a suppressed morning can log why. */
   topEmailBand: attentionBandSchema.optional(),
 });
 
 export type DayShape = z.infer<typeof dayShapeSchema>;
 
 /**
- * A priority email removed from the live briefing lanes because a deterministic
- * integration-object projection positively proved that its work loop closed.
- * Persisted separately from `gather` so replays and operators can inspect the
- * exact closure facts supplied to the composer.
+ * A priority email dropped because the object projection proved its loop closed.
+ * Stored apart from `gather` so a replay can inspect the closure facts.
  */
 export const briefingClosedLoopSchema = z.object({
   documentId: z.string().min(1),
@@ -271,15 +218,9 @@ export const briefingClosedLoopSchema = z.object({
 export type BriefingClosedLoop = z.infer<typeof briefingClosedLoopSchema>;
 
 /**
- * Check-before-remind relevance verdicts (#1194) — one per still-live loop,
- * computed after deterministic loop reconciliation and before the composer.
- *
- * A verdict shapes phrasing and priority ONLY. It carries no closure authority:
- * there is no closing category on this shape, so no consumer — composer,
- * guard, or future reader — can derive "closed" from it. Closure stays
- * exclusively with verified push/pull state folded through the object-state
- * store (ADR-0048-D, ADR-0103). Anything the pass cannot verify stays live as
- * `unverifiable`, so the brief never goes silent without a reason.
+ * Check-before-remind verdicts (#1194), one per live loop. They change phrasing
+ * and priority only, never closure: only the object-state store closes a loop
+ * (ADR-0048-D, ADR-0103). That is why no verdict means "closed".
  */
 export const LOOP_RELEVANCE_VERDICTS = [
   "still-actionable",
@@ -291,7 +232,7 @@ export type LoopRelevanceVerdict = (typeof LOOP_RELEVANCE_VERDICTS)[number];
 
 export const loopRelevanceVerdictSchema = z.enum(LOOP_RELEVANCE_VERDICTS);
 
-/** Which live read backed or attempted the verdict. `none` means no live read was available. */
+/** The live read behind the verdict. `none`: no live read was available. */
 export const LOOP_RELEVANCE_SOURCES = [
   "live_sentry_read",
   "live_github_read",
@@ -303,39 +244,26 @@ export type LoopRelevanceSource = (typeof LOOP_RELEVANCE_SOURCES)[number];
 
 export const loopRelevanceSourceSchema = z.enum(LOOP_RELEVANCE_SOURCES);
 
-/** Provider titles are unbounded at ingestion, so the contract owns this display cap. */
+/** Provider titles have no length limit at ingest. */
 export const BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX = 300;
 
 export const briefingLoopRelevanceSchema = z.object({
   documentId: z.string().min(1),
   verdict: loopRelevanceVerdictSchema,
   source: loopRelevanceSourceSchema,
-  /**
-   * The validated live token the verdict was read off (`unresolved`,
-   * `resolved`, `open`, `merged`, …), or null when no read proved one. A
-   * provider token, never a closure claim — `merged` here contextualizes the
-   * phrasing; only the object-state store asserts closure.
-   */
+  /** The provider state token (`open`, `merged`). It shapes phrasing; it never closes a loop. */
   observedState: z.string().max(80).nullable(),
   objectTitle: z.string().max(BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX).nullable(),
   objectUrl: z.url().nullable(),
-  /** One-line cited evidence for the composer, e.g. which live read saw what. */
+  /** One line of cited evidence for the composer. */
   detail: z.string().min(1).max(300),
 });
 
 export type BriefingLoopRelevance = z.infer<typeof briefingLoopRelevanceSchema>;
 
 /**
- * Output of the gather step. Sources split into guaranteed vs optional:
- *   - `email` is always present — triage is a built-in pipeline; an empty
- *     inbox is represented as `categories: {}`, not `null`.
- *   - `day_of_week` is always present — it's deterministic from the briefing
- *     date and never fails.
- *   - `integration_activity` is always present — no connected producers is
- *     represented as `items: []`, not `null`.
- *   - `calendar` / `weather` are `null` when "not connected / scope missing /
- *     upstream failed". The composer prompt handles the empty case verbatim —
- *     empty state is content, not an error path.
+ * `email`, `day_of_week`, and `integration_activity` are always present (empty, not
+ * `null`). `calendar` and `weather` are `null` when unavailable, which is not an error.
  */
 export type BriefingGather = z.infer<typeof briefingGatherSchema>;
 
@@ -351,11 +279,6 @@ export type ComposerFullBriefing = BriefingComposerOutput["fullBriefing"];
 
 export type FullBriefing = z.infer<typeof fullBriefingSchema>;
 
-/**
- * Composer structured-output schema (ADR-0041 §"Composer output schema").
- * Bounds prevent runaway output; `sections` capped at 12 to match the closed
- * source enum + small slop for future expansion.
- */
 export const integrationSlugSchema = z.string().refine(isIntegrationSlug, {
   message: "Expected a known integration slug",
 });
@@ -392,11 +315,7 @@ export const briefingGatherSchema = z.object({
   integration_activity: integrationActivityContributionSchema,
   weather: weatherContributionSchema.nullable(),
   day_of_week: dayOfWeekContributionSchema,
-  /**
-   * Deterministic day-shape signal (ADR-0064 / #230). Optional + additive so
-   * gather payloads persisted before this field parse unchanged; the composer
-   * treats its absence as "no day-shape signal," never an error.
-   */
+  /** Optional, so older gathers parse. Absence is not an error. */
   day_shape: dayShapeSchema.optional(),
 });
 
@@ -404,12 +323,12 @@ export const fullBriefingSectionSchema = z.object({
   source: gatherSourceSlugSchema,
   label: z.string().min(1).max(80),
   body: z.string().min(1).max(2000),
-  /** User-facing inclusion rationale, not raw model reasoning. */
+  /** Shown to the user. Not raw model reasoning. */
   why: z.string().min(1).max(500).optional(),
-  /** Reference ids used in this section, e.g. `activity:...`. */
   references: z.array(z.string().min(1)).max(12).optional(),
 });
 
+/** Composer output (ADR-0041). The bounds stop runaway output. */
 export const briefingComposerSchema = z.object({
   breakingSummary: z.string().min(1).max(2000),
   fullBriefing: z.object({
@@ -439,14 +358,9 @@ export const briefingSourcePanelSchema = z.object({
 });
 
 export const fullBriefingSchema = briefingComposerSchema.shape.fullBriefing.extend({
-  /** Deterministic display panels generated after compose; never model-authored. */
+  /** Built after compose, never by the model. */
   sourcePanels: z.array(briefingSourcePanelSchema).max(8).optional(),
-  /**
-   * Email document ids the delivered prose actually referenced. This is audit /
-   * continuity state, not display content: the next briefing uses it to decide
-   * what the user was truly told about, instead of treating every gathered item
-   * as surfaced.
-   */
+  /** Emails the prose actually cited. The next briefing reads this, not the whole gather. */
   surfacedDocumentIds: z.array(z.string().min(1)).max(100).optional(),
 });
 
@@ -456,7 +370,7 @@ export interface BriefingContributor<T> {
   source: GatherSourceSlug;
   collect(args: {
     userId: string;
-    /** YYYY-MM-DD calendar date in the user's timezone. */
+    /** YYYY-MM-DD in the user's zone. */
     date: string;
     timezone: IanaTimezone;
   }): Promise<T | null>;
@@ -490,6 +404,4 @@ export type BriefingStatus = (typeof briefingStatusValues)[number];
 
 export const briefingStatusSchema = z.enum(briefingStatusValues);
 
-// Re-export the triage schema dependency so downstream consumers don't
-// need a second import for the shared category enum.
 export { triageCategorySchema };

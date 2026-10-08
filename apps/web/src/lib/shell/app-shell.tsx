@@ -29,13 +29,7 @@ import {
 import { LOCAL_STORAGE_KEY, setLocalStorageItem } from "~/lib/storage/storage";
 import { resolveSetState } from "~/lib/set-state";
 
-/* -----------------------------------------------------------------------------
- * Right-rail slot
- * Pages call useRightRail(node) to mount widget content as a flex sibling
- * inside the shell's main row. The shell renders the registered node raw —
- * each page brings its own aside chrome (background, width, transitions).
- * Multiple pages can register; the last-registered wins.
- * -------------------------------------------------------------------------- */
+/* Right-rail slot: `useRightRail(node)` mounts a page's own aside. The last one registered wins. */
 
 interface RightRailContextValue {
   setContent: (node: ReactNode | null) => void;
@@ -69,11 +63,7 @@ export function useShellThreadViewModel(viewModel: ShellThreadViewModel) {
   }, [ctx, viewModel]);
 }
 
-/* -----------------------------------------------------------------------------
- * Sidebar visibility
- * Read by routes that want to render their own "open sidebar" affordance in a
- * top bar (e.g. /chat) instead of relying on the global floating button.
- * -------------------------------------------------------------------------- */
+/* Sidebar visibility, for routes that draw their own "open sidebar" button. */
 
 interface SidebarStateValue {
   open: boolean;
@@ -92,14 +82,7 @@ export function useSidebarState(): SidebarStateValue {
   return ctx;
 }
 
-/* -----------------------------------------------------------------------------
- * Viewport-driven sidebar collapse
- * Mirrors `useRailMode` from -chat/rail/use-rail-mode — same matchMedia + snap-on-
- * transition shape, but at a narrower breakpoint than the rail (1024px vs
- * 1280px) so the right rail collapses first and the sidebar follows once
- * we're firmly in tablet territory. Both default-open inline, default-closed
- * overlay; the user can still override manually after a transition.
- * -------------------------------------------------------------------------- */
+/* Sidebar collapse, like `useRailMode` but at 1024px, so the 1280px right rail collapses first. */
 
 const SIDEBAR_BREAKPOINT = "(min-width: 1024px)";
 
@@ -167,8 +150,7 @@ function shellReducer(state: ShellState, action: ShellAction): ShellState {
       return { ...state, threadViewModel: action.value };
     default: {
       const _exhaustive: never = action;
-      // SAFETY: this arm only runs on an unhandled action; recovering the
-      // discriminant for the message cannot touch a real member.
+      // SAFETY: unreachable; the cast only reads `type` for the message.
       throw new Error(`Unhandled shell action: ${(_exhaustive as ShellAction).type}`);
     }
   }
@@ -215,11 +197,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     [],
   );
 
-  // Snap the sidebar back to each mode's default when the viewport
-  // crosses the breakpoint — wide viewports get it open inline, narrow
-  // viewports get it collapsed. Same during-render pattern as the
-  // right-rail mode reset in `chat-shell.tsx`; the ref tracks the
-  // previous mode so we only snap on the transition, not every render.
+  // On a breakpoint change only, reset the sidebar: open inline, closed as overlay.
   const [prevSidebarMode, setPrevSidebarMode] = useState(sidebarMode);
 
   if (prevSidebarMode !== sidebarMode) {
@@ -227,15 +205,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     setSidebarOpen(sidebarMode === "inline");
   }
 
-  /* Server-truth onboarding flag. Only fetched once we know we're authed; the
-   * `enabled` keeps the query off the login screen. */
+  /* Server onboarding flag, fetched only when authed. */
   const sessionUser = session?.user;
 
-  /* Mirror resolved auth state into a synchronous localStorage hint so `/` can
-   * decide on first paint — without blocking FCP on the session round-trip —
-   * whether to show the landing (signed-out) or hold for the redirect
-   * (signed-in). Written here because AppShell wraps every route, so the hint
-   * stays fresh no matter which route the user entered through. */
+  /* Auth hint in localStorage, so `/` can pick landing or redirect on first paint. */
   useEffect(() => {
     if (isPending) return;
     setLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED, !!session?.user);
@@ -257,11 +230,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const onOnboardingRoute = location.pathname.startsWith("/onboarding");
 
-  /* Mirror the resolved onboarding decision into a synchronous localStorage
-   * hint so the *next* first paint doesn't have to blank the main column behind
-   * the session → onboarding round-trip chain. Written here for the same reason
-   * as the auth hint: AppShell wraps every route, so the hint stays fresh no
-   * matter where the user entered. */
+  /* Onboarding hint, so the next first paint does not wait on two round trips. */
   useEffect(() => {
     const nextRoute = onboardingData?.routeToOnboarding;
 
@@ -269,12 +238,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     writeOnboardingHint(sessionUser.id, !nextRoute);
   }, [onboardingData?.routeToOnboarding, sessionUser?.id]);
 
-  /* First-paint hint: per-user so a DB wipe (old account was onboarded,
-   * new account is not) doesn't keep a genuinely new user out of
-   * `/onboarding` via a stale `true`. Derived during render so no effect
-   * chain is needed. The onboarding Finish button writes this same hint
-   * synchronously before its full-page navigation (#991), so the fresh boot
-   * at `/` already reads `true` while the query is still in flight. */
+  /* Per user, so a stale `true` from a wiped account does not skip onboarding. */
   const onboardingHintComplete = readOnboardingHint(sessionUser?.id);
   useEffect(() => {
     const curId = sessionUser?.id;
@@ -282,18 +246,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!curId) return;
 
     if (onboardingHintBelongsToAnotherUser(curId)) {
-      // Stale hint for a different user (DB wipe → new signup) — reset.
+      // The hint belongs to another user.
       writeOnboardingHint(curId, false);
     }
   }, [sessionUser?.id]);
-  // Route guard: redirect based on server truth, with optimistic hint for
-  // the pending window (query may be slow due to server restart). This is a
-  // guard, not an event handler, so an effect is the correct primitive.
+  // Redirect on the server flag, and on the hint while the query is pending.
   useEffect(() => {
     if (!session?.user) return;
 
-    // Optimistic: hint says not onboarded → go to onboarding immediately
-    // (query may still be pending due to server restart / slow network).
     if (!onboardingHintComplete && !onOnboardingRoute) {
       const nextRoute = onboardingData?.routeToOnboarding;
 
@@ -320,11 +280,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     onboardingHintComplete,
   ]);
 
-  // Close the palette on route change. Tracking the previous location in
-  // state (not a ref) and resetting during render replaces the prior
-  // useEffects that the linter flagged as derived-state effects — and keeps
-  // the reset a pure render-phase state adjustment (a ref write during render
-  // can leak if React discards the render; a queued setState cannot).
+  // Close the palette on route change, during render. State, not a ref: React can discard a render.
   const [prevLocation, setPrevLocation] = useState(location);
 
   if (prevLocation !== location) {
@@ -340,40 +296,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       setRightRailNode(null);
       setThreadViewModel(null);
 
-      // Dismiss the overlay drawer on navigation so a tapped nav row doesn't
-      // leave it floating over the page it just routed to. Owned here (not via a
-      // child effect calling back up) for the same reason as the palette close —
-      // the route is the owner's external store, and navigation can come from
-      // anywhere (nav rows, browser back, programmatic). Inline mode stays pinned.
+      // Close the overlay drawer on any navigation. Inline mode stays open.
       if (sidebarMode === "overlay") setSidebarOpen(false);
     }
   }
 
-  /* Routes that render edge-to-edge — no sidebar, no rail — and skip the auth
-   * guard below. Each such route declares itself with `staticData: {
-   * publicRoute: true }`; see `lib/shell/public-route.ts` for why the two
-   * effects share one flag, and why the declaration lives on the route rather
-   * than in a pathname list here.
-   *
-   * `/` is public because it owns its own layout: signed-out visitors see the
-   * marketing landing, signed-in visitors get redirected to `/chat`. Wrapping
-   * it in app chrome — even briefly during the pending window — would flash
-   * "Memory / Notes / Skills…" at strangers before the landing renders.
-   *
-   * `/c/$slug` — a shared thread (ADR-0102) — is public for BOTH reasons, and
-   * the flag is what makes the page reachable at all: without it a visitor is
-   * redirected to `/login` and never sees the page. */
+  /* Public routes have no chrome and skip the auth guard. See `lib/shell/public-route.ts`. */
   const chromeless = useIsPublicRoute();
 
-  /* Auth guard: a signed-out visitor on any non-chromeless (i.e. authed) route
-   * is bounced to `/login`, carrying the path they were on as `?redirect=` so
-   * sign-in returns them here. This is the inverse of the signed-in → `/chat`
-   * redirect in `routes/index.tsx`; together they keep every route's auth state
-   * self-correcting. Gated on `!isPending` so we never redirect during the
-   * session round-trip — a refresh of a still-valid session resolves to a user
-   * and stays put. `replace` so the dead authed URL doesn't linger in history.
-   * Covers chat, memory, notes, skills, settings, integrations, briefings,
-   * library, workflows, approvals, debug — every route AppShell wraps. */
+  /* Auth guard: send a signed-out visitor to `/login?redirect=`. Never while the session is pending. */
   const pathname = location.pathname;
   const onPreviewChatRoute = pathname === "/preview/chat" || pathname.startsWith("/preview/chat/");
   const mustRedirectToLogin = !isPending && !sessionUser && !chromeless;
@@ -387,8 +318,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }, [mustRedirectToLogin, location.pathname, location.searchStr, navigate]);
 
-  // Global navigation chords while authenticated: ⌘/Ctrl+K toggles the command
-  // palette, ⌘J starts a new chat (⌘N is browser-reserved, so we use ⌘J).
+  // ⌘K toggles the palette. ⌘J starts a new chat, because the browser keeps ⌘N.
   const authed = !isPending && !!session?.user && !chromeless;
   const togglePaletteEvent = useEffectEvent(() => setPaletteOpen((o) => !o));
   const newChatEvent = useEffectEvent(() => void navigate({ to: "/chat" }));
@@ -396,9 +326,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!authed) return;
 
     const onKey = (e: KeyboardEvent) => {
-      // No isEditableTarget guard: these are navigation chords with no
-      // text-editing meaning, and the composer (the dominant focus surface) is
-      // contenteditable — guarding would dead-key them there (#286 review).
+      // No `isEditableTarget` guard: the composer is contenteditable and would block them.
       if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         togglePaletteEvent();
@@ -439,24 +367,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     [setThreadViewModel],
   );
 
-  // First-load: render optimistically. The redirect effect above will
-  // push non-onboarded users to `/onboarding` once the query resolves;
-  // we trade a brief flash for no dead blank. Hint invalidation above
-  // handles the wiped-DB → new-account stale-cache case.
+  // Render at once; the redirect effect moves a non-onboarded user later.
   const mainContent = children;
 
-  // Chrome should be present for any non-chromeless route the user is
-  // allowed to see — including the brief window where the session is
-  // still resolving. Gating chrome on `authed` alone causes a flash
-  // where ChatShell (and any other `h-full` route) renders parented by
-  // `__root`'s `min-h-screen` wrapper, collapsing the hero to the top.
+  // Show chrome while the session resolves too; otherwise `h-full` routes collapse for a frame.
   const showChrome = !chromeless && (isPending || !!sessionUser);
 
-  // Providers always wrap children — even on chromeless / unauthed paints —
-  // so any route that calls `useChatContext` / `useSidebarState` on its
-  // first render (before `useSession` resolves) doesn't trip the error
-  // boundary. They're cheap state holders; no harm in providing them on
-  // /login or while pending.
+  // Always provide context, so a hook on the first render does not throw.
   return (
     <RightRailContext.Provider value={ctx}>
       <ShellThreadViewModelContext.Provider value={shellThreadViewModelContextValue}>
@@ -482,9 +399,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   />
                 </Suspense>
               ) : mustRedirectToLogin ? (
-                // Redirect to /login is in flight (effect above) — hold a blank
-                // frame rather than flashing the bare authed route (e.g. the
-                // chrome-less ChatShell) at a signed-out visitor.
+                // The /login redirect is in flight; show a blank frame.
                 <AuthedShellFallback />
               ) : (
                 children

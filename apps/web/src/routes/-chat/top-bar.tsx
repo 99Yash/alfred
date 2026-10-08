@@ -34,7 +34,7 @@ export function TopBar({
   onToggleAutoApprove,
 }: {
   title: string;
-  /** Absent until the first turn creates the thread; Share and the menu stay hidden until then. */
+  /** Absent until the first turn creates the thread; Share and the menu hide until then. */
   threadId: string | undefined;
   pinned: boolean;
   railOpen: boolean;
@@ -43,9 +43,9 @@ export function TopBar({
   selectedArtifactId: string | null;
   onOpenArtifact: (artifactId: string) => void;
   onCloseArtifact: () => void;
-  /** Durable thread messages, for the thread menu's usage rollup. */
+  /** For the thread menu's usage rollup. */
   threadMessages?: readonly SyncedChatMessage[] | undefined;
-  /** Commit a new title. The bar owns the inline editor; the caller owns the mutator. */
+  /** The bar owns the inline editor; the caller owns the mutator. */
   onRename: (title: string) => void;
   onTogglePin: () => void;
   onDelete: () => void;
@@ -61,20 +61,9 @@ export function TopBar({
   const messages = threadMessages ?? [];
   const queryClient = useQueryClient();
 
-  /* Both pieces of state above NAME A THREAD, and `ChatShell` carries no key, so
-   * a thread switch re-renders this bar rather than remounting it. Left alone,
-   * each one re-targets itself at the new thread in silence:
-   *
-   *   - `renaming` keeps an uncontrolled input holding the PREVIOUS thread's
-   *     text. Press Enter and the new thread takes the old title — a data loss
-   *     with no error.
-   *   - `shareOpen` keeps the dialog on screen, now publishing a thread the user
-   *     was not looking at when they opened it.
-   *
-   * Reset during render, not in an effect: an effect commits one frame late, and
-   * that frame is enough for an Enter keypress to land on the wrong thread. This
-   * is the same pure render-phase adjustment `chat-shell.tsx` uses to reset its
-   * queue gate. */
+  /* `ChatShell` has no key, so a thread switch re-renders this bar with stale state:
+   * `renaming` would give the new thread the old title on Enter, and `shareOpen` would publish the wrong thread.
+   * Reset during render: an effect is one frame late, enough for an Enter to land. */
   const [prevThreadId, setPrevThreadId] = useState(threadId);
 
   if (prevThreadId !== threadId) {
@@ -159,12 +148,7 @@ export function TopBar({
   );
 }
 
-/**
- * Inline title editor, mirroring the sidebar row's rename affordance rather
- * than opening a dialog: the title is already on screen here, so editing it in
- * place is one fewer surface for the same edit. Commits on blur and Enter,
- * abandons on Escape.
- */
+/** Inline title editor. Commits on blur and Enter; Escape cancels. */
 function TitleEditor({
   title,
   onCommit,

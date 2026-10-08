@@ -13,10 +13,8 @@ import { HistoryRunRow } from "./history-run-row";
 const PLAY_LEADING = <Play size={14} />;
 
 /**
- * Real run history (#561): keyset pages from `GET /api/workflows/:id/runs`,
- * each row with its frozen outcome, the live write ledger, and one recovery.
- * The top card starts a manual run when the workflow is active and
- * user-authored; built-ins are driven by their own schedules.
+ * Run history in keyset pages: frozen outcome, live write ledger, one recovery per row.
+ * Manual runs only for active user-authored workflows; built-ins run on schedules.
  */
 export function HistoryTab({ workflow }: { workflow: SyncedWorkflow }) {
   const navigate = useNavigate({ from: "/workflows/$workflow" });

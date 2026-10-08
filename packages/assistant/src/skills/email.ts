@@ -5,34 +5,17 @@ import { renderSkillDocumentationEmail } from "@alfred/mailer";
 import type { SkillDocumentationContext } from "./skill-documentation-context";
 
 /**
- * Deterministic email renderer for the "Skill documented" notification.
- *
- * The body of the email is *not* the documented skill body — that lives
- * in the app, where the user reviews + edits it. The email is a delivery
- * receipt: confirms the doc run completed, names the sources it scanned,
- * and links the user back. Matches dimension's shape:
- *
- *   subject  Skill documented: <name>
- *   body     greeting → provenance line → "What's covered" preview →
- *            CTA back to the app
- *
- * Why deterministic: the documented body itself is the LLM artifact;
- * generating an email summary on top with another LLM call would
- * double-bill compose with no signal. We extract the first ~600 chars
- * of the body as the "what's covered" preview — this is markdown the
- * user already approved (their v1 directives), so it reads cleanly.
+ * "Skill documented" email. A delivery receipt, not the body: it names the sources and
+ * previews the first ~600 chars. Deterministic, because a second LLM call adds cost and nothing else.
  */
 
 const PREVIEW_CHAR_BUDGET = 600;
 
 export interface SkillDocumentationEmailArgs {
   context: SkillDocumentationContext;
-  /** The newly-composed v2 body (the documented revision). */
+  /** The documented (v2) body. */
   documentedBody: string;
-  /**
-   * Origin the email links/logo are built from. Defaults to the configured
-   * web origin (`CORS_ORIGIN`), so the workflow doesn't have to thread it.
-   */
+  /** Defaults to `CORS_ORIGIN`. */
   alfredUrl?: string;
 }
 
@@ -71,11 +54,7 @@ function firstName(full: string | undefined | null): string {
   return trimmed.split(/\s+/)[0] ?? "there";
 }
 
-/**
- * Build the dimension-style provenance preamble. Examples:
- *   "Analyzed 12 documents across Gmail and 3 memory notes for this skill."
- *   "No connected sources matched yet; this is a starting point."
- */
+/** E.g. "Analyzed 12 documents across Gmail and 3 memory notes for this skill." */
 function buildProvenanceLine(ctx: SkillDocumentationContext): string {
   const docCount = ctx.documentHits.length;
   const memCount = ctx.memoryHits.length;

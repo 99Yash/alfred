@@ -10,24 +10,16 @@ import { DAILY_BRIEFING_WORKFLOW_SLUG } from "./workflow-input";
 import { toMessage } from "@alfred/contracts";
 
 /**
- * Briefing-cron queue (ADR-0025 #2). Distinct from the agent queue (the
- * daily-briefing *workflow* runs through the agent runtime); this
- * queue's only job is to *trigger* a workflow run on the right schedule
- * for the right user.
- *
- * Why a separate queue rather than a BullMQ repeatable directly on the
- * agent queue: the cron job's responsibility is "fan out to users whose
- * local hour matches their delivery_hour right now." That's a per-tick
- * read of `user_preferences`, not a workflow run — keeping it in its
- * own lane mirrors `memory-cron` and keeps the agent queue free of
- * cron metadata.
+ * Briefing cron queue (ADR-0025 #2). It only triggers runs; the workflow runs on the agent queue.
+ * Separate because the tick fans out to users whose local hour matches, which is not
+ * one `next_run_at`. Same pattern as `memory-cron`.
  */
 const BRIEFING_QUEUE_NAME = "briefing-cron";
 
 export type BriefingJobData =
-  /** Repeatable: fires hourly; fans out to matching users. */
+  /** Hourly; fans out to matching users. */
   | { kind: "briefing.tick" }
-  /** Direct trigger from the smoke script / the rail "Generate briefing" button. */
+  /** From the smoke script or the "Generate briefing" button. */
   | { kind: "briefing.run"; userId: string; slot?: BriefingSlot; reason?: "manual" | "forced" };
 
 let _queue: Queue<BriefingJobData> | undefined;
@@ -57,7 +49,7 @@ export async function startBriefingWorker(opts: StartBriefingWorkerOpts = {}): P
   if (_worker) return;
   _worker = new Worker<BriefingJobData>(BRIEFING_QUEUE_NAME, processBriefingJob, {
     connection: createRedisConnection("queue"),
-    // Cron tick + per-user enqueue is cheap; one is enough.
+    // One is enough.
     concurrency: opts.concurrency ?? 1,
   });
   _worker.on("error", (err) => {
@@ -101,12 +93,8 @@ interface TickResult {
 }
 
 /**
- * Hourly fan-out. For each user, resolve their tz + delivery hour and
- * compare to "now in their local time." The actual no-double-send
- * guard is the slot-scoped `briefings` unique index plus the
- * `email_sends` unique index in the workflow's `send` step — this tick
- * is allowed to be loose. Worst case a duplicate tick resumes or skips
- * the same terminal briefing row.
+ * Hourly fan-out by each user's local hour. This may be loose: the `briefings` and
+ * `email_sends` unique indexes block a double send.
  */
 async function handleTick(now: Date = new Date()): Promise<TickResult> {
   const users = await selectEmailableUsers();
@@ -125,16 +113,13 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
       const localHour = zone.hour(now);
       const briefingDate = zone.day(now);
 
-      // Each slot is its own background-agent toggle (Settings → Features).
-      // A disabled slot is dropped here, not at compose-time, so a switched-off
-      // briefing never creates a run. UNSET defaults to ON (see resolveFeatureFlags).
+      // A disabled slot never creates a run. Unset means on (see resolveFeatureFlags).
       const allSlots: Array<{ slot: BriefingSlot; hour: number; enabled: boolean }> = [
         { slot: "morning", hour: prefs.deliveryHour, enabled: flags.morningBriefing },
         { slot: "evening", hour: prefs.eveningHour, enabled: flags.eveningRecap },
       ];
 
       const slots = allSlots.filter((s) => s.enabled);
-      // Slots the user switched off count as skipped for the tick metric.
       skipped += allSlots.length - slots.length;
       const matchingSlots = slots.filter((s) => localHour === s.hour);
 
@@ -164,7 +149,7 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
         enqueued++;
       }
     } catch (err) {
-      // Per-user failure shouldn't take down the whole tick.
+      // One user's failure must not stop the tick.
       skipped++;
       console.warn(`[briefing:worker] tick failed for user=${u.id}:`, toMessage(err));
     }
@@ -196,11 +181,7 @@ interface EnqueueBriefingRunArgs {
   scheduledFor?: string;
 }
 
-/**
- * Create + enqueue a `daily-briefing` agent run for the given user.
- * Public helper — used by the hourly tick, the smoke script (m10d), and
- * the rail "Generate briefing" button (`POST /api/me/briefings/run`).
- */
+/** Create and enqueue a `daily-briefing` run. Used by the tick, the smoke script, and `POST /api/me/briefings/run`. */
 export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<{ runId: string }> {
   const slot = args.slot ?? "morning";
 
@@ -238,10 +219,7 @@ export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<
       reason: args.reason,
       briefingDate: args.briefingDate,
     },
-    // briefing-cron predates ADR-0027's generic `workflows.tick`. It
-    // still owns its own per-feature fan-out (because matching local
-    // hour ≠ a single `next_run_at`), so we stamp the trigger here
-    // rather than at a central dispatcher.
+    // This queue does its own fan-out, so it stamps the trigger, not `workflows.tick`.
     ...occurrence,
   });
 

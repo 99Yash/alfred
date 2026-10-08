@@ -28,14 +28,7 @@ import { TopBar } from "./top-bar";
 import { ThreadTotal } from "./thread-usage";
 import { pendingToolCallId, useArtifactPanel } from "./use-artifact-panel";
 
-/**
- * Fixture-free chat scaffold shared by `/chat` and `/chat/$threadId`.
- *
- * Top bar with the thread title + action buttons (share, more, rail toggle).
- * Below: a centered empty-state hero (date · greeting · tagline · composer ·
- * connect-tools row). A right rail (`Today` panel — todos / inbox / meetings)
- * mounts via `useRightRail()` when open and reads production-backed data.
- */
+/** Chat scaffold for `/chat` and `/chat/$threadId`: top bar, feed or hero, composer, right rail. */
 export interface ChatShellProps {
   threadId: string | undefined;
   title: string;
@@ -46,9 +39,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const [railOpen, setRailOpen] = useState(() => railMode === "inline");
   const railData = useRailData();
 
-  // Snap the rail to each mode's sensible default when the viewport crosses
-  // the breakpoint — wide screens get the inline rail, narrow screens hide
-  // the overlay so it doesn't ambush the user on resize.
+  // Reset the rail to the mode's default when the viewport crosses the breakpoint.
   const [prevMode, setPrevMode] = useState(railMode);
 
   if (prevMode !== railMode) {
@@ -56,7 +47,6 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     setRailOpen(railMode === "inline");
   }
 
-  // ESC closes the overlay rail.
   useEffect(() => {
     if (railMode !== "overlay" || !railOpen) return;
 
@@ -82,17 +72,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const isStreaming = showStream && !stream.done;
   const activeRunId = showStream ? stream.runId : undefined;
 
-  // Artifact sidebar (ADR-0075). When the boss authors an artifact the user
-  // can open it from its trigger card; the panel then takes over the shared
-  // right slot (the Today rail steps aside) until closed. State is local UI —
-  // the content rides the synced `artifacts` row. The panel also auto-opens the
-  // freshest artifact of the live run (`activeRunId`), so the shell doesn't have
-  // to push synced ids into it from an effect.
-  //
-  // The live artifact stream fills a `document` body token-by-token while the
-  // boss authors it — before the durable row syncs (create) or as it's rewritten
-  // (update/append). The panel binds a pending create by `toolCallId`; here we
-  // resolve the open target's live body to hand the sidebar.
+  // Artifact sidebar (ADR-0075) takes the right slot while open and auto-opens the live run's newest artifact.
+  // The live stream fills a body before the durable row syncs; resolve the open target's live body here.
   const artifactStream = useArtifactStream(threadId);
   const artifact = useArtifactPanel(threadId, activeRunId, artifactStream);
 
@@ -105,12 +86,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       : artifactStream.byArtifactId(artifact.selectedId);
   }, [artifact.selectedId, artifactStream]);
 
-  // "Suggest an edit" from the sidebar prefills the composer (ADR-0075 Phase 4):
-  // a nonce makes the same scaffold re-apply if requested twice, and the main
-  // Composer consumes it via an effect (see `prefill`). The prefill is tagged
-  // with the thread it was created for so a stale prefill doesn't leak into a
-  // different thread's composer when the user navigates away (the Composer
-  // remounts per-thread, which would otherwise re-fire the apply effect).
+  // "Suggest an edit" prefills the composer (ADR-0075 Phase 4). The nonce lets a repeat re-apply.
+  // Tagged with its thread so it does not leak into another thread's composer.
   const [editPrefill, setEditPrefill] = useState<
     (ArtifactEditSuggestion & { nonce: number; threadId: string | undefined }) | null
   >(null);
@@ -126,10 +103,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     [threadId],
   );
 
-  // Memoize the rail node so `useRightRail`'s effect only fires when the
-  // rail's inputs actually change — otherwise every ChatShell re-render
-  // would push a new JSX reference into AppShell and trigger an extra
-  // AppShell re-render.
+  // Memoized so each render does not push a new node into AppShell.
   const railNode = useMemo(
     () => (
       <RightRail
@@ -166,27 +140,19 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     ],
   );
 
-  // One shell slot, two occupants: the artifact panel wins while open.
+  // The artifact panel wins the slot while open.
   useRightRail(artifactNode ?? railNode);
 
   const send = useSendMessage();
-  // Model tier from the composer's picker (Auto vs Deep). Persisted so the
-  // choice survives reloads and thread switches; rides with every turn.
+  // Persisted Auto/Deep tier, sent with every turn.
   const [tier, setTier] = useModelTier();
-  // Client-local per-thread queue for lining up messages while a reply streams
-  // (#489). While `isStreaming` is true, submits enqueue as removable chips
-  // above the composer; on turn completion the oldest entry auto-starts as its
-  // own turn (FIFO, one at a time). A `busy` response keeps the entry queued
-  // for a retry on the next completion rather than dropping it. Empty/whitespace
-  // entries are not enqueued; queue state is scoped per thread via `useChatQueue`.
+  // Per-thread client queue (#489): while a reply streams, submits queue as chips.
+  // On completion the oldest sends, one at a time. A `busy` reply keeps it queued.
   const { queue, enqueue, remove, dequeue } = useChatQueue(threadId);
   const [queueSending, setQueueSending] = useState(false);
   const prevShowStreamRef = useRef(showStream);
   const lastErrorStreamIdRef = useRef<string | null>(null);
-  // Reset the completion detector when the thread changes — the previous
-  // thread's `showStream` must not fire the next thread's queue flush. Do this
-  // during render so the next thread never commits with the previous thread's
-  // send gate.
+  // Reset during render so the old thread's `showStream` cannot flush the new thread's queue.
   const [prevThreadId, setPrevThreadId] = useState(threadId);
 
   if (prevThreadId !== threadId) {
@@ -201,8 +167,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       const trimmed = text.trim();
       const hasFiles = Boolean(files && files.length > 0);
 
-      // Fast pre-check before enqueue/send so the composer does not clear on an
-      // empty submit. Canonical predicate lives in `@alfred/contracts`.
+      // So the composer does not clear on an empty submit.
       if (
         isEmptyChatTurnInput({
           content: trimmed,
@@ -212,12 +177,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       )
         return false;
 
-      // While a turn is active (streaming or stream done but durable not yet
-      // synced) enqueue locally so the previous reply can finish rendering
-      // before the next turn starts. This keeps the auto-send FIFO waiting for
-      // `showStream` to clear (stream done + durable synced) per #489, and
-      // avoids mounting a new stream over the previous done-but-not-yet-synced
-      // bubble.
+      // Queue while a turn is active, including done-but-not-synced, so no stream mounts over that bubble.
       if (showStream) {
         const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId });
 
@@ -237,9 +197,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       if (result.ok) return true;
 
       if (result.reason === "busy") {
-        // Per-thread concurrency guard (#488) — the start created no run because
-        // a different turn is still in flight. Keep the message queued and retry
-        // on the next completion signal rather than dropping it (#489 AC 4).
+        // Another turn is in flight (#488). Queue and retry on the next completion.
         const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId });
 
         return ok;
@@ -247,18 +205,14 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
       if (result.reason === "empty") return false;
 
-      // Hard failure already toasted by `useSendMessage`; keep composer content
-      // so the user can retry manually rather than losing their draft.
+      // `useSendMessage` already toasted. Keep the draft.
       return false;
     },
     [showStream, enqueue, send, threadId, tier],
   );
 
-  // On turn completion (stream done + durable synced), auto-start the oldest
-  // queued message as its own turn, one at a time. A `busy` reply keeps the
-  // entry queued for the next completion; other failures keep it for manual
-  // removal/retry. The `queueSending` gate prevents a burst of concurrent starts
-  // while the newly started turn's stream is still mounting.
+  // On completion (stream done and synced), send the oldest queued message.
+  // `queueSending` stops a burst while the new stream mounts.
   const streamDone = stream?.done ?? false;
   const streamError = stream?.error ?? null;
   const streamRunId = stream?.runId ?? null;
@@ -267,13 +221,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     prevShowStreamRef.current = showStream;
     const completed = prev && !showStream;
 
-    // Also handle the error case where the stream is done with an inline error
-    // but no durable message ever arrives (SSE disconnect). In that window
-    // `showStream` stays true, yet the run is terminal and the next turn should
-    // not stay stuck; treat a done+error stream as completed even while its
-    // bubble is still shown.
-    // Guard against tight-loop retries: the same `runId+error` should only
-    // trigger one auto-send attempt until a new completion edge arrives.
+    // A done stream with an error and no durable message (SSE drop) counts as complete.
+    // Send once per `runId+error` to avoid a retry loop.
     const errorId =
       streamDone && streamError ? `${streamRunId ?? "unknown"}:${String(streamError)}` : null;
 
@@ -286,8 +235,6 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
     if (isNewErrorCompletion && errorId) lastErrorStreamIdRef.current = errorId;
 
-    // Reset the error dedup when the stream clears so a future error on a new
-    // run is not suppressed.
     if (!streamDone || !streamError) lastErrorStreamIdRef.current = null;
     const shouldFlush = completed || isNewErrorCompletion;
 
@@ -310,16 +257,12 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       if (result.ok) {
         dequeue();
       } else if (result.reason === "busy") {
-        // Keep queued; the in-flight run (or a newly started one) will trigger
-        // the next retry on its completion. No toast — the user already sees the
-        // pending chip and the busy is transient.
+        // Keep queued; the next completion retries. The chip shows it, so no toast.
       } else if (result.reason === "empty") {
-        // Guarded on enqueue, but drop a stale empty entry rather than stalling
-        // the queue behind it.
+        // Drop a stale empty entry so it does not block the queue.
         dequeue();
       } else {
-        // Hard error: leave the entry queued so the user does not lose it.
-        // `useSendMessage` already toasted the failure; the chip stays removable.
+        // Hard error, already toasted: keep it queued.
       }
 
       setQueueSending(false);
@@ -337,10 +280,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     streamRunId,
   ]);
 
-  // Retry re-sends the prior user turn as a fresh turn. It carries that
-  // message's attachment ids (not File objects — the bytes are already in the
-  // bucket); the server copies them onto the new message. This is what lets an
-  // image-only failed turn be retried (ADR-0065).
+  // Retry sends the attachment ids, not files; the server copies the bytes (ADR-0065).
   const onRetry = useCallback(
     (text: string, retryAttachmentIds?: string[], retryAttachmentMessageId?: string) => {
       void (async () => {
@@ -354,10 +294,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         );
 
         if (!result.ok && result.reason === "busy") {
-          // For a retry that collided, queue the text (with its faithful
-          // attachment ids) so it is not dropped; the queue's completion effect
-          // will retry it. Previously this dropped the retry ids and queued a
-          // text-only turn — violating ADR-0065 for image-only retries.
+          // On a collision, queue it with its attachment ids.
           enqueue({
             text,
             files: [],
@@ -384,28 +321,20 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const approvalTrayActive = awaitingApproval || hasPendingApproval;
   const hasConversation = messages.length > 0 || showStream;
 
-  // Chat "Auto" mode flips the user's global approval default
-  // (`user_action_policies.defaultMode`). On `autonomy` the dispatcher runs
-  // tools without staging a gated approval, so no tray card ever appears —
-  // server-authoritative, no per-action flicker. This is a global switch (it
-  // also governs triage/briefing/workflows), and per-integration rules set in
-  // Settings still override it.
+  // Chat "Auto" sets the global `user_action_policies.defaultMode`.
+  // On `autonomy` the server skips staging, so no tray card shows. Settings rules still override.
   const { policy, setDefaultMode, loading: policyLoading } = useActionPolicy();
   const autoApprove = policy?.defaultMode === "autonomy";
   const autoApprovePending = policyLoading;
 
   const onToggleAutoApprove = useCallback(() => {
-    // Wait for the subscription to settle, then let the server mutator upsert
-    // the baseline row if this is a legacy user without a synced policy yet.
+    // After the subscription settles, the server mutator creates the row for a legacy user.
     if (policyLoading) return;
     void setDefaultMode(autoApprove ? "gated" : "autonomy");
   }, [autoApprove, policyLoading, setDefaultMode]);
 
-  /* Thread-level actions behind the header's "..." menu, from the same hook
-   * the sidebar row menu uses — one write path, so a rename from either
-   * surface lands identically, the optimistic patch is shared, and the bounce
-   * to `/chat` after deleting the open thread cannot apply to only one of
-   * them. Passing `threadId` as the active thread is what arms that bounce. */
+  /* Same hook as the sidebar row menu: one write path, one optimistic patch.
+   * Passing `threadId` arms the bounce to `/chat` after deleting the open thread. */
   const threadActions = useThreadActions(threadId);
   const { thread } = useChatThread(threadId);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -427,10 +356,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     setDeleteOpen(false);
   }, [threadActions, threadId]);
 
-  // Follow-up suggestions for the last completed reply. We commit to a single
-  // affordance per reply to avoid the split-brain of a ghosted prompt competing
-  // with chips: exactly one suggestion → composer ghost text (Tab to accept);
-  // two or more → all render as equal-weight chips, no ghost.
+  // One follow-up becomes composer ghost text (Tab accepts); two or more become chips.
   const followUps = useMemo(
     () => (showStream ? [] : buildFollowUpSuggestions(messages)),
     [messages, showStream],
@@ -438,8 +364,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
   const chipFollowUps = useMemo(() => (followUps.length >= 2 ? followUps : []), [followUps]);
   const lastMessageId = messages.length > 0 ? (messages[messages.length - 1]?.id ?? null) : null;
-  // Ghost dismissal is per-reply: accepting or Escaping hides it until the
-  // next assistant message produces a fresh suggestion.
+  // Per reply: hidden until the next assistant message.
   const [ghostDismissedFor, setGhostDismissedFor] = useState<string | null>(null);
   const ghostSuggestion = followUps.length === 1 ? followUps[0] : undefined;
 
@@ -448,12 +373,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
   const onGhostDone = useCallback(() => setGhostDismissedFor(lastMessageId), [lastMessageId]);
 
-  // Stop the in-flight turn (composer stop button). We freeze the bubble and
-  // swap the composer back to send *this frame* via `stopStream()`, then fire
-  // the server stop best-effort — the worker notices the Redis flag and
-  // finalizes the partial reply, which reconciles through the normal
-  // `chat.message completed` / Replicache sync. Decoupling the UI from that
-  // ~400ms round-trip is what makes stop feel instant.
+  // Freeze the bubble and show Send this frame, then stop on the server.
+  // The worker finalizes the partial reply through normal sync, so stop feels instant.
   const onStopGeneration = useCallback(() => {
     if (!activeRunId) return;
     stopStream();
@@ -462,11 +383,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     });
   }, [activeRunId, stopStream]);
 
-  // `skipDelayDuration` is the window in which a second tooltip opens with no
-  // delay, so the whole surface behaves as one hover group. Radix defaults it to
-  // 300ms, which is shorter than a pointer takes to cross the dense usage strip
-  // under a reply; 600ms keeps a sweep along that row in the crossfade path
-  // instead of re-arming the 300ms delay at every cell.
+  // 600ms skip delay so a sweep across the usage strip does not re-arm the 300ms delay per cell.
   return (
     <Tooltip.Provider delayDuration={300} skipDelayDuration={600}>
       <div className="relative flex h-full min-w-0 flex-col">

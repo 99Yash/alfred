@@ -4,20 +4,8 @@ import { houseTheme } from "./theme";
 import { accent, docType, pageGeometry } from "./tokens";
 
 /**
- * The design-system block injected into the artifact-authoring turn
- * (pristine-artifacts Phase 1). Deliberately LEAN: it teaches the shell
- * contract, names the primitive vocabulary and archetypes, and states the
- * hard rules — it does NOT dump full exemplar HTML (those live in-package as
- * fixtures). It is identical across every page call, so it is appended at a
- * cache-stable position in the chat system prompt and rides the prompt cache;
- * bounding its size bounds the recurring token cost.
- *
- * Built from the token/theme source of truth (accent, page geometry, archetype
- * names, document type scale) so it can never drift from what the shell renders.
- * This stable base covers the shared shell plus the slide vocabulary. The full
- * document vocabulary/template is a separate block injected only after a PDF
- * artifact is selected or created, so unrelated chat turns do not pay for a
- * résumé exemplar they cannot use.
+ * Shell and slide guidance for the chat system prompt. Kept small and identical
+ * every turn, so it stays in the prompt cache. PDF guidance is a separate block.
  */
 function buildArtifactDesignPrompt(): string {
   const slides = pageGeometry.slides;
@@ -62,7 +50,7 @@ function buildArtifactDesignPrompt(): string {
   ].join("\n\n");
 }
 
-/** Medium-specific guidance injected only while authoring/editing PDF pages. */
+/** PDF guidance, added only while the turn works on a PDF artifact. */
 function buildArtifactDocumentDesignPrompt(): string {
   const pdf = pageGeometry.pdf;
   const docTemplateList = documentTemplates.map((t) => `${t.name} (${t.description})`).join("; ");
@@ -83,13 +71,8 @@ function buildArtifactDocumentDesignPrompt(): string {
   ].join("\n\n");
 }
 
-/**
- * The generated, cache-stable design-system prompt. A module-level constant so
- * the exact same string is appended every turn (a fresh build per call would
- * still be identical, but a constant makes the cache-stability contract
- * explicit and avoids rebuilding the string on every prompt assembly).
- */
+/** Built once, so every turn appends the same bytes for the prompt cache. */
 export const ARTIFACT_DESIGN_PROMPT: string = buildArtifactDesignPrompt();
 
-/** Trusted PDF-only extension; omitted from ordinary/slides chat turns. */
+/** PDF-only block. */
 export const ARTIFACT_DOCUMENT_DESIGN_PROMPT: string = buildArtifactDocumentDesignPrompt();

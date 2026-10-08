@@ -8,21 +8,9 @@ import { cn } from "~/lib/utils";
 import { presentConnectNudges } from "./connect-nudges";
 
 /**
- * The in-chat repair offer for a connection-health bounce (#378 item 3): a
- * quiet row under the reply naming what couldn't be used and one action into
- * that provider's connect flow — the same destination the composer's mention
- * palette deep-links to. Renders nothing while credential queries are still
- * loading or when every bounced integration is connected again, so an offer
- * never appears for a problem that no longer exists.
- *
- * Shown live under the streaming bubble (the bounce can land mid-turn) and on
- * reload from the durable tool-call entries.
- *
- * The credential query lives in `NudgeRows` below, not here, and the empty case
- * returns before that child ever mounts. Keep it that way: this component is on
- * every message bubble, including the ones the public `/c/$slug` page renders
- * signed out (ADR-0102). A hook called above this guard would make a bubble
- * with no bounce ask an authenticated endpoint who the visitor is.
+ * Repair offer for a connection bounce (#378 item 3), under the reply. Nothing while loading or once reconnected.
+ * Keep the credential query in `NudgeRows`, below the empty-case return.
+ * Every bubble mounts this, including on the signed-out `/c/$slug` page (ADR-0102).
  */
 export function ConnectNudgeRows({ nudges }: { nudges: readonly ChatConnectNudge[] }) {
   if (nudges.length === 0) return null;

@@ -8,28 +8,15 @@ import { restPassthroughCapability, type RestPassthroughProfile } from "../share
 import type { RetryPolicy } from "../shared/retry";
 
 /**
- * Sentry REST API client (https://docs.sentry.io/api/). Access is an *internal
- * integration* token: the operator creates one internal integration in the
- * Sentry organization (Settings → Developer Settings), and that integration
- * issues the token the user pastes into Alfred. The same integration signs the
- * webhooks the `sentry` ingress descriptor verifies (#563). Internal-integration
- * tokens do not expire and cannot be refreshed, so the credential is a plain
- * bearer token via the shared bearer-credential layer.
- *
- * The connect flow stores the organization the token reads, and nothing about
- * the integration's installation. An integration token cannot read
- * `/organizations/{slug}/sentry-app-installations/`: Sentry resolves that
- * endpoint's organization through the caller's memberships, and the
- * integration's proxy user has none, so it answers 404 "Could not find
- * requested organization" (verified live 2026-09-06 on both `sentry.io` and the
- * `de.sentry.io` region). A webhook delivery is attributed by its signature
- * instead: one Client Secret is one integration in one organization.
+ * Sentry REST client (https://docs.sentry.io/api/). The user pastes an internal-integration
+ * token, which never expires. That token gets 404 on
+ * `/organizations/{slug}/sentry-app-installations/` (no memberships; checked 2026-09-06),
+ * so webhooks are matched by signature, not installation.
  */
 
-/** Pinned REST authority, shared with the curated reads beside this client. */
 export const SENTRY_API = "https://sentry.io/api/0";
 
-/** A pasted token is wrong iff Sentry says so; a 5xx or a timeout is not the user's fault. */
+/** Only 401 and 403 mean a bad token; a 5xx or timeout is not the user's fault. */
 export function isSentryAuthorizationError(err: unknown): boolean {
   return err instanceof HttpError && (err.status === 401 || err.status === 403);
 }
@@ -38,11 +25,7 @@ function sentryHeaders(token: string) {
   return { Authorization: `Bearer ${token}`, Accept: "application/json" };
 }
 
-/**
- * Transport profile for the general read-only passthrough tier (ADR-0074): the
- * pinned Sentry REST authority and bearer auth. The `/api/0` namespace is part
- * of the base URL, so the model's path starts at `/organizations/...`.
- */
+/** `/api/0` is in the base URL, so paths start at `/organizations/...`. */
 function sentryPassthroughProfile(token: string): RestPassthroughProfile {
   return { baseUrl: SENTRY_API, headers: sentryHeaders(token) };
 }
@@ -67,13 +50,7 @@ export interface SentryConnection {
   organization: SentryOrganization;
 }
 
-/**
- * Validate a pasted internal-integration token for one organization. One
- * `org:read` read, `GET /organizations/{slug}/`, gives the identity the
- * credential stores. `GET /organizations/` (no slug) is not used: Sentry answers
- * it only for a *user* token, not an integration token. The installation list
- * is not read either; see the module comment.
- */
+/** `GET /organizations/` (no slug) works only for a user token, so read the one org. */
 export async function sentryValidateToken(args: {
   token: string;
   organization: string;
@@ -87,23 +64,16 @@ export async function sentryValidateToken(args: {
   return { organization };
 }
 
-/** Resolves fresh bearer auth per call; the client stores this, not a credential. */
 export interface SentryAuthResolver {
   (): Promise<{ token: string }>;
 }
 
 export interface SentryClientOptions {
   resolveAuth: SentryAuthResolver;
-  /** Transient-retry envelope for retry-safe requests, or `"none"`. See `ProviderBindOptions.retry`. */
   retry: RetryPolicy | "none";
 }
 
-/**
- * A Sentry client bound to an auth *resolver*. Its only surface today is the
- * passthrough transport profile: the curated reads this provider will grow
- * (`GET /issues/{id}/`, `.../events/{event_id}/`) arrive with the consumer that
- * needs them (the Seer pull-request verifier, #567), not ahead of it.
- */
+/** Passthrough only. Curated reads arrive with the consumer that needs them. */
 export function createSentryClient(options: SentryClientOptions) {
   const passthrough = restPassthroughCapability({
     slug: "sentry",
@@ -112,18 +82,13 @@ export function createSentryClient(options: SentryClientOptions) {
   });
 
   return {
-    /**
-     * Transport profile for the general read-only passthrough tier (ADR-0074):
-     * pinned authority as data, so the passthrough tool never holds a credential.
-     * The read gate is policy owned by `@alfred/assistant`, not this client.
-     */
+    /** Read-only passthrough profile (ADR-0074). The read gate lives in `@alfred/assistant`. */
     passthrough,
   };
 }
 
 export type SentryClient = ReturnType<typeof createSentryClient>;
 
-/** The call-site entry: a Sentry client for a user, resolving the active bearer credential per request. */
 export function sentryClientForUser(options: ProviderBindOptions): SentryClient {
   const { userId, retry } = options;
 

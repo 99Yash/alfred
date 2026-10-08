@@ -4,47 +4,34 @@ import { toast as sonnerToast } from "sonner";
 import { getLocalStorageItem } from "~/lib/storage/storage";
 import { cn } from "~/lib/utils";
 
-/**
- * Semantic intent. Every intent shares the same calm neutral card and only the
- * leading icon disc (plus a soft edge-glow) carries the color; `error` adds a
- * red hairline ring on top so a failure still reads clearly without flooding
- * the whole card red. `danger` is kept as a back-compat alias for `error`.
- */
+/** Only the icon disc carries color; `error` adds a red hairline ring. */
 export type ToastVariant = "default" | "success" | "info" | "warning" | "error";
 
 type LegacyVariant = ToastVariant | "danger";
 
-/** Where the toast docks. Generic action/confirmation toasts read best in a
- * corner; status and errors stay top-center where the eye already is. */
 export type ToastPosition = "top-center" | "top-right" | "bottom-right" | "bottom-center";
 
 interface CallToastOptions {
   message: ReactNode;
   description?: ReactNode | undefined;
-  /** Semantic intent. Drives the default icon and tint. Defaults to `default`. */
+  /** Sets the default icon and tint. */
   variant?: ToastVariant | undefined;
   /** @deprecated use `variant`. `"danger"` maps to `"error"`. */
   type?: LegacyVariant | undefined;
   /** Auto-dismiss in ms. */
   duration?: number | undefined;
-  /** Override the per-variant default icon. Pass `null` to suppress it. */
+  /** `null` hides the icon. */
   icon?: ReactNode | null | undefined;
-  /** Dock location. Defaults to `top-right`. */
+  /** Default `top-right`. */
   position?: ToastPosition | undefined;
-  /**
-   * Optional inline action (e.g. "Undo"). Clicking it runs `onClick` and
-   * dismisses the toast. Pair with a `duration` so the window matches the
-   * caller's deferred commit.
-   */
+  /** Runs `onClick`, then dismisses. For "Undo", match `duration` to the deferred commit. */
   action?: { label: string; onClick: () => void };
 }
 
 interface VariantSpec {
-  /** Card-level modifier (only `error` uses it — for the red hairline ring). */
+  /** Only `error` uses it. */
   cardClass?: string | undefined;
-  /** Icon disc tint + icon accent. */
   iconClass: string;
-  /** Default leading icon for the variant. */
   icon: ReactNode | null;
 }
 
@@ -83,11 +70,8 @@ function normalizeVariant(variant?: ToastVariant, legacy?: LegacyVariant): Toast
 }
 
 /**
- * Resolve the app-grammar theme attribute the same way `<AppThemed>` does.
- * sonner renders the toast outside the themed subtree, so without this the
- * card's `--app-*` tokens fall back to the light `:root` values and a dark
- * shell gets a jarring white card. `undefined` = system — let the `@media`
- * block in `index.css` resolve it.
+ * Sonner renders outside the themed subtree, so set the theme as `<AppThemed>` does,
+ * or a dark shell gets a white card. `undefined` means system.
  */
 function appThemeAttr(): "dark" | "light" | undefined {
   const mode = getLocalStorageItem("app-theme");
@@ -95,13 +79,7 @@ function appThemeAttr(): "dark" | "light" | undefined {
   return mode === "dark" || mode === "light" ? mode : undefined;
 }
 
-/**
- * Frosted toast — a translucent, blurred card with a theme-aware hairline and
- * a soft drop, ported from dimension's `callToast` and grown semantic intents.
- * Sits on top of the `sonner` <Toaster> mounted in `__root`. Use the
- * convenience helpers (`toast.success`, `toast.error`, …) for the common cases
- * and this base for anything bespoke.
- */
+/** The frosted toast card. Prefer the `toast.*` helpers; use this for custom cases. */
 export function callToast({
   message,
   description,
@@ -116,8 +94,7 @@ export function callToast({
   const spec = VARIANTS[intent];
   // `null` suppresses; `undefined` falls back to the variant default.
   const leadingIcon = icon === undefined ? spec.icon : icon;
-  // Single-line toasts center everything on the text's optical middle; only a
-  // wrapping description warrants top-aligning the icon and close button.
+  // Top-align the icon and close button only when a description can wrap.
   const multiline = Boolean(description);
 
   return sonnerToast.custom(
@@ -159,8 +136,7 @@ export function callToast({
             }}
             className={cn(
               "-my-0.5 shrink-0 self-center rounded-lg px-2.5 py-1 text-[12.5px] font-semibold",
-              // A resting fill + hairline so the action reads as a button at a
-              // glance, not hover-revealed text; it firms up on hover.
+              // A resting fill so it reads as a button before hover.
               "bg-app-bg-a2 text-app-fg-4 ring-1 ring-app-fg-a1/60 ring-inset",
               "transition-[background-color,box-shadow,transform] duration-150 hover:ring-app-fg-a1 active:scale-[0.96]",
               "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
@@ -169,8 +145,7 @@ export function callToast({
             {action.label}
           </button>
         ) : null}
-        {/* Sonner's signature affordance: a small circular X cut into the
-         * top-right corner, always visible so dismissal is one click away. */}
+        {/* Always-visible close button in the top-right corner. */}
         <button
           type="button"
           aria-label="Dismiss"
@@ -198,13 +173,7 @@ function shorthand(variant: ToastVariant, defaultPosition: ToastPosition) {
   };
 }
 
-/**
- * One emoji, one line — a featherweight confirmation with a giant blurred
- * emoji bleeding off the leading edge. Ported from dimension's emoji toast and
- * retuned to app-grammar tokens. Reach for it on light, happy moments ("turn
- * finished", "copied") where a full status card would be too much. Click or
- * wait to dismiss.
- */
+/** A one-line confirmation with a large blurred emoji, for small happy moments. */
 function emojiToast({
   emoji,
   label,
@@ -247,11 +216,7 @@ function emojiToast({
   );
 }
 
-/**
- * The everyday surface. `toast.success("Saved")` and friends; pass an options
- * object for descriptions, actions, or a position override. Status-y intents
- * (`error`) stay top-center; light confirmations dock bottom-right.
- */
+/** Warnings and errors go top-center; success and info go bottom-right. */
 export const toast = {
   message: (input: Shorthand) => shorthand("default", "top-right")(input),
   success: shorthand("success", "bottom-right"),

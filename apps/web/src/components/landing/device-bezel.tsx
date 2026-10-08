@@ -1,19 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
-/**
- * Triple-nested rounded bezel that frames product mockups like a real
- * device. Borrowed from firstquadrant.ai's landing — three concentric
- * borders + a soft inner gradient gives the mockup a "physical screen"
- * weight that a single rounded card can't.
- *
- *   outer  rounded-[3rem]  p-3
- *   middle rounded-[2.5rem] p-3   (gradient fill)
- *   inner  rounded-[2rem]   p-0   ← children render here, edge-to-edge
- *
- * Pass any mockup as children — the inner panel sets `overflow-hidden` so
- * rounded children clip cleanly to the bezel.
- */
+/** Three nested rounded borders (from firstquadrant.ai). Children fill the inner panel and clip to it. */
 export function DeviceBezel({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div
@@ -31,10 +19,7 @@ export function DeviceBezel({ children, className }: { children: ReactNode; clas
       >
         <div className="relative overflow-hidden rounded-[2rem] border border-neutral-800/80">
           {children}
-          {/* Screen glass. Two jobs, both about the bright light-mode product
-           * clips: an inset vignette stops a white panel from meeting the dark
-           * bezel on a razor edge, and a faint diagonal sheen reads as glass
-           * over the content rather than content painted on the frame. */}
+          {/* Glass: a vignette softens bright clips at the dark edge, plus a faint sheen. */}
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 rounded-[inherit]"

@@ -1,22 +1,6 @@
 /**
- * MCP server + connection + catalog persistence (PRD #540) — pure durable row
- * access over their three tables.
- *
- * This module holds NO live SDK clients and performs NO network I/O: it is the
- * seam between the in-memory `McpRawClient` world and the three connection-side
- * `mcp_*` tables (`packages/db/src/schema/mcp.ts`). Everything here is either a
- * single-row read, a single-row write, or the one genuinely-atomic multi-row
- * operation that MUST be a transaction to be crash-safe:
- *
- *  - `ensureConnection` — server definition + one connection instance, keyed by
- *    the caller's instance key;
- *  - `publishCatalogRevision` — idempotent insert of an immutable revision +
- *    advance of the connection's current-revision pointer.
- *
- * The invocation ledger and the per-tool policy rows are NOT here. They belong to
- * the tool runtime, which owns durable invocation and the ADR-0088 approval
- * derivation, and they live in `@alfred/assistant/tool-runtime/mcp`. That split is
- * one-way on purpose: nothing in this module may reach the invocation half.
+ * Row access for MCP servers, connections, and catalog revisions. No network I/O.
+ * The invocation ledger lives in `tool-runtime/mcp`; never import it here.
  */
 
 import { BUILT_IN_MCP_CATALOG } from "@alfred/contracts";
@@ -68,32 +52,16 @@ export type McpConnectionWithServer = McpConnection & {
   readonly server: McpServerDefinition;
 };
 
-/**
- * A connection plus the size of the catalog revision it currently points at.
- * `toolCount` is `null` until the first revision is published; the integrations
- * card states the number only when it is known.
- */
+/** A connection plus its current tool count, `null` before the first revision. */
 export type McpConnectionSummary = McpConnectionWithServer & {
   readonly toolCount: McpCatalogRevision["toolCount"] | null;
 };
 
-/**
- * One connection ensure. `instanceKey` is the caller's idempotency key inside
- * one server definition: the same key returns the same row, and a different key
- * mints a second instance on the same endpoint. The caller always supplies it,
- * so the column carries one meaning — a built-in passes its stable slot, and the
- * connection-create operation will pass the key that identifies the click.
- */
+/** `instanceKey` is the idempotency key: same key, same row; new key, a second instance. */
 export type EnsureMcpConnectionInput = Pick<NewMcpConnection, "userId" | "label" | "instanceKey"> &
   Pick<NewMcpServer, "canonicalResource"> & {
     endpoint: URL;
-    /**
-     * Who owns the endpoint of this server definition. `"caller"` refuses to
-     * retarget a resource that already points elsewhere. `"registry"` says the
-     * built-in table in `built-ins.ts` is the source of truth, so a pinned URL
-     * that moves in code retargets the stored row instead of throwing for every
-     * user who already connected.
-     */
+    /** `"caller"` refuses to retarget a stored endpoint. `"registry"` retargets it to the pinned URL. */
     endpointAuthority?: "caller" | "registry";
     initialState?: Partial<Pick<NewMcpConnection, "authServerIdentity" | "status">>;
   };
@@ -115,13 +83,8 @@ function joinConnection(input: {
 }
 
 /**
- * A small, oldest-first page for the background connection recovery pass.
- *
- * Both `connecting` (post-consent transport stall) and `failed` (ordinary
- * connect, call, or boot failure) rows are eligible: every failure path except
- * the post-consent transport branch parks the row as `failed`, so selecting
- * only `connecting` reaches almost no quiet credentialed connection.
- * `auth_required` rows are excluded — they need the owner, not a probe.
+ * Oldest-first page for background recovery: `connecting` and `failed` rows.
+ * `auth_required` is skipped because only the owner can fix it.
  */
 export async function listRecoverableCredentialedConnectionIds(
   cutoff: Date,
@@ -243,15 +206,7 @@ async function ensureServerDefinition(
   return requireRow(retargeted, "ensureServerDefinition");
 }
 
-/**
- * Ensure one connection instance and the server definition it points at.
- *
- * The insert conflicts on `(userId, serverId, instanceKey)`, so a replay returns
- * the SAME row and touches only `updatedAt`. Account state — status, last error,
- * granted scopes, the credential, the catalog pointer — survives a replay,
- * because the caller that reconnects is not the caller that knows whether the
- * account is still good.
- */
+/** Ensure a connection and its server. A replay keeps account state and updates only `label` and `updatedAt`. */
 export async function ensureConnection(
   input: EnsureMcpConnectionInput,
   runner: DbRunner = db(),
@@ -273,9 +228,7 @@ export async function ensureConnection(
       })
       .onConflictDoUpdate({
         target: [mcpConnections.userId, mcpConnections.serverId, mcpConnections.instanceKey],
-        // The label travels with the ensure. Without it a re-add that corrects a
-        // typo in the display name reports success and keeps the old name, which
-        // reads as the write having been lost.
+        // A re-add that fixes the name must not keep the old one.
         set: { label: input.label, updatedAt: new Date() },
       })
       .returning();
@@ -288,14 +241,8 @@ export async function ensureConnection(
 }
 
 /**
- * Ensure the one stable slot a closed built-in provider owns.
- *
- * The registry — not a request — supplies the endpoint, the canonical resource
- * and the instance key. That is what separates this door from the generic one
- * `addUserMcpServer` opens (#1004): a built-in's rows carry the registry's
- * read-only catalog pin (ADR-0094) and protocol-era pin (ADR-0095), which are
- * keyed on the endpoint the registry supplied, so the generic door refuses a
- * built-in's URL rather than minting a lookalike row without them.
+ * Ensure a built-in's one slot, with endpoint and resource from the registry.
+ * `addUserMcpServer` refuses built-in URLs, so no row skips the ADR-0094/0095 pins.
  */
 export async function ensureBuiltInConnection(
   userId: string,
@@ -307,9 +254,7 @@ export async function ensureBuiltInConnection(
   return ensureConnection(
     {
       userId,
-      // The tile title IS the connection label, read from the one browser-safe
-      // catalog rather than restated server-side, so a card and its row cannot
-      // name the same server differently.
+      // The label is the catalog tile title, so card and row agree.
       label: BUILT_IN_MCP_CATALOG[provider].label,
       instanceKey: builtIn.instanceKey,
       canonicalResource: builtIn.canonicalResource,
@@ -347,8 +292,7 @@ export async function listOwnedConnections(
     })
     .from(mcpConnections)
     .innerJoin(mcpServers, eq(mcpConnections.serverId, mcpServers.id))
-    // A connection is listable before its first revision exists, so this is a
-    // LEFT join and `toolCount` stays null until a publication lands.
+    // LEFT join: a connection lists before its first revision.
     .leftJoin(
       mcpCatalogRevisions,
       eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
@@ -357,16 +301,10 @@ export async function listOwnedConnections(
     .orderBy(desc(mcpConnections.updatedAt))
     .limit(100);
 
-  // `toolCount` is already `number | null` here: Drizzle nullifies a LEFT-joined
-  // column on its own, so a `?? null` would only restate the type it has.
   return rows.map(({ toolCount, ...row }) => ({ ...joinConnection(row), toolCount }));
 }
 
-/**
- * One owned connection and the exact immutable catalog revision it currently
- * points at. The renamed fields are projections of the named Drizzle row types;
- * no parallel database shape is maintained here.
- */
+/** One owned connection and its current catalog revision. */
 export type OwnedCurrentCatalogRow = Pick<McpConnection, "instanceKey" | "label"> & {
   namespace: McpServer["id"];
   connectionId: McpConnection["id"];
@@ -377,11 +315,7 @@ export type OwnedCurrentCatalogRow = Pick<McpConnection, "instanceKey" | "label"
 export type OwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & {
   /** Absolute zero-based position of the first projected descriptor. */
   descriptorOffset: number;
-  /**
-   * A database-projected slice of `{ name, title, description }` summaries.
-   * Search reads only those three strings, so neither the full descriptors nor
-   * the complete persisted JSONB array ever crosses this boundary.
-   */
+  /** `{ name, title, description }` summaries projected in SQL, so full descriptors stay in the database. */
   summaries: unknown[];
 };
 
@@ -411,10 +345,7 @@ export type ListOwnedCurrentCatalogSlicesInput = Pick<McpConnection, "userId"> &
   connectionId?: McpConnection["id"];
   /** Exclusive stable-order position from the last catalog row already scanned. */
   after?: OwnedCurrentCatalogPosition;
-  /**
-   * Both limits are clamped again here so no caller can issue an unbounded
-   * page. `catalogLimit: 0` projects nothing and only answers `hasMore`.
-   */
+  /** Both limits are clamped again. `catalogLimit: 0` only answers `hasMore`. */
   catalogLimit: number;
   descriptorLimit: number;
 };
@@ -447,13 +378,7 @@ function boundedLimit(value: number, maximum: number): number {
   return Math.min(value, maximum);
 }
 
-/**
- * The ONE summary projection both discovery reads share. It walks a bounded
- * `generate_series` of array positions and builds `{ name, title, description }`
- * for each, so a descriptor's `inputSchema` and any other key stay in the row.
- * `descriptors`, `offset`, and `limit` are SQL expressions because the same
- * projection runs over a table column and over a CTE column.
- */
+/** SQL summary projection over a bounded slice. Takes SQL inputs so it works on a table or a CTE. */
 function descriptorSummarySlice(descriptors: SQL, offset: SQL, limit: SQL): SQL<unknown> {
   return sql`coalesce((
     select jsonb_agg(
@@ -491,7 +416,6 @@ function toCatalogSliceRow(
   return { ...row, descriptorOffset, summaries: row.summaries };
 }
 
-/** The join predicates every owned-current-catalog read shares. */
 function ownedServerJoin(userId: string) {
   return and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, userId));
 }
@@ -536,12 +460,8 @@ export async function readOwnedCurrentCatalogSlice(
 }
 
 /**
- * Read one exact descriptor from an owned connection's current catalog. The
- * descriptor is selected by its `name` inside PostgreSQL, so the read derives
- * nothing from the hash map or from the publisher's array order, and a legacy
- * revision that predates `assertCanonicalCatalogPublication` resolves exactly.
- * The scan is bounded by one catalog, which ingest caps at 1,000 descriptors,
- * and only the one selected descriptor crosses the driver boundary.
+ * Read one descriptor by `name` in SQL. Does not depend on array order, so
+ * legacy revisions also resolve. Ingest caps a catalog at 1,000 descriptors.
  */
 export async function readOwnedCurrentCatalogDescriptor(
   input: ReadOwnedCurrentCatalogDescriptorInput,
@@ -569,15 +489,8 @@ export async function readOwnedCurrentCatalogDescriptor(
 type RawOwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & { summaries: unknown };
 
 /**
- * Read a stable-order page of owned current catalogs in one query. This is a
- * PAGE bound, not a plan bound: the connection subquery returns at most
- * `catalogLimit + 1` pointers in `(server_id, instance_key)` order, PostgreSQL
- * allocates one summary budget across the first `catalogLimit` of them, and the
- * extra pointer only answers `hasMore`, so a page never ends with a cursor that
- * leads to an empty page. Which index the planner walks to get there is its
- * choice; the unique `(user_id, server_id, instance_key)` index fits the order
- * and the keyset. Namespace and connection filters remain exact and combine
- * with AND.
+ * One page of owned current catalogs in `(server_id, instance_key)` order, in one query.
+ * Fetches `catalogLimit + 1` rows; the extra one only answers `hasMore`.
  */
 export async function listOwnedCurrentCatalogSlices(
   input: ListOwnedCurrentCatalogSlicesInput,
@@ -683,12 +596,7 @@ export async function updateConnection(
   return row;
 }
 
-/**
- * Rename one connection the caller owns. Owner scoping is inside the `WHERE`,
- * not a read-then-write, so a foreign id cannot be renamed and `instanceKey`,
- * the server definition, credentials, status, scopes, and the catalog pointer
- * are untouched — only `label` is written.
- */
+/** Rename an owned connection. Owner check is in the `WHERE`; only `label` changes. */
 export async function renameOwnedConnection(
   input: { connectionId: string; userId: string; label: string },
   runner: DbRunner = db(),
@@ -702,12 +610,7 @@ export async function renameOwnedConnection(
   return row;
 }
 
-/**
- * A refusal injected into the removal transaction, after the owner row lock and
- * before the delete. It runs on the transaction handle so it can read the
- * invocation ledger in the same transaction that holds the row lock; this module
- * deliberately never imports that ledger, so the caller supplies the gate.
- */
+/** Caller-supplied refusal check, run under the row lock, so this module never imports the ledger. */
 export interface McpConnectionRemovalGate {
   /** Runs inside the removal transaction, after the owner row lock. True = refuse. */
   blocks(tx: DbTransaction, input: { connectionId: string; userId: string }): Promise<boolean>;
@@ -716,18 +619,9 @@ export interface McpConnectionRemovalGate {
 export type McpConnectionRemovalOutcome = "removed" | "not_found" | "blocked";
 
 /**
- * Delete one connection the caller owns, and every credential row bound to it
- * (the credential tables cascade from `mcp_connections`).
- *
- * One transaction: the owner row is locked `FOR UPDATE` first, then the injected
- * gate runs, then the row is deleted. The lock is what makes the gate race-free —
- * a concurrent `mcp_invocation` insert takes `FOR KEY SHARE` on the same parent
- * row, so it either commits before the lock (and the gate sees it) or blocks
- * until after the delete (and its foreign key then fails).
- *
- * `gate` is required and cannot be omitted: skipping the ambiguity barrier is
- * spelled `"none"` at the call site, so the decision is visible and reviewable
- * rather than implied by a missing field (`retry: RetryPolicy | "none"`).
+ * Delete an owned connection; credentials cascade. Lock `FOR UPDATE`, run the gate, delete.
+ * The lock makes the gate race-free: an invocation insert takes `FOR KEY SHARE` on the row.
+ * `gate` is required; skip it with an explicit `"none"`.
  */
 export async function deleteOwnedConnection(
   input: { connectionId: string; userId: string; gate: McpConnectionRemovalGate | "none" },
@@ -773,11 +667,7 @@ export interface CompareAndSetCatalogRevisionInput {
   patch: Omit<McpConnectionUpdate, "currentCatalogRevisionId">;
 }
 
-/**
- * Change catalog authority only if no other worker changed the durable pointer
- * since this operation began. A losing publisher must fetch again; a stale
- * invalidator must not clear a newer worker's revision.
- */
+/** Compare-and-set on the revision pointer, so a stale worker cannot overwrite a newer one. */
 export async function compareAndSetCatalogRevision(
   input: CompareAndSetCatalogRevisionInput,
   runner: DbRunner = db(),
@@ -834,7 +724,6 @@ export async function readRevisionByHash(
   return row;
 }
 
-/** The revision currently pointed at by the connection, if any. */
 export async function readCurrentRevision(
   connectionId: string,
   runner: DbRunner = db(),
@@ -851,32 +740,13 @@ export interface PublishCatalogRevisionInput {
   /** Stable authority hash (`McpCatalogSnapshot.revision`, "sha256:..."). */
   revisionHash: string;
   /**
-   * The descriptors exactly as `McpRawClient` admitted them, in canonical
-   * `compareMcpToolNames` order.
-   *
-   * This is the ONLY catalog fact publication accepts. The per-tool hash map,
-   * the read-only map, and the tool count are all DERIVED here, so no caller
-   * can hand the database a projection that disagrees with the descriptors it
-   * sits beside — see {@link projectCatalogRevision}. `Tool` is the admitted
-   * type, not raw protocol data: `assertAdmissibleToolDescriptor` in
-   * `client.ts` is the owning parse boundary, and it runs before any of these
-   * descriptors exist.
+   * Admitted descriptors in `compareMcpToolNames` order. Hashes, read-only map,
+   * and count derive from them ({@link projectCatalogRevision}).
    */
   descriptors: readonly Tool[];
 }
 
-/**
- * Publication admits only the canonical shape the client produces: descriptors
- * in strict `compareMcpToolNames` order. Strict order proves the names are
- * unique, and exact inspection selects a descriptor by name, so uniqueness is
- * what keeps that selection exact. Legacy revisions are not re-validated; the
- * by-name read does not depend on them.
- *
- * There is no longer a coverage check over a supplied hash map or read-only
- * map. Both are projected from this same array one line below, so the class of
- * bug those checks caught — a map that does not cover the descriptor names —
- * cannot be expressed any more.
- */
+/** Require strict `compareMcpToolNames` order, which also proves names are unique. */
 function assertCanonicalCatalogPublication(descriptors: readonly Tool[]): void {
   for (let index = 1; index < descriptors.length; index += 1) {
     const previous = descriptors[index - 1];
@@ -893,21 +763,9 @@ function assertCanonicalCatalogPublication(descriptors: readonly Tool[]): void {
 }
 
 /**
- * The ONE genuinely-atomic catalog operation: publish (or re-use) an immutable
- * revision and advance the connection's current-revision pointer to it, in a
- * single transaction. Idempotent on `(connectionId, revisionHash)` — refreshing
- * an unchanged catalog returns the existing revision without inserting a
- * duplicate, and re-publishing is a no-op pointer write.
- *
- * The insert uses `onConflictDoNothing` so a concurrent publisher racing on the
- * same hash cannot produce two rows; the loser reads the winner's row back.
- *
- * That conflict rule is also why re-publishing does not REPAIR a stored row.
- * An unchanged catalog keeps the projection the winning insert wrote, so a
- * revision inserted before `read_only_hints` existed keeps its `{}` map (and
- * therefore the `high` floor) until the catalog itself changes and a new
- * revision hash is inserted. Migration `0113` relies on this and adds no
- * backfill — ADR-0096.
+ * Publish or reuse a revision and point the connection at it, atomically.
+ * Idempotent on `(connectionId, revisionHash)`. A re-publish never repairs an old
+ * row, so pre-`read_only_hints` revisions keep `{}` and the `high` floor (ADR-0096).
  */
 export async function publishCatalogRevision(
   input: PublishCatalogRevisionInput,
@@ -923,17 +781,10 @@ export async function publishCatalogRevision(
     return revision;
   };
 
-  // Atomic either way: a root client opens a transaction, and a caller's open
-  // transaction gets a SAVEPOINT nested inside it, so a failure here rolls back
-  // both writes and leaves the caller's transaction usable (see `runAtomic`).
   return runAtomic(runner, run);
 }
 
-/**
- * Idempotently insert an immutable catalog revision without making it current.
- * The connection manager uses this to verify that the in-memory generation is
- * still live before it promotes the durable pointer.
- */
+/** Insert a revision without making it current. The manager promotes it once its generation is still live. */
 export async function insertCatalogRevision(
   input: PublishCatalogRevisionInput,
   runner: DbRunner = db(),

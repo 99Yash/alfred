@@ -11,23 +11,9 @@ import {
 } from "./transcription";
 
 /**
- * Deep module owning the Cloudflare AI Gateway transport choice. Every call
- * that leaves this process for a model — a chat completion, an enrichment, a
- * transcription — picks its host, its credential and its model name here, and
- * nowhere else.
- *
- * Two adapters: "direct" (SDK defaults) vs "cloudflare" (Unified Billing via
- * `gateway.ai.cloudflare.com/v1/{account}/{gateway}/{provider}` with
- * `cf-aig-authorization`). No module-level mutable singletons — creation is
- * pure from config.
- *
- * Audio is the one exception to that base URL, and it is a Cloudflare
- * constraint, not a choice: `gateway.ai.cloudflare.com/…/openai/…` carries a
- * managed credential on `/chat/completions` and `/responses` only, so speech
- * to text goes to `api.cloudflare.com/client/v4/accounts/{account}/ai/run`
- * with `cf-aig-gateway-id` instead. `transcription.ts` states the full
- * reason. The exception lives on `transcribe` below, so a reader finds it on
- * the same interface as the rest of the transport.
+ * The one place that picks host, credential, and model name for every model call:
+ * "direct" (SDK defaults) or "cloudflare" (Unified Billing). Built from config, no module state.
+ * Audio uses Cloudflare's `/ai/run` instead; see `transcription.ts`.
  */
 export type GatewayConfig = NonNullable<ReturnType<typeof cloudflareGatewayConfig>>;
 
@@ -36,11 +22,6 @@ export interface Gateway {
   createAnthropic(): ReturnType<typeof createAnthropic>;
   createOpenAI(): ReturnType<typeof createOpenAI>;
   createGoogle(): ReturnType<typeof createGoogleGenerativeAI>;
-  /**
-   * Speech to text over this transport. A member rather than a free function
-   * so a caller asks the active gateway for a transcript and never re-derives
-   * which endpoint, model or credential the clip needs.
-   */
   transcribe(audio: Uint8Array): Promise<TranscribeAudioResult>;
 }
 
@@ -53,18 +34,8 @@ function gatewayHeaders(token: string) {
 }
 
 /**
- * Unified Billing on the provider-native surface authenticates via
- * `cf-aig-authorization` alone. A request carrying the provider-native
- * `Authorization` header is forwarded to OpenAI unchanged (credential
- * precedence rule 1 — BYOK and Unified Billing are not consulted), so the
- * `cfut_` dummy the SDK requires in `apiKey` must never reach the wire or
- * OpenAI rejects the call. Strip it here, mirroring Cloudflare's own
- * `ai-gateway-provider` (dummy key plus header strip).
- *
- * Scoped to OpenAI: it is the only provider whose native auth is the
- * `Authorization` header. Anthropic (`x-api-key`) and Google
- * (`x-goog-api-key`) ride `cf-aig-authorization` into Unified Billing with
- * the `headers` option today, so they are left untouched.
+ * Strip the SDK's dummy `Authorization` header. If it reaches Cloudflare, it is forwarded
+ * to OpenAI as is, and OpenAI rejects it. Only OpenAI uses that header for auth.
  */
 function openaiGatewayFetch(token: string): typeof globalThis.fetch {
   return (input, init) => {
@@ -87,30 +58,20 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
     };
   }
 
-  // ONE queue for the whole gateway, shared by all three providers, because
-  // Cloudflare meters one Unified Billing budget per gateway rather than one
-  // per provider — see `gateway-throttle.ts` for the order-reversed bursts
-  // that settle it. `throttledGatewayFetch` resolves the shared waiter from
-  // the config, so every later `createGateway` in this process joins that same
-  // queue rather than opening its own.
+  // One queue for all providers: the budget is per gateway (see `gateway-throttle.ts`).
   const requestsPerMinute = serverEnv().CLOUDFLARE_AI_GATEWAY_RPM;
   const burst = serverEnv().CLOUDFLARE_AI_GATEWAY_BURST;
 
   const throttleConfig = {
     accountId: config.accountId,
     gatewayId: config.gatewayId,
-    // Omitted rather than passed as `undefined`: under
-    // `exactOptionalPropertyTypes` the absent key is what selects the module's
-    // own default, and an explicit `undefined` is a different type.
+
     ...(requestsPerMinute === undefined ? {} : { requestsPerMinute }),
     ...(burst === undefined ? {} : { burst }),
   };
 
   const paced = (inner?: typeof globalThis.fetch) => throttledGatewayFetch(throttleConfig, inner);
 
-  // Create once per Gateway instance — stateless from caller's view; no
-  // module-level `let _cfAnthropic` needed. Each factory closes over its own
-  // configured client rather than a lazy global.
   const cfAnthropic = createAnthropic({
     apiKey: config.token,
     baseURL: gatewayBaseUrl(config, "anthropic"),
@@ -118,9 +79,7 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
     fetch: paced(),
   });
 
-  // No `headers` option here: `openaiGatewayFetch` already sets
-  // `cf-aig-authorization` on every request, and two writers of one header is
-  // a question a reader should not have to answer.
+  // No `headers`: `openaiGatewayFetch` sets `cf-aig-authorization`.
   const cfOpenAI = createOpenAI({
     apiKey: config.token,
     baseURL: gatewayBaseUrl(config, "openai"),
@@ -139,33 +98,21 @@ export function createGateway(config: GatewayConfig | undefined): Gateway {
     createAnthropic: () => cfAnthropic,
     createOpenAI: () => cfOpenAI,
     createGoogle: () => cfGoogle,
-    // Paced like every model leg: `/ai/run` carries `cf-aig-gateway-id`, so it
-    // draws on the same one-per-gateway budget.
+    // `/ai/run` draws on the same gateway budget, so it is paced too.
     transcribe: (audio) => transcribeViaCloudflareRun(config, audio, paced()),
   };
 }
 
-/**
- * The gateway this process's environment selects. One reader of
- * `cloudflareGatewayConfig()` for the whole package, so "are we on Cloudflare"
- * is answered in one place.
- */
+/** The only reader of `cloudflareGatewayConfig()` in this package. */
 export function activeGateway(): Gateway {
   return createGateway(cloudflareGatewayConfig());
 }
 
-/**
- * Whether a transcription call can reach a provider at all. The Cloudflare
- * transport needs no provider key; the direct one needs `OPENAI_API_KEY`.
- *
- * Exported so a route gates on the rule instead of restating it: a caller that
- * re-derives this pair gets a provider throw the day either transport changes.
- */
+/** Cloudflare needs no provider key; direct needs `OPENAI_API_KEY`. */
 export function transcriptionConfigured(): boolean {
   return cloudflareGatewayConfig() !== undefined || serverEnv().OPENAI_API_KEY !== undefined;
 }
 
-/** Transcribe a clip over whichever transport the environment selects. */
 export async function transcribeAudio(audio: Uint8Array): Promise<TranscribeAudioResult> {
   return await activeGateway().transcribe(audio);
 }

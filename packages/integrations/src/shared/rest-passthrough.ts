@@ -9,60 +9,25 @@ import { authedFetch } from "./authed-fetch";
 import { fetchWithRetry, type RetryPolicy } from "./retry";
 
 /**
- * The general read-only passthrough transport the tier (ADR-0074 rung-a) shares
- * across every REST provider (`github.request`, `notion.request`,
- * `vercel.request`, …). It builds on {@link authedFetch} — the shared transport
- * core owns the auth headers, timeout, body encoding, and redirect policy — and
- * layers on the passthrough's own concerns: URL-namespace verification, the
- * honest `{ status, body }` envelope, and binary/redirect redaction. It executes
- * an *already-gated* request with authority + headers pinned by the provider —
- * the model never supplies an origin, host, or header — and returns the real HTTP
- * status plus the parsed body, never throwing on a non-2xx (the honest envelope
- * surfaces API error bodies verbatim). A transport failure (timeout/DNS/reset/TLS)
- * still throws for the caller's adapter to classify.
+ * Read-only passthrough transport for every REST provider (ADR-0074 rung-a).
+ * Sends an already-gated request with pinned origin and headers, and returns the real
+ * status and body without throwing on a non-2xx. Transport failures still throw.
  *
- * Redirects are never followed (`redirect: "manual"`): a signed provider redirect
- * can carry credentials in its URL, and a read-only passthrough must treat a 3xx
- * as an HTTP outcome, not a hop — any `Location` is redacted to origin + path.
- * Binary bytes never enter the transcript: a non-text response is represented by
- * its content type + byte count.
- *
- * The read gate (which proves the method/path is a read) runs in `@alfred/assistant`
- * *before* this is ever reached; the namespace re-check here is defense-in-depth
- * on the constructed URL, not the primary boundary.
+ * Redirects are not followed: a signed redirect URL can carry credentials.
+ * Binary bodies become content type and byte count, never bytes.
  */
 
-/**
- * Per-provider transport policy — the data-only inputs pinning authority and
- * auth. Carries no gate policy (that is {@link RestProviderGateConfig} in
- * `@alfred/assistant`); this is purely "where and as whom the request is sent."
- */
+/** Where and as whom to send. The read gate is `RestProviderGateConfig` in `@alfred/assistant`. */
 export interface RestPassthroughProfile {
-  /**
-   * Pinned origin + optional namespace, no trailing slash — e.g.
-   * `"https://api.github.com"` or `"https://api.notion.com/v1"`. The request's
-   * namespace-relative path is appended to this; the model can never change it.
-   */
+  /** Origin plus optional namespace, no trailing slash, e.g. `"https://api.notion.com/v1"`. */
   baseUrl: string;
-  /**
-   * Pinned request headers (authorization + provider/version/accept). The model
-   * cannot supply headers; `Content-Type` is added by the transport only when a
-   * body is sent.
-   */
+  /** The model cannot supply headers. */
   headers: Record<string, string>;
-  /**
-   * Provider-mandated query parameters always appended (e.g. Vercel's `teamId`).
-   * Pinned *last* — after the request's own `query` — so a model-supplied key of
-   * the same name cannot override an authority parameter the boundary set.
-   */
+  /** Query on every request (Vercel's `teamId`). Set last, so the model cannot override it. */
   fixedQuery?: Record<string, string> | undefined;
 }
 
-/**
- * Opaque, token-free authority for one provider's read-only passthrough.
- * Authentication stays inside the integrations package; the API layer receives
- * only the slug needed for its read gate and a callable transport.
- */
+/** Token-free handle: the API layer gets the slug for its gate and a callable transport. */
 export interface RestPassthroughCapability {
   readonly slug: SupportedRestSlug;
   execute(request: RestPassthroughRequest): Promise<RawRestResponse>;
@@ -81,21 +46,14 @@ export function restPassthroughCapability(args: {
   };
 }
 
-/**
- * A completed REST exchange in a shape the result shaper can turn into the honest
- * envelope. `binary: true` carries only the content type + byte count (bytes are
- * omitted from the transcript). `redirectedTo` is set for a 3xx and is already
- * redacted to origin + path.
- */
+/** `redirectedTo` is set on a 3xx, already redacted to origin and path. */
 export type RawRestResponse =
   | { status: number; binary: false; body: unknown; redirectedTo?: string }
   | { status: number; binary: true; contentType: string; byteCount: number; redirectedTo?: string };
 
 /**
- * Thrown when the URL constructed from the profile + request escapes the pinned
- * origin/namespace. Unreachable given the read gate's path hardening; the adapter
- * maps it to a fail-closed `invalid_path` rejection (the request never left
- * Alfred) rather than letting it masquerade as a transport failure.
+ * The built URL left the pinned namespace. The read gate should make this unreachable.
+ * The adapter maps it to `invalid_path`, not a transport failure.
  */
 export class PassthroughUrlError extends Error {
   readonly _tag = "PassthroughUrlError" as const;
@@ -105,7 +63,7 @@ export class PassthroughUrlError extends Error {
   }
 }
 
-/** Build the request URL and re-assert it stays within the pinned namespace. */
+/** Defense in depth: the read gate already checked the path. */
 function buildAndVerifyUrl(profile: RestPassthroughProfile, request: RestPassthroughRequest): URL {
   const base = new URL(profile.baseUrl);
   const url = new URL(profile.baseUrl + request.path);
@@ -129,9 +87,7 @@ function buildAndVerifyUrl(profile: RestPassthroughProfile, request: RestPassthr
     }
   }
 
-  // Pin provider-mandated params last so the model's `query` can never override
-  // an authority parameter (e.g. Vercel's `teamId`). `set` clears any value the
-  // request supplied for the same key.
+  // `set` replaces any model value for the same key.
   for (const [key, value] of Object.entries(profile.fixedQuery ?? {})) {
     url.searchParams.set(key, value);
   }
@@ -147,20 +103,14 @@ export async function restPassthroughFetch(
   const url = buildAndVerifyUrl(profile, request);
   const method = request.method.toUpperCase();
 
-  // Passthrough only ever carries a body on a read-via-POST; pinning the body to
-  // `undefined` for any other method leaves `authedFetch` to add `Content-Type`
-  // (and encode) exactly when — and only when — a POST body is present. Redirects
-  // are never followed: a signed provider redirect can carry credentials in its
-  // URL, so a 3xx must be an HTTP outcome, not a hop.
+  // Only a read-via-POST carries a body.
   const send = () =>
     authedFetch(
       { headers: profile.headers, redirect: "manual" },
       { url, method, body: method === "POST" ? request.body : undefined },
     );
 
-  // The API gate admits only reads, including the two provider-specific
-  // read-via-POST endpoints. Retrying the capability is therefore safe even
-  // when the wire method is POST.
+  // The gate admits only reads (including read-via-POST), so retry is safe here.
   const res = retry === "none" ? await send() : await fetchWithRetry(send, { policy: retry });
 
   const redirectedTo =
@@ -186,13 +136,9 @@ export async function restPassthroughFetch(
   return { status: res.status, binary: false, body: parseBody(text, contentType), ...redirect };
 }
 
-/**
- * Treat a response as binary unless its content type is a textual/JSON one. The
- * common provider APIs answer `application/json`; PDFs, images, archives, and
- * `application/octet-stream` are binary and must not enter the transcript.
- */
+/** Binary unless the type is text, JSON, XML, or form-encoded. */
 function isBinary(contentType: string | null): boolean {
-  if (!contentType) return false; // no type (e.g. an empty body) is treated as text
+  if (!contentType) return false;
   const type = normalizeMimeType(contentType);
 
   if (type.startsWith("text/")) return false;
@@ -206,7 +152,6 @@ function isBinary(contentType: string | null): boolean {
   return true;
 }
 
-/** Parse a textual body: JSON when the type says so, else the raw (bounded downstream) text. */
 function parseBody(text: string, contentType: string | null): unknown {
   if (text.length === 0) return null;
   const type = normalizeMimeType(contentType);
@@ -216,16 +161,14 @@ function parseBody(text: string, contentType: string | null): unknown {
     try {
       return JSON.parse(text);
     } catch {
-      // A JSON-labeled body that won't parse (e.g. an HTML 5xx page): keep a
-      // bounded, redacted marker instead of dumping raw markup into the transcript.
+      // For example an HTML 5xx page labeled JSON.
       return { nonJson: true, preview: summarizeBody(text) };
     }
   }
 
-  return text; // text/* etc. — the result shaper bounds the string.
+  return text;
 }
 
-/** Byte count of a binary response: the declared Content-Length, else the observed length. */
 async function byteCountOf(res: Response): Promise<number> {
   const declared = res.headers.get("content-length");
 
@@ -234,11 +177,7 @@ async function byteCountOf(res: Response): Promise<number> {
   return (await res.arrayBuffer()).byteLength;
 }
 
-/**
- * Redact a redirect target to origin + path. A signed redirect URL can carry
- * credentials in its query/fragment, so those are dropped; a relative target is
- * resolved against the request URL first.
- */
+/** Drop query and fragment: a signed redirect can carry credentials there. */
 function redactLocation(location: string | null, base: URL): string {
   if (!location) return "[no location header]";
 

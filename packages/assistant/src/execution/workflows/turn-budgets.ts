@@ -1,30 +1,12 @@
 import type { AgentTranscriptMessage, ChatModelTier } from "@alfred/contracts";
 import type { StepResult } from "../registry";
 
-/**
- * Every bound on how much work one agent turn-loop may do, in one place.
- *
- * Two of these used to be a constant named `TURN_CAP_MAX` declared in both
- * agent workflows with two different values (24 and 30); the retry planners were
- * three copies of the same six lines, each carrying its own paragraph of the
- * one rule that actually matters. Co-locating them makes the numbers
- * comparable, and {@link openChatTurnRetries} / {@link openBriefTurnRetries}
- * take the rule out of prose entirely: a workflow binds its pre-turn transcript
- * once, before the model call, and the failure sites have no transcript
- * argument left to get wrong.
- */
+/** Every bound on how much work one agent turn loop may do. */
 
 /**
- * Turn-loop cap for the interactive chat workflow, per model tier. A user is
- * watching this one stream, so a wedged loop has to land while they are still
- * willing to wait. Sized against a real turn (prod `run_tsevusjk1poq`): with
- * two steps per lazy tool load and one tool call per model step, a legitimate
- * thirteen-sender standing-instruction ask burned the old flat cap of 24 on
- * plumbing and never answered. `deep` buys more room because the user chose
- * the slower tier on purpose.
- *
- * The cap is where the turn *lands*, not where it crashes: see
- * {@link chatTurnCapVerdict}.
+ * Chat turn-loop cap per tier. A user is watching, so a stuck loop must answer soon.
+ * A lazy tool load costs two steps, so a real multi-sender ask needs this much room.
+ * At the cap the turn answers; it does not fail.
  */
 const CHAT_TURN_CAP_BY_TIER = {
   standard: 40,
@@ -32,26 +14,10 @@ const CHAT_TURN_CAP_BY_TIER = {
 } as const satisfies Record<ChatModelTier, number>;
 
 /**
- * What the chat step does with the model turn it is about to run, given how
- * many model turns the run has completed.
- *
- *  - `loop`: under the cap; offer the tool surface as usual.
- *  - `land`: the first turn at the cap. Offer no tools, append the landing
- *    note, log `chat_turn_cap_landing`. The model must answer from what the
- *    transcript already holds.
- *  - `landed`: a later turn past the cap. Still no tools; the note is already
- *    in the transcript. Every turn here is issued by a spender with its own
- *    bound: an empty-completion or stream-timeout retry (the budgets below), a
- *    finalize guard's one regeneration, or a resume from a sub-agent park (one
- *    per child, each behind a dead-man timer).
- *
- * There is deliberately no hard fuse past the cap. With an empty tool set no
- * tool loop can continue, so nothing past `land` is the failure a cap exists
- * to stop, and every legitimate spender is already bounded. The number of
- * turns those spenders may legally add is not a constant (each regeneration
- * refreshes the retry budgets; a park resume repeats per child), so any fixed
- * grace would either fire on a legal path, losing a reply after every tool
- * write persisted, or be loose enough to guard nothing.
+ * `land` is the first turn at the cap: no tools, and the landing note is appended.
+ * `landed` is a later turn: still no tools.
+ * No hard stop past the cap: with no tools the loop cannot continue, and each retry source has its
+ * own bound.
  */
 export type ChatTurnCapVerdict = "loop" | "land" | "landed";
 
@@ -66,98 +32,50 @@ export function chatTurnCapVerdict(
   return completedTurns === cap ? "land" : "landed";
 }
 
-/** The tool-loop cap for a chat turn on `tier`, for the landing log line. */
 export function chatTurnCap(tier: ChatModelTier): number {
   return CHAT_TURN_CAP_BY_TIER[tier];
 }
 
-/**
- * The transcript note the landing turn runs on, appended once by the `land`
- * verdict alongside an empty tool set: the model cannot call anything, and this
- * tells it why the loop ended and what the reply must now contain. Written via
- * `appendSystemNote`, so it joins a finalize guard's note when one is already
- * at the tail.
- */
+/** Tells the model why it has no tools and what the reply must contain. */
 export const CHAT_TURN_CAP_LANDING_NOTE =
   "You have used every tool step available for this reply, so no tools are offered on this turn. " +
   "Answer the user now from what is already in this conversation. Say plainly what you completed and what is still left, in user terms. " +
   "Do not claim anything you did not finish, and do not describe the step limit or the mechanism. If work remains, tell the user they can ask you to continue.";
 
 /**
- * Turn-loop cap for the background brief / sub-agent workflow. Nobody is
- * watching it stream: an investigation is expected to work several distinct
- * angles, and the run has a compaction step it can spend turns on that the chat
- * path does not. Compare {@link chatTurnCapVerdict}: the chat cap is the higher
- * of the two on both tiers because a chat turn lands there instead of failing.
+ * Turn-loop cap for the brief and sub-agent workflow. It is lower than chat because a brief fails
+ * at the cap.
  */
 export const BRIEF_TURN_CAP_MAX = 30;
 
 /**
- * How many consecutive empty completions (see `isRetryableEmptyCompletion`) to
- * regenerate before surfacing a failure. An empty `stop` with no text and no
- * tool calls is the transient anomaly the Anthropic→Gemini quota fallback throws
- * (a Gemini fallback candidate with 0 output tokens); re-attempting the turn
- * usually clears it. Kept tight so a provider genuinely stuck returning empties
- * fails fast instead of burning the whole turn-cap budget on full-price retries.
- * Shared by both workflows — the anomaly is the provider's, not the caller's.
- * Module-private: a planned retry reports its own `attempt`/`max`, so no
- * workflow needs the number to write its log line.
+ * A provider fallback sometimes returns an empty completion; a retry usually clears it.
+ * Kept small so a provider stuck on empties fails fast.
  */
 const EMPTY_COMPLETION_MAX_RETRIES = 2;
 
-/**
- * Bounded auto-retries after the streaming circuit-breaker aborts a chat turn
- * (see `isStreamTimeoutAbort`). One, not the empty-completion budget of two: a
- * timeout retry costs up to a full stream ceiling (~180s) plus full token spend,
- * so a second would leave the user staring at "Thinking…" for the better part of
- * ten minutes. One retry is strictly better than the blank failure it replaces;
- * bounding per-turn work *by construction* for large deliverables is the
- * structural fix (Gap 2 — incremental artifact authoring), not more retries.
- * Chat-only: the brief workflow does not stream, so it has no circuit-breaker.
- */
+/** Only one: each timeout retry can cost a full stream ceiling (~180s) while the user waits. */
 const STREAM_TIMEOUT_MAX_RETRIES = 1;
 
-/**
- * One retryable turn-level anomaly: which counter on the run state tracks it,
- * how many times it may fire, and which step re-issues the model call.
- */
 interface TurnRetryBudget<S> {
   readonly max: number;
   readonly read: (state: S) => number;
-  /** Return a copy with the counter bumped; never mutate the checkpoint state. */
+  /** Return a copy; never mutate the checkpoint state. */
   readonly bump: (state: S) => S;
   readonly nextStep: string;
 }
 
-/**
- * One planned retry: the step to return from the workflow, plus the counters
- * its log line needs. Carrying `attempt`/`max` here is why no workflow imports
- * a budget constant — reporting progress was the only thing they were for.
- */
 interface PlannedTurnRetry<S> {
   readonly step: Extract<StepResult<S>, { kind: "next" }>;
-  /** 1-based, so an operator reads `retry 1/2`. */
+  /** 1-based. */
   readonly attempt: number;
   readonly max: number;
 }
 
 /**
- * Plan one bounded retry of a model call, or `null` once the budget is spent.
- *
- * `preTurnTranscript` is the whole protocol: the retry MUST re-issue from the
- * transcript as it stood *before* the failed model call, never from one with
- * that call's response appended. An empty or aborted completion appends an empty
- * assistant message, and Anthropic 400s on empty assistant content — so a retry
- * built on the post-turn transcript is poisoned and fails the run for a reason
- * that has nothing to do with the anomaly it was retrying. The array is
- * forwarded by reference (not copied) so a caller can assert identity.
- *
- * Private: the transcript reaches this only from a handle bound before the
- * model call (see {@link openChatTurnRetries}), so no caller is ever holding a
- * post-turn transcript and a retry planner at the same time.
- *
- * Pure, so both the budget and the poison-transcript regression are directly
- * testable.
+ * Plan one retry, or `null` once the budget is spent.
+ * Retry from the transcript before the failed call: the failed call appends an empty
+ * assistant message, and Anthropic rejects that with a 400.
  */
 function planTurnRetry<S>(
   budget: TurnRetryBudget<S>,
@@ -180,80 +98,41 @@ function planTurnRetry<S>(
   };
 }
 
-/**
- * The consecutive-failure counters a chat turn budgets. Named as a type so
- * this module — which stays in `agent` — does not import the concrete
- * `ChatRunState` that moved to `chat`. The chat planners are generic
- * over it, exactly like {@link openBriefTurnRetries} is over its own counter.
- */
+/** The chat counters, as a type so this module does not import `ChatRunState`. */
 type ChatRetryState = {
   emptyCompletionRetries: number;
   streamTimeoutRetries: number;
   capacityRetries: number;
 };
 
-/**
- * Zero every chat consecutive-failure counter, in place.
- *
- * The counters bound *consecutive* failures, so any turn that made progress —
- * one that produced tool calls, and one that reached the finalize boundary with
- * text — hands the next turn a fresh budget. Both of those sites used to write
- * the two field assignments out longhand, which is how a third budget gets one
- * of them and not the other; here a new budget zeroes its counter once, next to
- * the descriptor that reads and bumps it.
- */
+/** Zero every chat failure counter in place, after a turn that made progress. */
 export function resetChatTurnRetryBudgets<S extends ChatRetryState>(state: S): void {
   state.emptyCompletionRetries = 0;
   state.streamTimeoutRetries = 0;
   state.capacityRetries = 0;
 }
 
-/** Every bounded retry a chat turn can plan, bound to one pre-turn transcript. */
 export interface ChatTurnRetries {
-  /** Regenerate a turn that came back empty. */
   readonly afterEmptyCompletion: <S extends ChatRetryState>(state: S) => PlannedTurnRetry<S> | null;
-  /**
-   * Regenerate a turn the streaming circuit-breaker aborted. The bound
-   * transcript already holds every tool result gathered this run, so the retry
-   * re-issues just the model call that ran long — exactly like the manual
-   * resend that recovers today.
-   */
   readonly afterStreamTimeout: <S extends ChatRetryState>(state: S) => PlannedTurnRetry<S> | null;
   /**
-   * Re-issue a turn that failed on capacity (429/5xx before anything
-   * streamed) after the caller waits out {@link CAPACITY_RETRY_DELAYS_MS}.
-   * The wait is the fix: the gateway budget refills at single digits per
-   * minute, so the ladder's four attempts inside ~3s were mathematically
-   * unable to land and only guaranteed termination. A chat turn is
-   * single-step — it needs one slot — and ~10s of quiet refills roughly one,
-   * so spaced attempts land instead of dying. Chat-only by construction:
-   * triage's 30s total cannot afford the wait and keeps its fast fail.
+   * Retry a 429 or 5xx that failed before streaming, after the caller waits out
+   * {@link CAPACITY_RETRY_DELAYS_MS}. The gateway refills slowly, so fast retries cannot land.
    */
   readonly afterCapacityError: <S extends ChatRetryState>(state: S) => PlannedTurnRetry<S> | null;
 }
 
-/**
- * Backoff before each capacity retry, 1-based by attempt. Worst single
- * silence stays ~35s (30s sleep + a fast failure) under the client's 45s SSE
- * watchdog; worst total added latency ~60s of sleep plus attempt time.
- */
+/** The longest silence (30s plus jitter) must stay under the client's 45s SSE watchdog. */
 export const CAPACITY_RETRY_DELAYS_MS = [10_000, 20_000, 30_000] as const;
 
-/** Jitter ceiling added to each capacity backoff so concurrent retries desync. */
 export const CAPACITY_RETRY_JITTER_MS = 5_000;
 
-/** Bounded wait-and-retry after a capacity failure (see `afterCapacityError`). */
 const CAPACITY_MAX_RETRIES = 3;
 
 /**
- * Bind the chat turn's retry planners to the transcript as it stood *before*
- * the model call about to be issued.
- *
- * Call this in the workflow at the point the pre-turn transcript is final and
- * the response has not been appended yet — that placement is the guarantee.
- * The planners returned take no transcript, so the failure sites downstream
- * (which do hold a post-turn transcript) have nothing to pass and no way to
- * poison the retry; see {@link planTurnRetry} for what a poisoned retry costs.
+ * Bind the retry planners to the transcript before the model call.
+ * Call it before the response is appended; the failure sites then cannot pass a poisoned
+ * transcript.
  */
 export function openChatTurnRetries(preTurnTranscript: AgentTranscriptMessage[]): ChatTurnRetries {
   return {
@@ -293,22 +172,13 @@ export function openChatTurnRetries(preTurnTranscript: AgentTranscriptMessage[])
   };
 }
 
-/** Every bounded retry a brief / sub-agent boss turn can plan. */
 export interface BriefTurnRetries {
-  /**
-   * Regenerate a boss turn that came back empty. Generic over the run state so
-   * this module stays free of a `user-authored-brief` import; the counter it
-   * reads is that workflow's `emptyRetries`.
-   */
   readonly afterEmptyCompletion: <S extends { emptyRetries: number }>(
     state: S,
   ) => PlannedTurnRetry<S> | null;
 }
 
-/**
- * Bind the brief workflow's retry planner to its pre-turn transcript. Same
- * placement rule as {@link openChatTurnRetries}: mint it before `agent.turn`.
- */
+/** Like {@link openChatTurnRetries}: call it before `agent.turn`. */
 export function openBriefTurnRetries(
   preTurnTranscript: AgentTranscriptMessage[],
 ): BriefTurnRetries {

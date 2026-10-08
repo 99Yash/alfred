@@ -1,12 +1,8 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 
 /**
- * Prefix of a runtime-authored transcript note. The chat runtime speaks to the
- * model through user-role messages that open with this marker (a finalize
- * guard's honesty note, a folded sub-agent result, the tool-loop landing note),
- * because a transcript must end in a user turn to be a legal prefill and there
- * is no tool-call id to attach a tool result to. The user never sees them; the
- * chat-turn persists only the model's reply.
+ * Marks a runtime note to the model. It is a user-role message because the transcript must end
+ * in a user turn and there is no tool call to answer. The user never sees it.
  */
 const SYSTEM_NOTE_PREFIX = "[system] ";
 
@@ -21,11 +17,9 @@ function isSystemNote(
 }
 
 /**
- * `transcript` plus one runtime note. When the tail is already a runtime note,
- * the new text joins that message instead of following it, so the model never
- * sees two user turns in a row (providers differ on whether they merge those,
- * and the boss route can change). A real user message at the tail is never
- * merged into: the note stays a turn of its own after it.
+ * Join a runtime note at the tail instead of adding a second user turn; providers treat two
+ * differently.
+ * A real user message is never merged into.
  */
 export function appendSystemNote(
   transcript: readonly AgentTranscriptMessage[],

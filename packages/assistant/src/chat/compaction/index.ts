@@ -1,13 +1,6 @@
 /**
- * Chat compaction and context assembly, owned by `chat`. This is the
- * persisted, rolling `<conversation_summary>` mechanism — guarded by a compound
- * watermark and CAS — plus the pre-call context assembly and the background
- * compaction queue/scheduler/wait it drives. It is distinct from the generic
- * run compaction in `agent/run-compaction`; the two share only token math, which
- * these files reach through the `agent` public seam.
- *
- * The chat recipe (`../chat-turn.ts`, `../chat-turn-closure.ts`) reaches chat
- * context through this internal barrel, not through `../../agent`.
+ * The rolling `<conversation_summary>` (watermark plus CAS), context assembly, and
+ * background compaction. Not `execution/run-compaction`; they share only token math.
  */
 export { type ConversationSummary } from "./conversation-summary";
 
@@ -68,7 +61,6 @@ export {
   BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS,
 } from "./conversation-compaction-scheduler";
 
-// Pre-call context guard: compaction owns its recipe, not just its ingredients.
 export {
   buildCompactedChatTranscriptPair,
   guardTurnContext,

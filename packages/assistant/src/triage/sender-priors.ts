@@ -7,32 +7,15 @@ import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 
 /**
- * Sender priors store (ADR-0051 #2): a per-sender category histogram that is a
- * *fed signal* to the always-on cheap classifier, never a model bypass.
- *
- * Postgres is the source of truth; Redis is a read-through cache busted on
- * every increment. Because the model runs (and therefore increments) on every
- * email, the cache is mostly a within-burst optimization — but it keeps the
- * Phase-3 read off the per-email DB path. A Redis key is used instead of an
- * in-process Map (a Map would be stale the instant the same run increments).
- * The cache connection is `createRedisConnection("fail-fast")`: an outage
- * rejects immediately and we fall through to Postgres, so the cache is never a
- * correctness or availability dependency of the classify path.
+ * Per-sender category histogram (ADR-0051 #2), a hint to the classifier. Postgres
+ * is the truth; Redis is a read-through cache, busted on every increment.
  */
 
 const CACHE_PREFIX = "alfred:sender-prior:";
 
-const CACHE_TTL_SECONDS = 60 * 60; // 1h — increments bust it well before this
+const CACHE_TTL_SECONDS = 60 * 60;
 
-/**
- * The read shape for a sender's histogram — the two prior-signal columns of the
- * `sender_priors` row. Derived from the table so it can't drift (code-style §1);
- * `categoryCounts` is `.notNull().$type<Record<string, number>>()`, so it's an
- * empty object (never null) for a sender we've never classified.
- *
- * Named after the narrow read shape, not the full DB `SenderPrior` row it's a
- * `Pick` of — the collision is intentional (this file never needs the full row).
- */
+/** The read shape only; the name collides with the full DB row on purpose. */
 export type SenderPrior = Pick<typeof senderPriors.$inferSelect, "categoryCounts" | "lastCategory">;
 
 // ---------------------------------------------------------------------------
@@ -40,20 +23,9 @@ export type SenderPrior = Pick<typeof senderPriors.$inferSelect, "categoryCounts
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the prior key for a sender, or `null` to skip priors entirely.
- *
- * Rules (ADR-0051 #2):
- *  - Human senders (`effectiveAuthor: 'person'`) → null. A person's category
- *    is per-message; caching it would actively mis-tag (alt (f)).
- *  - Recognized bots → `service:<botSlug>` (all GitHub apps share
- *    `noreply@github.com`, so the envelope address can't distinguish them).
- *  - Service senders → the exact lowercased address.
- *  - Unknown/ambiguous senders → null. Ambiguous role mailboxes (`team@`,
- *    `info@`, etc.) can be human-staffed and should not seed priors.
- *  - No usable address → null.
- *
- * NEVER call for the user's own sent mail — guard on `metadata.isSent` at the
- * call site; you are not a sender to cache.
+ * Prior key, or null to skip priors. Null for people: their category is per
+ * message. Bots key on `service:<botSlug>` because GitHub apps share one envelope.
+ * Unknown senders get null: `team@` or `info@` may be staffed.
  */
 export function senderKeyFor(
   senderContext: Pick<SenderContext, "effectiveAuthor" | "botSlug">,
@@ -73,16 +45,12 @@ export function senderKeyFor(
 export interface SenderPriorWriteKeyArgs {
   senderContext: Pick<SenderContext, "effectiveAuthor" | "botSlug">;
   senderAddress: string | null;
-  /** Sent mail is context/search material, never a received sender to learn. */
   isSent: boolean;
-  /** Concrete model id used for the persisted triage row. `"fallback"` is non-learnable. */
+  /** `"fallback"` never teaches. */
   model: string;
 }
 
-/**
- * Central write policy for sender-prior learning. Priors learn only from
- * successful Alfred classifications of received bulk/service mail.
- */
+/** Learn only from real classifications of received bulk/service mail. */
 export function senderPriorWriteKeyFor(args: SenderPriorWriteKeyArgs): string | null {
   if (args.isSent) return null;
 
@@ -98,19 +66,8 @@ export function senderPriorWriteKeyFor(args: SenderPriorWriteKeyArgs): string | 
 let redis: BoundedRedis | undefined;
 
 function getRedis(): BoundedRedis {
-  // One of only two `"fail-fast"` callers left after #127, and it carries its
-  // own justification because the kind's precondition is easy to assume rather
-  // than check: THE STORE BEHIND THIS CACHE IS THE `sender_priors` TABLE. Every
-  // read here has a Postgres read behind it, so a rejection costs one extra
-  // query and nothing else.
-  //
-  // That includes the deliberate cold-window miss. `"fail-fast"` rejects the
-  // first command after construction even against a healthy Redis, so the first
-  // triaged email of each process reads Postgres. That is the trade this kind
-  // buys: a Redis outage must degrade to the Postgres read, never delay the
-  // per-email triage path. `"command"` would also settle, but only after its
-  // offline queue is bounded out, and a cache read with a table behind it should
-  // not wait that long.
+  // "fail-fast" is safe only because Postgres backs every read. It also rejects the
+  // first command of each process, so the first email reads Postgres. Intended.
   if (!redis) redis = createRedisConnection("fail-fast");
 
   return redis;
@@ -144,11 +101,7 @@ async function loadSenderPriorFromDb(
   return { categoryCounts: row.categoryCounts ?? {}, lastCategory: row.lastCategory };
 }
 
-/**
- * Read a sender's histogram. Redis read-through over Postgres. Returns `null`
- * for a sender we've never classified. Redis blips fall back to Postgres —
- * the cache is best-effort, never a correctness dependency.
- */
+/** Null for a sender never classified. A Redis blip falls back to Postgres. */
 export async function getSenderPrior(
   userId: string,
   senderKey: string,
@@ -159,24 +112,18 @@ export async function getSenderPrior(
     const cached = await getRedis().get(key);
 
     if (cached !== null) {
-      // Sentinel for a known-absent sender so we don't re-hit PG every email
-      // for a brand-new bulk sender mid-burst.
-      // SAFETY: the only writer is this module's set path, which stringifies a
-      // SenderPrior (or the "null" sentinel answered above); corrupt content
-      // throws into the caller's miss handling.
+      // "null" caches a known-absent sender.
+      // SAFETY: only this module writes the key, as a stringified SenderPrior or
+      // "null"; corrupt content throws into the miss path.
       return cached === "null" ? null : (JSON.parse(cached) as SenderPrior);
     }
-  } catch {
-    // fall through to DB
-  }
+  } catch {}
 
   const fromDb = await loadSenderPriorFromDb(userId, senderKey);
 
   try {
     await getRedis().set(key, fromDb ? JSON.stringify(fromDb) : "null", "EX", CACHE_TTL_SECONDS);
-  } catch {
-    // best-effort cache write
-  }
+  } catch {}
 
   return fromDb;
 }
@@ -185,18 +132,12 @@ export interface IncrementSenderPriorArgs {
   userId: string;
   senderKey: string;
   category: TriageCategory;
-  /** Latest `From:` display name, if any — stored for debugging/UI. */
   displayName?: string | null;
 }
 
 /**
- * Increment a sender's histogram by one for `category` and bump
- * `last_category`/`last_seen_at`. Postgres-side jsonb increment so concurrent
- * triage runs on the same sender don't clobber each other (read-modify-write
- * in app code would). Busts the Redis entry afterward.
- *
- * The caller is responsible for the skip rules — never call with a key for a
- * human sender (use {@link senderKeyFor}) or for sent mail.
+ * Add one vote in SQL, so concurrent runs do not clobber each other. Callers
+ * must skip people and sent mail.
  */
 export async function incrementSenderPrior(args: IncrementSenderPriorArgs): Promise<void> {
   const now = new Date();
@@ -212,8 +153,7 @@ export async function incrementSenderPrior(args: IncrementSenderPriorArgs): Prom
     updatedAt: now,
   };
 
-  // Only overwrite displayName when we actually have one — don't null out a
-  // previously-captured name because this message lacked a display name.
+  // Never null out a name we already have.
   if (args.displayName) updateSet.displayName = args.displayName;
 
   await db()
@@ -234,6 +174,6 @@ export async function incrementSenderPrior(args: IncrementSenderPriorArgs): Prom
   try {
     await getRedis().del(cacheKey(args.userId, args.senderKey));
   } catch {
-    // best-effort bust; the 1h TTL backstops a missed delete
+    // The 1h TTL covers a missed delete.
   }
 }

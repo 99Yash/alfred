@@ -10,7 +10,7 @@ import {
 import { toast } from "~/lib/toast";
 import type { StreamingMessage } from "./chat-stream-state";
 
-/** When the completion chime plays. Defaults to unfocused-only so it acts as a notification, not a per-reply ping. */
+/** When the completion chime plays. */
 export type ChatSoundPreference = LocalStorageValue<"alfred.chat.soundPreference">;
 
 const PREF_KEY = "alfred.chat.soundPreference";
@@ -19,26 +19,16 @@ const ONBOARDED_KEY = "alfred.chat.notifyOnboarded";
 
 const SFX_SRC = "/sounds/run-finished.mp3";
 
-/**
- * Fired by the finish toast's "Open" action so the live conversation can jump
- * back to the bottom. A decoupled window event keeps the hook from having to
- * thread a scroll ref up out of `Conversation` (which listens for it).
- */
+/** The toast's "Open" action fires this; `Conversation` scrolls to the bottom. */
 export const SCROLL_CHAT_TO_BOTTOM_EVENT = "alfred:scroll-chat-to-bottom";
 
-/** Longest reply preview we'll show in the toast before eliding. */
 const SNIPPET_MAX = 140;
 
-/** Leading mark for run-complete toasts — same glyph as the chat think pulse. */
 const ALFRED_TOAST_ICON = (
   <img src="/images/logo/alfred-logo.svg" alt="" className="size-4.5 rounded-[5px]" />
 );
 
-/**
- * Distil the streamed reply into a one-line preview: collapse whitespace, trim,
- * and elide on a word boundary. Returns `null` when the turn closed with no
- * text (tool-only / artifact-only), so the caller can fall back to a subtitle.
- */
+/** A one-line preview cut at a word. `null` for a turn with no text. */
 function replySnippet(text: string | undefined): string | null {
   const collapsed = collapseWhitespace(text ?? "");
 
@@ -47,7 +37,7 @@ function replySnippet(text: string | undefined): string | null {
   if (collapsed.length <= SNIPPET_MAX) return collapsed;
   const clipped = collapsed.slice(0, SNIPPET_MAX);
   const lastSpace = clipped.lastIndexOf(" ");
-  // Prefer a word boundary, but don't claw back more than ~a quarter of the line.
+  // Cut at a word only if that keeps at least 75% of the line.
   const cut = lastSpace > SNIPPET_MAX * 0.75 ? clipped.slice(0, lastSpace) : clipped;
 
   return `${cut.trimEnd()}…`;
@@ -58,16 +48,8 @@ function getChatSoundPreference(): ChatSoundPreference {
 }
 
 /**
- * Fire a completion chime + (when the tab is backgrounded) a frosted card the
- * moment a streamed turn finishes — title, a preview of the reply, and an
- * "Open" action that brings the thread back to the live edge. Ported and grown
- * from dimension's run-complete SFX.
- *
- * The very first finished turn instead shows a one-time card pointing at
- * Settings, so the user learns the chime exists and can tune when it plays.
- *
- * Guards on `messageId` so it fires exactly once per turn, and respects the
- * user's sound preference. Mount once where the active stream lives.
+ * When a turn finishes, play the chime and, if the tab is in the background, toast a preview.
+ * The first finished turn ever shows a Settings hint instead. Fires once per `messageId`.
  */
 export function useRunComplete(stream: StreamingMessage | null): void {
   const firedRef = useRef<string | null>(null);
@@ -83,17 +65,14 @@ export function useRunComplete(stream: StreamingMessage | null): void {
     const pref = getChatSoundPreference();
 
     if (pref === "always" || (pref === "unfocused" && !focused)) {
-      // Create inline so the element's lifecycle doesn't outlive the play.
       const audio = new Audio(SFX_SRC);
       audio.volume = 0.4;
       void audio.play().catch(() => {
-        /* autoplay may be blocked until first interaction — ignore */
+        /* Autoplay can be blocked before the first interaction. */
       });
     }
 
-    // First finished turn ever: teach the chime + point at the control. Shown
-    // regardless of focus (it's informational), and it stands in for the normal
-    // finish card so the user isn't double-toasted on their first reply.
+    // Replaces the normal card, so the first reply does not get two toasts.
     if (!getLocalStorageItem(ONBOARDED_KEY)) {
       setLocalStorageItem(ONBOARDED_KEY, true);
       toast.custom({
@@ -108,15 +87,11 @@ export function useRunComplete(stream: StreamingMessage | null): void {
       return;
     }
 
-    // Steady state: only nudge with the card when the user is away — no noise
-    // while they watch the reply stream in.
     if (focused) return;
     const snippet = replySnippet(stream.text);
     toast.custom({
       message: "Alfred finished replying",
-      // Render the preview as markdown so emphasis/code/links land formatted
-      // rather than leaking raw `**`, backticks, etc. The snippet is already a
-      // single collapsed line, so compact block rhythm reads as one tidy row.
+      // Markdown, so raw `**` and backticks do not show.
       description: snippet ? (
         <MarkdownRenderer size="compact" className="[&_p]:my-0">
           {snippet}

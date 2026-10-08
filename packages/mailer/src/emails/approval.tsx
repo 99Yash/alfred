@@ -2,12 +2,7 @@ import { render } from "@react-email/render";
 import * as React from "react";
 import { bodyStyles, EmailShell } from "./_shell";
 
-/**
- * The approval-request email. Sent when a workflow pauses for the user to
- * approve a risky action before it runs. Renders the same shell as the
- * briefing (logo + card + footer), with a fields table summarizing the
- * proposed action and a "Review in Alfred" pill in the footer.
- */
+/** Sent when a workflow pauses for the user to approve a risky action. */
 
 export interface ApprovalEmailField {
   label: string;
@@ -15,15 +10,14 @@ export interface ApprovalEmailField {
 }
 
 export interface ApprovalEmailProps {
-  /** Heading inside the card, e.g. "Alfred wants to send an email". */
+  /** Card heading, for example "Alfred wants to send an email". */
   heading?: string;
-  /** Risk tier, surfaced in the inbox preview and intro. */
+  /** Shown in the inbox preview and the intro. */
   riskTier?: string;
-  /** Summarized action fields (workflow, tool, risk, then key inputs). */
+  /** Rows for the fields table. */
   fields?: ApprovalEmailField[];
-  /** Deep link the footer CTA points at. */
   approvalUrl?: string;
-  /** Small debugging footnote: run + staging ids. */
+  /** Run and staging ids, for debugging. */
   runId?: string;
   stagingId?: string;
   logoUrl?: string;
@@ -102,6 +96,6 @@ ApprovalEmail.PreviewProps = {
 
 export default ApprovalEmail;
 
-/** Render the approval email to an HTML string for sending. */
+/** Render to HTML. */
 export const renderApprovalEmail = (props: ApprovalEmailProps): Promise<string> =>
   render(<ApprovalEmail {...props} />);

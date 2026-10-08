@@ -39,44 +39,24 @@ const PAGE_SIZE = 8;
 
 interface InboxFeedProps {
   items: ReadonlyArray<RailInboxItem>;
-  /** Optional server-driven pagination. When omitted, local filtering still
-   * supports a single page (no controls shown) - used by preview routes. */
+  /** Server pagination. Preview routes omit it and get one local page. */
   pagination?: InboxPagination | undefined;
-  /** Document id of the row currently expanded in the reader pane. When
-   * non-null, the feed swaps the list out for `InboxDetailPane`. */
+  /** Row open in the reader pane. When set, the reader replaces the list. */
   selectedId?: string | null | undefined;
-  /** Open the reader for a given row. Rendered as a link to Gmail when omitted. */
+  /** Open the reader for a row. Without it, rows link to Gmail. */
   onOpen?: ((documentId: string) => void) | undefined;
-  /** Close the reader and return to the list. */
   onClose?: (() => void) | undefined;
-  /**
-   * Optional bulk "mark read" - when present, the feed renders a
-   * "Mark all read" affordance that fires with the *visible* unread
-   * ids. Preview routes (and any caller that wants to suppress the
-   * action) omit this. */
+  /** Mark the visible unread ids read. Omit it to hide "Mark all read". */
   onMarkRead?: ((documentIds: ReadonlyArray<string>) => void) | undefined;
-  /** True while a mark-read request is in flight - disables the button. */
   markReadPending?: boolean | undefined;
-  /** Synced tag rows keyed by Gmail thread id; overlays optimistic overrides. */
+  /** Synced tags by Gmail thread id. Optimistic overrides go on top. */
   triageTagsByThreadId?: ReadonlyMap<string, SyncedTriageTag> | undefined;
-  /** Pin a thread to a user-chosen triage category. */
   onOverrideTag?: ((threadId: string, category: TriageCategory) => void) | undefined;
 }
 
 /**
- * Right-rail Inbox feed.
- *
- * Renders the top Gmail rows surfaced by `/api/me/inbox` (paged at
- * `INBOX_DEFAULT_LIMIT`). Each row
- * carries the triage `category` (when classified) and the sender's
- * domain-derived brand. The list supports:
- *
- *  - quick text filter over sender/subject/preview;
- *  - unread-only toggle (driven by the same `unread` flag the API exports);
- *  - click-through to Gmail web via the row's `threadId`.
- *
- * The component is presentation-only — refresh cadence (window-focus +
- * 5-minute poll) lives in `useInbox`.
+ * Right-rail Inbox feed: text filter, unread toggle, reader pane.
+ * Presentation only; `useInbox` owns the refresh.
  */
 export function InboxFeed({
   items,
@@ -93,27 +73,17 @@ export function InboxFeed({
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [localPage, setLocalPage] = useState(0);
 
-  // Server-driven pagination owns the cursor; local-only mode keeps a
-  // simple page index for fixture / preview usage where filtering is the
-  // primary slicer.
   const serverPaginated = !!pagination;
   const totalUnread = items.filter((i) => i.unread).length;
 
-  // Server already returns just the current page — local filter is applied
-  // on top so the unread toggle / text search work without forcing a server
-  // round-trip per keystroke. Limits the rail to filtering the visible page,
-  // which is acceptable for a single-user inbox; the server query covers the
-  // cross-page slice.
+  // The server returns one page; filter it locally so each keystroke skips a round-trip.
   const filtered = useMemo(
     () => items.filter((item) => filterMatches(item, query, unreadOnly)),
     [items, query, unreadOnly],
   );
 
   const localPageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  // Clamp during render — when the filter (or the `items` prop) shrinks
-  // the result set below the parked page, the rail shows the last valid
-  // page without a state write. Prev/next handlers read off `pageIndex`
-  // (the clamped value) so a stale `localPage` doesn't strand the user.
+  // Clamp during render when the filter shrinks the list below the current page.
   const pageIndex = pagination?.pageIndex ?? Math.min(localPage, localPageCount - 1);
   const pageCount = pagination?.pageCount ?? localPageCount;
 
@@ -123,9 +93,7 @@ export function InboxFeed({
     return filtered.slice(pageIndex * PAGE_SIZE, pageIndex * PAGE_SIZE + PAGE_SIZE);
   }, [filtered, pageIndex, serverPaginated]);
 
-  // Ids the "Mark all read" button will pass to the parent. Drawn from
-  // the visible slice (not `items`) so the button respects the user's
-  // current filter + page; an empty list disables the button.
+  // From the visible slice, so "Mark all read" respects the filter and page.
   const visibleUnreadIds = useMemo(() => {
     const ids: string[] = [];
 
@@ -136,9 +104,7 @@ export function InboxFeed({
     return ids;
   }, [visible]);
 
-  // Detail-pane reader: when a row is selected, swap the list out. The
-  // reader gets its own fetch (`useInboxDetail`), so the list-level filter
-  // / pagination state stays put while the user reads.
+  // The reader fetches on its own, so list filter and page state survive.
   if (selectedId && onClose) {
     return (
       <InboxDetailPane
@@ -229,11 +195,7 @@ export function InboxFeed({
       </div>
 
       {items.length === 0 && pagination?.isLoading ? (
-        // Page hasn't landed in the cache yet (typically: user clicked
-        // "Next" before the fetch resolved). Show a loader rather than the
-        // "No matches" empty state, which would otherwise flash for one
-        // render window and read as a filter result instead of in-flight
-        // pagination.
+        // Page still loading after "Next": show a loader, not a flash of "No matches".
         <div className="flex items-center justify-center px-2 py-6">
           <Loader2 size={14} className="animate-spin text-white/70" aria-hidden />
         </div>
@@ -334,10 +296,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
     <div
       className={cn(
         "-mx-0.5 flex items-center gap-1.5 rounded-lg px-2 py-1.5",
-        // White-alpha treatment so the field reads against the rail's
-        // video surface. Brighter ring at rest, near-white on focus —
-        // the app-purple-2 ring is too dim to register on the cloudy
-        // backdrop.
+        // White-alpha so the field shows on the rail's video; the purple ring is too dim there.
         "bg-white/[0.06] ring-1 ring-white/15 ring-inset",
         "focus-within:bg-white/[0.10] focus-within:ring-white/45",
         "transition-[background-color,box-shadow]",
@@ -380,14 +339,9 @@ function InboxRow({
     ? `https://mail.google.com/mail/u/0/#inbox/${item.threadId}`
     : undefined;
 
-  // Render priority: `onOpen` (in-rail reader) → anchor (Gmail web)
-  // → static container. A focusable element with no handler would lie
-  // to keyboard users about the row being actionable.
+  // Order: `onOpen` (reader), then a Gmail link, then static. Do not make a row with no action focusable.
   const interactive = !!onOpen || !!href;
-  // Presentation-layer de-emphasis (ADR-0064 / #210): a `muted` row is recurring
-  // machine noise or a low-significance cold sender — dim it so demanding items
-  // read first. Hover/focus restores full opacity so it stays discoverable, and
-  // the honest category chip is untouched (this never re-tags).
+  // ADR-0064 / #210: dim `muted` rows (machine noise, cold senders); hover restores. The category chip stays.
   const muted = item.attentionBand === "muted";
 
   const sharedClass = cn(
@@ -404,10 +358,7 @@ function InboxRow({
 
   const body = (
     <>
-      {/* Unread accent — sits along the left edge of the row so the
-       * "this needs attention" signal reads even when the user is
-       * scanning the rail peripherally. Falls back to a transparent
-       * stripe for read rows so the layout doesn't shift. */}
+      {/* Unread stripe; transparent on read rows so the layout does not shift. */}
       <span
         aria-hidden
         className={cn(
@@ -473,8 +424,6 @@ function InboxRow({
 }
 
 function SenderAvatar({ item }: { item: RailInboxItem }) {
-  // First-class brand SVG wins — these are hand-tuned to look right on
-  // the rail surface (correct color, correct optical centering).
   if (item.senderBrand) {
     return (
       <span
@@ -489,9 +438,7 @@ function SenderAvatar({ item }: { item: RailInboxItem }) {
     );
   }
 
-  // Favicon fallback for unmapped corporate / transactional domains.
-  // Hide-on-error reveals the colored initial sitting behind the img,
-  // so a 404'd favicon degrades cleanly to the existing avatar.
+  // Favicon fallback; on error, hide it to show the initial behind it.
   if (item.senderDomain) {
     return (
       <span
@@ -536,14 +483,7 @@ function SenderAvatar({ item }: { item: RailInboxItem }) {
   );
 }
 
-/**
- * Compact triage chip. Categories share four buckets visually:
- *  - red    — `urgent`
- *  - amber  — `action_needed`, `awaiting_reply`, `payment`
- *  - sky    — `follow_up`, `meeting`
- *  - green  — `done`
- *  - gray   — `fyi`, `newsletter`, `marketing`
- */
+/** Triage chip: red urgent, amber action, sky follow-up/meeting, green done, gray the rest. */
 function CategoryChip({
   category,
   source,
@@ -637,10 +577,7 @@ const CATEGORY_CHIP = {
   payment: "bg-app-amber-1 text-app-amber-4",
   follow_up: "bg-app-sky-1 text-app-sky-4",
   meeting: "bg-app-sky-1 text-app-sky-4",
-  // Gray bucket is fixed white-alpha (not bg-a2/fg-2) — these chips render
-  // on the rail's dark video where light-theme tokens (#999 on 5% black)
-  // disappear. The colored buckets are self-contained bg+text pairs and
-  // hold up in both themes.
+  // Gray is white-alpha: theme tokens disappear on the rail's dark video.
   fyi: "bg-white/10 text-white/75",
   done: "bg-app-green-1 text-app-green-4",
   newsletter: "bg-white/10 text-white/75",
@@ -661,19 +598,8 @@ const CATEGORY_SWATCH = {
 } satisfies Record<TriageCategory, string>;
 
 /**
- * Thread reader. Replaces the list view when a row is selected; renders
- * every Gmail message sharing the row's `threadId` as a stacked timeline,
- * oldest-first. The clicked message gets a subtle ring so the user can
- * find it after the fan-out.
- *
- * Each message exposes a Reader (markdown) / Original (sandboxed iframe
- * with the sanitized HTML) toggle so transactional mail can render with
- * its own CSS while newsletters fall back to a clean text view.
- *
- * Reply editor is intentionally deferred — dimension ships a Tiptap-based
- * inline composer (CatchupGmailItem), but Alfred doesn't yet have a send
- * API for the rail. Adding the editor without `sendReply` is a UI lie,
- * so v1 just reads.
+ * Thread reader: every message in the thread, oldest first, with a ring on the clicked one.
+ * Read only: there is no rail send API yet.
  */
 function InboxDetailPane({
   documentId,
@@ -705,9 +631,7 @@ function InboxDetailPane({
           onClick={onClose}
           className={cn(
             "-mx-1.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1",
-            // Fixed white-alpha, NOT theme tokens — the reader sits on the
-            // rail's weather video, which is dark in both themes. Theme
-            // tokens flip to near-black ink in light mode and vanish.
+            // White-alpha, not theme tokens: the video is dark in both themes.
             "text-[11px] font-medium tracking-tight text-white/65 uppercase",
             "transition-colors hover:bg-white/10 hover:text-white",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
@@ -772,9 +696,7 @@ function InboxDetailPane({
                     message={m}
                     isSelected={m.documentId === data.selectedDocumentId}
                     threadId={data.threadId}
-                    /* Auto-expand the last message in the thread + the
-                     * clicked one. Earlier messages collapse to a single
-                     * header row so long threads don't overwhelm the rail. */
+                    /* Open the last message and the clicked one; collapse the rest. */
                     defaultOpen={
                       m.documentId === data.selectedDocumentId || i === data.messages.length - 1
                     }
@@ -790,16 +712,8 @@ function InboxDetailPane({
 }
 
 /**
- * One message in the thread timeline.
- *
- * Collapsed: a single tappable row with avatar + sender + relative time
- * + a one-line snippet. Cheap to scan; matches Gmail's collapsed reply
- * shape.
- *
- * Expanded: full header, view toggle (Reader / Original), markdown or
- * iframe body, attachment strip. The toggle is per-message so a thread
- * can mix views — useful when one reply quotes an HTML newsletter and
- * the others are plain prose.
+ * One message in the thread timeline: a one-line row when collapsed.
+ * Expanded, it has a per-message Reader / Original toggle.
  */
 function ThreadMessageCard({
   message,
@@ -813,9 +727,7 @@ function ThreadMessageCard({
   defaultOpen: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  // Default to Reader; users can flip to Original per-message. The parent
-  // keys this card by documentId, so a different message remounts with fresh
-  // state — no manual reset needed.
+  // The parent keys this card by documentId, so a new message resets the view.
   const [view, setView] = useState<"reader" | "original">("reader");
 
   const hasHtml = !!message.htmlBody;
@@ -828,10 +740,7 @@ function ThreadMessageCard({
   return (
     <div
       className={cn(
-        // White-alpha card on the weather video (matches the rail's search
-        // bar). `app-purple-3` for the selected ring — it's the one purple
-        // step that holds the same hex in both themes, so the highlight
-        // can't fade out when the theme flips.
+        // `app-purple-3` is the one purple step with the same hex in both themes.
         "rounded-xl bg-white/[0.07] ring-1 ring-white/15",
         "transition-shadow",
         isSelected && "ring-2 ring-app-purple-3",
@@ -873,16 +782,13 @@ function ThreadMessageCard({
       {open ? (
         <div className="space-y-2 px-2.5 pb-2.5">
           {hasHtml ? <ViewToggle value={view} onChange={setView} /> : null}
-          {/* Body well — fixed dark glass, not `bg-app-bg-1` (white in light
-           * mode, which washed the reader out to gray-on-gray over the
-           * video). The Original iframe stays opaque white inside it. */}
+          {/* Fixed dark glass: `bg-app-bg-1` is white in light mode and washes out over the video. */}
           <div className="overflow-hidden rounded-lg bg-black/25 ring-1 ring-white/10">
             {view === "original" && message.htmlBody ? (
               <EmailHtmlFrame html={message.htmlBody} />
             ) : message.body.trim() ? (
               <div className="px-3 py-2.5">
-                {/* #294: alt-text only — a `![](https://tracker)` pixel in a
-                 * text/plain body must not make a remote request in Reader. */}
+                {/* #294: alt text only, so a tracker pixel makes no request. */}
                 <MarkdownRenderer tone="media" images="alt-text">
                   {message.body.trim()}
                 </MarkdownRenderer>
@@ -900,18 +806,13 @@ function ThreadMessageCard({
   );
 }
 
-/**
- * Build a short preview from the message body when Gmail didn't supply a
- * snippet (or supplied one full of HTML entities). The collapsed message
- * row uses this to give the user something to scan before expanding.
- */
+/** Preview for the collapsed row when Gmail's snippet is missing or full of entities. */
 function buildSnippet(snippet: string | null, body: string): string {
   const s = (snippet ?? "").trim();
 
   if (s) return s;
 
-  // Strip leading "On Mon, … wrote:" attribution lines and obvious
-  // signatures so the snippet shows the actual reply content.
+  // Skip "On Mon, … wrote:" lines and signatures.
   const firstLine = body
     .split("\n")
     .map((l) => l.trim())
@@ -965,18 +866,10 @@ function ToggleButton({
   );
 }
 
-/**
- * Matches the strict CSP meta the server bakes into every Original body
- * (`sanitizeEmailHtml`, #294). Swapped for {@link LOOSE_CSP_META} only when the
- * user opts into remote media for that message.
- */
+/** The strict CSP meta from `sanitizeEmailHtml` (#294). */
 const CSP_META_RE = /<meta\s+http-equiv="Content-Security-Policy"[^>]*>/i;
 
-/**
- * The "Display remote media" variant: same strict policy, but `img-src` /
- * `media-src` now allow http(s) so sender-hosted images and video load. Scripts,
- * forms, frames, connect, and objects stay blocked — this only relaxes media.
- */
+/** "Display remote media": http(s) images and video allowed; all else stays blocked. */
 const LOOSE_CSP_META =
   `<meta http-equiv="Content-Security-Policy" content="` +
   `default-src 'none'; img-src http: https: data: cid:; media-src http: https:; font-src 'none'; ` +
@@ -984,28 +877,16 @@ const LOOSE_CSP_META =
   `style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`;
 
 /**
- * Renders email HTML in a sandboxed iframe via `srcDoc`. DOMPurify already
- * scrubbed dangerous markup server-side; the sandbox is defense-in-depth.
- *
- * Sandbox includes `allow-same-origin` but NOT `allow-scripts` — that pairing
- * is required for the parent to read `contentDocument.body.scrollHeight`
- * (without `allow-same-origin` the srcdoc document gets an opaque origin
- * and the read is blocked), and it stays safe because no scripts can run
- * to exploit the same-origin access. Auto-sizes on `load` + `ResizeObserver`.
- *
- * Remote media (#294): the server's strict CSP means the Original view makes no
- * sender-host requests on open — tracking pixels never fire. The user opts in
- * per message via "Display remote media", which re-renders this frame with a
- * looser `img-src`. State is local, so it resets every time the message
- * collapses/re-expands.
+ * Email HTML in a sandboxed iframe. DOMPurify already ran on the server.
+ * `allow-same-origin` without `allow-scripts` lets the parent read the height; no script can abuse it.
+ * Remote media (#294) loads only after a per-message opt-in, which resets on collapse.
  */
 function EmailHtmlFrame({ html }: { html: string }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
   const [showRemoteMedia, setShowRemoteMedia] = useState(false);
 
-  // Only offer the toggle when there's a strict CSP to relax AND remote media
-  // to load; otherwise every plain Original body would show a false warning.
+  // Else every plain Original body shows a false warning.
   const canDisplayRemoteMedia = CSP_META_RE.test(html) && hasRemoteEmailMedia(html);
 
   const srcDoc =
@@ -1024,9 +905,7 @@ function EmailHtmlFrame({ html }: { html: string }) {
 
       if (!doc?.body) return;
 
-      // `scrollHeight` on body misses bottom margin on some emails;
-      // documentElement covers both. Cap at a generous max so a runaway
-      // email can't blow up the rail layout.
+      // `documentElement` includes the bottom margin that body misses. Cap the height.
       const h = Math.min(
         Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, 80),
         2400,
@@ -1047,8 +926,7 @@ function EmailHtmlFrame({ html }: { html: string }) {
 
     frame.addEventListener("load", onLoad);
 
-    // Some browsers fire load before the listener attaches when the
-    // document was already populated synchronously by srcDoc — measure now.
+    // `load` can fire before the listener attaches for a srcDoc frame.
     if (frame.contentDocument?.readyState === "complete") onLoad();
 
     return () => {
@@ -1056,7 +934,7 @@ function EmailHtmlFrame({ html }: { html: string }) {
       frame.removeEventListener("load", onLoad);
       observer?.disconnect();
     };
-    // Re-measure when the rendered document changes (incl. the remote-media swap).
+    // Includes the remote-media swap.
   }, [srcDoc]);
 
   return (
@@ -1081,12 +959,9 @@ function EmailHtmlFrame({ html }: { html: string }) {
         ref={ref}
         title="Email body"
         srcDoc={srcDoc}
-        // `allow-same-origin` without `allow-scripts` lets us measure
-        // `contentDocument` from the parent while still blocking JS execution
-        // inside the frame. `allow-popups` (and -to-escape-sandbox) lets the
-        // `<base target="_blank">` we injected open links in a new tab.
+        // No `allow-scripts`. Popups let `<base target="_blank">` open links in a new tab.
         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-        // referrerpolicy keeps clicked links from leaking the chat URL.
+        // Do not leak the chat URL.
         referrerPolicy="no-referrer"
         className="block w-full bg-white"
         style={{ height, border: 0, colorScheme: "light" }}
@@ -1095,11 +970,7 @@ function EmailHtmlFrame({ html }: { html: string }) {
   );
 }
 
-/**
- * Two-letter monogram avatar for thread message cards. Reuses the same
- * deterministic-tone mapping as the inbox list rows so a sender keeps
- * the same color across surfaces.
- */
+/** Monogram avatar, same tone mapping as the inbox rows. */
 function SenderInitialAvatar({ name }: { name: string }) {
   const tone = useMemo(() => toneFromName(name), [name]);
   const initial = (name.trim().charAt(0) || "?").toUpperCase();
@@ -1139,12 +1010,7 @@ function toneFromName(name: string): string {
   return TONE_CLASSES[idx] ?? TONE_CLASSES[0];
 }
 
-/**
- * Compact attachment row. Gmail's attachment-download endpoint requires the
- * opaque `attachmentId` plus an OAuth token — we don't ship that to the
- * browser, so each chip just deep-links into Gmail web. The thread URL is
- * the closest stable target (Gmail doesn't surface per-attachment anchors).
- */
+/** Attachment downloads need an OAuth token we keep off the browser, so chips link to the Gmail thread. */
 function AttachmentStrip({
   attachments,
   threadId,
@@ -1238,11 +1104,7 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
   );
 }
 
-/**
- * Pick an icon + tone for an attachment based on its mime type. Falls back
- * to the filename extension when the mime is the generic
- * `application/octet-stream` (common from forwarded mails).
- */
+/** Icon and tone for an attachment. Uses the extension when the mime is `application/octet-stream`. */
 function attachmentVisual(mimeType: string, filename: string) {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   const mime = mimeType.toLowerCase();
@@ -1291,8 +1153,7 @@ function extensionFor(filename: string, mimeType: string): string {
   const ext = filename.split(".").pop()?.toLowerCase();
 
   if (ext && ext.length <= 5 && ext !== filename.toLowerCase()) return ext;
-  // Map a few common mime types to a readable label when the filename
-  // doesn't carry an extension (e.g. `attachment` with `image/png`).
+  // Label common mimes when the filename has no extension.
   const mime = mimeType.toLowerCase();
 
   if (mime === "application/pdf") return "pdf";

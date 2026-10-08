@@ -42,9 +42,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
               brief: body.brief,
               input: body.input,
               metadata: body.metadata,
-              // /api/agent/runs is the generic "Run now" surface. Cron
-              // and event dispatchers go through their own paths; an
-              // HTTP-initiated run is always manual per ADR-0027.
+              // An HTTP run is always manual (ADR-0027).
               trigger: { kind: "manual" },
               occurrence: {
                 kind: "manual",
@@ -54,11 +52,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
 
             return { runId };
           } catch (err) {
-            // Workflows that declare a `dedupKey` use a partial unique
-            // index to enforce singleton semantics; a duplicate trips
-            // Postgres 23505 here. Surface that as 409 so callers can
-            // distinguish "already running / already done" from a real
-            // 4xx — the raw constraint name is unhelpful to clients.
+            // A `dedupKey` workflow's unique index raises 23505 on a duplicate. Report a 409.
             if (isUniqueViolation(err)) {
               throw Errors.ConflictError(
                 `An active run for workflow "${body.workflowSlug}" already exists.`,
@@ -118,13 +112,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
           const run = await getRun(params.runId, user.id);
 
           if (!run) throw Errors.NotFoundError("Run not found");
-          // Reshape the flat body into the discriminated union that
-          // `signalRun` consumes. `kind` is `t.String()` rather than a
-          // literal-union because Elysia 1.4's `exact-mirror` validator
-          // logs a noisy warning the first time it sees ANY `t.Union`
-          // schema (even of literals) and falls through without
-          // enforcing it — same end state, less log noise. The handler
-          // narrows + validates instead.
+          // `kind` is `t.String()`: Elysia's exact-mirror warns on any `t.Union`. Narrow here.
           let match: SignalArgs["match"];
 
           if (body.match) {
@@ -135,8 +123,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
                 throw Errors.BadRequestError("match.kind='hil' requires approvalId");
               }
 
-              // The kind enum lives in contracts; an unknown value is dropped,
-              // which keeps the pre-m13 "match any hil wake on this id" reading.
+              // An unknown kind is dropped, so the match is any hil wake on this id.
               const approvalKind = approvalKindSchema.safeParse(body.match.approvalKind);
               match = {
                 kind: "hil",

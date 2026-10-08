@@ -47,7 +47,7 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
   );
 
   for await (const _part of stream.stream) {
-    // Draining the real stream triggers final usage + metering.
+    // Draining the stream triggers metering.
   }
 
   const streamedText = await stream.text;
@@ -131,7 +131,6 @@ async function main(): Promise<void> {
 
   for (const modelId of MODEL_IDS) await smokeModel(modelId);
 
-  // Metering stays fire-and-forget on request paths; scripts can drain it deterministically.
   await flushMeteringWrites();
 
   const rows = await db()

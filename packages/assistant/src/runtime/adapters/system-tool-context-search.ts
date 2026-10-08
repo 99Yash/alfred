@@ -9,22 +9,10 @@ import {
 import { logger } from "@alfred/logging";
 
 /**
- * The runtime-composition implementation of the `SystemToolContextSearchAdapter`
- * seam (epic #422; ADR-0101).
- *
- * It is the one place that knows both halves of the model-facing read: the
- * `context-search` boundary's `searchContext` verb and its `packEvidenceCards`
- * renderer. The tool (`system.search_context`) forwards the model's bounded
- * envelope here; this adapter binds the call's `userId`, runs the read over
- * every registered source, and returns the packed, cited, bounded text — never
- * the raw cards, a full provider body, or a media byte. The read's truncation
- * facts ride alongside the text so the model can say it saw only part of the
- * evidence.
- *
- * It lives in runtime composition because importing `@alfred/assistant/context-search`
- * pulls the database and corpus graphs; the tool-runtime barrel every tool
- * declaration imports must stay free of them (ADR-0089). Composition installs
- * it at boot, beside the other `system-tool-*` adapters.
+ * The `SystemToolContextSearchAdapter` (ADR-0101): runs `searchContext` for the
+ * caller's user and returns packed text plus truncation facts, never raw cards.
+ * Lives in composition because `context-search` pulls the DB and corpus graphs,
+ * which the tool-runtime barrel must not import (ADR-0089).
  */
 const contextSearchAdapter: SystemToolContextSearchAdapter = {
   async runContextSearch({ input, context }) {
@@ -38,11 +26,7 @@ const contextSearchAdapter: SystemToolContextSearchAdapter = {
 
     const packed = packEvidenceCards(result);
 
-    // Production reader for `ContextSearchResult.ranking` (#427): the packer
-    // never receives the ranker's working, so without this the combined score
-    // and present-feature set would exist only in tests. A debug log keeps it
-    // out of the prompt while leaving a per-read trace of which order won and
-    // why. Bounded by the request limit (<= 50 cards).
+    // The only production reader of `ranking` (#427). A debug log keeps it out of the prompt.
     logger.debug(
       {
         event: "context_search_ranked",
@@ -56,9 +40,7 @@ const contextSearchAdapter: SystemToolContextSearchAdapter = {
       "Context search ranked evidence",
     );
 
-    // `ok` is true whenever the read ran: `searchContext` reports per-source
-    // empty/failed outcomes as reports and never throws, so a total source
-    // outage is honest note text, not a structured failure.
+    // A source failure arrives as a note in the text, not as a throw.
     return {
       ok: true,
       text: packed.text,

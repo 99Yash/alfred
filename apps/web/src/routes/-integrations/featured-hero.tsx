@@ -3,7 +3,7 @@ import { cn } from "~/lib/utils";
 import { HeroTile } from "./hero-tile";
 
 export function FeaturedHero({ brands }: { brands: ReadonlyArray<IntegrationBrand> }) {
-  // Pick 3 brands; if fewer than 3 connected, pad missing slots with the first.
+  // Three brands; pad with the first if fewer are connected.
   const picks: [IntegrationBrand, IntegrationBrand, IntegrationBrand] = (() => {
     if (brands.length === 0) return ["gmail", "google_calendar", "google_drive"];
     const [a = brands[0]!, b = brands[0]!, c = brands[0]!] = brands;
@@ -20,7 +20,7 @@ export function FeaturedHero({ brands }: { brands: ReadonlyArray<IntegrationBran
       )}
       style={{ animationDelay: "60ms" }}
     >
-      {/* Grid backdrop with radial mask — subtle texture */}
+      {/* Masked grid texture */}
       <div
         aria-hidden
         className="absolute inset-0 opacity-50 dark:opacity-30"

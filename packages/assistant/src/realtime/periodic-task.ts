@@ -1,43 +1,19 @@
 /**
- * A timer-driven background loop with a cooperative stop.
- *
- * The outbox relay and the outbox reaper both need the same five things, and
- * before this module each carried its own copy: a module-level `stopped` flag, a
- * re-entrancy guard so two passes never overlap, an unref'd interval so the
- * timer cannot hold the process open, a bounded drain on shutdown, and a
- * `catch` that keeps a failed pass from rejecting into the timer. The
- * duplication was structural rather than textual, so `pnpm dup` never saw it.
- *
- * The shared part is the lifecycle, not the trigger. The relay is
- * `LISTEN`-driven and owns its own pool; the reaper is purely periodic. So this
- * owns *when a pass may run* and nothing about what a pass does.
- *
- * **The stop is cooperative, which is the point.** `stop()` aborts the signal
- * handed to the pass and only then waits for it. A pass that loops has to check
- * `signal.aborted` between units of work, because the caller's next move after
- * `stop()` resolves is usually to tear down the connection pool the pass is
- * using. Hand-rolling this is what produced the bug this module replaces: the
- * reaper's `stopped` flag was never read between delete batches, so its
- * shutdown wait could return with a pass still mid-flight and the documented
- * protection did not exist.
+ * A timer loop with a cooperative stop, shared by the outbox relay and reaper.
+ * `stop()` aborts the pass's signal, then waits. A pass that loops must check
+ * `signal.aborted` between units, because the caller usually closes the pool next.
  */
 import { toMessage, unrefTimer } from "@alfred/contracts";
 
 export interface PeriodicTaskOptions {
-  /** Log prefix, e.g. `"outbox-reaper"`. */
   name: string;
-  /** How long after one pass ends before the next begins, absent a `trigger()`. */
+  /** Interval between scheduled triggers; a trigger during a pass is coalesced. */
   intervalMs: number;
-  /**
-   * Run one pass.
-   *
-   * A pass that does more than one unit of work must check `signal.aborted`
-   * between units and return early. Rejections are logged, never rethrown.
-   */
+  /** Check `signal.aborted` between units of work. Rejections are logged, never rethrown. */
   pass: (signal: AbortSignal) => Promise<void>;
-  /** Run a pass immediately on `start()`. Default `true`. */
+  /** Default `true`. */
   runOnStart?: boolean;
-  /** How long `stop()` waits for an in-flight pass. Default 5s. */
+  /** How long `stop()` waits for a pass. Default 5s. */
   drainMs?: number;
 }
 
@@ -51,13 +27,12 @@ export class PeriodicTask {
   #controller = new AbortController();
   #stopped = true;
   #inFlight = false;
-  /** A `trigger()` that arrived while a pass was running, coalesced to one re-run. */
+  /** Triggers during a pass coalesce to one re-run. */
   #pending = false;
 
   constructor(options: PeriodicTaskOptions) {
     this.#options = options;
-    // Nothing runs until start(), so the initial signal is already aborted.
-    // A caller that reads `signal` before start() must not see "live".
+    // Before start(), `signal` must read as aborted.
     this.#controller.abort();
   }
 
@@ -66,21 +41,16 @@ export class PeriodicTask {
     return this.#stopped;
   }
 
-  /**
-   * Aborted for the whole time the task is not running. Callers with their own
-   * side channels — the relay's `LISTEN` reconnect timer, for one — read this
-   * instead of keeping a second `stopped` flag in sync by hand.
-   */
+  /** Aborted whenever the task is not running. Read it instead of a second `stopped` flag. */
   get signal(): AbortSignal {
     return this.#controller.signal;
   }
 
-  /** Idempotent: a second call on a running task does nothing. */
+  /** Idempotent. */
   start(): void {
     if (!this.#stopped) return;
     this.#stopped = false;
-    // A fresh controller per run, because an AbortSignal cannot be un-aborted
-    // and a restarted task must not hand its pass a dead signal.
+    // An AbortSignal cannot be un-aborted, so a restart needs a new controller.
     this.#controller = new AbortController();
 
     if (this.#options.runOnStart !== false) this.trigger();
@@ -92,17 +62,10 @@ export class PeriodicTask {
       this.#options.intervalMs,
     );
 
-    // Never hold the process open for a maintenance loop.
     unrefTimer(this.#timer);
   }
 
-  /**
-   * Ask for a pass now.
-   *
-   * Coalescing, not queueing: any number of triggers during one pass schedule
-   * exactly one more pass after it. This is what lets a burst of Postgres
-   * `NOTIFY`s collapse into a single extra drain.
-   */
+  /** Ask for a pass now. Any number of triggers during a pass run one more pass. */
   trigger(): void {
     if (this.#stopped) return;
 
@@ -125,8 +88,7 @@ export class PeriodicTask {
         try {
           await this.#options.pass(this.#controller.signal);
         } catch (err) {
-          // A failed pass is not an outage — the next one retries. Swallowing
-          // here is what keeps the rejection out of the timer callback.
+          // The next pass retries. Do not reject into the timer.
           console.warn(`[${this.#options.name}] pass failed:`, toMessage(err));
         }
       } while (this.#pending && !this.#stopped);
@@ -135,14 +97,7 @@ export class PeriodicTask {
     }
   }
 
-  /**
-   * Stop scheduling, abort the in-flight pass, and wait for it to notice.
-   *
-   * The wait is bounded so one stuck pass cannot block shutdown. It returns
-   * `true` when the pass finished and `false` on timeout — a caller that is
-   * about to close a pool the pass was using should log the difference rather
-   * than assume the pass is done.
-   */
+  /** Abort the pass and wait, bounded. `false` means it was still running at the deadline. */
   async stop(): Promise<boolean> {
     if (this.#stopped) return true;
     this.#stopped = true;
@@ -153,7 +108,6 @@ export class PeriodicTask {
       this.#timer = undefined;
     }
 
-    // Abort first, then wait: the order is what makes the wait likely to succeed.
     this.#controller.abort();
 
     const deadline = Date.now() + (this.#options.drainMs ?? DEFAULT_DRAIN_MS);

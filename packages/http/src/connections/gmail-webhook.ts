@@ -16,31 +16,9 @@ import {
 } from "@alfred/assistant/connections/ingestion";
 
 /**
- * Gmail push receiver.
- *
- *   Google -> Pub/Sub topic -> push subscription -> POST /webhooks/gmail
- *
- * Pub/Sub envelope shape:
- *   {
- *     message: {
- *       data: base64(<JSON:{emailAddress, historyId}>),
- *       messageId, publishTime, attributes?
- *     },
- *     subscription: "projects/.../subscriptions/..."
- *   }
- *
- * We never trust the payload by itself. Three checks gate processing:
- *   1. OIDC token on Authorization header (when configured) — proves the
- *      request came from Pub/Sub with the expected service account.
- *   2. `parseGmailPushEnvelope` reads the envelope fields with `getStringPath`
- *      and validates the decoded notification against the schema below. The
- *      route body stays `t.Unknown()` on purpose; see that function's header.
- *   3. The decoded `emailAddress` must map to a known credential row.
- *
- * The handler returns 200 fast (target <500ms) and offloads the actual
- * sync to the ingestion queue. Pub/Sub treats anything but 2xx as
- * delivery failure and retries with exponential backoff, so swallowing
- * already-handled-elsewhere notifications as 200 is the right default.
+ * Gmail push receiver: Pub/Sub -> POST /webhooks/gmail.
+ * Checks the OIDC token, the envelope, and a known credential, then queues a poll.
+ * Pub/Sub retries every non-2xx, so unusable notifications still get a 200.
  */
 
 const GOOGLE_OIDC_JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
@@ -66,11 +44,7 @@ type GmailWebhookQueue = {
   ) => Promise<void>;
 };
 
-/**
- * #560a: persist a durable event receipt keyed by Pub/Sub messageId.
- * The unique index on `(provider, provider_delivery_id)` catches redeliveries;
- * an `onConflictDoNothing` insert returns `{ inserted: false }` for duplicates.
- */
+/** Persist a receipt keyed by Pub/Sub messageId. A redelivery returns `{ inserted: false }`. */
 export type GmailWebhookReceiptPersister = (args: {
   providerDeliveryId: string;
   credentialId: string;
@@ -102,8 +76,7 @@ export async function verifyPubSubOidcForGmailWebhook(
   if (!audience) {
     assertGmailPushOidcConfigured(config);
 
-    // OIDC verification is disabled only for local/test webhook exercises
-    // where setting up a signed Pub/Sub push token is unnecessary friction.
+    // No audience configured: local and test only.
     return {};
   }
 
@@ -130,34 +103,15 @@ export async function verifyPubSubOidcForGmailWebhook(
 
 const gmailPushNotificationSchema = z.object({
   emailAddress: z.string().min(1),
-  // Nothing downstream reads `historyId`; it is a presence gate only, and it
-  // keeps the base handler's `!parsed.historyId` check. Google's push payload
-  // sends it as a JSON number and our test fixture sends a string, so accept
-  // both. A `z.string()` spelling here would answer `bad-payload` for every
-  // production notification while the suite stayed green.
+  // A presence check only. Google sends a number and the test fixture a string;
+  // `z.string()` alone would reject every real notification.
   historyId: z.union([z.string(), z.number()]).refine((value) => Boolean(value)),
 });
 
 /**
- * The single door from the wire body to a domain value. Total: it never throws,
- * and every body it receives yields either a validated notification or a
- * `notification` of `null`, which the handler answers 200 for. `messageId` is
- * for the log line only.
- *
- * The route keeps `body: t.Unknown()` rather than a rejecting typebox schema
- * because `errorHandler` maps an Elysia `VALIDATION` code to 400, and Pub/Sub
- * retries every non-2xx with backoff — so a rejecting schema would retry a
- * permanently invalid body forever.
- *
- * That covers route validation only. One arm stays open, and it is accepted
- * residual risk rather than a claim this function holds: Elysia parses the body
- * by content type BEFORE route validation, so bytes that are not JSON under
- * `content-type: application/json` raise `PARSE`, which `errorHandler` maps to
- * 400 through a door this function never sees. Under the production
- * `@elysiajs/node` adapter that arm covers malformed JSON text, an empty-string
- * body and an absent body. Base `315823c5` answers 400 for all of them too, so
- * nothing regressed here; campaign item 210 owns whether to close the arm with
- * a `parse: ({ request }) => request.text()` hook, as `inbound-webhook.ts` does.
+ * Never throws: a bad body gives `notification: null` and a 200.
+ * The route uses `t.Unknown()` because a schema 400 makes Pub/Sub retry forever.
+ * Known gap: Elysia parses JSON before this runs, so malformed JSON still gets a 400.
  */
 export interface GmailPushEnvelope {
   messageId: string | undefined;
@@ -165,29 +119,18 @@ export interface GmailPushEnvelope {
 }
 
 export function parseGmailPushEnvelope(body: unknown): GmailPushEnvelope {
-  // `getStringPath` walks a body of any shape and accepts only a string leaf, so
-  // a non-object root, a wrong-typed `message` and a wrong-typed `messageId` all
-  // read as absent instead of failing the whole envelope. Fields nothing reads —
-  // `publishTime`, `attributes`, `subscription` — cannot invent a rejection.
   const messageId = getStringPath(body, "message", "messageId");
   const data = getStringPath(body, "message", "data");
 
   if (data === undefined) return { messageId, notification: null };
 
-  // `Buffer.from(x, "base64")` never throws; it drops any character outside the
-  // alphabet. `parseJsonWith` owns the malformed-JSON and failed-schema arms.
+  // Base64 decoding never throws; it drops invalid characters.
   const json = Buffer.from(data, "base64").toString("utf8");
 
   return { messageId, notification: parseJsonWith(json, gmailPushNotificationSchema) };
 }
 
-/**
- * #560a: default receipt persister — inserts into `event_receipts` with
- * `onConflictDoNothing` on the unique `(provider, provider_delivery_id)` index.
- * Returns whether the row was newly inserted (duplicate redeliveries are no-ops).
- * The receipt is the audit trail for delivery verification and the source of
- * truth for gap detection (ADR-0090).
- */
+/** The receipt is the audit trail and the source of truth for gap detection (ADR-0090). */
 async function defaultPersistReceipt(args: {
   providerDeliveryId: string;
   credentialId: string;
@@ -243,16 +186,13 @@ export function makeGmailWebhookRoutes(
         verificationResult = "oidc_valid";
       } catch (err) {
         console.warn("[gmail-webhook] OIDC verification failed:", toMessage(err));
-        // 401 → Pub/Sub will retry, but a misconfigured audience would
-        // retry forever. Logging at warn level keeps this visible without
-        // paging on every notification.
+        // Pub/Sub retries a 401, so a wrong audience retries forever.
         throw Errors.UnauthorizedError("Invalid OIDC token");
       }
 
       const { messageId, notification } = parseGmailPushEnvelope(body);
 
       if (!notification) {
-        // Malformed payload → 200 to stop retries; nothing we can do with it.
         console.warn("[gmail-webhook] could not decode payload; messageId=", messageId);
 
         return { ok: true, ignored: "bad-payload" };
@@ -261,7 +201,7 @@ export function makeGmailWebhookRoutes(
       const cred = await findCredential(notification.emailAddress);
 
       if (!cred) {
-        // The user may have disconnected; we shouldn't keep retrying. 200.
+        // Probably disconnected. A 200 stops the retries.
         console.warn(
           `[gmail-webhook] no credential for ${notification.emailAddress}; messageId=${messageId}`,
         );
@@ -269,13 +209,7 @@ export function makeGmailWebhookRoutes(
         return { ok: true, ignored: "no-credential" };
       }
 
-      // #560a: persist a durable receipt before enqueuing. The DB unique index
-      // on (provider, provider_delivery_id) catches Pub/Sub redeliveries; a
-      // duplicate insert is a no-op. The receipt is the audit trail for delivery
-      // verification and the source of truth for gap detection (ADR-0090).
-      // #560a: SHA-256 of JSON.stringify(body) for audit. Key order matters —
-      // the same logical payload with different key order produces a different
-      // hash. This is acceptable for audit purposes; not used for dedup.
+      // Audit only: key order changes the hash, so never use it for dedup.
       // drift-ok: audit-only receipt digest, never compared against another hash; dedup is the (provider, provider_delivery_id) index
       const payloadHash = createHash("sha256").update(JSON.stringify(body)).digest("hex");
       const historyId = String(notification.historyId);
@@ -291,18 +225,8 @@ export function makeGmailWebhookRoutes(
           })
         : { inserted: false };
 
-      // Deduplicate rapid-fire pushes for the same credential — Pub/Sub can
-      // redeliver and Gmail can publish multiple history changes per second.
-      // The TTL window collapses bursts but releases quickly so a *new* push
-      // arriving after the window still enqueues a fresh poll. (Static `jobId`
-      // doesn't work here — BullMQ keeps completed jobs around per
-      // `removeOnComplete`, so re-enqueues with the same id become silent
-      // no-ops for hours.) The ingestion policy owns this realtime TTL;
-      // history sweeps use a separate active-job dedup policy.
-      //
-      // Routes to `gmail.poll_recent` (ADR-0037) — Gmail's search index is the
-      // realtime-consistent surface; history.list lags pub/sub and is now
-      // demoted to the 5-min catch-up sweep.
+      // A TTL dedup collapses bursts. Not a static `jobId`: BullMQ keeps completed jobs,
+      // so a reused id is a silent no-op for hours. Poll, not history.list, which lags (ADR-0037).
       const queue = getQueue();
       await queue.add(
         "gmail.poll_recent",
@@ -318,9 +242,7 @@ export function makeGmailWebhookRoutes(
       return { ok: true, credentialId: cred.id, receiptPersisted: receipt.inserted };
     },
     {
-      // Not a rejecting schema — see `parseGmailPushEnvelope`. `t.Unknown()`
-      // also types `body` as `unknown`, so no handler can read a wire field
-      // without going through that door.
+      // Not a rejecting schema; see `parseGmailPushEnvelope`.
       body: t.Unknown(),
     },
   );

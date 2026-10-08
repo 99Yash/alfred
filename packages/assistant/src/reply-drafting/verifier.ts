@@ -10,25 +10,17 @@ import {
 } from "@alfred/contracts";
 
 /**
- * Reply-draft verifier (ADR-0098). PURE — no DB, no LLM.
- *
- * The verifier stands between a composed candidate and the `gmail.send_draft`
- * staging call. It checks STRUCTURE, not prose quality: does the reply point at
- * the inbound thread, does every recipient belong to that thread and differ from
- * the user's own mailbox, and does every factual claim rest on a gathered object.
- * Each failing test names a `withheld` reason, and the decision is bound to the
- * exact facts bundle it judged so a later edit cannot inherit a pass.
- *
- * {@link prepareReplyStaging} is the ONLY way a caller obtains a
- * `GmailSendDraftInput` from this module. The composer (#237) therefore cannot
- * stage anything the verifier has not passed — the order is structural, not a
- * convention.
+ * Reply-draft verifier (ADR-0098). Pure: no DB, no LLM.
+ * Checks structure, not prose: the reply targets the inbound thread, recipients are on it
+ * and are not the user, and each claim rests on a gathered object. The first failure names
+ * the `withheld` reason. A pass is bound to the exact facts it judged.
+ * {@link prepareReplyStaging} is the only way to get a `GmailSendDraftInput` here.
  */
 
 export interface ReplyDraftClaim {
-  /** The sentence or fact as it appears in the body. */
+  /** As it appears in the body. */
   text: string;
-  /** The gathered object that grounds it, or `null` when nothing does. */
+  /** `null` when nothing grounds it. */
   source: ReplyDraftGatheredObject | null;
 }
 
@@ -41,9 +33,9 @@ export interface ReplyDraftCandidate {
 }
 
 export interface ReplyVerifierContext {
-  /** Authoritative address of the mailbox the inbound message arrived in, or null when unknown. */
+  /** Null when unknown. */
   mailboxAddress: string | null;
-  /** Every address on the inbound thread's From/To/Cc headers, canonical form. */
+  /** From/To/Cc of the inbound thread, canonical. */
   threadParticipants: string[];
   style: ReplyDraftStyleSelection;
   featureFlagEnabled: boolean;
@@ -83,10 +75,7 @@ function canonicalSet(addresses: readonly string[]): Set<string> {
   return out;
 }
 
-/**
- * Judge one candidate against its context. Tests run in the order of
- * `REPLY_WITHHELD_REASONS`; the first failure is the decision.
- */
+/** Tests run in `REPLY_WITHHELD_REASONS` order; the first failure decides. */
 export function verifyReplyCandidate(
   candidate: ReplyDraftCandidate,
   ctx: ReplyVerifierContext,
@@ -137,11 +126,7 @@ export function verifyReplyCandidate(
   return { decision: "pass", boundTo };
 }
 
-/**
- * Run the verifier and, on a pass, build the exact `gmail.send_draft` input
- * the dispatcher accepts. The schema parse is the tool's own, so a candidate
- * the tool would reject fails here rather than at staging time.
- */
+/** On a pass, build the `gmail.send_draft` input with the tool's own schema, so a bad one fails here. */
 export function prepareReplyStaging(
   candidate: ReplyDraftCandidate,
   ctx: ReplyVerifierContext,
@@ -157,7 +142,7 @@ export function prepareReplyStaging(
     ...(candidate.recipients.cc.length > 0 ? { cc: candidate.recipients.cc } : {}),
     subject: candidate.subject,
     bodyText: candidate.bodyText,
-    // Verified non-null above; the parse keeps the thread anchor on the approval card.
+    // Checked above; keeps the thread on the approval card.
     threadId: candidate.sourceThreadId ?? undefined,
   });
 

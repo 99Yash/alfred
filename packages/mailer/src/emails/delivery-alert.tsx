@@ -2,25 +2,16 @@ import * as React from "react";
 import { bodyStyles, EmailShell } from "./_shell";
 
 /**
- * The "deliveries stopped" email (ADR-0100). Sent when an integration the user
- * connected has stopped delivering events and only the user can restore it.
- *
- * A source that produces events only while it is healthy sends nothing when it
- * breaks, so nothing in the app can notice on the user's behalf. This email is
- * the push half of the alert: the banner waits for the user to open Alfred,
- * and this does not.
- *
- * `reason` is the source's own health verdict, one sentence. The alert surface
- * rule already refused every verdict written for an operator, so what reaches
- * this template names the account, never a deployment fact.
+ * Sent when a connected integration stops delivering events and only the user
+ * can fix it (ADR-0100). The in-app banner waits for the user to open Alfred; this does not.
  */
 
 export interface DeliveryAlertEmailProps {
-  /** Display name of the integration that stopped delivering. */
+  /** Integration display name. */
   integrationName?: string;
-  /** The health check's one sentence. Never raw provider text. */
+  /** One sentence from the health check, written for the user. Never raw provider text. */
   reason?: string;
-  /** Deep link to the integration page, where the connect control lives. */
+  /** Link to the integration page. */
   integrationUrl?: string;
   logoUrl?: string;
   createdAt?: string;

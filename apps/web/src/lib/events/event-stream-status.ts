@@ -3,14 +3,9 @@ import { useSyncExternalStore } from "react";
 export type EventStreamStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 
 /**
- * Shared SSE connection lifecycle.
- *
- * State machine (Tier 5 → documented but not type-enforced):
- *   disconnected --open--> connecting --onopen--> connected --transient drop--> connecting
- *                                          \--fatal CLOSED--> reconnecting --backoff--> connecting
- *   All edges funnel through `setStatus`; no external module writes the variable.
- *   A future tightening would replace the string union with a discriminated
- *   transition helper (Tier 1) rather than allowing any `setStatus` call.
+ * Shared SSE connection state. Transitions are not type-checked:
+ *   disconnected -> connecting -> connected -> (drop) connecting
+ *   connected -> (fatal CLOSED) reconnecting -> (backoff) connecting
  */
 let eventStreamStatus: EventStreamStatus = "disconnected";
 

@@ -1,11 +1,4 @@
-/**
- * Canonical triage category list. Lives in `@alfred/contracts` so the
- * web bundle can import it without pulling in the Node-only
- * `@alfred/integrations` package. `packages/integrations/src/google/labels.ts`
- * re-exports `TRIAGE_CATEGORIES` and `TriageCategory` from here and adds
- * the integration-specific Gmail label-name mapping on top — there is
- * only one source of truth.
- */
+/** Triage categories. Here, not in `@alfred/integrations`, so the web bundle can import them. */
 
 import { z } from "zod";
 import { enumGuard } from "./guards";
@@ -48,22 +41,14 @@ export const isTriageCategory = enumGuard(TRIAGE_CATEGORIES);
 
 export const triageCategorySchema = z.enum(TRIAGE_CATEGORIES);
 
-/**
- * Who authored the thread's current triage tag. `auto` = the classifier wrote
- * it (carries confidence/rationale); `user` = the user overrode it via the
- * `triageTagOverride` Replicache mutator (carries `overriddenAt`, no classifier
- * provenance). The discriminant for `SyncedTriageTag` — see rfc-triage-tags.md.
- */
+/** `auto`: the classifier wrote the tag. `user`: the user overrode it. Discriminates `SyncedTriageTag`. */
 export const TRIAGE_TAG_SOURCES = ["auto", "user"] as const;
 
 export type TriageTagSource = (typeof TRIAGE_TAG_SOURCES)[number];
 
-// ─── Classifier todo proposal (ADR-0050 amendment 2026-06-06) ─────────────
-// Lives here (not in `@alfred/assistant`) so the `email_triage` row can `.$type<>()`
-// against it without a db→api dependency. The cheap classifier
-// (`@alfred/assistant` triage/classify) re-uses these schemas as the source of
-// truth for its `todoSuggestion` / `todoDecision` fields, and the row persists
-// them so a same-run `classify` retry on the reuse path can re-mint the todo.
+// ─── Classifier todo proposal (ADR-0050) ────────────────────────────────────
+// Here so the `email_triage` row can type against it.
+// The row persists them so a `classify` retry can re-mint the todo.
 
 export const TODO_DECISION_OUTCOMES = [
   "proposed",
@@ -76,17 +61,11 @@ export const TODO_DECISION_OUTCOMES = [
 
 export type TodoDecisionOutcome = (typeof TODO_DECISION_OUTCOMES)[number];
 
-/**
- * Real-time todo proposal for the rail. Non-null ONLY when the email cleared
- * every rubric test (rule 16). `assist` is `.nullish()` (not `.optional()`)
- * because flash-lite routinely emits explicit `null`, which a bare `.optional()`
- * would reject.
- */
+/** Non-null only when the email passes every rubric test. `nullish` because the model emits `null`. */
 export const triageTodoSuggestionSchema = z
   .object({
-    /** Crisp imperative title for the rail checkbox row. */
     name: z.string().min(1).max(120),
-    /** Optional one-liner on how to approach it (or an honest "can't act yet"). */
+    /** How to approach it, or "can't act yet". */
     assist: z.string().max(280).nullish(),
   })
   .nullable();
@@ -94,15 +73,9 @@ export const triageTodoSuggestionSchema = z
 export type TriageTodoSuggestion = z.infer<typeof triageTodoSuggestionSchema>;
 
 /**
- * Always-present rubric trace: which test decided the todo call, so a wrong
- * suggestion AND a wrong omission are both debuggable. Invariant:
- * `outcome === 'proposed'` iff the suggestion is non-null.
- *
- * The cheap model sometimes VIOLATES its own rubric — returning `proposed` while
- * the `note` carries a failing-outcome prefix (`cold_sender:` / `manufactured:` /
- * `advisory:`, all documented to accompany `not_significant`). `resolveTodoSuggestion`
- * treats that contradiction as a suppression (no todo), so a `proposed` decision
- * whose note names a disqualifying reason is honored downstream as `not_significant`.
+ * Which rubric test decided the todo. `outcome === 'proposed'` iff a suggestion exists.
+ * `resolveTodoSuggestion` suppresses a `proposed` whose note starts
+ * `cold_sender:`, `manufactured:`, or `advisory:`.
  */
 export const triageTodoDecisionSchema = z.object({
   outcome: z.enum(TODO_DECISION_OUTCOMES),
@@ -111,22 +84,15 @@ export const triageTodoDecisionSchema = z.object({
 
 export type TriageTodoDecision = z.infer<typeof triageTodoDecisionSchema>;
 
-// ─── Collaboration-tool activity kind (#218 / ADR-0066) ───────────────────
-// A structured read of WHAT a collaboration-tool notification (ClickUp, Linear,
-// Jira, Asana, Notion, Trello, doc-comment threads) represents. The cheap
-// classifier emits it alongside the category so a deterministic floor can demote
-// PASSIVE team activity from a confident group/service sender — the residual
-// `action_needed` leak that no body-regex reason (`collab_state_transition`,
-// `github_passive_pr_or_ci`, …) safely catches. Null for any mail that is NOT a
-// collaboration-tool notification. Rule 12e already asks the model to classify
-// these by ownership; this surfaces that read as a field the floor can gate on
-// (a structured signal, not another prompt patch).
+// ─── Collaboration-tool activity kind (ADR-0066) ───────────────────────────
+// What a ClickUp, Linear, or Jira notification is. Null for other mail.
+// A floor demotes passive team activity from a group or service sender to fyi.
 export const COLLAB_ACTIVITY_KINDS = [
-  // Directed AT the user — the ball is in their court. These KEEP their category.
+  // Directed at the user: keep the category.
   "assigned_to_user",
   "mentioned_user",
   "comment_to_user",
-  // Passive team activity — not the user's obligation. These DEMOTE to fyi.
+  // Passive team activity: demote to fyi.
   "state_change",
   "other_activity",
   "digest",
@@ -136,12 +102,7 @@ export type CollabActivityKind = (typeof COLLAB_ACTIVITY_KINDS)[number];
 
 export const collabActivitySchema = z.enum(COLLAB_ACTIVITY_KINDS);
 
-/**
- * The subset directed AT the user (assignment, @-mention, or a comment/reply to
- * them). A collaboration notification of one of these kinds genuinely obligates
- * the user, so the sender-kind floor must NOT demote it — only the passive
- * complement (`state_change` / `other_activity` / `digest`) demotes.
- */
+/** Kinds that obligate the user. The sender-kind floor never demotes these. */
 export const COLLAB_ACTIVITY_OWNERSHIP_KINDS = [
   "assigned_to_user",
   "mentioned_user",
@@ -158,8 +119,7 @@ export const COLLAB_ACTIVITY_PASSIVE_KINDS = [
 
 export type PassiveCollabActivityKind = (typeof COLLAB_ACTIVITY_PASSIVE_KINDS)[number];
 
-// Compile-time partition guard: a newly-added kind must be explicitly classified
-// as ownership or passive before the sender-kind floor can consume it.
+// Compile error unless every kind is in exactly one of ownership or passive.
 export const COLLAB_ACTIVITY_PARTITION_CHECK: Record<
   Exclude<CollabActivityKind, OwnershipCollabActivityKind | PassiveCollabActivityKind>,
   never
@@ -167,16 +127,12 @@ export const COLLAB_ACTIVITY_PARTITION_CHECK: Record<
   Record<Extract<OwnershipCollabActivityKind, PassiveCollabActivityKind>, never> = {};
 
 export function isOwnershipCollabActivity(kind: CollabActivityKind): boolean {
-  // SAFETY: the table is `as const satisfies readonly CollabActivityKind[]`;
-  // widening its element type to the full union only lets .includes take the
-  // wider `kind` argument — every member already is a CollabActivityKind.
+  // SAFETY: every member is a CollabActivityKind; widening only lets .includes take `kind`.
   return (COLLAB_ACTIVITY_OWNERSHIP_KINDS as readonly CollabActivityKind[]).includes(kind);
 }
 
 export function isPassiveCollabActivity(kind: CollabActivityKind): boolean {
-  // SAFETY: the table is `as const satisfies readonly CollabActivityKind[]`;
-  // widening its element type to the full union only lets .includes take the
-  // wider `kind` argument — every member already is a CollabActivityKind.
+  // SAFETY: every member is a CollabActivityKind; widening only lets .includes take `kind`.
   return (COLLAB_ACTIVITY_PASSIVE_KINDS as readonly CollabActivityKind[]).includes(kind);
 }
 
@@ -206,12 +162,7 @@ export const EFFECTIVE_AUTHOR = ["bot", "person", "service", "unknown"] as const
 
 export type EffectiveAuthor = (typeof EFFECTIVE_AUTHOR)[number];
 
-/**
- * Bot slug allowlist. Each slug names a recognized automated sender whose
- * envelope or body-actor pattern the `extract-sender-context` step can
- * identify deterministically. Grow this list from observed
- * `triage.classification` decision-trace evidence, never speculation.
- */
+/** Bots `extractSenderContext` can identify. Add slugs only from observed decision traces. */
 export const BOT_SLUGS = [
   "coderabbit",
   "copilot-review",
@@ -227,13 +178,7 @@ export const BOT_SLUGS = [
 
 export type BotSlug = (typeof BOT_SLUGS)[number];
 
-/**
- * Subset of `BOT_SLUGS` whose alerts CAN be same-day urgent. The classifier
- * escalates these to `deepen` even when the cheap prompt would have labelled
- * them `fyi`. Review-comment bots (CodeRabbit, Copilot, GitHub Actions,
- * Dependabot, Renovate) are deliberately excluded — advisory by default,
- * with rule 9a's security-advisory exception catching the rare severe case.
- */
+/** Bots whose alerts can be same-day urgent, so they get a `deepen` pass. Review bots stay out. */
 export const SEVERITY_SUSPECT_BOTS: ReadonlySet<BotSlug> = new Set<BotSlug>([
   "sentry",
   "stripe-billing",
@@ -242,10 +187,7 @@ export const SEVERITY_SUSPECT_BOTS: ReadonlySet<BotSlug> = new Set<BotSlug>([
   "datadog",
 ]);
 
-/**
- * The actor a message body reads as, when it differs from the envelope sender
- * (a bot relaying a human, etc.).
- */
+/** Who the body reads as, when not the envelope sender (a bot that relays a human). */
 export const BODY_ACTOR_KINDS = ["bot", "person", "unknown"] as const;
 
 export type BodyActorKind = (typeof BODY_ACTOR_KINDS)[number];

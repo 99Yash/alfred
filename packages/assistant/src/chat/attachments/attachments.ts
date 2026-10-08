@@ -15,23 +15,14 @@ import type { NewChatAttachment } from "@alfred/db/schemas";
 import sharp from "sharp";
 import { buildAttachmentKey, headObject } from "./storage";
 
-/**
- * Shared validation + row construction for chat attachments (ADR-0065). Used by
- * the upload / turn HTTP endpoints so all durable write paths agree on the
- * policy and storage-key convention — and so the client never gets to choose
- * where its bytes live.
- */
+/** Chat attachment validation and rows (ADR-0065). The server builds the key; the client never picks it. */
 
-/**
- * The model-readable state produced at the ingest boundary. The discriminator
- * prevents image rows from carrying PDF's explicit `null` (needs OCR) state.
- */
+/** What the model can read. PDF `text: null` means OCR is needed; images never carry it. */
 export type AttachmentDegradation = { kind: "image" } | { kind: "pdf"; text: string | null };
 
 const MIN_MODEL_IMAGE_EDGE_PX = 64;
 
-// Anthropic rejects images whose longest edge exceeds 8000px; stay at that
-// ceiling so an accepted upload never depends on the Gemini fallback to render.
+// Anthropic rejects a longest edge over 8000px; an accepted upload must not need the fallback.
 const MAX_MODEL_IMAGE_EDGE_PX = 8_000;
 
 const MAX_MODEL_IMAGE_PIXELS = 40_000_000;
@@ -40,11 +31,7 @@ function normalizedMime(mime: string): string {
   return normalizeMimeType(mime);
 }
 
-/**
- * Minimal phase-1 image signature sniff. This is deliberately narrower than the
- * MIME whitelist: it proves the uploaded bytes are one of the pass-through image
- * formats before a row can become `ready` and enter the model transcript.
- */
+/** Prove the bytes are a pass-through image format, not just the declared MIME. */
 export function sniffPassThroughImageMime(bytes: Uint8Array): string | null {
   if (
     bytes.length >= 8 &&
@@ -150,13 +137,7 @@ export async function assertPassThroughImageBytes(
   }
 }
 
-/**
- * Validate an upload against the ingest policy. Phase 1 accepts only
- * `pass-through` images end to end; audio / pdf / docs / video gain support when
- * the degrade worker lands (Phase 2/3), at which point this gate relaxes.
- * Returns the matched policy entry so callers can enforce the per-type size cap
- * consistently at every upload boundary.
- */
+/** Check an upload against the ingest policy and its per-type size cap. Returns the policy entry. */
 export function assertUploadAllowed(mime: string, size: number): IngestPolicyEntry {
   const policy = classifyUpload(mime);
 
@@ -195,12 +176,7 @@ export function assertAttachmentBatchAllowed(
   }
 }
 
-/**
- * Build the durable `chat_attachments` insert row for one upload — validating
- * the policy and rebuilding the storage key server-side. PDF's `null` means
- * deterministic extraction proved OCR is needed; images omit the field.
- * Insert with `onConflictDoNothing` on the id so retries remain idempotent.
- */
+/** Build the `chat_attachments` row and rebuild its key. Insert with `onConflictDoNothing` for retries. */
 export function toAttachmentRow(opts: {
   userId: string;
   threadId: string;
@@ -235,11 +211,7 @@ export function toAttachmentRow(opts: {
   };
 }
 
-/**
- * Prove that a retry presents the exact bytes already stored at its canonical
- * key. Matching size and MIME are not sufficient because different payloads
- * can share both values.
- */
+/** Prove a retry sends the exact stored bytes. Size and MIME can match for different payloads. */
 export function assertStoredAttachmentBytesMatch(opts: {
   storedBytes: Uint8Array;
   candidateBytes: Uint8Array;
@@ -249,13 +221,7 @@ export function assertStoredAttachmentBytesMatch(opts: {
   }
 }
 
-/**
- * Pure check that a stored object's metadata matches what the sender declared.
- * Split out from {@link assertStoredAttachmentReady} so the mismatch branches —
- * the security-load-bearing part — are unit-testable without an object store.
- * A blank stored content-type is tolerated (some providers omit it on HEAD);
- * the existence + size match still pin the object to the declared payload.
- */
+/** Stored metadata must match the declared payload. A blank content-type passes: some providers omit it on HEAD. */
 export function validateStoredMeta(opts: {
   stored: { size: number; contentType: string };
   declared: { mime: string; size: number };
@@ -273,17 +239,8 @@ export function validateStoredMeta(opts: {
 }
 
 /**
- * Prove that the object referenced by a would-be ready row actually exists and
- * matches the declared size + type. This closes forged turn payloads: a row only
- * becomes `ready` when the canonical key holds an object of the declared size.
- *
- * Deliberately a cheap `headObject` (no body download, no re-decode): the
- * `/attachments/upload` route is the *sole* ingest path and already sniffs +
- * libvips-decodes the bytes before writing them, and the storage key is built
- * server-side from the caller's id — so the bytes at the key are already proven
- * to be a valid pass-through image. Re-downloading and re-decoding here only
- * added a full bucket read + decode to the user-blocking send path for no extra
- * safety (ADR-0065).
+ * Block forged turn payloads: a row is `ready` only if its key holds an object of
+ * the declared size and type. Only a HEAD: the upload route already validated the bytes.
  */
 export async function assertStoredAttachmentReady(opts: {
   storageKey: string;

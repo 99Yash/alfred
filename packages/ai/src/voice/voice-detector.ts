@@ -1,39 +1,23 @@
 /**
- * A zero-dependency detector for the "AI-writing" tells that `voice.ts` tells
- * the models to avoid. It is the machine-checkable slice of that prompt — the
- * rules with a low false-positive rate on short assistant prose — adapted from
- * https://github.com/conorbronsdon/avoid-ai-writing. Stylometric checks (TTR,
- * burstiness) and judgment calls (copula avoidance, promotional tone) are left
- * out on purpose: they need reading for meaning, and they misfire on the short,
- * tool-grounded replies Alfred actually produces.
- *
- * The eval lane runs this as a deterministic scorer over generated chat prose
- * (`evals/voice-ai-tells.eval.ts`) so the voice rules can't quietly rot out of
- * the prompt. Keep the rule set in step with `DEFAULT_VOICE_PROMPT`.
- *
- * Pure and side-effect free — safe to import anywhere.
+ * Detects the "AI-writing" tells `DEFAULT_VOICE_PROMPT` forbids. Only rules with few false
+ * positives on short replies; adapted from https://github.com/conorbronsdon/avoid-ai-writing.
+ * The eval `voice-ai-tells.eval.ts` scores with it. Keep it in step with the prompt.
  */
 
 type VoiceTellSeverity = "high" | "medium" | "low";
 
 export interface VoiceTell {
-  /** Stable rule identifier, e.g. `inflated-word`. */
+  /** For example `inflated-word`. */
   ruleId: string;
-  /** Human-facing grouping for the finding. */
   category: string;
   severity: VoiceTellSeverity;
-  /** The exact offending substring. */
   match: string;
-  /** Offset into the normalized text (code + smart quotes stripped). */
+  /** Offset into the normalized text, with code and quotes removed. */
   index: number;
 }
 
 export interface DetectOptions {
-  /**
-   * Skip the emoji rule. Chat may mirror a user who writes with emoji, so a
-   * caller scoring live chat where the user used emoji should pass `true`.
-   * The briefing (no user turn) and the default both flag emoji.
-   */
+  /** Pass `true` when the user wrote emoji, because chat may mirror them. */
   allowEmoji?: boolean;
 }
 
@@ -48,7 +32,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** `\b(word|word)\b`, case-insensitive, global — for whole-word / phrase lists. */
+/** Case-insensitive whole-word match for any of `words`. */
 function wordRule(
   ruleId: string,
   category: string,
@@ -60,7 +44,7 @@ function wordRule(
   return { ruleId, category, severity, pattern: new RegExp(`\\b(?:${alt})\\b`, "gi") };
 }
 
-// Inflated vocabulary — say the plain word. (Tier 1 of the source table.)
+// Inflated words. Use the plain word.
 const INFLATED_WORDS = [
   "utilize",
   "utilizes",
@@ -102,7 +86,7 @@ const FILLER_PHRASES = [
   "it's worth noting",
 ] as const;
 
-// Flattery / chatbot service language that can appear anywhere in a reply.
+// Flattery and chatbot service language.
 const FLATTERY_PHRASES = [
   "you're absolutely right",
   "you are absolutely right",
@@ -115,7 +99,7 @@ const FLATTERY_PHRASES = [
   "my pleasure",
 ] as const;
 
-// "Let's ..." throat-clearing before getting to the point.
+// "Let's ..." before the point.
 const LETS_CONSTRUCTIONS = [
   "let's dive in",
   "let's dive into",
@@ -127,7 +111,7 @@ const LETS_CONSTRUCTIONS = [
   "let's unpack",
 ] as const;
 
-// Hype / significance inflation.
+// Hype.
 const HYPE_PHRASES = [
   "game-changer",
   "game changer",
@@ -153,7 +137,7 @@ const HYPE_PHRASES = [
   "elevate your",
 ] as const;
 
-// Formulaic closers that say nothing.
+// Closers that say nothing.
 const GENERIC_CONCLUSIONS = [
   "the future looks bright",
   "only time will tell",
@@ -171,7 +155,7 @@ const RULES: readonly Rule[] = [
   wordRule("lets-construction", '"Let\'s" opener', "medium", LETS_CONSTRUCTIONS),
   wordRule("hype", "Hype / significance inflation", "medium", HYPE_PHRASES),
   wordRule("generic-conclusion", "Generic conclusion", "medium", GENERIC_CONCLUSIONS),
-  // Chatbot openers, only when they actually open a line.
+  // Chatbot openers, only at the start of a line.
   {
     ruleId: "chatbot-opener",
     category: "Chatbot opener",
@@ -179,21 +163,21 @@ const RULES: readonly Rule[] = [
     pattern:
       /^[ \t>*_-]*(certainly|absolutely|of course|sure thing|great question|good question|excellent question|great choice|great point|excellent point)\b/gim,
   },
-  // "It's not X, it's Y" false concession, within a single sentence.
+  // "It's not X, it's Y" in one sentence.
   {
     ruleId: "false-concession",
     category: "\"It's not X, it's Y\"",
     severity: "medium",
     pattern: /it'?s not\b[^.?!\n]{2,80}?\bit'?s\b/gi,
   },
-  // Rhetorical question as an opener.
+  // A rhetorical question as an opener.
   {
     ruleId: "rhetorical-opener",
     category: "Rhetorical-question opener",
     severity: "low",
     pattern: /^[ \t>*_-]*(what if|ever wondered|have you ever wondered)\b[^\n]*\?/gim,
   },
-  // Em-dash, spaced en-dash, or double-hyphen used as a dash.
+  // Em dash, spaced en dash, or double hyphen used as a dash.
   {
     ruleId: "em-dash",
     category: "Em-dash",
@@ -202,16 +186,11 @@ const RULES: readonly Rule[] = [
   },
 ];
 
-// Common emoji blocks: pictographs, emoticons, transport, dingbats, misc
-// symbols, geometric/arrow stars, regional indicators, and VS-16.
+// Common emoji blocks, regional indicators, and VS-16.
 const EMOJI_PATTERN =
   /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}]\u{FE0F}?/gu;
 
-/**
- * Strip fenced code blocks, inline code, and explicitly quoted material so the
- * rules run against authored prose only. Exact source text is evidence, not the
- * assistant's voice, and may legitimately contain a forbidden phrase or dash.
- */
+/** Remove code and quoted text. Quoted source is evidence, not Alfred's voice. */
 function normalize(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, " ")

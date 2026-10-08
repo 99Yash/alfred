@@ -8,19 +8,10 @@ import { hmacSha256Hex, signatureMatches } from "../shared/webhook";
 import { GITHUB_API, GITHUB_REST_HEADERS } from "./rest";
 
 /**
- * GitHub *App* authentication (ADR-0052), replacing the classic OAuth App.
- *
- * Three distinct credentials, three jobs:
- *   - App JWT (App id + private key, RS256) — authenticates *as the App* to
- *     mint installation tokens. Short-lived (≤10 min), never stored.
- *   - Installation token — what REST calls actually use. Minted on demand
- *     from the App JWT, scoped to one installation's repos, expires in ~1h.
- *   - User-to-server OAuth token — proves *who the user is* (their login),
- *     captured during install. Stored on the credential row for identity.
- *
- * We keep the package's no-Octokit convention: jose signs the JWT, plain
- * `fetch` does the REST. The installation token is cached in-process (the
- * server is one long-lived process) so we don't re-mint per call.
+ * GitHub App auth (ADR-0052), no Octokit. Three credentials:
+ * - App JWT: mints installation tokens. Lives at most 10 min, never stored.
+ * - Installation token: used by REST calls. Lives about 1h, cached in process.
+ * - User-to-server token: proves the user's login. Stored on the credential row.
  */
 
 const TOKEN_BASE = "https://github.com/login/oauth/access_token";
@@ -39,7 +30,7 @@ export interface GithubAppConfig {
   slug: string;
   clientId: string;
   clientSecret: string;
-  /** PEM with real newlines (env stores them `\n`-escaped). PKCS#1 from GitHub. */
+  /** PEM with real newlines; env stores them `\n`-escaped. PKCS#1. */
   privateKey: string;
   webhookSecret: string;
   redirectUri: string;
@@ -59,17 +50,14 @@ export function getGithubAppConfig(): GithubAppConfig {
   };
 }
 
-/** `https://github.com/apps/<slug>/installations/new` — installs the App and (with
- *  request_oauth_on_install) authorizes the user in one screen. */
+/** With request_oauth_on_install, installs the App and authorizes the user on one screen. */
 export function buildInstallUrl(state: string): string {
   const { slug } = getGithubAppConfig();
 
   return `https://github.com/apps/${slug}/installations/new?state=${encodeURIComponent(state)}`;
 }
 
-/** Fetch installation metadata via App JWT — used when the callback arrives
- *  with `installation_id` but no `code` (setup_action=update on an already-
- *  installed App). */
+/** For a callback with `installation_id` but no `code` (`setup_action=update`). */
 const installationSchema = z.object({
   id: z.number(),
   account: z
@@ -104,9 +92,7 @@ export async function getInstallation(
   return { accountId: String(acct.id), accountLogin: acct.login };
 }
 
-// GitHub's manifest issues a PKCS#1 key (`BEGIN RSA PRIVATE KEY`), which
-// jose's importPKCS8 rejects; Node's createPrivateKey auto-detects the
-// encoding and yields a KeyObject jose signs with directly.
+// GitHub issues PKCS#1, which jose's importPKCS8 rejects. createPrivateKey accepts both.
 let _signingKey: KeyObject | undefined;
 
 function signingKey(): KeyObject {
@@ -115,7 +101,7 @@ function signingKey(): KeyObject {
   return _signingKey;
 }
 
-/** Mint a short-lived App JWT (RS256). `iat` is backdated 60s for clock skew. */
+/** `iat` is backdated 60s for clock skew. */
 export async function mintAppJwt(): Promise<string> {
   const { appId } = getGithubAppConfig();
   const now = Math.floor(Date.now() / 1000);
@@ -138,8 +124,7 @@ export interface InstallationToken {
   expiresAt: Date;
 }
 
-// In-process cache keyed by installation id. Re-mint a couple minutes before
-// expiry so a cached token never goes stale mid-request.
+// Re-mint 5 minutes before expiry so a token never expires mid-request.
 const _installationTokens = new Map<string, InstallationToken>();
 
 const TOKEN_SAFETY_MS = 5 * 60 * 1000;
@@ -193,14 +178,14 @@ const userInstallationRepositoriesSchema = z.object({
 });
 
 export interface ExchangeUserCodeResult {
-  /** Numeric GitHub user id, stringified — credential rows key on `account_id: string`. */
+  /** Numeric user id as a string, to match `account_id`. */
   accountId: string;
   accountLogin: string;
   accountEmail: string | null;
   accountName: string | null;
   accessToken: string;
   refreshToken: string | null;
-  /** Token expiry; far-future sentinel when the App issues non-expiring user tokens. */
+  /** Far-future sentinel when user tokens do not expire. */
   expiresAt: Date;
   scopes: string[];
   tokenType: string;
@@ -208,11 +193,7 @@ export interface ExchangeUserCodeResult {
 
 const FAR_FUTURE = () => new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
 
-/**
- * Exchange the user-to-server `code` (delivered alongside `installation_id`
- * on the post-install redirect) for a user token, then identify the user so
- * we have a stable `accountId` + login to upsert against.
- */
+/** Exchange the post-install `code` for a user token, then identify the user. */
 export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeResult> {
   const cfg = getGithubAppConfig();
 
@@ -268,11 +249,7 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
   };
 }
 
-/**
- * GitHub warns that the setup callback's `installation_id` is user-supplied
- * and can be spoofed. Verify it with the user-to-server token before binding
- * the installation to an Alfred credential.
- */
+/** The callback's `installation_id` is user-supplied. Verify it with the user token before binding. */
 export async function canUserAccessInstallation(args: {
   accessToken: string;
   installationId: string;
@@ -297,11 +274,7 @@ export async function canUserAccessInstallation(args: {
   return true;
 }
 
-/**
- * Verify a webhook's `X-Hub-Signature-256` over the *raw* request body. The
- * HMAC must be computed on the exact bytes GitHub sent — re-serializing the
- * parsed JSON would change whitespace and break the comparison.
- */
+/** HMAC the raw bytes: re-serialized JSON changes whitespace. */
 export function verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
   const { webhookSecret } = getGithubAppConfig();
 

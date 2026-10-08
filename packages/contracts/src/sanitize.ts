@@ -1,37 +1,16 @@
 import { isRecord } from "./guards";
 
 /**
- * Persistence poison-resistance (ADR-0070).
- *
- * Postgres rejects `U+0000` (the NUL byte) in both `text` and `jsonb` columns
- * — `22021 invalid byte sequence for encoding "UTF8": 0x00` for text and
- * `22P05 unsupported Unicode escape sequence` for jsonb. Lone UTF-16
- * surrogates (a high or low surrogate with no pair) are the same class of
- * un-encodable garbage. A tool that decodes binary as text (e.g.
- * `drive.export_file` running a 43KB PDF through `res.text()`) returns a string
- * carrying these bytes; persisting it throws *outside* the dispatcher's
- * try/catch and wedges the run (see ADR-0070's "Why").
- *
- * {@link sanitizeToolResult} is the platform invariant: every tool result is
- * walked and stripped the instant `tool.execute` returns, before it can reach
- * any persisted sink (`execute_result` jsonb, the in-memory transcript, the
- * returned `toolResult`). It is also applied at the error-recording sinks to
- * close the throw-poison class — a tool that *throws* a NUL-byte message —
- * which the result-boundary walk structurally cannot reach.
- *
- * Web-safe (pure string/structural work, no Node APIs) so it can live in
- * `@alfred/contracts` as the one definition shared by server and any future
- * client use.
+ * Strip bytes Postgres cannot store (ADR-0070): NUL fails `text` and `jsonb`,
+ * and lone surrogates are the same class. A binary file read as text carries them,
+ * and the failed write wedges the run. Applied to every tool result and to
+ * recorded error messages.
  */
 
-// U+0000, plus lone surrogates: a high surrogate (D800–DBFF) not followed by a
-// low surrogate, or a low surrogate (DC00–DFFF) not preceded by a high one.
-// Well-formed surrogate *pairs* (real astral characters, e.g. emoji) are left
-// intact — only unpaired halves are stripped.
+// NUL and unpaired surrogate halves. Valid pairs (emoji) stay.
 // oxlint-disable-next-line no-control-regex -- matching U+0000 is the purpose of this sanitizer
 const POISON_RE = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
-/** Strip poison code units from a single string, reporting how many were removed. */
 function stripString(s: string) {
   let removed = 0;
 
@@ -44,42 +23,21 @@ function stripString(s: string) {
   return { value, removed };
 }
 
-/** The result of a sanitize pass. */
 export interface SanitizeResult<T = unknown> {
   value: T;
-  /** Total poison code units stripped across all strings and keys. */
   removed: number;
-  /**
-   * Number of object keys that, *after* stripping, collided with another key
-   * in the same object. Stripping a NUL byte can map two distinct keys to the
-   * same name (`{"ab":1,"a\0b":2}` → both want `ab`); rather than silently
-   * overwrite, the colliding entries are preserved under a disambiguated key
-   * (`ab�1`) and counted here so the caller can warn loudly.
-   */
+  /** Keys that collided after stripping (`ab` and `a\0b`). Both are kept, one under a new key. */
   collisions: number;
 }
 
 /**
- * Recursively strip `U+0000` and lone surrogates from every string in a value
- * — including **object keys** (a NUL-byte key poisons the same jsonb write) —
- * returning the cleaned value, the total code units removed, and the number of
- * key collisions stripping induced.
- *
- * Non-string scalars (number/boolean/null/undefined) pass through untouched.
- * The returned value is a *new* structure when anything changed; when nothing
- * was poisoned the input is returned as-is (so the common clean path allocates
- * nothing). The `sanitized` flag the caller derives from this must ride on the
- * dispatch envelope, never be assigned onto the result value (a bare
- * string/array/primitive result can't carry a property, and assigning to a
- * string throws under ES-module strict mode).
+ * Recursively strip poison from every string and object key. Returns the same
+ * value when clean. Put the `sanitized` flag on the envelope, not on the value:
+ * a string result cannot carry a property.
  */
 export function sanitizeToolResult<T>(value: T): SanitizeResult<T> {
-  // SAFETY: the pass returns the input by reference when clean, or a rebuild
-  // with identical structure — only string contents and keys change — so the
-  // result keeps the input's static shape. This holds only while `isRecord`
-  // rejects non-plain prototypes (Date, Map, class instances): those fall to
-  // the passthrough below instead of being rebuilt as bare objects. Pinned by
-  // the exotic-input test in test/sanitize.test.ts.
+  // SAFETY: only string contents and keys change, so the shape holds. This needs
+  // `isRecord` to reject Date, Map, and class instances so they pass through.
   return sanitizeUnknown(value) as SanitizeResult<T>;
 }
 
@@ -107,10 +65,6 @@ function sanitizeUnknown(value: unknown): SanitizeResult {
   }
 
   if (isRecord(value)) {
-    // Skip exotic objects we shouldn't (and can't safely) rebuild — Date,
-    // Map/Set, class instances, etc. jsonb persistence only ever sees plain
-    // objects/arrays; anything else is serialized by the driver, and rewriting
-    // it here would silently flatten it. Tool results are POJO/JSON shaped.
     let removed = 0;
     let collisions = 0;
     let changed = false;
@@ -125,10 +79,7 @@ function sanitizeUnknown(value: unknown): SanitizeResult {
 
       if (keyResult.removed > 0 || valResult.value !== v) changed = true;
 
-      // Stripping the key can collide with a key already written (or a clean
-      // key elsewhere in the object). Preserve both rather than silently drop:
-      // keep the existing entry and write this one under a unique disambiguated
-      // key. (Reachable only with NUL-byte keys, i.e. binary-ish garbage.)
+      // A stripped key can collide with one already written. Keep both.
       let outKey = keyResult.value;
 
       if (Object.prototype.hasOwnProperty.call(out, outKey)) {
@@ -155,21 +106,9 @@ function sanitizeUnknown(value: unknown): SanitizeResult {
 }
 
 /**
- * Convenience wrapper for the error-recording sinks (ADR-0070 §1.3): strip
- * poison from a plain string, discarding the count. Used where the value is
- * known to be a message/text string and no flag is needed
- * (`commitStepFailure`, `markRunFailed`, `finalizeFailedMessage` content).
- *
- * Pass `max` to also bound the result to at most `max` code units. A sink that
- * both persists the message (jsonb `error.message`, no length limit) and
- * publishes it on a length-capped frame (`agentRunSchema.error`, {@link
- * AGENT_RUN_ERROR_MAX} in `./events`) uses this so the two carry the identical
- * bounded string; without it an over-cap message makes the frame `safeParse`
- * throw and roll the terminal write back (ADR-0070 §8). The truncation is
- * **surrogate-safe**: `slice(0, max)` at an arbitrary UTF-16 index can split a
- * well-formed surrogate pair into a lone half — the exact poison
- * {@link stripString} removes — so the slice is stripped again. The result is
- * poison-free AND ≤ `max`. Omitting `max` is today's behavior byte-for-byte.
+ * Strip poison from a message string (ADR-0070). `max` also caps the length, so
+ * the stored and published copies match: an over-cap frame fails to parse and
+ * rolls back the terminal write. The cut can split a surrogate pair, so it strips again.
  */
 export function sanitizeErrorMessage(message: string, max?: number): string {
   const stripped = stripString(message).value;

@@ -9,23 +9,14 @@ export type {
   SealedCredentialSecret,
 } from "./credential-envelope";
 
-/**
- * The Better Auth account fields that contain OAuth capabilities.
- *
- * The adapter and the maintenance gate import this one tuple. A field that only
- * the adapter knows is never verified; a field that only the gate knows makes
- * the process refuse to boot.
- */
+/** OAuth token fields on `account`. The adapter and the boot gate must share this one list. */
 export const ACCOUNT_SECRET_FIELDS = ["accessToken", "refreshToken", "idToken"] as const;
 
 export type AccountSecretField = (typeof ACCOUNT_SECRET_FIELDS)[number];
 
 let vault: CredentialVault | undefined;
 
-/**
- * Resolve the production credential vault from the validated server
- * environment. There is no default key and no plaintext fallback.
- */
+/** The production vault. No default key and no plaintext fallback. */
 export function credentialVault(): CredentialVault {
   if (vault) return vault;
   vault = createCredentialVault(Buffer.from(serverEnv().OAUTH_CREDENTIAL_KEK, "base64url"));

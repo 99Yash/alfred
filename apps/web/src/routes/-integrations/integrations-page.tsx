@@ -1,6 +1,6 @@
 import { IntegrationsBody } from "./integrations-body";
 
 export function IntegrationsPage() {
-  // Theme provider is owned by the parent app layout.
+  // The parent layout owns the theme provider.
   return <IntegrationsBody />;
 }

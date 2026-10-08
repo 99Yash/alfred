@@ -2,11 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
 import { BriefingDetailPage } from "./-briefings/briefing-detail-page";
 
-/**
- * A single day's briefing detail (ADR-0049). The `$date` param is a human
- * `YYYY-MM-DD` key; the page prefix-scans `briefing/{date}/` and renders the
- * morning and evening slots stacked.
- */
+/** One day's briefing (ADR-0049); `$date` is `YYYY-MM-DD`. */
 export const Route = createFileRoute("/briefings/$date")({
   head: ({ params }) =>
     pageMeta({

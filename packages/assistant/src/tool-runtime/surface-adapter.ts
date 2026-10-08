@@ -47,15 +47,10 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
     }
   },
 
-  /**
-   * Memoized per (caller, interaction, active-name-set). The registry is
-   * write-once after boot, so the projection is safe to share across turns and
-   * users. The registry is small, so the process-lifetime cache stays bounded
-   * in practice by the small number of distinct active sets.
-   */
+  /** Memoized per caller, interaction, and active-name set. Safe because the registry is write-once. */
   resolve(input) {
     const activeNames = uniqueToolNames(input.activeNames);
-    // ToolName is a dotted identifier and cannot contain a comma, so this join is collision-free.
+    // A ToolName cannot contain a comma, so the join cannot collide.
     const key = `${input.context.caller}:${input.context.interaction}:${activeNames.join(",")}`;
     const cached = sdkSurfaceCache.get(key);
 
@@ -71,8 +66,7 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
       definitions.push(definition);
       tools[name] = tool({
         description: definition.description,
-        // The MODEL-facing schema, which is `inputSchema` for every tool that
-        // does not split the two. See `LiveToolArgs.modelInputSchema`.
+        // Model-facing. See `LiveToolArgs.modelInputSchema`.
         inputSchema: definition.modelInputSchema,
       });
     }
@@ -158,7 +152,7 @@ export function registerToolsRuntimeAdapter(): void {
   registerToolRuntimeAdapter(toolsRuntimeAdapter);
 }
 
-/** Test-only: clear projections whose keys assume the production write-once registry. */
+/** Test-only: the cache keys assume a write-once registry. */
 export function clearToolRuntimeCacheForTests(): void {
   sdkSurfaceCache.clear();
 }

@@ -13,11 +13,8 @@ export interface BuildGmailDocumentContentArgs extends GmailDocumentEnvelope {
 const STORED_DATE_LINE_RE = /^Date: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 
 /**
- * Encode the Gmail envelope and body stored in `documents.content`.
- *
- * This is the only writer for the persisted string representation. Consumers
- * must use {@link extractGmailDocumentBody} instead of scanning header-shaped
- * text: a real body may itself begin with `Date:`, `From:`, or similar prose.
+ * The only writer of the Gmail `documents.content` string. Read it back with
+ * `extractGmailDocumentBody`: a real body can itself start with `From:`.
  */
 export function buildGmailDocumentContent(args: BuildGmailDocumentContentArgs): string {
   const headerLines = expectedEnvelopeLines(args);
@@ -29,13 +26,8 @@ export function buildGmailDocumentContent(args: BuildGmailDocumentContentArgs): 
 }
 
 /**
- * Decode the body from the persisted Gmail document representation.
- *
- * The prefix is removed only when it exactly matches at least two typed
- * envelope fields, in the order emitted by {@link buildGmailDocumentContent},
- * followed by an optional ISO date. Ambiguous or raw content is returned
- * verbatim. This fail-open rule prefers a duplicated envelope over lost email
- * evidence.
+ * Strip the header only when it exactly matches two or more envelope fields, plus an
+ * optional date. Otherwise return the content as is: a duplicate header beats a lost body.
  */
 export function extractGmailDocumentBody(
   content: string | null | undefined,

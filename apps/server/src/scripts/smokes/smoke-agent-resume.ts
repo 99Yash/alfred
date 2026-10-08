@@ -1,7 +1,6 @@
 /**
- * Verifies that a `waiting` run created in a previous boot is still
- * resumable. Run after restarting the dev server while a parked run
- * exists — we use the run id left behind by smoke-agent-restart.ts.
+ * Check that a `waiting` run from a previous boot still resumes. Restart the dev
+ * server while a run is parked, then pass its id.
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-agent-resume.ts <runId>
  */
@@ -30,8 +29,7 @@ async function main() {
     throw new Error(`expected waiting, got ${row.status}`);
   }
 
-  // SAFETY: agent_runs.wakeCondition is jsonb written by the park path with
-  // this envelope.
+  // SAFETY: the park path writes agent_runs.wakeCondition with this shape.
   const wake = row.wakeCondition as { kind: string; approvalId: string } | null;
 
   if (!wake || wake.kind !== "hil") throw new Error("expected HIL wake");

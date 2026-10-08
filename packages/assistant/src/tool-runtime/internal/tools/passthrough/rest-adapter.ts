@@ -11,22 +11,8 @@ import {
 import { classifyTransportError } from "./transport";
 
 /**
- * The one REST passthrough adapter shared by every REST provider (`github`,
- * `notion`, `vercel`, and the Google family) in the general read-only tier
- * (ADR-0074 rung-a). Composes the whole security boundary for a raw REST read:
- *
- *   read gate (method/path proven a read) → pinned-authority transport → honest envelope.
- *
- * The tool `execute` stays thin (select an opaque provider capability → this);
- * every network and shaping concern lives behind those seams so the contract is
- * testable with a mocked `fetch`. Returns a {@link PassthroughResult} for every
- * outcome and NEVER throws:
- * - a gate denial is a visible `rejected` envelope (the boss self-corrects);
- * - a URL that escapes the pinned namespace is a fail-closed `invalid_path`
- *   rejection (the request never left Alfred — not a transport failure);
- * - a transport failure (timeout/DNS/reset/TLS) is a classified `transport`
- *   envelope; and any HTTP response (including 4xx/5xx) is the honest `http`
- *   envelope with the real status and body.
+ * The REST passthrough read for every REST provider (ADR-0074): read gate, then
+ * pinned-origin transport, then the result envelope. Never throws.
  */
 export async function runRestPassthrough(
   capability: RestPassthroughCapability,
@@ -42,8 +28,7 @@ export async function runRestPassthrough(
     raw = await capability.execute(request);
   } catch (err) {
     if (err instanceof PassthroughUrlError) {
-      // The constructed URL left the pinned namespace — a fail-closed rejection
-      // (the request never left Alfred), never a masqueraded transport error.
+      // The request never left Alfred, so this is a rejection, not a transport error.
       return passthroughRejection({ ok: false, reason: "invalid_path", detail: err.message });
     }
 
@@ -58,9 +43,7 @@ export async function runRestPassthrough(
     });
   }
 
-  // A 3xx is an HTTP outcome, not a hop (redirects are never followed). Surface
-  // the redacted origin+path so the boss sees the redirect instead of an opaque
-  // empty body; `passthroughHttpResult` already marks a 3xx `succeeded: false`.
+  // Redirects are never followed. Show the redacted target instead of an empty body.
   const body =
     raw.redirectedTo !== undefined ? { redirect: true, location: raw.redirectedTo } : raw.body;
 

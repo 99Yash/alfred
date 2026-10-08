@@ -10,12 +10,8 @@ import type {
 import { and, eq, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
 
-// Chat (streaming-chat plan). Only the user side mutates via Replicache:
-// opening a thread and appending the user's message. The assistant reply is
-// worker-written on completion. Both are idempotent on id so at-least-once
-// redelivery is a no-op.
+// Only the user side writes through Replicache; the worker writes replies. Idempotent on id.
 
-/** Open a new chat thread. Idempotent on id (client mints it before push). */
 export async function chatThreadCreate(
   tx: DbTransaction,
   args: ChatThreadCreateArgs,
@@ -32,7 +28,6 @@ export async function chatThreadCreate(
     .onConflictDoNothing();
 }
 
-/** Append the user's message and float its thread to the top of the list. */
 export async function chatMessageCreate(
   tx: DbTransaction,
   args: ChatMessageCreateArgs,
@@ -50,7 +45,6 @@ export async function chatMessageCreate(
       createdAt: new Date(args.createdAt),
     })
     .onConflictDoNothing();
-  // Bump lastMessageAt only on a thread this user owns.
   await tx
     .update(chatThreads)
     .set({
@@ -61,13 +55,8 @@ export async function chatMessageCreate(
 }
 
 /**
- * Optimistic-only attachment mutator (ADR-0065). The client uses this to render
- * a just-uploaded image immediately, but the server intentionally does not
- * persist from this Replicache mutation: accepting a client descriptor here
- * would mark an object `ready` without proving the bucket object exists or that
- * its bytes match the declared image type. The `/api/chat/threads/:id/turn`
- * endpoint is the canonical write path because it can verify the object before
- * inserting `chat_attachments`.
+ * Client-only (ADR-0065): the server cannot trust a client descriptor here.
+ * The turn endpoint writes `chat_attachments` after it checks the object.
  */
 export async function chatAttachmentCreate(
   _tx: DbTransaction,
@@ -77,7 +66,6 @@ export async function chatAttachmentCreate(
   return;
 }
 
-/** Rename a thread. No-op on a thread this user doesn't own. */
 export async function chatThreadRename(
   tx: DbTransaction,
   args: ChatThreadRenameArgs,
@@ -89,7 +77,6 @@ export async function chatThreadRename(
     .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
 }
 
-/** Pin / unpin a thread. No-op on a thread this user doesn't own. */
 export async function chatThreadSetPinned(
   tx: DbTransaction,
   args: ChatThreadSetPinnedArgs,
@@ -101,11 +88,7 @@ export async function chatThreadSetPinned(
     .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
 }
 
-/**
- * Hard-delete a thread. Its `chat_messages` cascade via the FK; the next
- * pull diff drops the thread + message rows from the client. No-op on a
- * thread this user doesn't own.
- */
+/** Messages cascade by FK. Bucket objects are cleaned by the follow-up. */
 export async function chatThreadDelete(
   tx: DbTransaction,
   args: ChatThreadDeleteArgs,

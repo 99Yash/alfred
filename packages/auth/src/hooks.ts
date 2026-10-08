@@ -1,16 +1,4 @@
-/**
- * Post-signup hook registration. The auth instance lives in
- * `@alfred/auth`, which cannot depend on the server package (cycle). Instead,
- * downstream code (the server bootstrap) registers callbacks here at
- * boot, and `auth()`'s `databaseHooks.user.create.after` invokes them.
- *
- * Today there's one callback (workflow row seeding); other downstream
- * concerns — analytics, welcome emails, etc. — can stack on top.
- *
- * Hooks must be registered before the first signup completes. Errors
- * thrown inside a hook are caught + logged by `auth()` so a failing
- * downstream subsystem doesn't bounce a legitimate signup.
- */
+// Post-signup callbacks. The server registers them at boot, since `@alfred/auth` cannot import it.
 
 export type OnUserCreatedHook = (user: { id: string; email: string }) => Promise<void>;
 

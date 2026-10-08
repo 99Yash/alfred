@@ -31,22 +31,14 @@ import { mcpAuthorizeUrl, MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpe
 import { McpTile } from "./mcp-tile";
 
 /**
- * The add door's authentication choice. `oauth` is not "OAuth required": it is
- * "no key supplied", and the server's pre-persist probe answers with the real
- * variant — a no-auth server connects, one that answers a challenge lands in
- * `auth_required` and the form navigates to consent. `api_key` names the
- * placement explicitly and sends the key in the create body.
+ * `oauth` means "no key supplied": the server probe decides. A no-auth server
+ * connects; a challenged one lands in `auth_required` and the form opens consent.
  */
 export type McpAddServerAuthMode = "oauth" | "api_key";
 
 export type McpApiKeyPlacementIn = "header" | "query";
 
-/**
- * The form's own field shape. It is not `McpAddServerBody`: an empty `label`
- * input is a blank string here and is absent from the body, and the API-key
- * fields collapse into one `auth` union. {@link buildAddServerBody} owns both
- * transforms.
- */
+/** Form fields, not `McpAddServerBody`; {@link buildAddServerBody} converts them. */
 export interface AddServerFields {
   endpointUrl: string;
   label: string;
@@ -76,14 +68,7 @@ const PLACEMENT_ITEMS = [
   { value: "query", label: "Query" },
 ] as const satisfies ReadonlyArray<AppSegmentedItem<McpApiKeyPlacementIn>>;
 
-/**
- * The one transform from form fields to the create body.
- *
- * It is pure and exported so the `auth` union can be proven without a DOM: the
- * `oauth` arm omits `auth` (the probe decides), and the `api_key` arm narrows
- * exhaustively to the contract's single arm. The compiler checks the shape; a
- * runtime form still needs the branch pinned.
- */
+/** Form fields to create body. `oauth` omits `auth` so the probe decides. */
 export function buildAddServerBody(fields: AddServerFields): McpAddServerBody {
   const base: McpAddServerBody = {
     endpointUrl: fields.endpointUrl.trim(),
@@ -102,24 +87,12 @@ export function buildAddServerBody(fields: AddServerFields): McpAddServerBody {
   };
 }
 
-/**
- * The URL rule is the CONTRACT's own, reused rather than restated, so a client
- * rejection and a server rejection can never disagree. It runs on blur and on
- * submit, never on change — a half-typed `https://` is not yet an error.
- */
+/** The contract's own URL rule, so client and server agree. Runs on blur and submit, not change. */
 const endpointUrlValidator = mcpAddServerBodySchema.shape.endpointUrl;
 
 /**
- * The generic add door (#1004): a URL, an optional label, an authentication
- * choice, and a handoff to a consent screen when the server asks for one.
- *
- * The trigger takes one cell beside the connection cards. The form itself sits
- * in a modal, so the grid stays a grid; the modal gathers the draft, the
- * failure message, and the submit action in one place.
- *
- * The API-key value lives only in form state. It is a password input, it is
- * never logged, and closing the modal resets it, so the plaintext does not
- * outlive the one submit that carries it.
+ * Add any MCP server by URL, then hand off to consent if the server asks.
+ * The API key lives only in form state, and closing the modal clears it.
  */
 export function McpAddServerForm() {
   const queryClient = useQueryClient();
@@ -142,10 +115,7 @@ export function McpAddServerForm() {
 
       return response.data;
     },
-    // The connection list is the one cache this add can stale. Every answer
-    // appends a row, and a failure can still leave one, because the manager's
-    // own session opens AFTER the insert. Refetch on both, so a stranded
-    // connection appears now rather than on the next page load.
+    // A failed add can still leave a row (the session opens after the insert), so refetch either way.
     onSettled: () => queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY }),
   });
 
@@ -154,8 +124,7 @@ export function McpAddServerForm() {
     onSubmit: async ({ value }) => {
       setError(null);
 
-      // Reserve the tab before the POST. A tab opened after await can be
-      // blocked because the browser no longer sees a direct user gesture.
+      // Open the tab before the POST: after an await the browser may block it as no longer user-initiated.
       const authorizationTab = authMode === "oauth" ? reserveAuthorizationTab() : null;
 
       try {
@@ -176,10 +145,7 @@ export function McpAddServerForm() {
         }
 
         authorizationTab?.close();
-        // One reset owner: `close()` clears the API-key mode, the plaintext,
-        // the error and the fields. Resetting the form alone leaves the mode
-        // and the secret in component state, so reopening the modal would show
-        // API-key mode with the previous secret prefilled.
+        // `close()` is the one reset: it also clears the API-key mode and the secret.
         close();
       } catch (submitError) {
         authorizationTab?.close();
@@ -188,10 +154,7 @@ export function McpAddServerForm() {
     },
   });
 
-  // Closing the door discards the draft. Without the reset, reopening it shows
-  // a URL the user already walked away from, and an API key that was already
-  // typed. The modal reports its own dismissals (Escape, overlay, drag)
-  // through `onOpenChange`, so they land here too.
+  // Discard the draft on every dismissal, so a reopen shows no old URL or key.
   const close = () => {
     form.reset();
     setError(null);

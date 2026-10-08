@@ -54,11 +54,7 @@ export interface ConversationSummaryGeneratorDependencies {
   selectRoute?: (prompt: string) => Promise<ConversationSummaryModelRoute>;
 }
 
-/**
- * Generate one provenance-backed rolling chat summary. Persistence and CAS are
- * deliberately owned by the caller so foreground and background coordinators
- * can apply different losing-race behavior around the same model boundary.
- */
+/** Generate one rolling summary. The caller owns the CAS write, so each caller handles a lost race its own way. */
 export async function generateConversationSummary(
   args: GenerateConversationSummaryArgs,
   dependencies: ConversationSummaryGeneratorDependencies = {},
@@ -88,8 +84,7 @@ export async function generateConversationSummary(
     } catch (error) {
       lastError = error;
 
-      // Model-call failures skip the duplicate primary attempt. That retry is
-      // reserved for malformed structured output from a healthy Sonnet route.
+      // Retry the primary only for malformed output; a failed call goes to the fallback.
       if (!isSummaryValidationError(error)) break;
     }
   }

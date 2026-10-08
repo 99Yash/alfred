@@ -3,45 +3,21 @@ import { integrationCredentials, user } from "@alfred/db/schemas";
 import { FREE_MAIL_DOMAINS } from "@alfred/contracts";
 import { and, asc, eq } from "drizzle-orm";
 
-/**
- * Identity signals fed to cold-start research (ADR-0011). The shape grows
- * naturally as integrations land — each connected provider can contribute
- * its own branch to {@link collectColdStartSignals}.
- *
- * v1 only contributes the always-present user row + Google. GitHub /
- * personal site / social handles per ADR-0011 arrive when those
- * integrations exist.
- */
+/** Identity evidence for cold-start research (ADR-0011). */
 export interface ColdStartSignals {
   userId: string;
-  /** From the `user` row — the user's display name as captured at signup. */
   name: string;
   email: string;
-  /**
-   * Lower-cased domain portion of `email`. `null` for malformed emails or
-   * when the user hasn't confirmed an email yet (defensive — should be
-   * unreachable since signup requires a verified address).
-   */
+  /** Lowercased domain of `email`, or `null` when the email is malformed. */
   emailDomain: string | null;
-  /** Free / personal-mail providers we don't research as "company." */
+  /** True for a free-mail domain, which has no company to research. */
   emailDomainIsConsumer: boolean;
-  /** Connected providers and what they contributed. */
   integrations: {
     google?: { accountEmail: string } | undefined;
-    // Future: github, linear, slack, …
   };
 }
 
-/**
- * Common consumer email domains — re-exported from the ONE canonical free-mail
- * set (`@alfred/contracts` `FREE_MAIL_DOMAINS`, ADR-0080 §4b). Kept under the old
- * name so existing imports keep working; the list itself now lives in contracts
- * (the identity domain classifier's source of truth) so cold-start and the
- * identity projection can never drift two parallel lists (#330 "no second
- * registry", applied to domains). Matching here flips `emailDomainIsConsumer`,
- * which tells the cold-start prompt not to research "what does gmail.com do as a
- * company."
- */
+/** The one free-mail list (ADR-0080 §4b), shared with the identity projection. */
 const CONSUMER_EMAIL_DOMAINS = FREE_MAIL_DOMAINS;
 
 function parseDomain(email: string): string | null {
@@ -52,15 +28,7 @@ function parseDomain(email: string): string | null {
   return email.slice(at + 1).toLowerCase();
 }
 
-/**
- * Walk all evidence we have about who this user is. Idempotent and safe
- * to call many times — does not mutate state, only reads.
- *
- * Intended call site is the cold-start workflow's first step. The
- * workflow's job is to fail loudly if this returns no usable signal
- * (e.g. somehow no user row), since research on `{}` is just expensive
- * noise.
- */
+/** Read-only. */
 export async function collectColdStartSignals(userId: string): Promise<ColdStartSignals> {
   const userRows = await db()
     .select({ id: user.id, name: user.name, email: user.email })
@@ -77,12 +45,7 @@ export async function collectColdStartSignals(userId: string): Promise<ColdStart
 
   const integrations: ColdStartSignals["integrations"] = {};
 
-  // The schema explicitly allows multiple Google accounts per user
-  // (work + personal Gmail). Order by `createdAt` ASC so the oldest
-  // active credential wins — at signup that's trivially the only one
-  // (callback just inserted it), and on a future re-research it's the
-  // original onboarding credential, which is the most defensible
-  // anchor for "who are you" research.
+  // A user can have several Google accounts. The oldest active one is the signup account.
   const googleRows = await db()
     .select({
       accountLabel: integrationCredentials.accountLabel,

@@ -1,7 +1,7 @@
 export {
-  // Needs a zone — every reading hangs off the bound clock.
+  // Needs a zone.
   inZone,
-  // Doesn't need a zone — free functions on the day key.
+  // Free functions on the day key.
   addDays,
   formatDay,
   isLocalDateKey,

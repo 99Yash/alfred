@@ -5,49 +5,17 @@ import { user } from "./auth";
 import { entities } from "./memory";
 
 /**
- * Integration object-state memory (ADR-0062, #212).
- *
- * A deterministic, registry-driven projection of the lifecycle state of
- * external *work objects* — GitHub PRs today, ClickUp tasks / remote Claude
- * runs later. The deterministic sibling of the semantic user-memory in
- * `memory.ts` (ADR-0057): the same temporal + graph machinery, with the
- * fuzzy/vector/LLM half deliberately omitted from the closure path. State is
- * asserted ONLY by the per-provider webhook reducer over `event_receipts`;
- * an LLM may *propose* a candidate key (a `head_sha`) but never *assert*
- * state, so a hallucinated key resolves to nothing and cannot fake a merge
- * (the propose/dispose invariant that keeps ADR-0048's closure contract intact).
- *
- *   integration_objects           identity + normalized state, bitemporal
- *   integration_object_keys       sidecar key index (head_sha → PR)
- *   integration_object_relations  object↔entity edges (authored_by, in_project, closes)
- *
- * Why a materialized projection and not a gather-time recompute: a briefing
- * loop spans a PR's whole event history (the failure email and the merge
- * webhook are both days old), but `gather` reads a 24h/cap-25 window — it
- * structurally cannot see the closure. The projection is required, not
- * optional, at dozen-user scale with months of webhook history.
- *
- * `state_category`, `kind`, `key_kind`, `relation` are `text` (not pg enums)
- * for the same migration-ergonomics reason as the rest of the schema — the
- * `@alfred/contracts` registry validates the legal values at the app boundary.
+ * State of external work objects, such as GitHub PRs and deploys (ADR-0062).
+ * Only the webhook reducer writes state. An LLM may propose a key but never
+ * asserts state, so a made-up key cannot fake a merge (ADR-0048).
+ * A briefing reads a short window, so it needs this stored state to see a close.
  */
 
 // ---------------------------------------------------------------------------
 // integration_objects
 // ---------------------------------------------------------------------------
 
-/**
- * One row per external work object, keyed by its provider-native identity
- * `(user_id, provider, kind, external_id)`. Carries both the provider-agnostic
- * `state_category` (what generic consumers like briefing reconciliation read)
- * and the `native_state` (retained for display + audit fidelity).
- *
- * Own bitemporal columns (`valid_from`/`valid_until`/`supersedes_id`) mirror
- * `user_facts` — point-in-time `getState(ref, at?)` and supersession for free —
- * but state is written by the deterministic reducer, NOT routed through
- * `proposeFact` (which is LLM/confidence-gated and wrong for deterministic
- * external state).
- */
+/** One row per external object. Bitemporal like `user_facts`, but not written by `proposeFact`. */
 export const integrationObjects = pgTable(
   "integration_objects",
   {
@@ -57,50 +25,28 @@ export const integrationObjects = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** Integration slug — `github`, later `clickup`, `claude-code`. */
     provider: text("provider").notNull(),
-    /**
-     * Object kind within the provider — `pull_request`, `ci_attempt`,
-     * `ci_target` for github; `deployment_attempt`, `deployment_target` for
-     * railway and for vercel. Kinds are namespaced by `(provider, kind,
-     * external_id)`, so the two deployment providers reuse the same two names
-     * without colliding.
-     */
+    /** Scoped by provider, so Railway and Vercel share the deployment kind names. */
     kind: text("kind").notNull(),
-    /** Provider-native stable id — github PR `id` as a string for v1. */
     externalId: text("external_id").notNull(),
-    /** Provider-agnostic bucket — `active | resolved | failed | abandoned`. */
+    /** Provider-neutral state that generic readers use. */
     stateCategory: text("state_category").notNull(),
-    /** Raw provider state for display/audit — `open`/`merged`/`closed`/… */
     nativeState: text("native_state"),
     title: text("title"),
     url: text("url"),
-    /** `owner/repo` for github; provider-specific locator otherwise. */
     repo: text("repo"),
-    /** Free-form bag — head_sha, base/head ref, author login, … */
     attributes: jsonb("attributes")
       .notNull()
       .default(sql`'{}'::jsonb`),
-    /**
-     * Last delivery that advanced this object's state. Transitions are guarded
-     * by this timestamp so a redelivered or out-of-order webhook never regresses
-     * state (the reducer's monotonicity guarantee).
-     */
+    /** Guards transitions, so a late or repeated webhook cannot move state back. */
     stateDeliveredAt: timestamp("state_delivered_at", { withTimezone: true }),
     /**
-     * Provider-clock instant of the state this row holds (a suite's
-     * `updated_at`, #1093). Target rows order by the
-     * (`provider_event_at`, `state_delivered_at`) pair, so the row holds the
-     * outcome of the latest attempt by provider event time, not by receipt
-     * time. Null for rows that predate provider-time tracking and for rows
-     * whose deltas carry no provider instant (PRs, attempts) — those keep the
-     * receipt-clock guard alone.
+     * Provider time of the held state. Target rows order by this, then `state_delivered_at`.
+     * Null when the delta has no provider time (PRs, attempts) or for older rows.
      */
     providerEventAt: timestamp("provider_event_at", { withTimezone: true }),
-    /** Temporal validity window (ADR-0012 machinery; see `user_facts`). */
     validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
     validUntil: timestamp("valid_until", { withTimezone: true }),
-    /** Self-reference: this row replaces `supersedes_id`. */
     supersedesId: text("supersedes_id"),
     ...lifecycle_dates,
   },
@@ -114,12 +60,7 @@ export const integrationObjects = pgTable(
 // integration_object_keys
 // ---------------------------------------------------------------------------
 
-/**
- * Sidecar key index: `(user_id, provider, key_kind, key_value) → object_id`.
- * `head_sha → PR`, `pull_request_url → PR`, `run_id → PR`, and `task_id → task`
- * all resolve uniformly. Actions mail carries the sha; review, comment, and
- * merge mail carries the PR URL or repository + number.
- */
+/** Other keys that resolve to an object, such as a `head_sha` or PR URL from mail. */
 export const integrationObjectKeys = pgTable(
   "integration_object_keys",
   {
@@ -133,7 +74,6 @@ export const integrationObjectKeys = pgTable(
       .notNull()
       .references(() => integrationObjects.id, { onDelete: "cascade" }),
     provider: text("provider").notNull(),
-    /** Key kind within the provider — `head_sha` or `pull_request_url` for GitHub. */
     keyKind: text("key_kind").notNull(),
     keyValue: text("key_value").notNull(),
     ...lifecycle_dates,
@@ -153,23 +93,13 @@ export const integrationObjectKeys = pgTable(
 // integration_object_relations
 // ---------------------------------------------------------------------------
 
-/**
- * Object↔entity edges (`authored_by`, `in_project`, `closes`), mirroring
- * `entity_relations`' shape so graph traversal stays uniform (the same
- * recursive-CTE style).
- *
- * Deliberately DISTINCT from `entity_relations` (entity↔entity): objects are
- * high-churn and must NOT become `entities` rows — that would pollute the
- * canonical-name-indexed people/org table. A dedicated edge table gives the
- * graph goodies (traversal, cross-source dedup) without that overload.
- */
+/** Object to entity edges. Objects change often, so they do not become `entities` rows. */
 export const integrationObjectRelations = pgTable(
   "integration_object_relations",
   {
     id: text("id")
       .primaryKey()
       .$defaultFn(() => createId("iobjr")),
-    /** Denormalized so traversal queries can filter without an extra join. */
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -179,7 +109,6 @@ export const integrationObjectRelations = pgTable(
     entityId: text("entity_id")
       .notNull()
       .references(() => entities.id, { onDelete: "cascade" }),
-    /** authored_by | in_project | closes | … */
     relation: text("relation").notNull(),
     metadata: jsonb("metadata")
       .notNull()

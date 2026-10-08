@@ -36,42 +36,16 @@ import {
 } from "./open-ask-guard";
 
 /**
- * Daily briefing workflow — LLM-composed prose, two slots ('morning' |
- * 'evening'), watermark-driven delta + prior-briefing memory (ADR-0048).
- * The single live briefing path: it writes the canonical `briefings`
- * table via the `store.ts` state machine, so the in-app surface
- * (ADR-0049) and the rail chip reflect it.
- *
+ * Daily briefing workflow (ADR-0048): two slots, a watermark delta, and prior-briefing memory.
+ * Writes `briefings` through the `store.ts` state machine.
  * Steps:
- *   1. gather   — begin/resume the `briefings` row, freeze the watermark
- *                 window (since = last consumed run's watermark for this
- *                 slot; until = now), run the deterministic structured
- *                 gather (cheap DB reads) for the suppression signal +
- *                 surface payload, and persist it (`markBriefingGathering`).
- *   2. compose  — quiet cron mornings suppress here *without* an LLM call.
- *                 Otherwise run the briefing agent and persist the prose
- *                 onto the row (`markBriefingComposed`).
- *   3. send     — render markdown → email shell, `notify()` with the
- *                 slot-scoped idempotency key, then `markBriefingSent`.
- *
- * Content mapping (prose model → `briefings` schema): the agent emits a
- * single markdown body, so `breaking_summary` ← `bodyMarkdown` (the
- * column is unbounded `text`; the 2000-char cap lives only on the unused
- * structured `briefingComposerSchema`) and `full_briefing` ←
- * `{ headline: subject, sections: [] }`. The surface renders
- * `breaking_summary` as markdown and treats `sections`/`sourcePanels` as
- * optional detail (see `briefing-slot.tsx`).
- *
- * Suppression (ADR-0048): the morning slot is discretionary — a quiet
- * cron morning suppresses; evening always sends; manual/forced runs
- * (e.g. the rail "Generate briefing" button) bypass suppression. "Quiet"
- * is attention-aware (#259 / ADR-0064): no priority email at the `demanding`
- * band, no integration activity, and no calendar events in the window. A
- * normal/muted item (a resolved micro-charge, a cold ask) is not enough to
- * send — so a quiet day suppresses instead of promoting a trivial item to
- * the headline. Payment mail that looks failed/due/actionable is pinned
- * demanding. Absent a demand signal, it falls back to the raw email count
- * (errs toward sending).
+ *   1. gather: begin or resume the row, freeze the window (last watermark to now), run the
+ *      deterministic gather for the suppression signal.
+ *   2. compose: a quiet cron morning suppresses with no LLM call. Otherwise run the agent.
+ *   3. send: render the email, `notify()` with a slot-scoped idempotency key, mark sent.
+ * The agent emits one markdown body: `breaking_summary` is `bodyMarkdown`, and
+ * `full_briefing` is `{ headline: subject, sections: [] }`.
+ * Morning may suppress; evening and manual runs always send.
  */
 
 export interface DailyBriefingOperationState {
@@ -86,7 +60,7 @@ export interface DailyBriefingOperationState {
   briefingId?: string;
   quietDay?: boolean;
   closedLoops: BriefingClosedLoop[];
-  /** Bounded, non-closing relevance verdicts over the still-live priority loops. */
+  /** Non-closing relevance verdicts for the live priority loops. */
   loopRelevance: BriefingLoopRelevance[];
   composed?: {
     subject: string;
@@ -103,8 +77,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   const prefs = await resolveBriefingPreferences(ctx.userId);
   const timezone = prefs.timezone;
 
-  // `state.briefingDate` is persisted JSON, so it re-enters as a plain string
-  // and is parsed back into a key here; a fresh run mints one instead.
+  // Persisted JSON, so the date comes back as a string.
   const briefingDate = ctx.state.briefingDate
     ? parseLocalDateKey(ctx.state.briefingDate)
     : inZone(timezone).day();
@@ -117,9 +90,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     agentRunId: ctx.runId,
   });
 
-  // A terminal row already exists for this (user, date, slot) — the
-  // unique index is the no-double-send guard. Return its outcome
-  // rather than recomposing.
+  // The unique index blocks a double send; return the terminal row's outcome.
   if (begun.action === "skip_terminal") {
     await ctx.log(
       `gather: skip existing terminal briefing id=${begun.row.id} status=${begun.row.status}`,
@@ -138,24 +109,14 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     };
   }
 
-  // A prior run already composed the prose for this (user, date, slot)
-  // but crashed before send (status='composed', non-terminal so not
-  // caught above). `beginBriefing` hands us action='resume'; honor it by
-  // skipping straight to send and reusing the persisted prose. Falling
-  // through here would re-gather + re-run the boss-tier briefing agent —
-  // a wasted expensive compose that also overwrites good prose and shifts
-  // the watermark window (#158). Only the 'composed' status is short-
-  // circuited: 'pending'/'gathering'/'composing' have no completed prose
-  // to reuse, so they fall through to a (correct) fresh compose.
+  // A prior run composed but crashed before send. Reuse that prose: a fresh
+  // compose wastes a boss-tier call and shifts the watermark window (#158).
+  // Only `composed` has prose to reuse.
   if (begun.action === "resume" && begun.row.status === "composed") {
     const { breakingSummary, fullBriefing, watermarkAt } = begun.row;
 
-    // The composed row must carry both its prose AND the frozen window end
-    // (`watermarkAt`, stashed by `compose`). With the window end we can send
-    // the reused prose AND advance the watermark to exactly the instant the
-    // prose covers — never past docs that arrived after compose (#158). A row
-    // missing either (corrupt prose, or a legacy compose written before this
-    // column existed) falls through to a fresh, correctly-windowed compose.
+    // Send needs the frozen window end too, so the watermark stops where the prose stops (#158).
+    // A row without it (legacy) falls through to a fresh compose.
     if (breakingSummary && fullBriefing && watermarkAt) {
       await ctx.log(
         `gather: resume composed briefing id=${begun.row.id} — skipping to send ` +
@@ -169,13 +130,8 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
           briefingId: begun.row.id,
           briefingDate,
           timezone,
-          // `breaking_summary` IS the agent's bodyMarkdown (see the
-          // content-mapping note above). `bodyText`/`citedDocumentIds`
-          // aren't persisted on the row, so fall back to the markdown
-          // body as plaintext — it's conversational prose, readable
-          // as-is — and an empty citation list. Reuse the FROZEN window
-          // end (not `now`) so send advances the watermark only as far as
-          // the reused prose actually covers.
+          // `bodyText` and citations are not persisted, so reuse the markdown and no citations.
+          // Use the frozen window end, not now.
           untilIngestedAt: watermarkAt.toISOString(),
           composed: {
             subject: fullBriefing.headline,
@@ -202,10 +158,8 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   let loopRelevance: BriefingLoopRelevance[] = [];
 
   try {
-    // Deterministic structured gather over the same watermark window the
-    // agent composes from. Cheap (DB reads against email_triage +
-    // calendar/activity) — it feeds the suppression signal and the
-    // surface's `gather` payload; the agent still authors the prose.
+    // Cheap deterministic gather over the same window. Feeds suppression and the surface;
+    // the agent still writes the prose.
     const gathered = await gatherBriefingWithSuppressionAudit({
       userId: ctx.userId,
       briefingDate,
@@ -226,12 +180,8 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   }
 
   const counts = gatherCounts(gather);
-  // Attention-aware quiet-day (#259 / ADR-0064): a normal/muted email (a
-  // resolved micro-charge, a cold ask) no longer flips the morning to
-  // "not quiet" — only a `demanding` item, integration activity, or a
-  // calendar event does. Payment failures/owed bills are pinned demanding.
-  // `demandingEmailCount` is folded onto day-shape by the gather; its
-  // absence falls back to the raw email count.
+  // Quiet means no `demanding` email, no activity, and no meetings (ADR-0064).
+  // With no demand signal, fall back to the raw email count.
   const demandingEmailCount = gather.day_shape?.demandingEmailCount;
 
   const quietDay = isQuietMorning({
@@ -275,14 +225,11 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
     throw new Error("[daily-briefing] compose entered without gather output");
   }
 
-  // Persisted state carries both as plain strings — this is the boundary that
-  // re-establishes the day key and the zone as their own types.
+  // Persisted state is plain strings; parse the day key and zone here.
   const briefingDate = parseLocalDateKey(ctx.state.briefingDate);
   const timezone = parseIanaTimezone(ctx.state.timezone);
 
-  // Discretionary morning: a quiet cron morning suppresses *before*
-  // the agent runs, so a nothing-to-report day costs no LLM call.
-  // Evening always sends; manual/forced bypass.
+  // A quiet cron morning suppresses before the agent runs, so it costs no LLM call.
   if (ctx.state.slot === "morning" && ctx.state.reason === "cron" && ctx.state.quietDay) {
     const gateReason =
       "quiet morning: no demanding email, integration activity, or calendar events";
@@ -348,10 +295,8 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
     result = await compose();
     body = result.briefing;
 
-    // Pre-send open-ask guard (#1082). The prompt rule from #1080 asks the
-    // composer not to present a closed object as an open ask; this proves it.
-    // One aimed re-prompt, then a deterministic downgrade, then failure — the
-    // guard may block or drop, never author.
+    // Open-ask guard (#1082): one aimed re-prompt, then a downgrade, then failure.
+    // The guard may block or drop, never write prose.
     let violations = await audit(body);
 
     if (violations.length > 0) {
@@ -376,17 +321,13 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         `compose: open-ask guard downgraded draft 2 — ${describeViolations(violations)}`,
       );
       body = { ...body, ...downgraded };
-      // The downgrade deleted sentences, so citations tied to those sentences
-      // were never delivered. Persist only what went out — a stale id here
-      // becomes a `previouslySurfaced` suppressor that hides an untold item
-      // from the next slot.
+      // Keep only citations that went out, or the next slot hides an untold item.
       surfacedDocumentIds = filterDroppedCitations(result.briefing.citedDocumentIds, violations);
     }
 
     await markBriefingComposed({
       briefingId,
-      // Prose body → breaking_summary; headline ← subject; no structured
-      // sections (the model emits one markdown body, not buckets).
+      // One markdown body, no structured sections.
       breakingSummary: body.bodyMarkdown,
       fullBriefing: {
         headline: body.subject,
@@ -395,9 +336,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
       },
       model: result.modelId,
       composeFallback: false,
-      // Freeze the window end this prose covers, so a crash-then-resume
-      // advances the watermark to exactly here (not `now`) and never skips
-      // docs that land after compose (#158).
+      // The window end this prose covers, so a resume never skips later docs (#158).
       watermarkAt: until,
     });
   } catch (err) {
@@ -440,16 +379,9 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     throw new Error("[daily-briefing] send entered without composed output");
   }
 
-  // Pre-send open-ask guard (#1082; ADR-0103): the compose-time audit can go
-  // stale before send. A resume reuses persisted prose without recomposing, and
-  // an object open at compose can close before send — so check live state again
-  // here, where the payload is final. No re-prompt this late (send owns no model
-  // call): downgrade the payload, or block the send when nothing shippable
-  // remains. The compose-time guard stays — it is the only path that can aim a
-  // re-prompt at the composer. Objects absent from `closedLoops` (always the
-  // case on the resume path) fall through to the live `integration_objects`
-  // read inside the audit, which is what catches a merge that landed after
-  // compose.
+  // Check again at send (ADR-0103): a resume reuses old prose, and an object can close
+  // after compose. No re-prompt here; downgrade or block. On resume `closedLoops` is
+  // empty, so the live `integration_objects` read in the audit catches late merges.
   let body: ComposedBriefingBody = {
     subject: composed.subject,
     bodyText: composed.bodyText,
@@ -462,10 +394,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     closedLoops: ctx.state.closedLoops,
   });
 
-  // A send-time downgrade means the persisted compose-time row (prose +
-  // citations) no longer matches what the user receives. Carry the corrected
-  // ids alongside the body so the send can patch the row: delivered prose and
-  // continuity state must agree, or the next slot suppresses an untold item.
+  // After a send-time downgrade, patch the row's citations to match what the user got.
   let sendSurfacedDocumentIds: string[] | null = null;
 
   if (sendViolations.length > 0) {
@@ -485,9 +414,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     sendSurfacedDocumentIds = filterDroppedCitations(composed.citedDocumentIds, sendViolations);
   }
 
-  // Dry run short-circuit: skip Resend. The `composed` briefings row
-  // from `compose` is the inspection artifact; output mirrors a real
-  // send so the smoke script doesn't need a special path.
+  // Dry run: skip Resend. The `composed` row is what to inspect.
   if (ctx.state.dryRun) {
     await ctx.log("send: skipped (dryRun)");
 
@@ -506,9 +433,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
 
   const idempotencyKey = `briefing:${ctx.userId}:${briefingDate}:${ctx.state.slot}`;
 
-  // Render the agent's markdown body into the polished email shell.
-  // The template (`@alfred/mailer`) owns all styling; the model only
-  // ever produces prose markdown.
+  // `@alfred/mailer` owns all styling; the model only writes markdown.
   const webOrigin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
 
   const html = await renderBriefingEmail({
@@ -517,8 +442,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     timezone: ctx.state.timezone,
     logoUrl: emailLogoUrl(webOrigin),
     previewText: body.subject,
-    // Both slots get the CTA, pointed at the full briefing for that day
-    // (`/briefings/{YYYY-MM-DD}`, ADR-0049) rather than the chat surface.
+    // Link to the day's full briefing (ADR-0049), not to chat.
     ctaUrl: `${webOrigin}/briefings/${briefingDate}`,
     ctaLabel: "View full briefing",
   });
@@ -587,13 +511,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   };
 }
 
-/**
- * Live-signal counts for the suppression gate. `email.categories` holds the
- * priority buckets (ambient `fyi` is suppressed before this payload). The raw
- * `email` count is now only the fallback when the attention-aware
- * `demandingEmailCount` signal is unavailable — the gate leads from demand, not
- * raw volume (#259).
- */
+/** Counts for the suppression gate. The raw `email` count is only the fallback for `demandingEmailCount` (#259). */
 interface GatheredCounts {
   email: number;
   activity: number;

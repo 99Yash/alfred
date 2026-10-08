@@ -10,33 +10,20 @@ import {
 import { humanizeSlug, integrationDisplayName } from "./tools";
 
 /**
- * The grain at which one source's deliveries can break (#976).
- *
- * - `source`: one delivery verdict per user. An inbound webhook whose owner is
- *   one installation or organization (GitHub App, Sentry) reads this way, and
- *   so does an in-process source with no subscription to lose.
- * - `account`: one verdict per connected account of `integration`. The rows a
- *   trigger's `accountRef` resolves against are the integration's credential
- *   rows that satisfy its connected rule, so the account space is declared
- *   once here and read through {@link eventDeliveryAccounts}. Gmail's
- *   per-account push watch reads this way.
+ * Where a source's delivery can break (#976): once per user (`source`), or per
+ * connected account of `integration` (`account`, such as Gmail's push watch).
  */
 export type EventDeliveryGrain =
   | { grain: "source" }
   | { grain: "account"; integration: LiveProviderSlug };
 
 /**
- * How a user may subscribe a workflow to a source (ADR-0097 item 6, #990).
- * This one field is the authoring policy: `AUTHORABLE_EVENT_SOURCES`, the
- * typed and raw subsets, their guards, and the editor's option list all derive
- * from it, so a new source states its policy once.
- *
- * - `typed`: the user names one of the entry's declared event types.
- * - `raw`: the user names `type: "raw"` plus a provider kind the source's raw
- *   inventory has seen. The entry's typed kinds keep their built-in consumers
- *   and dedup rules and stay non-authorable. Only an inbound source has raw
- *   receipts, so an in-process entry cannot declare this.
- * - `none`: the source drives built-in flows only.
+ * How a user can subscribe a workflow to a source (ADR-0097). All authoring
+ * lists and guards derive from this field.
+ * - `typed`: name a declared event type.
+ * - `raw`: name `type: "raw"` and a provider kind already seen. Typed kinds stay
+ *   built-in only. Only an inbound source can be `raw`.
+ * - `none`: built-in flows only.
  */
 export type EventSourceAuthoring = "typed" | "raw" | "none";
 
@@ -46,20 +33,9 @@ interface EventSourceEntryBase {
 }
 
 /**
- * The browser-safe half of one event source: how its domain events are
- * produced, at which grain their delivery can break, and which event types a
- * workflow may subscribe to.
- *
- * - `in_process`: the source's domain events are published by code inside the
- *   server (an ingestion worker, an OAuth callback, a workflow's terminal step).
- * - `inbound_webhook`: the source's domain events arrive as HTTP deliveries on
- *   `POST /webhooks/inbound/:source`. Every such source has an
- *   `InboundSourceDescriptor` in `@alfred/assistant/connections/ingress`, and the
- *   descriptor registry is typed `Record<InboundEventSource, …>`, so adding a
- *   source here without a descriptor there fails to compile (and vice versa).
- *   The descriptor's `subscription.health` answers for the user as a whole, so
- *   an inbound source is `source` grain by type; a per-account inbound source
- *   needs a new adapter shape before this union admits it.
+ * `inbound_webhook` sources arrive on `POST /webhooks/inbound/:source` and each
+ * needs an `InboundSourceDescriptor` (the compiler checks this). Their health is
+ * per user, so they are `source` grain only.
  */
 export type EventSourceEntry =
   | (EventSourceEntryBase & {
@@ -69,16 +45,11 @@ export type EventSourceEntry =
     })
   | (EventSourceEntryBase & { producer: "inbound_webhook"; delivery: { grain: "source" } });
 
-/**
- * Every domain-event source, keyed by slug (ADR-0047, ADR-0097). The record's
- * keys are the source space: `EventSource` is `keyof` this object, and every
- * per-source table elsewhere is a projection of it or keyed
- * `satisfies Record<EventSource, …>` on a union it derives.
- */
+/** Every event source (ADR-0047, ADR-0097). The keys are the source space. */
 export const EVENT_SOURCE_ENTRIES = {
   gmail: {
     producer: "in_process",
-    // One Pub/Sub watch per connected Google account; the watch can lapse per account.
+    // One Pub/Sub watch per Google account, and each can lapse.
     delivery: { grain: "account", integration: "gmail" },
     authoring: "typed",
     eventTypes: ["message_received", "documents_ingested"],
@@ -99,16 +70,9 @@ export const EVENT_SOURCE_ENTRIES = {
     producer: "inbound_webhook",
     delivery: { grain: "source" },
     authoring: "raw",
-    // Mirrors the GitHub App's subscribed `default_events`, plus `check_suite`
-    // for the CI succession shape (#1093). The App-subscription mirror is a
-    // human flip (see the PR body) — until then the kinds stay empty, safely.
-    //
-    // `repository_dispatch` is GitHub-the-transport, not GitHub-the-subject:
-    // Vercel relays every deployment state change through it, and the body's
-    // `client_payload` is Vercel's own (#1167). Declaring it here is the
-    // ADR-0097 raw-tier lifecycle working as designed — the raw tier is the
-    // UNMAPPED tier, so naming a kind moves it out. `authoring` stays `"raw"`
-    // for this source, so a typed GitHub event adds no trigger surface.
+    // The GitHub App's subscribed `default_events`, plus `check_suite` (#1093).
+    // `repository_dispatch` carries Vercel deployment events in `client_payload` (#1167).
+    // A named kind leaves the raw tier; `authoring: "raw"` keeps it off the trigger list.
     eventTypes: [
       "pull_request",
       "push",
@@ -119,13 +83,9 @@ export const EVENT_SOURCE_ENTRIES = {
     ],
   },
   /**
-   * Sentry internal-integration webhooks, one type per `<resource>_<action>`
-   * pair the descriptor subscribes to (`Sentry-Hook-Resource` header plus the
-   * body's `action`). `error_created` is plan-gated on Sentry's side
-   * (Business+); `event_alert_triggered` is the per-project alert-rule route
-   * every plan has; the `issue_*` set is the lifecycle fallback; and
-   * `seer_pr_created` is the Seer Autofix pull request the verification rung
-   * consumes (#563, #567).
+   * One type per `<resource>_<action>` (`Sentry-Hook-Resource` plus `action`).
+   * `error_created` needs Sentry Business+; `event_alert_triggered` works on every
+   * plan. `seer_pr_created` is the Seer Autofix PR (#563, #567).
    */
   sentry: {
     producer: "inbound_webhook",
@@ -143,11 +103,9 @@ export const EVENT_SOURCE_ENTRIES = {
     ],
   },
   /**
-   * `classified` is the fact the triage `classify` step publishes for every thread
-   * whose row it owns; the reply-drafting gate consumes it (ADR-0098). `reply_worthy`
-   * is the trigger the `reply-drafting` builtin declares. Nothing publishes it on
-   * the bus: the gate starts the run directly, so a worthy verdict is the only
-   * thing that can fire the workflow, and the declaration still names its cause.
+   * `classify` publishes `classified` for the reply-drafting gate (ADR-0098).
+   * Nothing publishes `reply_worthy`: the gate starts the run directly, and the
+   * `reply-drafting` builtin declares it only to name its cause.
    */
   "email-triage": {
     producer: "in_process",
@@ -161,10 +119,9 @@ export type EventSource = keyof typeof EVENT_SOURCE_ENTRIES;
 
 export type EventSourceEntryOf<S extends EventSource> = (typeof EVENT_SOURCE_ENTRIES)[S];
 
-/** The sources in record order. */
+/** In record order. */
 export const EVENT_SOURCES: readonly EventSource[] =
-  // SAFETY: `Object.keys` types its result as `string[]`; the keys of a
-  // non-indexed literal are exactly `keyof typeof EVENT_SOURCE_ENTRIES`.
+  // SAFETY: the keys of a non-indexed literal are exactly `keyof typeof EVENT_SOURCE_ENTRIES`.
   Object.keys(EVENT_SOURCE_ENTRIES) as EventSource[];
 
 export const isEventSource = enumGuard(EVENT_SOURCES);
@@ -178,7 +135,6 @@ export type InboundEventSource = EventSourcesWhere<{ producer: "inbound_webhook"
 
 export type InProcessEventSource = EventSourcesWhere<{ producer: "in_process" }>;
 
-/** The sources whose delivery breaks per connected account, not per user. */
 export type AccountGrainEventSource = EventSourcesWhere<{ delivery: { grain: "account" } }>;
 
 export const INBOUND_EVENT_SOURCES: readonly InboundEventSource[] = EVENT_SOURCES.filter(
@@ -194,13 +150,10 @@ export type EventType = {
   [S in EventSource]: EventTypeForSource<S>;
 }[EventSource];
 
-/** Per-source event-type tuples, projected off the record for table-shaped readers. */
 export const EVENT_TYPES_BY_SOURCE: {
   readonly [S in EventSource]: EventSourceEntryOf<S>["eventTypes"];
 } =
-  // SAFETY: `Object.fromEntries` types its result as `{ [k: string]: T }`; the
-  // pairs are built from EVENT_SOURCES, so the keys are exactly EventSource and
-  // each value is that source's own `eventTypes` tuple.
+  // SAFETY: built from EVENT_SOURCES, so each key maps to its own `eventTypes` tuple.
   Object.fromEntries(
     EVENT_SOURCES.map((source) => [source, EVENT_SOURCE_ENTRIES[source].eventTypes]),
   ) as { [S in EventSource]: EventSourceEntryOf<S>["eventTypes"] };
@@ -215,17 +168,11 @@ export function isEventTypeForSource<S extends EventSource>(
   source: S,
   value: string,
 ): value is EventTypeForSource<S> {
-  // SAFETY: the per-source row is a const tuple of that source's event-type
-  // literals; widening to readonly string[] only types the .includes receiver
-  // for the runtime membership test this guard performs.
+  // SAFETY: widening only types the `.includes` receiver.
   return (EVENT_SOURCE_ENTRIES[source].eventTypes as readonly string[]).includes(value);
 }
 
-/**
- * The `<source>.<type>` name one domain event is stored and logged under: the
- * `event_receipts.event_type` column, the workflow trigger label, the log line.
- * One writer and one reader, so the two never agree on the dot by convention.
- */
+/** The `<source>.<type>` name in `event_receipts.event_type`, trigger labels, and logs. */
 export function eventTypeName<S extends EventSource>(
   source: S,
   type: EventTypeForSource<S>,
@@ -234,57 +181,31 @@ export function eventTypeName<S extends EventSource>(
 }
 
 /**
- * The `type` half of a raw receipt's `event_type` (ADR-0097 item 9). A raw
- * receipt is a verified delivery whose kind the source's entry does not name;
- * it is stored under `<source>.raw` and carries the provider's own kind in
- * `event_receipts.raw_kind`. The marker is not a member of any entry's
- * `eventTypes` tuple, so `parseEventTypeName` reads a raw row as `null` and no
- * typed reader can mistake it for a subscribed event.
- *
- * The marker, or `never` the day an entry declares `raw` as an event type. In
- * that case `rawEventTypeName` no longer compiles, which is the gate: a typed
- * `raw` would make every stored raw row read back as a subscribed event.
+ * A delivery of an undeclared kind is stored as `<source>.raw`, with the provider
+ * kind in `raw_kind` (ADR-0097). This is `never` if an entry declares a `raw` type,
+ * which breaks `rawEventTypeName`: raw rows would then read as subscribed events.
  */
 export type RawReceiptType = "raw" extends EventType ? never : "raw";
 
-/**
- * The raw marker as a value (#990). A user-authored trigger whose `type` is
- * this marker subscribes to one raw kind of an inbound source, named in its
- * `rawKind`; the deliver job publishes a raw receipt under the same marker.
- */
 export const RAW_EVENT_TYPE: RawReceiptType = "raw";
 
 export function isRawEventType(value: string): value is RawReceiptType {
   return value === RAW_EVENT_TYPE;
 }
 
-/**
- * A provider's own kind of a raw receipt, kept verbatim (`comment.created`).
- * The one schema for the field wherever a trigger or event carries it: the bus
- * event, the stored workflow trigger, the run trigger, and both authoring
- * schemas (#990).
- */
+/** The provider's own kind, verbatim (`comment.created`). */
 export const rawEventKindSchema = z.string().min(1).max(200);
 
-/** The `event_type` a raw receipt of `source` is stored under. */
 export function rawEventTypeName<S extends InboundEventSource>(
   source: S,
 ): `${S}.${RawReceiptType}` {
   return `${source}.${RAW_EVENT_TYPE}`;
 }
 
-/**
- * The sources a user may subscribe a workflow to (ADR-0097 item 6, #990):
- * every entry whose `authoring` is not `none`, in record order. The internal
- * sources (`google.oauth.callback`, `learn-skill`, `email-triage`) drive
- * built-in flows and declare `none`.
- */
 export type AuthorableEventSource = EventSourcesWhere<{ authoring: "typed" | "raw" }>;
 
-/** The authorable sources whose declared (typed) event types a user may name. */
 export type TypedAuthorableEventSource = EventSourcesWhere<{ authoring: "typed" }>;
 
-/** The authorable sources a user reaches only through a raw kind the inventory has seen. */
 export type RawAuthorableEventSource = EventSourcesWhere<{ authoring: "raw" }>;
 
 export function eventSourceAuthoring(source: EventSource): EventSourceAuthoring {
@@ -316,12 +237,7 @@ export interface AuthorableEventTriggerIssue {
   message: string;
 }
 
-/**
- * The raw-tier shape rule for any event trigger (#990): `type: "raw"` needs an
- * inbound source and a `rawKind`; every other type must leave `rawKind` unset.
- * Shared by the authoring rule below and the server's definition validator, so
- * a stored trigger and an authored one obey one rule.
- */
+/** The raw-tier rule for stored and authored triggers alike. */
 export function rawEventTriggerIssue(trigger: {
   source: EventSource;
   type: string;
@@ -350,15 +266,8 @@ export function rawEventTriggerIssue(trigger: {
 }
 
 /**
- * The one structural rule for a user-authored event trigger, shared by the
- * editor mutator schema (`@alfred/sync`) and the chat authoring schema here so
- * the two surfaces cannot drift (#990).
- *
- * - `type === "raw"`: the source must be an inbound source and `rawKind` must
- *   name the provider kind. Whether the source has seen that kind is a database
- *   fact the revision service checks; this rule is the pure half.
- * - any other `type`: the source must be a typed-authorable source, the type
- *   must be one its entry declares, and `rawKind` must be absent.
+ * The rule for a user-authored trigger, shared by the editor and chat authoring.
+ * The revision service checks separately that the source has seen the raw kind.
  */
 export function authorableEventTriggerIssue(trigger: {
   source: AuthorableEventSource;
@@ -395,12 +304,7 @@ export function authorableEventTriggerIssue(trigger: {
   return null;
 }
 
-/**
- * Read the `type` half back out of a stored `<source>.<type>` name for a known
- * source, or `null` when the name is not one that source declares. Sources
- * contain dots (`google.oauth.callback`), so the caller names the source and
- * this strips exactly that prefix.
- */
+/** The caller names the source because sources contain dots (`google.oauth.callback`). */
 export function parseEventTypeName<S extends EventSource>(
   source: S,
   name: string,
@@ -413,13 +317,7 @@ export function parseEventTypeName<S extends EventSource>(
   return isEventTypeForSource(source, type) ? type : null;
 }
 
-/**
- * The display phrase for an event trigger, shared by the approvals card, the
- * workflow list, and the schedule summary so the three surfaces never disagree
- * (#990). A raw trigger shows the provider's own kind as it arrived
- * (`Sentry comment.created`); a typed one shows its slug as words with the
- * `_received` suffix dropped (`Gmail message`).
- */
+/** `Sentry comment.created` for a raw trigger, `Gmail message` for a typed one. */
 export function eventTriggerPhrase(trigger: {
   source: string;
   type?: string | null | undefined;
@@ -437,11 +335,8 @@ export function eventTriggerPhrase(trigger: {
 }
 
 /**
- * The account space of an account-grain source: the integration whose connect
- * flow restores delivery, the credential provider whose rows a trigger's
- * `accountRef` resolves against, and the connected rule a row must satisfy to
- * be one of those accounts (`credentialSatisfies(credential, row)`). Derived
- * from the entry and the integration registry, so the space is declared once.
+ * The accounts of an account-grain source: credential rows of `provider` that
+ * pass `credentialSatisfies(credential, row)`. `integration` is what to reconnect.
  */
 export interface EventDeliveryAccounts {
   integration: LiveProviderSlug;
@@ -453,7 +348,7 @@ export function eventDeliveryAccounts<S extends AccountGrainEventSource>(
   source: S,
 ): EventDeliveryAccounts;
 export function eventDeliveryAccounts(source: EventSource): EventDeliveryAccounts | null;
-/** The account space of `source`, or `null` for a source-grain source. */
+/** `null` for a source-grain source. */
 export function eventDeliveryAccounts(source: EventSource): EventDeliveryAccounts | null {
   const delivery = EVENT_SOURCE_ENTRIES[source].delivery;
 

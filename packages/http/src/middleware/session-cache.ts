@@ -83,9 +83,7 @@ export async function getSessionCached(request: Request): Promise<Session> {
     const base = auth().api.getSession({ headers: request.headers });
 
     const promise = base.then((session) => {
-      // A successful auth mutation can clear the cache while this lookup is
-      // still pending. Its existing waiter may receive the result, but the old
-      // generation must not repopulate shared state after invalidation.
+      // A clear during the lookup bumps the generation; the stale result must not refill the cache.
       if (generation !== tokenCacheGeneration) return session;
 
       if (tokenCache.size >= MAX_TOKEN_CACHE_SIZE) {
@@ -105,18 +103,12 @@ export async function getSessionCached(request: Request): Promise<Session> {
       return session;
     });
 
-    // Evict from the inflight map on BOTH outcomes. A failed lookup (transient
-    // DB/network blip) must remove the rejected promise rather than memoize it
-    // — otherwise every later request with the same token replays the same
-    // rejection and the user is locked out of all routes until restart. The
-    // side handle on `base` keeps the eviction independent of `promise`'s
-    // own rejection (which callers await + handle) and avoids an
-    // unhandled-rejection warning.
+    // Evict on both outcomes: a memoized rejection would lock the user out until restart.
+    // The `.catch` on `base` avoids an unhandled-rejection warning.
     base
       .catch(() => {})
       .finally(() => {
-        // A clear can let a new request install another promise for this token
-        // before the old lookup settles. Only remove the promise we installed.
+        // After a clear, a newer promise may own this token. Remove only ours.
         if (tokenInflight.get(token) === promise) tokenInflight.delete(token);
       });
 
@@ -142,16 +134,7 @@ export function invalidateSessionToken(headers: Headers): void {
   }
 }
 
-/**
- * Drop every cached token.
- *
- * Successful Better Auth POSTs can create, update, or revoke any session on the
- * account. The HTTP composition calls this after the handler returns success,
- * so a new or renamed mutation cannot bypass invalidation through a stale route
- * list. Alfred has one user, so dropping the whole map costs one extra database
- * read per live token and buys an auth mutation that takes effect at once in
- * this process.
- */
+/** Drop every cached token after any successful Better Auth POST. Cheap with one user. */
 export function clearSessionTokenCache(): void {
   tokenCacheGeneration += 1;
   tokenCache.clear();

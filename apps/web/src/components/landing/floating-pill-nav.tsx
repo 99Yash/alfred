@@ -2,22 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
 /**
- * The landing's primary navigation — a translucent pill, pinned top-center,
- * with the page scrolling underneath it.
- *
- * Two deliberate choices:
- *
- * **Top, not bottom.** This nav used to sit at `bottom-8`, which put the
- * page's wayfinding in the one place nobody looks for it and parked it on top
- * of the hero product panel. Things that look the same must behave the same
- * and live in the same place; site navigation lives at the top.
- *
- * **It materializes on scroll.** At the very top of the page there is nothing
- * behind the nav to separate it from, so it carries no material at all — just
- * the logo and links floating on the canvas. Once content starts passing
- * underneath, the glass fades in to keep the labels legible over whatever is
- * behind them. That is a scroll edge effect rather than a permanent bar with a
- * hard divider: the chrome appears only where it actually overlaps content.
+ * Landing nav: a pill pinned top-center. It has no glass at the top of the page;
+ * the glass fades in once content scrolls under it.
  */
 export function FloatingPillNav({
   logo,
@@ -40,12 +26,10 @@ export function FloatingPillNav({
         "fixed inset-x-0 top-3 z-50 mx-auto h-fit sm:top-5",
         "w-fit max-w-[calc(100vw-1.5rem)]",
         "flex items-center gap-1 rounded-full p-1.5 sm:gap-2 sm:p-2",
-        // The material lives on a pseudo-element so its opacity transition
-        // never fights a transition on the nav's own contents.
+        // Glass on a pseudo-element, so its fade does not fight the contents' transitions.
         "before:absolute before:inset-0 before:-z-10 before:rounded-full",
         "before:bg-black/55 before:backdrop-blur-xl",
         "before:ring-1 before:ring-white/10 before:ring-inset",
-        // A bright top hairline is light catching the near lip of the glass.
         "before:shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_18px_50px_-24px_rgba(0,0,0,0.9)]",
         "before:opacity-0 before:transition-opacity before:duration-300",
         "data-[scrolled]:before:opacity-100",
@@ -64,12 +48,7 @@ export function FloatingPillNav({
   );
 }
 
-/**
- * True once the document has scrolled more than `threshold` px. Reads on a
- * rAF-throttled passive scroll listener — the display-synced clock is the
- * right cadence for anything driven by scroll position, and one boolean of
- * state means the nav re-renders twice per page, not once per frame.
- */
+/** True past `threshold` px. rAF-throttled, and re-renders only when the boolean flips. */
 function useHasScrolledPast(threshold: number): boolean {
   const [past, setPast] = useState(
     () => typeof window !== "undefined" && window.scrollY > threshold,

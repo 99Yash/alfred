@@ -1,36 +1,14 @@
 /**
- * COMMITTED self-mail label backfill (issue #285).
+ * Add the `Alfred` Gmail label to self-mail that arrived before the ingestor
+ * started labeling it (#285). That mail was never stored in `documents`, so this
+ * reads Gmail directly: `from:(<self addrs>) -label:"Alfred"`, then `batchModify`.
  *
- * Going forward, the ingestor tags Alfred's own briefing / HIL-approval mail with
- * the dedicated `Alfred` Gmail label on the same drop path that keeps it out of
- * triage (`labelSelfAuthoredMail`, wired into `persistMessage`). This script does
- * the one-off catch-up for self-mail that already landed BEFORE that shipped:
- * those messages were dropped from `documents` (#211/#266) so there is nothing in
- * the DB to drive from — we go straight to Gmail.
+ * `from:` matches the sender header, and a label is reversible, so no exact-address
+ * pass is needed. The `-label:` clause makes re-runs idempotent.
+ * Self addresses: the current `RESEND_FROM_EMAIL` plus `--aliases` (default `yash@croisillies.xyz`).
+ * It only adds a label. It never writes `documents`, `email_triage`, or a sender prior.
  *
- * Per Gmail-capable credential:
- *   1. Ensure the `Alfred` label exists (`ensureAlfredSelfLabel` → id + cache).
- *   2. `messages.list` for self-authored mail that isn't already labelled:
- *        from:(<self addrs>) -label:"Alfred"
- *      The `from:` operator matches the actual sender header (not body quotes),
- *      so — unlike the DESTRUCTIVE retire backfills — no second exact-address
- *      pass is needed here: applying a label is reversible, and the `-label:`
- *      clause makes re-runs cheap + idempotent (already-tagged mail never
- *      re-lists).
- *   3. `batchModify` (≤1000 ids/call) to add the label.
- *
- * The self-address set mirrors the retire backfills: the CURRENT `RESEND_FROM_EMAIL`
- * ∪ historical send-from aliases (`--aliases`, default `yash@croisillies.xyz`), so
- * briefings from the old envelope get organised too.
- *
- * This ONLY adds a label — it never writes `documents`, `email_triage`, or a
- * sender prior, so the #211/#266 self-loop stays closed.
- *
- * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
- * `node dist/scripts/backfills/backfill-label-self-mail-committed.js`.
- *
- * Dry by default — lists the candidate count per credential and writes
- * NOTHING. `--commit` ensures the label and applies it.
+ * Bundled for prod. Dry by default; `--commit` creates and applies the label.
  *
  *   # preview personal mailbox (writes no labels):
  *   node dist/scripts/backfills/backfill-label-self-mail-committed.js --emails=yashgouravkar@gmail.com
@@ -94,10 +72,7 @@ function parsePositiveInt(name: string, fallback: number): number {
   return n;
 }
 
-/**
- * Build the self-address set: the current send address ∪ historical aliases,
- * each run through the same parser the runtime guard (`isSelfAuthored`) uses.
- */
+/** Current send address plus aliases, parsed like `isSelfAuthored` parses them. */
 function resolveSelfAddresses(): string[] {
   const addrs = new Set<string>();
   const current = selfSenderEmail();
@@ -117,7 +92,7 @@ function resolveSelfAddresses(): string[] {
   return [...addrs];
 }
 
-/** `from:(a OR b) -label:"Alfred"` — self-authored mail not already tagged. */
+/** `from:(a OR b) -label:"Alfred"`: self-mail not yet labeled. */
 function buildQuery(selfAddrs: string[]): string {
   const from = `from:(${selfAddrs.join(" OR ")})`;
 
@@ -300,8 +275,7 @@ async function main() {
     try {
       total += await processCredential(t, selfAddrs, maxMessages);
     } catch (err) {
-      // One bad credential (revoked token, missing scope) must not abort the
-      // remaining mailboxes in an --all-connected sweep.
+      // One bad credential must not stop the other mailboxes.
       console.error(`  ! failed for ${t.email}: ${toMessage(err)}`);
     }
   }
@@ -315,7 +289,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

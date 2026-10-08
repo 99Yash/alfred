@@ -21,19 +21,9 @@ export function shouldShowStream(
 }
 
 /**
- * Whether the live bubble should draw the bare "thinking" spinner: the turn is
- * still running and has produced nothing visible yet. Every other in-flow
- * indicator (reasoning accordion, tool trail, "Condensing conversation…") is a
- * better answer to "what is happening", so any of them present wins.
- *
- * `done` is the clause that is easy to lose. `shouldShowStream` keeps the live
- * bubble mounted until the durable row syncs in, so a turn stopped before its
- * first delta sits at `done` with no text and no tools for that whole window —
- * without this clause it spins on a finished turn.
- *
- * Deliberately blind to `narration`: closed prose is not live activity, so a
- * running turn whose cards all retracted keeps its honest spinner *under* the
- * narration rows.
+ * Show the bare spinner only while running with nothing visible yet.
+ * Check `done`: the live bubble stays mounted until sync, so a turn stopped early would spin when finished.
+ * Ignores `narration`: closed prose is not live activity.
  */
 export function shouldShowThinkingIndicator(stream: StreamingMessage): boolean {
   return (
@@ -47,14 +37,7 @@ export function shouldShowThinkingIndicator(stream: StreamingMessage): boolean {
   );
 }
 
-/**
- * A short present-tense label for what the turn is doing *right now* — the copy
- * for the floating activity pill (shown when the user has scrolled up off the
- * live edge mid-turn). Mirrors the in-flow indicators: the running tool's own
- * verb when a tool is in flight, otherwise the reasoning / writing / condensing
- * state. Precedence follows what's most immediate: a tool actively running wins
- * over "writing", which wins over "thinking".
- */
+/** Label for the floating activity pill: the running tool's verb, else writing, else thinking. */
 export function describeActivity(stream: StreamingMessage): string {
   if (stream.compacting) return "Condensing conversation…";
 
@@ -94,17 +77,12 @@ export function buildFollowUpSuggestions(
 
 function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
   if (tool.status !== "succeeded") return null;
-  // `resultPreview` is now pruned server-side into valid JSON (chat-turn's
-  // `preview()`), so strict parsing succeeds for fresh rows. The prefix-scan
-  // fallback below stays for historical rows persisted before that fix.
+  // Fresh previews are valid JSON (`preview()`); the prefix scan is for old rows.
   const raw = tool.resultPreview ?? "";
   const result = parseJsonRecord(raw);
 
   if (tool.toolName === "github.search") {
-    // `resultPreview` is pruned server-side into valid JSON (chat-turn's
-    // `preview()`), so the result schema parses fresh rows. A preview that no
-    // longer parses (a historical row from before the prune fix) yields no
-    // suggestion rather than a regex-mined guess.
+    // Old rows that do not parse give no suggestion, not a regex guess.
     const parsed = githubSearchResultSchema.safeParse(result);
 
     if (!parsed.success) return null;
@@ -129,8 +107,7 @@ function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
   }
 
   if (tool.toolName === "gmail.search") {
-    // The schema pins the current shape (`query` echo included); the array
-    // fallback keeps historical rows whose preview predates the echo.
+    // The array fallback is for old rows that predate the `query` echo.
     const parsed = gmailSearchResultSchema.safeParse(result);
     const fallback = result && Array.isArray(result.messages) ? result.messages : [];
     const messages = parsed.success ? parsed.data.messages : fallback;

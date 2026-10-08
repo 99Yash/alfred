@@ -7,11 +7,7 @@ const PreviewVirtuosoRoute = import.meta.env.DEV
     )
   : () => null;
 
-/**
- * Dev-only verification harness for the virtualized chat feed (issue #496) at
- * `/preview/virtuoso`. Feeds a synthetic long thread (`?count=500`) and a
- * simulated stream into the production `Conversation`. Production-gated.
- */
+/** Dev-only harness for the virtualized chat feed (`?count=500`). Production-gated. */
 export const Route = createFileRoute("/preview/virtuoso")({
   beforeLoad: () => {
     if (!import.meta.env.DEV) throw notFound();

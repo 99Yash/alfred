@@ -1,15 +1,6 @@
 /**
- * Per-route `<head>` metadata for TanStack Router.
- *
- * Routes declare a `head` option that returns `{ meta }`; the root renders a
- * single `<HeadContent />` (see `routes/__root.tsx`) and the router merges the
- * meta arrays from every matched route, deduping by `name`/`property` with the
- * deepest match winning. So the root supplies site-wide defaults and each page
- * overrides its title, description, and route-specific URL tags.
- *
- * Static document tags (charset, viewport, icons, manifest, theme-color) stay
- * in `index.html` — they never change between routes, so there's no reason to
- * pay to re-render them client-side.
+ * Per-route `<head>` tags. The router merges every match's meta and the deepest wins,
+ * so the root sets defaults. Static tags stay in `index.html`.
  */
 
 const SITE_NAME = "Alfred";
@@ -19,29 +10,18 @@ const SITE_TAGLINE = "The Co-worker that never sleeps.";
 const SITE_DESCRIPTION =
   "Alfred is a personal assistant wired into your email, calendar, and the tools you already use. One place to get real work done.";
 
-/** Production origin, used to build absolute OG/canonical URLs. */
 const SITE_URL = "https://alfred.beauty";
 
-/**
- * Absolute OG/Twitter card image — a dedicated 1200x630 social card
- * (`summary_large_image`). OG scrapers require an absolute URL.
- */
+/** 1200x630. OG scrapers need an absolute URL. */
 const SOCIAL_IMAGE = `${SITE_URL}/images/og-card.png`;
 
 export interface PageMetaInput {
-  /** Page-specific title segment, e.g. `"Settings"` → `"Settings · Alfred"`. */
+  /** `"Settings"` becomes `"Settings · Alfred"`. */
   title?: string | undefined;
-  /** Page-specific description; falls back to the site default. */
   description?: string | undefined;
-  /** Canonical route path, e.g. `"/settings"`. Omit only for route-agnostic defaults. */
+  /** Canonical path. Omit only for the root defaults. */
   path?: string | undefined;
-  /**
-   * Emit `<meta name="robots" content="noindex, nofollow">` and no canonical
-   * link. Set it on a page whose URL is itself a secret — a shared thread's
-   * slug is its only access control (ADR-0102), so an index entry hands out the
-   * capability. `robots.txt` and the Caddyfile's `X-Robots-Tag` cover the same
-   * path for a crawler that never runs this code.
-   */
+  /** For a URL that is a secret, such as a shared thread slug (ADR-0102). No canonical link. */
   noindex?: boolean | undefined;
 }
 
@@ -57,12 +37,7 @@ interface LinkTag {
   href: string;
 }
 
-/**
- * Build the full document title for a page-specific segment:
- * `"Settings"` → `"Settings · Alfred"`, or the site default when omitted.
- * Exported so routes can mirror reactive titles into `document.title`
- * (e.g. a chat tab tracking its derived thread title).
- */
+/** Exported so a route can set `document.title` from live data. */
 export function formatPageTitle(title?: string): string {
   return title ? `${title} · ${SITE_NAME}` : `${SITE_NAME} · ${SITE_TAGLINE}`;
 }
@@ -73,15 +48,7 @@ function absoluteUrl(path: string): string {
   return normalized === "/" ? SITE_URL : `${SITE_URL}${normalized}`;
 }
 
-/**
- * Title + description (plus their OG/Twitter mirrors) for a single page. Use
- * inside a route's `head` option:
- *
- *   export const Route = createFileRoute("/settings")({
- *     head: () => pageMeta({ title: "Settings", path: "/settings" }),
- *     component: SettingsRoute,
- *   });
- */
+/** Use in a route's `head`: `head: () => pageMeta({ title: "Settings", path: "/settings" })`. */
 interface PageMeta {
   meta: MetaTag[];
   links: LinkTag[];
@@ -90,8 +57,7 @@ interface PageMeta {
 export function pageMeta({ title, description, path, noindex }: PageMetaInput = {}): PageMeta {
   const fullTitle = formatPageTitle(title);
   const desc = description ?? SITE_DESCRIPTION;
-  // A noindex page gets no canonical link either: a canonical URL invites the
-  // crawler to treat the page as the indexable original.
+  // A canonical link would invite indexing.
   const url = path && !noindex ? absoluteUrl(path) : null;
 
   return {
@@ -109,10 +75,7 @@ export function pageMeta({ title, description, path, noindex }: PageMetaInput = 
   };
 }
 
-/**
- * Site-wide defaults for the root route — the page-level tags from `pageMeta`
- * plus the static social-card scaffolding that every page shares.
- */
+/** Root defaults: `pageMeta` plus the shared social-card tags. */
 export function siteMeta(): PageMeta {
   const base = pageMeta();
 

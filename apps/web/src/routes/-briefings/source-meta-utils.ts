@@ -1,11 +1,8 @@
 import type { IntegrationSlug } from "@alfred/contracts";
 
 /**
- * Activity panel subtitles arrive as `provider · [repo ·] kind` from the
- * server's deterministic projection. We render the provider as a brand glyph
- * instead of a word, so the leading token is dropped and the redundant
- * `<provider>.` prefix is stripped off the kind (e.g. `github.pr_review` →
- * `pr review`). Returns the provider slug plus the human remainder.
+ * Parse `provider · [repo ·] kind`. The provider shows as a glyph, so drop it
+ * and strip its prefix from the kind (`github.pr_review` → `pr review`).
  */
 interface ParsedActivitySubtitle {
   provider: string;
@@ -22,23 +19,15 @@ export function parseActivitySubtitle(subtitle: string): ParsedActivitySubtitle 
   return { provider, detail };
 }
 
-/**
- * Monochrome brand marks need a visible color on the white panel. Sparse on
- * purpose: a slug absent here has a brand mark that carries its own color.
- */
+/** Colors for monochrome brand marks only; other marks carry their own. */
 export const PROVIDER_COLOR = new Map<IntegrationSlug, string>([["github", "#181925"]]); // drift-ok: absence means the brand mark carries its own color; only monochrome marks need one
 
-/**
- * Format a calendar panel subtitle (`<startISO> - <endISO>`) into a human time
- * range in the briefing's timezone — e.g. "10:00 AM – 10:30 AM". Falls back to
- * the original string when it isn't a parseable ISO range (older rows, all-day
- * events, etc.).
- */
+/** `<startISO> - <endISO>` as a local time range, or the original string if it does not parse. */
 export function formatEventRange(subtitle: string, timeZone: string): string {
   const parts = subtitle.split(" - ");
 
   if (parts.length !== 2) return subtitle;
-  // SAFETY: the length check above proves the split yielded exactly two parts.
+  // SAFETY: the length check proves two parts.
   const [start, end] = parts as [string, string];
   const startDate = new Date(start);
   const endDate = new Date(end);
@@ -60,7 +49,6 @@ export function formatEventRange(subtitle: string, timeZone: string): string {
       timeZone: timeZone || undefined,
     }).format(d);
 
-  // Same calendar day → time range only; otherwise prefix the start's date.
   const sameDay = day(startDate) === day(endDate);
 
   return sameDay

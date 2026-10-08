@@ -1,16 +1,7 @@
 import { useState } from "react";
 import { cn } from "~/lib/utils";
 
-/**
- * Dark, quiet footer — sits on the same black canvas as the rest of the
- * landing. Structurally mirrors visitors.now's footer (tagline column with
- * status pill + copyright; two columns of grouped links), adapted to
- * Alfred's much smaller surface area (single-user product, no docs/pricing
- * pages to link to).
- *
- * `onGetStarted` is accepted but unused — kept for call-site symmetry while
- * the closing CTA above already owns the conversion ask.
- */
+/** Landing footer. `onGetStarted` is unused; the closing CTA above owns the ask. */
 export function LandingFooter({ onGetStarted: _onGetStarted }: { onGetStarted: () => void }) {
   const year = useCurrentYear();
 
@@ -79,8 +70,7 @@ const FEATURE_ITEMS: ReadonlyArray<FooterLink> = [
   { label: "Meeting prep — soon", href: "#features" },
 ];
 
-// A bare `https://x.com` used to sit here. A nav item that lands on a site's
-// front page instead of the thing it names is a dead link with a label.
+// Link to the profile, not a site's front page.
 const MADE_BY_ITEMS: ReadonlyArray<FooterLink> = [
   { label: "GitHub", href: "https://github.com/99Yash/alfred", external: true },
 ];
@@ -112,13 +102,7 @@ function FooterColumn({ title, items }: { title: string; items: ReadonlyArray<Fo
   );
 }
 
-/**
- * Read the current year via a lazy useState initializer so `new Date()` is
- * called exactly once at mount instead of on every render. The landing is
- * client-rendered (Vite SPA, no SSR), so there's no real hydration step;
- * the lazy init avoids the rendering-hydration-mismatch-time scanner
- * without introducing a mount-only effect that would flicker.
- */
+/** Lazy init reads the year once, without a mount effect. */
 function useCurrentYear(): number {
   const [year] = useState(() => new Date().getFullYear());
 

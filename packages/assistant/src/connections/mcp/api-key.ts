@@ -1,17 +1,6 @@
 /**
- * Owner-supplied API-key custody for a generic MCP connection.
- *
- * This is the third authentication variant after no-auth and OAuth (#1004): a
- * server that authenticates with one key placed in an explicit header or query
- * parameter. Like the OAuth grant, the connection row is the storage authority
- * and the secret uses the shared authenticated credential envelope — the plain
- * key exists only as a `SealedCredentialSecret` in
- * `mcp_api_key_credentials.secret`, and once opened it is carried as a
- * {@link Redacted} and unwrapped only where the transport sets the placement.
- *
- * `readApiKeyAuthForConnection` returns a reader rather than a value: the sealed
- * row is read once, the non-secret placement once with it, and the secret is
- * opened once per HTTP request inside `withApiKey`. Nothing caches an opened key.
+ * API-key storage for an MCP connection, sent in a header or query parameter.
+ * The key is stored sealed and opened once per request in `withApiKey`. Nothing caches it.
  */
 
 import { mcpApiKeyPlacementSchema, redacted, type McpApiKeyPlacement } from "@alfred/contracts";
@@ -25,22 +14,12 @@ import type { McpApiKeyCredentialReader } from "./endpoint-authorization";
 export interface PersistMcpApiKeyCredentialInput {
   connectionId: string;
   userId: string;
-  /** Validated placement from the create route; stored non-secret. */
   placement: McpApiKeyPlacement;
-  /** The plaintext key. Sealed in the same transaction that binds the row. */
+  /** Plaintext; sealed before storage. */
   value: string;
 }
 
-/**
- * The API-key reader for one owned connection, or `undefined` when the
- * connection carries no key. The persisted placement is parsed here — the
- * database column stays `unknown` — so a malformed row fails at this boundary
- * rather than feeding the transport a guessed shape. A row that no longer
- * parses (written before a placement-name rule tightened) refuses as a typed
- * `HostedEndpointError("invalid_placement")`, the same "the stored column is
- * corrupt" shape `invalid_origin` uses, so the owner is told to remove and
- * re-add the key rather than meeting a raw parse error as a 500.
- */
+/** The API-key reader for an owned connection, or `undefined` when it has no key. */
 export async function readApiKeyAuthForConnection(
   connectionId: string,
   userId: string,
@@ -69,12 +48,7 @@ export async function readApiKeyAuthForConnection(
       const parsed = mcpApiKeyPlacementSchema.safeParse(row.placement);
 
       if (!parsed.success) {
-        // A stored placement that no longer parses is a bad COLUMN value, not a
-        // fresh owner input: the row was written before the name rule tightened,
-        // so a raw Zod error here would reach the owner as a 500. The
-        // `HostedEndpointError` shape is what every MCP door maps to a typed
-        // 4xx, and `invalid_placement` is the `invalid_origin` precedent for a
-        // corrupt stored column.
+        // An old row from before the name rule tightened. Throw a typed 4xx, not a 500.
         throw new HostedEndpointError(
           "invalid_placement",
           "The stored API-key placement is invalid. Remove and re-add the key.",
@@ -88,16 +62,8 @@ export async function readApiKeyAuthForConnection(
 }
 
 /**
- * Seal and bind one API key to an owned connection, in one transaction. A
- * re-add replaces the stored key in place: the connection holds exactly one API
- * key credential, so an upsert on `connectionId` cannot orphan the old row.
- *
- * The bind also clears `credentialId`. The single-credential CHECK admits one
- * pointer, so a connection that arrives here holding an OAuth grant moves to
- * the key rather than violating the constraint. The orphaned OAuth row has no
- * reader once the pointer is gone, and the credential lifecycle retires it.
- * This store and the OAuth store are the two owners of the one-mode transition;
- * each clears the inverse pointer.
+ * Seal and bind an API key in one transaction; a re-add replaces it in place.
+ * Clears `credentialId`: a CHECK allows one credential pointer. The OAuth store clears the inverse.
  */
 export async function persistApiKeyCredential(
   input: PersistMcpApiKeyCredentialInput,

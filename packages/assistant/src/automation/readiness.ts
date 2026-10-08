@@ -31,22 +31,22 @@ type WorkflowReadinessProblemCode =
   | "no_tool_surface"
   | "choose_account"
   | "resource_not_granted"
-  /** Event delivery needs the user to act (`connect` recovery); the workflow blocks (#976). */
+  /** The user must act (`connect`); the workflow blocks (#976). */
   | "trigger_not_ready"
-  /** Event delivery is broken in a way time or an operator restores (ADR-0097); the run defers. */
+  /** Time or an operator fixes delivery (ADR-0097); the run defers. */
   | "trigger_degraded";
 
 export interface WorkflowReadinessProblem extends PersistedWorkflowReadinessProblem {
   code: WorkflowReadinessProblemCode;
 }
 
-/** A caller-supplied verdict for one exact account and provider resource boundary. */
+/** A caller's verdict for one account and resource boundary. */
 export interface WorkflowResourceAccessFact {
   tool: ToolName;
   accountRef?: string;
   resourceScope: NonNullable<WorkflowRequiredCapability["resourceScope"]>;
   granted: boolean;
-  /** Supplied only when the owning provider boundary has an executable remedy. */
+  /** Only when the provider has an executable fix. */
   recoveryAction?: WorkflowRecoveryAction;
 }
 
@@ -61,10 +61,8 @@ type WorkflowReadinessDefinition = Pick<
 >;
 
 /**
- * The mutable half of one readiness decision, read as one snapshot by
- * `readWorkflowReadinessContext`. The resolver takes the pair as one value so
- * the rows a trigger's account resolves against are the rows its health was
- * read for; two separately gathered halves could name different accounts.
+ * Read as one snapshot, so a trigger's account resolves against the same rows
+ * its health was read for.
  */
 export interface WorkflowReadinessContext {
   availability: IntegrationAvailabilitySnapshot;
@@ -81,9 +79,8 @@ function matchesAccountRef(row: ProviderAvailability, accountRef: string): boole
 }
 
 /**
- * The one row `accountRef` names among `rows` (by durable id or by label), or
- * the one row there is when no ref is given. `undefined` when the ref names no
- * row or more than one: an ambiguous ref is never resolved by position.
+ * The row `accountRef` names (by id or label), or the only row when there is no ref.
+ * `undefined` when ambiguous: never pick by position.
  */
 function selectAccountRow(
   rows: readonly ProviderAvailability[],
@@ -108,7 +105,7 @@ function eligibleRows(
   );
 }
 
-/** Resolve display labels and unambiguous defaults to durable provider account ids. */
+/** Map labels and unambiguous defaults to durable account ids. */
 export function canonicalizeWorkflowAccounts<T extends WorkflowReadinessDefinition>(args: {
   definition: T;
   availability: IntegrationAvailabilitySnapshot;
@@ -212,12 +209,7 @@ export function resolveWorkflowApprovalDisplay(
   };
 }
 
-/**
- * Resolve whether one exact workflow definition can run against a supplied
- * readiness context. The context is gathered at the caller boundary so
- * authoring and approval can use the same pure verdict while approval chooses
- * a fresh read.
- */
+/** Can this definition run against this context? Pure; the caller decides how fresh the context is. */
 export function resolveWorkflowReadiness(args: {
   definition: WorkflowReadinessDefinition;
   context: WorkflowReadinessContext;
@@ -287,9 +279,7 @@ export function resolveWorkflowReadiness(args: {
     const credential = tool.availability?.credential;
 
     if (credential) {
-      // A capability with no ref is never resolved to the sole row here: that
-      // is canonicalization's job, and a definition that reaches this point
-      // without one has an account the user still has to choose.
+      // No ref means the user must still choose; filling the sole row is canonicalization's job.
       const selected = capability.accountRef
         ? selectAccountRow(snapshot.providers.get(credential.provider) ?? [], capability.accountRef)
         : undefined;
@@ -367,11 +357,7 @@ export function resolveWorkflowReadiness(args: {
   return problems;
 }
 
-/**
- * Pure #557 capability resolver over a caller-supplied tool and availability
- * snapshot. It derives the exact execution envelope and delegates the final
- * runnable verdict to the same availability evaluator used by dispatch.
- */
+/** Derive the execution envelope (#557) and use dispatch's availability check for the verdict. */
 export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevisionDefinition>(args: {
   definition: TDefinition;
   requested: readonly WorkflowRequestedCapability[];
@@ -440,13 +426,10 @@ interface WorkflowRecovery {
 }
 
 /**
- * The readiness problem one event trigger has, or `null` when its events will
- * arrive. A source-grain entry is the verdict. An account-grain entry first
- * settles which account the trigger delivers from, with the same rules the
- * capabilities use: no row that proves the integration connected is a
- * `connect` problem; a ref that names no row or more than one, or no ref at
- * all, is `choose_account`, not a delivery verdict. Only a selected row is
- * asked for its delivery health (#976).
+ * The trigger's readiness problem, or `null` when events will arrive.
+ * Account-grain sources first pick the account like capabilities do: no connected row is
+ * `connect`; an ambiguous or missing ref is `choose_account`. Only a chosen row is asked
+ * for delivery health (#976).
  */
 function triggerProblem(
   trigger: Extract<WorkflowReadinessDefinition["trigger"], { kind: "event" }>,
@@ -461,11 +444,8 @@ function triggerProblem(
   if (rows.length === 0) {
     return deliveryProblem(trigger.source, {
       healthy: false,
-      // No row satisfies the connected rule, so this trigger has no account to
-      // deliver from. The cause is not a claim about history — a revoked row
-      // reaches here too — it is the claim an alert surface reads: readiness
-      // must refuse the trigger either way, and the repair for the revoked row
-      // is the integration's own reconnect nag, not a second card (ADR-0100).
+      // A revoked row lands here too. Readiness refuses either way; the reconnect nag
+      // handles the revoked case (ADR-0100).
       cause: "never_connected",
       reason: `no connected ${INTEGRATIONS[integration].displayName} account`,
       recovery: { kind: "connect", integration },
@@ -487,12 +467,8 @@ function triggerProblem(
 }
 
 /**
- * A source with no healthy delivery is degraded, never quiet: the absence of
- * events must not read as "nothing happened" (ADR-0097 item 5). The health
- * verdict names its own recovery, so readiness never guesses an integration
- * from the source slug. `connect` means the user must act, so the workflow
- * blocks; `retry` and `none` describe delivery that time or an operator
- * restores, so the run defers (#976).
+ * No healthy delivery is degraded, never quiet: missing events must not read as
+ * "nothing happened" (ADR-0097). `connect` blocks the workflow; `retry` and `none` defer the run (#976).
  */
 function deliveryProblem(
   source: EventSource,

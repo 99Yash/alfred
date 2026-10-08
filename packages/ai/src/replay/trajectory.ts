@@ -1,26 +1,9 @@
 import { getStringPath, isRecord } from "@alfred/contracts";
 
 /**
- * Trajectory extraction + paired diff for agent-run replay (the regression
- * primitive for multi-step runs).
- *
- * "Did my change do what I wanted, not just for one step?" can't be answered
- * from an aggregate score — at the dataset sizes a single-user app actually
- * has, the aggregate is dominated by model variance. The defensible answer is
- * the *diff*: run a recorded input through the old and new build and look at
- * what the trajectory did differently — which step changed (intended) and
- * which others moved (collateral).
- *
- * This module is the pure half: turn a Langfuse trace into a normalized
- * trajectory, and diff two trajectories. No I/O, no LLM calls — so it's unit
- * testable and deterministic. The runnable half (`packages/ai/src/scripts/replay-diff.ts`)
- * fetches the traces and prints the diff.
- *
- * The trajectory is built from the executed tool spans (#214) — the ground
- * truth of what ran, with success/error status from the span level. Because
- * generation outputs now also carry the model's *decided* calls (see
- * `captureOutput`), `decidedNotExecuted` surfaces calls the model proposed that
- * never executed (staged / HIL-gated / rejected) — invisible to a span-only view.
+ * Turn a Langfuse trace into a tool-call trajectory, and diff two of them.
+ * Pure; the runnable half is `packages/ai/src/scripts/replay-diff.ts`.
+ * At single-user scale an aggregate eval score is mostly model noise, so compare paired runs.
  */
 
 /** The slice of a Langfuse observation this module reads. */
@@ -32,7 +15,7 @@ export interface TraceObservation {
   output?: unknown;
   level?: string | null; // "DEFAULT" | "ERROR" | ...
   statusMessage?: string | null;
-  /** Untrusted provider metadata; tool spans carry `toolCallId` for decided↔executed reconciliation. */
+  /** Untrusted. Tool spans carry `toolCallId`. */
   metadata?: unknown;
 }
 
@@ -44,27 +27,23 @@ export interface TraceLike {
 /** One executed tool call in a run, normalized for comparison. */
 interface TrajectoryStep {
   toolName: string;
-  /** Canonicalized args (object key order is irrelevant to identity). */
+  /** Keys sorted. */
   input: unknown;
   status: "ok" | "error";
-  /** Bounded error summary when status==="error". */
+
   error?: string;
 }
 
 export interface Trajectory {
   traceId: string | undefined;
   steps: TrajectoryStep[];
-  /**
-   * Calls the model decided to make (from generation outputs) whose toolCallId
-   * never appeared as an executed span — proposed-but-not-run. Empty for a
-   * clean run; non-empty means a gate/rejection diverted a decision.
-   */
+  /** Calls the model proposed that never ran (staged, gated, or rejected). */
   decidedNotExecuted: { toolName: string; input: unknown }[];
 }
 
 const TOOL_SPAN_PREFIX = "tool:";
 
-/** Recursively sort object keys so two args that differ only in key order compare equal. */
+/** Sort object keys recursively, so key order does not affect equality. */
 export function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
 
@@ -74,9 +53,7 @@ export function canonicalize(value: unknown): unknown {
       .reduce<Record<string, unknown>>((out, key) => {
         const v = value[key];
 
-        // Drop undefined explicitly so an absent key and an explicit `undefined`
-        // canonicalize identically, rather than relying on JSON.stringify's quirk
-        // of silently omitting them (a deep-equal compare would diverge).
+        // An absent key and an explicit `undefined` must compare equal.
         if (v === undefined) return out;
         out[key] = canonicalize(v);
 
@@ -87,7 +64,6 @@ export function canonicalize(value: unknown): unknown {
   return value;
 }
 
-/** Stable identity key for a step: tool name + canonical args. */
 export function stepKey(step: { toolName: string; input: unknown }): string {
   return `${step.toolName}(${JSON.stringify(canonicalize(step.input))})`;
 }
@@ -164,12 +140,8 @@ export function extractTrajectory(trace: TraceLike): Trajectory {
     executedKeys.set(k, (executedKeys.get(k) ?? 0) + 1);
   }
 
-  // Reconcile the model's decided calls against what executed. Prefer matching
-  // by toolCallId: args get TRANSFORMED between decision and execution (relative
-  // dates resolved to absolute, defaults like `maxResults` injected by the SDK),
-  // so an args match over-reports "not executed" (observed live: a calendar call
-  // that ran was flagged because `maxResults:10` was added). Fall back to an
-  // (toolName, canonical args) multiset only when a decided call carries no id.
+  // Match by toolCallId: args change between decision and execution (defaults, resolved dates).
+  // Match by name and args only when a call has no id.
   const decided = decidedCalls(obs);
   const decidedNotExecuted: { toolName: string; input: unknown }[] = [];
 
@@ -178,8 +150,7 @@ export function extractTrajectory(trace: TraceLike): Trajectory {
       if (!executedCallIds.has(d.toolCallId)) {
         decidedNotExecuted.push({ toolName: d.toolName, input: canonicalize(d.input) });
       } else {
-        // Consume the executed span this id maps to, so a later no-id decided
-        // call can't re-match it through the multiset fallback (#286 review).
+        // Consume the span, so a later call with no id cannot match it again.
         const k = executedKeyByCallId.get(d.toolCallId);
 
         if (k !== undefined) {
@@ -212,7 +183,6 @@ export interface TrajectoryDiff {
   added: TrajectoryStep[];
   /** In baseline, not candidate. */
   removed: TrajectoryStep[];
-  /** True when the trajectories are identical (nothing moved). */
   identical: boolean;
 }
 
@@ -253,11 +223,8 @@ function lcsKept(a: string[], b: string[]) {
 }
 
 /**
- * Paired diff of two trajectories. LCS on (toolName + canonical args) gives the
- * unchanged spine; leftover baseline/candidate steps are then paired by tool
- * name (in order) into `changed` (same tool, different args) so an arg tweak
- * reads as one change rather than a remove + add. Truly unpaired leftovers are
- * `removed` / `added`.
+ * LCS finds the unchanged steps. Leftovers with the same tool name pair up as `changed`,
+ * so an argument change reads as one change, not a remove and an add.
  */
 export function diffTrajectories(baseline: Trajectory, candidate: Trajectory): TrajectoryDiff {
   const aKeys = baseline.steps.map(stepKey);

@@ -1,22 +1,9 @@
 /**
- * Policy resolution + in-process cache bust (m13 Phase 3a / ADR-0034).
- *
- * The dispatcher (Phase 3b) consults `resolvePolicyMode(userId, toolName)`
- * on every tool call. A DB round-trip per call is wasted in the steady
- * state, so each server instance keeps an in-process Map of resolved
- * policy rows keyed by `userId`. The API mutation that updates a user's
- * `user_action_policies` row publishes on `policy-bust:u:<userId>`;
- * every server instance subscribes to the channel pattern and drops the
- * stale entry on receive. ADR-0034 lists the channel as a sibling of
- * the outbox bus rather than a new outbox kind — pure ephemeral
- * invalidation, no replay semantics needed.
- *
- * Cache shape: we store the row, not the resolved mode, because the
- * resolved mode depends on the tool name. Resolution is trivial pure
- * code; the expensive part is the DB hit.
- *
- * Concurrent readers: cache stores a `Promise<ResolvedPolicy>` so a
- * burst of dispatches for an uncached user coalesces into one DB read.
+ * Policy resolution with a per-process cache (ADR-0034).
+ * The dispatcher reads the policy on every tool call, so each instance caches the row per user.
+ * A policy update publishes on `policy-bust:u:<userId>` and every instance drops its entry.
+ * The cache holds the row, not the mode, because the mode depends on the tool.
+ * It holds a Promise, so a burst of reads for one user makes one DB read.
  */
 
 import type {
@@ -33,12 +20,7 @@ import { eq } from "drizzle-orm";
 import type IORedis from "ioredis";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 
-/**
- * Default delay between staging a gated action and sending the user a
- * fallback approval email (5 min). Lives here — alongside the resolver
- * that consults it — so `index.ts`'s signup-seed helper can pull it via
- * a one-way import without forming a circular module dependency.
- */
+/** Wait before the fallback approval email. Here so `index.ts` can import it without a cycle. */
 export const DEFAULT_APPROVAL_NOTIFY_DELAY_MS = 5 * 60 * 1000;
 
 export interface ResolvedPolicy {
@@ -81,12 +63,8 @@ async function loadPolicy(userId: string): Promise<ResolvedPolicy> {
     };
   }
 
-  // No row yet — the signup hook should have inserted one (Phase 1c). A
-  // missing row here means either a legacy user predating the hook or a
-  // race with signup; resolve to the same defaults the hook would have
-  // written so the dispatcher can still gate sensibly. Do NOT write a
-  // row here — that would race the hook in the opposite direction. The
-  // ensure-helper is idempotent and the next mutation will land a row.
+  // No row: a legacy user or a race with signup. Return the defaults the hook writes.
+  // Do not write a row here; that would race the hook.
   return {
     userId,
     defaultMode: "gated",
@@ -101,8 +79,7 @@ export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy>
   if (cached) return cached;
 
   const pending = loadPolicy(userId).catch((err) => {
-    // Don't poison the cache on a transient read failure — drop the
-    // entry so the next caller retries.
+    // Do not cache a failed read; the next caller retries.
     cache.delete(userId);
     throw err;
   });
@@ -117,24 +94,10 @@ function pickRule(rules: IntegrationRules, slug: IntegrationSlug): IntegrationRu
 }
 
 /**
- * Resolve the policy mode for a `(userId, toolName)` pair. Read order:
- * `system.*` → tool override → integration mode → user default (ADR-0034 /
- * dispatcher spec for the last three).
- *
- * `system.*` answers `autonomy` structurally, and it answers BEFORE the policy
- * row is read. That order is the whole defense, and it is why the rule lives
- * here rather than at a call site (ADR-0040 decision 5, amended 2026-08-13). The
- * signup hook also seeds `integrationRules.system = { mode: 'autonomy' }`, but
- * that seed is the SECOND line of defense, not the first: the invariant
- * "`system.*` is structurally non-gateable" has to survive a future user toggle,
- * a missing default row, a botched migration, and a policy-editor bug, and all
- * four are data-layer failures that a check ahead of the read cannot see.
- *
- * Two consequences worth naming. Every caller is correct by default — including
- * a new `@alfred/http` write path that reaches this module and knows nothing
- * about the rule. And `system.*` still gates on the ADR-0069 `high`-tier floor,
- * which `toolRequiresApproval` ORs with this mode; `autonomy` here means "the
- * user's policy never gates a system tool", not "a system tool never stages".
+ * Read order: `system.*`, then tool override, then integration mode, then user default (ADR-0034).
+ * `system.*` returns `autonomy` before the row is read (ADR-0040 D5), so no data bug
+ * or user toggle can gate it. The seeded `integrationRules.system` is only a second line.
+ * `system.*` can still stage on the ADR-0069 `high`-tier floor, which `toolRequiresApproval` adds.
  */
 export async function resolvePolicyMode(userId: string, toolName: ToolName): Promise<PolicyMode> {
   const integration = integrationFromToolName(toolName);
@@ -158,22 +121,19 @@ export async function resolveApprovalNotifyDelayMs(userId: string): Promise<numb
   return policy.approvalNotifyDelayMs;
 }
 
-/** Drop the cached row for one user. Called locally by the subscriber and by tests. */
+/** Drop one user's cached row. */
 export function bustPolicyCache(userId: string): void {
   cache.delete(userId);
 }
 
-/** Drop the entire cache. Test-only — production code uses the per-user bust. */
+/** Test-only. Production busts per user. */
 export function clearPolicyCacheForTests(): void {
   cache.clear();
 }
 
 /**
- * Seed a resolved policy so `getResolvedPolicy` answers without a DB read.
- * Test-only. The dispatch gate's approval floor calls
- * `resolveApprovalNotifyDelayMs` the moment a call gates, so a DB-free test of
- * the floor needs the cache warm — it is the one policy read the gate cannot
- * short-circuit.
+ * Test-only. Seed the cache so `getResolvedPolicy` makes no DB read.
+ * The gate's approval floor reads `resolveApprovalNotifyDelayMs`, so a DB-free test needs this.
  */
 export function _primePolicyCacheForTests(policy: ResolvedPolicy): void {
   cache.set(policy.userId, Promise.resolve(policy));
@@ -188,26 +148,13 @@ function getPublisher(): BoundedRedis {
 }
 
 /**
- * Publish a bust message so every server instance drops its cached row
- * for `userId`. Call this after every successful UPDATE to
- * `user_action_policies` (Phase 8 editor).
- *
- * Uses a single shared publisher connection across the process — PUBLISH
- * is non-blocking and doesn't conflict with itself the way SUBSCRIBE
- * commands do, so one connection is enough. Lazy-initialized so tests
- * and CLI scripts that never publish don't open a Redis socket. Tracked
- * via `createRedisConnection("command")` so `closeRedis()` at shutdown
- * drains it, and bounded by that kind so an unreachable Redis rejects
- * into the `catch` below instead of leaving this `await` pending.
+ * Tell every instance to drop its cached row for `userId`. Call after every
+ * `user_action_policies` update. Uses one lazy publisher connection; the "command"
+ * kind makes an unreachable Redis reject instead of hang.
  */
 export async function publishPolicyBust(userId: string): Promise<void> {
-  // Best-effort: don't surface a Redis blip as a user-facing failure on
-  // the policy mutation itself. The trade-off is real — the in-process
-  // policy cache has NO TTL, so a dropped bust leaves stale data on
-  // every other server instance until the next successful bust for
-  // that user or a process restart. For single-user Alfred this is
-  // acceptable; for a multi-tenant fork, add a TTL (e.g. 60s) to the
-  // cache entries as a safety net.
+  // Best-effort. The cache has no TTL, so a dropped bust leaves other instances
+  // stale until the next bust or a restart. Fine for one user; add a TTL for multi-tenant.
   try {
     await getPublisher().publish(bustChannel(userId), "1");
   } catch (err) {
@@ -223,11 +170,8 @@ let subscriber: IORedis | undefined;
 let subscriberStarted = false;
 
 /**
- * Start the per-process subscriber. Idempotent — safe to call from
- * multiple bootstrap paths. Uses PSUBSCRIBE on `policy-bust:u:*` so a
- * single subscription covers every user; the channel suffix is parsed
- * out and fed to `bustPolicyCache`. Started once at server boot in
- * `apps/server/src/runtime.ts`.
+ * Start the per-process subscriber. Idempotent. One PSUBSCRIBE on `policy-bust:u:*`
+ * covers every user. `runtime/runtime.ts` starts it at boot.
  */
 export async function startPolicyBustSubscriber(): Promise<void> {
   if (subscriberStarted) return;
@@ -249,11 +193,8 @@ export async function startPolicyBustSubscriber(): Promise<void> {
   try {
     await conn.psubscribe(POLICY_BUST_PATTERN);
   } catch (err) {
-    // Don't latch `subscriberStarted` on a failed boot — a transient
-    // Redis outage would otherwise leave policy invalidation
-    // permanently disabled until the process restarts. Close the
-    // half-initialized connection and rethrow so the caller (server
-    // bootstrap) can decide whether to crash or retry.
+    // Do not latch on failure, or one Redis outage disables invalidation until restart.
+    // Close the half-open connection and rethrow.
     try {
       await conn.quit();
     } catch {
@@ -263,22 +204,13 @@ export async function startPolicyBustSubscriber(): Promise<void> {
     throw err;
   }
 
-  // Commit the started flag + retained reference only after the
-  // subscription is live. Order matters: a second concurrent caller
-  // mid-await above must see `subscriberStarted === false` and try
-  // again rather than no-op into a non-started state.
+  // Set these only after the subscription is live, so a concurrent caller retries.
   subscriber = conn;
   subscriberStarted = true;
 
-  // A reconnect drops the pattern subscription, and the `"subscriber"` kind
-  // sets `autoResubscribe: false` — ioredis's own re-subscribe carries no
-  // `.catch`, so any rejection of it exits the process. Re-issuing is therefore
-  // this module's job. Without it a single reconnect leaves every policy edit
-  // stale on this instance until restart, and SILENTLY: nothing rejects, the
-  // messages simply stop arriving.
-  //
-  // Registered only after the first subscription is live, so the initial
-  // `ready` does not issue a second, redundant PSUBSCRIBE.
+  // A reconnect drops the subscription, and `autoResubscribe` is off because ioredis's
+  // own resubscribe can crash the process. So resubscribe here, or edits go silently stale.
+  // Registered after the first subscribe, so the first `ready` does not subscribe twice.
   conn.on("ready", () => {
     if (!subscriberStarted) return;
     conn.psubscribe(POLICY_BUST_PATTERN).catch((err: unknown) => {
@@ -290,12 +222,8 @@ export async function startPolicyBustSubscriber(): Promise<void> {
 }
 
 /**
- * Stop the subscriber and drop the shared publisher reference. Idempotent —
- * called from the server's shutdown path before `closeRedis()` so the
- * symmetry with every other start/stop pair holds. `closeRedis()` will
- * still close the tracked connections; this just clears module state so
- * a subsequent restart in the same process (tests, long-running CLIs)
- * starts from a clean slate.
+ * Stop the subscriber and drop the publisher handle. Idempotent.
+ * `closeRedis()` closes the sockets; this clears module state for a restart in the same process.
  */
 export async function stopPolicyBustSubscriber(): Promise<void> {
   if (subscriberStarted) {
@@ -305,16 +233,13 @@ export async function stopPolicyBustSubscriber(): Promise<void> {
       try {
         await subscriber.punsubscribe(POLICY_BUST_PATTERN);
       } catch {
-        // ignore — connection may already be closing
+        // The connection may already be closing.
       }
 
       subscriber = undefined;
     }
   }
 
-  // Drop the shared publisher ref too. `closeRedis()` (called next in
-  // shutdown) closes the underlying socket; we just clear the cached
-  // handle so any re-init after shutdown opens a fresh connection
-  // instead of trying to use a closed one.
+  // So a re-init after shutdown opens a fresh connection.
   publisher = undefined;
 }

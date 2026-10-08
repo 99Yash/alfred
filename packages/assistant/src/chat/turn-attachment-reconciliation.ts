@@ -1,16 +1,7 @@
 import type { ChatAttachmentDescriptor } from "@alfred/contracts";
 import type { ChatAttachment, NewChatAttachment } from "@alfred/db/schemas";
 
-/**
- * The pure half of turn admission: does the attachment set a client just resent
- * describe the SAME turn as the rows already on that message?
- *
- * `startChatTurn` asks this on every resend of a `userMessageId` that already
- * carries rows. A match returns the run that exists; a mismatch is a
- * `ConflictError`. Nothing here touches the database, Redis, or storage — the
- * caller supplies the rows — which is what keeps these predicates testable
- * without a service.
- */
+/** Pure checks: does a resent attachment set describe the same turn as the stored rows? */
 
 export type ExistingAttachmentSummary = Pick<
   ChatAttachment,
@@ -22,11 +13,7 @@ export type RetryAttachmentSource = Pick<
   "id" | "storageKey" | "name" | "mime" | "size" | "degradedText"
 >;
 
-/**
- * The turn path's view of a fresh attachment: `ChatAttachmentDescriptor`, but with
- * `position` optional because this path derives it (`?? index`) rather than
- * writing the client's value straight to the row.
- */
+/** `position` is optional: this path derives it (`?? index`). */
 export type FreshAttachmentDescriptor = Omit<ChatAttachmentDescriptor, "position"> & {
   position?: number;
 };

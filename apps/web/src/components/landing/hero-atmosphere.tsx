@@ -3,27 +3,10 @@ import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
 /**
- * Atmospheric hero backdrop with a scroll-driven day → evening → night cycle.
- *
- * Four sky layers are stacked inside a viewport-pinned `fixed inset-0` shell
- * so the gradient stays pinned to the viewport while sections rise through
- * it (the parallax). Each layer's `opacity` is driven by the `progress` prop
- * (0..1) so as the user scrolls through the seven capability sections + CTA
- * + footer, the sky crossfades from morning blue to peach evening to
- * deep-blue night.
- *
- * `fixed` (rather than `sticky`) is load-bearing: HeroAtmosphere is used
- * both by the landing (which has its own internal scroll root) and by the
- * onboarding (which scrolls on the document). `sticky top-0` works in the
- * landing case but breaks under the `overflow-clip` wrapper when the
- * scroll happens on the document — Chrome stops pinning and the sky
- * scrolls out of view past the first viewport. `fixed` is viewport-relative
- * in both cases and the `pointer-events-none` keeps it from intercepting
- * clicks on foreground content.
- *
- * `overflow-clip` on the wrapper is intentional — `overflow-hidden` would
- * make this a scroll-containing-block and break sticky on OTHER descendants
- * (the shared locale ribbon, etc.).
+ * Hero sky that crossfades morning, midday, evening, and night with scroll `progress`.
+ * `fixed`, not `sticky`: onboarding scrolls the document, and there `sticky`
+ * under the `overflow-clip` wrapper stops pinning in Chrome.
+ * `overflow-clip`, not `overflow-hidden`, so other descendants can still be sticky.
  */
 export function HeroAtmosphere({
   children,
@@ -35,67 +18,50 @@ export function HeroAtmosphere({
   /** Scroll progress 0..1 across the whole landing. Drives the sky cycle. */
   progress?: number | undefined;
 }) {
-  // Build a `t`-curve for each sky layer. Each layer peaks (opacity 1) over
-  // a slice of the scroll range and fades to 0 outside it. The slices are
-  // staggered with overlap so we get smooth crossfades, not hard cuts.
+  // Each layer peaks over an overlapping slice of the scroll range.
   const morning = bell(progress, 0.0, 0.22);
   const midday = bell(progress, 0.32, 0.22);
   const evening = bell(progress, 0.6, 0.18);
   const night = saturate(progress, 0.78, 0.95);
 
-  // Sun-halo intensity: full through morning + midday, then fades through
-  // the evening band so the "sun has set" reads by the time the night
-  // layer takes over.
   const sun = 1 - saturate(progress, 0.3, 0.6);
-  // Rainbow lens-flare reaches its peak in the late-morning window
-  // (sun-catches-the-lens moment) and fades by midday. Bell-curve so it
-  // both fades in AND back out smoothly. Inverted from the sky-layer
-  // bell helpers — broader curve centered on the second/third capability.
   const lensFlare = bell(progress, 0.18, 0.16);
-  // Cloud-shadow texture sits over the daytime sky and fades out as night
-  // takes hold — color-burn over a near-black night gradient would just
-  // crush to mud, so we pull it back to near-zero there.
+  // color-burn over the near-black night crushes to mud, so fade it out.
   const cloudShadow = 0.5 * (1 - night);
 
   return (
     <div className={cn("relative isolate overflow-clip", className)}>
-      {/* Viewport-pinned backdrop. `fixed inset-0` keeps the sky painted at
-       * the viewport across the entire scroll length without depending on
-       * whether the ancestor establishes a scroll-port. */}
+      {/* Pinned to the viewport for the whole scroll. */}
       <div aria-hidden className="pointer-events-none fixed inset-0 -z-20">
         <div className="relative size-full overflow-hidden">
-          {/* L1 — base default tone so we never paint void. */}
+          {/* L1: base tone, so we never paint void. */}
           <div className="landing-hero-sky absolute inset-0" />
 
-          {/* L2 — morning: cool dawn blues */}
+          {/* L2: morning */}
           <div
             className="landing-sky-morning absolute inset-0 transition-opacity duration-300"
             style={{ opacity: morning }}
           />
 
-          {/* L3 — midday: bright clear blue. */}
+          {/* L3: midday */}
           <div
             className="landing-sky-midday absolute inset-0 transition-opacity duration-300"
             style={{ opacity: midday }}
           />
 
-          {/* L4 — evening: peach + violet horizon. */}
+          {/* L4: evening */}
           <div
             className="landing-sky-evening absolute inset-0 transition-opacity duration-300"
             style={{ opacity: evening }}
           />
 
-          {/* L5 — night: deep indigo with a starfield vignette. */}
+          {/* L5: night */}
           <div
             className="landing-sky-night absolute inset-0 transition-opacity duration-500"
             style={{ opacity: night }}
           />
 
-          {/* Cloud-shadow texture — a grayscale noise map blended onto the
-           * sky at color-burn so the gradient gains soft, drifting cloud
-           * depth instead of reading as a flat wash. Brand-neutral texture
-           * lifted from dimension's hero (hero/shadow-bg.png); fades out as
-           * the night layer takes over (see `cloudShadow`). */}
+          {/* Cloud texture at color-burn (dimension's hero/shadow-bg.png). */}
           <img
             src="/images/landing/shadow-bg.png"
             alt=""
@@ -104,12 +70,7 @@ export function HeroAtmosphere({
             style={{ opacity: cloudShadow }}
           />
 
-          {/* Lens-flare rainbow halo — the camera catches the sun during
-           * late-morning. The real chromatic-arc texture (dimension's
-           * hero/sun-halo.png) blended at screen so only the rainbow shows
-           * over the sky; opacity is scroll-driven so it blooms in late
-           * morning and fades by midday. Replaces the earlier CSS-faked
-           * conic ring. */}
+          {/* Rainbow lens flare at screen blend (dimension's hero/sun-halo.png). */}
           <img
             src="/images/landing/sun-halo.png"
             alt=""
@@ -118,9 +79,7 @@ export function HeroAtmosphere({
             style={{ opacity: lensFlare }}
           />
 
-          {/* Sun halo via paper-shader GodRays — brightest in the morning,
-           * gone by evening. Sits in screen-blend mode so it just adds
-           * light, never darkens. */}
+          {/* Sun god rays. Screen blend only adds light. */}
           <div
             className="pointer-events-none absolute inset-0 mix-blend-screen transition-opacity duration-300"
             style={{ opacity: 0.45 * sun }}
@@ -142,7 +101,7 @@ export function HeroAtmosphere({
             />
           </div>
 
-          {/* Top gradient mask — keeps the announcement bar legible. */}
+          {/* Top mask keeps the announcement bar legible. */}
           <div
             className="pointer-events-none absolute inset-x-0 top-0 h-28"
             style={{
@@ -157,11 +116,7 @@ export function HeroAtmosphere({
   );
 }
 
-/**
- * Triangular pulse — 0 outside [center-halfWidth, center+halfWidth], peaks
- * at `center` with value 1. Used so each sky layer fades in and back out
- * cleanly with overlap onto the next one.
- */
+/** Triangle pulse: 1 at `center`, 0 beyond `halfWidth`. */
 function bell(t: number, center: number, halfWidth: number): number {
   const d = Math.abs(t - center);
 
@@ -170,11 +125,7 @@ function bell(t: number, center: number, halfWidth: number): number {
   return 1 - d / halfWidth;
 }
 
-/**
- * Linear saturation from 0 at `from` to 1 at `to`, clamped outside. Used
- * for the night layer (only ramps up at the end) and the sun-halo (ramps
- * down).
- */
+/** Linear ramp from 0 at `from` to 1 at `to`, clamped. */
 function saturate(t: number, from: number, to: number): number {
   if (t <= from) return 0;
 

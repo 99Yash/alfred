@@ -1,13 +1,7 @@
 import type { ArtifactContent } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
 
-/**
- * Optimistic-concurrency token for full artifact-body replacements.
- *
- * Cross-turn edits must prove which complete body they were based on. Without
- * this token, a model working from omitted, truncated, or stale content could
- * silently replace the canonical row and lose everything it never saw.
- */
+/** Concurrency token for full-body replacement, so an edit from a stale or partial view cannot erase content. */
 export function artifactContentHash(content: ArtifactContent | null): string {
   return sha256Canonical(content);
 }

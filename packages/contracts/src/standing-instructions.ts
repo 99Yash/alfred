@@ -1,51 +1,32 @@
 /**
- * Standing instructions — the durable, behavior-changing directives the user
- * states in plain language ("stop emailing me about Ben Book"). ADR-0056/0057
- * governance; ADR-0058 store (a `user_facts` row, `key="standing_instruction"`,
- * structured JSONB `value` — no new table). Zero Node deps — safe to import from
- * `apps/web`, `packages/db` (`.$type<T>()`), `packages/assistant`, `packages/sync`.
- *
- * The enums + the `value` schema live here so the `user_facts` column type, the
- * `system.remember` write tool, and the triage/briefing readers all agree by
- * construction. The load-bearing closed enum is `SUPPRESSION_EFFECTS`: each
- * consumer branches on a registered effect (never re-derives intent from the
- * product-label `surface`), the way `TOOL_LABELS` centralizes tool copy. A new
- * consumer registers its effect here first.
- *
- * Scope today = a sender address or a sender domain (the "Ben Book" loop, see
- * docs/plans/long-term-memory-v1.md). The target is a DISCRIMINATED UNION on
- * `kind`, so each kind carries only the field it matches on and a reader must
- * narrow before it reads one. Topic-scope targets, subdomain matching, and
- * non-suppress actions stay deferred variants of the same shape.
+ * Standing instructions: durable directives the user states in plain words
+ * ("stop emailing me about Ben Book"). Stored as a `user_facts` row with
+ * `key="standing_instruction"` (ADR-0056, 0057, 0058). Targets are a union on
+ * `kind`: a sender address or a sender domain.
  */
 
 import { z } from "zod";
 import { domainSchema, emailDomain, normalizeEmailAddress } from "./domain";
 
-/** Canonical `user_facts.key` for every standing instruction. */
 export const STANDING_INSTRUCTION_KEY = "standing_instruction";
 
-/**
- * Bumped when the `value` shape changes incompatibly, so the reader can branch
- * without ambiguity. Resolve-at-write: writers stamp the current version.
- */
+/** Bump on an incompatible `value` change. Writers stamp the current version. */
 export const STANDING_INSTRUCTION_SCHEMA_VERSION = 1 as const;
 
 // ─── Action ──────────────────────────────────────────────────────────────
 
-/** `suppress` — stop surfacing/reminding. Only action at v1; forward-compat. */
+/** Only `suppress` at v1. */
 export const STANDING_INSTRUCTION_ACTIONS = ["suppress"] as const;
 
 export type StandingInstructionAction = (typeof STANDING_INSTRUCTION_ACTIONS)[number];
 
 export const standingInstructionActionSchema = z.enum(STANDING_INSTRUCTION_ACTIONS);
 
-// ─── Surface (product/display label — NOT the operational contract) ─────────
+// ─── Surface (display label, not the contract) ──────────────────────────────
 
 /**
- * The human-readable intent shown in UI and used to phrase `directive`.
- * Consumers must NOT branch on this — they branch on `effects`. `open_loop` =
- * suppress the nag/todo/briefing surfacing, not the email's existence.
+ * Shown in UI and used to phrase `directive`. Never branch on it.
+ * `open_loop` suppresses the nag, todo, and briefing item, not the email.
  */
 export const STANDING_INSTRUCTION_SURFACES = ["open_loop"] as const;
 
@@ -53,39 +34,17 @@ export type StandingInstructionSurface = (typeof STANDING_INSTRUCTION_SURFACES)[
 
 export const standingInstructionSurfaceSchema = z.enum(STANDING_INSTRUCTION_SURFACES);
 
-// ─── Effects (the closed operational contract consumers branch on) ──────────
+// ─── Effects ────────────────────────────────────────────────────────────────
 
 /**
- * The concrete, registered effects of a standing instruction.
- *
- * LEGACY WRITE SNAPSHOT — readers must NOT branch on the stored array.
- * Every writer stores the full registry (`effects: [...SUPPRESSION_EFFECTS]`)
- * and no writer ever picks a subset, so the column encodes the registry
- * length at write time, never a decision the user made. Membership is
- * derived at read time: any active sender suppression binds its sender for
- * every consumer. A fifth effect therefore needs no backfill, no repair
- * function, and no per-row widening — it reads the same rows.
- *
- * `SUPPRESSION_EFFECTS` remains as the closed registry new consumers register
- * in (and writers stamp for schema compat), but it is not the operational
- * contract. The operational contract is "an active suppression exists for
- * this sender".
- *
- * `block_todo_suggestion`     — triage `classify` mints no `todoSuggestion` for a matching email.
- * `exclude_briefing_priority` — briefing `gather` drops the match from the priority buckets.
- * `block_reply_draft`         — the reply-drafting gate returns `no_draft` for a matching sender
- *                               (ADR-0098).
- * `deprioritize_triage_category` — triage `classify` weighs the instruction as a
- *                               category prior when it picks the label. This is the ONLY
- *                               effect that can change the Gmail label the user sees. It is
- *                               a PRIOR, not a floor: the directives this reads say "routine
- *                               notices are low priority" AND "a genuinely urgent one may
- *                               still surface", so only a model can separate the two. A
- *                               deterministic demotion would honor the first clause by
- *                               breaking the second. Implements ADR-0066 signal 3
- *                               (standing instructions extended to the category);
- *                               rendered per ADR-0051 §5's anti-brittleness line — a
- *                               deterministic fact fed as a hint, never a rewrite.
+ * Writers store the full list, so never branch on the stored array: any active
+ * suppression binds its sender for every consumer. A new consumer adds its effect here.
+ * - `block_todo_suggestion`: triage mints no todo suggestion.
+ * - `exclude_briefing_priority`: briefing gather drops it from the priority buckets.
+ * - `block_reply_draft`: the reply-drafting gate returns `no_draft` (ADR-0098).
+ * - `deprioritize_triage_category`: a category prior for `classify`, not a floor,
+ *   because "an urgent one may still surface" needs a model (ADR-0066, ADR-0051).
+ *   The only effect that can change the user's Gmail label.
  */
 export const SUPPRESSION_EFFECTS = [
   "block_todo_suggestion",
@@ -101,13 +60,8 @@ export const suppressionEffectSchema = z.enum(SUPPRESSION_EFFECTS);
 // ─── Target ────────────────────────────────────────────────────────────────
 
 /**
- * What an instruction binds to.
- *
- * `sender_email` — one sender address.
- * `sender_domain` — every address at one domain. The user's words often name a
- * class ("all investment senders"), and an address list cannot grow: a sender
- * the user had not received mail from at capture time never matches. A domain
- * target covers every mailbox at that host, including future ones.
+ * `sender_domain` covers every address at one host, including future senders.
+ * Users often name a class ("all investment senders"), and an address list cannot grow.
  */
 export const STANDING_INSTRUCTION_TARGET_KINDS = ["sender_email", "sender_domain"] as const;
 
@@ -115,11 +69,7 @@ export type StandingInstructionTargetKind = (typeof STANDING_INSTRUCTION_TARGET_
 
 export const standingInstructionTargetKindSchema = z.enum(STANDING_INSTRUCTION_TARGET_KINDS);
 
-/**
- * A sender address validated through {@link normalizeEmailAddress} — the same
- * acceptance set as the old trim → lowercase → `z.email()` chain, plus `<>`
- * and `mailto:` tolerance. The stored match key is canonical by construction.
- */
+/** Canonical through {@link normalizeEmailAddress}, which also accepts `<>` and `mailto:`. */
 const senderEmailAddressSchema: z.ZodType<string, string> = z
   .string()
   .transform((value) => normalizeEmailAddress(value))
@@ -128,24 +78,10 @@ const senderEmailAddressSchema: z.ZodType<string, string> = z
   });
 
 /**
- * Resolve-at-write: the match key is canonical by the time it is stored, so a
- * reader matches on it directly and never re-normalizes. The `sender_email` arm
- * validates through {@link normalizeEmailAddress} and the `sender_domain` arm
- * through {@link domainSchema}. Both arms were one flat object before
- * `sender_domain` existed; the union makes an address-less `sender_email`
- * target and a domain-less `sender_domain` target unrepresentable, and it
- * forces every reader to narrow on `kind` before it reads a match key.
- *
- * `accountId` is `null` = cross-account (suppress the sender, not one mailbox);
- * a future per-account scope sets it without a reshape.
- *
- * The `sender_email` arm keeps every field rule it had at v1, so a stored row
- * parses unchanged and {@link STANDING_INSTRUCTION_SCHEMA_VERSION} stays 1.
- * The `sender_domain` arm carries NO personal label: a domain target names a
- * class (every address at the host), and a label taken from the one sender the
- * user named would describe that class as one person everywhere the target is
- * read. Old rows that stored one still parse — `z.object` strips the unknown
- * key by default — so the version stays 1 here too.
+ * The match key is canonical when stored, so readers never re-normalize.
+ * `accountId: null` means every mailbox. The `sender_domain` arm has no label:
+ * a person's name would mislabel a whole domain. Old rows with one still parse
+ * (`z.object` strips it), so the version stays 1.
  */
 export const standingInstructionTargetSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -164,12 +100,8 @@ export const standingInstructionTargetSchema = z.discriminatedUnion("kind", [
 export type StandingInstructionTarget = z.infer<typeof standingInstructionTargetSchema>;
 
 /**
- * What the mint boundary already decided, before the target is built. The
- * corporate-domain gate (`classifyBareDomain`) stays at the mint boundary in
- * the assistant — it lives in `identity-affiliation.ts`, which this module
- * must not import — so the constructor takes the already-gated
- * `domain: string | null` and only picks the arm. `email` is the normalized
- * sender address.
+ * The corporate-domain gate (`classifyBareDomain`) runs at the mint boundary,
+ * so this takes the gated `domain` and only picks the arm.
  */
 export interface BuildStandingInstructionTargetInput {
   email: string;
@@ -178,12 +110,7 @@ export interface BuildStandingInstructionTargetInput {
   accountId: string | null;
 }
 
-/**
- * THE constructor: build the target this mint stores. It sits beside the
- * union with the key, the match rule, and the rank, so building a target is
- * a fourth union-adjacent operation — a third kind has no input channel here
- * until this body names it.
- */
+/** Build the stored target. A new kind needs an input channel here. */
 export function buildStandingInstructionTarget(
   input: BuildStandingInstructionTargetInput,
 ): StandingInstructionTarget {
@@ -204,20 +131,9 @@ export function buildStandingInstructionTarget(
 }
 
 /**
- * Does a target name ONE mailbox, or a CLASS of senders?
- *
- * Every per-kind rule outside this module turns on that question rather than
- * on the kind itself: a class target owns its sentence (see
- * {@link renderStandingInstructionDirective}) and carries no personal label,
- * while a mailbox target keeps the model's prose and a label. Written as a
- * `switch` with a `never` default, so a third kind — ADR-0060 micro-decision 8
- * schedules `category` and `topic`, and both name classes — has to declare its
- * answer HERE. A hand-written `kind === "sender_domain"` at each reader
- * compiles unchanged and files the new kind with the mailboxes instead.
- *
- * It narrows, so a caller that gets `true` reads `label` without a second
- * check. Lives beside {@link standingInstructionTargetKey} and
- * {@link standingInstructionTargetSpecificity} for the same reason they do.
+ * One mailbox, or a class of senders? Per-kind rules elsewhere ask this, not the
+ * kind. The exhaustive `switch` makes a new kind (ADR-0060 schedules `category`
+ * and `topic`) declare its answer here. Narrows, so `true` allows reading `label`.
  */
 export function targetNamesOneMailbox(
   target: StandingInstructionTarget,
@@ -236,19 +152,9 @@ export function targetNamesOneMailbox(
 }
 
 /**
- * Prompt-ready sentence derived from the target alone. The single home of
- * the "any sender at <domain>" vs "from <label ?? email>" wording that item
- * 01r1 built inline at the Alfred-written branch: a domain rule covers
- * senders no label names, so its sentence names the DOMAIN, while an address
- * rule names the one sender the label (or address) identifies.
- *
- * Every writer stores this for a `sender_domain` target and every reader
- * renders it for one, so a domain instruction never carries a sentence that
- * names one address — whatever prose the model supplied, and whatever prose
- * a pre-fix row still stores. The `sender_email` arm keeps model prose: this
- * is the capture default for that kind only. Sits beside the union so a
- * third target kind fails the exhaustive guard until it declares its
- * sentence.
+ * The directive sentence from the target alone: "any sender at <domain>" or
+ * "from <label ?? email>". Domain rows always use it, so a domain rule never names
+ * one address. Address rows keep the model's prose; this is only their default.
  */
 export function renderStandingInstructionDirective(target: StandingInstructionTarget): string {
   switch (target.kind) {
@@ -264,12 +170,7 @@ export function renderStandingInstructionDirective(target: StandingInstructionTa
   }
 }
 
-/**
- * The stable identity of a target — `"sender_email:a@b.com"` or
- * `"sender_domain:b.com"`. Two targets name the same thing when their keys are
- * equal, so a duplicate check and an advisory-lock key both read this instead
- * of reaching for an arm-specific field.
- */
+/** `"sender_email:a@b.com"` or `"sender_domain:b.com"`. Equal keys name the same thing. */
 export function standingInstructionTargetKey(target: StandingInstructionTarget): string {
   switch (target.kind) {
     case "sender_email":
@@ -286,32 +187,10 @@ export function standingInstructionTargetKey(target: StandingInstructionTarget):
 }
 
 /**
- * THE match rule: does this target cover this sender? One place decides it, and
- * it sits beside the union so the compiler ties the two together — a third
- * target kind fails the exhaustive guard until it has a match rule.
- *
- * The parameter is the sender ADDRESS alone, and the `sender_domain` arm derives
- * the domain from it through {@link emailDomain}. A caller cannot hand in a
- * domain that does not belong to the address, because a caller never hands in a
- * domain at all — the one unrepresentable-state rule this function needs.
- * `senderEmail` is expected in {@link normalizeEmailAddress} spelling;
- * `emailDomain` normalizes again, so a stray capital only affects the
- * `sender_email` arm.
- *
- * A string comparison alone computes the answer. No model call, no network
- * call, no database read: the triage hot path calls this per message.
- *
- * `sender_domain` matches an EXACT domain, never a subdomain. A correct suffix
- * rule needs a public-suffix list, and without one a target of `co.in` would
- * suppress a whole country's mail. Exact equality fails safe: a target that is
- * too wide matches nothing.
- *
- * One rule, two axes. The sender axis first: an exact address match, or an
- * exact domain match with the domain derived from the address through
- * {@link emailDomain}. Then the scope gate: a `null` target `accountId` is
- * cross-account and always eligible; a scoped target must name the caller's
- * mailbox. The default keeps existing two-arg callers compiling with today's
- * null-account semantics.
+ * Does this target cover this sender? Pure string comparison: triage calls it per message.
+ * Takes the address only and derives the domain, so the two cannot disagree.
+ * Exact domains only: a suffix rule without a public-suffix list would let `co.in`
+ * suppress a country. A `null` target `accountId` matches every mailbox.
  */
 export function targetMatchesSender(
   target: StandingInstructionTarget,
@@ -347,52 +226,22 @@ export function targetMatchesSender(
 }
 
 /**
- * One active instruction that overlaps a write, reported on the successful
- * result so the model and the user learn what else already binds this sender.
- * ADR-0060 §6 asks `system.remember` to report a subset or superset overlap; at
- * v1 both rows always carry `suppress`, so the overlap contradicts nothing and
- * ADR-0060 §8 already elects one of them at apply time.
- *
- * A minted report: never persisted, never parsed from outside, so it is an
- * interface and not a schema — the same call {@link StandingInstructionValue}'s
- * consumers make for `StandingInstructionSummary`.
- *
- * `relation` is spelled HERE and nowhere else: `wider` = the EXISTING
- * instruction contains the one just written (a domain mute above an address
- * pin), `narrower` = the written one contains the existing one. Only a STRICT
- * relation is an overlap, so the identity row is never its own overlap. Every
- * other site reads it as `StandingInstructionOverlap["relation"]`.
+ * An active instruction that overlaps a write, reported back to the model and user
+ * (ADR-0060 §6). Only a strict relation counts, so a row never overlaps itself.
  */
 export interface StandingInstructionOverlap {
   factId: string;
-  /** The EXISTING instruction, seen from the one just written. */
+  /** How the existing instruction relates to the one just written. `wider` contains it. */
   relation: "wider" | "narrower";
   target: StandingInstructionTarget;
   directive: string;
 }
 
-/**
- * One axis of {@link standingInstructionScopeRelation}. Module-private: no
- * caller decides an axis alone, so no caller learns this name.
- */
 type StandingInstructionScopeAxis = "wider" | "narrower" | "same" | "disjoint";
 
 /**
- * The SENDER axis: how the senders `of` covers relate to the senders
- * `relativeTo` covers. An exact address match, or an exact domain match with
- * the domain derived from the address through {@link emailDomain} — the same
- * sender rule {@link targetMatchesSender} applies, minus its `accountId`
- * gate, which has no meaning between two targets and lives on the account
- * axis instead. A `sender_domain` covers a `sender_email` at that EXACT
- * domain, and covers only the identical domain. Never a subdomain, for the
- * reason {@link targetMatchesSender} states: a correct suffix rule needs a
- * public-suffix list, and without one `co.in` would cover a whole country.
- *
- * Identity is {@link standingInstructionTargetKey} equality — the same
- * function the duplicate check and the advisory lock compare, and the kind
- * prefix keeps cross-kind keys apart, so a same-kind arm below only ever
- * answers `disjoint`. A new target kind gets `same` free and fails the nested
- * exhaustive guards until it declares what it covers and what covers it.
+ * The sender axis: the {@link targetMatchesSender} rule without the account gate.
+ * Exact domains only. Identity is {@link standingInstructionTargetKey} equality.
  */
 function senderScopeAxis(
   of: StandingInstructionTarget,
@@ -410,7 +259,7 @@ function senderScopeAxis(
       switch (relativeTo.kind) {
         case "sender_email":
           return "disjoint";
-        // One address never covers a whole domain. It can only sit under one.
+        // One address never covers a domain. It can only sit under one.
         case "sender_domain": {
           const senderDomain = emailDomain(of.email);
 
@@ -455,13 +304,8 @@ function senderScopeAxis(
 }
 
 /**
- * The ACCOUNT axis: how the mailboxes `of` binds relate to the mailboxes
- * `relativeTo` binds. A `null` `accountId` binds every mailbox, so it is
- * strictly wider than any one of them; two different mailboxes share none.
- *
- * `same` here is `===` on `accountId`, which the duplicate check re-spells
- * rather than calls — the compiler cannot check that agreement, so a change
- * to what "same mailbox" means must touch both.
+ * The account axis. `null` binds every mailbox, so it is wider than one.
+ * The duplicate check re-spells `same` as `===`: change both together.
  */
 function accountScopeAxis(
   of: StandingInstructionTarget,
@@ -477,24 +321,12 @@ function accountScopeAxis(
 }
 
 /**
- * How the scope `of` nests against the scope `relativeTo`, over the full
- * SCOPE — its senders crossed with its mailboxes. The two-axis relation
- * ADR-0060 micro-decision 6 names, beside {@link targetMatchesSender}: the
- * match rule answers whether one ADDRESS is covered, this answers whether one
- * TARGET is covered. One named pair rather than two positional targets, so a
- * caller that swaps the two has to write the swap down, and the answer always
- * describes `of`.
- *
- * Null when neither scope contains the other, which covers three cases: one
- * target twice, two unrelated targets, and the crossing pair the account axis
- * admits (a domain row in one mailbox against an address row in every
- * mailbox). The crossing pair intersects without nesting, and this result
- * reports nesting only.
+ * How the scope `of` nests in `relativeTo`, across senders and mailboxes (ADR-0060).
+ * `null` when neither contains the other, including a domain row in one mailbox
+ * against an address row in every mailbox: they intersect but do not nest.
  */
 export function standingInstructionScopeRelation(pair: {
-  /** The scope the answer describes. */
   readonly of: StandingInstructionTarget;
-  /** The scope it is described against. */
   readonly relativeTo: StandingInstructionTarget;
 }): StandingInstructionOverlap["relation"] | null {
   const sender = senderScopeAxis(pair.of, pair.relativeTo);
@@ -502,27 +334,20 @@ export function standingInstructionScopeRelation(pair: {
 
   if (sender === "disjoint" || account === "disjoint") return null;
 
-  // An axis that matches exactly defers to the other one. Both matching is the
-  // identity row, which the strict guard refuses.
+  // Both `same` is the identity row, which the strict guard refuses.
   if (sender === "same") return account === "same" ? null : account;
 
   if (account === "same") return sender;
 
-  // Opposite directions: the two scopes intersect, and neither contains the
-  // other.
+  // Opposite directions intersect without nesting.
   return sender === account ? sender : null;
 }
 
 /**
- * Why a write that asked for `scope:"domain"` stored a `sender_email` target
- * instead. Each member names a branch of the corporate-domain rail that a real
- * address reaches:
- *   - `domain_unparseable` — the address has no domain `domainSchema` accepts.
- *     The sender grammar upstream is zod's email pattern, which is looser than
- *     the shared hostname one, so `a@ab-.com` and a label over 63 characters
- *     both arrive here rather than being rejected as addresses.
- *   - `domain_not_single_organization` — the domain parses, and
- *     `classifyEmailDomain` answers anything but `corporate_domain`.
+ * Why a `scope:"domain"` write stored a `sender_email` target instead.
+ * - `domain_unparseable`: zod's email pattern is looser than `domainSchema`,
+ *   so `a@ab-.com` gets here.
+ * - `domain_not_single_organization`: `classifyBareDomain` did not say `corporate_domain`.
  */
 export const STANDING_INSTRUCTION_SCOPE_NARROWINGS = [
   "domain_not_single_organization",
@@ -532,58 +357,19 @@ export const STANDING_INSTRUCTION_SCOPE_NARROWINGS = [
 export type StandingInstructionScopeNarrowing =
   (typeof STANDING_INSTRUCTION_SCOPE_NARROWINGS)[number];
 
-/**
- * An input the caller sent that a write could not store, because the target
- * names a CLASS of senders rather than one mailbox. A `sender_domain` row
- * renders its sentence from the domain alone
- * ({@link renderStandingInstructionDirective}) and its arm carries no personal
- * label, so a supplied `directive` and a supplied `senderLabel` both stop at
- * the write boundary. The members use the tool-input spelling, so a caller
- * reads back the name of the field it sent. An empty list means the write
- * stored everything it was given.
- */
+/** Inputs a domain target cannot store: it renders its own sentence and has no label. */
 export type StandingInstructionDroppedInput = "directive" | "senderLabel";
 
-/**
- * ADR-0060 §8, most specific first. Position IS the rank. The deferred kinds
- * slot in at their ADR position when they ship — `category` after
- * `sender_domain`, then `topic` — and the insertion renumbers every later kind,
- * which nothing observes because only relative order is compared.
- */
+/** ADR-0060 §8, most specific first. Only relative order matters. */
 const STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER = [
   "sender_email",
   "sender_domain",
 ] as const satisfies readonly StandingInstructionTargetKind[];
 
 /**
- * How specific a target is — a higher number wins. ADR-0060 micro-decision 8
- * fixes the apply-time precedence: when several instructions match one sender,
- * the most specific target wins and recency only breaks a tie. The order the
- * ADR names is `sender_email`/`person` > `sender_domain` > `category` >
- * `topic`.
- *
- * The rank is the position in
- * {@link STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER}, most specific first,
- * inverted so a higher number is more specific. A developer states a position,
- * never a number, so a kind cannot be placed at a rank the order does not name.
- * The order tuple is not exported, so no call site can index it.
- *
- * The rule was unreachable while `sender_email` was the only kind. It became
- * reachable with `sender_domain`, because the user can pin one address inside a
- * domain the same user already muted, and both rows then match the same sender.
- * Without this rank the newer row wins, so a domain mute written after the pin
- * defeats the pin.
- *
- * The coverage gate is `indexOf(target.kind)`: `indexOf` is declared on the
- * tuple's element union, and `target.kind` is the full
- * {@link StandingInstructionTargetKind} union, so a kind the union gains and
- * the tuple lacks fails to compile. A member the tuple gains and the union
- * lacks fails `satisfies`. Position within the tuple is an ordering decision
- * the compiler cannot check; the ADR reference above is what ties the tuple to
- * §8.
- *
- * This lives beside {@link standingInstructionTargetKey} and
- * {@link targetMatchesSender} so the rank sits with the union it ranks.
+ * Higher wins when several instructions match one sender; recency breaks ties
+ * (ADR-0060). Without it, a domain mute written after an address pin defeats the pin.
+ * `indexOf(target.kind)` fails to compile if the order tuple misses a kind.
  */
 export function standingInstructionTargetSpecificity(target: StandingInstructionTarget): number {
   return (
@@ -595,10 +381,8 @@ export function standingInstructionTargetSpecificity(target: StandingInstruction
 // ─── The `user_facts.value` shape ───────────────────────────────────────────
 
 /**
- * Single-line, bounded prose for anything interpolated into a `===` sectioned
- * prompt. A multi-line value forges a sibling section above the derived
- * signals, so newlines are rejected at the schema (not stripped — stripping
- * would silently rewrite the user's words).
+ * Rejects newlines: a multi-line value could forge a `===` prompt section.
+ * Rejected, not stripped, so the user's words are never rewritten.
  */
 const singleLineProse = z
   .string()
@@ -613,22 +397,17 @@ export const standingInstructionValueSchema = z.object({
   action: standingInstructionActionSchema,
   surface: standingInstructionSurfaceSchema,
   target: standingInstructionTargetSchema,
-  /** The operational contract. Consumers branch on membership here. */
+  /** A write snapshot. Do not branch on it: see `SUPPRESSION_EFFECTS`. */
   effects: z.array(suppressionEffectSchema).min(1),
-  /** Resolved, prompt-ready sentence a prose consumer can drop in verbatim. */
+  /** Prompt-ready sentence. */
   directive: singleLineProse,
-  /** Verbatim user words — provenance/UI only. No pipeline ever parses this. */
+  /** The user's words, for provenance and UI. Never parsed. */
   phrasing: singleLineProse,
 });
 
 export type StandingInstructionValue = z.infer<typeof standingInstructionValueSchema>;
 
-/**
- * Legacy membership probe. Readers must NOT call this on the hot path:
- * membership is derived at read time (an active suppression binds its sender
- * for every consumer), so a stored-array check reintroduces the snapshot bug
- * this registry replaced. Kept for tooling that inspects a raw row.
- */
+/** Legacy. Do not use it on the hot path: the stored array is a snapshot. */
 export function hasSuppressionEffect(
   value: StandingInstructionValue,
   effect: SuppressionEffect,

@@ -23,47 +23,32 @@ import {
 } from "@alfred/assistant/connections";
 
 /**
- * Check-before-remind relevance (#1194) — the bounded pass between
- * deterministic loop reconciliation and the composer.
- *
- * For each still-live loop it verifies at runtime whether the loop is still
- * worth the user's attention, using read-only provider tools. It returns one
- * structured verdict per loop with cited evidence. Verdicts shape phrasing and
- * priority ONLY — this module has no write tool, mints no receipt, folds
- * nothing into the object-state store, and returns no closure claim, so it
- * cannot close a loop by construction. Closure stays exclusively with verified
- * push/pull state folded through the store (ADR-0048-D, ADR-0103).
- *
- * Bounding (the #1192 shapes, reused not re-derived): at most
- * {@link MAX_RELEVANCE_OBJECTS} distinct objects get a live read per briefing,
- * one read per object no matter how many loops name it, loops past the budget
- * read as `unverifiable`. Unknown output, a faulted read, a loop with no
- * linked object, and a kind with no live reader all degrade to `unverifiable`
- * — the fail direction is always live, never closed (#1193 lesson).
- *
- * Approval posture: a deterministic gather-time read over a user-connected
- * grant — the calendar/weather gatherer pattern — so it bypasses
- * staging/approval by construction and holds no write tool.
+ * Check-before-remind relevance (#1194), between reconciliation and compose.
+ * Reads each live loop with read-only provider tools and returns one cited verdict per loop.
+ * Verdicts shape phrasing and priority only. Nothing here can close a loop; closure
+ * stays with verified state in the store (ADR-0048 D, ADR-0103).
+ * At most {@link MAX_RELEVANCE_OBJECTS} objects get one read each; the rest, and any
+ * fault or missing reader, are `unverifiable`. Failure always leaves the loop live.
+ * A gather-time read over a user's own grant, so it needs no approval.
  */
 
-/** How many distinct objects one briefing live-reads. Mirrors `MAX_VERIFIED_PULL_TARGETS`. */
+/** Distinct objects one briefing reads live. Same as `MAX_VERIFIED_PULL_TARGETS`. */
 export const MAX_RELEVANCE_OBJECTS = 5;
 
-/** One still-live priority loop, in deterministic gather order before presentation capping. */
+/** In gather order, before the per-bucket cap. */
 export interface RelevanceLoop {
   documentId: string;
 }
 
-/** Store-backed evidence from the owner-approved generic MCP health verifier. */
+/** Store state from an owner-approved MCP health read. */
 export interface ApprovedLoopState {
   state: ObjectState;
   detail: string;
 }
 
-/** A live read's outcome for one object, before it is fanned out to loops. */
+/** One object's read, before fan-out to its loops. */
 type ObjectVerdict = Omit<BriefingLoopRelevance, "documentId">;
 
-/** The closure path's live-native read shape, now registered beside relevance's readers. */
 export type LiveNativeStateReader = (userId: string, externalId: string) => Promise<string>;
 
 interface LiveStateReaderRegistration {
@@ -88,11 +73,8 @@ type LiveStateReaderTable = {
 };
 
 /**
- * Every object kind's live-read registration. The mapped type is derived from
- * `INTEGRATION_OBJECT_DEFS`, so adding a kind to the object-state registry
- * without making its relevance/closure reader choice here fails to compile.
- * Sentry and GitHub are the only current registrations; every other row is an
- * explicit `null`, never an inherited arm.
+ * Live readers per object kind. Typed from `INTEGRATION_OBJECT_DEFS`, so a new kind
+ * fails to compile until it is listed here. Unread kinds are an explicit `null`.
  */
 const LIVE_STATE_READERS = {
   github: {
@@ -122,8 +104,7 @@ const LIVE_STATE_READERS = {
     deployment_target: null,
   },
   mcp: {
-    // Owner-approved MCP health reads are data-driven per connection and arrive
-    // as already-folded state. This table owns only fixed provider readers.
+    // MCP health arrives already folded per connection; this table holds fixed readers only.
     connection_health: null,
   },
 } as const satisfies LiveStateReaderTable;
@@ -138,7 +119,7 @@ function liveStateReaderRegistration(state: ObjectState): LiveStateReaderRegistr
   return null;
 }
 
-/** The same registry-backed reader used by relevance, for a closure live confirmation. */
+/** The relevance reader, reused for a closure live confirmation. */
 export function liveNativeStateReader(state: ObjectState): LiveNativeStateReader | null {
   return liveStateReaderRegistration(state)?.readNativeState ?? null;
 }
@@ -196,11 +177,7 @@ function verdictFromNativeState(args: {
   };
 }
 
-/**
- * One verdict per loop, in loop order. Never throws: a total fault resolves to
- * one `unverifiable` verdict per loop, so every loop still carries a verdict
- * and every loop stays live (ADR-0048-D).
- */
+/** One verdict per loop, in order. Never throws: a total fault gives `unverifiable` for each. */
 export async function assessLoopRelevance(args: {
   userId: string;
   loops: readonly RelevanceLoop[];
@@ -228,18 +205,13 @@ async function assessLoopRelevanceInner(args: {
   approvedStates?: ReadonlyMap<string, ApprovedLoopState> | undefined;
   unverifiedDetails?: ReadonlyMap<string, string> | undefined;
 }): Promise<BriefingLoopRelevance[]> {
-  // A built-in resolved object is the loop's primary identity when one exists;
-  // otherwise the first resolved MCP object keeps the class-level reconciliation
-  // precedence. Selection below dedupes those identities and applies one
-  // cross-provider read budget.
+  // A built-in object is the loop's identity when there is one; else the first MCP object.
   const objectByLoop = new Map<string, ObjectState | null>();
 
   for (const loop of args.loops) {
     const resolved = args.reconciled.get(loop.documentId) ?? [];
 
-    // Relevance and closure share the reconciliation module's one precedence
-    // rule. A built-in reader is authoritative; MCP evidence is authoritative
-    // only when the subject resolved no built-in object.
+    // Shared precedence: a built-in object wins; MCP counts only when there is none.
     const state = selectPrimaryReconciledObject(resolved)?.state ?? null;
 
     objectByLoop.set(loop.documentId, state);
@@ -252,8 +224,7 @@ async function assessLoopRelevanceInner(args: {
   for (const state of selectRelevanceReadTargets(objects)) {
     const reader = liveStateReaderRegistration(state);
 
-    // Selection used this same registration, so the non-null reader is a
-    // deterministic consequence rather than a second policy branch.
+    // Selection used the same registration, so this is never null here.
     if (!reader) continue;
 
     const targets = targetsByReader.get(reader) ?? [];
@@ -277,14 +248,8 @@ async function assessLoopRelevanceInner(args: {
 }
 
 /**
- * Fan live reads back out to one contract-valid verdict per loop.
- *
- * The object read is kept separate from the per-loop fan-out so the never-close
- * invariant is structural at both points: readers construct only the three
- * non-closing verdicts, and every value crosses {@link briefingLoopRelevanceSchema}
- * before it can reach the composer. The schema is now the boundary check for
- * bounded text and URL fields; the verdict vocabulary itself is compile-enforced
- * by `ObjectVerdict`. Any runtime boundary rejection degrades to `unverifiable`.
+ * Fan reads out to one verdict per loop. Readers only build non-closing verdicts,
+ * and every verdict passes {@link briefingLoopRelevanceSchema}; a rejection becomes `unverifiable`.
  */
 export function finalizeLoopRelevanceVerdicts(args: {
   loops: readonly RelevanceLoop[];
@@ -296,10 +261,8 @@ export function finalizeLoopRelevanceVerdicts(args: {
   return args.loops.map((loop) => {
     const state = args.objectByLoop.get(loop.documentId) ?? null;
 
-    // A built-in provider's own reader/verdict is authoritative. An approved
-    // MCP result may add evidence for a loop with no built-in object, but it
-    // must never replace a GitHub/Sentry/etc. verdict — including that
-    // provider's honest `unverifiable` answer.
+    // A built-in provider's verdict wins, even `unverifiable`. MCP adds evidence only
+    // for a loop with no built-in object.
     if (state && isBuiltInObjectStateProvider(state.provider)) {
       const ref = objectRef(state);
       const verdict = args.verdictByObject.get(ref);
@@ -363,7 +326,7 @@ export function finalizeLoopRelevanceVerdicts(args: {
   });
 }
 
-/** The first distinct readable objects, capped across all providers for one briefing. */
+/** The first distinct readable objects, capped across providers. */
 export function selectRelevanceReadTargets(
   objects: readonly ObjectState[],
 ): readonly ObjectState[] {
@@ -432,8 +395,7 @@ async function readGithubTargets(
   for (const state of targets) {
     const parsed = parseGithubPullRequestUrl(state.url ?? "");
 
-    // `LIVE_STATE_READERS` admitted this target, so the URL parsed; the guard is
-    // the deterministic-input floor, not a second opinion.
+    // `LIVE_STATE_READERS` already admitted this URL; this guard only narrows the type.
     if (parsed) {
       const slash = parsed.repoFullName.indexOf("/");
       coords.set(objectRef(state), {
@@ -447,10 +409,8 @@ async function readGithubTargets(
   let batch: Awaited<ReturnType<ReturnType<typeof githubClientForUser>["getPullRequests"]>>;
 
   try {
-    // One batch call, exactly one attempt (`retry: "none"`): the batch fans
-    // out under its own bounded concurrency, per-item faults land in
-    // `failed`, and a total fault (no credential, no transport) degrades
-    // every target to unverified below.
+    // One batch call, one attempt. Per-item faults land in `failed`; a total fault
+    // makes every target unverified.
     batch = await githubClientForUser({ userId, retry: "none" }).getPullRequests([
       ...coords.values(),
     ]);
@@ -503,9 +463,7 @@ async function readGithubTargets(
       continue;
     }
 
-    // `merged` is the reducer-owned token when GitHub's booleans say a PR
-    // merged; otherwise its state string is already the reducer vocabulary.
-    // The shared registry, not this reader, decides what either token means.
+    // `merged` comes from GitHub's boolean; the registry decides what each token means.
     const nativeState = item.merged ? "merged" : item.state;
     const draft = !item.merged && item.state === "open" && item.draft;
     const observedState = draft ? "draft" : nativeState;
@@ -526,11 +484,7 @@ async function readGithubTargets(
   }
 }
 
-/**
- * Validate the bounded evidence fields at the composer boundary. The verdict
- * vocabulary and source are already compile-enforced; a runtime shape that the
- * contract still rejects degrades to an honest `unverifiable` and is reported.
- */
+/** Check the evidence fields at the composer boundary. A rejected shape becomes `unverifiable` and is logged. */
 function toVerdict(documentId: string, verdict: ObjectVerdict): BriefingLoopRelevance {
   const parsed = briefingLoopRelevanceSchema.safeParse({
     documentId,

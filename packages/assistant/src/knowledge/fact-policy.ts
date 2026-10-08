@@ -1,23 +1,7 @@
 /**
- * Memory-capture fact policy (#330, ADR-0079) — *which sources write which keys*.
- *
- * Layer 2 of the two-layer capture gate. `@alfred/contracts` owns *what keys
- * exist* (`canonicalizeFactKey` + the one fact ontology); this module owns the
- * trust/source policy that the contracts layer deliberately cannot:
- *
- *   - `classifyDocumentFactKey` — Tier A (authorship-free) / Tier B
- *     (authorship-required) / `not_writable`, over a CANONICAL key.
- *   - `validateFactValueForKey` — context-free structural value checks.
- *   - `SINGLE_VALUED_KEYS` — the keys whose conflict invariant `proposeFact`
- *     enforces (one active authoritative value).
- *   - `authoredByUser` — the ONE check that needs document context ("is this
- *     doc authored by the user?"), evidence-returning and conservative-default-
- *     `false`. Lives here (not in `proposeFact`) because only the workflow has
- *     `doc.metadata` + the connected-account identity; `proposeFact` sees only
- *     `(key, value, source.kind)` by design.
- *
- * Pure module — no DB / LLM. The workflow gate (`memory-extraction.ts`) and the
- * purge script both call these helpers so "junk" has ONE definition.
+ * Memory-capture fact policy (#330, ADR-0079): which sources may write which keys.
+ * `@alfred/contracts` owns which keys exist; this module owns trust. Pure, no DB or LLM.
+ * The workflow gate and the purge script share it, so "junk" has one definition.
  */
 
 import {
@@ -35,24 +19,15 @@ import {
 } from "@alfred/contracts";
 import type { Document } from "@alfred/db/schemas";
 
-// ---------------------------------------------------------------------------
-// document write tiers
-// ---------------------------------------------------------------------------
+// --- document write tiers ---
 
 export type DocumentFactTier = "tierA" | "tierB" | "not_writable";
 
 /**
- * Which write tier a CANONICAL fact key falls into for the per-document path.
- * Pass the output of `canonicalizeFactKey`, not a raw producer key.
- *
- *  - **Tier A (authorship-free):** `relationship:<email>` only — an inbound
- *    email legitimately establishes *the user's* social graph regardless of who
- *    sent it.
- *  - **Tier B (authorship-required):** the canonical identity/profile keys —
- *    a durable claim about the user that only holds if the user authored the doc.
- *  - **`not_writable`:** everything else — `pref:*`, `standing_instruction`,
- *    `phone_number`, and any unknown/junk key. Durable preferences from email is
- *    a separate product problem; phone numbers need a typed value first.
+ * The write tier of a canonical key on the per-document path.
+ * Tier A (`relationship:<email>`): no authorship needed; any inbound mail builds the social graph.
+ * Tier B (identity/profile keys): the user must have authored the doc.
+ * `not_writable`: `pref:*`, `standing_instruction`, `phone_number`, and unknown keys.
  */
 export function classifyDocumentFactKey(canonicalKey: string): DocumentFactTier {
   if (canonicalKey.startsWith(RELATIONSHIP_FACT_PREFIX)) return "tierA";
@@ -62,18 +37,9 @@ export function classifyDocumentFactKey(canonicalKey: string): DocumentFactTier 
   return "not_writable";
 }
 
-// ---------------------------------------------------------------------------
-// service-sender / uninformative relationship classifier (#491 / #492)
-// ---------------------------------------------------------------------------
+// --- service-sender / uninformative relationship classifier (#491 / #492) ---
 
-/**
- * True iff `email` is a no-reply / service / role mailbox rather than a real
- * person — `noreply@`, `support@`, `notifications@`, `help@`, `info@`, a
- * bounce/mailer host, etc. The ONE definition of "service sender" for the memory
- * module, shared by the read filter (#491), the write guard (#492), and the
- * backfill purge (#493). Delegates to the contracts domain classifier (ADR-0080)
- * so we do not fork yet another service-address list.
- */
+/** True for a no-reply, service, or role mailbox. The memory module's one definition (ADR-0080). */
 export function isServiceSender(email: string): boolean {
   return classifyConnectedAccount({ email }) === "service_or_role_account";
 }
@@ -86,18 +52,14 @@ function relationshipEmail(canonicalKey: string): string | null {
   return email.length > 0 ? email : null;
 }
 
-/**
- * True iff a canonical `relationship:<email>` key points at a service sender. For
- * inbound mail the correspondent in the key IS the sender, so the key alone is
- * enough — no document context needed. False for any non-relationship key.
- */
+/** For inbound mail the key's correspondent is the sender, so the key alone decides. */
 function isServiceSenderRelationshipKey(canonicalKey: string): boolean {
   const email = relationshipEmail(canonicalKey);
 
   return email != null && isServiceSender(email);
 }
 
-/** True iff a nested field carries any reviewable content. */
+/** True if a nested field has any reviewable content. */
 function fieldHasContent(value: unknown): boolean {
   if (typeof value === "string") return value.trim().length > 0;
 
@@ -110,13 +72,7 @@ function fieldHasContent(value: unknown): boolean {
   return false;
 }
 
-/**
- * True iff a `relationship:<email>` VALUE carries nothing a user could review —
- * an empty `{}` / `""`, an object whose every field is blank, or a non-relationship
- * shape (number/boolean/array/null). A non-empty role string or a `{ role, since? }`
- * with content is informative. (#491/#492 reverses the prior "empty `{}` is a valid
- * role-not-yet-captured placeholder" allowance — an empty edge is now junk.)
- */
+/** True when a `relationship:<email>` value has nothing to review: blank, empty, or not a string or object. */
 export function isUninformativeRelationshipValue(value: unknown): boolean {
   if (typeof value === "string") return value.trim().length === 0;
 
@@ -125,41 +81,23 @@ export function isUninformativeRelationshipValue(value: unknown): boolean {
   return true;
 }
 
-/**
- * The ONE junk predicate for `relationship:<email>` facts: true iff the edge is
- * to a service/no-reply sender OR its value is uninformative. Non-relationship
- * keys are never junk by this predicate. Shared by the read-sync filter (#491),
- * the `proposeFact` backstop (#492), and the backfill purge (#493) so "junk" has
- * exactly one definition. Pass a CANONICAL key (post-`canonicalizeFactKey`).
- */
+/** The one junk test for `relationship:<email>` facts: a service sender or an empty value. Pass a canonical key. */
 export function isUninformativeRelationshipFact(key: string, value: unknown): boolean {
   if (!key.startsWith(RELATIONSHIP_FACT_PREFIX)) return false;
 
   return isServiceSenderRelationshipKey(key) || isUninformativeRelationshipValue(value);
 }
 
-// ---------------------------------------------------------------------------
-// value-shape validation (source-agnostic, context-free)
-// ---------------------------------------------------------------------------
+// --- value-shape validation (source-agnostic, context-free) ---
 
 export type FactValueRejectReason = "expected_string_value" | "invalid_relationship_value";
 
 export type FactValueValidation = { ok: true } | { ok: false; reason: FactValueRejectReason };
 
 /**
- * Structural value check for a CANONICAL key. Source-agnostic invariant (no
- * document context):
- *
- *  - `relationship:<email>` — the value must carry reviewable content: a non-empty
- *    role string OR a `{ role, since? }` object with at least one non-blank field.
- *    An empty `{}` / `""` (or a clearly-wrong number/boolean/null/array) is
- *    rejected as `invalid_relationship_value` (#491/#492 — an empty edge is junk a
- *    user cannot meaningfully confirm, not a "role not yet captured" placeholder).
- *    Malformed relationship KEYS are caught upstream by `canonicalizeFactKey`; a
- *    service/no-reply KEY is a separate concern (`isUninformativeRelationshipFact`).
- *  - `pref:<name>` — freeform (preferences hold arbitrary JSON).
- *  - every canonical identity/profile key — a non-empty string (names, summaries,
- *    cities, handles, URLs, timezone, birthday are all string-valued).
+ * Structural value check for a canonical key. `relationship:<email>` needs a
+ * non-empty role or a `{ role, since? }` with content. `pref:*` is freeform.
+ * Identity and profile keys need a non-empty string.
  */
 export function validateFactValueForKey(canonicalKey: string, value: unknown): FactValueValidation {
   if (canonicalKey.startsWith(RELATIONSHIP_FACT_PREFIX)) {
@@ -175,20 +113,11 @@ export function validateFactValueForKey(canonicalKey: string, value: unknown): F
   return { ok: false, reason: "expected_string_value" };
 }
 
-// ---------------------------------------------------------------------------
-// single-valued conflict keys
-// ---------------------------------------------------------------------------
+// --- single-valued conflict keys ---
 
 /**
- * Keys that may have at most ONE active authoritative value — a new differing
- * value is a conflict `proposeFact` holds as `proposed` (autonomous sources) or
- * supersedes (user-driven). Source-agnostic.
- *
- * `employer`/`job_title`/`location`/`home_city`/`home_country` are modeled as
- * the CURRENT active profile fact; history is superseded rows + validity
- * windows, not parallel keys. Deliberately omitted (multi-valued, no conflict
- * check): `relationship:*`, `pref:*`, `phone_number`, and the open-ended
- * `family_summary` / `notable_relations` paragraphs.
+ * Keys with at most one active value. `proposeFact` holds a differing autonomous
+ * value as `proposed` and lets a user value supersede. History is superseded rows.
  */
 export const SINGLE_VALUED_KEYS = [
   "full_name",
@@ -216,23 +145,16 @@ export const SINGLE_VALUED_KEYS = [
 
 const singleValuedKeySet: ReadonlySet<string> = new Set(SINGLE_VALUED_KEYS);
 
-/** True iff a CANONICAL key carries the at-most-one-active-value invariant. */
+/** True if a canonical key allows only one active value. */
 export function isSingleValuedKey(canonicalKey: string): boolean {
   return singleValuedKeySet.has(canonicalKey);
 }
 
-// ---------------------------------------------------------------------------
-// authorship ("is this document authored by the user?")
-// ---------------------------------------------------------------------------
+// --- authorship ---
 
 /**
- * The document sources authorship can speak about. Only a source a live writer
- * emits is listed (#987): `DOCUMENT_SOURCES` is `gmail`, `gmail_attachment`,
- * `github`, and `sentry`, so `slack` / `gcal` / `notion` / `imessage` could
- * never reach this function and their branches were unreachable code. A
- * mailbox attachment and a Sentry event carry no author identity, so both map
- * to `unknown` — the conservative reject. `unknown` is also the sentinel the
- * cleanup backfill passes for a missing document.
+ * Sources that can carry an author. Attachments and Sentry events map to
+ * `unknown`, which rejects. The cleanup backfill passes `unknown` for a missing document.
  */
 export type AuthorshipSource = "gmail" | "github" | "unknown";
 
@@ -281,14 +203,8 @@ export type Authorship =
     };
 
 /**
- * The document context `authoredByUser` reads. The first branch is derived from
- * the `documents` row so it cannot drift from the schema. The `unknown` branch
- * is the explicit missing-document sentinel used by the cleanup backfill.
- *
- * `sender` is the already-parsed Gmail authorship observation the caller injects
- * (ADR-0089) — memory no longer parses `From:`/SENT itself. Required so the
- * compiler pins that every gmail caller supplies it; `null` for non-gmail docs
- * (github reads `metadata` directly) and where no Gmail metadata exists.
+ * The document context `authoredByUser` reads. `sender` is the parsed Gmail
+ * authorship observation (ADR-0089); `null` for non-Gmail docs.
  */
 export type AuthorshipDocument =
   | (Pick<Document, "source" | "metadata" | "accountId"> & {
@@ -301,41 +217,23 @@ export type AuthorshipDocument =
       sender: GmailAuthorshipObservation | null;
     };
 
-/**
- * Everything `authoredByUser` needs to recognize "the user" across providers.
- * Conservative by construction: an absent provider identity makes that
- * provider's docs fail attribution (`missing_self_identity`), never pass.
- */
+/** Who "the user" is per provider. A missing provider identity fails attribution. */
 export interface SelfIdentity {
-  /**
-   * Lowercased self emails — global `user.email` PLUS every connected Gmail
-   * account email. Used as the fallback match set when a doc has no `accountId`.
-   */
+  /** Lowercased self emails: `user.email` plus every connected Gmail account. Fallback when a doc has no `accountId`. */
   readonly emails: readonly string[];
-  /**
-   * `documents.accountId` → that connected Gmail account's email (lowercased).
-   * Preferred over the global set so a work mailbox isn't matched against a
-   * personal address (and vice versa).
-   */
+  /** `documents.accountId` to that mailbox's email, so a work mailbox is not matched to a personal address. */
   readonly gmailAccountEmailById?: Readonly<Record<string, string>>;
-  /** Self GitHub identity, if known. */
   readonly github?: { login?: string | null; userId?: string | null };
 }
 
-/**
- * Map a document source onto the authorship vocabulary. The parameter is
- * `AuthorshipDocument["source"]`, NOT `string`, so the compiler — not a reader
- * — decides which cases exist: a change to `DOCUMENT_SOURCES` breaks this
- * switch instead of silently stranding a dead branch.
- */
+/** Typed on `AuthorshipDocument["source"]`, so a new document source breaks this switch. */
 function toAuthorshipSource(source: AuthorshipDocument["source"]): AuthorshipSource {
   switch (source) {
     case "gmail":
       return "gmail";
     case "github":
       return "github";
-    // An attachment carries the mail body's bytes, not an author; a Sentry
-    // event is machine-generated. Neither can prove user authorship.
+    // Neither an attachment nor a machine event can prove user authorship.
     case "gmail_attachment":
     case "sentry":
     case "unknown":
@@ -356,14 +254,11 @@ function authoredByGmail(
   const accountEmail =
     (accountId && self.gmailAccountEmailById?.[accountId]?.toLowerCase()) || null;
 
-  // The `From:`/SENT parse happens in the injected triage adapter (ADR-0089);
-  // memory only reads the normalized observation. A missing observation
-  // (defensive) reads as not-sent with no author — the conservative default.
+  // The triage adapter parses `From:` and SENT (ADR-0089). No observation reads as not sent.
   const isSent = sender?.isSent ?? false;
   const fromEmail = sender?.fromEmail ?? null;
 
-  // Gmail's SENT label is set by the connected mailbox itself — sufficient proof
-  // even when the `From` is absent (`from_connected_account` needs the equality).
+  // The SENT label comes from the mailbox itself, so it proves authorship without `From`.
   if (isSent) {
     return {
       authoredByUser: true,
@@ -376,9 +271,7 @@ function authoredByGmail(
     return { authoredByUser: false, source: "gmail", reason: "missing_author_identity" };
   }
 
-  // If the document is tied to a concrete connected mailbox, that mailbox is the
-  // only acceptable From match. Falling back to every known self email here would
-  // let a personal-address message inside the work mailbox pass attribution.
+  // A doc tied to a mailbox must match that mailbox, not any self email.
   if (accountEmail) {
     if (fromEmail === accountEmail) {
       return {
@@ -402,8 +295,7 @@ function authoredByGmail(
     };
   }
 
-  // No resolvable accountId (legacy rows / partial metadata): fall back to the
-  // global self-email set.
+  // No `accountId` (legacy rows): fall back to every self email.
   const selfEmails = new Set<string>(self.emails.map((e) => e.toLowerCase()));
 
   if (selfEmails.size === 0) {
@@ -423,7 +315,6 @@ function authoredByGmail(
         source: "gmail",
         method: "from_connected_account",
         accountId,
-        // The matched self email IS the authoring mailbox.
         accountEmail: fromEmail,
         fromEmail,
       },
@@ -438,7 +329,7 @@ function authoredByGmail(
   };
 }
 
-/** First non-empty string at any of `paths` in `metadata`, else null. */
+/** First non-empty string at any of `paths`, else null. */
 function firstMetaString(metadata: unknown, paths: readonly string[]): string | null {
   for (const path of paths) {
     const v = getPath(metadata, path);
@@ -506,13 +397,7 @@ function authoredByGithub(metadata: unknown, self: SelfIdentity): Authorship {
   };
 }
 
-/**
- * Evidence-returning authorship decision, conservative-default-`false`. Answers
- * "is this document authored by the user?", NOT "is it about the user?" (the
- * latter is LLM territory). A source that carries no author identity —
- * attachments, Sentry events, and the missing-document sentinel — folds to
- * `unknown` and rejects as `unsupported_source`.
- */
+/** Is this document authored by the user (not "about" the user)? Defaults to `false`. */
 export function authoredByUser(doc: AuthorshipDocument, self: SelfIdentity): Authorship {
   const source = toAuthorshipSource(doc.source);
 
@@ -531,9 +416,7 @@ export function authoredByUser(doc: AuthorshipDocument, self: SelfIdentity): Aut
   }
 }
 
-// ---------------------------------------------------------------------------
-// document fact gate (the workflow's diagnostic wrapper)
-// ---------------------------------------------------------------------------
+// --- document fact gate ---
 
 export type DocumentFactGateReject =
   | "unknown_key"
@@ -566,24 +449,8 @@ export interface DocumentFactGateInput {
 }
 
 /**
- * The full per-document write decision (#330, ADR-0079 §3b) — a DIAGNOSTIC
- * wrapper the workflow runs BEFORE `proposeFact`. It calls the SAME pure helpers
- * (`canonicalizeFactKey` / `classifyDocumentFactKey` / `validateFactValueForKey`)
- * plus the one contextual check `proposeFact` cannot do: `authoredByUser`.
- * `proposeFact` stays the unbypassable backstop even if a future caller forgets
- * this gate — the only thing UNIQUE here is the authorship attribution.
- *
- *  - unknown / bad relationship key → reject (`invalid_relationship_key` when the
- *    raw key was `relationship:*`, else `unknown_key`);
- *  - `not_writable` canonical key → `not_document_writable`;
- *  - `relationship:<email>` to a service/no-reply sender → `service_sender_relationship`
- *    (#492 — an inbound service mailbox is never a real relationship, even with a
- *    plausible-looking role value);
- *  - invalid value shape → `invalid_value` (or `invalid_relationship_key` for a
- *    malformed/empty relationship edge);
- *  - Tier B (identity/profile) key whose document is NOT authored by the user →
- *    `authorship_required` (carries the authorship evidence for the trace);
- *  - Tier A (`relationship:<email>`) is authorship-free → passes.
+ * The per-document write decision (#330, ADR-0079 §3b), run before `proposeFact`
+ * for diagnostics. `proposeFact` stays the real backstop; only the authorship check is unique here.
  */
 export function gateDocumentFact(input: DocumentFactGateInput): DocumentFactGateResult {
   const { proposal, document, selfIdentity } = input;
@@ -607,9 +474,7 @@ export function gateDocumentFact(input: DocumentFactGateInput): DocumentFactGate
     return { ok: false, reason: "not_document_writable", originalKey: proposal.key, canonicalKey };
   }
 
-  // #492: a relationship edge to a service/no-reply sender is never a real
-  // relationship — drop it before the value check (an informative-looking role
-  // on a service address is still junk). No-op for non-relationship keys.
+  // A service sender is never a relationship, even with a real-looking role (#492).
   if (isServiceSenderRelationshipKey(canonicalKey)) {
     return {
       ok: false,
@@ -632,8 +497,6 @@ export function gateDocumentFact(input: DocumentFactGateInput): DocumentFactGate
 
   const meta = canon.wasAlias ? { originalKey: canon.originalKey } : undefined;
 
-  // Tier A (relationship) is authorship-free. Tier B needs the user to have
-  // authored the document.
   if (tier === "tierB") {
     const authorship = authoredByUser(document, selfIdentity);
 

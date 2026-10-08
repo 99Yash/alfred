@@ -74,10 +74,7 @@ function isValidCronField(
   return true;
 }
 
-/**
- * Lightweight client/shared guard for normal 5-field cron expressions.
- * Server-side validation uses cron-parser before persisting `active` rows.
- */
+/** Quick 5-field cron check. The server checks again with cron-parser. */
 export function isLikelyValidWorkflowCron(schedule: string): boolean {
   const parts = schedule.trim().split(/\s+/);
 
@@ -94,21 +91,8 @@ export function isLikelyValidWorkflowCron(schedule: string): boolean {
 }
 
 /**
- * Triggers a user may author through the editor (m13 Phase 8).
- *
- * Deliberately narrower than the runtime `workflowTriggerSchema`:
- *   - `on_signal` is omitted (no signal producer exists yet — ADR-0047 8b
- *     deferred); the editor keeps that branch disabled.
- *   - event triggers carry **no `filter`** — the v1 dispatcher does not
- *     evaluate filters, so accepting one would silently lie. The
- *     empty-filter-only contract is enforced here by simply not modelling
- *     the field.
- *   - the event member is `authorableEventTriggerSchema` from
- *     `@alfred/contracts`, the same object the chat authoring schema embeds,
- *     so the editor and chat obey one rule (#990). Whether an inbound source
- *     has seen a raw kind is a database fact the server's revision service
- *     checks; the client accepts any kind, so an unseen kind shows in the
- *     optimistic put until the next pull reverts it.
+ * Triggers the editor can author. Narrower than `workflowTriggerSchema`: no `on_signal`.
+ * The event arm is the one chat authoring uses. Only the server checks a raw kind was seen.
  */
 export const authorableWorkflowTriggerSchema = z
   .discriminatedUnion("kind", [
@@ -142,15 +126,10 @@ export const authorableWorkflowTriggerSchema = z
 
 export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTriggerSchema>;
 
-/**
- * Patch a user-authored workflow. Every field is optional — the editor
- * sends only what changed. The server mutator re-validates, refuses
- * built-in rows, recomputes `next_run_at` on cron/status changes, and
- * bumps `row_version`.
- */
+/** Patch a user-authored workflow with only the changed fields. */
 export const workflowUpdateArgsSchema = z.object({
   slug: z.string().min(1),
-  /** The authoritative row version the editor read before making this change. */
+  /** The row version the editor read before this change. */
   expectedRowVersion: z.number().int().positive(),
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(2_000).nullable().optional(),
@@ -162,11 +141,6 @@ export const workflowUpdateArgsSchema = z.object({
 
 export type WorkflowUpdateArgs = z.infer<typeof workflowUpdateArgsSchema>;
 
-/**
- * Optimistic patch: merge the defined fields onto the local row and bump
- * `rowVersion`. No-ops if the row is missing (rare post-refresh race) or
- * built-in — the server's authoritative pull takes over either way.
- */
 export async function workflowUpdateClient(
   tx: WriteTransaction,
   args: WorkflowUpdateArgs,

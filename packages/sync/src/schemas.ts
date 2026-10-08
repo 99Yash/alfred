@@ -40,19 +40,12 @@ import {
 import { isoDateTimeStringSchema, runStatusSchema, workflowTriggerSchema } from "@alfred/contracts";
 import { z } from "zod";
 
-// `isoDateTimeStringSchema` is NOT re-exported. It belongs to `@alfred/contracts`,
-// which is browser-safe and already a direct dependency of every consumer, so a
-// second import path for it only creates a choice with no right answer.
+// Do not re-export `isoDateTimeStringSchema`; import it from `@alfred/contracts`.
 export { jsonRecordSchema, memorySourceSchema, type MemorySource };
 
 /**
- * The shape a fact's value may hold ONCE STORED — in the untyped
- * `user_facts.value` jsonb column, in the `z.unknown()` of
- * {@link syncedFactSchema}, and in the `factCreate` / `factEdit` mutator args a
- * browser pushes. It is a persisted protocol contract: narrowing it would
- * refuse values already in the wild, so it stays recursive.
- *
- * It is NOT the shape to hand a model. See {@link modelFactValueSchema}.
+ * A stored fact value. Do not narrow it: stored values already use the full shape.
+ * Do not give it to a model; use {@link modelFactValueSchema}.
  */
 export const factValueSchema = z.union([
   z.string(),
@@ -67,32 +60,9 @@ export type FactValue = z.infer<typeof factValueSchema>;
 const factValueScalarSchema = z.union([z.string(), z.number(), z.boolean()]);
 
 /**
- * The MODEL-FACING bound on {@link factValueSchema}: a scalar, an array of
- * scalars, or a record whose values are all scalars. Every arm is a member of
- * `factValueSchema`, so anything this schema accepts can still be stored and
- * read back — the bound only describes the value to a model, it never changes
- * what a stored fact may be.
- *
- * The bound is not a nicety. `factValueSchema`'s recursive `z.array(jsonValueSchema)`
- * arm becomes `anyOf[…].items = { $ref }` in JSON Schema, and `generateObject`
- * sends its `responseSchema` through `@ai-sdk/google`'s converter at a call site
- * with no `try/catch` (`responseSchema` in `google-language-model`, unlike the
- * tool-declaration path, which does fall back to `parametersJsonSchema`).
- * Google cannot express a recursive reference, so every extraction on the Gemini
- * leg threw before the request was built — silently, because
- * `workflow-operations.ts` catches per document. `additionalProperties` is
- * ignored by that converter, which is why the *record* arm degrades harmlessly
- * and only the *array* arm is fatal.
- *
- * Objects are allowed only as the direct value of a top-level key, never nested
- * inside an array and never deeper than one level. A fact value is "the simplest
- * correct shape" — an atomic value, or a shallow record like a relationship's
- * `{ role, since? }` — so the bound drops only shapes extraction does not emit.
- * `null` is deliberately absent: `factValueSchema` rejects it today, and
- * accepting it here would widen rather than narrow.
- *
- * Sibling precedent for the same constraint: `propositionValueSchema` in
- * `@alfred/contracts`.
+ * A non-recursive subset of {@link factValueSchema} for model output.
+ * Google's schema converter cannot express a recursive `$ref` and throws,
+ * so Gemini extraction failed silently.
  */
 export const modelFactValueSchema = z.union([
   factValueScalarSchema,
@@ -181,11 +151,7 @@ export const syncedActionStagingSchema = z.object({
   workflowSlug: z.string(),
   /** Display name from `workflows.name`; falls back to the slug. */
   workflowName: z.string(),
-  /**
-   * Narrowed, display-only projection of `agent_runs.trigger` — enough for the
-   * card to say "Run now" vs "Triggered by Gmail message". Never the raw
-   * payload or document ids (ADR-0034 amendment 2026-05-31).
-   */
+  /** Display-only subset of `agent_runs.trigger`. Never the raw payload or document ids (ADR-0034). */
   trigger: z.object({
     kind: z.string(),
     source: z.string().nullish(),
@@ -193,7 +159,7 @@ export const syncedActionStagingSchema = z.object({
     /** The provider kind a raw event run fired under (#990). */
     rawKind: z.string().nullish(),
   }),
-  /** Server-truncated (~280c) preview of the run's brief, for provenance. */
+  /** The run's brief, cut to 280 chars by the server. */
   brief: z.string().nullable(),
   stepId: z.string(),
   toolCallId: z.string(),
@@ -261,11 +227,7 @@ export const syncedBriefingSchema = z.object({
 
 export type SyncedBriefing = z.infer<typeof syncedBriefingSchema>;
 
-/**
- * A todo row as the web sees it (ADR-0050). `dismissed` rows never reach the
- * client; `done` rows linger 2 days (the pull window enforces both). `executor`
- * and `kind` are forward-compat — the rail ignores them in passive v1.
- */
+/** A todo (ADR-0050). The pull window drops `dismissed` rows and keeps `done` rows for 2 days. */
 export const syncedTodoSchema = z.object({
   id: z.string(),
   userId: z.string(),
@@ -291,20 +253,12 @@ export const syncedTodoSchema = z.object({
 
 export type SyncedTodo = z.infer<typeof syncedTodoSchema>;
 
-/**
- * A chat thread as the web sees it (streaming-chat plan). Ordered by
- * `lastMessageAt` in the sidebar; `title` is null until derived.
- */
 export const syncedChatThreadSchema = z.object({
   id: z.string(),
   userId: z.string(),
   title: z.string().nullable(),
   lastMessageAt: isoDateTimeStringSchema.nullable(),
-  /**
-   * User-pinned threads float into a "Pinned" group above the date buckets.
-   * Defaulted so client rows written before the column existed still parse
-   * (they read back as unpinned until the next pull patches them).
-   */
+  // Defaulted so older cached rows still parse.
   pinned: z.boolean().default(false),
   rowVersion: z.number(),
   createdAt: isoDateTimeStringSchema,
@@ -313,41 +267,20 @@ export const syncedChatThreadSchema = z.object({
 
 export type SyncedChatThread = z.infer<typeof syncedChatThreadSchema>;
 
-/** Tool card captured on a finished assistant turn (mirrors `chat.tool`). */
+/** A tool card on a finished assistant turn. */
 export const syncedChatToolCallSchema = z.object({
   toolCallId: z.string(),
   toolName: z.string(),
   status: z.enum(["succeeded", "failed"]),
   argsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
-  /**
-   * `preview()` pruned `resultPreview` to fit its cap. Synced because a pruned
-   * preview still parses as JSON, so the settled question card (ADR-0099) —
-   * and every other reader that re-reads a preview as its record — has no
-   * other way to know it is holding a partial answer sheet. Absent on rows
-   * written before this field existed, which read back as "not truncated";
-   * those rows are pre-#1018 and no reader keyed on the fact then.
-   */
+  /** `resultPreview` was pruned. A pruned preview still parses, so readers cannot tell otherwise. */
   resultTruncated: z.boolean().optional(),
-  /**
-   * The narration segment this call follows, so a reload interleaves it with
-   * the stored narration. Defaulted so rows written before this field existed
-   * still parse (they read back at segment 0).
-   */
+  /** The narration segment this call follows. Defaulted so older rows still parse. */
   segmentIndex: z.number().default(0),
   /**
-   * Present only on a connection-health bounce (#378 item 3): the entry is
-   * kept on the durable row precisely so a reload can re-offer the repair.
-   * Absent on every other non-execution bounce, which stays filtered out of
-   * the persisted trail entirely.
-   *
-   * `null` is the replay door's own value, never written by a producer: the
-   * row carried a nudge this build cannot read — a slug the registry no longer
-   * knows, or any other field the schema rejects. The entry is still a bounce,
-   * so it must not draw as a failed card, but there is no repair to offer.
-   * Without the `catch` one unreadable nudge would fail the whole message's
-   * parse and the sync model would drop the message (`scan` skips a row that
-   * fails `safeParse`). `.nullable()` exists so `null` is a legal catch value.
+   * Set only on a connection-health bounce, so a reload can offer the repair again.
+   * `null` means an unreadable nudge. The `catch` stops it from dropping the whole message.
    */
   connectNudge: chatConnectNudgeSchema.nullable().optional().catch(null),
 });
@@ -362,43 +295,22 @@ export const syncedChatNarrationSchema = z.object({
 
 export type SyncedChatNarration = z.infer<typeof syncedChatNarrationSchema>;
 
-/**
- * A persisted chat message. `user` rows come from the client mutator;
- * `assistant` rows are worker-written on turn completion (the live stream is
- * ephemeral). `toolCalls` lets a reload re-render the cards. `content` is the
- * final text; `reasoning` is the model's thinking (null when none), and
- * `reasoningMs` re-renders the "Thought for Ns" label on reload.
- */
+/** A chat message. The client writes `user` rows; the worker writes `assistant` rows when a turn ends. */
 export const syncedChatMessageSchema = z.object({
   id: z.string(),
   userId: z.string(),
   threadId: z.string(),
   role: z.enum(["user", "assistant"]),
   content: z.string(),
-  // Defaulted (not just nullable) so rows cached before these fields existed —
-  // older IndexedDB entries, older optimistic user messages — still parse
-  // instead of being dropped on read. Output type stays `string | null`.
+  // The `.default(null)` fields below let older cached rows still parse.
   reasoning: z.string().nullable().default(null),
   reasoningMs: z.number().nullable().default(null),
   status: z.enum(["complete", "failed"]),
-  /**
-   * On a failed turn, the user-meaningful failure kind (the bubble maps it to a
-   * tailored message + recovery action). Null on complete rows and on legacy
-   * failed rows written before this field; defaulted so those still parse.
-   */
+  /** Why a failed turn failed. Null on complete rows. */
   errorKind: chatErrorKindSchema.nullable().default(null),
   toolCalls: z.array(syncedChatToolCallSchema).nullable(),
-  /**
-   * Closed narration segments interleaved with `toolCalls` (by `segmentIndex`)
-   * in the activity trail on reload. Defaulted so rows cached before this
-   * field existed still parse (they read back with no narration).
-   */
+  /** Interleaved with `toolCalls` by `segmentIndex`. */
   narration: z.array(syncedChatNarrationSchema).nullable().default(null),
-  /**
-   * Token usage, model latency, and cost for this turn, powering a dev-gated
-   * readout under the reply. Defaulted so rows cached before this field existed
-   * still parse (they read back with no usage line).
-   */
   usage: chatMessageUsageSchema.nullable().default(null),
   runId: z.string().nullable(),
   rowVersion: z.number(),
@@ -409,12 +321,8 @@ export const syncedChatMessageSchema = z.object({
 export type SyncedChatMessage = z.infer<typeof syncedChatMessageSchema>;
 
 /**
- * One attachment on a user message (ADR-0065). Synced so an uploaded image
- * renders in its bubble on every device and survives reload. Only display
- * metadata + degrade status sync — the raw bytes live in the bucket and are
- * fetched through the auth-gated content proxy
- * (`/api/chat/attachments/:id/content`); the storage key and `degraded_text`
- * are server-only and never cross to the client.
+ * Display metadata for one chat attachment (ADR-0065). Bytes load through
+ * `/api/chat/attachments/:id/content`. The storage key and `degraded_text` stay on the server.
  */
 export const syncedChatAttachmentSchema = z.object({
   id: z.string(),
@@ -432,13 +340,8 @@ export const syncedChatAttachmentSchema = z.object({
 export type SyncedChatAttachment = z.infer<typeof syncedChatAttachmentSchema>;
 
 /**
- * An agent-produced artifact (ADR-0075), synced so the chat artifact sidebar
- * renders it inline and it survives reload + multi-device. `content` is the
- * full body (markdown or ordered HTML pages) — the boss rewrites the row as it
- * authors (each authoring tool call bumps `rowVersion` + pokes), so the sidebar
- * sees pages appear during generation. `content` is nullable + defaulted so a
- * freshly-created `generating` row (content not yet written) still parses. The
- * server-only `storageKey` (R2 seam) never crosses to the client.
+ * An agent artifact (ADR-0075). The boss rewrites the row as it writes, so pages appear live.
+ * `content` is null on a new `generating` row. `storageKey` stays on the server.
  */
 export const syncedArtifactSchema = z.object({
   id: z.string(),
@@ -459,32 +362,19 @@ export const syncedArtifactSchema = z.object({
 export type SyncedArtifact = z.infer<typeof syncedArtifactSchema>;
 
 /**
- * A thread's triage tag, synced read-only to the client and overridable via
- * the `triageTagOverride` mutator (ADR-0025 #1, rfc-triage-tags.md).
- *
- * Discriminated on `source` so illegal mixes are unrepresentable (Invariants
- * 3 & 4): an `auto` tag carries classifier provenance (`confidence`,
- * `rationale`, `classifiedAt`) and never `overriddenAt`; a `user` tag carries
- * `overriddenAt` and none of the classifier fields — so a confidence score can
- * never render on a tag the user pinned by hand.
- *
- * `id` is the Gmail `source_thread_id` (the IDB key); it travels as `threadId`.
+ * A thread's triage tag (ADR-0025). Split on `source`: only `auto` tags carry classifier
+ * fields, and only `user` tags carry `overriddenAt`.
  */
 const triageTagSharedSchema = {
-  /** Gmail `source_thread_id` — also the IDB key. */
+  /** Gmail `source_thread_id`. Also the IDB key. */
   threadId: z.string(),
   userId: z.string(),
   category: triageCategorySchema,
-  /** Soft pointer to the latest classified `documents.id` (client deep-link/join). */
+  /** The latest classified `documents.id`. Not a foreign key. */
   documentId: z.string().nullable(),
-  /** Gmail label id currently on the thread's canonical message, or null pre-reconcile. */
+  /** Null until the label is reconciled. */
   appliedLabelId: z.string().nullable(),
-  /**
-   * Sender-significance band at classify time (ADR-0064 / #210) — the rail uses
-   * it to dim a low-significance sender's row within its honest category, never
-   * to re-tag. `.default(null)` keeps it additive: tag values synced before this
-   * field existed parse without it (and old senders re-populate on next classify).
-   */
+  /** Sender significance at classify time (ADR-0064). Only dims the row; never changes the tag. */
   senderSignificanceBand: significanceBandSchema.nullable().default(null),
   rowVersion: z.number(),
   updatedAt: isoDateTimeStringSchema.nullable(),
@@ -493,7 +383,6 @@ const triageTagSharedSchema = {
 export const syncedTriageTagSchema = z.discriminatedUnion("source", [
   z.object({
     source: z.literal("auto"),
-    /** [0,1] classifier confidence — surfaced for low-confidence soft-confirms. */
     confidence: z.number().min(0).max(1),
     rationale: z.string().nullable(),
     classifiedAt: isoDateTimeStringSchema,
@@ -501,7 +390,6 @@ export const syncedTriageTagSchema = z.discriminatedUnion("source", [
   }),
   z.object({
     source: z.literal("user"),
-    /** When the user overrode the tag (Invariant 4: present iff source='user'). */
     overriddenAt: isoDateTimeStringSchema,
     ...triageTagSharedSchema,
   }),
@@ -564,13 +452,7 @@ export const workflowStatusSchema = z.enum(["active", "draft", "paused", "archiv
 
 export type WorkflowStatus = z.infer<typeof workflowStatusSchema>;
 
-/**
- * A workflow row as the web sees it (m13 Phase 8 event-trigger authoring).
- * Built-ins and user-authored rows both sync — the editor only mutates
- * user-authored ones (`isBuiltin === false`); built-ins render read-only.
- * `trigger` carries the full discriminated union so the editor can show
- * Schedule (cron) vs Event pickers from the live value.
- */
+/** A workflow. Built-ins sync too, but the editor treats them as read-only. */
 export const syncedWorkflowSchema = z.object({
   id: z.string(),
   userId: z.string(),

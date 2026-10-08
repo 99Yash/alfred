@@ -1,10 +1,6 @@
 /**
- * Briefing reference resolution (ADR-0049). Zero Node deps — the pure resolver
- * lives here so the web surface can expand the composer's opaque
- * `[[<kind>:<id>]]` tokens against a row's synced `gather` without importing
- * `@alfred/assistant` (web-boundary safe). Email's HTML renderer stays server-side in
- * `@alfred/assistant` but calls these same functions: one resolution truth, two
- * renderers.
+ * Resolve briefing `[[<kind>:<id>]]` tokens against a row's `gather` (ADR-0049).
+ * Browser-safe, so the web and the email renderer share one resolver.
  */
 
 import {
@@ -58,12 +54,7 @@ const REFERENCE_RE = /\[\[([a-z_]+):([^\]\s]+)\]\]/g;
 
 const BRIEFING_REFERENCE_KIND_SET: ReadonlySet<string> = new Set(BRIEFING_REFERENCE_KINDS);
 
-/**
- * Expand composer prose into renderable segments: literal text spans plus
- * resolved `reference` segments (carrying kind/label/href) for every
- * `[[<kind>:<id>]]` token that maps to a gather entity. Unknown tokens fall
- * back to their inner label as text and are recorded in `unresolved`.
- */
+/** Split prose into text and reference segments. An unknown token becomes text and goes in `unresolved`. */
 export function resolveBriefingReferences(
   markdown: string,
   gather: BriefingGather,
@@ -132,7 +123,7 @@ export function listBriefingReferenceOptions(gather: BriefingGather): BriefingRe
   }));
 }
 
-/** Parse a `<kind>:<id>` reference string; returns null for unknown kinds or empty ids. */
+/** `null` for an unknown kind or an empty id. */
 export function parseBriefingReference(value: string): ParsedBriefingReference | null {
   const separator = value.indexOf(":");
 

@@ -5,17 +5,10 @@ import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { resolveTodosForGmailSource } from "./resolve";
 
 /**
- * The payment lifecycle authority path (#258).
- *
- * Gmail triages a receipt as its own message and, because Stripe uses a fresh
- * thread for each notification, the receipt never reaches the existing
- * same-thread todo retractor. This module owns the small deterministic bridge:
- * a later receipt can dismiss the unhandled payment proposal that preceded it,
- * but only when the merchant, currency, amount, and a bounded time window
- * identify one preceding confirmation/failure. Ambiguity keeps the todo live.
- *
- * This is deliberately not an LLM or a briefing-only pass. A positive receipt
- * may mutate the todo rail; a fuzzy cluster or composer observation may not.
+ * Payment lifecycle path (#258). Stripe uses a new thread per email, so a receipt never
+ * reaches the same-thread retractor. A receipt may dismiss the payment proposal before it
+ * only when merchant, currency, amount, and a time window pick exactly one. Ambiguity keeps it live.
+ * Deterministic on purpose: no LLM may change the todo rail.
  */
 
 const LOOKBACK_MS = 48 * 60 * 60 * 1000;
@@ -96,12 +89,8 @@ type StoredPaymentDocument = Pick<Document, "id" | "sourceThreadId"> & {
 };
 
 /**
- * Resolve a live payment todo from a positive receipt document.
- *
- * The caller owns the workflow's "the triage row committed" boundary. This
- * function owns only the deterministic payment match and the rail write. It
- * returns a structured result for logging; a non-payment document is a cheap
- * no-op, not an error.
+ * Dismiss a live payment todo from a receipt. The caller owns the "triage row committed"
+ * boundary. A non-payment document is a cheap no-op.
  */
 export async function resolvePaymentTodoFromReceipt(args: {
   userId: string;
@@ -160,16 +149,12 @@ export async function resolvePaymentTodoFromReceipt(args: {
     currency: receipt.fingerprint.currency,
   };
 
-  // A full page means the database may have omitted an older matching candidate.
-  // The cap is a read bound, never evidence of uniqueness.
+  // A full page may hide an older match; the cap is not proof of uniqueness.
   if (rows.length === MAX_CANDIDATES) {
     return { status: "ambiguous", ...base, candidateCount: MAX_CANDIDATES };
   }
 
-  // More than one plausible preceding payment is not enough evidence. The
-  // failure→receipt emails do not share a hard invoice key, so silently picking
-  // one here would be exactly the false-close risk the reducer is meant to
-  // prevent.
+  // No shared invoice key, so more than one candidate would be a guess and risk a false close.
   if (candidates.length !== 1) {
     if (candidates.length === 0) return { status: "no_match", ...base };
 
@@ -180,11 +165,8 @@ export async function resolvePaymentTodoFromReceipt(args: {
 
   if (!candidate || !candidate.sourceThreadId) return { status: "no_match", ...base };
 
-  // The todo table has no payment discriminator. Exact candidate provenance is
-  // the narrowest existing durable boundary: the run that classified this very
-  // document proposed an agent-created, still-unpromoted todo. A merged todo
-  // whose original run differs fails closed instead of being dismissed by an
-  // unrelated todo on the same Gmail thread.
+  // Todos have no payment field. Match on provenance: the run that classified the candidate
+  // proposed an unpromoted agent todo. A merged todo from another run is not dismissed.
   const todoRows = await db()
     .select({ id: todos.id })
     .from(todos)
@@ -309,9 +291,8 @@ function paymentPolarity(text: string): PaymentPolarity | null {
     return "failed";
   }
 
-  // Confirmation and action-required mail often mentions the receipt that will
-  // follow. Classify that required action before positive receipt wording so a
-  // failed payment can never be closed by its own future-looking confirmation.
+  // Action-required mail often mentions the receipt to come; check it first, so a failure
+  // cannot close itself.
   if (
     /\b(?:confirm (?:your )?payment|requires?[ -]action|action[ -](?:required|needed))\b/.test(
       normalized,
@@ -320,8 +301,7 @@ function paymentPolarity(text: string): PaymentPolarity | null {
     return "confirm";
   }
 
-  // An allowlist phrase is not proof by itself. Payment mail can be negated,
-  // conditional, overdue, refunded, awaiting action, or report a zero payment.
+  // A phrase match is not proof: payment mail can be negated, conditional, overdue, refunded, or zero.
   if (
     NEGATED_RECEIPT_RE.test(normalized) ||
     CONDITIONAL_RECEIPT_RE.test(normalized) ||

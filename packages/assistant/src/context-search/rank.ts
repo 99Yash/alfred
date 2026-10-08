@@ -10,30 +10,13 @@ import type {
 import { clamp01 } from "@alfred/contracts";
 
 /**
- * The deterministic evidence ranker (#427; epic #422; ADR-0101 sub-decision 7).
- *
- * Slice 1 returned cards in source-registration order and truncated the
- * combined list, so a productive later source could be dropped whole by an
- * earlier one. This file replaces that order with one cross-source ranking.
- *
- * Contract (ADR-0101 sub-decision 12 is the source of truth — this header
- * states only the shape so the two cannot drift): pure function over declared
- * card fields, no model call, `now` is an input; an absent signal drops its
- * feature from the card's weighted average rather than defaulting to zero —
- * except `freshness`, `authority`, and `semantic`, which read silence as a
- * defined row (`unknown` for the first two, low relevance for `semantic`,
- * #1078); `score` normalizes WITHIN its source; the per-card working rides
- * parallel to the evidence and never reaches the packer. The ranker never
- * reads `snippet` or `note` text.
+ * Deterministic cross-source evidence ranker (ADR-0101 sub-decisions 7 and 12).
+ * Pure, no model call, `now` is an input. An absent signal drops its feature
+ * from the weighted average. `freshness`, `authority`, and `semantic` are never
+ * absent. The ranker never reads `snippet` or `note`.
  */
 
-/**
- * One ranking input. Each is a documented reading of a card field, normalized
- * to `[0, 1]` where higher means "rank this higher".
- *
- * The union is exhaustive on purpose: `FEATURE_WEIGHTS` below is typed by it,
- * so a new feature is a compile error until it declares a weight.
- */
+/** Ranking features, each normalized to `[0, 1]`, higher ranks higher. */
 export const EVIDENCE_RANK_FEATURES = [
   "semantic",
   "exactMatch",
@@ -49,38 +32,10 @@ export const EVIDENCE_RANK_FEATURES = [
 export type EvidenceRankFeature = (typeof EVIDENCE_RANK_FEATURES)[number];
 
 /**
- * Relative pull of each feature. They are weights in a weighted AVERAGE, not a
- * sum, so they need not total 1. A card missing an OPTIONAL feature
- * (`exactMatch`, `recency`, `sourcePriority`, `objectState`, `focus`,
- * `userModel`) is not penalized for the missing weight — the average runs over
- * what it supplies. `semantic`, `freshness`, and `authority` are never missing
- * (each reads silence as a defined row), so the lead relevance feature cannot
- * drop out of the average it leads.
- *
- * The ordering of the numbers is the actual decision here:
- *
- * - `semantic` leads, because a retrieval score is still the strongest single
- *   reading of "does this answer the query".
- * - `exactMatch` is a tie-breaker, not a second lead: a deterministically
- *   resolved work object outranks a weak fuzzy hit, but a stale resolved object
- *   must not outrank a perfect fresh document on this feature alone. It sits
- *   with `sourcePriority` for that reason, and it is present only on cards
- *   whose object says `relation: "is"` — a vector card is not penalized for a
- *   retrieval mode it did not use.
- * - `recency` and `freshness` are separate readings and both matter: `recency`
- *   is how old the EVENT is, `freshness` is how stale ALFRED'S COPY of it is. A
- *   live read of an old record and an ingested copy of a new one are different
- *   facts, so one number cannot carry both.
- * - `authority` is deliberately mid-weight. It is a trust prior, not a
- *   relevance reading; letting it lead would rank a high-authority irrelevance
- *   over a low-authority answer.
- * - `sourcePriority` is the manifest seam (#466) and stays small, so a manifest
- *   that later declares priorities reorders ties rather than overturning the
- *   retrieval score.
- * - `objectState`, `focus`, and `userModel` are tie-breakers by design. They
- *   each carry real information, and each one is absent often enough that a
- *   large weight would make the order depend mostly on which cards happened to
- *   carry it.
+ * Weights in a weighted average, so they need not sum to 1.
+ * `semantic` leads. `authority` is a trust prior, so it stays mid-weight.
+ * The rest are tie-breakers: each is often absent, and a large weight would
+ * rank cards by which features they happen to carry.
  */
 const FEATURE_WEIGHTS = {
   semantic: 0.3,
@@ -94,38 +49,18 @@ const FEATURE_WEIGHTS = {
   userModel: 0.06,
 } as const satisfies Record<EvidenceRankFeature, number>;
 
-/**
- * Half-life of the `recency` feature, in days. A two-week-old record scores
- * half of a record from today, a month-old record a quarter. The curve is
- * smooth on purpose: a cliff would make two records either side of a threshold
- * rank far apart for a one-second difference in age.
- */
+/** Smooth decay, so a threshold cannot split two records one second apart. */
 const RECENCY_HALF_LIFE_DAYS = 14;
 
-// Unit conversion, not calendar math: a fixed 86_400_000 ms per day for the
-// exponential-decay denominator. Calendar-day readings belong on
-// `@alfred/assistant/time` keys, never on millisecond arithmetic.
+// Unit conversion only. Calendar-day math belongs on `@alfred/assistant/time` keys.
 const MS_PER_DAY = 86_400_000;
 
-/**
- * Decimal places the combined score is rounded to before cards are compared.
- *
- * Without it the order is at the mercy of floating-point noise: two cards that
- * are arithmetically tied can differ in the last bit of a `0.1 + 0.2` sum, and
- * which one wins would then depend on the order the features happened to be
- * added. Rounding first makes such a pair a real tie, which the stable
- * `id` comparison then breaks the same way on every run.
- */
+/** Round before comparing, so float noise cannot break a real tie. The `id` order breaks it. */
 const SCORE_PRECISION = 6;
 
 /**
- * How current Alfred's COPY of the evidence is (#423's `EvidenceTime`).
- *
- * `live` was read from the provider for this search, so it cannot be wrong.
- * `ingested` is a local index that was correct when written. `stale` is the
- * source's own admission that its copy is past its freshness window, so it
- * scores below a source that simply could not say (`unknown`) — a declared
- * problem is worse evidence than an undeclared one.
+ * How current Alfred's copy is. `stale` is a source's own admission,
+ * so it scores below `unknown`.
  */
 const FRESHNESS_SCORES = {
   live: 1,
@@ -134,16 +69,7 @@ const FRESHNESS_SCORES = {
   stale: 0.1,
 } as const satisfies Record<EvidenceFreshness, number>;
 
-/**
- * Trust prior from the source capability manifest (#466), when a source
- * declares one.
- *
- * `unknown` sits just ABOVE `low` and far below `medium`. That is the
- * conservative reading the card contract asks for in both directions: an
- * undescribed MCP source is never promoted toward `high` for its silence, and
- * it is never pushed below a source that honestly declared itself
- * low-authority either. Silence is not a confession.
- */
+/** `unknown` sits just above `low`: silence earns no promotion and no penalty. */
 const AUTHORITY_SCORES = {
   high: 1,
   medium: 0.65,
@@ -151,16 +77,7 @@ const AUTHORITY_SCORES = {
   low: 0.3,
 } as const satisfies Record<EvidenceAuthorityLevel, number>;
 
-/**
- * What one read of a source costs, as a ranking reading (#466).
- *
- * Cost is the weakest of the three manifest readings and it only ever breaks a
- * tie: a local store is preferred over a provider call when nothing else
- * separates them, and never over relevance. The ordering is the selection
- * ladder in the other direction (`manifest.ts`): a provider call costs money
- * AND the read's latency, so `remote` is the honest bad case and `unknown`
- * again sits above it, so a source is not punished for silence.
- */
+/** Cost only breaks ties: prefer a local read. `unknown` sits above `remote`. */
 const COST_SCORES = {
   local: 1,
   metered: 0.6,
@@ -169,67 +86,28 @@ const COST_SCORES = {
 } as const satisfies Record<SourceCostClass, number>;
 
 /**
- * Relevance reading for a card whose source measured none (#1078).
- *
- * Drive is the first source that cannot score its own hits: `fullText
- * contains` either matches or it does not, so every Drive card arrives with no
- * `score` and `normalizeSemanticScores` yields no entry. Dropping the feature
- * there did not treat the card neutrally — it removed the only feature that
- * could lower the card, and the average over the remaining trust signals
- * (`live`, `high`) promoted a text-less pointer above measured evidence. This
- * is the same omission-reward the manifest fold already refuses: its divisor
- * is the fixed total weight for exactly this reason.
- *
- * The floor reads as LOW relevance: above an explicit non-match (`score: 0`,
- * the object-state MISS that resolved nothing — a keyword match did match),
- * and below the `unknown` trust rows (0.35), because relevance leads the
- * average and unknown relevance must not outpull weak measured relevance. The
- * exact number is a judgement for the retrieval eval (#430) to tune, like the
- * other weights; the structural promise is only that the lead feature is
- * always present, so omission can never again read as a declared maximum.
+ * `semantic` for a card whose source measured no score (Drive, #1078).
+ * Dropping the feature let trust signals alone promote a text-less card.
+ * Sits above an explicit `score: 0` and below the `unknown` trust rows.
  */
 const SEMANTIC_UNKNOWN_SCORE = 0.3;
 
-/**
- * Relative pull of the three manifest readings inside one source's priority.
- *
- * The keys name `SourceManifest` fields, and the `Record` checks the copy:
- * renaming a manifest field is a compile error here rather than a silently
- * stale weight. Authority leads by a wide margin because it is the only one
- * of the three that says anything about whether the source's evidence is
- * RIGHT. Freshness is a property of the copy, and cost is an operational
- * preference with no bearing on truth at all — hence the small tail. The fold
- * divides by the FIXED total weight and reads an undeclared axis as `unknown`,
- * so silence and a declared `unknown` agree and omission buys nothing.
- */
+/** Authority leads: only it says whether the evidence is right. */
 const MANIFEST_PRIORITY_WEIGHTS = {
   authority: 0.6,
   freshness: 0.25,
   cost: 0.15,
 } as const satisfies Record<keyof Pick<SourceManifest, "authority" | "freshness" | "cost">, number>;
 
-/** Fixed divisor for the manifest fold: the sum of every manifest weight. */
 const MANIFEST_PRIORITY_TOTAL_WEIGHT =
   MANIFEST_PRIORITY_WEIGHTS.authority +
   MANIFEST_PRIORITY_WEIGHTS.freshness +
   MANIFEST_PRIORITY_WEIGHTS.cost;
 
 /**
- * Fold one manifest into the single `[0, 1]` priority the `sourcePriority`
- * feature reads (#466; ADR-0101 sub-decision 13).
- *
- * Every axis always contributes: a declared reading scores its declared value
- * and an undeclared axis scores its `unknown` row, so a manifest that declares
- * only authority agrees with one that declares `unknown` freshness and cost
- * outright. The divisor is the fixed total weight, never the weight of the
- * readings the manifest happened to declare — dividing by the present weight
- * rewarded omission, because an omitted axis then read as a declared maximum
- * and every honest sub-maximum declaration lowered the result.
- *
- * The numbers live here rather than in the manifest contract because they are
- * ranking judgements, not facts about a source. `@alfred/contracts` states what
- * a manifest MEANS; this file decides what a ranker does about it, and a
- * reweighting is then one file's change.
+ * Fold a manifest into one `[0, 1]` source priority (ADR-0101 sub-decision 13).
+ * An undeclared axis scores `unknown`, and the divisor is the fixed total,
+ * so omitting an axis cannot raise the result.
  */
 export function sourcePriorityFromManifest(manifest: SourceManifest): number {
   const authority =
@@ -244,8 +122,6 @@ export function sourcePriorityFromManifest(manifest: SourceManifest): number {
 
   const cost = manifest.cost !== undefined ? COST_SCORES[manifest.cost.class] : COST_SCORES.unknown;
 
-  // No clamp: every axis scores a `[0, 1]` row and the divisor is the fixed
-  // total weight, so the weighted average cannot leave `[0, 1]`.
   return (
     (authority * MANIFEST_PRIORITY_WEIGHTS.authority +
       freshness * MANIFEST_PRIORITY_WEIGHTS.freshness +
@@ -255,26 +131,9 @@ export function sourcePriorityFromManifest(manifest: SourceManifest): number {
 }
 
 /**
- * Relevance reading for object-state evidence (#425).
- *
- * A kind-agnostic score over the four lifecycle buckets, answering "how much
- * does this object's state matter to a query about current state". It is NOT
- * the registry's per-kind closure policy, and the two may differ by design: a
- * resolved Sentry issue is fixed work and ranks last, and its
- * `sentry.issue.closesAskOn: ["resolved"]` still asserts nothing from stored
- * state alone — the kind declares `closesAskFrom: "live_confirmation"`, so
- * only a consumer holding a live issue read may close on it (ADR-0103) — and a
- * green CI target ranks below a red one
- * because the red build is the alert. Suppression is not relevance.
- * `closesOpenAsk` / `evidenceObjectClosesAsk` are the closure readers; this
- * table must not call them, and the `hand-rolled-object-closure` fence rightly
- * does not reach it.
- *
- * `active` leads because open work is what a question about current state
- * usually means. `failed` is second, not last: a failed object is terminal for
- * the work object but is normally the ALERT — the thing the user needs to see —
- * not a closed loop (`LOOP_CLOSING_STATE_CATEGORIES` excludes `failed` for the
- * same reason). `resolved` and `abandoned` are finished work and rank last.
+ * Relevance of a lifecycle bucket, not closure policy. Do not call
+ * `closesOpenAsk` / `evidenceObjectClosesAsk` here.
+ * `failed` ranks second because a failure is usually the alert.
  */
 const OBJECT_STATE_SCORES = {
   active: 1,
@@ -283,100 +142,47 @@ const OBJECT_STATE_SCORES = {
   abandoned: 0.25,
 } as const satisfies Record<StateCategory, number>;
 
-/**
- * Optional signals the boundary supplies per read. Every field except `now`
- * is optional because each one has a real absent case, and the ranker's
- * contract is that an absent signal drops its feature rather than defaulting
- * it.
- */
+/** Per-read signals. An absent field drops its feature. */
 export interface EvidenceRankContext {
-  /** The instant `recency` decays from. An input, never `Date.now()` inside. */
+  /** The instant `recency` decays from. Never read `Date.now()` inside. */
   readonly now: Date;
-  /**
-   * The exact object references the caller declared on the request. They are
-   * the caller's stated focus, so evidence about them is ranked up.
-   */
+  /** The caller's declared objects. Evidence about them ranks higher. */
   readonly objects?: readonly ContextObjectRef[];
-  /**
-   * Per-source priority in `[0, 1]`, keyed by `ContextSource.id`.
-   *
-   * This is the #466 seam. The manifest declares a source's authority,
-   * freshness, and cost; the boundary folds them into one priority per source
-   * and passes it here. Every consulted source folds to a number (an undeclared
-   * axis scores its `unknown` row), so through `searchContext` the feature is
-   * present on every card and moves every combined score slightly toward the
-   * declared trust reading; the weight stays small so it reorders ties rather
-   * than overturning relevance. A source missing from the map degrades the
-   * same way as before: the feature drops from that card's average.
-   */
+  /** `[0, 1]` priority per `ContextSource.id`, from {@link sourcePriorityFromManifest}. */
   readonly sourcePriority?: ReadonlyMap<string, number>;
   /**
-   * Per-entity user-model weight in `[0, 1]`, keyed by
-   * `${identity.kind}:${identity.value}` (see {@link entitySignificanceKey}).
-   *
-   * Seam for #431. No builder lives in this slice: `searchContext` passes no
-   * map today, so the `userModel` feature is absent from every card — the same
-   * path an unknown entity takes afterwards.
+   * `[0, 1]` weight per entity, keyed by {@link entitySignificanceKey} (#431).
+   * No caller passes this yet, so `userModel` is always absent.
    */
   readonly entitySignificance?: ReadonlyMap<string, number>;
 }
 
 /**
- * One card's ranking, for tests and debugging.
- *
- * This is deliberately NOT a field on `EvidenceCard`. The card is the shared
- * contract the packer renders for the model, and a per-feature score breakdown
- * is Alfred's internal reasoning about its own retrieval — interesting to a
- * developer reading a trace, noise (or worse, a lever) in a prompt. Keeping it
- * on a parallel array means `packEvidenceCards` cannot leak it by accident: it
- * never receives it.
+ * One card's ranking, for traces and tests. Kept off `EvidenceCard` so the
+ * packer can never render it into a prompt.
  */
 export interface EvidenceRanking {
-  /** The `EvidenceCard.id` this ranking belongs to. */
   readonly cardId: string;
-  /** The producing `ContextSource.id`, so a trace can group by source. */
   readonly sourceId: string;
-  /** Combined score in `[0, 1]`, rounded to {@link SCORE_PRECISION}. */
+  /** Rounded to {@link SCORE_PRECISION}. */
   readonly score: number;
-  /**
-   * The features that were present, with their normalized readings.
-   * `freshness`, `authority`, and `semantic` are always present (each reads
-   * silence as a defined row); any other feature the card could not supply is
-   * absent from this record rather than present with a zero, so a trace shows
-   * the difference between "scored badly" and "could not be scored".
-   */
+  /** Absent means "could not be scored", which differs from a zero. */
   readonly features: Readonly<Partial<Record<EvidenceRankFeature, number>>>;
 }
 
-/** The ranked read: cards in final order, plus the parallel ranking metadata. */
 export interface RankedEvidence {
   readonly evidence: readonly EvidenceCard[];
   readonly ranking: readonly EvidenceRanking[];
 }
 
-/**
- * The key an entity identity is looked up by in
- * {@link EvidenceRankContext.entitySignificance}.
- *
- * Exported so the signal builder and the ranker cannot drift into two spellings
- * of the same key. The value is already canonical for its kind — the card
- * contract derives its entity ref from `identityRefSchema`, which refuses a
- * value `canonicalizeIdentityValue` would change — so this concatenates rather
- * than re-normalizing.
- */
+/** The one spelling of the `entitySignificance` key. The value is already canonical. */
 export function entitySignificanceKey(kind: string, value: string): string {
   return `${kind}:${value}`;
 }
 
 /**
- * Rank evidence across sources.
- *
- * Cards arrive grouped by source, each group already in its own source's order.
- * The result is one order over all of them: every card is scored as a weighted
- * average of the features it can supply, ties break on `id`, and the caller
- * truncates to its own budget afterwards. Truncation after ranking is the whole
- * point — the pre-#427 boundary truncated before it, so a strong card from a
- * late-registered source could never be seen.
+ * Rank cards from all sources into one order. Ties break on `id`.
+ * The caller truncates after ranking, so a strong card from a late source survives.
  */
 export function rankEvidenceCards(
   cards: readonly EvidenceCard[],
@@ -401,11 +207,7 @@ export function rankEvidenceCards(
     };
   });
 
-  // Highest score first; `id` ascending breaks a tie. The id tie-break is what
-  // makes the order stable rather than merely sorted: `EvidenceCard.id` is
-  // contractually reproducible for the same underlying record, so two reads of
-  // the same corpus return the same sequence and a retrieval eval (#430) can
-  // assert on positions.
+  // Card ids are reproducible, so the id tie-break gives the same order on every run.
   scored.sort((a, b) => b.ranking.score - a.ranking.score || compareIds(a.card.id, b.card.id));
 
   return {
@@ -414,13 +216,7 @@ export function rankEvidenceCards(
   };
 }
 
-/**
- * Compare two card ids by code unit, not by locale.
- *
- * `localeCompare` answers differently under different ICU data, so a ranking
- * that tie-breaks with it is reproducible on one machine and not across two.
- * A tie-break only has to be TOTAL and STABLE, never human-alphabetical.
- */
+/** Code-unit order. `localeCompare` varies with ICU data across machines. */
 function compareIds(a: string, b: string): number {
   if (a === b) return 0;
 
@@ -434,70 +230,23 @@ interface FeatureInputs {
 }
 
 /**
- * Every feature one card can supply. `freshness`, `authority`, and `semantic`
- * are always present, because each has a defined reading for the silent case
- * (`unknown` freshness, `unknown` authority, low relevance for an unscored
- * card). Those floors matter: a card whose only present features scored 1
- * would otherwise take the top slot on lucky signals — which is exactly how a
- * text-less Drive card outranked measured evidence before `semantic` gained
- * its row. Every other feature is omitted — not zeroed — when the card carries
- * nothing to read it from.
+ * The features one card supplies. Missing features are omitted, not zeroed.
+ * `exactMatch` needs `relation: "is"` (#1087). `objectState` ignores relation.
  *
- * `exactMatch` and `focus` are present only on cards that carry an `object`:
- * a memory card cannot carry one, so scoring it 0 would park a fifth of its
- * average at zero permanently. An object-state MISS card (no `object`) is
- * demoted through its `score: 0`, not through these features.
- *
- * Two features read `relation` (#1087), because a document card may now carry
- * an object its own text NAMED and that card was still reached by similarity:
- *
- * - `exactMatch` asserts a retrieval mode, so only `relation: "is"` earns it.
- * - `focus` scores a measured miss as `0`, and only an `is` card can measure
- *   one; see {@link focusMatcher}. A `names` card that matches still scores,
- *   because a chunk naming the object the caller asked about is genuinely
- *   on-focus.
- *
- * `objectState` stays ungated by design. It is the feature this slice exists to
- * feed, and the projection's lifecycle reads the same whichever way the card
- * reached the object: a chunk about merged work is about merged work.
- *
- * Known consequence, measured. {@link weightedAverage} divides by the weights
- * the card SUPPLIED, so a card that gains a feature scored below its own mean
- * ends below an equal card that gained nothing. A card naming a `resolved`
- * pull request therefore sits below an unannotated equal whenever that card's
- * mean is above the mean of the values it gained. For one gained feature of
- * weight `w` and value `v`, the drop is exactly `w x (M - v) / (W + w)`, where
- * `M` is the mean of the values the card already supplied over its weight `W`.
- * That form carries no premise and survives a weight change; the numbers below
- * are one operating point, not a universal bound (at `M = 1` with no
- * `sourcePriority`, `abandoned` drops `0.08`). A document card reaches `M`
- * `0.909` (no instant, `W` `0.58`) or `0.927` (with one, `W` `0.72`), where
- * the measured drop is `0.037`-`0.043` for `resolved` and `0.052`-`0.062` for
- * `abandoned`, and a `focus = 0.5` arm adds `0.027`-`0.031` MORE, for a worst
- * total of about `0.09`. That is the
- * ranker's model rather than a property of this feature; removing it needs
- * either a score for the absent case, which would be a lie, or taking
- * `objectState` out of the weighted average, which is a ranker redesign.
+ * Known effect: the average divides by supplied weights, so a gained feature
+ * below the card's mean lowers its score. A card that names a `resolved` PR
+ * can fall up to about 0.09 below an equal card without it.
  */
 function cardFeatures(card: EvidenceCard, { context, semantic, focus }: FeatureInputs) {
-  // The bag starts empty and every feature writes itself in. A feature here is
-  // PRESENT or ABSENT, never neutral, so there is no value to seed it with.
   const features: Partial<Record<EvidenceRankFeature, number>> = {};
 
-  // Only a card that IS the object was reached by an exact reference. A card
-  // that merely MENTIONS one was reached by similarity, so it earns no
-  // exact-retrieval reading. Cards with no `object` get no `exactMatch` feature
-  // at all: most sources cannot carry one, and an object-state MISS card is
-  // already demoted through its `score: 0`.
+  // A card that only names the object was reached by similarity, not by reference.
   if (card.object?.relation === "is") features.exactMatch = 1;
   features.freshness = FRESHNESS_SCORES[card.time?.freshness ?? "unknown"];
   features.authority = AUTHORITY_SCORES[card.authority?.level ?? "unknown"];
 
   const semanticScore = semantic.get(card);
 
-  // Always present: an unscored card reads as low relevance rather than
-  // dropping the lead feature (see SEMANTIC_UNKNOWN_SCORE). Only a measured
-  // non-match scores below it.
   features.semantic = semanticScore ?? SEMANTIC_UNKNOWN_SCORE;
 
   const recency = recencyScore(card, context.now);
@@ -510,11 +259,6 @@ function cardFeatures(card: EvidenceCard, { context, semantic, focus }: FeatureI
     features.sourcePriority = clamp01(priority);
   }
 
-  // `stateCategory` is `StateCategory | undefined` because the card is parsed
-  // against `evidenceCardSchema` at the boundary, and `OBJECT_STATE_SCORES`
-  // declares a row per member, so this lookup is total without a guard. The
-  // score is a relevance reading over the lifecycle bucket, not the per-kind
-  // closure policy (see OBJECT_STATE_SCORES).
   const stateCategory = card.object?.stateCategory;
 
   if (stateCategory !== undefined) features.objectState = OBJECT_STATE_SCORES[stateCategory];
@@ -530,7 +274,6 @@ function cardFeatures(card: EvidenceCard, { context, semantic, focus }: FeatureI
   return features;
 }
 
-/** Weighted average over the features a card actually supplied. */
 function weightedAverage(features: Partial<Record<EvidenceRankFeature, number>>): number {
   let weighted = 0;
   let totalWeight = 0;
@@ -546,19 +289,13 @@ function weightedAverage(features: Partial<Record<EvidenceRankFeature, number>>)
     totalWeight += weight;
   }
 
-  // Unreachable while `freshness`, `authority`, and `semantic` stay
-  // always-present; it is the honest answer rather than a division by zero if
-  // that changes.
+  // Unreachable while three features are always present.
   if (totalWeight === 0) return 0;
 
   return roundScore(weighted / totalWeight);
 }
 
-/**
- * Round a combined score to {@link SCORE_PRECISION} places. Kept local rather
- * than reusing `round3`: that helper pins 3 places for significance display,
- * while ranking needs 6 so near-ties fall through to the stable id order.
- */
+/** Not `round3`: ranking needs 6 places so near-ties reach the id order. */
 function roundScore(value: number): number {
   const factor = 10 ** SCORE_PRECISION;
 
@@ -566,35 +303,10 @@ function roundScore(value: number): number {
 }
 
 /**
- * Normalize each source's own `score` into a comparable `[0, 1]` reading,
- * keyed by the card object itself.
- *
- * The card contract states that `score` is comparable ONLY within one source —
- * cosine similarity from the vector adapters, an exact-match confidence of `1`
- * or `0` from object-state, an arbitrary scale from a future MCP source. So the
- * normalization is per source, never global.
- *
- * Two branches, and the split is the careful part:
- *
- * - A source whose scores ALL fall in `[0, 1]` is left alone. That is already
- *   the shared convention (a similarity, a confidence), and min-max would
- *   destroy its magnitude: a source returning three near-worthless hits at
- *   `0.11`, `0.10`, `0.09` would have its best one rescaled to a perfect `1`
- *   and outrank a genuinely strong `0.9` from another source.
- * - Any other scale is min-max normalized within the source, because the
- *   numbers mean nothing to this file and only their ORDER is trustworthy. A
- *   source whose scores are all equal has no order to read, so every card gets
- *   a neutral `0.5` rather than an invented spread. By construction the best
- *   card on an uncalibrated scale reads exactly `1`: scale trust is the source
- *   capability manifest's job (#466), not this function's — see the residual
- *   risk on self-reported `score`.
- *
- * A card with no `score` gets no entry, so the caller reads it as
- * {@link SEMANTIC_UNKNOWN_SCORE} rather than dropping the lead feature. That
- * is the "ranker degrades rather than inventing a number" rule narrowed to
- * its honest shape: the ranker invents no ORDER (an unscored card claims no
- * place above a weak measured hit), but it refuses to reward the omission
- * with the mean of the card's trust signals.
+ * Normalize `score` per source, because it is comparable only within one source.
+ * Scores already in `[0, 1]` stay as they are: min-max would turn a weak best
+ * hit into a perfect 1. Other scales get min-max, or 0.5 when all are equal.
+ * An unscored card gets no entry.
  */
 function normalizeSemanticScores(
   cards: readonly EvidenceCard[],
@@ -613,15 +325,14 @@ function normalizeSemanticScores(
   const normalized = new Map<EvidenceCard, number>();
 
   for (const group of bySource.values()) {
-    // SAFETY: scores here are non-optional by construction: only cards with a
-    // defined `score` contribute above, so absence never invents a number.
+    // SAFETY: only cards with a defined `score` enter a group.
     const scores = group.map((card) => card.score as number);
     const min = Math.min(...scores);
     const max = Math.max(...scores);
     const alreadyNormalized = min >= 0 && max <= 1;
 
     for (const card of group) {
-      // SAFETY: same non-optional-by-construction score as the group above.
+      // SAFETY: only cards with a defined `score` enter a group.
       const score = card.score as number;
 
       if (alreadyNormalized) normalized.set(card, score);
@@ -633,16 +344,7 @@ function normalizeSemanticScores(
   return normalized;
 }
 
-/**
- * Exponential decay on the most recent instant the card carries.
- *
- * `occurredAt` wins when present — when the underlying event happened is what
- * "recent" means to a reader — and `observedAt` / `indexedAt` are the fallbacks
- * for a record that never declared an event time. A card with no instant at all
- * returns `undefined`: the feature is dropped, never scored as infinitely old.
- * That is the same rule the packer follows when it refuses to infer staleness
- * from a missing timestamp.
- */
+/** Decay from `occurredAt`, else `observedAt`, else `indexedAt`. No instant drops the feature. */
 function recencyScore(card: EvidenceCard, now: Date): number | undefined {
   const instant = card.time?.occurredAt ?? card.time?.observedAt ?? card.time?.indexedAt;
 
@@ -652,23 +354,13 @@ function recencyScore(card: EvidenceCard, now: Date): number | undefined {
 
   if (!Number.isFinite(at)) return undefined;
 
-  // A far-future instant is a dishonest or corrupt timestamp, not evidence
-  // from the future. Small clock skew (<= 1 day) still reads as current inside
-  // `halfLifeDecay`; anything beyond that drops the feature rather than
-  // earning `recency = 1` forever (e.g. a card claiming year 3000).
+  // More than a day ahead is a corrupt timestamp, not clock skew.
   if (at > now.getTime() + MS_PER_DAY) return undefined;
 
   return halfLifeDecay(new Date(at), now, RECENCY_HALF_LIFE_DAYS);
 }
 
-/**
- * Exponential half-life decay of an instant, in `[0, 1]`.
- *
- * Private to the ranker. A future instant within skew tolerance is a clock
- * skew or a scheduled event, not evidence from the future: it reads as
- * current rather than letting the curve exceed 1. Far-future instants never
- * reach here — `recencyScore` drops them before the call.
- */
+/** A future instant (skew or a scheduled event) reads as 1. */
 function halfLifeDecay(instant: Date, now: Date, halfLifeDays: number): number {
   const ageDays = (now.getTime() - instant.getTime()) / MS_PER_DAY;
 
@@ -678,22 +370,9 @@ function halfLifeDecay(instant: Date, now: Date, halfLifeDays: number): number {
 }
 
 /**
- * The caller's declared focus (the request's exact `objects`), as far as this
- * slice can read it.
- *
- * Thread continuity is NOT met by this slice: no card carries a thread and the
- * envelope carries no conversation id. This feature reads only the caller's
- * declared exact objects — a narrower, honest signal, not a thread reading.
- *
- * It is distinct from `exactMatch`, though both read object identity. They
- * take different inputs: `exactMatch` reads the CARD (any resolved object
- * scores 1, rewarding an exact reference over similarity), while `focus`
- * reads the REQUEST (only the caller's declared objects score 1, same
- * provider 0.5, other provider 0). A request that declares no objects gives no
- * card the feature; a card with no `object` gets NO focus feature at all.
- *
- * A thread-scoped entity set is the fuller reading and lands with the ADR-0067
- * identity work (#431), which is also what will populate a card's `entities`.
+ * Score a card against the request's declared objects: same identity 1,
+ * same provider 0.5, other 0. No declared objects, or no card `object`, drops
+ * the feature. This is not thread continuity: cards carry no thread.
  */
 function focusMatcher(
   objects: readonly ContextObjectRef[] | undefined,
@@ -706,9 +385,7 @@ function focusMatcher(
   for (const ref of objects) {
     providers.add(ref.provider);
 
-    // Only an identity reference names an object outright. A key reference
-    // names a KEY, and which object it resolves to is the object-state store's
-    // answer, not a string this file may guess at.
+    // A key reference resolves through the object-state store, so do not guess its object.
     if (ref.by === "identity") {
       identities.add(`${ref.provider}:${ref.kind}:${ref.externalId}`);
     }
@@ -717,46 +394,21 @@ function focusMatcher(
   return (card) => {
     const object = card.object;
 
-    // A card that carries no `object` cannot be about the caller's declared
-    // focus, but most sources cannot carry one — so the feature is absent,
-    // not zero.
     if (object === undefined) return undefined;
 
     if (identities.has(`${object.provider}:${object.kind}:${object.externalId}`)) return 1;
 
-    // Known gap: this arm returns BEFORE the relation gate below, so a `names`
-    // card that annotates a DIFFERENT object of a declared provider scores
-    // 0.5 on the same reading the next comment refuses to score zero on. It
-    // costs such a card `0.027`-`0.031` MORE than the `objectState` drop alone
-    // — about `0.09` total against an unannotated equal at a document card's
-    // ceiling. Gating this arm is a separate change, not this slice.
+    // Known gap: this runs before the relation gate, so a `names` card for
+    // another object of a declared provider still scores 0.5.
     if (providers.has(object.provider)) return 0.5;
 
-    // Zero is a MEASURED miss, and only an `is` card can supply one: it carries
-    // the one identity the caller resolved, and that identity is not a declared
-    // one. A `names` card cannot. Its object is whatever key the chunk's own
-    // rendered preview happened to hold, so a non-match says the annotation
-    // missed — the declared object may sit past the preview's cut, or in a
-    // written form no adapter parses — never that the chunk is off-focus.
-    // Absent, not zero: `weightedAverage` divides by the weights the card
-    // supplied, so a zero here would demote the annotated card below the
-    // unannotated one beside it on a reading the annotation cannot support.
+    // Only an `is` card can measure a miss. A `names` miss may only mean the
+    // preview cut off the declared object, so it drops the feature.
     return object.relation === "is" ? 0 : undefined;
   };
 }
 
-/**
- * The strongest user-model weight among the entities the card is about.
- *
- * `max`, not an average: a card about one entity the user works with daily and
- * three they never see is still a card about the important one, and averaging
- * would dilute exactly the signal the feature exists to catch.
- *
- * Returns `undefined` — dropping the feature — when the card names no entity,
- * when no projection is active, or when none of its entities are in the
- * projection. All three are the same honest answer: this read has no user-model
- * opinion about this card.
- */
+/** Highest weight among the card's entities. An average would dilute the one that matters. */
 function userModelScore(
   card: EvidenceCard,
   significance: ReadonlyMap<string, number> | undefined,

@@ -2,17 +2,8 @@ import { humanizeToolName } from "@alfred/contracts";
 import type { SyncedChatMessage } from "@alfred/sync";
 
 /**
- * Serialize a thread to Markdown for the clipboard.
- *
- * This is the "take it somewhere else" path — a note, a doc, an issue — so it
- * favours a transcript that reads well over one that round-trips. Reasoning is
- * omitted (it is long, and a pasted thread is normally wanted for its answers),
- * and the tool trail collapses to one italic line naming which tools ran, using
- * the shared `humanizeToolName` so the names match what the cards showed.
- *
- * Unlike a share link, this produces a local copy with no server involvement
- * and nothing published, so it carries no redaction rules of its own — the
- * user is pasting their own data into their own destination.
+ * Thread as Markdown for the clipboard. Reasoning is left out; tools become one italic line.
+ * A local copy, not a publish, so no redaction rules apply.
  */
 export function threadToMarkdown(title: string, messages: readonly SyncedChatMessage[]): string {
   const parts: string[] = [`# ${title}`, ""];

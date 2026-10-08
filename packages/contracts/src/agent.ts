@@ -11,14 +11,9 @@ import { isRecord } from "./guards";
 import { jsonObjectSchema } from "./user-model";
 
 /**
- * Lifecycle status of an `agent_runs` row.
- *
- * **Member order is load-bearing — append, never reorder.** `TERMINAL_RUN_STATUSES`
- * below preserves this order, and `runIsNotTerminal` (`@alfred/db`) renders it
- * into the `status NOT IN (…)` predicate of three partial unique indexes.
- * drizzle-kit diffs a partial index by its predicate *text*, so permuting this
- * enum regenerates all three as DROP/CREATE — brief windows in a migration
- * where the race-safe boundaries of #488 and #531 do not exist.
+ * Status of an `agent_runs` row. Append members; never reorder them.
+ * `runIsNotTerminal` renders this order into partial index predicates,
+ * so a reorder recreates those indexes.
  */
 export const runStatusSchema = z.enum([
   "pending",
@@ -36,13 +31,7 @@ export const RUN_STATUSES = Object.freeze([...runStatusSchema.options]);
 
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
-/**
- * Does a status end a run? Declared as data and checked exhaustively: a new
- * member of `runStatusSchema` without an entry here is a build error. A
- * hand-written `s === "completed" || …` chain answers `false` for the new
- * member instead — silently, everywhere at once, including the executor's
- * commit guard and every `NOT IN` predicate derived below.
- */
+/** A data table, so a new status without an entry fails the build. */
 const RUN_STATUS_KIND = {
   pending: "live",
   runnable: "live",
@@ -59,17 +48,7 @@ export function isTerminalStatus(s: RunStatus): boolean {
   return RUN_STATUS_KIND[s] === "terminal";
 }
 
-/**
- * The terminal statuses as data, for SQL that has to name them rather than call
- * {@link isTerminalStatus} per row. Both come from {@link RUN_STATUS_KIND}, so
- * they cannot disagree. SQL callers should reach for `runIsNotTerminal` from
- * `@alfred/db` rather than interpolating this list themselves — the whole point
- * is that the predicate exists once.
- *
- * Order follows {@link runStatusSchema}'s declaration order, which is why that
- * order may not be permuted: this list's order is what the partial-index
- * predicates are diffed on. See the note there.
- */
+/** In `runStatusSchema` order. SQL uses `runIsNotTerminal` from `@alfred/db`, not this list. */
 export const TERMINAL_RUN_STATUSES = Object.freeze(RUN_STATUSES.filter(isTerminalStatus));
 
 export const agentStepStatusSchema = z.enum([
@@ -112,11 +91,8 @@ export function isParkedAgentStepStatus(status: string): boolean {
 }
 
 /**
- * What a `hil` wake is waiting on. `step` is a workflow step gate (ADR-0017),
- * `action_staging` is a gated tool call (ADR-0034), and `question` is a
- * `system.ask_user` call that parks the chat turn until the user answers
- * (ADR-0099). A question rides the same `action_stagings` row and decision
- * route as a write approval; the kind only selects the card and the copy.
+ * What a `hil` wake waits on: a workflow step gate (ADR-0017), a gated tool call (ADR-0034),
+ * or a `system.ask_user` question (ADR-0099). All share the `action_stagings` row and route.
  */
 export const approvalKindSchema = z.enum(["step", "action_staging", "question"]);
 
@@ -135,11 +111,7 @@ export const wakeConditionSchema = z.discriminatedUnion("kind", [
 
 export type WakeCondition = z.infer<typeof wakeConditionSchema>;
 
-/**
- * The identity of one firing, without its payload. `agentRunTriggerSchema`
- * extends the event variant with the payload; the run-history projection reads
- * these identity variants as they are.
- */
+/** One firing without its payload. `agentRunTriggerSchema` adds the payload to events. */
 export const cronRunTriggerIdentitySchema = z.object({
   kind: z.literal("cron"),
   scheduledFor: z.string(),
@@ -147,11 +119,10 @@ export const cronRunTriggerIdentitySchema = z.object({
 
 export const eventRunTriggerIdentitySchema = z.object({
   kind: z.literal("event"),
-  // Optional for tolerant reads of historical event runs written before
-  // ADR-0047 promoted source/type to first-class trigger fields.
+  // Optional: old event runs predate ADR-0047 source/type fields.
   source: z.string().optional(),
   type: z.string().optional(),
-  /** The provider kind a raw event (`type: "raw"`) fired under (#990). */
+  /** The provider kind of a raw event (`type: "raw"`). */
   rawKind: rawEventKindSchema.optional(),
   eventId: z.string(),
 });
@@ -182,18 +153,12 @@ export const cronWorkflowTriggerSchema = z.object({
 
 export const eventWorkflowTriggerSchema = z.object({
   kind: z.literal("event"),
-  // Closed enums per ADR-0047; `type` is required on writes so the
-  // `emitEvent` query (`trigger->>'source' = … AND trigger->>'type' = …`)
-  // can match. Per-source type validity is enforced in `emitEvent`.
+  // `emitEvent` matches on source and type (ADR-0047), so writes need `type`.
   source: z.enum(EVENT_SOURCES),
   type: z.string(),
-  /**
-   * The provider kind a raw trigger subscribes to (#990). Present exactly when
-   * `type` is the raw marker; the matcher compares it with the raw receipt's
-   * `raw_kind`. The revision service enforces the pairing.
-   */
+  /** Set only when `type` is raw. Matched against the receipt's `raw_kind`. */
   rawKind: rawEventKindSchema.optional(),
-  /** Durable provider account identity for user-authored external events. */
+  /** Provider account for user-authored external events. */
   accountRef: z.string().min(1).max(200).optional(),
   filter: z.record(z.string(), z.unknown()).optional(),
 });
@@ -281,26 +246,20 @@ export const workflowHilGatesSchema = z.array(z.string());
 
 export type WorkflowHilGates = z.infer<typeof workflowHilGatesSchema>;
 
-// ── Workflow revisions (#555, docs/plans/workflows-v1.md) ────────────────────
+// ── Workflow revisions ───────────────────────────────────────────────────────
 //
-// A workflow row is the stable identity the user controls; a revision is the
-// immutable definition a run executes. The two pointers on `workflows` differ
-// on purpose: `current_revision_id` is the newest draft, and
-// `published_revision_id` is what new occurrences pin. An unattended run must
-// keep the definition it started with, so editing an active workflow may never
-// change what is already scheduled.
+// A run executes an immutable revision. `current_revision_id` is the newest draft;
+// `published_revision_id` is what new occurrences pin, so an edit never changes a scheduled run.
 
 /**
- * One thing a revision needs before it may run: an exact registered tool, and —
- * when the tool can bind to more than one target — the account and the resource
- * boundary the user approved. `resolveWorkflowCapabilities` (#557) produces
- * these; this schema fixes only the stored shape.
+ * A tool a revision needs before it runs, plus the approved account and resource
+ * when the tool can bind to more than one. `resolveWorkflowCapabilities` produces these.
  */
 export const workflowRequiredCapabilitySchema = z.object({
   tool: toolNameSchema,
-  /** Which connected account/installation the tool must use, when more than one exists. */
+  /** The account or installation to use, when there is more than one. */
   accountRef: z.string().min(1).max(200).optional(),
-  /** Provider-specific resource boundary (a repository, a calendar, a Slack channel). */
+  /** A provider resource: a repository, a calendar, a Slack channel. */
   resourceScope: jsonObjectSchema
     .refine((value) => Object.keys(value).length > 0, "Resource scope cannot be empty")
     .optional(),
@@ -308,10 +267,7 @@ export const workflowRequiredCapabilitySchema = z.object({
 
 export type WorkflowRequiredCapability = z.infer<typeof workflowRequiredCapabilitySchema>;
 
-/**
- * Does validated tool input stay inside one revision's approved resource scope?
- * Scope keys name input fields; nested scope objects must match as canonical JSON.
- */
+/** Scope keys name input fields; each value must match as canonical JSON. */
 export function inputMatchesWorkflowResourceScope(
   input: unknown,
   resourceScope: NonNullable<WorkflowRequiredCapability["resourceScope"]>,
@@ -330,11 +286,7 @@ export const workflowRequestedCapabilitySchema = workflowRequiredCapabilitySchem
 
 export type WorkflowRequestedCapability = z.infer<typeof workflowRequestedCapabilitySchema>;
 
-/**
- * One truthful next step for a blocked workflow draft. The action is data, not
- * a URL: each authoring surface owns its navigation while the resolver owns
- * which recovery can actually change the readiness verdict.
- */
+/** A next step for a blocked draft. Data, not a URL: each surface owns its navigation. */
 export const workflowRecoveryActionSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("connect"),
@@ -375,59 +327,41 @@ export const workflowRecoveryNavigationSchema = z.object({
 export type WorkflowRecoveryNavigation = z.infer<typeof workflowRecoveryNavigationSchema>;
 
 /**
- * What the authoring turn understood and assumed, kept beside the revision so
- * the activation card (#556) can show the user the intent behind the contract
- * rather than opaque identifiers. It is outside the definition content hash,
- * but a changed proposal still creates a revision so the approved explanation
- * remains attributable to the row that was published.
+ * What authoring understood, for the activation card. Outside the content hash,
+ * but a changed proposal still creates a revision.
  */
 export const workflowAuthoringProposalSchema = z.object({
-  /** The user's request, as the authoring turn read it. */
   intent: z.string().min(1).max(4000),
   /** Statements the user approves along with the definition. */
   assumptions: z.array(z.string().min(1).max(500)).max(20),
   /** Categories of external change this workflow may cause ("sends email"). */
   externalEffects: z.array(z.string().min(1).max(200)).max(20),
-  /** What authoring asked for, before the resolver narrowed the envelope. */
+  /** Before the resolver narrows the envelope. */
   requestedCapabilities: z.array(workflowRequestedCapabilitySchema).max(50),
-  /** Friendly schedule text for the card ("every weekday at 7:00 AM ET"). */
   scheduleSummary: z.string().max(200).optional(),
 });
 
 export type WorkflowAuthoringProposal = z.infer<typeof workflowAuthoringProposalSchema>;
 
 /**
- * An operational blocker on a workflow — a missing connection, an expired
- * watch, a capability the envelope no longer satisfies.
- *
- * This is a separate field from `status` because the two answer different
- * questions. `status='paused'` is the user's intent; `blocked` is the machine's
- * readiness. Writing one must never overwrite the other, or reconnecting an
- * account silently un-pauses a workflow the user paused on purpose.
+ * A machine blocker on a workflow. Separate from `status='paused'`, which is user intent.
+ * Write one without touching the other, or a reconnect un-pauses a paused workflow.
  */
 export const workflowBlockedSchema = z.object({
-  /** Stable machine code: `missing_capability`, `trigger_not_ready`, `reauth_required`, … */
   code: z.string().min(1).max(80),
-  /** One safe sentence for the user. Never raw provider text. */
+  /** Never raw provider text. */
   message: z.string().min(1).max(500),
-  /** ISO-8601 instant the blocker was observed. */
   detectedAt: z.string(),
-  /** ISO-8601 instant the blocked notification was sent, once it has been. */
+  /** When the notification went out. */
   notifiedAt: z.string().optional(),
-  /** The revision the blocker was observed against, when known. */
   revisionId: z.string().min(1).optional(),
 });
 
 export type WorkflowBlocked = z.infer<typeof workflowBlockedSchema>;
 
 /**
- * The identity of one blocker generation: the code, the sentence, and the
- * revision it was observed against. Two blockers with the same generation are
- * the same blocker, so a re-observed one is not "new" and owes no second
- * email. `detectedAt` and `notifiedAt` are bookkeeping, not identity. Every
- * comparison of two blockers (the readiness reconcile, the "newly blocked"
- * verdict, the notification job id, and the worker's supersede check) goes
- * through this one function.
+ * Blocker identity: code, message, revision. Same generation means no second email.
+ * Every blocker comparison goes through this.
  */
 export function workflowBlockedGeneration(
   blocked: Pick<WorkflowBlocked, "code" | "message" | "revisionId">,
@@ -440,40 +374,28 @@ export function workflowBlockedGeneration(
 }
 
 /**
- * The definition half of a revision — every field a run's behavior depends on,
- * and nothing else. This exact object is what `workflowRevisionContentHash`
- * digests, so a semantic no-op edit re-hashes to the same value and appends no
- * revision. Pointers, timestamps, the revision number and the authoring
- * proposal stay out for that reason.
+ * Every field a run depends on, and nothing else. `workflowRevisionContentHash` digests
+ * this, so a no-op edit appends no revision.
  */
 export const workflowRevisionDefinitionSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).nullable(),
-  /**
-   * Natural-language brief — required, because a revision with no brief has
-   * nothing to run. Built-ins keep a null `workflows.brief` and mint no
-   * revision at all, so they never reach this schema.
-   */
+  /** Required. Built-ins have no brief and mint no revision. */
   brief: z.string().min(1).max(20000),
   trigger: workflowTriggerSchema,
-  /** Coarse dispatcher backstop: which integrations a run may load at all. */
+  /** Coarse backstop: the integrations a run may load. */
   allowedIntegrations: z.array(integrationSlugSchema).max(20),
-  /** Exact envelope: the only tool names a run may activate or dispatch. */
+  /** The only tools a run may activate or dispatch. */
   allowedTools: z.array(toolNameSchema).max(100),
-  /** What must be ready before a run starts. Each tool here is in `allowedTools`. */
+  /** Each tool here is also in `allowedTools`. */
   requiredCapabilities: z.array(workflowRequiredCapabilitySchema).max(50),
 });
 
 export type WorkflowRevisionDefinition = z.infer<typeof workflowRevisionDefinitionSchema>;
 
 /**
- * The event trigger a user may author (#990): one object for the editor
- * mutator schema in `@alfred/sync` and the chat authoring schema below, so
- * the two surfaces cannot drift. The check applies
- * {@link authorableEventTriggerIssue}: Gmail names one of its declared types;
- * GitHub and Sentry name `type: "raw"` plus the `rawKind` the integration
- * delivered. Whether the source has seen that kind is a database fact the
- * server's revision service checks.
+ * The event trigger a user may author. Shared by the editor mutator and chat authoring.
+ * The server's revision service checks that the source has seen the `rawKind`.
  */
 export const authorableEventTriggerSchema = z
   .object({
@@ -488,7 +410,7 @@ export const authorableEventTriggerSchema = z
       .describe(
         "A kind from the integration's unmapped events (e.g. 'comment.created'). Required with type 'raw'.",
       ),
-    /** Canonical provider account id after server resolution. */
+    /** Set by the server after resolution. */
     accountRef: z.string().min(1).max(200).optional(),
   })
   .superRefine((trigger, ctx) => {
@@ -497,9 +419,6 @@ export const authorableEventTriggerSchema = z
     if (issue) ctx.addIssue({ code: "custom", message: issue.message, path: [issue.path] });
   });
 
-/**
- * The trigger subset a user may author in workflows v1 (#556, #990).
- */
 export const authorableWorkflowTriggerSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("cron"),
@@ -585,11 +504,7 @@ export const authorableWorkflowDefinitionSchema = workflowRevisionDefinitionSche
 
 export type AuthorableWorkflowDefinition = z.infer<typeof authorableWorkflowDefinitionSchema>;
 
-/**
- * Exact contract staged by `system.activate_workflow`. It carries both the
- * immutable base identity and the full editable definition, so approval never
- * binds only opaque database ids.
- */
+/** Staged by `system.activate_workflow`: base identity plus the full definition, not bare ids. */
 export const activateWorkflowInputSchema = z
   .object({
     workflowId: z.string().min(1).meta({ readOnly: true }),

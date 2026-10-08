@@ -11,9 +11,7 @@ import { findThread, INBOX, MEETINGS, TODOS } from "./helpers";
 import { ThreadTopBar } from "./thread-top-bar";
 import { PREVIEW_SHELL_THREADS } from "./preview-fixtures";
 
-/* Demo fixtures piped into the rail. `/preview/chat` is the loud design
- * surface — when this route mounts, the rail shows the full populated
- * design. The real `/chat` surface passes `EMPTY_RAIL_DATA` instead. */
+/* Demo rail data. The real `/chat` passes `EMPTY_RAIL_DATA`. */
 const PREVIEW_RAIL_DATA: RailData = {
   todos: TODOS,
   todoSuggestions: [
@@ -42,8 +40,7 @@ export function PreviewChatPage() {
   const railMode = useRailMode();
   const [railOpen, setRailOpen] = useState(() => railMode === "inline");
 
-  // When the viewport crosses the rail breakpoint, snap the rail to that
-  // mode's sensible default: wide screens show it, narrow screens hide it.
+  // On a breakpoint change, reset the rail: shown when wide, hidden when narrow.
   const [prevMode, setPrevMode] = useState(railMode);
 
   if (prevMode !== railMode) {
@@ -51,7 +48,6 @@ export function PreviewChatPage() {
     setRailOpen(railMode === "inline");
   }
 
-  // ESC closes the overlay rail.
   useEffect(() => {
     if (railMode !== "overlay" || !railOpen) return;
 
@@ -66,11 +62,7 @@ export function PreviewChatPage() {
 
   const activeEntry = findThread(activeThread);
 
-  // Sidebar is owned by AppShell. We contribute the main column here and
-  // register the right rail via `useRightRail()` so it lands as a flex
-  // sibling of the main column inside AppShell — same wiring `/chat`
-  // uses, just with fixture data piped in.
-  // Memoize so `useRightRail`'s effect doesn't refire on unrelated re-renders.
+  // Register the rail with AppShell, as `/chat` does. Memoized so the effect does not refire.
   const railNode = useMemo(
     () => (
       <RightRail

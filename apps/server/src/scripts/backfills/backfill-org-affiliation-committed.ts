@@ -1,23 +1,10 @@
 /**
- * Backfill `user_org_affiliation` observations for already-connected Google
- * accounts (ADR-0080 §4a / #342 slice 1a, PR A). The connect route now emits one
- * per connect going forward; this seeds the log for accounts connected BEFORE
- * that wiring, so the identity-facts projection (PR B) has grounding to fold.
+ * Emit `user_org_affiliation` observations for Google accounts connected before the
+ * connect route started emitting them (ADR-0080 §4a, #342). It uses the live
+ * `buildOrgAffiliationObservationInput`, with each credential's `createdAt` as the
+ * event time, so a re-run or a later re-auth dedups on `evidenceHash`.
  *
- * Composes the SAME `buildOrgAffiliationObservationInput` the live connect path
- * uses (no second definition of the payload/classification), so a back-filled row
- * is byte-identical to what a fresh connect would have written. The connect event
- * time is each credential's `createdAt`, which makes this IDEMPOTENT two ways: a
- * re-run re-derives the same `evidenceHash` and dedups, AND a row this backfill
- * wrote is the same one a later live re-auth would dedup against.
- *
- * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
- * `node dist/scripts/backfills/backfill-org-affiliation-committed.js`.
- *
- * Dry by default — classifies and prints what it WOULD emit, writes
- * nothing. `--commit` applies and REQUIRES `--emails=...` explicitly so a prod
- * shell typo cannot mutate the default account. Idempotent (the evidence hash
- * dedups re-runs).
+ * Bundled for prod. Dry by default. `--commit` requires `--emails=...`. Idempotent.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfills/backfill-org-affiliation-committed.js
@@ -90,9 +77,7 @@ if (COMMIT && TARGET_EMAILS.length === 0) {
 async function processUser(u: { userId: string; email: string }): Promise<void> {
   console.log(`\n=== ${maskEmail(u.email)} (user=${maskId(u.userId)}) ===`);
 
-  // Every Google credential — including `needs_reauth`: a stale token doesn't
-  // un-make the affiliation (the grounding is the account's domain, not token
-  // health). Deleted accounts aren't in the table, so they're correctly absent.
+  // Include `needs_reauth`: the affiliation comes from the domain, not the token.
   const creds = await db()
     .select({
       id: integrationCredentials.id,
@@ -192,7 +177,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

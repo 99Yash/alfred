@@ -1,12 +1,6 @@
 /**
- * Run-bottleneck probe (#409, PRD #405). Prints where one agent run's
- * wall-clock went — model, tool (dispatch-batch), approval wait, sub-agent
- * wait, and queue — from the queryable Postgres tables alone. Answers the
- * operator's "where did this run's time go?" without a Langfuse account.
- *
- * Reuses the production `getRunBottleneckSummary` boundary (which itself calls
- * the pure `summarizeRunBottlenecks`), so this probe duplicates no logic and a
- * future internal debug route can serve the same shape.
+ * Print where one agent run's time went (model, tools, approval wait, sub-agent
+ * wait, queue) from Postgres alone, via `getRunBottleneckSummary` (#409).
  *
  * Run locally (needs serverEnv DB vars) from apps/server:
  *   ./node_modules/.bin/tsx --env-file=.env src/scripts/probes/probe-run-bottlenecks.ts <runId>
@@ -18,7 +12,7 @@ import {
 
 const ms = (n: number | null): string => (n == null ? "   n/a" : `${Math.round(n)}ms`);
 
-/** Fraction of wall-clock a bucket accounts for, when wall-clock is known. */
+/** A bucket's share of wall-clock time, when that is known. */
 function pct(part: number, whole: number | null): string {
   if (!whole || whole <= 0) return "";
 

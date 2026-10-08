@@ -92,7 +92,7 @@ export function ComposerToolbar({
       <div className="flex items-center gap-1">
         {mic.recording ? (
           <>
-            {/* Voice mode: X discards the take, ✓ sends it to transcription. */}
+            {/* X discards the take; ✓ sends it to transcription. */}
             <Tip label="Discard recording">
               <ComposerIcon label="Discard recording" onClick={mic.cancel}>
                 <X size={14} />

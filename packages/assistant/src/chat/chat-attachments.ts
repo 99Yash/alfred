@@ -12,17 +12,9 @@ import { readObject, sniffPassThroughImageMime } from "./attachments";
 import type { AgentDbExecutor } from "@alfred/assistant/execution";
 
 /**
- * The attachment half of the chat transcript (ADR-0065): what a stored message
- * carries, and how those stored references become model-ready content parts
- * immediately before each provider call.
- *
- * The durable transcript stores object *keys*, never bytes — a checkpoint full
- * of base64 images would be unusable, and the keys have to survive a park. So
- * hydration is a per-request step with a hard per-turn byte budget
- * ({@link MAX_MODEL_ATTACHMENT_BYTES_PER_TURN}) and three distinct ways an image
- * can be dropped: over budget, unreadable, or not a supported image. Each drop
- * substitutes a text part saying which, so the model never silently loses an
- * attachment it was told about.
+ * Chat transcript attachments (ADR-0065). The stored transcript holds object keys,
+ * never bytes; bytes are inlined per request under a per-turn budget.
+ * A dropped image becomes a text part that says why, so no drop is silent.
  */
 
 /** A `ready` attachment as the transcript builder needs it. */
@@ -47,7 +39,6 @@ interface StoredChatAttachmentImagePart {
 
 type StoredChatContentPart = { type: "text"; text: string } | StoredChatAttachmentImagePart;
 
-/** Running per-turn accounting, and the tally behind the three skip warnings. */
 export interface AttachmentHydrationBudget {
   usedEncodedBytes: number;
   skippedImages: number;
@@ -61,11 +52,7 @@ interface HydratedAttachmentImage {
   encodedBytes: number;
 }
 
-/**
- * Reading an object's bytes back out of storage. Injectable so the budget
- * accounting and every skip reason are directly testable without object
- * storage; production resolves it to {@link readObject}.
- */
+/** Injectable for tests; production uses {@link readObject}. */
 export type StoredObjectReader = (storageKey: string) => Promise<Uint8Array>;
 
 function storedAttachmentImagePart(
@@ -97,12 +84,7 @@ function isStoredAttachmentImagePart(value: unknown): value is StoredChatAttachm
   );
 }
 
-/**
- * Load the `ready` attachments for a set of messages, grouped by message id.
- * Only `ready` rows are folded into the model context — `pending` (still
- * degrading) and `failed` rows are skipped, so a slow degrade can't block the
- * turn (ADR-0065's bounded-await / graceful-partial posture).
- */
+/** Load `ready` attachments by message id. Skipping `pending` keeps a slow degrade from blocking the turn. */
 export async function loadReadyAttachments(
   userId: string,
   messageIds: string[],
@@ -153,19 +135,9 @@ export async function loadReadyAttachments(
 }
 
 /**
- * Where image attachments live in a thread, split by the recovery the UI can
- * offer (ADR-0072). The whole thread is replayed every turn
- * (.lessons/chat-vision-transcript-replay-poison.md), so a provider image-reject
- * can be caused by the current turn's image (droppable via "Send without it") OR
- * by an earlier turn's image (the retry can't reach it — only a new chat can).
- * Returns both so `classifyChatFailure` picks the honest kind.
- *
- * Lives here rather than with the classifier because "which rows count as an
- * image" is this module's answer, and it has to stay the one
- * {@link buildStoredContentParts} gives: a pass-through image mime, or a
- * degraded modality that contributed keyframe images. A new way to contribute
- * image bytes has to change both. Joins through `chat_messages` because
- * `chat_attachments` is keyed by message, not thread.
+ * Whether this turn and older turns carry images (ADR-0072). The thread replays each
+ * turn, so an old image can fail a new turn, and only a new chat removes it.
+ * "Counts as an image" must match {@link buildStoredContentParts}.
  */
 export async function threadImageAttachments(
   userId: string,
@@ -199,14 +171,7 @@ export async function threadImageAttachments(
   return { currentTurn, historical };
 }
 
-/**
- * Build an AI-SDK content-parts array for a user message that has attachments:
- * the typed text first, then each attachment's contribution. The durable
- * transcript stores object keys, not bytes; {@link hydrateTranscriptForModel}
- * reads each object's bytes back and inlines them immediately before each model
- * call. A degraded modality (Phase 2/3) contributes its extracted `degradedText`
- * plus any keyframe images.
- */
+/** Text first, then each attachment's parts, as keys. {@link hydrateTranscriptForModel} inlines the bytes. */
 export function buildStoredContentParts(
   text: string,
   attachments: ReadyAttachment[],
@@ -233,7 +198,7 @@ export function buildStoredContentParts(
   return parts;
 }
 
-/** Base64 expands 3 bytes to 4 characters; the budget is counted in those. */
+/** The budget counts base64 size: 3 bytes become 4 characters. */
 function encodedImageBytes(rawBytes: number): number {
   return Math.ceil(rawBytes / 3) * 4;
 }
@@ -283,14 +248,8 @@ async function hydrateContentForModel(
       continue;
     }
 
-    // Inline the bytes (ADR-0065 "bytes path") instead of a presigned URL: the
-    // providers can't fetch our private, short-lived Railway storage URLs, so a
-    // URL-valued image part fails the turn (boss + fallback alike). Encode as a
-    // base64 string rather than a raw Uint8Array so the fallback cascade can
-    // replay the same message objects without sharing mutable byte buffers.
-    //
-    // When the stored part declares its size, spend the budget check BEFORE the
-    // read: an image already known to overflow is not worth fetching.
+    // Providers cannot fetch our private URLs, so inline base64. A string, not a
+    // Uint8Array: the fallback replays the same objects. Skip a known overflow before the read.
     const projectedEncodedBytes =
       part.byteSize !== undefined ? encodedImageBytes(part.byteSize) : null;
 
@@ -330,9 +289,7 @@ async function hydrateContentForModel(
       continue;
     }
 
-    // Re-check against the real encoded size: an undeclared `byteSize` skipped
-    // the projection above, and a declared one is only the raw size the uploader
-    // recorded.
+    // Check the real size too: `byteSize` can be missing or wrong.
     if (budget.usedEncodedBytes + hydrated.encodedBytes > MAX_MODEL_ATTACHMENT_BYTES_PER_TURN) {
       budget.skippedImages += 1;
       parts.push({
@@ -350,19 +307,8 @@ async function hydrateContentForModel(
 }
 
 /**
- * Inline every stored attachment image in a transcript, newest message first, up
- * to the per-turn byte budget.
- *
- * The reverse order is the budget policy: when a long thread carries more image
- * bytes than one request may hold, the images the user is most likely asking
- * about — the ones on the latest turns — are the ones that survive. Messages are
- * returned in their original order.
- *
- * Whatever the budget dropped is warned about here, once per skip reason: a
- * caller that forgets to report the drops is the only way a silently shortened
- * turn goes unnoticed, so reporting is not the caller's to forget. The budget is
- * returned alongside the transcript so tests can assert the accounting without
- * re-deriving it.
+ * Inline images newest first, so the latest turns win the budget. Message order is kept.
+ * Warns here about drops, so no caller can forget to.
  */
 export async function hydrateTranscriptForModel(
   transcript: readonly AgentTranscriptMessage[],

@@ -28,29 +28,11 @@ import {
 import { closeNarrationSegment, interruptChatRun, type ChatRunState } from "./chat-turn-state";
 
 /**
- * The chat turn's finalize boundary: everything that has to happen between "the
- * model produced an answer" and "the turn may persist it and complete", in the
- * order it happens.
- *
- * Each guard returns a `StepResult` to take over finalization (park, or
- * regenerate an informed/honest answer) or `null` to stand aside. They have
- * identical signatures, which is exactly why the order needs to be *data*:
- * before {@link FINALIZE_GUARD_SEQUENCE} the ordering lived only in the
- * comments between two consecutive `await`s, and a caller could reorder them
- * without anything complaining.
- *
- * The guards' own preconditions were the same hazard one step earlier — two
- * bare statements the workflow ran under a comment saying they had to come
- * first. {@link crossFinalizeBoundary} is the whole boundary, so the only way
- * to reach a guard is through the work that has to precede it.
+ * The work between "the model answered" and "the turn may complete".
+ * Each guard returns a `StepResult` to take over (park or regenerate), or `null`.
  */
 
-/**
- * The `childRunId` argument of a `system.await_sub_agent` call, if present. A
- * successful await hands the boss the child's real outcome as a normal tool
- * result in-transcript, so the child is already accounted for — see the
- * finalization-guard accounting at the dispatch-tools commit pass.
- */
+/** The `childRunId` argument of a `system.await_sub_agent` call, if present. */
 export function awaitedChildRunId(input: unknown): string | null {
   if (!isRecord(input)) return null;
   const id = input.childRunId;
@@ -65,18 +47,10 @@ function renderChildOutcome(value: unknown): string {
   return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}…` : text;
 }
 
-/**
- * Runtime note folding a finished-but-unawaited child's outcome back to the
- * boss, so a regenerated answer is informed by it. Appended with
- * `appendSystemNote` (there is no matching tool-call id to attach a real tool
- * result to — the boss never called `await_sub_agent`).
- */
+/** A note that hands an unawaited child's outcome to the boss. No tool call exists to attach it to. */
 function syntheticChildResultNote(childRunId: string, outcome: ChildRunOutcome): string {
   if (!isTerminalChildStatus(outcome.status)) {
-    // Folded WITHOUT a terminal result: the join gave up parking because it
-    // couldn't schedule the dead-man timer ("disabled"/"failed") or the child
-    // outran the wait-ceiling. Tell the boss to answer honestly with what it has
-    // rather than inventing a result it never received.
+    // The join gave up: no dead-man timer, or the child outran the wait ceiling.
     const why = outcome.reason ? ` (${outcome.reason})` : ` (still ${outcome.status})`;
 
     return (
@@ -99,33 +73,16 @@ function syntheticChildResultNote(childRunId: string, outcome: ChildRunOutcome):
 }
 
 /**
- * Close the model's premature (uninformed / possibly false-success) answer into a
- * narration segment and advance the live client off it, shared by both finalize
- * guards. The trigger differs — an uninformed child-await answer vs a
- * false-success tool-failure answer — but the closure is identical: the segment
- * close below, then a zero-length `chat.delta` on the new segment.
- *
- * The zero-length delta is load-bearing: that premature text already streamed to
- * the client as a `chat.delta`, and `use-chat-stream` only advances `currentSegment`
- * on a HIGHER-segment delta. Without it the client keeps rendering the answer the
- * guard just rejected as the live reply — the premature text drops into the
- * narration trail (matching the server state we just wrote) and the live answer
- * area clears back to the working indicator until the informed reply streams in.
- *
- * Returns whether it closed (non-empty text) so `guardSpawnedChildren` can keep its
- * transcript-tail strip decision; `guardUnreportedToolFailures` ignores the result.
- * `publish` is injected (both guards resolve it to `publishEvent`) so the guards'
- * tests keep working without a live event bus.
+ * Move a rejected answer into narration, then publish an empty `chat.delta` on the new segment.
+ * The client advances segments only on a higher-segment delta, so without it the
+ * rejected text stays on screen as the live reply. Returns whether it closed.
  */
 async function closePrematureAnswerSegment(
   ctx: StepContext<ChatRunState>,
   state: ChatRunState,
   publish: typeof publishEvent,
 ): Promise<boolean> {
-  // The turn's other close is `closeLeadInNarration`; these two fields are the
-  // whole difference between them (see `NarrationClose` in `./chat-turn-state`).
-  // Rejected prose already streamed, so it is kept; and with nothing closed
-  // there is no new segment for the delta below to advance the client onto.
+  // Rejected prose already streamed, so keep it. With nothing closed there is no segment to advance to.
   const closed = closeNarrationSegment(state, {
     keepText: true,
     advanceWhenNothingKept: false,
@@ -150,13 +107,7 @@ async function closePrematureAnswerSegment(
   return true;
 }
 
-/**
- * The I/O is injectable purely so the runtime invariant can be unit-tested
- * (timer-scheduling failure, ceiling expiry, terminal folding, the live segment
- * transition) without a DB or Redis; production always uses the real impls.
- * `readOutcome`/`scheduleWake` are forwarded to {@link joinChildRun}, which owns
- * the sequence they participate in.
- */
+/** Injectable I/O for tests. `readOutcome` and `scheduleWake` go to {@link joinChildRun}. */
 export interface GuardSpawnedChildrenDeps extends JoinChildRunDeps {
   listChildren: typeof listSpawnedChildRuns;
   publish: typeof publishEvent;
@@ -170,27 +121,9 @@ const defaultGuardSpawnedChildrenDeps: GuardSpawnedChildrenDeps = {
 };
 
 /**
- * ADR-0073 finalization guard (#268 runtime invariant). The prompt tells the
- * boss to `await_sub_agent` every child it spawns, but a prompt is not a
- * guarantee — if it skips the await and tries to finalize, the parent would
- * answer while its children still run (the abandonment bug). This makes the
- * await load-bearing at the finalize boundary:
- *
- *  - Folds every newly-terminal spawned child's outcome into the transcript so a
- *    regenerated reply is actually informed by it.
- *  - If any spawned child is still running, parks the turn on its completion
- *    signal (with a dead-man timer backstop) instead of finalizing — the turn
- *    CANNOT complete while a child it spawned is non-terminal.
- *  - Once all children are terminal and folded, loops back to regenerate an
- *    informed answer (one regeneration; see `chatTurnCapVerdict`).
- *
- * The park-or-fold decision per child is {@link joinChildRun}, shared verbatim
- * with the `await_sub_agent` tool — including the rule that a child which cannot
- * get a dead-man timer is folded rather than parked on.
- *
- * Returns a `StepResult` to take over finalization, or `null` to let the caller
- * finalize normally. Gated on an actual spawn this turn, so a turn with no
- * sub-agents pays nothing.
+ * The parent never answers while a child it spawned still runs (ADR-0073).
+ * Park on a running child; fold finished ones and regenerate. {@link joinChildRun}
+ * decides park or fold, the same as `await_sub_agent`.
  */
 export async function guardSpawnedChildren(
   ctx: StepContext<ChatRunState>,
@@ -210,9 +143,7 @@ export async function guardSpawnedChildren(
   if (unfolded.length === 0) return null;
 
   const foldNotes: string[] = [];
-  // The signals the join minted, not the child ids — the park below can only be
-  // built from something {@link joinChildRun} handed back, so this guard never
-  // re-derives a signal name it might not have earned a timer for.
+  // Only signals the join returned: each one has a timer behind it.
   const parkSignals: ParkSignal[] = [];
 
   for (const child of unfolded) {
@@ -226,36 +157,15 @@ export async function guardSpawnedChildren(
       continue;
     }
 
-    // Resolved: a real result, or an honest still-running note (ceiling expiry /
-    // `join_timer_unavailable`). Either way stop tracking the child — that is
-    // what keeps a stuck child from re-parking forever.
+    // Stop tracking a resolved child, so a stuck one cannot re-park forever.
     foldNotes.push(syntheticChildResultNote(child.id, join.outcome));
     state.foldedChildRunIds = [...state.foldedChildRunIds, child.id];
   }
 
-  // Close the model's premature (uninformed) answer into a narration segment so
-  // the eventual informed reply lands in a fresh segment instead of appending to
-  // the abandoned text, and advance the live client off it. (At the finalize
-  // boundary `assistantText` is always non-empty; the guard only runs after the
-  // empty-text check. `closePrematureAnswerSegment` still gates on non-empty
-  // text to stay correct if re-ordered.)
   const closedPrematureAnswer = await closePrematureAnswerSegment(ctx, state, deps.publish);
 
-  // The premature assistant answer we just closed into narration is still the
-  // tail of `transcript` (`appendModelResponseMessages` appended it before the
-  // guard ran). Drop it so the transcript we forward never ends in that
-  // assistant message. This is load-bearing on the PARK path: the parked
-  // transcript becomes `ctx.transcript` and the resumed step re-invokes the
-  // model with it (top of `chat-turn`) BEFORE this guard runs again to fold the
-  // now-terminal child. A transcript ending in an assistant message is an
-  // illegal prefill under extended thinking — Anthropic 400s with "the
-  // conversation must end with a user message", which previously retried 9× and
-  // failed the turn ("Something interrupted this reply."). Stripping it leaves
-  // the tail at the tool results (park with no folds) or the synthetic user
-  // fold (folds present), both legal turn-enders, and keeps the regenerated
-  // reply from being anchored to the uninformed answer. `state.narration`
-  // already carries that text for the UI, so nothing is lost. Several folds
-  // join one note (`appendSystemNote`), never a run of user turns.
+  // Drop the rejected answer from the tail. A resumed park sends this transcript to
+  // the model, and with extended thinking Anthropic 400s on a trailing assistant message.
   const baseTranscript =
     closedPrematureAnswer && transcript.at(-1)?.role === "assistant"
       ? transcript.slice(0, -1)
@@ -297,31 +207,8 @@ function nonExecutionRecoveredByLaterSuccess(
 }
 
 /**
- * #346 honesty guard. The completion path only checks that the assistant
- * produced *some* text — nothing structurally stops a weak model from streaming
- * "I've created your spreadsheet" over a turn whose every write failed (trace
- * `run_9ff8bcw13vba`: 4 failed Sheets writes, final text claimed success). The
- * boss prompt now forbids this, but a prompt is not a guarantee; this makes it
- * load-bearing at the finalize boundary, mirroring {@link guardSpawnedChildren}:
- *
- *  - Finds mutating tool calls that failed this run. Reads (`no_risk`) are
- *    excluded: a failed lookup doesn't tempt a false "done" the way a failed
- *    write does, and regenerating for it would waste a turn. A later successful
- *    call is not proof of recovery unless the model can explain the recovery
- *    from the transcript; same tool names can target different side effects.
- *  - For any not yet surfaced, injects a `[system]` note naming them and telling
- *    the boss not to claim they succeeded, then loops back to regenerate an honest
- *    answer (one regeneration; see `chatTurnCapVerdict`).
- *  - Records the handled toolCallIds in `notedFailureToolCallIds` so it fires at
- *    most once per failure — the regenerated turn sees them as noted and finalizes,
- *    so there is no loop. (A genuinely new mutating failure on the regenerated turn
- *    is a fresh toolCallId and is correctly surfaced again.)
- *
- * Returns a `StepResult` to take over finalization, or `null` to let the caller
- * finalize normally. A turn with no failed mutating calls pays nothing.
- *
- * `isMutating`/`publish` are injectable purely so the invariant can be unit-tested
- * (the registry is populated at boot) without a live tool registry or event bus.
+ * Honesty guard (#346): a failed write must not finalize under a "done" reply.
+ * Notes each failed mutating call once and regenerates. Reads are skipped.
  */
 export async function guardUnreportedToolFailures(
   ctx: StepContext<ChatRunState>,
@@ -334,10 +221,7 @@ export async function guardUnreportedToolFailures(
   const unreported = state.toolCallsLog.filter(
     (t, index) =>
       t.status === "failed" &&
-      // A schema-invalid / unknown-tool call never executed a side effect — the
-      // model may self-correct it, and the prompt says not to narrate internal
-      // retries. Skip only when the log shows that correction actually happened;
-      // a lone malformed write call can still lead to a false "done" answer.
+      // Skip a never-executed call only when a later call of the same tool succeeded.
       !nonExecutionRecoveredByLaterSuccess(state.toolCallsLog, index) &&
       !state.notedFailureToolCallIds.includes(t.toolCallId) &&
       guardDeps.isMutating(t.toolName),
@@ -350,11 +234,6 @@ export async function guardUnreportedToolFailures(
     ...unreported.map((t) => t.toolCallId),
   ];
 
-  // Close the premature (possibly false-success) answer into a narration segment
-  // so the regenerated honest reply lands in a fresh segment instead of appending
-  // to the rejected text, and advance the client off it with a zero-length delta.
-  // Same closure protocol as guardSpawnedChildren; this guard doesn't need the
-  // return value (no transcript-tail strip here).
   await closePrematureAnswerSegment(ctx, state, guardDeps.publish);
 
   const names = [...new Set(unreported.map((t) => t.toolName))].join(", ");
@@ -378,10 +257,7 @@ export async function guardFalseProvenance(
   state: ChatRunState,
   transcript: AgentTranscriptMessage[],
 ): Promise<StepResult<ChatRunState> | null> {
-  // Stateless by design: no latch. A regenerated answer that repeats the
-  // unsupported claim must trip the guard again, or the guard would ask once
-  // and then accept the same false claim. Regeneration is bounded by the
-  // turn-loop cap, not by this guard.
+  // No latch: a repeated false claim must trip it again. The turn cap bounds the loop.
   const reply = state.assistantText;
 
   const claimsMcpUse =
@@ -424,13 +300,8 @@ export async function guardFalseProvenance(
     .filter((call) => call.toolName === "mcp.call" && call.status === "succeeded")
     .map((call) => call.toolCallId);
 
-  // Authority keys on the authorizing staging row, never the invocation's
-  // denormalized copies: model-dispatched invocations have a unique staging FK,
-  // and `(runId, toolCallId)` carries its own unique index — while
-  // `traceId`/`toolCallId` on the invocation are observability-only (unindexed,
-  // no FK) in the schema. Owner-approved health reads have no staging row and
-  // are excluded by the inner join. A drifted copy cannot grant authority the
-  // staging row denies.
+  // Match on the staging row, not the invocation's unindexed `toolCallId` copy.
+  // The inner join also excludes owner-approved health reads, which have no staging row.
   const completedInvocation =
     claimsMcpUse && successfulMcpCallIds.length > 0
       ? await db()
@@ -490,30 +361,15 @@ interface FinalizeGuard {
 }
 
 /**
- * The declared order every chat turn's finalize boundary runs its guards in.
- *
- * The guards have identical signatures, so nothing but this list stops a
- * caller from reordering them, and the order is not arbitrary:
- * `guardSpawnedChildren` may PARK the turn on a still-running child, and a
- * parked turn must not first have spent a regeneration on the honesty note —
- * that note would be re-injected on the resumed turn against a transcript the
- * child's fold has since changed. The child guard also strips the premature
- * assistant tail from the transcript it forwards, which the honesty guard's
- * append then builds on. So: children first, honesty second.
- *
- * A guard added here inherits both properties (first non-null wins, order is
- * reviewable as data) rather than becoming a third `await` in a comment chain.
+ * Guard order; the first non-null result wins. Children go first: a turn that
+ * parks on a child must not spend a regeneration on the honesty note.
  */
 export const FINALIZE_GUARD_SEQUENCE: readonly FinalizeGuard[] = [
   {
-    // ADR-0073 runtime invariant: before completing, never let the parent answer
-    // while a sub-agent it spawned is still running.
     id: "spawned_children",
     run: (ctx, state, transcript) => guardSpawnedChildren(ctx, state, transcript),
   },
   {
-    // #346 honesty guard: never finalize a turn that claims success while a
-    // mutating tool call net-failed.
     id: "unreported_tool_failures",
     run: (ctx, state, transcript) => guardUnreportedToolFailures(ctx, state, transcript),
   },
@@ -525,38 +381,13 @@ export const FINALIZE_GUARD_SEQUENCE: readonly FinalizeGuard[] = [
 
 /** The one effect the finalize boundary cannot perform for itself. */
 export interface FinalizeBoundaryDeps {
-  /**
-   * Release the reply deltas the #407 reissue gate withheld during the drain.
-   * This is `releaseWithheldReply` from `./stream-model-turn`, which only the
-   * step holding the live stream can hand over; the boundary calls it (after
-   * clearing the flag) before any guard runs, so the caller never does.
-   */
+  /** `releaseWithheldReply` from `./stream-model-turn`. Only the step that holds the stream has it. */
   readonly releaseWithheldReply: () => Promise<void>;
 }
 
 /**
- * Cross the chat turn's finalize boundary: everything a turn that produced
- * user-visible text must do before it is allowed to persist and complete.
- * Returns the first result that takes over finalization, or `null` when the
- * boundary is clear and the caller may complete the turn.
- *
- * Three things happen here, in this order, and the order is why they are one
- * function instead of three statements above the loop:
- *
- *  1. **Release a withheld reply.** If a reissue was pending (#407) the model
- *     answered instead of reissuing, so this text is the real reply, not an
- *     internal lead-in. Clear the flag — the stream's flush gate reads it, so
- *     releasing first silently publishes nothing — then release. This must
- *     precede the guards: a guard closes `assistantText` into a narration
- *     segment and bumps `segmentIndex`, and deltas released afterwards would
- *     land on the wrong segment, on text the guard already rejected.
- *  2. **Refresh the retry budgets.** Both guards can regenerate another chat
- *     turn, and that turn must start with a fresh consecutive-failure budget.
- *  3. **Run {@link FINALIZE_GUARD_SEQUENCE}.**
- *
- * Guards mutate `state` in place and each sees the transcript as the caller
- * built it; a guard that takes over owns the transcript it returns, so no later
- * guard runs against a transcript a taking-over guard has already rewritten.
+ * Run everything a turn with visible text must do before it completes.
+ * Returns the first guard result that takes over, or `null`.
  */
 export async function crossFinalizeBoundary(
   ctx: StepContext<ChatRunState>,
@@ -564,11 +395,14 @@ export async function crossFinalizeBoundary(
   transcript: AgentTranscriptMessage[],
   deps: FinalizeBoundaryDeps,
 ): Promise<StepResult<ChatRunState> | null> {
+  // The model answered instead of reissuing (#407), so release the real reply.
+  // Clear the flag first: the flush gate reads it. Release before the guards move the segment.
   if (state.reissuePending) {
     state.reissuePending = false;
     await deps.releaseWithheldReply();
   }
 
+  // A guard may regenerate, and that turn needs fresh budgets.
   resetChatTurnRetryBudgets(state);
 
   for (const guard of FINALIZE_GUARD_SEQUENCE) {

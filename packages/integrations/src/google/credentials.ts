@@ -8,21 +8,11 @@ import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { GoogleReauthRequiredError, refreshAccessToken } from "./oauth";
 
 /**
- * Persistence + freshness layer for Google `integration_credentials`.
- * Callers ask for an access token via `getFreshAccessToken(credentialId)`
- * and don't worry about expiry — this module refreshes on demand and
- * writes the new token back atomically.
- *
- * Refresh-on-demand (vs background cron) keeps the implementation small
- * at single-user scale; a missed cron tick won't bury a request.
- *
- * This module is also one of the three owners of credential encryption at rest
- * (#453): tokens are sealed immediately before they are written and opened
- * immediately after they are read, so the public signatures below still hand
- * callers a usable token in memory and nothing downstream learns the envelope.
+ * Google credential storage. `getFreshAccessToken` refreshes on demand, not on a cron.
+ * Tokens are sealed right before a write and opened right after a read (#453).
  */
 
-/** Refresh when fewer than this many seconds remain on the token. */
+/** Refresh when less than one minute remains. */
 const REFRESH_THRESHOLD_MS = 60_000;
 
 type DbExecutor =
@@ -39,33 +29,22 @@ export interface UpsertCredentialsArgs {
   expiresAt: Date;
   scopes: string[];
   metadata?: JsonObject | undefined;
-  /**
-   * Account persona (ADR-0051 #3): `'work' | 'personal'`, auto-detected from
-   * the Google `hd` claim at connect. Omitted leaves the column untouched on
-   * update so a user override survives a token re-connect.
-   */
+  /** Detected from `hd`. Omit to keep the column, so a user override survives a reconnect. */
   persona?: AccountPersona | null | undefined;
 }
 
-/**
- * Insert or update the credential row for `(user, provider, account)`.
- * The unique index makes this a clean upsert: re-connecting the same
- * Google account replaces the row in place rather than creating a
- * duplicate.
- */
+/** A reconnect of the same account updates the row in place. */
 export async function upsertCredential(
   args: UpsertCredentialsArgs,
   ex: DbExecutor = db(),
 ): Promise<{ id: string }> {
   const vault = credentialVault();
-  // Seal once and reuse: the insert and the on-conflict update carry the same
-  // two secrets, and each `seal` draws a fresh DEK and nonces.
+  // Seal once: each `seal` draws a fresh DEK and nonces.
   const sealedAccessToken = vault.seal(args.accessToken);
   const sealedRefreshToken = vault.seal(args.refreshToken);
 
   const updateSet: PgUpdateSetSource<typeof integrationCredentials> = {
     accessToken: sealedAccessToken,
-    // A re-connect issues a new refresh token; honour it.
     refreshToken: sealedRefreshToken,
     expiresAt: args.expiresAt,
     scopes: args.scopes,
@@ -76,8 +55,7 @@ export async function upsertCredential(
     updatedAt: new Date(),
   };
 
-  // Persona: fill only when currently NULL, so a re-connect (which re-detects
-  // from `hd`) never clobbers a user override (ADR-0051 #3).
+  // Fill persona only when NULL, so a reconnect never overwrites a user override.
   if (args.persona !== undefined) {
     updateSet.persona = sql`COALESCE(${integrationCredentials.persona}, ${args.persona ?? null})`;
   }
@@ -134,9 +112,6 @@ async function loadCredential(
   ex: DbExecutor = db(),
   lockForUpdate = false,
 ): Promise<StoredCredentialRow | null> {
-  // Narrowed to the columns this function returns: a `select()` of the whole
-  // row would drag two ciphertexts through every caller that only wanted a
-  // status.
   const query = ex
     .select({
       id: integrationCredentials.id,
@@ -195,15 +170,8 @@ type RefreshResolution =
   | { kind: "reauth"; error: GoogleReauthRequiredError };
 
 /**
- * Resolve a usable access token for a credential. Refreshes when within
- * the threshold of expiry. Throws when the row is gone or revoked — the
- * caller treats that as "ask the user to re-connect."
- *
- * Provider clients use this internally. Tool code enters through
- * `ctx.integrations.google` and never receives the returned token.
- *
- * @internal Credential boundary for provider clients and non-tool background
- * callers that do not have a ToolExecuteContext.
+ * A usable token, refreshed when near expiry. Throws when the row is gone or not active.
+ * @internal For provider clients and background callers with no ToolExecuteContext.
  */
 export async function getFreshAccessToken(credentialId: string): Promise<string> {
   const current = requireActiveCredential(await loadCredential(credentialId), credentialId);
@@ -211,9 +179,7 @@ export async function getFreshAccessToken(credentialId: string): Promise<string>
   if (!isExpiringSoon(current)) return current.accessToken;
 
   const resolution = await db().transaction(async (tx): Promise<RefreshResolution> => {
-    // Refreshes are rare, but several workers or replicas can discover the
-    // same expiring credential together. Lock and re-read so exactly one of
-    // them calls Google; followers use the token written by the leader.
+    // Lock and re-read so only one worker calls Google; the others use its token.
     const cred = requireActiveCredential(
       await loadCredential(credentialId, tx, true),
       credentialId,
@@ -227,17 +193,13 @@ export async function getFreshAccessToken(credentialId: string): Promise<string>
       refreshed = await refreshAccessToken(cred.refreshToken);
     } catch (err) {
       if (err instanceof GoogleReauthRequiredError) {
-        // A dead refresh token fails on every poll. Flip the credential out of
-        // "active" so `findCredentialsNeedingPoll` stops re-enqueuing the same
-        // doomed job each sweep (the silent 5-min failure loop that took Gmail
-        // ingestion dark for 36h), and the UI can surface a reconnect prompt.
+        // Leave "active" so `findCredentialsNeedingPoll` stops retrying and the UI asks to reconnect.
         await tx
           .update(integrationCredentials)
           .set({ status: "needs_reauth" })
           .where(eq(integrationCredentials.id, credentialId));
 
-        // Return the error so the transaction commits the status change before
-        // the public function rethrows it.
+        // Return, not throw, so the status change commits.
         return { kind: "reauth", error: err };
       }
 
@@ -250,7 +212,7 @@ export async function getFreshAccessToken(credentialId: string): Promise<string>
         accessToken: credentialVault().seal(refreshed.accessToken),
         refreshToken: credentialVault().seal(refreshed.refreshToken ?? cred.refreshToken),
         expiresAt: refreshed.expiresAt,
-        // Don't overwrite scopes from refresh — Google sometimes omits them.
+        // Google sometimes omits scopes on refresh.
         scopes: refreshed.scopes.length ? refreshed.scopes : cred.scopes,
         lastRefreshedAt: new Date(),
       })
@@ -272,8 +234,7 @@ export async function listCredentials(
     ? and(eq(integrationCredentials.userId, userId), eq(integrationCredentials.provider, provider))
     : eq(integrationCredentials.userId, userId);
 
-  // Presence, not value: this function reports which accounts are connected, so
-  // the refresh-token test is answered in SQL and no ciphertext leaves Postgres.
+  // Test presence in SQL so no ciphertext leaves Postgres.
   const rows = await db()
     .select({
       id: integrationCredentials.id,

@@ -1,13 +1,9 @@
 /**
- * COMMITTED Gmail observation backfill (user-model P1, issue #218 — PR D).
+ * Reduce stored Gmail `documents` into ADR-0067 `email_message` observations (#218).
+ * Local replay only: no Gmail calls, no label changes. Writes go through the
+ * observation append helper, which validates and handles supersession.
  *
- * Reduces already-stored Gmail `documents` into ADR-0067 `email_message`
- * observations. This script does not call Gmail and does not touch mailbox
- * labels; it is a replay over local `documents` only. Writes route through the
- * user-model observation append helper, which validates the reducer output and
- * owns family supersession / CAS retry.
- *
- * Dry by default. `--commit` is required to write observations.
+ * Dry by default. `--commit` writes.
  *
  *   # preview personal mailbox:
  *   node dist/scripts/backfills/backfill-gmail-observations-committed.js --emails=yashgouravkar@gmail.com
@@ -318,7 +314,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

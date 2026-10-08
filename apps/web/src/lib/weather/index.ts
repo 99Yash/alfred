@@ -1,32 +1,7 @@
 /**
- * Browser-side weather lookup.
- *
- * Location resolves in two tiers (see `resolveLocation`):
- *   1. **Browser geolocation** (`navigator.geolocation`) — the device's
- *      real GPS/WiFi position, reverse-geocoded to a city name via
- *      BigDataCloud. Accurate to the actual location, gated by a one-time
- *      permission prompt. Preferred when granted.
- *   2. **IP geolocation** (`get.geojs.io/v1/ip/geo.json`) — fallback when
- *      the user denies/dismisses the prompt, the device can't get a fix,
- *      or geolocation is unavailable (insecure origin, no sensor). No
- *      permission, no auth, CORS-open. Coarse: it reports whatever city
- *      the ISP registers the IP to, which for residential connections can
- *      be a different city entirely (e.g. a BSNL IP in Bhubaneswar that
- *      registers to Angul). That inaccuracy is exactly why the browser
- *      tier comes first.
- *
- * Weather then comes from `api.open-meteo.com` — current temperature +
- * WMO weather code for the resolved coordinates. No auth, CORS-open.
- *
- * If the weather call fails (network, rate-limit) the caller (react-query)
- * surfaces it; the weather line hides itself.
- *
- * History: we used `ipapi.co` originally — they now serve 429s without
- * CORS headers on the free tier, which the browser reports as a CORS
- * error. Don't reintroduce it without proxying through our API.
- *
- * Provider payloads are untrusted: each response is parsed through the wire
- * schemas in `./schemas` at the owning fetch, never cast.
+ * Browser weather: location from geolocation (city via BigDataCloud), else IP via geojs,
+ * then open-meteo. IP is a last resort because an ISP can register an IP to another city.
+ * Do not use `ipapi.co` without a proxy: its free-tier 429s carry no CORS headers.
  */
 
 import {
@@ -50,15 +25,11 @@ const FAHRENHEIT_REGIONS = new Set(["US", "BS", "BZ", "KY", "PW", "FM", "MH", "L
 interface ResolvedLocation {
   lat: number;
   lon: number;
-  /** City name, region name, or a coordinate label — whatever the rail can display. */
+  /** A city, a region, or a coordinate label. */
   label: string;
 }
 
-/**
- * GET a JSON body from a provider with the shared timeout. Throws a labeled
- * error on non-2xx or malformed JSON; the caller decides whether that is a
- * hard failure or a reason to fall back.
- */
+/** Throws a labeled error on non-2xx or bad JSON. */
 async function fetchJson<T>(url: URL, source: string): Promise<T> {
   const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
 
@@ -71,11 +42,7 @@ async function fetchJson<T>(url: URL, source: string): Promise<T> {
   }
 }
 
-/**
- * Pick Celsius or Fahrenheit from the browser's locale. Falls back to C
- * for anything we can't resolve. Countries listed here use Fahrenheit
- * for everyday temperatures.
- */
+/** Fahrenheit for the listed countries, else Celsius. */
 function preferredTemperatureUnit(): TemperatureUnit {
   if (typeof navigator === "undefined") return "C";
 
@@ -89,15 +56,7 @@ function preferredTemperatureUnit(): TemperatureUnit {
   }
 }
 
-/**
- * Ask the browser for the device's real position. Resolves to `null`
- * (rather than rejecting) on denial, timeout, unavailable sensor, or an
- * insecure origin — every one of those just means "fall back to IP".
- *
- * `maximumAge` accepts a fix up to 10 min old so a returning user isn't
- * re-prompted for a fresh GPS lock; `timeout` caps the wait so a device
- * that never gets a fix doesn't hang the chip.
- */
+/** `null` on any failure, which means "fall back to IP". Accepts a fix up to 10 minutes old. */
 function getBrowserCoords(): Promise<{ lat: number; lon: number } | null> {
   if (typeof navigator === "undefined" || !navigator.geolocation) {
     return Promise.resolve(null);
@@ -108,12 +67,7 @@ function getBrowserCoords(): Promise<{ lat: number; lon: number } | null> {
       (pos) => {
         const { latitude: lat, longitude: lon } = pos.coords;
 
-        // "Null Island" guard: a fix at (0,0) is a no-data sentinel from
-        // the OS location service, not a real position — reverse-geocoding
-        // it labels the rail "Atlantic Ocean" (seen in the wild: Chrome
-        // returns it before macOS Location Services has a fix, and the
-        // 30-min cache then pins the bogus snapshot). Treat it as "no
-        // fix" so the caller falls back to IP geolocation instead.
+        // (0,0) means "no fix yet" (Chrome on macOS), not a place. Fall back to IP.
         if (Math.abs(lat) < 0.1 && Math.abs(lon) < 0.1) {
           resolve(null);
 
@@ -132,11 +86,7 @@ function getBrowserCoords(): Promise<{ lat: number; lon: number } | null> {
   });
 }
 
-/**
- * Coordinates → city name via BigDataCloud's free client endpoint (no
- * key, CORS-open). Returns `null` on any failure so the caller can decide
- * whether to keep the coords with a different label or fall back to IP.
- */
+/** City name for coordinates, or `null` on any failure. */
 async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
   try {
     const url = new URL("https://api.bigdatacloud.net/data/reverse-geocode-client");
@@ -155,7 +105,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
   }
 }
 
-/** IP-based location via geojs. Coarse fallback — see file header. */
+/** Coarse IP location. */
 async function ipLocation(): Promise<ResolvedLocation> {
   const data = await fetchJson(new URL("https://get.geojs.io/v1/ip/geo.json"), "geojs");
   const parsed = geoJsLocationSchema.safeParse(data);
@@ -171,14 +121,7 @@ async function ipLocation(): Promise<ResolvedLocation> {
   return { lat: latitude, lon: longitude, label };
 }
 
-/**
- * Resolve the user's location, preferring the browser's real position.
- *
- * When geolocation is granted we keep its coordinates even if the
- * reverse-geocode lookup fails — accurate weather with a coordinate label
- * still beats a wrong city. We only fall back to IP when the device gives
- * us no fix at all.
- */
+/** Keep real coordinates even without a city name; a coordinate label beats a wrong city. */
 async function resolveLocation(): Promise<ResolvedLocation> {
   const coords = await getBrowserCoords();
 

@@ -3,28 +3,12 @@ import { useState } from "react";
 import { cn } from "~/lib/utils";
 
 /**
- * The last-resort panel for a tool result no evidence spec maps: the raw
- * preview, pretty-printed and lightly colored.
- *
- * Deliberately NOT the markdown `CodeBlock`. That block is a fixed dark card in
- * both themes, which is the right call for code inside a reply — it is a
- * quoted artifact and reads as one. A tool result is neither quoted nor code:
- * it sits inside the activity trail, one row below a light evidence list, and a
- * black slab there reads as a different app. So this surface takes its colors
- * from the app tokens and follows the theme like everything around it.
- *
- * The coloring is a small local tokenizer rather than the Prism highlighter for
- * the same reason: `react-syntax-highlighter` emits inline styles, which no CSS
- * variable can reach, so a themed block is impossible through it. JSON needs
- * four token classes, which is small enough to own here.
+ * Last-resort panel: the raw preview, pretty-printed and colored with app tokens.
+ * Not `CodeBlock`, which is a dark card in both themes.
+ * Not Prism: `react-syntax-highlighter` emits inline styles that CSS variables cannot theme.
  */
 
-/**
- * One pass over pretty-printed JSON: a string (with the `:` that would make it
- * a key), a keyword, or a number. Everything the pattern does not match —
- * braces, commas, whitespace — falls through as plain punctuation, so the
- * tokenizer can never lose input.
- */
+/** A string (with an optional key `:`), a keyword, or a number. Unmatched text passes through as punctuation. */
 const JSON_TOKEN =
   /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
 
@@ -44,8 +28,7 @@ function tokenizeJson(json: string): JsonToken[] {
     const [whole, string, colon, keyword, number] = match;
 
     if (string !== undefined) {
-      // A string followed by `:` is a key — the thing a reader scans for — so
-      // it gets the strongest ink; a string value stays a value color.
+      // Keys get the strongest ink.
       tokens.push(
         colon
           ? { text: string, className: "font-medium text-app-fg-4" }
@@ -69,7 +52,7 @@ function tokenizeJson(json: string): JsonToken[] {
 
 export function ToolResultJson({
   json,
-  /** Plain text, not JSON: render it unstyled rather than tokenizing prose. */
+  /** Plain text: do not tokenize. */
   plain = false,
 }: {
   json: string;
@@ -79,8 +62,7 @@ export function ToolResultJson({
 
   const onCopy = () => {
     if (copied) return;
-    // Clipboard API rejects in insecure contexts — swallow rather than throw
-    // inside a render-driven handler.
+    // Clipboard rejects in insecure contexts; swallow it.
     navigator.clipboard.writeText(json).then(
       () => {
         setCopied(true);
@@ -120,17 +102,13 @@ export function ToolResultJson({
           />
         </span>
       </button>
-      {/* Capped rather than unbounded: an unmapped result can run to hundreds
-          of lines, and a trail row is not the place to scroll past one. The
-          cap keeps the reply below it reachable. */}
+      {/* Capped so a long result does not push the reply out of reach. */}
       <pre className="max-h-64 overflow-auto px-2.5 py-2 font-mono text-[11.5px] leading-[1.55] whitespace-pre-wrap">
         {plain ? (
           <span className="text-app-fg-3">{json}</span>
         ) : (
           tokenizeJson(json).map((token, i) => (
-            // A tokenizer's output has no domain identity to key by; the index
-            // IS the identity here, and the list is fully re-derived whenever
-            // the text changes.
+            // Tokens have no identity, and the list re-derives when the text changes.
             <span key={i} className={token.className}>
               {token.text}
             </span>

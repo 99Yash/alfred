@@ -7,7 +7,7 @@ import { client } from "~/lib/eden";
 import { useSkills } from "../use-skills";
 import { SkillRow } from "./skill-row";
 
-// Hoisted so AppButton doesn't see a fresh JSX node every render.
+// Hoisted so AppButton gets a stable node.
 const CREATE_SKILL_LEADING = <Plus size={14} />;
 
 export function SkillsPage() {

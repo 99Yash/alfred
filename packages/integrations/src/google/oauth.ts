@@ -14,52 +14,24 @@ import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
 export type { AccountPersona } from "@alfred/contracts";
 
 /**
- * OAuth 2.0 authorization-code helpers for Google. We avoid the
- * `googleapis` and `google-auth-library` packages — both are large and
- * carry transitive deps we don't need. Two HTTP calls (authorize URL +
- * token exchange) and one for refresh; this module is the entire flow.
- *
- * Per ADR-0009 implementation note: integration tokens live in their own
- * `integration_credentials` table, distinct from Better Auth's `account`.
+ * Google OAuth code flow without `googleapis`: authorize URL, code exchange, refresh.
+ * Tokens live in `integration_credentials`, not Better Auth's `account` (ADR-0009).
  */
 
 const AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth";
 
 const TOKEN_BASE = "https://oauth2.googleapis.com/token";
 
-/**
- * Identity scopes always requested — they key our credential rows
- * (`sub` from `openid`, `email` from `userinfo.email`) and don't carry
- * Gmail data access.
- */
+/** Always requested: `sub` and `email` key the credential rows. */
 const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.email"] as const;
 
-/**
- * The scope vocabulary — `GOOGLE_SCOPE`, {@link GOOGLE_FEATURE_SCOPES},
- * `GOOGLE_SCOPES`, {@link GoogleFeature}, and `GoogleScope` — lives in
- * `@alfred/contracts/google-scopes` so the integration registry can name the
- * scopes that prove a Google product is connected (ADR-0093). Every consumer
- * imports it from `@alfred/contracts`; this package does not re-export it. Only
- * the OAuth mechanics below (the grant resolution, the client, the refresh)
- * live here.
- */
-
 const ALL_FEATURES =
-  // SAFETY: GoogleFeature is `keyof typeof GOOGLE_FEATURE_SCOPES`, so
-  // Object.keys of that very table enumerates exactly those features.
+  // SAFETY: GoogleFeature is `keyof typeof GOOGLE_FEATURE_SCOPES`.
   Object.keys(GOOGLE_FEATURE_SCOPES) as GoogleFeature[];
 
 /**
- * Resolve the OAuth scope list for a set of features. Always includes
- * identity scopes; deduplicates the union across requested features.
- *
- * `undefined` (no arg) returns the union of every feature — the default
- * grant the onboarding connect uses. An explicit empty array returns
- * identity scopes ONLY; it does NOT fall back to the full union, so a
- * malformed `?features=,` parsing to `[]` requests nothing beyond identity
- * rather than silently widening the grant. `include_granted_scopes=true` on
- * the authorize URL means an incremental re-prompt later just merges into
- * the same grant.
+ * Identity scopes plus the scopes of each feature. `undefined` means every feature.
+ * An empty array means identity only, so a malformed `?features=,` does not widen the grant.
  */
 export function scopesForFeatures(features?: readonly GoogleFeature[]): string[] {
   const wanted = features ?? ALL_FEATURES;
@@ -73,21 +45,11 @@ export function scopesForFeatures(features?: readonly GoogleFeature[]): string[]
 }
 
 /**
- * The full Google grant: identity + every feature's scopes. This is what a
- * Google connection requests — the onboarding connect, the `buildAuthorizeUrl`
- * fallback, and the smoke script all resolve to this set.
- *
- * Alfred runs as a single Production-unverified tenant (ADR-0044, amended
- * 2026-06-08), so there is no public-app verification surface to minimize and
- * no scope-tier line to police. The earlier PUBLIC/RESTRICTED split existed
- * only to keep a someday-public app off Google's paid CASA review; that goal
- * was retired, so the split went with it. Scopes are still selectable
- * per-feature via `scopesForFeatures(features)` for targeted reconnects, and
- * `requireScopes()` still gates each tool on its feature's scopes.
+ * Identity plus every feature. Alfred is a single unverified Production tenant, so
+ * it asks for the full grant in one consent (ADR-0044, amended).
  */
 export const ALL_GOOGLE_SCOPES: string[] = scopesForFeatures();
 
-/** The grant `buildAuthorizeUrl` uses when a caller passes no explicit scopes. */
 export const DEFAULT_GOOGLE_SCOPES: string[] = ALL_GOOGLE_SCOPES;
 
 export interface GoogleOAuthConfig {
@@ -110,14 +72,9 @@ export function getGoogleOAuthConfig(): GoogleOAuthConfig {
 export interface BuildAuthorizeUrlArgs {
   state: string;
   scopes?: string[] | undefined;
-  /**
-   * `prompt=consent` forces Google to re-issue a refresh token even if
-   * the user has consented before. We need the refresh token on every
-   * connect — without it, tokens silently expire after an hour and the
-   * background workers grind to a halt.
-   */
+  /** `prompt=consent` makes Google issue a refresh token even after a past consent. */
   forceConsent?: boolean | undefined;
-  /** `login_hint` shortcuts the account picker when we know the email. */
+  /** Skips the account picker. */
   loginHint?: string | undefined;
 }
 
@@ -142,7 +99,6 @@ export function buildAuthorizeUrl(args: BuildAuthorizeUrlArgs): string {
   return `${AUTH_BASE}?${params.toString()}`;
 }
 
-/** Shape of a successful response from Google's token endpoint. */
 const tokenResponseSchema = z.object({
   access_token: z.string(),
   expires_in: z.number().int(),
@@ -155,19 +111,13 @@ const tokenResponseSchema = z.object({
 type GoogleTokenResponse = z.infer<typeof tokenResponseSchema>;
 
 export interface ExchangeCodeResult extends GoogleTokenResponse {
-  /** Decoded `sub` from the id_token — provider-side stable user id. */
+  /** id_token `sub`: Google's stable user id. */
   accountId: string;
-  /** Decoded `email` from the id_token — surfaced to UI as the account label. */
   accountEmail: string;
-  /**
-   * Decoded `hd` (hosted-domain) claim from the id_token, present only for
-   * Google Workspace accounts. Drives account-persona detection (ADR-0051 #3):
-   * present → `work`, absent → `personal`.
-   */
+  /** id_token `hd`, only on Workspace accounts. Sets the persona (ADR-0051). */
   hostedDomain?: string | undefined;
-  /** Computed expiry timestamp. */
   expiresAt: Date;
-  /** Granted scopes parsed into an array. Empty when Google doesn't echo `scope` (rare). */
+  /** Empty when Google does not echo `scope`. */
   scopes: string[];
 }
 
@@ -198,8 +148,7 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
   const parsed = tokenResponseSchema.parse(json);
 
   if (!parsed.refresh_token) {
-    // Forcing consent above should make this near-impossible; treat as
-    // hard error so we don't silently accept short-lived credentials.
+    // Do not accept a credential that dies in an hour.
     throw new Error("[google.oauth] no refresh_token returned; re-run with prompt=consent");
   }
 
@@ -215,11 +164,7 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
   };
 }
 
-/**
- * Detect account persona from the Google `hd` (hosted-domain) claim: a
- * Workspace domain means a work account, its absence means personal. The
- * rich persona *policy* is deferred (own ADR); this is just the label.
- */
+/** A Workspace domain means work; none means personal. */
 export function detectPersona(hostedDomain: string | undefined): AccountPersona {
   return hostedDomain ? "work" : "personal";
 }
@@ -227,19 +172,15 @@ export function detectPersona(hostedDomain: string | undefined): AccountPersona 
 export interface RefreshTokenResult {
   accessToken: string;
   expiresAt: Date;
-  /** Some refresh responses include a fresh refresh_token; most don't. */
+  /** Most refresh responses omit this. */
   refreshToken?: string | undefined;
   scopes: string[];
 }
 
 /**
- * Thrown when Google rejects a refresh with `invalid_grant` — the refresh
- * token is dead (revoked, consent withdrawn, password reset, or >6 months
- * unused). Note: the app's OAuth consent screen is published **In production**
- * (External, unverified), so the Testing-mode 7-day refresh-token expiry does
- * NOT apply here — durable tokens are expected. Retrying never recovers a dead
- * token; the only fix is user re-consent. Callers catch this to flip the
- * credential to `needs_reauth` instead of looping the same failure every poll.
+ * `invalid_grant`: the refresh token is dead (revoked, password reset, or 6 months unused).
+ * The app is In Production, so the Testing-mode 7-day expiry does not apply.
+ * Only re-consent fixes it; callers mark the credential `needs_reauth`.
  */
 export class GoogleReauthRequiredError extends Error {
   constructor(detail: string) {
@@ -286,39 +227,21 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
 }
 
 /**
- * Verify a Google id_token's signature, issuer, audience, and expiry
- * before trusting `sub`/`email` — these values key our credential rows,
- * so accepting unverified claims would let a forged token bind a
- * different identity. The TLS channel proves the token came from Google's
- * token endpoint *this* request, but the inner JWT must still be checked
- * because nothing else in this codebase reads `iss`/`aud`/`exp`.
- *
- * The JWKS is cached internally by `createRemoteJWKSet` and rotated on
- * unknown-kid lookups, so the cost is one fetch per pod per ~hours.
+ * Verify the id_token before trusting `sub` and `email`: they key the credential rows.
+ * `createRemoteJWKSet` caches the keys and refetches on an unknown `kid`.
  */
 const GOOGLE_JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
 
 const GOOGLE_ID_TOKEN_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
 
 /**
- * The claims `verifyIdToken` reads, proven at the `jwtVerify` boundary.
- *
- * jose's `jwtVerify<T>` generic is compile-time only: it re-declares the
- * payload's type and validates nothing at runtime, so an annotated `claims`
- * asserted a shape Google had never been asked to produce. This schema is
- * that proof, and it runs at the same seam `tokenResponseSchema` runs above —
- * a verified signature over an unverified body is still an unverified body.
- *
- * `sub`/`email` stay optional so the absence case keeps its own error below;
- * what the schema adds is that a PRESENT claim must be a string, which the
- * truthiness check alone could not tell from an empty one.
+ * jose's `jwtVerify<T>` checks nothing at runtime, so parse the payload.
+ * `sub` and `email` stay optional so their absence gets its own error below.
  */
 const idTokenClaimsSchema = z.object({
   sub: z.string().optional(),
   email: z.string().optional(),
-  /** JSON boolean per OIDC Core 5.1. */
   email_verified: z.boolean().optional(),
-  /** Workspace hosted domain — present only for Workspace accounts. */
   hd: z.string().optional(),
 });
 

@@ -17,16 +17,8 @@ type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
 type CalendarListEventsKey = keyof z.infer<typeof calendarListEventsInput>;
 
 /**
- * Editable view of a staged tool's proposed input. Every control is derived
- * from the tool's zod `inputSchema` (via `toolInputFields`) — an enum renders
- * a dropdown, a bounded integer a stepper, a datetime a picker, an email list
- * a multi-line editor — so the form can't drift from what the server accepts.
- * Tools without a derivable schema fall back to a raw-JSON editor.
- *
- * One editor, one job: review a proposed *write*. A `system.ask_user` row is
- * not that (ADR-0099) — the user authors its input rather than reviewing it —
- * and it never reaches here: both surfaces resolve a question to their own
- * card, which draws `AskUserQuestionPanel` with the input already parsed.
+ * Edit a staged write's input. Controls derive from the tool's zod `inputSchema`
+ * (`toolInputFields`), with a raw-JSON fallback. `system.ask_user` never gets here.
  */
 export function ApprovalInputEditor({
   toolName,
@@ -72,12 +64,8 @@ export function ApprovalInputEditor({
   );
 }
 
-// z.toJSONSchema cannot preserve calendarListEventsInput's explicit-vs-relative
-// refine, so this UI visibility rule intentionally mirrors the schema and
-// resolver guards. Type it against the inferred output (z.infer, not z.input —
-// the schema's preprocess makes z.input `unknown`, which wouldn't constrain
-// the keys) so key renames fail at compile time instead of silently showing
-// the wrong field set.
+// JSON Schema loses calendarListEventsInput's explicit-vs-relative refine, so
+// mirror it here. Typed on z.infer (z.input is `unknown`) so renames fail to compile.
 const CALENDAR_EXPLICIT_TIME_KEYS: ReadonlySet<CalendarListEventsKey> = new Set([
   "timeMin",
   "timeMax",
@@ -107,8 +95,7 @@ function editorFieldsForTool(
 }
 
 function hasCalendarListKey(keys: ReadonlySet<CalendarListEventsKey>, key: string): boolean {
-  // SAFETY: widening the set only types .has' argument — CalendarListEventsKey
-  // members are strings, and a miss is the intended false answer.
+  // SAFETY: widening only types `.has`'s argument; a miss is the intended false.
   return (keys as ReadonlySet<string>).has(key);
 }
 
@@ -284,7 +271,7 @@ function FieldControl({
   }
 }
 
-/** A single object/array field edited as JSON text, committed only when valid. */
+/** An object/array field edited as JSON, committed only when valid. */
 function JsonField({
   id,
   value,
@@ -332,7 +319,6 @@ function JsonField({
   );
 }
 
-/** Whole-input fallback when the tool has no derivable field schema. */
 function JsonFallbackEditor({
   value,
   onChange,
@@ -344,11 +330,8 @@ function JsonFallbackEditor({
 }) {
   const [text, setText] = useState(() => formatJson(value));
   const [error, setError] = useState<string | null>(null);
-  // Re-seed when the staged value changes underneath us (e.g. navigating
-  // between approvals reuses this component). Tracking the previous value in
-  // state (not a ref) keeps the reset a pure render-phase state adjustment —
-  // React discards the queued setState with the render if it bails out,
-  // whereas a ref write would leak and desync the tracker.
+  // Re-seed when the staged value changes. Render-phase state, not a ref, so a
+  // bailed-out render discards it too.
   const [prevValue, setPrevValue] = useState(value);
 
   if (value !== prevValue) {

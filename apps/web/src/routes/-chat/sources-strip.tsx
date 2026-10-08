@@ -2,13 +2,7 @@ import { cn } from "~/lib/utils";
 import { Favicon } from "./favicon";
 import type { Source } from "./sources";
 
-/**
- * A quiet "where this came from" footer under an assistant reply: the favicon +
- * domain of every site the turn's web search drew on, deduped to one chip per
- * site (the browser-tab read the user already knows). The precise per-claim
- * links stay inline as citation pills; this strip is the at-a-glance source
- * list. Each chip staggers in, lifts on hover, and presses on click.
- */
+/** Favicon chips for the sites a turn's web search used, one per site. */
 export function SourcesStrip({ sources }: { sources: Source[] }) {
   if (sources.length === 0) return null;
 
@@ -20,9 +14,7 @@ export function SourcesStrip({ sources }: { sources: Source[] }) {
           href={source.href}
           target="_blank"
           rel="noreferrer noopener"
-          // `backwards` holds the hidden `from` frame through the stagger delay
-          // — the shared `chat-in` keyframe sets no fill-mode, so without this a
-          // delayed chip would flash in fully then snap back to start.
+          // `chat-in` sets no fill-mode, so `backwards` keeps the chip hidden during its delay.
           style={{ animationDelay: `${i * 40}ms`, animationFillMode: "backwards" }}
           className={cn(
             "animate-chat-in group/source inline-flex items-center gap-1.5",

@@ -13,13 +13,11 @@ const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
 const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
 
 export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
-  // Every catalog slug is a provider, and every provider is loadable, so every
-  // page has a policy row.
+  // Every catalog slug is a loadable provider, so every page has a policy row.
   const { slug } = provider;
   const { modeFor, setIntegrationMode, loading, error, retry } = useActionPolicy();
 
-  // Fall back to the conservative `gated` while the policy row loads so the
-  // control never flashes the less-safe option before the real value lands.
+  // `gated` while loading, so the less-safe option never flashes.
   const mode: PolicyMode = modeFor(slug) ?? "gated";
 
   if (error) {

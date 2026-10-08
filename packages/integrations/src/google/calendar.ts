@@ -3,20 +3,12 @@ import { z } from "zod";
 import type { RetryPolicy } from "../shared/retry";
 import { googleJson } from "./http";
 
-/**
- * Thin Google Calendar v3 REST client. Same shape as `gmail.ts` —
- * we call JSON endpoints directly so we don't pull `googleapis` (~2MB).
- *
- * The current surface covers what chat/workflows need first: list event
- * windows from the primary calendar and create approved events. Anything
- * fancier (multi-calendar discovery, free/busy, recurring edits) waits
- * until a workflow asks for it.
- */
+/** Calendar v3 client: list events and create approved events. */
 
 const API_BASE = "https://www.googleapis.com/calendar/v3";
 
 const eventDateTimeSchema = z.object({
-  /** RFC3339 timestamp e.g. `2026-05-24T10:00:00-07:00`. Present on timed events. */
+  /** RFC3339. Present on timed events. */
   dateTime: z.string().optional(),
   /** YYYY-MM-DD. Present on all-day events. */
   date: z.string().optional(),
@@ -56,17 +48,12 @@ const listEventsResponseSchema = z.object({
 
 export interface ListEventsArgs {
   accessToken: string;
-  /** Calendar id; `primary` is the user's main calendar. */
   calendarId?: string | undefined;
-  /** RFC3339 lower bound (inclusive). */
+  /** Inclusive. */
   timeMin: string;
-  /** RFC3339 upper bound (exclusive). */
+  /** Exclusive. */
   timeMax: string;
-  /**
-   * Expand recurring events into instances so e.g. a daily standup
-   * surfaces as one row per occurrence. The list endpoint refuses
-   * `orderBy=startTime` unless this is set.
-   */
+  /** Expand recurring events into instances. Required for `orderBy=startTime`. */
   singleEvents?: boolean | undefined;
   orderBy?: "startTime" | "updated" | undefined;
   maxResults?: number | undefined;
@@ -74,7 +61,6 @@ export interface ListEventsArgs {
 
 export interface ListEventsResult {
   events: CalendarEvent[];
-  /** Effective timezone the calendar returned (helpful for downstream formatting). */
   timeZone?: string | undefined;
 }
 
@@ -88,16 +74,12 @@ export async function listEvents(
   url.searchParams.set("timeMax", args.timeMax);
   const singleEvents = args.singleEvents ?? true;
   url.searchParams.set("singleEvents", String(singleEvents));
-  // Calendar API rejects `orderBy=startTime` unless `singleEvents=true`, so
-  // the default flips with `singleEvents`. Callers that explicitly pass
-  // `startTime` + `singleEvents=false` still get a 400 from upstream — by
-  // design, we don't second-guess an explicit caller request.
+  // `startTime` requires `singleEvents=true`. An explicit bad pair gets Google's 400.
   const orderBy = args.orderBy ?? (singleEvents ? "startTime" : "updated");
   url.searchParams.set("orderBy", orderBy);
   url.searchParams.set("maxResults", String(args.maxResults ?? 50));
 
   const parsed = await getJson(listEventsResponseSchema, url.toString(), args.accessToken, retry);
-  // Filter out cancelled occurrences so callers don't need to special-case them.
   const events = (parsed.items ?? []).filter((e) => e.status !== "cancelled");
 
   return { events, timeZone: parsed.timeZone };
@@ -105,16 +87,13 @@ export async function listEvents(
 
 export interface CreateEventArgs {
   accessToken: string;
-  /** Calendar id; `primary` is the user's main calendar. */
   calendarId?: string | undefined;
   summary: string;
   description?: string | undefined;
   location?: string | undefined;
-  /** RFC3339 start timestamp. */
   start: string;
-  /** RFC3339 end timestamp. */
   end: string;
-  /** IANA timezone. Optional when start/end carry explicit offsets. */
+  /** Optional when start and end carry offsets. */
   timeZone?: string | undefined;
   attendees?: string[] | undefined;
 }
@@ -145,7 +124,6 @@ export async function createEvent(args: CreateEventArgs): Promise<CalendarEvent>
   return postJson(eventSchema, url.toString(), args.accessToken, payload);
 }
 
-/** GET and parse at the seam — a raw response cannot reach a caller. */
 const getJson = <T>(
   schema: z.ZodType<T>,
   url: string,

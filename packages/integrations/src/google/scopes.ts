@@ -4,13 +4,7 @@ import { integrationCredentials } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { scopesForFeatures } from "./oauth";
 
-/**
- * Thrown when a credential row is missing scopes a feature needs. The
- * caller treats this as "ask the user to re-connect with the missing
- * feature ticked" — never as a transient/retry condition. Workflows
- * surface this through the agent runtime as a non-retriable failure;
- * the UI maps it to a re-consent CTA carrying `features` in the link.
- */
+/** Not transient: the user must reconnect with the missing features. */
 export class MissingScopesError extends Error {
   readonly code = "MISSING_SCOPES";
   readonly credentialId: string;
@@ -28,16 +22,7 @@ export class MissingScopesError extends Error {
   }
 }
 
-/**
- * Verify a credential row has every scope a feature needs before we
- * call Gmail on its behalf. Defensive: a credential could have been
- * issued at m7 with the full grant and later partially revoked, or
- * (post-incremental-consent) the user may have only granted briefing
- * scopes when the workflow expects triage scopes.
- *
- * Returns the access token on success — saves the caller a second
- * round-trip through `getFreshAccessToken` immediately after this.
- */
+/** A credential can be partly revoked or hold a narrower grant than a feature needs. */
 export async function requireScopes(
   credentialId: string,
   features: readonly GoogleFeature[],
@@ -77,12 +62,10 @@ export async function requireScopes(
   return { scopes: [...granted] };
 }
 
-/** Convenience: which features can this credential currently support? */
 export function featuresFromGrantedScopes(grantedScopes: readonly string[]): GoogleFeature[] {
   const granted = new Set(grantedScopes);
 
-  // SAFETY: GoogleFeature is `keyof typeof GOOGLE_FEATURE_SCOPES`, so
-  // Object.keys of that very table enumerates exactly those features.
+  // SAFETY: GoogleFeature is `keyof typeof GOOGLE_FEATURE_SCOPES`.
   return (Object.keys(GOOGLE_FEATURE_SCOPES) as GoogleFeature[]).filter((f) =>
     GOOGLE_FEATURE_SCOPES[f].every((s) => granted.has(s)),
   );

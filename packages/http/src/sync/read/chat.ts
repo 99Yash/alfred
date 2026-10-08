@@ -12,10 +12,8 @@ import { SYNC_MODEL } from "@alfred/sync";
 import { and, asc, desc, eq, getTableColumns, inArray } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
-/** Most-recent chat messages synced per user — bounds the Replicache pull. */
 const CHAT_MESSAGE_PULL_LIMIT = 500;
 
-/** Attachments synced per user, on the same recent-message window as `chatmsg`. */
 const CHAT_ATTACHMENT_PULL_LIMIT = CHAT_MESSAGE_PULL_LIMIT * MAX_ATTACHMENTS_PER_MESSAGE;
 
 const messageOrder = [desc(chatMessages.createdAt), desc(chatMessages.id)];
@@ -23,15 +21,9 @@ const messageOrder = [desc(chatMessages.createdAt), desc(chatMessages.id)];
 const attachmentOrder = [desc(chatAttachments.createdAt), desc(chatAttachments.id)];
 
 /**
- * THE ONE DEFINITION OF THE VISIBLE MESSAGE SET. Discovery, loading and
- * `chatatt`'s attachment set all read it, so they cannot drift apart.
- *
- * It is a subquery on purpose. It owns the user guard, the order and the cap;
- * both stages join to it and add only their own restriction outside it. The
- * `CHAT_MESSAGE_PULL_LIMIT` must bound the whole visible set, not the changed
- * rows: restricting changed ids inside the cap would let those rows pick the
- * membership, and a concurrent commit between the stages could then load a row
- * the cap no longer holds.
+ * The visible message set, shared by both stages and by `chatatt`.
+ * The cap must bound the whole set, not the changed rows, or a concurrent
+ * commit could load a row the cap no longer holds.
  */
 const recentMessages = (tx: DbTransaction, userId: string) =>
   tx
@@ -42,12 +34,7 @@ const recentMessages = (tx: DbTransaction, userId: string) =>
     .limit(CHAT_MESSAGE_PULL_LIMIT)
     .as("recent_messages");
 
-/**
- * THE ONE DEFINITION OF THE VISIBLE ATTACHMENT SET. It owns the recent-message
- * join, the attachment user guard, the order and `CHAT_ATTACHMENT_PULL_LIMIT`,
- * so both stages share one set and the cap bounds that set, not the changed
- * attachments.
- */
+/** The visible attachment set, on the same message window. Same rule as `recentMessages`. */
 const recentAttachments = (tx: DbTransaction, userId: string) => {
   const messages = recentMessages(tx, userId);
 
@@ -63,11 +50,6 @@ const recentAttachments = (tx: DbTransaction, userId: string) => {
 
 const ownedThread = (userId: string) => eq(chatThreads.userId, userId);
 
-// Chat (streaming-chat plan). Threads + their messages both sync so history
-// survives reloads and reaches every device. Ordered for stable client
-// rendering; message sync is bounded to the most recent
-// CHAT_MESSAGE_PULL_LIMIT rows so a long history doesn't pull the whole table
-// on every pull (the client re-sorts ascending).
 export const fetchChatThreads = syncEntity(SYNC_MODEL.chatthread, {
   versionQuery: (tx, userId) =>
     tx
@@ -120,11 +102,7 @@ export const fetchChatMessages = syncEntity(SYNC_MODEL.chatmsg, {
   map: (m: ChatMessage) => m,
 });
 
-// Attachments on user messages (ADR-0065). Bound to the same recent-message
-// window as `chatmsg`, expressed as `recentAttachments` so one subquery owns the
-// message window, the user guard, the order and the attachment cap, and both
-// stages read the same set. A synced message never loses its image metadata.
-// Display metadata only — the bytes load through the auth-gated content proxy.
+// Attachment metadata only (ADR-0065). The bytes load through the content proxy.
 export const fetchChatAttachments = syncEntity(SYNC_MODEL.chatatt, {
   versionQuery: (tx, userId) => {
     const visible = recentAttachments(tx, userId);

@@ -5,26 +5,15 @@ import { inArray, sql } from "drizzle-orm";
 import { subAgentParentRunIdMatches } from "./sub-agent-metadata";
 
 /**
- * A row degraded through `withFallback` when `metered()` re-attributed it to
- * the model the provider reported serving: `reconcileServed` writes
- * `response_meta.servedModelId` only on divergence and moves `model` to the
- * served id only when that id is a registered model. A dated alias of the
- * requested model therefore leaves the two unequal and reads as not degraded.
+ * A `withFallback` row: `model` was moved to the served model. A dated alias of the requested
+ * model is not moved, so it does not count as degraded.
  */
 export const DEGRADED = sql<boolean>`coalesce((${apiCallLog.responseMeta}->>'servedModelId') = ${apiCallLog.model}, false)`;
 
-/** The pre-call model of a degraded row, recorded beside `servedModelId` since 2026-09-03. */
+/** The requested model of a degraded row. Older rows lack it. */
 export const REQUESTED_MODEL = sql<string | null>`${apiCallLog.responseMeta}->>'requestedModelId'`;
 
-/**
- * One `api_call_log` group summed for a single (agent, model) pair within a
- * turn. `subId` names the agent that made the calls: `null` for the boss run,
- * the child's `subId` for a sub-agent. The `sum`/`count` aggregates, including
- * summed model latency, arrive from Postgres as strings, so every numeric field
- * also accepts a `string` —
- * {@link foldModelUsage} coerces with `Number(...)` and treats `NaN`/empty as
- * `0`.
- */
+/** One (agent, model) group. `subId` is null for the boss. Postgres sums arrive as strings. */
 export interface ModelUsageGroup {
   kind: string;
   role: string | null;
@@ -33,38 +22,19 @@ export interface ModelUsageGroup {
   inputTokens: string | number;
   outputTokens: string | number;
   cachedInputTokens: string | number;
-  /**
-   * Cache WRITES for the group. Optional because the backfill's older shape and
-   * fixtures don't group by it; absent leaves the folded total `null`, which
-   * downstream must read as "not recorded", never as zero.
-   */
+  /** Absent means "not recorded", never zero. */
   cacheWriteInputTokens?: string | number | undefined;
   modelLatencyMs: string | number;
   costUsd: string | number;
   calls: string | number;
-  /**
-   * True when the provider served a different registered model than the one
-   * the call was attributed to before dispatch — a `withFallback` cascade
-   * fired. Optional so a caller that never groups by it (the backfill's older
-   * shape, fixtures) still folds; absent reads as "not degraded".
-   */
+  /** A `withFallback` cascade fired. Absent means not degraded. */
   degraded?: boolean | undefined;
-  /** The pre-call model of a degraded group (`response_meta.requestedModelId`), when recorded. */
   requestedModel?: string | null | undefined;
 }
 
 /**
- * Fold per-(agent, model) usage groups into one {@link ChatMessageUsage}: sum
- * the turn totals and model latency, carry a per-model `{ model, calls, fallback }`
- * breakdown sorted busiest first, and carry a per-agent
- * `{ subId, calls, costUsd }` split sorted most expensive first. The single home
- * for the `(model, tokens, latency, cost)` rollup shape — shared by the live
- * finalize path ({@link aggregateRunUsage}) and the one-off backfill script so
- * the two can't drift.
- *
- * Both breakdowns are re-bucketed here rather than trusted from the query: one
- * model can serve two agents, and one agent can be served by two models, so the
- * caller's GROUP BY is the cross product of the two.
+ * Fold groups into one {@link ChatMessageUsage} with per-model and per-agent splits.
+ * Re-bucket both here: the query groups by agent and model together.
  */
 export function foldModelUsage(
   groups: readonly ModelUsageGroup[],
@@ -74,8 +44,7 @@ export function foldModelUsage(
     inputTokens: 0,
     outputTokens: 0,
     cachedInputTokens: 0,
-    // Stays `null` unless some group actually carried the column, so a caller
-    // that never selects it folds to "not recorded" instead of a false zero.
+    // Null unless some group has it, so it reads as "not recorded", not zero.
     cacheWriteInputTokens: null,
     modelLatencyMs: 0,
     costUsd: 0,
@@ -90,16 +59,12 @@ export function foldModelUsage(
     { calls: number; fallbackCalls: number; primary: string | null }
   >();
 
-  // Keyed on subId with a sentinel for the boss, because `null` is a legitimate
-  // agent here and Map keys distinguish it from a child literally named "boss".
+  // `null` is the boss, so a child named "boss" cannot collide with it.
   const byAgent = new Map<string | null, { calls: number; costUsd: number }>();
 
   for (const group of groups) {
-    // A run id also attributes background work triggered by the turn, such as
-    // thread-title generation. The usage receipt is specifically the boss and
-    // its workers, so exclude un-attributed and non-agent calls even when they
-    // share the run id. This also stops a cheap title model from looking like a
-    // chat-provider fallback in the model chips.
+    // Background work such as title generation shares the run id; count only the boss and
+    // sub-agents.
     if (group.kind !== "llm" || (group.role !== "boss" && group.role !== "sub_agent")) continue;
     const calls = Number(group.calls) || 0;
     const costUsd = Number(group.costUsd) || 0;
@@ -147,14 +112,8 @@ export function foldModelUsage(
 }
 
 /**
- * Every run that bills into one chat turn: the boss run itself plus each
- * sub-agent it spawned, each paired with the `subId` the split is labeled by.
- * Keyed on the same trusted `subAgent.parentRunId` metadata pointer
- * `spawnSubAgent` stamps and `listSpawnedChildRuns` reads.
- *
- * Sub-agents cannot spawn sub-agents (`system.spawn_sub_agent` is
- * `callers: ["boss"]`), so one level of children is the whole tree — no
- * recursive walk is needed here.
+ * The boss run and its children, with their `subId`. Sub-agents cannot spawn, so one level is the
+ * whole tree.
  */
 async function listTurnRuns(runId: string): Promise<Map<string, string | null>> {
   const children = await db()
@@ -168,8 +127,7 @@ async function listTurnRuns(runId: string): Promise<Map<string, string | null>> 
   const runs = new Map<string, string | null>([[runId, null]]);
 
   for (const child of children) {
-    // A child without a readable `subId` still spent money; label it so its
-    // slice of the split is never silently merged into the boss's.
+    // Never merge an unlabeled child's spend into the boss's.
     runs.set(child.id, child.subId ?? "sub-agent");
   }
 
@@ -177,22 +135,9 @@ async function listTurnRuns(runId: string): Promise<Map<string, string | null>> 
 }
 
 /**
- * Roll up a chat turn's token usage + cost from `api_call_log` for the dev usage
- * readout. Covers the boss `runId` AND every sub-agent run it spawned: children
- * are separate runs billed under their own ids, and a turn that delegates spends
- * most of its money there (see `.lessons/model-cost-recompute-from-tokens.md`).
- * The fold keeps the money split per agent so the readout can show it.
- *
- * Called at finalize, after the ADR-0073 join guard has held the turn open until
- * every spawned child is terminal, so the children's rows are already written.
- * Still best-effort: metering rows are written fire-and-forget, so a straggler
- * write can undercount the final call. Returns null when the turn logged
- * nothing.
- *
- * Lives beside {@link foldModelUsage} rather than with the turn closure that
- * calls it: the GROUP BY and the fold are one shape, and the backfill script
- * runs the same pair widened by message id. Changing what usage records means
- * changing this file.
+ * A chat turn's usage and cost, sub-agent runs included: a delegating turn spends most there.
+ * Metering writes are fire-and-forget, so the last call can be missing. Null when nothing was
+ * logged.
  */
 export async function aggregateRunUsage(
   runId: string,
@@ -200,11 +145,6 @@ export async function aggregateRunUsage(
 ): Promise<ChatMessageUsage | null> {
   const runs = await listTurnRuns(runId);
 
-  // Grouped by run and model: by model so the readout can name every model that
-  // served the turn, by run so each agent's spend stays attributable, and by
-  // the degrade fact so a silent `withFallback` cascade is visible without the
-  // client guessing which model is primary. The turn totals are summed back
-  // across the groups in JS.
   const rows = await db()
     .select({
       runId: apiCallLog.runId,

@@ -18,17 +18,10 @@ import {
 } from "./worthiness";
 
 /**
- * The post-triage seam (ADR-0098). Triage publishes `email-triage.classified`
- * for every thread whose canonical row it owns and imports nothing from this
- * module; this consumer reacts. It reads the flag, reads the sender's
- * `block_reply_draft` standing instruction, runs the pure gate, and either
- * records a `no_draft` decision under the triage run or starts one
- * `reply-drafting` run. `mode: "best-effort"`: a failure here must never fail
- * the triage step that published the fact.
- *
- * With the flag OFF the consumer returns before any read or write. That is the
- * default state for every email today, so the seam costs nothing until a user
- * opts in.
+ * Post-triage consumer (ADR-0098) of `email-triage.classified`. Triage imports nothing from here.
+ * Reads the flag and the `block_reply_draft` instruction, runs the gate, then records
+ * `no_draft` or starts one `reply-drafting` run. Best-effort: it must never fail triage.
+ * With the flag off (the default) it returns before any read.
  */
 
 const CONSUMER_NAME = "reply-drafting-post-triage";
@@ -112,9 +105,7 @@ export async function acceptEmailTriageClassified(event: DomainEvent): Promise<v
     return;
   }
 
-  // One run per (thread, inbound message): a same-document re-classify must not
-  // start a second draft, and the occurrence identity is what makes that a
-  // unique violation instead of a duplicate run.
+  // One run per (thread, message): the occurrence id turns a re-classify into a unique violation.
   const eventId = `${payload.triage.sourceThreadId}:${payload.triage.documentId}`;
 
   const input: ReplyDraftingWorkflowInput = {

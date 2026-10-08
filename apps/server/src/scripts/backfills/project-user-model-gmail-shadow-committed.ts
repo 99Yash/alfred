@@ -1,18 +1,10 @@
 /**
- * COMMITTED Gmail user-model kind projection (user-model P1, issue #218 — PR G).
+ * Replay active Gmail `email_message` observations into the user-model projection
+ * (#218): entity nodes and identities, `entity_profiles.kind`, and `works_at` edges
+ * grounded in a signature (never the sender domain). No significance or co-occurrence.
  *
- * Replays active Gmail `email_message` observations into the first activated
- * projection-backed read model: stable entity nodes/identities plus
- * `entity_profiles.kind` + classifier provenance, AND the first grounded
- * `works_at` edges on `entity_edges` (signature-stated employment only —
- * never the sender domain). This is the narrow
- * dist-list/kind slice plus the signature-grounded edge slice only — no
- * significance components or co-occurrence are written here.
- *
- * Dry by default. Dry mode runs the real writer path twice inside
- * rollback-only transactions and compares checksums. `--commit` is required to
- * persist the completed projection run. `--activate` is optional and requires
- * `--commit`.
+ * Dry by default: runs the real writer twice in rolled-back transactions and
+ * compares checksums. `--commit` persists the run. `--activate` requires `--commit`.
  *
  *   # preview a user, write nothing:
  *   node dist/scripts/backfills/project-user-model-gmail-shadow-committed.js --emails=yash.k@oliv.ai --projection-version=1
@@ -343,16 +335,9 @@ async function runAttempt(args: {
         {
           runId: started.run.id,
           userId: args.target.userId,
-          // The persisted run checksum keeps its ONE live meaning: the kind
-          // checksum the refold frozen-logic gate recomputes and compares
-          // (`recomputeChecksumAtWatermark` runs only the kind fold). Folding
-          // the edge checksum in here redefines the column the gate reads —
-          // after `--activate` every scheduled refold would answer
-          // `blocked / logic-drift` forever, and `refold.ts` is a second
-          // writer still using the kind-only meaning. Edge-set determinism
-          // is enforced instead by this script's own in-memory comparisons
-          // (dry/dry + dry/commit over `edgeChecksum`), and the persisted
-          // `rowCounts.entity_edges` records how many edges the run wrote.
+          // Persist the kind checksum only. `recomputeChecksumAtWatermark` recomputes
+          // only the kind fold, so adding edges would block every refold as logic drift.
+          // This script checks `edgeChecksum` in memory instead.
           checksum: projected.checksum,
           completedAt: new Date(),
           rowCounts: {

@@ -1,19 +1,6 @@
 /**
- * Dimension-grammar Dialog primitive.
- *
- * Wraps @radix-ui/react-dialog so we get the focus trap, portal, scroll lock,
- * and ARIA wiring for free. Visuals follow the recon recipe §2.9:
- *
- *   overlay: bg-gray-0/70 backdrop-blur(4px), fades in
- *   content: rounded-3xl frost-popover material, fades + zooms 96→100
- *
- * Two slots:
- *   - <Dialog open onOpenChange>  controlled root
- *   - <DialogContent>             panel painted with frost-popover + animation
- *
- * Title/Description are required by Radix for a11y. Pass `srOnlyTitle` to
- * visually hide them when the dialog header is a custom design (e.g. the
- * CommandPalette input is the title affordance).
+ * Dialog on Radix (focus trap, portal, scroll lock, ARIA) with the frost-popover look.
+ * Radix requires a title and description; `srOnlyHeader` hides them visually.
  */
 
 import * as RadixDialog from "@radix-ui/react-dialog";
@@ -26,19 +13,13 @@ export const Dialog = RadixDialog.Root;
 interface DialogContentProps extends Omit<RadixDialog.DialogContentProps, "title"> {
   title: ReactNode;
   description?: ReactNode | undefined;
-  /** Hide title + description visually but keep them for screen readers. */
   srOnlyHeader?: boolean | undefined;
   /**
-   * Paint the shell with theme-aware app-grammar tokens instead of the
-   * always-dark dimension `frost-popover`. The dialog portals outside the
-   * `.app` subtree, so this also stamps `.app` + the resolved `data-app-theme`
-   * on the content — otherwise `--app-*` tokens can't resolve and the panel
-   * renders dark regardless of system theme (mirrors `AppSelect`'s portal fix).
+   * Use theme-aware app tokens instead of the always-dark `frost-popover`.
+   * The portal leaves the `.app` subtree, so this re-stamps `.app` and `data-app-theme`.
    */
   themed?: boolean | undefined;
-  /** Override the content shell. Default ships the frost-popover panel. */
   className?: string | undefined;
-  /** Override the overlay. Default ships the gray-0/70 scrim. */
   overlayClassName?: string | undefined;
   ref?: Ref<HTMLDivElement> | undefined;
 }
@@ -54,10 +35,7 @@ export function DialogContent({
   ref,
   ...rest
 }: DialogContentProps) {
-  // Resolved theme flows through the portal via React context even though CSS
-  // inheritance doesn't. Stamping it lets the app tokens resolve; falling back
-  // to no attribute (when no provider is mounted) lets the `.app` + @media
-  // prefers-color-scheme rule in index.css resolve it instead.
+  // Context crosses the portal; CSS does not. With no provider, index.css's media query decides.
   const themeCtx = use(AppThemeContext);
   const dataTheme = themed ? themeCtx?.resolved : undefined;
 

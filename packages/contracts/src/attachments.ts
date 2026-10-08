@@ -2,34 +2,18 @@ import { z } from "zod";
 import { normalizeMimeType } from "./mime";
 
 /**
- * Chat file uploads (ADR-0065). The load-bearing invariant: the boss model only
- * ever receives **text and images**. Every non-universal modality (audio, video,
- * pdf, docs, code) is *degraded* to text (+ optional keyframe images) at ingest,
- * so the transcript never holds a part a model can't read. This module is the
- * pure, web-safe source of truth for **what is accepted and how it's normalized**
- * — shared by the composer (client-side validation) and the degrade worker
- * (server-side normalization) so the two can never disagree. Zero Node deps.
+ * Chat upload policy (ADR-0065), shared by the composer and the degrade worker.
+ * The model only receives text and images: every other type becomes text at ingest.
  */
 
-/**
- * Async lifecycle of an uploaded attachment.
- *   - `pending` — row created, bytes may still be uploading / degrading.
- *   - `ready`   — degraded artifact written; safe to fold into the transcript.
- *   - `failed`  — degrade rejected or errored; surfaced to the user, never sent.
- */
+/** Only `ready` attachments enter the transcript. `failed` ones are shown, never sent. */
 export const chatAttachmentStatusValues = ["pending", "ready", "failed"] as const;
 
 export type ChatAttachmentStatus = (typeof chatAttachmentStatusValues)[number];
 
 export const chatAttachmentStatusSchema = z.enum(chatAttachmentStatusValues);
 
-/**
- * A fully-formed chat attachment descriptor: the shape the client hands to the
- * turn after a successful upload, and the shape the server's write helpers
- * consume. `position` is the attachment's index within its message. Both sides
- * must agree on this, so it lives here (the web app aliases it as
- * `UploadedAttachment`, the API as `AttachmentInput`).
- */
+/** An uploaded attachment as the client sends it with a turn. `position` is its index in the message. */
 export interface ChatAttachmentDescriptor {
   id: string;
   name: string;
@@ -39,24 +23,14 @@ export interface ChatAttachmentDescriptor {
 }
 
 /**
- * How an upload is normalized for the model. This *replaces* the rejected
- * per-model multimodal capability registry (ADR-0065): the question is never
- * "which model reads this" but "how is this turned into text + images."
- *   - `pass-through` — universally-supported image; enters the transcript as-is.
- *   - `degrade-text` — extract/transcribe to text (audio, pdf, docs, code).
- *   - `degrade-av`   — split audio→transcript + keyframes→images (video), or
- *                      transcode an image format the model can't read (heic).
- *   - `reject`       — refused at the boundary with a clear message.
+ * How an upload becomes text and images (ADR-0065). `degrade-av` splits video into
+ * a transcript and keyframes, or transcodes an image the model cannot read.
  */
 export const ingestKindValues = ["pass-through", "degrade-text", "degrade-av", "reject"] as const;
 
 export type IngestKind = (typeof ingestKindValues)[number];
 
-/**
- * Content format for `degrade-text` types. Each format owns one extractor
- * and one set of extraction limits per door. `undefined` means the type
- * needs no byte-to-text extraction (pass-through / degrade-av).
- */
+/** The text extractor for a `degrade-text` type. */
 export const contentFormatValues = ["pdf", "document", "spreadsheet", "text"] as const;
 
 export const contentFormatSchema = z.enum(contentFormatValues);
@@ -64,40 +38,27 @@ export const contentFormatSchema = z.enum(contentFormatValues);
 export type ContentFormat = z.infer<typeof contentFormatSchema>;
 
 export interface IngestPolicyEntry {
-  /** How this MIME type is normalized for the model. */
   kind: Exclude<IngestKind, "reject">;
-  /** Per-file upload cap, in bytes. Single-user caps (ADR-0065) — modest. */
+  /** Per-file cap. */
   maxBytes: number;
-  /** Content format needed by format-specific readers after policy lookup. */
   contentFormat?: ContentFormat;
 }
 
 const MB = 1024 * 1024;
 
-/**
- * Per-image encoded payload budget for Phase 1 pass-through images. Chat's
- * primary provider is Claude, whose direct API caps base64 image blocks at
- * 10 MB; keep our raw upload cap below that after base64 expansion so accepted
- * uploads do not depend on fallback routing.
- */
+/** Base64 budget per image, under a 10 MB provider image cap. */
 export const MAX_MODEL_ATTACHMENT_BYTES_PER_IMAGE = 9 * MB;
 
-/** Largest raw image that fits under the per-image encoded payload budget. */
+/** The largest raw image that fits the budget after base64. */
 export const MAX_ATTACHMENT_BYTES_PER_FILE = Math.floor(
   (MAX_MODEL_ATTACHMENT_BYTES_PER_IMAGE * 3) / 4,
 );
 
 /**
- * MIME → ingest policy. The whitelist *is* the keys of this map — anything not
- * listed is `reject`ed at the boundary (see {@link classifyUpload}).
- *
- * Note on images: pass-through means readable by both the primary Claude chat
- * models and the Gemini reliability fallback. GIF is Claude-readable but not a
- * Gemini image input type, so it waits for the Phase 2/3 transcode path rather
- * than being accepted as raw pass-through. HEIC/HEIF likewise need transcode.
+ * The keys are the whitelist. Pass-through images must work on every chat model leg:
+ * Gemini rejects GIF, so GIF (and HEIC/HEIF) need a transcode.
  */
 export const INGEST_POLICY = {
-  // Images — pass-through (the universal modality).
   "image/jpeg": {
     kind: "pass-through",
     maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE,
@@ -110,12 +71,10 @@ export const INGEST_POLICY = {
     kind: "pass-through",
     maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE,
   },
-  // Image formats that need transcode at ingest.
   "image/gif": { kind: "degrade-av", maxBytes: 15 * MB },
   "image/heic": { kind: "degrade-av", maxBytes: 15 * MB },
   "image/heif": { kind: "degrade-av", maxBytes: 15 * MB },
 
-  // Audio — transcribe to text.
   "audio/mpeg": { kind: "degrade-text", maxBytes: 15 * MB },
   "audio/mp4": { kind: "degrade-text", maxBytes: 15 * MB },
   "audio/wav": { kind: "degrade-text", maxBytes: 15 * MB },
@@ -124,12 +83,10 @@ export const INGEST_POLICY = {
   "audio/ogg": { kind: "degrade-text", maxBytes: 15 * MB },
   "audio/aac": { kind: "degrade-text", maxBytes: 15 * MB },
 
-  // Video — split audio→transcript + keyframes→images.
   "video/mp4": { kind: "degrade-av", maxBytes: 15 * MB },
   "video/webm": { kind: "degrade-av", maxBytes: 15 * MB },
   "video/quicktime": { kind: "degrade-av", maxBytes: 15 * MB },
 
-  // Documents & code — extract text.
   "application/pdf": {
     kind: "degrade-text",
     maxBytes: 10 * MB,
@@ -155,11 +112,9 @@ export const INGEST_POLICY = {
   "text/csv": { kind: "degrade-text", maxBytes: 10 * MB, contentFormat: "text" },
 } as const satisfies Readonly<Record<string, IngestPolicyEntry>>;
 
-// MIME lookups are open-ended by nature; the widened view keeps the literal
-// table above as the single source of truth.
 const ingestPolicyByMime: Readonly<Record<string, IngestPolicyEntry>> = INGEST_POLICY;
 
-/** Formats whose complete chat ingest path is available today. */
+/** Types whose full chat ingest path works today. */
 const CHAT_UPLOAD_ALLOWED_TYPES = new Set<string>([
   "image/jpeg",
   "image/png",
@@ -168,79 +123,53 @@ const CHAT_UPLOAD_ALLOWED_TYPES = new Set<string>([
   "application/x-pdf",
 ] satisfies readonly (keyof typeof INGEST_POLICY)[]);
 
-/** Every MIME type the upload boundary accepts (the whitelist). */
 export const SUPPORTED_FILE_TYPES = Object.keys(INGEST_POLICY);
 
-/** True when a Content-Type identifies a PDF, after MIME normalization. */
 export function isPdfContentType(mime: string): boolean {
   const normalized = normalizeMimeType(mime);
 
   return classifyUpload(normalized)?.contentFormat === "pdf";
 }
 
-/** Content format for a MIME type after normalization, or null when outside the whitelist. */
 export function getContentFormat(mime: string): ContentFormat | null {
   const normalized = normalizeMimeType(mime);
 
   return classifyUpload(normalized)?.contentFormat ?? null;
 }
 
-/**
- * Max files attachable to a single chat message (ADR-0065). Single source of
- * truth shared by the composer (stage-time cap), the turn endpoint, and the
- * Replicache server mutator so every write path agrees — no path can be the one
- * that lets an unbounded count through.
- */
+/** Every write path enforces this (ADR-0065). */
 export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 
 /**
- * Maximum encoded attachment payload bytes inlined into one model request. The
- * transcript builder prioritizes newer images and replaces older overflow images
- * with text placeholders, keeping historical threads from replaying unbounded
- * media. This stays below Gemini's 20 MB inline request ceiling to leave space
- * for system text, tools, and JSON framing.
+ * Encoded image bytes inlined into one model request. Older images past it become
+ * text placeholders. Below Gemini's 20 MB request cap, to leave room for the prompt.
  */
 export const MAX_MODEL_ATTACHMENT_BYTES_PER_TURN = 16 * MB;
 
-/**
- * Aggregate raw-byte cap for one chat message's attachments. The model path
- * base64-inlines every ready image, so this is capped at the largest raw payload
- * that fits inside {@link MAX_MODEL_ATTACHMENT_BYTES_PER_TURN} after expansion.
- */
+/** Raw bytes per message that fit {@link MAX_MODEL_ATTACHMENT_BYTES_PER_TURN} after base64. */
 export const MAX_ATTACHMENT_BYTES_PER_MESSAGE = Math.floor(
   (MAX_MODEL_ATTACHMENT_BYTES_PER_TURN * 3) / 4,
 );
 
-/**
- * Largest cap across all supported types — a coarse pre-check / server guard.
- * Per-type enforcement still happens against the matched {@link IngestPolicyEntry}.
- */
+/** A coarse pre-check. The per-type cap still applies. */
 export const MAX_ATTACHMENT_BYTES = Math.max(
   ...Object.values(INGEST_POLICY).map((e) => e.maxBytes),
 );
 
-/**
- * Resolve an upload's policy from its MIME type. Returns `null` for anything
- * outside the whitelist — the caller rejects with a clear message. MIME is
- * lower-cased and stripped of any `; charset=…` suffix before lookup.
- */
+/** `null` outside the whitelist. Ignores case and a `; charset=` suffix. */
 export function classifyUpload(mime: string): IngestPolicyEntry | null {
   const normalized = normalizeMimeType(mime);
 
   return ingestPolicyByMime[normalized] ?? null;
 }
 
-/** True when chat can accept and normalize this upload today. */
 export function isChatUploadAllowed(mime: string): boolean {
   const normalized = normalizeMimeType(mime);
 
   return CHAT_UPLOAD_ALLOWED_TYPES.has(normalized);
 }
 
-/**
- * True when the upload is a model-readable image that needs no degrade — the
- * only modality Phase 1 (ADR-0065) supports end to end.
- */
+/** A model-readable image that needs no degrade. */
 export function isPassThrough(mime: string): boolean {
   return classifyUpload(mime)?.kind === "pass-through";
 }

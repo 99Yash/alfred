@@ -1,10 +1,7 @@
 import { type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
 import { cn } from "~/lib/utils";
 
-/**
- * Forwards its ref and spreads extra props so it can sit inside a Radix
- * `Tooltip.Trigger asChild` (which injects pointer handlers + a ref).
- */
+/** Forwards ref and props, so it works in `Tooltip.Trigger asChild`. */
 export function IconButton({
   label,
   children,

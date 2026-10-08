@@ -1,12 +1,8 @@
 import { useEventStreamStatus } from "~/lib/events/event-stream-status";
 
 /**
- * Floating notice shown when the shared SSE bus has died with a fatal error
- * (e.g. 401 — session expired — which per WHATWG moves EventSource to CLOSED
- * with no auto-reconnect) and is now backing off before a manual re-open.
- * Transient drops stay in CONNECTING and auto-retry, so they do not show this.
- * Lives alongside the other shell nags (scope-gap, github reconnect) in the
- * absolutely-positioned layer under the header.
+ * Shown when the SSE bus died fatally (e.g. 401 moves EventSource to CLOSED,
+ * with no auto-reconnect) and is backing off. Transient drops retry on their own.
  */
 export function EventStreamBanner() {
   const status = useEventStreamStatus();

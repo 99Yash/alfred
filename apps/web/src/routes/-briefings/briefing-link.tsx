@@ -4,17 +4,12 @@ import { type IntegrationBrand, IntegrationGlyph } from "~/lib/integrations/inte
 import { cn } from "~/lib/utils";
 import { EntityChip } from "./entity-chip";
 
-/**
- * Map a link's host to a brand glyph so briefing prose links read as the thing
- * they point at (a GitHub PR, a Gmail thread, a doc) rather than a bare URL.
- * Recognised SaaS hosts get their mark; any other web link gets the globe;
- * non-http links (mailto/tel) and in-app relative links get nothing.
- */
+/** Brand glyph for a link's host; globe for other web links; null for mailto, tel, and relative links. */
 function linkBrand(href: string): IntegrationBrand | null {
   let url: URL;
 
   try {
-    // Fake base resolves relative hrefs without throwing; flagged via the host.
+    // The fake base lets relative hrefs parse; the host marks them.
     url = new URL(href, "http://_relative_");
   } catch {
     return null;
@@ -49,15 +44,8 @@ function linkBrand(href: string): IntegrationBrand | null {
 }
 
 /**
- * Briefing link: an inline reference dressed in the same language as
- * `EntityChip` rather than the renderer's default purple link tone. A leading
- * brand glyph names the destination; the label sits in primary ink with a quiet
- * underline that wakes to full contrast on hover. `px` gives the token a little
- * breathing room and `rounded` lets the hover tint read as a soft pill.
- *
- * `!text-app-fg-4` overrides the wrapper's `[&_a]` color baseline — the only
- * property we wrestle from the shared renderer; the glyph carries the brand
- * color, so the text stays neutral and legible inside the sentence.
+ * A briefing link styled like `EntityChip`: brand glyph, neutral ink, quiet underline.
+ * `!text-app-fg-4` beats the renderer's `[&_a]` color.
  */
 export const BriefingLink: Components["a"] = ({
   node: _node,
@@ -90,12 +78,7 @@ export const BriefingLink: Components["a"] = ({
   );
 };
 
-/**
- * Renders a composer reference token (`[[<kind>:<id>]]`, ADR-0049) as an
- * {@link EntityChip}. Mapped onto the custom `briefing-ref` element that
- * {@link briefingMarkdownComponents} wires into react-markdown. Unknown kinds or
- * missing labels collapse to the bare label (or nothing) rather than a chip.
- */
+/** Render a `briefing-ref` token (ADR-0049) as an {@link EntityChip}. Unknown kinds fall back to the label. */
 export function BriefingRef({
   kind,
   label,

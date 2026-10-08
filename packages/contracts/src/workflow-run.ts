@@ -11,30 +11,22 @@ import {
 } from "./agent";
 import { TOOL_RISK_TIERS } from "./tools";
 
-/**
- * One readiness problem as it is persisted on a blocked run's `output`. The
- * runtime narrows `code` to its own closed union; a persisted row keeps the
- * open string so an old code still parses after the runtime forgets it.
- */
+/** Persisted on a blocked run. `code` stays an open string so a retired code still parses. */
 export const workflowReadinessProblemSchema = z.object({
   code: z.string(),
   message: z.string(),
   field: z.string(),
-  /** Omitted when no user action can truthfully make the capability runnable. */
+  /** Omitted when no user action can fix it. */
   recoveryAction: workflowRecoveryActionSchema.optional(),
 });
 
 export type PersistedWorkflowReadinessProblem = z.infer<typeof workflowReadinessProblemSchema>;
 
-/** The `output` shape the `check-readiness` step writes when a run blocks. */
 export const workflowReadinessOutputSchema = z.object({
   readiness: z.array(workflowReadinessProblemSchema),
 });
 
-/**
- * One external write the run attempted, projected from its `action_stagings`
- * row. Reads are never receipts: only write tiers appear here.
- */
+/** One attempted external write, from `action_stagings`. Reads never appear. */
 export const effectReceiptSchema = z.object({
   effectKey: z.string(),
   toolName: z.string(),
@@ -43,18 +35,14 @@ export const effectReceiptSchema = z.object({
   outcome: effectOutcomeSchema,
   status: actionStagingStatusSchema,
   providerRef: z.string().nullable(),
-  /** ISO-8601 instant the effect executed, or null when it never did. */
   executedAt: z.string().nullable(),
 });
 
 export type EffectReceipt = z.infer<typeof effectReceiptSchema>;
 
 /**
- * The typed verdict written on `agent_runs.outcome` when a workflow run ends
- * (or defers). The history surface reads this instead of the raw `status` and
- * `error` columns, so every kind carries only what the user needs to decide
- * whether anything happened and what to do next. Internal runs (chat turns,
- * sub-agents) never carry an outcome.
+ * `agent_runs.outcome` for a workflow run, read by the history view.
+ * Chat turns and sub-agents never set one.
  */
 const completedRunOutcomeSchema = z.object({
   kind: z.literal("completed"),
@@ -62,7 +50,6 @@ const completedRunOutcomeSchema = z.object({
   effects: z.array(effectReceiptSchema).max(50),
 });
 
-/** The run finished with no successful external write. */
 const noChangeRunOutcomeSchema = z.object({ kind: z.literal("no_change"), summary: z.string() });
 
 const deferredRunOutcomeSchema = z.object({
@@ -89,10 +76,7 @@ const cancelledRunOutcomeSchema = z.object({
   unknownEffects: z.array(z.string()),
 });
 
-/**
- * At least one write reached the provider and its result was never
- * observed. A retry could duplicate the effect, so this kind never offers one.
- */
+/** A write reached the provider with no observed result. Never offer a retry: it could duplicate. */
 const unknownWriteRunOutcomeSchema = z.object({
   kind: z.literal("unknown_write_outcome"),
   effectKey: z.string(),
@@ -112,11 +96,8 @@ export const workflowRunOutcomeSchema = z.discriminatedUnion("kind", [
 export type WorkflowRunOutcome = z.infer<typeof workflowRunOutcomeSchema>;
 
 /**
- * The outcome as the history wire carries it: the persisted verdict minus its
- * frozen receipt lists. No effect can land after the terminal write (the
- * approval route refuses a finished run), so the live ledger on the row is the
- * same list and the wire ships it once. Counts the client shows for a
- * cancelled run come from that live ledger.
+ * The outcome without its receipt lists. The approval route refuses a finished run,
+ * so the row's live `effects` list is the same and the wire sends it once.
  */
 export const workflowRunHistoryOutcomeSchema = z.discriminatedUnion("kind", [
   completedRunOutcomeSchema.omit({ effects: true }),
@@ -130,12 +111,11 @@ export const workflowRunHistoryOutcomeSchema = z.discriminatedUnion("kind", [
 
 export type WorkflowRunHistoryOutcome = z.infer<typeof workflowRunHistoryOutcomeSchema>;
 
-/** The single recovery the history surface offers for one run. */
 export const workflowRunRecoverySchema = z.discriminatedUnion("kind", [
   workflowRecoveryNavigationSchema,
-  /** Re-run the readiness check against the revision the run pinned. */
+  /** Recheck readiness on the pinned revision. */
   z.object({ kind: z.literal("recheck"), revisionId: z.string() }),
-  /** Start a new run from the same trigger with the chosen revision. */
+  /** New run, same trigger, chosen revision. */
   z.object({
     kind: z.literal("run_again"),
     revisionChoice: z.enum(["original", "latest"]),
@@ -147,12 +127,7 @@ export const workflowRunRecoverySchema = z.discriminatedUnion("kind", [
 
 export type WorkflowRunRecovery = z.infer<typeof workflowRunRecoverySchema>;
 
-/**
- * The trigger as the history surface shows it: the identity variants that
- * `agentRunTriggerSchema` is built from, without the event payload. Only the
- * exact identity of the firing (schedule instant, event id, signal name)
- * survives the projection.
- */
+/** `agentRunTriggerSchema` identity variants without the event payload. */
 export const workflowRunHistoryTriggerSchema = z.discriminatedUnion("kind", [
   cronRunTriggerIdentitySchema,
   eventRunTriggerIdentitySchema,
@@ -172,23 +147,21 @@ export const workflowRunHistoryRowSchema = z.object({
   endedAt: z.string().nullable(),
   revisionId: z.string().nullable(),
   revisionNumber: z.number().nullable(),
-  /** The run pinned the workflow's current revision. */
   isCurrent: z.boolean(),
-  /** The run pinned the workflow's published revision. */
   isPublished: z.boolean(),
   status: runStatusSchema,
   outcome: workflowRunHistoryOutcomeSchema.nullable(),
-  /** Write-tier stagings for the run, oldest first, capped at 50. */
+  /** Oldest first. */
   effects: z.array(effectReceiptSchema).max(50),
   effectsTruncated: z.boolean(),
-  /** Readiness problems a blocked run recorded; empty for every other status. */
+  /** Empty unless the run blocked. */
   coverageGaps: z.array(workflowReadinessProblemSchema),
   recovery: workflowRunRecoverySchema,
 });
 
 export type WorkflowRunHistoryRow = z.infer<typeof workflowRunHistoryRowSchema>;
 
-/** One keyset page of a workflow's runs, newest first. */
+/** Newest first. */
 export const workflowRunHistorySchema = z.object({
   items: z.array(workflowRunHistoryRowSchema).max(50),
   nextCursor: z.string().nullable(),

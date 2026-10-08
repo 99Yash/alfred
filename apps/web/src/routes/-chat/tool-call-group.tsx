@@ -22,14 +22,8 @@ const ITEM = "tools";
 const NO_SUB_AGENTS: readonly SubAgentTrail[] = [];
 
 /**
- * A settled `system.ask_user` call draws its questions and the user's answers
- * instead of the ordinary tool row, so the turn keeps a record of what was
- * asked (ADR-0099). Null while the call is still parked — the approval tray
- * below owns that state — and null when the result preview was pruned past
- * reading, which falls back to the ordinary row.
- *
- * Module scope, unlike its two neighbours inside the component: those close
- * over `subAgents`, this closes over nothing.
+ * A settled `system.ask_user` call shows its questions and answers (ADR-0099).
+ * Null while parked (the approval tray owns that) or when the preview is unreadable.
  */
 function questionSummary(item: ToolCallView[]): AskUserSummary | null {
   const only = item.length === 1 ? item[0]! : null;
@@ -38,22 +32,10 @@ function questionSummary(item: ToolCallView[]): AskUserSummary | null {
 }
 
 /**
- * A turn's tool calls and the model's narration, woven into one collapsible
- * activity trail so a long agentic sequence doesn't bury the reply under a
- * wall of steps. While the turn runs the trail auto-expands — the model's
- * narration lines and tool cards appear interleaved as they stream, the
- * current step glowing — so the user watches Alfred work. Once it lands the
- * trail collapses to a quiet narrative summary ("Checked your calendar and
- * sent a Gmail draft") with the integration glyphs touched alongside;
- * re-expanding replays the full interleaved timeline. A lone tool with no
- * narration skips the wrapper — there's nothing to summarize.
- *
- * Total over `(tools, narration)`: `buildTrail` alone decides whether there is
- * anything to draw. A step whose cards all bounced leaves closed prose with
- * zero cards, so a `tools.length` gate anywhere upstream silently eats prose
- * the user already read. `narration` is required for that reason — omitting it
- * would be the same defect by omission — but "no caller gates on either
- * channel" is a convention held by the two call sites, not by this signature.
+ * A turn's tool calls and narration as one collapsible trail.
+ * Expanded while the turn runs; collapsed to a summary when it lands.
+ * `buildTrail` alone decides if there is anything to draw. Do not gate on `tools.length`:
+ * a step whose cards all bounced still has prose.
  */
 export function ToolCallGroup({
   tools,
@@ -63,31 +45,15 @@ export function ToolCallGroup({
 }: {
   tools: ToolCallView[];
   active: boolean;
-  /**
-   * Every narration segment the turn has closed. Required, not optional: the
-   * bug this component exists to avoid is a caller dropping this channel, and
-   * an optional prop lets that happen silently. Pass `[]` when there is none —
-   * a persisted turn's `narration` is nullable.
-   */
+  /** Required so a caller cannot silently drop prose. Pass `[]` when a persisted turn has none. */
   narration: readonly SyncedChatNarration[];
-  /**
-   * Live trails for sub-agents spawned this turn. Each is hosted by the
-   * `spawn_sub_agent` card whose `toolCallId` it names, turning that card from
-   * a dead end into the child's own activity trail. Empty on a reloaded turn.
-   */
+  /** Live sub-agent trails, each shown in the `spawn_sub_agent` card it names. Empty on reload. */
   subAgents?: readonly SubAgentTrail[] | undefined;
 }) {
   const contentId = useId();
-  // Auto-animate the trail's height/insertions: as tool cards and narration
-  // rows stream in during a turn, the container grows smoothly and each new row
-  // slides into place instead of the whole trail jumping. auto-animate owns the
-  // enter/move animation here (the cards drop their own `animate-chat-in` via
-  // `inTrail`), and it self-disables under prefers-reduced-motion.
+  // auto-animate owns enter/move here (cards skip `animate-chat-in` via `inTrail`). It honors reduced motion.
   const [trailRef] = useAutoAnimate<HTMLDivElement>();
-  // Open while the turn runs so narration + tools stream into view; collapse to
-  // the summary once it finishes. Re-asserting on the active transition during
-  // render (rather than in an effect) avoids a flash and lets the user still
-  // toggle freely between transitions.
+  // Open while active, collapse when done. Set during render to avoid a flash.
   const [value, setValue] = useState(active ? ITEM : "");
   const [prevActive, setPrevActive] = useState(active);
 
@@ -102,13 +68,8 @@ export function ToolCallGroup({
       : undefined;
 
   /**
-   * The boss's `await_sub_agent` call for a child whose trail is already on
-   * screen. One delegation would otherwise draw two rows a line apart — the
-   * container reporting the child's live state, and beneath it a card that says
-   * the same thing with less detail. The await card still renders whenever
-   * there is no trail to defer to (a background parent, or a child that never
-   * published a step), so the wait is never invisible. It stays in `tools`
-   * either way, so the group headline can still say "Waiting on a sub-task".
+   * Hide an `await_sub_agent` card when that child's trail is already on screen.
+   * It still counts in `tools` for the headline.
    */
   const isRedundantAwait = (item: ToolCallView[]): boolean => {
     if (item.length !== 1 || item[0]!.toolName !== AWAIT_SUB_AGENT_TOOL) return false;
@@ -136,11 +97,7 @@ export function ToolCallGroup({
     );
   }
 
-  // The trail flows inline in the conversation feed — no capped height or
-  // nested scrollbar. The feed's own stick-to-bottom keeps the model's current
-  // step in view as the trail grows, so a long agentic run reads as one
-  // continuous timeline rather than a cramped box. Shared by both drawing
-  // branches below; `useAutoAnimate`'s ref attaches to whichever renders.
+  // Inline, no capped height: the feed's stick-to-bottom keeps the current step in view.
   const rail = (
     <div
       ref={trailRef}
@@ -164,11 +121,7 @@ export function ToolCallGroup({
     </div>
   );
 
-  // Prose with no cards — a step whose calls all bounced, or narration that
-  // arrived before its tools did. There is nothing to summarize behind a
-  // chevron and no last tool to headline with, so the rows stand on their own.
-  // This returns *before* any `tools[…]!` read below, which empty `tools`
-  // cannot survive.
+  // Prose with no cards: nothing to summarize. Must return before the `tools[…]!` reads below.
   if (!trail.some((item) => item.kind === "tool")) {
     return <div className="animate-chat-in w-full">{rail}</div>;
   }
@@ -240,16 +193,10 @@ export function ToolCallGroup({
   );
 }
 
-/**
- * The model's narration line for a step — a quiet, muted node sitting between
- * the tool cards in the trail. A small dot marks it (vs. the tool cards' logo
- * glyphs) so the eye reads it as a thought, not an action; the prose stays
- * subordinate to the final reply below.
- */
+/** A narration line between tool cards, marked with a dot. */
 function NarrationRow({ text }: { text: string }) {
   return (
-    // No `animate-chat-in` here — the trail's `useAutoAnimate` owns this row's
-    // enter/move animation (see `ToolCallGroup`); the two would fight otherwise.
+    // No `animate-chat-in`: the trail's auto-animate owns this row.
     <div className="flex items-start gap-2">
       <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
         <span className="size-1.5 rounded-full bg-app-fg-2" />

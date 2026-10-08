@@ -7,11 +7,7 @@ import { cn } from "~/lib/utils";
 import { CostFlow } from "./cost-flow";
 import { Tip } from "./tip";
 
-/**
- * One labeled stat cell: faint icon, tabular value, optional dim suffix. The
- * strip abbreviates every number (`12.3k`), so the hover tip carries the label
- * plus the exact figure — the reason to hover at all.
- */
+/** One stat cell. The strip abbreviates numbers, so the tip shows the exact figure. */
 function Stat({
   icon: Icon,
   iconClassName,
@@ -44,12 +40,7 @@ function Divider() {
 
 type ModelFallback = NonNullable<ChatMessageUsage["models"][number]["fallback"]>;
 
-/**
- * Why a model chip glows amber, in the rollup's own words: how many of the
- * model's calls were a `withFallback` degrade and, when the metering row kept
- * it, which primary errored. Older rows carry no primary, so the sentence
- * degrades to "the primary" rather than guessing one from the model id.
- */
+/** Why a chip glows amber: fallback call count and, if recorded, the failed primary. */
 function fallbackNote(fallback: ModelFallback, calls: number): string {
   const share =
     fallback.calls === calls ? (calls === 1 ? "It" : "Every call") : `${fallback.calls} of them`;
@@ -60,13 +51,8 @@ function fallbackNote(fallback: ModelFallback, calls: number): string {
 }
 
 /**
- * The three-way input split in one sentence: served from the cache, written
- * into it on a miss, and neither. Without the middle number a reader takes
- * `input - cached` for ordinary fresh prompt, when most of it is usually a
- * premium-rate cache write — the exact thing that makes a cold turn expensive.
- *
- * Omitted for a rollup persisted before the write half existed, because "fresh"
- * would then be a guess rather than a subtraction.
+ * Input split: cache hit, cache write, and fresh. Without the write figure, readers take it for fresh input.
+ * Omitted for old rollups with no write field, where "fresh" would be a guess.
  */
 function cacheSplitNote(usage: ChatMessageUsage): string {
   const written = usage.cacheWriteInputTokens;
@@ -78,17 +64,11 @@ function cacheSplitNote(usage: ChatMessageUsage): string {
   return `Split: ${usage.cachedInputTokens.toLocaleString()} read from the cache, ${written.toLocaleString()} written into it, ${fresh.toLocaleString()} neither.`;
 }
 
-/** Circumference of the ring below, hoisted so it isn't recomputed per render. */
 const RING_RADIUS = 5;
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-/**
- * A dial for the cache-hit share — the single biggest lever on turn cost, so it
- * earns a glance-able shape rather than a bare number. Amber arc on a faint
- * track, matching the `Zap` accent, sized to the row's cap height. The arc
- * starts at twelve o'clock (`-rotate-90`) and fills clockwise.
- */
+/** Cache-hit dial: an amber arc from twelve o'clock, clockwise. */
 function CacheRing({ pct }: { pct: number }) {
   return (
     <svg aria-hidden viewBox="0 0 14 14" className="size-3 shrink-0 -rotate-90">
@@ -115,12 +95,7 @@ function CacheRing({ pct }: { pct: number }) {
   );
 }
 
-/**
- * Segment fills for the cost split, in order. The boss always takes the first
- * one (brand ink, matching the cost anchor it sits beside); each worker takes
- * the next tint in the list, cycling when a turn spawns more workers than there
- * are tints. Full class strings, so Tailwind can see them.
- */
+/** Cost-split fills: the boss first, then workers cycle the tints. Full strings so Tailwind sees them. */
 const BOSS_FILL = "bg-app-fg-4";
 
 const WORKER_FILLS = [
@@ -132,7 +107,7 @@ const WORKER_FILLS = [
 ] as const;
 
 interface CostSlice {
-  /** List key. Prefixed for workers so a sub-agent named `boss` can't collide. */
+  /** Workers are prefixed so a sub-agent named `boss` cannot collide. */
   key: string;
   label: string;
   fill: string;
@@ -141,11 +116,7 @@ interface CostSlice {
   pct: number;
 }
 
-/**
- * Split one turn's spend into drawable slices: the boss first, then its workers
- * by size. The boss leads regardless of what it spent, so the bar always reads
- * from the same anchor and a worker's slice keeps its meaning across turns.
- */
+/** Boss first, then workers by size, so the bar always starts from the same anchor. */
 function costSlices(agents: readonly ChatMessageAgentUsage[], total: number): CostSlice[] {
   const ordered = [...agents].sort((a, b) => {
     if ((a.subId === null) !== (b.subId === null)) return a.subId === null ? -1 : 1;
@@ -158,8 +129,7 @@ function costSlices(agents: readonly ChatMessageAgentUsage[], total: number): Co
   return ordered.map((agent) => {
     const subId = agent.subId;
 
-    // `worker++` walks the tint list only for workers, so the boss never
-    // consumes a tint and the first worker always wears the first tint.
+    // Only workers advance `worker`, so the first worker gets the first tint.
     const fill =
       subId === null ? BOSS_FILL : (WORKER_FILLS[worker++ % WORKER_FILLS.length] ?? BOSS_FILL);
 
@@ -169,23 +139,15 @@ function costSlices(agents: readonly ChatMessageAgentUsage[], total: number): Co
       fill,
       costUsd: agent.costUsd,
       calls: agent.calls,
-      // A zero total means every slice is zero; flat-splitting it keeps the bar
-      // drawn instead of collapsing it to an empty track.
+      // Zero total: split evenly so the bar still draws.
       pct: total > 0 ? (agent.costUsd / total) * 100 : 100 / ordered.length,
     };
   });
 }
 
 /**
- * Where the turn's money went, as a stacked bar beside the total. The one thing
- * the cost number can't say on its own: a delegating turn spends most of its
- * dollars inside its sub-agents, so a total that moves without the boss doing
- * more work is only legible once the split is visible.
- *
- * Rendered only when a turn actually delegated — a solo boss turn would draw a
- * full-width bar that repeats the total, so the strip stays quiet instead. The
- * bar carries no numbers itself; the hover tip names every agent with its exact
- * dollars, share, and call count.
+ * Stacked bar of where the turn's money went; sub-agents can spend most of it.
+ * Drawn only for delegating turns. The tip names each agent's dollars, share, and calls.
  */
 function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]; total: number }) {
   const slices = costSlices(agents, total);
@@ -212,8 +174,7 @@ function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]
       <span className="inline-flex items-center gap-1.5">
         <span className="flex h-1.5 w-10 gap-px overflow-hidden rounded-full bg-app-bg-a3">
           {slices.map((slice) => (
-            // `min-w-px` keeps a near-free agent visible without inflating its
-            // share — the width itself stays the honest proportion.
+            // `min-w-px` keeps a near-free agent visible.
             <span
               key={slice.key}
               className={cn("h-full min-w-px", slice.fill)}
@@ -227,16 +188,11 @@ function CostSplit({ agents, total }: { agents: readonly ChatMessageAgentUsage[]
   );
 }
 
-/** Which of the two receipts to draw. */
 export type UsageTone = "ok" | "failed";
 
 /**
- * How the strip reads: an ordinary receipt, or the receipt of a turn that
- * faulted. Only two things change on a failure — the pill takes the same
- * `bg-app-red-1` tint as the failure alert above it, and the cost anchor turns
- * red ink. The amber cache ring and the sky `Snowflake` keep their own colors,
- * because those cells answer "was the prompt cached", which a fault does not
- * change. Full class strings, so Tailwind can see them.
+ * Failure tone: red pill and red cost. Cache cells keep their colors; a fault does not change caching.
+ * Full strings so Tailwind sees them.
  */
 const TONE = {
   ok: { container: "", cost: "text-app-fg-4" },
@@ -244,36 +200,9 @@ const TONE = {
 } satisfies Record<UsageTone, { container: string; cost: string }>;
 
 /**
- * Per-turn token + cost readout under an assistant reply. A product surface in
- * every env — it exposes the economics of the whole turn (the boss run plus
- * every sub-agent it spawned) so the spend stays legible. Numbers come from the synced
- * `usage` rollup (aggregated server-side from `api_call_log`); absent on older
- * messages.
- *
- * Craft notes: the strip reads left-to-right as flow (io → cache → cost → split
- * → calls → models) inside one hairline "receipt" pill. Numbers are
- * `tabular-nums` so they don't jitter as they stream in. Cost is the anchor —
- * brand ink, a touch heavier — because it's the number we're actually watching,
- * and on a delegating turn the stacked bar right after it says how much of that
- * number the boss itself spent. The cache share gets a tiny amber ring since
- * it's the biggest lever on that cost. Each served model wears its provider
- * mark; a chip glows amber only when the rollup says some of its calls ran as a
- * `withFallback` degrade (spend cap, 429). That fact travels on
- * `usage.models[].fallback` from the metering rows, so the strip never has to
- * know which model the route table currently calls primary. The turn's
- * reasoning effort rides on the model name (`Luna · Xhigh`): both tiers run
- * the same model and differ only in thinking, so the effort is which model
- * served, not a separate stat. It travels on `usage.effort`, resolved
- * server-side from the route table, for the same reason.
- *
- * Every cell carries a `Tip` hover card rather than a native `title`, so the
- * abbreviated figure keeps its exact count and its explanation one hover away.
- * `Tip` needs an ancestor `Tooltip.Provider`; `chat-shell.tsx` wraps the whole
- * chat surface in one, so this component must stay inside that tree.
- *
- * A failed turn passes `tone="failed"`. It draws the same numbers — a fault
- * does not refund them — but says up front that they bought an error. See
- * {@link TONE} for what the tone changes and what it deliberately leaves alone.
+ * Per-turn token and cost strip for the boss and its sub-agents, from the synced `usage` rollup.
+ * Amber chip: `usage.models[].fallback` saw a `withFallback` degrade. Effort comes from `usage.effort`.
+ * `Tip` needs the `Tooltip.Provider` in `chat-shell.tsx`. A failed turn keeps its numbers ({@link TONE}).
  */
 export function UsageLine({
   usage,
@@ -289,9 +218,7 @@ export function UsageLine({
   const cachePct =
     usage.inputTokens > 0 ? Math.round((usage.cachedInputTokens / usage.inputTokens) * 100) : 0;
 
-  // A rollup written before the write half was recorded carries `null`. Folding
-  // it to 0 here suppresses the cold cell, which is the honest render for it:
-  // we don't know, and an old turn that WAS cold must not claim it was warm.
+  // Old rollups have `null`. Fold to 0 so an unknown never claims a warm or cold cache.
   const cacheWritten = usage.cacheWriteInputTokens ?? 0;
 
   const effort = usage.effort ?? "no effort";
@@ -306,9 +233,7 @@ export function UsageLine({
         toneClass.container,
       )}
     >
-      {/* The one cell a healthy turn never draws. It leads the strip so the
-       * reader knows what the numbers are before reading them: this is what
-       * the failure cost, not what a reply cost. */}
+      {/* Leads the strip so the reader knows these numbers paid for a failure. */}
       {tone === "failed" ? (
         <Tip
           label="The turn failed"
@@ -353,8 +278,7 @@ export function UsageLine({
           </span>
         </Tip>
       ) : null}
-      {/* The miss half, and the only cell a fully cold turn draws. Sits beside
-       * the hit cell with no divider: the two are one fact seen twice. */}
+      {/* The miss half; no divider from the hit cell. */}
       {cacheWritten > 0 ? (
         <Tip
           label="Cold input"
@@ -379,8 +303,7 @@ export function UsageLine({
           <CostFlow value={usage.costUsd} />
         </span>
       </Tip>
-      {/* Only a turn that delegated has a split worth drawing: with one agent
-       * the bar is a full-width restatement of the total beside it. */}
+      {/* With one agent the bar only repeats the total. */}
       {usage.agents.length > 1 ? <CostSplit agents={usage.agents} total={usage.costUsd} /> : null}
       <Stat
         icon={Repeat}
@@ -394,18 +317,14 @@ export function UsageLine({
 
       {usage.models.map((m) => {
         const provider = providerOf(m.model);
-        // `?? null` covers a rollup persisted before the field existed and read
-        // back without a schema pass: absent must mean "no degrade", not amber.
+        // Old rollups may lack the field; absent means no degrade.
         const fallback = m.fallback ?? null;
         const Icon = provider?.Icon;
 
         const served =
           m.calls === 1 ? "Served 1 call this turn." : `Served ${m.calls} calls this turn.`;
 
-        // The turn's reasoning-effort ceiling, worn on the model name: both
-        // tiers run the same model and differ only in thinking, so the effort
-        // reads as which model served, not as a separate stat. One value for
-        // the whole turn — every chip repeats it.
+        // One effort value for the whole turn; every chip repeats it.
         const effortNote = `Ran at ${effort} reasoning effort (the turn's ceiling; each provider maps it to its own scale).`;
 
         return (

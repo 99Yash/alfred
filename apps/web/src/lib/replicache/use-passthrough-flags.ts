@@ -8,28 +8,17 @@ import { usePreferenceMap } from "./use-preferences";
 
 export interface PassthroughFlagsState {
   /**
-   * Effective on/off for an integration's general read-only passthrough tool.
-   * **Default OFF** (ADR-0074): an absent preference row resolves to OFF, the
-   * inverse of the background-agent `feature.*` flags (UNSET = ON). The switch
-   * must not reuse `useFeatureFlags().isOn`, whose default would silently arm a
-   * security-sensitive tier the user never enabled.
+   * Unset means off (ADR-0074). Do not use `useFeatureFlags().isOn`: its default
+   * would arm a tier the user never enabled.
    */
   isOn: (slug: SupportedPassthroughSlug) => boolean;
-  /** Optimistically flip a passthrough toggle; the server confirms on next pull. */
   setEnabled: (slug: SupportedPassthroughSlug, enabled: boolean) => Promise<void>;
   loading: boolean;
   error: string | null;
   retry: () => void;
 }
 
-/**
- * Live view of the per-integration general-passthrough toggles
- * (Settings → Features). Reads the same synced `pref/{key}` rows as
- * {@link useFeatureFlags} but resolves them through
- * {@link isPassthroughPreferenceOn} so the default is OFF — a gate bug in this
- * read-only tier must be killable per-integration without a deploy, and a tool
- * the user never enabled must never appear armed.
- */
+/** Per-integration passthrough toggles, default off. */
 export function usePassthroughFlags(): PassthroughFlagsState {
   const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
 

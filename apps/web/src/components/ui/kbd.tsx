@@ -1,10 +1,4 @@
-/**
- * Dimension-grammar Kbd primitive — keyboard shortcut chip.
- *
- * Tiny inline pill that sits next to nav rows and primary actions to hint at
- * the keyboard shortcut. Examples in the live UI: `⇧O` next to "New Chat",
- * `⌘K` next to "Search", `⌘↵` next to "Learn".
- */
+/** Keyboard shortcut chip. */
 
 import { type HTMLAttributes } from "react";
 import { cn } from "~/lib/utils";

@@ -1,16 +1,4 @@
-/**
- * Morning briefing (ADR-0025 #2).
- *
- * Cron → multi-source query → email send. v1 is inbox-only: the
- * priority list is driven by triage tags from m9; calendar +
- * "relevant updates" land in a follow-up milestone.
- *
- * Module shape mirrors triage:
- *   - `gather`     pure query helpers (no LLM)
- *   - `compose`    v2 structured briefing composer + legacy inbox renderer
- *   - `preferences` timezone + delivery-hour resolution
- *   - `workflow-input` slug + zod schema for callers that enqueue
- */
+/** Daily briefing (ADR-0025 #2, ADR-0048). */
 
 export {
   resolveBriefingPreferences,
@@ -128,8 +116,7 @@ export {
   type DailyBriefingOperationState,
 } from "./workflow-operations";
 
-// Product recipes owned by the briefing module. The composition root
-// (`apps/server/src/builtins/index.ts`) registers these with execution.
+// Registered with execution by `apps/server/src/builtins/index.ts`.
 export { dailyBriefingWorkflow } from "./daily-briefing";
 
 export { morningBriefingWorkflow } from "./legacy-morning-briefing";

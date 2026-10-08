@@ -5,13 +5,10 @@ import { and, asc, eq, gte, inArray, notInArray, or } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
 
-/** Auto triage tags sync for this long after classification (rfc-triage-tags.md). */
 const TRIAGE_TAG_WINDOW_DAYS = 30;
 
-// rfc-triage-tags.md. `user` overrides always sync; `auto` tags sync within
-// TRIAGE_TAG_WINDOW_DAYS and outside the rail-suppressed categories. Keyed by
-// `source_thread_id` so the client store holds one tag per thread. The window
-// is a function of `readAt`, so both stages agree on the cutoff.
+// User overrides always sync; auto tags only inside the window and outside suppressed
+// categories (rfc-triage-tags.md). The cutoff uses `readAt`, so both stages agree.
 const syncsToClient = (userId: string, readAt: Date) => {
   const cutoff = new Date(readAt.getTime() - TRIAGE_TAG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
@@ -28,19 +25,10 @@ const syncsToClient = (userId: string, readAt: Date) => {
   );
 };
 
-/**
- * Narrow a flat `email_triage` row to the `SyncedTriageTag` discriminated
- * union (rfc-triage-tags.md). The DB stores all columns flat (classifier
- * provenance is nullable, `overridden_at` is nullable); this is the single
- * point that refuses the contradiction — a `user` row drops confidence/
- * rationale/classifiedAt, an `auto` row drops overriddenAt. `zod` validates
- * the category string against `TRIAGE_CATEGORIES` on the way out.
- */
+/** Narrow flat `email_triage` rows to the `SyncedTriageTag` union, one tag per thread. */
 export const fetchTriageTags = syncEntity(SYNC_MODEL.triagetag, {
   versionQuery: (tx, userId, readAt) =>
     tx
-      // Aliased to the model's identity name, so the CVR id and the changed-row
-      // selector both speak `threadId`.
       .select({ threadId: emailTriage.sourceThreadId, rowVersion: emailTriage.rowVersion })
       .from(emailTriage)
       .where(syncsToClient(userId, readAt))

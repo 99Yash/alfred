@@ -10,10 +10,7 @@ export function MemoryCard({ body }: { body: string }) {
       <article
         className={cn(
           "text-sm leading-6 text-app-fg-4",
-          /* Tighter list styling — the app aesthetic favors low
-           * vertical density. Each list item gets a tiny purple
-           * sparkle accent via list-style: none + ::marker fallback,
-           * which we draw inline via a custom renderer below. */
+          /* Dense lists; the sparkle marker is drawn by a custom renderer below. */
           "[&_ul]:m-0 [&_ul]:flex [&_ul]:list-none [&_ul]:flex-col [&_ul]:gap-2 [&_ul]:p-0",
           "[&_li]:flex [&_li]:items-start [&_li]:gap-2.5",
           "[&_strong]:font-medium [&_strong]:text-app-fg-4",

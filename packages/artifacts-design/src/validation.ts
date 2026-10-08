@@ -1,30 +1,9 @@
 /**
- * Deterministic authoring contract for artifact pages.
- *
- * Two concerns live here, both enforced at the write boundary (`write.ts`):
- *
- *  1. **Document typography (pdf only).** The shell intentionally allows small
- *     inline styles for geometry, but document typography must come from the
- *     shared classes/tokens. Rejecting custom font declarations prevents a
- *     model-authored page stylesheet from recreating the tiny/off-brand type
- *     scale that the document medium exists to eliminate.
- *
- *  2. **Motion safety (slides AND pdf).** The shell owns ONE central
- *     `@media print, (prefers-reduced-motion: reduce)` guard that forces
- *     `animation: none` — which snaps every shell motion class to its RESTING
- *     frame (authored to equal the final visible frame). That guard only covers
- *     the shell's own selectors. If a model authored its OWN `@keyframes` with a
- *     hidden base state (`opacity: 0`, an off-screen `transform`), the guard
- *     would freeze it at that base — invisible in print/reduced-motion. So the
- *     hole is closed here: authored `@keyframes` and `animation`/`animation-*`
- *     declarations are rejected outright. Motion may come ONLY from the guarded
- *     shell classes (`MOTION_CLASS_NAMES`). Transitions are NOT rejected — a
- *     transition needs a property change to fire, which cannot happen in a static
- *     `pointer-events: none` sandbox, so it always rests at its declared state
- *     and is safe by construction.
- *
- * The slide check is motion-ONLY: it deliberately does not impose the pdf
- * font/root rules, so slides keep their inline-geometry freedom.
+ * Page checks that `write.ts` runs before it stores an artifact.
+ * PDF pages must use the shared type classes, not their own fonts.
+ * All pages reject authored `@keyframes` and `animation`: the print/reduced-motion
+ * guard would freeze them at a hidden start frame. Transitions are safe, because
+ * nothing in the sandbox can trigger them.
  */
 
 import { MOTION_CLASS_NAMES } from "./shell";
@@ -43,18 +22,10 @@ const FONT_SIZE_DECLARATION = /\bfont-size\s*:\s*([^;"'}]+)/gi;
 const ALLOWED_DOCUMENT_FONT_SIZE =
   /^var\(--art-doc-(?:name|role|section|heading|body|meta)\)\s*(?:!important\s*)?$/i;
 
-/**
- * Any `@keyframes` block (with or without a vendor prefix). Only the shell may
- * define keyframes; an authored one has no central guard and can hide content.
- */
+/** Any `@keyframes`, with or without a vendor prefix. */
 const KEYFRAMES_DECLARATION = /@(?:-webkit-|-moz-|-o-|-ms-)?keyframes\b/i;
 
-/**
- * An `animation` / `animation-*` property. The leading `(?:^|[;{\s])` anchors it
- * to a real declaration start so it matches `animation:` and `animation-delay:`
- * but NOT a custom property like `--my-animation:` (whose preceding char is a
- * hyphen, not a declaration boundary).
- */
+/** `animation` or `animation-*`. The boundary anchor skips custom properties like `--my-animation:`. */
 const ANIMATION_DECLARATION = /(?:^|[;{\s])animation[a-z-]*\s*:/i;
 
 export type PdfArtifactHtmlViolation =
@@ -64,15 +35,15 @@ export type PdfArtifactHtmlViolation =
   | "custom-font-shorthand"
   | "custom-font-size";
 
-/** Motion violations apply to every `pages` format (slides + pdf). */
+/** Applies to slides and pdf. */
 export type MotionViolation = "authored-keyframes" | "authored-animation";
 
-/** A validation outcome: ok, or a rejection carrying a model-facing reason. */
+/** `reason` is shown to the model. */
 export type ArtifactHtmlValidation =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: string };
 
-/** Inspect CSS declaration contexts, not visible prose or code examples. */
+/** CSS from `<style>` blocks and `style=` attributes only, so prose never trips a check. */
 function authoredStyleSources(html: string): string[] {
   const sources: string[] = [];
 
@@ -87,11 +58,7 @@ function authoredStyleSources(html: string): string[] {
   return sources;
 }
 
-/**
- * Authored motion the central guard cannot make safe. Scans the same authored
- * style sources the pdf rules use, so it never trips on visible prose that
- * merely mentions "animation".
- */
+/** Authored motion that the shell's guard cannot make safe. */
 export function authoredMotionViolations(html: string): readonly MotionViolation[] {
   const violations: MotionViolation[] = [];
   const styles = authoredStyleSources(html).join("\n");
@@ -103,11 +70,7 @@ export function authoredMotionViolations(html: string): readonly MotionViolation
   return violations;
 }
 
-/**
- * The model-facing hint for a motion rejection, shared by both formats. Names
- * the allowed classes from {@link MOTION_CLASS_NAMES} (the shell's own list) so
- * the hint can never drift into advertising a class the shell does not define.
- */
+/** Reads {@link MOTION_CLASS_NAMES}, so the hint names only classes the shell defines. */
 function motionRejectionHint(): string {
   return `Do not author @keyframes or animation declarations: motion has no print/reduced-motion guard when authored and can freeze content hidden. Use the shell motion classes instead (${MOTION_CLASS_NAMES.join(", ")}).`;
 }
@@ -162,11 +125,7 @@ export function validatePdfArtifactHtml(html: string): ArtifactHtmlValidation {
   };
 }
 
-/**
- * Slide pages are unvalidated for typography (they keep inline-geometry
- * freedom), but motion is enforced for every format: authored keyframes /
- * animations are rejected so only the guarded shell classes can animate.
- */
+/** Slides get only the motion check. */
 export function slideArtifactHtmlViolations(html: string): readonly MotionViolation[] {
   return authoredMotionViolations(html);
 }

@@ -9,13 +9,8 @@ import { cn } from "~/lib/utils";
 import { answersOf, isAnswerEmpty, withAnswers } from "./ask-user";
 
 /**
- * The answer sheet for a parked `system.ask_user` approval (ADR-0099).
- *
- * This is the `system.ask_user` shape of the approval body: the user's answers
- * ARE the tool input, so filling the card edits the staged input in place and
- * the ordinary "approve with edits" path carries the answers back to the model.
- * One question renders flat; two or more page one at a time, so a
- * four-question call never becomes a wall of radios.
+ * Answer sheet for a parked `system.ask_user` approval (ADR-0099). The answers are
+ * the tool input, so "approve with edits" carries them back. Two or more questions page.
  */
 export function AskUserQuestionPanel({
   input,
@@ -24,13 +19,8 @@ export function AskUserQuestionPanel({
   disabled,
   idPrefix,
 }: {
-  /** The staged input, parsed. Drives what the card draws. */
   input: AskUserInput;
-  /**
-   * The same input as it was staged, unparsed. Answers are written back onto
-   * this value, not onto `input`: parsing applies schema defaults, and a draft
-   * carrying those would read as edited before the user answers anything.
-   */
+  /** Answers are written here, not onto `input`: parsed defaults would look like edits. */
   rawValue: JsonRecord;
   onChange: (value: unknown) => void;
   disabled?: boolean | undefined;
@@ -39,8 +29,7 @@ export function AskUserQuestionPanel({
   const questions = input.questions;
   const answers = answersOf(input);
   const [index, setIndex] = useState(0);
-  // The staged question list is frozen once the row is written, but clamp
-  // anyway so a shorter list can never index past its end.
+  // Clamp so a shorter list can never index past its end.
   const current = Math.min(index, questions.length - 1);
   const question = questions[current]!;
   const answer = answers[current]!;
@@ -55,10 +44,7 @@ export function AskUserQuestionPanel({
   return (
     <div className="flex flex-col gap-3">
       {input.context ? (
-        // The context is model-authored prose, and the model's context routinely
-        // holds a triaged email body. `alt-text` is the same mitigation the
-        // inbox Reader applies (#294): a `![](https://tracker/pixel.gif)` in it
-        // makes zero remote requests.
+        // Model-authored context often quotes an email body, so no remote images.
         <MarkdownRenderer size="compact" tone="surface" images="alt-text" className="text-app-fg-3">
           {input.context}
         </MarkdownRenderer>
@@ -109,10 +95,7 @@ export function AskUserQuestionPanel({
             setAnswer({ ...answer, customAnswer: e.target.value === "" ? null : e.target.value })
           }
           rows={2}
-          // The card re-parses the whole draft on every keystroke, and the
-          // schema caps this field at the same number. Without the cap a long
-          // paste failed the parse and replaced the card with a raw-JSON
-          // editor mid-edit.
+          // Same cap as the schema; a longer paste would fail the parse mid-edit.
           maxLength={ASK_USER_LIMITS.customAnswer.max}
           disabled={disabled}
           placeholder="Type an answer here."
@@ -125,13 +108,7 @@ export function AskUserQuestionPanel({
   );
 }
 
-/**
- * How many questions are still blank. One question at a time is on screen, so
- * without this line nothing tells the user that page 3 of 4 was never opened —
- * and Continue submits the whole sheet either way. It states the count rather
- * than blocking: continuing without answering is a legitimate choice, and the
- * model is told so.
- */
+/** Count of blank questions. Pages hide each other; this informs without blocking. */
 function BlankNotice({ blanks, total }: { blanks: number; total: number }) {
   return (
     <p role="status" className="text-[12px] leading-5 text-app-amber-4">
@@ -142,14 +119,7 @@ function BlankNotice({ blanks, total }: { blanks: number; total: number }) {
   );
 }
 
-/**
- * Previous / next arrows, one dot per question, and a live position readout.
- *
- * The dots carry the per-question answered state, which the arrows alone could
- * not show: with one question on screen there is otherwise no way to see that
- * an earlier page was left blank. Each dot is also the jump target for that
- * question.
- */
+/** Arrows, one dot per question (answered state, jump target), and a position readout. */
 function QuestionPager({
   current,
   answers,
@@ -192,8 +162,7 @@ function QuestionPager({
       >
         <ChevronRight size={14} />
       </PagerButton>
-      {/* A page change moves one question out and another in with no visible
-       * text change a screen reader would notice, so announce the position. */}
+      {/* A page change has no text change a screen reader notices, so announce it. */}
       <span aria-live="polite" className="sr-only">
         Question {current + 1} of {total}
       </span>
@@ -237,10 +206,8 @@ function PagerDot({
 }
 
 /**
- * `aria-disabled` with a no-op handler, never the `disabled` attribute: the
- * browser blurs a focused element the moment it becomes disabled, so reaching
- * the last question by keyboard dropped focus to `<body>` and the next Tab
- * restarted at the top of the document.
+ * `aria-disabled` with a no-op, not `disabled`: disabling a focused button
+ * blurs it, and the next Tab restarts at the top of the document.
  */
 function PagerButton({
   label,
@@ -276,15 +243,8 @@ function PagerButton({
 }
 
 /**
- * The choices for one question. A single-select question is a native radio
- * group, so the arrow keys move the selection; a multi-select one is native
- * checkboxes. The inputs stay in the accessibility tree and carry focus; the
- * visible state is drawn from React so the card needs no checked-selector
- * gymnastics.
- *
- * `labelledBy` points at the question text. Without it a screen reader
- * announces an unnamed group and then reads option labels with no statement of
- * what is being asked.
+ * Native radios (single) or checkboxes (multi), so the keyboard works.
+ * `labelledBy` names the group with the question text.
  */
 function OptionList({
   question,
@@ -318,9 +278,7 @@ function OptionList({
     });
   };
 
-  // `askUserOptionSchema` requires distinct labels, so the label is a sound key
-  // and membership is a sound selection test. Read once per render rather than
-  // per option: a scan inside the loop re-walks the whole selection each time.
+  // Labels are unique per schema, so they are sound keys. Build the set once per render.
   const selected = new Set(answer.selectedOptions);
 
   return (

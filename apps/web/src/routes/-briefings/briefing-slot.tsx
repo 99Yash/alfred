@@ -7,15 +7,12 @@ import { slotLabel } from "./briefing-utils";
 import { ProviderGlyph, SourceIcon } from "./source-meta";
 import { formatEventRange, parseActivitySubtitle } from "./source-meta-utils";
 
-/** Statuses that never produced prose — render a calm placeholder, not a blank. */
+/** No prose yet (or failed): render a placeholder, not a blank. */
 const NON_TERMINAL = new Set(["pending", "gathering", "composing", "failed"]);
 
 /**
- * One slot of a day (morning or evening), paragraph-first per ADR-0048/0049:
- * the composed `breaking_summary` leads and is always expanded; `sourcePanels`
- * are collapsible supporting detail; sections are secondary. A `suppressed`
- * morning renders identically to any row — its prose is just short — with at
- * most a subtle "Not emailed" line. No special quiet-day chrome.
+ * One morning or evening slot (ADR-0048/0049): the summary leads, source panels
+ * collapse. A `suppressed` morning renders like any row, with a "Not emailed" line.
  */
 export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
   const { slot, status, breakingSummary, fullBriefing, gather, timezone } = briefing;
@@ -39,8 +36,7 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
         <BriefingProse
           markdown={breakingSummary ?? ""}
           gather={gather}
-          // Lead prose: brighten body ink to fg-4 so it reads as the hero
-          // paragraph. Headings/strong already land on fg-4 via the tone.
+          // Lead prose in fg-4, like headings.
           className="text-pretty [&_li]:text-app-fg-4 [&_p]:text-app-fg-4"
         />
       ) : (
@@ -79,9 +75,7 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
                 </p>
                 <ul className="space-y-1">
                   {panel.items.map((item) => {
-                    // Per-source subtitle polish: format calendar ISO ranges into
-                    // human times, and split the activity provider into a brand
-                    // glyph so the leading "github · github." noise is dropped.
+                    // Calendar ISO ranges become times; the activity provider becomes a glyph.
                     const activity =
                       panel.source === "integration_activity" && item.subtitle
                         ? parseActivitySubtitle(item.subtitle)
@@ -141,7 +135,7 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
   );
 }
 
-/** Native collapsed-by-default disclosure with a rotating chevron. */
+/** Native disclosure, collapsed by default. */
 function Disclosure({ summary, children }: { summary: string; children: React.ReactNode }) {
   return (
     <details className="group border-t border-app-bg-2 pt-3">

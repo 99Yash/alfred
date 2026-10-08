@@ -8,40 +8,11 @@ import type { Observations } from "../observations";
 import type { FloorResult } from "./floor";
 
 /**
- * Meeting-gate demotion floor. `meeting` is the highest-precedence category
- * (rule 10) and the ONLY demand lane the sender-kind floor never covers, so a
- * false meeting rides entirely on cheap-model judgment — and it leaks on a few
- * recurring shapes the model reads as "meeting" from the words alone:
- *
- *   - `meeting_recap`  — notes/minutes/recap/summary of a meeting that ALREADY
- *                        happened. Not something to attend or schedule → fyi.
- *   - `meeting_prep`   — a pre-meeting prep / agenda brief. A document about a
- *                        meeting, not a calendar action → fyi.
- *   - `automated_relay`— an automated product/task-tracker (ClickUp/Linear/…)
- *                        notification that merely MENTIONS meeting language
- *                        (the "@everyone offsite in Aug" ClickUp comment). A
- *                        real calendar meeting arrives from a person organizer
- *                        or as a calendar invite, never as a notification relay.
- *   - `investor_notice`— an AGM / shareholder / proxy / e-voting / registrar
- *                        notice (rule 9 already says a corporate "meeting" is
- *                        not the user's meeting) → fyi.
- *   - `public_event`   — a webinar / conference / keynote / summit / launch /
- *                        "save the date" blast (rule 8: public events are not
- *                        the user's calendar meeting) → fyi.
- *
- * Keys on CONTENT SHAPE (subject regex) for the recap/prep pair — the reliable
- * signal, since the automated meeting-assistant senders that emit these parse as
- * `person` (no `noreply`/`notifications` envelope) and carry no projection kind.
- * The `automated_relay` trigger keys on a passive `collabActivity` read from
- * the cheap model. Sender shape alone is deliberately too broad: real Calendar
- * mail also comes from service/no-reply addresses. `investor_notice`/`public_event`
- * key on the deterministic content flags Alfred already computes. All are
- * carved out by the calendar-action subject shape so a real Google-Calendar
- * "Invitation:"/"Proposed new time:"/"starts in 10 minutes" subject is preserved,
- * even one that mentions the event topic in its body.
- *
- * DEMOTE, NEVER BURY (#210 asymmetry) — demoted to `fyi` (still visible), with
- * the stray todo the model minted from the same misread cleared. PURE.
+ * Demotes a false `meeting` to `fyi`. The sender-kind floor never covers this lane.
+ * Recap/prep key on the subject: meeting-assistant senders parse as `person`.
+ * Relay keys on a passive `collabActivity`, not sender shape: real Calendar mail
+ * also comes from no-reply addresses. Relay, investor and public-event spare a
+ * calendar-action subject ("Invitation:").
  */
 export type MeetingDemotionReason =
   | "meeting_recap"
@@ -50,17 +21,14 @@ export type MeetingDemotionReason =
   | "investor_notice"
   | "public_event";
 
-// Subject shapes. Anchored at the start so a mid-body mention ("see the meeting
-// notes") never trips them — only a subject that IS a recap/prep does.
+// Anchored at the start, so only a subject that IS a recap/prep matches.
 const MEETING_RECAP_SUBJECT_RE =
   /^\s*(?:re:\s*|fwd:\s*)*(?:meeting\s+(?:notes|minutes|recap|summary)|notes\s+from\b|minutes\s+(?:from|of)\b|recap\s+of\b|recap:|post[- ]?meet(?:ing)?\s+summary)/i;
 
 const MEETING_PREP_SUBJECT_RE =
   /^\s*(?:\[[^\]]*\]\s*)*(?:meeting\s+prep\b|prep\s+for\b|agenda\s+for\b|pre[- ]?read\s+for\b)/i;
 
-// Google-Calendar action subject shapes — the carve-out that keeps genuine
-// invite/schedule/attendance mail from a service/no-reply calendar address in
-// `meeting`.
+// Google Calendar action subjects, which stay `meeting`.
 const CALENDAR_ACTION_SUBJECT_RE =
   /^\s*(?:re:\s*)?(?:(?:updated\s+)?invitation(?:\s+with\s+note)?|proposed\s+new\s+time|new\s+time\s+proposed|(?:cancelled|canceled)(?:\s+event)?|accepted|declined|tentatively\s+accepted|this\s+event\s+has\s+been\s+(?:updated|cancelled|canceled)|reminder:?\s+.*\bstarts\s+in\b)\b|\binvitation:/i;
 
@@ -71,7 +39,6 @@ export function applyMeetingDemotionFloor(
     senderKind?: Observations["senderKind"];
     subject?: string | null;
     collabActivity?: CollabActivityKind | null;
-    /** Deterministic content flags (rules 8/9 backstops); optional for callers/tests. */
     contentFlags?: Pick<Observations["content"], "hasInvestorNotice" | "hasPublicEventLanguage">;
   },
 ): FloorResult & { reason: MeetingDemotionReason | null } {
@@ -80,9 +47,6 @@ export function applyMeetingDemotionFloor(
   }
 
   const subject = context.subject ?? "";
-  // The calendar-action subject shape is the single carve-out shared by every
-  // trigger: a genuine "Invitation:"/"Proposed new time:" stays `meeting` even
-  // when it comes from a service or mentions the event topic in its body.
   const isCalendarAction = CALENDAR_ACTION_SUBJECT_RE.test(subject);
   const collabActivity = classification.collabActivity ?? context.collabActivity ?? null;
 

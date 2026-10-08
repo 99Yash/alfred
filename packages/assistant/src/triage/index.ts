@@ -1,11 +1,4 @@
-/**
- * Email triage (ADR-0025 #1).
- *
- * Workflow operations live here; apps/server retains only the built-in
- * declaration, state schema, and step topology.
- *
- * Terminology: see `docs/reference/glossary.md`.
- */
+/** Email triage (ADR-0025 #1). Terms: `docs/reference/glossary.md`. */
 
 export {
   classifyEmail,
@@ -28,9 +21,7 @@ export type {
   TodoSuppressionReason,
   RunPass,
 } from "./classify";
-// NOTE: `deepen.ts` is dormant — ADR-0051 removed the boss-escalation from the
-// triage workflow. It is intentionally NOT re-exported (nothing imports it
-// outside its own unit test); the file stays for the historical decision trail.
+// `deepen.ts` is dormant (ADR-0051) and not re-exported; only its test imports it.
 
 export {
   getDocumentAuthoredAt,
@@ -76,7 +67,6 @@ export { extractSenderContext, recipientAddresses } from "./sender-context";
 
 export type { ExtractSenderContextArgs, SenderContextResult } from "./sender-context";
 
-// ── Triage v3 (ADR-0051): sent-mail thread state + sender priors + observations
 export { getThreadState, readGmailThreadClosure } from "./thread-state";
 
 export type { ThreadState, GetThreadStateArgs, GmailThreadClosure } from "./thread-state";
@@ -110,9 +100,7 @@ export type {
 
 export { gmailSentSql, notSentGmailDocumentWhere } from "./sent-mail";
 
-// The Gmail sender parser adapter memory depends on (ADR-0089). The relocated
-// header splitter (`splitAddressList`) stays a file-level export for its unit
-// test; it is intentionally NOT re-exported here (module-internal to triage).
+// The parser port knowledge depends on (ADR-0089). `splitAddressList` stays internal.
 export { gmailSenderAdapter } from "./gmail-sender-adapter";
 
 export { assembleObservations, extractGmailSignals, extractContentFlags } from "./observations";
@@ -134,5 +122,5 @@ export {
   type EmailTriageOperationState,
 } from "./workflow-operations";
 
-// Product recipe owned by the triage module; registered by the composition root.
+// Registered by the composition root.
 export { emailTriageWorkflow } from "./email-triage";

@@ -4,45 +4,22 @@ import type { ToolCallView } from "./tool-call-presentation";
 
 export type TrailItem =
   | { kind: "narration"; key: string; text: string }
-  // One row per *run* of identical calls: a `gmail.search` and a follow-up
-  // `gmail.search` collapse into one card with a `2×` badge, so a turn that
-  // pages the same source a few times doesn't read as N near-identical rows.
-  // Grouped on (toolName, `foldClass`) so a failure never hides under a
-  // success's count — a fail then a retry-success stay two distinct rows —
-  // while an in-flight call joins the run it will land in, so the row never
-  // jumps when it completes.
+  // One row per run of identical calls, with a `2×` badge. Grouped on (toolName, `foldClass`),
+  // so a failure never hides in a success's count. An in-flight call joins its run.
   | { kind: "tool"; key: string; tools: ToolCallView[] };
 
 /**
- * The half of a call's status that decides which row it folds into. `started`
- * and `succeeded` share the `ok` class: a streaming call is drawn inside the
- * run of completed siblings from its first frame, so when it lands the count
- * ticks up in place instead of a lone "Remembering…" row appearing beneath the
- * run and then collapsing into it. `failed` stays its own class so a failure is
- * never absorbed by a success's count; a folded call that then fails leaves the
- * run on the next render, which is the one status change that *should* be
- * visible. Every call in a folded row shares one class; `ToolCallCard` reads a
- * row's failure with `some`, so a row built by hand with mixed classes still
- * shows its failure.
+ * `started` and `succeeded` share `ok`, so a streaming call ticks the run's count in place.
+ * `failed` is its own class. `ToolCallCard` reads failure with `some`, so a mixed row still shows it.
  */
 export function foldClass(status: ToolCallView["status"]): "failed" | "ok" {
   return status === "failed" ? "failed" : "ok";
 }
 
 /**
- * Weave the model's narration lines and its tool calls into one ordered trail.
- * Both carry a `segmentIndex`: segment N's narration precedes the tools the
- * model called in step N. Within a segment, the narration line comes first,
- * then its tools in arrival order — mirroring how the turn actually streamed.
- * Consecutive calls to the same tool with the same {@link foldClass} fold into
- * one row (carrying every call) so repeated reads collapse to a single badged
- * card; narration, a different tool, or a failure between them breaks the run.
- *
- * This is the whole emptiness rule for the activity trail: a turn draws a trail
- * iff this returns a row. The two channels are independent by construction — a
- * segment closes on a later `chat.delta`, never on a tool event, and a
- * `nonExecution` dispatch retracts its card outright — so "has narration" does
- * not imply "has a card", and neither channel may gate the other.
+ * Order narration and tool calls by `segmentIndex`: each segment's narration, then its tools.
+ * Identical consecutive calls fold into one row.
+ * This is the trail's whole emptiness rule. Narration and cards are independent, so neither may gate the other.
  */
 export function buildTrail(
   tools: ToolCallView[],
@@ -83,10 +60,7 @@ export function buildTrail(
         head &&
         head.toolName === tool.toolName &&
         foldClass(head.status) === foldClass(tool.status) &&
-        // Never fold spawns together: each one owns a distinct sub-agent trail,
-        // and a folded "2×" row could only ever host one of them. A question
-        // is the same shape (ADR-0099): each call owns the answers the user
-        // gave it, so a folded row would drop every record but the first.
+        // Never fold spawns or questions (ADR-0099): each owns its own trail or answers.
         tool.toolName !== SPAWN_SUB_AGENT_TOOL &&
         !isQuestionApproval(tool.toolName)
       ) {

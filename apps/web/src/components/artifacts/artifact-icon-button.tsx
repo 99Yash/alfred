@@ -1,14 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
-/**
- * The square icon control shared by every artifact surface — the chat sidebar
- * header, the library viewer header, and the presentation bar.
- *
- * `tone="dark"` is for the presentation overlay, which paints its own near-black
- * backdrop instead of an `.app` surface, so the `--app-fg-*` tokens would read
- * as low-contrast there.
- */
+/** Square artifact control. `tone="dark"` is for the presentation overlay, which is not an `.app` surface. */
 export function ArtifactIconButton({
   label,
   children,

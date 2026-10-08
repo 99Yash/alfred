@@ -502,11 +502,7 @@ function WeatherLabel({
   const wrapperClass =
     "flex h-[20px] items-center gap-1.5 text-sm font-bold tracking-[0.04em] text-white/60 mix-blend-plus-lighter";
 
-  // Reserve the slot's height during load + error so the segmented
-  // tablist below doesn't shift when the temp lands — but render
-  // nothing visible. Previously the load state pulsed, which read as a
-  // failure mode rather than "almost there" once geojs/open-meteo
-  // started intermittently 4xx-ing from the browser.
+  // Reserve the height so the tabs do not shift. Show nothing: a pulse looked like a failure.
   if (loading || errored || !snapshot) {
     return <div className={wrapperClass} aria-hidden />;
   }

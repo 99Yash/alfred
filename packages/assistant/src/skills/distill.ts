@@ -5,53 +5,29 @@ import type { SkillLearnContext } from "./context";
 import { parseMentions, resolveMentions } from "./mentions";
 
 /**
- * Cheap-tier distillation — phase 1 of dimension's two-phase Learn.
- *
- * Takes the user's raw prompt + their existing memory and produces:
- *  - structured `user_facts` proposals (the "Memory update" panel),
- *  - a normalized markdown body (the v1 skill_revision),
- *  - a suggested skill name (the auto-generated title),
- *  - parsed `@`-mentions resolved against the user's registry.
- *
- * Why one structured-output call instead of three: the model needs to
- * see the prompt + memory once to do all four extractions coherently
- * (the body should reference the same facts the proposals capture; the
- * name should reflect the body's topic). Three round-trips would either
- * cost three times as much or drift apart on details.
- *
- * Why cheap-tier: this is constrained transformation, not reasoning.
- * The downstream `skill-documentation` workflow does the heavy lifting
- * with boss-tier + hybrid search; this step just structures what's
- * already on the page.
+ * Cheap-tier distill, phase 1 of Learn. One structured call turns the prompt and memory
+ * into fact proposals, a v1 markdown body, a name, and resolved mentions.
+ * One call, not three, so the body, facts, and name agree. Cheap tier, because this only
+ * restructures; `skill-documentation` does the heavy work.
  */
 
 export const skillProposalSchema = z.object({
-  /**
-   * Snake_case key. Open vocabulary at the skill-distill stage —
-   * authoring prompts can produce arbitrary preference shapes
-   * ("salary_floor_usd", "preferred_subject_line_style"), unlike
-   * cold-start where we constrained to a fixed bio vocabulary.
-   */
+  /** Snake_case. Open vocabulary here, unlike cold-start's fixed bio keys. */
   key: z.string().min(1).max(120),
-  /** Single-string value (Gemini struct-output handles unions inconsistently — see ADR-0011 distill notes). */
+  /** A single string: Gemini structured output handles unions badly (ADR-0011). */
   value: z.string().min(1).max(2_000),
   confidence: confidenceSchema,
-  /** One sentence on why this fact follows from the prompt. */
   rationale: z.string().min(1).max(500),
 });
 
 export type SkillProposal = z.infer<typeof skillProposalSchema>;
 
 export const distillResultSchema = z.object({
-  /** ≤80-char human-readable name. The auto-generated title. */
+  /** The auto-generated title. */
   suggestedName: z.string().min(1).max(80),
-  /**
-   * Normalized skill body (markdown). The agent mounts this verbatim
-   * into its system prompt at skill-execution time, so it should read
-   * as a directive ("Do X. Filter for Y.") not as commentary.
-   */
+  /** Mounted verbatim in the system prompt at run time, so write directives, not commentary. */
   body: z.string().min(1).max(8_000),
-  /** Up to 20 fact proposals — same conservative gating as cold-start. */
+  /** Same cap as cold-start. */
   proposals: z.array(skillProposalSchema).max(20),
 });
 
@@ -121,7 +97,7 @@ export interface DistillSkillArgs {
 }
 
 export interface DistillSkillResult extends DistillResult {
-  /** Mentions parsed out of the *body* (not the user's raw prompt) and resolved against the registry. */
+  /** Parsed from the body, not the raw prompt. */
   mentions: ReturnType<typeof resolveMentions>;
 }
 

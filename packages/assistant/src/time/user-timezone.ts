@@ -1,19 +1,10 @@
 import { assertIanaTimezone, isIanaTimezone, type IanaTimezone } from "@alfred/contracts";
 
-/**
- * Pure zone helpers — a default zone and the canonical-first precedence
- * primitive. This file reads no preference and no database; it imports only
- * `@alfred/contracts`, so the `time` (`timezone`) module stays deterministic and
- * testable without a database. The user-preference-reading resolver lives in
- * `settings.resolveTimezone`.
- */
+/** Pure zone helpers: no preference read, no database. The preference resolver is `settings.resolveTimezone`. */
 
 /**
- * Validated at module load rather than cast. `"UTC"` is a real alias that
- * `Intl.DateTimeFormat` accepts but `Intl.supportedValuesOf` omits — the exact
- * gap `isSupportedTimezone` closes, and the one that once threw in every
- * briefing `gather`. If that ever regresses, it fails here at boot instead of
- * per request.
+ * Checked at load, not cast. `Intl.supportedValuesOf` omits `"UTC"`, which once
+ * broke every briefing `gather`. A regression now fails at boot.
  */
 export const DEFAULT_USER_TIMEZONE: IanaTimezone = ((): IanaTimezone => {
   const value = "UTC";
@@ -23,13 +14,9 @@ export const DEFAULT_USER_TIMEZONE: IanaTimezone = ((): IanaTimezone => {
 })();
 
 /**
- * ADR-0082 canonical-first zone precedence: the key-set and its order in one
- * place. Both preference-reading zone resolvers — `settings.resolveTimezone`
- * and `briefing.resolveBriefingPreferences` — build their {@link
- * firstValidTimezone} input by mapping this tuple in order, so a user's
- * date-reasoning zone and their briefing-delivery zone can never diverge (the
- * #229 guarantee). The canonical `timezone` key wins; the legacy
- * `briefing.timezone` is the fallback for rows written before the unification.
+ * Zone precedence, canonical key first (ADR-0082). `settings.resolveTimezone`
+ * and `resolveBriefingPreferences` both map this tuple, so the two zones
+ * cannot diverge (#229). `briefing.timezone` is the legacy fallback.
  */
 export const TIMEZONE_PREFERENCE_KEYS = ["timezone", "briefing.timezone"] as const;
 
@@ -41,12 +28,5 @@ export function firstValidTimezone(values: readonly unknown[]): IanaTimezone {
   return DEFAULT_USER_TIMEZONE;
 }
 
-/**
- * Domain-named alias of the canonical timezone validator. The implementation
- * lives once in `@alfred/contracts` ({@link isIanaTimezone}) — memoized and
- * alias-aware (accepts "UTC"/"Etc/UTC", which a bare `Intl.DateTimeFormat`
- * trial passes but `supportedValuesOf` alone would reject). Kept under this
- * name so the briefing/workflow/onboarding call sites read in domain terms.
- * Pure like the rest of this file: no preference read, no database.
- */
+/** Domain name for {@link isIanaTimezone}, which also accepts `"UTC"` and `"Etc/UTC"`. */
 export const isValidTimezone = isIanaTimezone;

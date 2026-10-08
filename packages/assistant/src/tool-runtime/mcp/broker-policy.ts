@@ -1,13 +1,10 @@
 /**
- * Process-local limits owned by the MCP execution broker.
- *
- * These values protect provider admission and local settlement repair. They do
- * not describe a product page, so they must not depend on recovery-card paging
- * from `@alfred/contracts`.
+ * Process-local limits for the MCP broker's admission and settlement repair.
+ * Not product paging, so do not tie them to recovery-card paging in `@alfred/contracts`.
  */
 export const MCP_BROKER_ADMISSION_CAPACITY = 40;
 
-/** How many queued settlement repairs one drain pass retries before it yields. */
+/** Settlement repairs one drain pass retries before it yields. */
 export const MCP_SETTLEMENT_REPAIR_BATCH_SIZE = 8;
 
 /** Delay before the broker retries a settlement repair that failed locally. */

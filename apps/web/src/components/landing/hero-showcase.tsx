@@ -26,21 +26,14 @@ const TABS: ReadonlyArray<TabPillOption<ShowcaseTab>> = [
     value: "meetings",
     label: "Meeting Prep",
     icon: <CalendarDays className="size-3.5" strokeWidth={2.2} />,
-    // Meeting prep is designed and specified (ADR-0054) but has no module,
-    // table, or tool yet. The clip shows the intended surface, so the tab
-    // says so rather than letting the panel imply it ships today.
+    // Meeting prep is not built yet (ADR-0054), so the clip must not imply it ships.
     badge: "Soon",
   },
 ];
 
 const TAB_VALUES: ReadonlyArray<ShowcaseTab> = TABS.map((t) => t.value);
 
-// Per-tab dwell time, tuned to each tab's content rather than a flat
-// interval. The briefing clip does its whole reveal (greeting + ledger
-// animate in) in the first few seconds and then just holds, so it advances
-// quickly — no point sitting on a static frame. The inbox needs longer for
-// its auto-tagging sequence to actually play. The meeting-prep still just
-// needs a comfortable reading beat.
+// Dwell per tab: long enough for each clip's animation to play.
 const TAB_DURATION_MS = {
   briefing: 4200,
   inbox: 5000,
@@ -48,46 +41,19 @@ const TAB_DURATION_MS = {
 } satisfies Record<ShowcaseTab, number>;
 
 /**
- * Hero product showcase — the page's one full-bleed moment.
- *
- * Composition (see HeroBand for why the band is edge-to-edge): an indigo
- * aurora band spans the viewport, the tab row hangs off its top edge in a
- * page-colored notch, and the device bezel sits inside the band on the normal
- * `max-w-5xl` column. The control is on the page side of the boundary, the
- * thing it controls is inside the band — so which one drives which needs no
- * explaining. Grammar borrowed from visitors.now, re-registered for a dark
- * canvas.
- *
- * Behavior:
- *   • Auto-advances after each tab's own dwell time (TAB_DURATION_MS), so a
- *     tab's clip plays through before the next tab takes over. Suspended
- *     when off-screen or hovered.
- *   • The newly-active tab's clip restarts from frame 0 (see Slot/`active`),
- *     so you always see the animation from the start, not mid-loop.
- *   • Manual click swaps tab AND resets the cycle so the new tab sits for
- *     its full dwell before advancing.
- *   • Respects `prefers-reduced-motion`: no transitions, no auto-advance.
- *
- * Layout:
- *   • All three mockups stacked in CSS grid (same grid-area), so the
- *     container's height is always the MAX of the three. Each mockup
- *     fades + lifts independently. No measure-then-paint flicker.
+ * Hero product showcase: tabs in a notch above an aurora band, clips in a device bezel.
+ * Auto-advances per tab; pauses when hovered or off-screen; off under reduced motion.
+ * All clips share one grid cell, so the height never jumps.
  */
 export function HeroShowcase({ className }: { className?: string }) {
   const [tab, setTab] = useState<ShowcaseTab>("briefing");
   const idBase = useId();
-  // Hover + off-screen are pause signals only — they never appear in JSX
-  // and shouldn't trigger re-renders. Refs let event handlers and the
-  // IntersectionObserver flip them without rescheduling the interval.
+  // Refs, not state: pause signals must not reschedule the interval or re-render.
   const hoverRef = useRef(false);
   const offScreenRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-advance after the current tab's dwell time. The effect re-runs on
-  // every `tab` change, so the interval period always reflects the tab now
-  // showing — effectively a self-rescheduling timeout. Each tick checks the
-  // pause refs; if paused it skips advancing and retries next period. A
-  // manual click changes `tab`, which restarts the dwell from the top.
+  // Re-runs on each `tab` change, so a manual click restarts the dwell.
   useEffect(() => {
     if (prefersReducedMotion()) return;
 
@@ -104,9 +70,6 @@ export function HeroShowcase({ className }: { className?: string }) {
     return () => window.clearInterval(id);
   }, [tab]);
 
-  // Pause the auto-cycle when the showcase isn't visible — saves a tab
-  // landing on the wrong panel by the time the user scrolls down. Also
-  // avoids burning CPU on a re-render no one sees.
   useEffect(() => {
     const el = containerRef.current;
 
@@ -142,19 +105,14 @@ export function HeroShowcase({ className }: { className?: string }) {
             value={tab}
             onChange={setTab}
             idBase={idBase}
-            // The notch already supplies the container shape. A bordered
-            // glass pill inside it would read as two nested containers.
+            // The notch is the container; a glass pill inside would nest two.
             variant="bare"
           />
         }
       >
         <DeviceBezel>
-          {/* Fixed aspect so every tab is the same device size — the three
-           * clips all fill one box, so the bezel never resizes (and the
-           * crossfade never jumps) when the tab auto-advances. 1.29:1 matches
-           * the inbox and meeting clips' native aspect exactly; the briefing
-           * clip is slightly taller, so `object-top` plus its bottom edge fade
-           * resolves the overflow instead of guillotining it. */}
+          {/* Fixed 1.29:1 box (the inbox and meeting clips' aspect) so the bezel never resizes.
+           * The taller briefing clip uses `object-top` and a bottom fade. */}
           <div className="relative grid aspect-[1.29/1]">
             {TAB_VALUES.map((value) => (
               <Slot
@@ -176,16 +134,7 @@ export function HeroShowcase({ className }: { className?: string }) {
 }
 
 /**
- * One stacked mockup in the showcase grid. All slots occupy the same grid
- * cell (`[grid-area:1/1]`), so the parent's height is the MAX of all
- * children — the visible mockup is always fully shown, the inactive ones
- * fade out behind. Inactive slots also get `pointer-events-none` so they
- * never intercept clicks meant for the visible mockup beneath/above.
- *
- * The outgoing panel loses a little scale and gains a little blur while the
- * incoming one arrives at rest. That is the material arriving and departing
- * rather than two opacities crossing, and it reads as depth: the old panel
- * moves back, the new one is here.
+ * One stacked mockup. Inactive slots fade, scale down, blur, and take no pointer events.
  */
 function Slot({
   active,
@@ -204,10 +153,7 @@ function Slot({
     "motion-reduce:transition-none",
   );
 
-  // Split the active/inactive cases into two render paths so a static
-  // a11y checker can see that `aria-hidden` is never paired with a
-  // focusable `tabIndex` on the same element — a focusable subtree that's
-  // aria-hidden confuses keyboard users.
+  // Two render paths so a static a11y check sees `aria-hidden` never meets a focusable `tabIndex`.
   if (active) {
     return (
       <div

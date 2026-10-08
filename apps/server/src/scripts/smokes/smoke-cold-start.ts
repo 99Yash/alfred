@@ -1,36 +1,14 @@
 /**
- * Smoke test for the cold-start-research workflow (v2 — agent harness).
+ * Smoke test for the cold-start-research workflow: the run completes, and its
+ * `memory_chunks` row and `cold_start` facts land for the user.
+ * It does not check the OAuth-callback trigger or the research quality.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-cold-start.ts
  *
  * Pre-reqs:
- *   - A server process running (`pnpm dev`) so the agent worker can pick
- *     up the run. (Or run this with the worker started in-process — the
- *     script does not start one itself; mirroring smoke-daily-briefing.)
- *   - `GOOGLE_GENERATIVE_AI_API_KEY` set so the boss seed/synthesis and the
- *     grounded-Gemini `web_search` aspect loops can run. (Required env, so
- *     a configured dev tree already has it.)
- *   - At least one user row, ideally with a connected Google credential
- *     so the signal collector contributes more than the bare email.
- *
- * What this verifies end-to-end:
- *   1. Any prior cold-start run for this user is moved to `cancelled`
- *      so the partial unique index on `agent_runs.dedup_key` doesn't
- *      reject the fresh smoke run.
- *   2. createRun + enqueueRun cycle a `cold-start-research` run.
- *   3. The workflow runs gather-signals → seed → research-aspects →
- *      synthesis → extract-facts → persist to completion.
- *   3. The run output reports a non-negative `factsProposed`,
- *      `memoryChunkId`, and `citationCount`.
- *   4. A `memory_chunks` row with `kind='cold_start_research'` exists
- *      for the user and its content roughly matches what was proposed.
- *   5. `user_facts` rows whose `source.kind='cold_start'` reference the
- *      run id we just created (when the model emitted any).
- *
- * What this does NOT verify:
- *   - That the OAuth-callback trigger fires the run (covered by manual
- *     re-connect testing on a fresh user).
- *   - Quality of the research output (qualitative, requires human review).
+ *   - A server process running (`pnpm dev`).
+ *   - `GOOGLE_GENERATIVE_AI_API_KEY` for the seed, synthesis, and `web_search` loops.
+ *   - A user row, ideally with a connected Google credential.
  */
 import { randomUUID } from "node:crypto";
 import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge";
@@ -43,8 +21,6 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
 
-// Seed + parallel aspect loops + synthesis can run a couple of minutes
-// of LLM + web_search calls; budget 5min before giving up.
 const POLL_INTERVAL_MS = 1_000;
 
 const POLL_TIMEOUT_MS = 5 * 60_000;
@@ -96,9 +72,7 @@ async function fetchMemoryChunkById(id: string, userId: string) {
 }
 
 async function fetchColdStartFacts(userId: string, runId: string) {
-  // Filter on `source->>'id' = runId` so we see only proposals from the
-  // run we just created — earlier runs (or smoke re-invocations) get
-  // skipped.
+  // Only facts from this run.
   return db()
     .select({
       id: userFacts.id,
@@ -140,10 +114,7 @@ async function main() {
 
   console.log(`[smoke-cold-start] target: ${u.email} (id=${u.id})`);
 
-  // The cold-start workflow is singleton-per-user via the partial
-  // unique index on `agent_runs.dedup_key`. Cancel any prior active
-  // row so the fresh insert below isn't blocked. Failed/cancelled
-  // rows are excluded from the index, so this leaves history intact.
+  // One active cold-start run per user (unique on `dedup_key`). Cancel the old one.
   const stomped = await db()
     .update(agentRuns)
     .set({ status: "cancelled", endedAt: new Date(), updatedAt: new Date() })
@@ -175,7 +146,7 @@ async function main() {
   const run = await pollRun(runId, "cold-start run");
   assert(run.status === "completed", `run status=${run.status} error=${JSON.stringify(run.error)}`);
 
-  // SAFETY: cold-start workflow's own committed output shape.
+  // SAFETY: the cold-start workflow's own output shape.
   const out = run.output as {
     factsProposed: number;
     factsSkipped: number;

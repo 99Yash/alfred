@@ -33,20 +33,8 @@ interface ToolCandidateBase {
 }
 
 /**
- * A tool surfaced by search. Availability is a discriminated union so a reason
- * exists exactly when — and only when — the tool can't run: an "available"
- * candidate can't carry a stray `unavailableReason`, and an "unavailable" one
- * can't omit it. Whether the tool can run is read off the `availability` tag,
- * not a separate boolean.
- *
- * The `ref` is a second discriminant: only `mcp.call` — the one tool whose
- * args carry a connected-catalog reference — may carry it. A curated hit for
- * any other name with a `ref` (e.g. `{ name: "gmail.search", ref: {...} }`)
- * is unrepresentable, so a stray ref can't route a registered tool at a
- * remote descriptor. `mcp.call` itself leaves `ref` optional: the curated
- * `mcp.call` entry has none, while a connected-catalog hit carries the exact
- * ref whose fields (`connectionId`, `remoteName`, `catalogRevision`) flatten
- * into the `mcp.call` args.
+ * A tool surfaced by search. A reason exists only when the tool cannot run.
+ * Only `mcp.call` may carry a `ref`, so a stray ref cannot route another tool at a remote descriptor.
  */
 type AvailabilityTag =
   | { availability: "available" }
@@ -70,13 +58,7 @@ type RankedCandidate = ToolSearchCandidate & {
 
 export interface ToolCatalogAccess {
   allowedIntegrations: readonly string[];
-  /**
-   * Availability of every candidate tool, evaluated once by the caller (see
-   * {@link evaluateToolCatalog}). Both "can it run" and "why not" read from the
-   * same {@link ToolAvailabilityResult}, so a surfaced tool can't disagree with
-   * its own reason. A tool absent from the map is treated as unavailable with no
-   * explanation — hidden even when {@link ToolSearchArgs.includeUnavailable} is set.
-   */
+  /** From {@link evaluateToolCatalog}. A tool absent from the map is always hidden. */
   availability: ReadonlyMap<ToolName, ToolAvailabilityResult>;
 }
 
@@ -85,12 +67,7 @@ interface ToolSearchArgs {
   limit?: number | undefined;
   tools?: readonly RegisteredTool[] | undefined;
   access: ToolCatalogAccess;
-  /**
-   * Include strong matches the run can't execute yet, flagged with a reason, so
-   * the model can explain the gap ("Gmail isn't connected") instead of getting
-   * an empty result and guessing. Off by default — internal ranking (preload)
-   * only ever wants runnable tools.
-   */
+  /** Include strong matches the run cannot execute yet, with a reason the model can relay. */
   includeUnavailable?: boolean;
 }
 
@@ -123,21 +100,14 @@ export async function searchAvailableTools(args: {
   const remote: RankedCandidate[] = [];
 
   if (mcpAvailable) {
-    // The local catalog read is bounded and only returns current owned revisions.
-    // A full query string rarely occurs verbatim in a descriptor, so scan compact
-    // pages and rank individual fields against the same query tokens as curated tools.
+    // A full query rarely occurs verbatim in a descriptor, so scan pages and rank by token.
     let cursor: string | null = null;
 
     for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
       const page = await searchMcpToolsLocal({
         userId: args.userId,
         detail: "summary",
-        // `limit` counts matching hits, not descriptors scanned, so together with the
-        // 10-page loop bound it sets the reachable set, and the page size sets the
-        // round-trip count. At 10 that set was 100 — half the callee's own
-        // 200-descriptor budget, with matches discarded and a live cursor thrown away.
-        // Widening it only grows recall, but the sort below is over a larger set, so
-        // which candidates make the cut can change.
+        // `limit` counts hits, so with the 10-page bound it caps the reachable set.
         limit: MCP_LIST_TOOLS_MAX_LIMIT,
         ...(cursor ? { cursor } : {}),
       });
@@ -262,7 +232,7 @@ export function preloadToolCatalog(args: {
     .map((candidate) => candidate.name);
 }
 
-/** Extract bounded user-authored text without treating tool/assistant output as intent. */
+/** Bounded user text only. Tool and assistant output is not intent. */
 export function latestUserPrompt(
   transcript: readonly { role: string; content: unknown }[],
 ): string {
@@ -297,12 +267,7 @@ export async function resolveExactToolLoad(args: {
     return { ok: false, status: "unknown_tool", reason: `Tool '${args.name}' is not registered.` };
   }
 
-  // Route the load decision through the same evaluator that ranks the catalog,
-  // so the specific reason `system.search_tools` surfaced ("Notion is not
-  // connected.") is exactly what the model receives when it acts on that name —
-  // never a generic "not available in this context" that drops the code and the
-  // fix. The allowlist is one of those reasons (`not_allowed`), so the inline
-  // scope check disappears with it.
+  // Same evaluator as search, so load returns the same specific reason.
   const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
 
   const result = evaluateToolAvailability(
@@ -319,13 +284,7 @@ export async function resolveExactToolLoad(args: {
   return { ok: true, name: args.name };
 }
 
-/**
- * Minimum score for an *unavailable* tool to be surfaced. A tool the run can't
- * execute is only worth mentioning when the query clearly intends it (a known
- * phrase or an action on an entity — the same evidence bar as preload); a weak
- * incidental token match stays hidden so the catalog isn't polluted with tools
- * the user would have to go connect.
- */
+/** An unavailable tool surfaces only on clear intent, the same bar as preload. */
 const UNAVAILABLE_MIN_SCORE = 30;
 
 function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
@@ -333,10 +292,7 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
 
   if (!query) return [];
   const queryTokens = meaningfulTokens(query);
-  // Singularize once so phrase matching is number-insensitive: a plural prompt
-  // ("my pull requests") matches a singular authored entity ("pull request").
-  // The read-intent flag is a query-level property, so it is computed here rather
-  // than re-derived per tool.
+  // Singularize once: "my pull requests" must match the entity "pull request".
   const matchText = singularizePhrase(query);
   const queryHasReadIntent = hasReadIntent(queryTokens);
   const ranked: RankedCandidate[] = [];
@@ -344,16 +300,10 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
   for (const tool of args.tools ?? listRegisteredTools()) {
     const result = args.access.availability.get(tool.name);
 
-    // The workflow integration allowlist is a hard scope, not a fixable gap:
-    // tools outside it are never surfaced, available or not. It reads from the
-    // same evaluated result as every other reason (`not_allowed`) rather than a
-    // parallel predicate, so "what may this run touch" has one owner.
+    // The workflow allowlist is a hard scope, not a fixable gap: never surface these.
     if (result && !result.available && result.code === "not_allowed") continue;
 
     const available = result?.available === true;
-    // Availability and reason come from the one result object, so they can't
-    // diverge. Only a genuine unavailable result carries a reason; a tool absent
-    // from the map has none and stays hidden.
     const unavailableReason = !available && result && !result.available ? result.reason : undefined;
 
     if (!available && (!args.includeUnavailable || !unavailableReason)) continue;
@@ -374,13 +324,7 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
       preloadEligible: match.preloadEligible,
     };
 
-    // The `ref` discriminant flows from the tool name: only `mcp.call` may
-    // carry one, and the curated catalog entry never does. Branch here so a
-    // curated hit for any other name can't acquire a stray `ref`, and the
-    // `ref?: never` arm stays unrepresentable rather than merely unset.
-    // The availability discriminant flows from `unavailableReason`: it is set
-    // iff the tool is unavailable (guarded above), so "available" candidates
-    // never carry it.
+    // Branch on the name so only `mcp.call` can carry a `ref`.
     if (tool.name === "mcp.call") {
       ranked.push(
         unavailableReason
@@ -396,8 +340,7 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
     }
   }
 
-  // Runnable tools first, then by match strength — an unavailable exact match
-  // never crowds a runnable tool out of the limited result window.
+  // Runnable first, so an unavailable match never crowds out a runnable tool.
   return ranked.sort(
     (a, b) =>
       rankAvailability(b) - rankAvailability(a) ||
@@ -410,7 +353,6 @@ function boundedLimit(limit: number | undefined, fallback: number): number {
   return Math.max(1, Math.min(limit ?? fallback, 10));
 }
 
-/** Sort key: runnable tools ahead of surfaced-but-unavailable ones. */
 function rankAvailability(candidate: RankedCandidate): number {
   return candidate.availability === "available" ? 1 : 0;
 }
@@ -475,14 +417,8 @@ function scoreTool(
     if (queryTokens.has(token)) score += 2;
   }
 
-  // Search may rank broad noun/tag matches, but preloading a full schema requires
-  // intent evidence, not just a noun in the prompt. A known phrase (alias) is
-  // intent on its own. Otherwise a matched entity must be paired with a verb: a
-  // catalog verb names the exact action for any tool, and — only for a read-only
-  // tool — a generic information-seeking word ("summary", "show", "what") counts
-  // too, since natural phrasing routinely skips the narrow catalog verbs. A
-  // state-changing tool (`medium`/`high`) still requires a catalog verb, so a
-  // bare read-flavored request can never force-load a write sibling.
+  // Preload needs intent: an alias, or an entity plus a verb. A generic read word
+  // counts only for read-only tools, so a read request never preloads a write tool.
   const readOnly = !isWriteRiskTier(tool.riskTier);
 
   const preloadEligible =
@@ -511,28 +447,14 @@ function scorePhrases(
   return score;
 }
 
-/**
- * Word-boundary phrase containment, number-insensitive. `haystack` is the
- * singularized query (see {@link rankToolCatalog}); the needle is singularized
- * here to the same form, so a plural prompt matches a singular authored phrase
- * and vice versa. Derived entities already carry both number forms — this closes
- * the same gap for hand-authored phrases without re-listing plurals per tool.
- */
+/** Word-boundary match. `haystack` is already singularized; the needle is singularized here. */
 function containsPhrase(haystack: string, needle: string): boolean {
   const normalized = singularizePhrase(normalize(needle));
 
   return normalized.length > 0 && ` ${haystack} `.includes(` ${normalized} `);
 }
 
-/**
- * Generic information-seeking words that signal a read intent even when the
- * user's phrasing skips a tool's own catalog verbs — "give me a summary of…",
- * "show my…", "what are my…". Used only to gate preload of *read-only* tools
- * (see {@link scoreTool}); they never elevate a state-changing tool. This is
- * English request vocabulary, kept as a flat token set rather than per-tool
- * catalog copy, and complements the derivation's verb synonyms (which map onto a
- * specific action; these are action-agnostic).
- */
+/** Generic read words ("show", "what"). They gate preload of read-only tools only. */
 const READ_INTENT_VERBS = new Set([
   "summary",
   "summarize",

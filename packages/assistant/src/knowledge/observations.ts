@@ -6,16 +6,9 @@ import { PG_UNIQUE_VIOLATION, pgErrorChain } from "@alfred/db/pg-errors";
 import { type DbTransaction } from "@alfred/db";
 
 /**
- * Join predicate keeping only the observation that is the live head of its
- * family: `observation_family_heads.head_observation_id = observations.id` for
- * the same `(userId, familyKey)`. Mirrors the composite FK the schema enforces
- * (schema/user-model.ts). Use as `.innerJoin(observationFamilyHeads, liveObservationHeadJoin())`.
- *
- * Returns a plain `SQL` (never `undefined`): `and()` types as `SQL | undefined`
- * because it folds away undefined conditions, but the three predicates here are
- * always defined, so the join predicate always exists. Narrowing the return
- * stops `.innerJoin(target, undefined)` — a silent cross join — from compiling
- * at any call site.
+ * Join to the live head of each observation family. Use as
+ * `.innerJoin(observationFamilyHeads, liveObservationHeadJoin())`. Returns `SQL`,
+ * never `undefined`, so a silent cross join cannot compile.
  */
 export function liveObservationHeadJoin(): SQL {
   const predicate = and(
@@ -25,7 +18,7 @@ export function liveObservationHeadJoin(): SQL {
   );
 
   if (!predicate) {
-    // Unreachable: three defined `eq()` predicates never fold to undefined.
+    // Unreachable: three defined predicates never fold to undefined.
     throw new Error("[user-model] liveObservationHeadJoin produced an empty predicate");
   }
 
@@ -40,12 +33,9 @@ const OBSERVATION_CHAIN_CONSTRAINTS = new Set([
 ]);
 
 export interface InsertObservationResult {
-  /** The persisted (or pre-existing, on dedup) observation row. */
+  /** The new row, or the existing one on dedup. */
   observation: Observation;
-  /**
-   * True when an identical-evidence row already existed and this call was a
-   * no-op append (the dedup index collided). False when a new row was written.
-   */
+  /** True when identical evidence already existed and nothing was written. */
   deduped: boolean;
 }
 
@@ -81,30 +71,10 @@ async function lockObservationFamily(
 }
 
 /**
- * THE observation write boundary (ADR-0067 P1 HARD GATE). Every reducer routes a
- * write through here; no module may call `.insert(observations)` directly. The
- * DB columns are bare `text`/`jsonb`, so this function — via
- * `observationInsertSchema` — is the only thing standing between a reducer bug
- * and a permanently-corrupt log. It does exactly three things, in one
- * transaction:
- *
- *   1. PARSE the input against the full contract (source×kind pair, canonical +
- *      format-checked subject/object identities, the participants fan-out
- *      envelope, byte-bounded idempotency keys, positive versions). A bad shape
- *      throws here, before any row is written.
- *   2. APPEND, dedup-aware: insert with `ON CONFLICT (user_id, family_key,
- *      evidence_hash) DO NOTHING`. Identical evidence collides and dedups (D4);
- *      the conflict target is the dedup index SPECIFICALLY, so a no-fork /
- *      single-root violation still throws (the CAS signal the reducer retries
- *      on — NOT swallowed).
- *   3. POINT the family head at the new live member (`observation_family_heads`
- *      upsert), inside the same transaction so the composite FK
- *      `(user_id, family_key, head_observation_id)` always resolves.
- *
- * What it deliberately does NOT do (reducer-owned, P1+): choosing
- * `supersedesObservationId`, multi-hop supersession cycle detection, and the
- * CAS-retry loop when `observations_no_fork_idx` / `observations_single_root_idx`
- * reject a concurrent write. This is the validated-append primitive those build on.
+ * The observation write boundary (ADR-0067 P1 hard gate). Nothing else may
+ * `.insert(observations)`. In one transaction: parse against the full contract,
+ * append with dedup on identical evidence (D4), and move the family head.
+ * No-fork and single-root violations still throw, so the reducer can retry.
  */
 export async function insertObservation(
   input: ObservationInsertInput,
@@ -130,16 +100,14 @@ export async function insertObservation(
         reducerVersion: parsed.reducerVersion,
         supersedesObservationId: parsed.supersedesObservationId ?? null,
       })
-      // Dedup index ONLY — a no-fork / single-root unique violation must surface
-      // so the reducer can retry against the new head, not be silently dropped.
+      // Dedup index only: no-fork and single-root violations must surface.
       .onConflictDoNothing({
         target: [observations.userId, observations.familyKey, observations.evidenceHash],
       })
       .returning();
 
     if (!inserted) {
-      // Dedup: an identical-evidence row already exists. Leave the head pointer
-      // alone (the family is already established) and return the existing row.
+      // Dedup: return the existing row; the head pointer stays.
       const [existing] = await ex
         .select()
         .from(observations)
@@ -153,10 +121,7 @@ export async function insertObservation(
         .limit(1);
 
       if (!existing) {
-        // The insert reported a conflict but the row isn't found — only possible
-        // if it was deleted between the two statements (no concurrent deleter
-        // exists in this design outside the user cascade). Fail loud rather than
-        // return a phantom.
+        // Only possible if the row was deleted between the two statements.
         throw new Error(
           "[user-model.insertObservation] dedup conflict but no existing observation found " +
             `(user=${parsed.userId}, family=${parsed.familyKey})`,
@@ -166,8 +131,7 @@ export async function insertObservation(
       return { observation: existing, deduped: true };
     }
 
-    // New row: it is the live member of its family now (a root, or a successor
-    // the reducer just appended). Move the head pointer to it.
+    // The new row is the family's live member now.
     await ex
       .insert(observationFamilyHeads)
       .values({
@@ -187,12 +151,8 @@ export async function insertObservation(
 }
 
 /**
- * Reducer-owned append helper for event-family supersession (ADR-0067 D4).
- *
- * `insertObservation` is the primitive: it validates and inserts the row it was
- * handed. This helper owns the higher-level family protocol reducers need:
- * read the current head, set `supersedesObservationId` to that head, and retry
- * when another writer wins the same family race first.
+ * Append a family member that supersedes the current head (ADR-0067 D4), and
+ * retry when another writer wins the race.
  */
 export async function appendObservationFamilyMember(
   input: ObservationInsertInput,

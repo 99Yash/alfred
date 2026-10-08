@@ -1,15 +1,6 @@
 /**
- * Reply-drafting result contract (PRD #236, foundation #243; ADR-0098).
- *
- * Alfred drafts a reply only for a message that deserves one, and every run
- * ends in ONE of five typed outcomes. Four of them are successful decisions
- * NOT to stage anything — `no_draft`, `clarification`, `no_access`, `withheld`
- * — and they are first-class rows, not exceptional paths, so the system can
- * prove it chose not to draft for a reason instead of silently skipping.
- *
- * Browser-safe: the settings and history surfaces read these to render what a
- * run decided. The gate and verifier that PRODUCE a result live server-side in
- * `@alfred/assistant/reply-drafting`; this file owns only the shapes.
+ * Reply-drafting result shapes (ADR-0098). Every run ends in one of five outcomes.
+ * The four that stage nothing are recorded too, so a skip always has a reason.
  */
 
 import { z } from "zod";
@@ -37,10 +28,8 @@ export type ReplyDraftOutcome = (typeof REPLY_DRAFT_OUTCOMES)[number];
 export const replyDraftOutcomeSchema = z.enum(REPLY_DRAFT_OUTCOMES);
 
 /**
- * How the run was started. `post_triage` is the proactive background path and
- * is bound by the feature flag; `manual` is an explicit smoke or user request
- * that bypasses the flag and the worthiness rubric but NOT the structural
- * blockers. Recorded on every result so telemetry never mixes the two.
+ * `post_triage` obeys the feature flag. `manual` skips the flag and the
+ * worthiness rubric, but not the structural blockers.
  */
 export const REPLY_DRAFT_INVOCATIONS = ["post_triage", "manual"] as const;
 
@@ -49,11 +38,8 @@ export type ReplyDraftInvocation = (typeof REPLY_DRAFT_INVOCATIONS)[number];
 export const replyDraftInvocationSchema = z.enum(REPLY_DRAFT_INVOCATIONS);
 
 /**
- * Triage categories whose shape is "someone wrote to the user and expects an
- * answer". A reply-expected category is NECESSARY for a proactive draft, never
- * sufficient: the worthiness gate applies its own rubric on top. `urgent` and
- * `action_needed` are deliberately absent — they describe an obligation, not a
- * conversation, and a wrong draft there is costlier than a missed one.
+ * Required for a proactive draft, but not enough alone.
+ * `urgent` and `action_needed` are left out: a wrong draft there costs more than a missed one.
  */
 export const REPLY_EXPECTED_TRIAGE_CATEGORIES = [
   "awaiting_reply",
@@ -62,20 +48,12 @@ export const REPLY_EXPECTED_TRIAGE_CATEGORIES = [
 
 export const isReplyExpectedTriageCategory = enumGuard(REPLY_EXPECTED_TRIAGE_CATEGORIES);
 
-/**
- * Below this classifier confidence the tag is a soft-confirm ("alfred wasn't
- * sure"), and a proactive draft must not build on it. Same threshold the rail
- * uses for the soft-confirm hint.
- */
+/** Below this, the triage tag is a soft-confirm and a proactive draft must not use it. */
 export const REPLY_DRAFT_MIN_TRIAGE_CONFIDENCE = 0.5;
 
 // ─── Reason codes, one closed set per outcome ─────────────────────────────
 
-/**
- * Why the worthiness gate (or the composer seam) returned `no_draft`. The
- * order here is the order the gate evaluates them in; the first failing test
- * names the reason.
- */
+/** Why a run returned `no_draft`. */
 export const REPLY_NO_DRAFT_REASONS = [
   /** Sender is a bot or a service; nobody is waiting for a human answer. */
   "sender_not_person",
@@ -99,7 +77,7 @@ export const REPLY_NO_DRAFT_REASONS = [
   "not_significant",
   /** Triage judged the ask is already handled. */
   "already_handled",
-  /** Historical foundation result; retained so stored runs still parse. */
+  /** No longer written. Kept so stored runs still parse. */
   "composer_unavailable",
   /** Source was deleted, is not Gmail, or a newer document owns triage. */
   "source_unavailable",
@@ -153,12 +131,7 @@ export type ReplyClarificationReason = (typeof REPLY_CLARIFICATION_REASONS)[numb
 
 export const replyClarificationReasonSchema = z.enum(REPLY_CLARIFICATION_REASONS);
 
-/**
- * What a `staged` outcome actually staged. `gmail.send_draft` sends live mail
- * after approval — it does not create a Gmail Draft — so the action kind says
- * so, and an audit that reads `approval_staged_send` cannot overstate what
- * happened. A real `drafts.create` tool adds a second member here.
- */
+/** `gmail.send_draft` sends real mail on approval. It does not create a Gmail Draft. */
 export const REPLY_DRAFT_ACTION_KINDS = ["approval_staged_send"] as const;
 
 export type ReplyDraftActionKind = (typeof REPLY_DRAFT_ACTION_KINDS)[number];
@@ -167,12 +140,7 @@ export const replyDraftActionKindSchema = z.enum(REPLY_DRAFT_ACTION_KINDS);
 
 // ─── Provenance bundle ────────────────────────────────────────────────────
 
-/**
- * The triage facts the drafting decision relied on, frozen at decision time.
- * A later re-classify of the thread must not make the recorded decision
- * ambiguous, so the snapshot travels with the result instead of being joined
- * back to the live `email_triage` row.
- */
+/** Triage facts copied at decision time, so a later re-classify cannot change the record. */
 export const replyDraftTriageSnapshotSchema = z.object({
   documentId: z.string().min(1),
   sourceThreadId: z.string().min(1),
@@ -197,12 +165,7 @@ export const replyDraftStyleSelectionSchema = z.discriminatedUnion("kind", [
 
 export type ReplyDraftStyleSelection = z.infer<typeof replyDraftStyleSelectionSchema>;
 
-/**
- * A source the draft may cite. The tracer supplies bounded inbound content,
- * earlier thread excerpts, and user context. The GitHub resolver (#239) will
- * supply live `github_pull_request` facts; an email about a PR is not proof
- * of its current state.
- */
+/** A source the draft may cite. An email about a PR is not proof of the PR's current state. */
 export const REPLY_GATHERED_OBJECT_KINDS = [
   "github_pull_request",
   "inbound_document",
@@ -222,11 +185,7 @@ export const replyDraftGatheredObjectSchema = z.object({
 
 export type ReplyDraftGatheredObject = z.infer<typeof replyDraftGatheredObjectSchema>;
 
-/**
- * What the verifier's decision is bound to. It names the exact facts bundle,
- * not the generated prose, so a later edit to the body cannot inherit a pass
- * that was granted to different recipients or a different style profile.
- */
+/** The facts a verifier pass covers, so a pass cannot carry over to other recipients or style. */
 export const replyDraftVerifierBindingSchema = z.object({
   sourceThreadId: z.string().nullable(),
   recipients: z.array(z.string()),
@@ -249,11 +208,7 @@ export const replyDraftVerifierDecisionSchema = z.discriminatedUnion("decision",
 
 export type ReplyDraftVerifierDecision = z.infer<typeof replyDraftVerifierDecisionSchema>;
 
-/**
- * The provenance bundle every result carries. Fields that a run never reached
- * are `null` or empty rather than absent, so a `no_draft` decided before
- * gathering and a `withheld` decided after it have the same shape.
- */
+/** Steps a run never reached are `null` or empty, not absent, so every result has one shape. */
 export const replyDraftProvenanceSchema = z.object({
   invocation: replyDraftInvocationSchema,
   /** Flag state at decision time. `manual` runs record it but do not obey it. */

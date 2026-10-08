@@ -23,10 +23,8 @@ import {
 import { createIfAbsent, readActiveForThread, readById, resolveIfActive } from "./store";
 
 /**
- * The account-qualified address of one persisted Gmail message. Gmail message
- * ids are mailbox-scoped, so the account is part of the identity. Callers pass
- * only this locator; direction, thread, time, and attachment evidence are read
- * from the persisted rows, never taken from the caller.
+ * Gmail ids are per mailbox, so the account is part of the identity.
+ * Everything else is read from stored rows, never taken from the caller.
  */
 export const gmailMessageLocatorSchema = z
   .object({
@@ -94,12 +92,8 @@ export interface DocumentAskReducer {
 }
 
 /**
- * How long a sibling carrier's `mediaPending` flag can still change on its
- * own. The realtime poll re-schedules a flagged known message only while the
- * message is inside its `newer_than:5m` window, and a BullMQ media job spends
- * about 75 s on its attempts. The bound adds margin for queue lag. After it, a
- * flag that is still set belongs to a job that nothing re-runs, so it cannot
- * keep an ask live.
+ * After this, a set `mediaPending` flag has no job left to clear it.
+ * The poll retries only inside its `newer_than:5m` window; the rest is margin for queue lag.
  */
 const MEDIA_PENDING_SETTLE_MS = 30 * 60 * 1000;
 
@@ -108,7 +102,7 @@ type GmailMessageRow = Pick<
   "sourceId" | "accountId" | "sourceThreadId" | "authoredAt" | "metadata"
 >;
 
-/** One persisted Gmail mail row, read and validated by this module only. */
+/** Read and validated only here. */
 type PersistedGmailMessage = GmailMessageLocator & {
   threadId: string;
   authoredAt: Date | null;
@@ -327,11 +321,8 @@ function sentAfter(carrier: PersistedGmailMessage, ask: DocumentAskRow): boolean
 }
 
 /**
- * A sibling carrier whose media job can still finish is a completion barrier:
- * resolving before it settles would make the result depend on job order. The
- * observed carrier is never its own barrier (its job is the one running now),
- * and a flag older than {@link MEDIA_PENDING_SETTLE_MS} belongs to a job that
- * nothing re-runs.
+ * Wait for a sibling's live media job, or the result depends on job order.
+ * The observed carrier is never its own barrier.
  */
 function isOpenMediaBarrier(input: {
   carrier: PersistedGmailMessage;

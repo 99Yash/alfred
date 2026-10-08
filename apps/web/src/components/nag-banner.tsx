@@ -3,24 +3,16 @@ import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
 interface NagBannerProps {
-  /** Inline copy explaining what's wrong; may contain emphasis spans. */
+  /** May contain emphasis spans. */
   message: ReactNode;
-  /** Label for the primary reconnect action. */
   actionLabel: string;
-  /** Runs the full-page redirect that resolves the gap. */
+  /** Runs the full-page redirect that fixes the gap. */
   onAction: () => void;
-  /** Hides the banner for the rest of the session. */
+  /** Hides the banner for the session. */
   onDismiss: () => void;
 }
 
-/**
- * Shared card for the integration nag bars (`ScopeGapBanner`,
- * `GithubReconnectBanner`). A self-contained, centered notice — the shell
- * floats it just below the header in an absolutely-positioned layer, so it
- * never adds to the chat surface's layout height. Colors come from the
- * theme-aware `--app-amber-*` / `--app-fg-*` tokens so it stays legible in
- * both light and dark. Keeping the chrome here means the two nags can't drift.
- */
+/** Shared card for the integration nag bars. The shell floats it, so it adds no layout height. */
 export function NagBanner({ message, actionLabel, onAction, onDismiss }: NagBannerProps) {
   return (
     <div

@@ -9,27 +9,17 @@ import { runDriftHealthCheck } from "./drift-audit/index";
 import { embedMemoryChunk, findPendingEmbedChunks, recordMemoryEmbedFailure } from "./chunks";
 import { toMessage } from "@alfred/contracts";
 
-/**
- * Memory-cron queue. Holds repeatable jobs that fan out into per-user
- * `memory-extraction` agent runs. Distinct from the ingestion queue
- * (which is provider-bounded) and the agent queue (which is run-id
- * keyed) so the daily trigger stays in its own lane.
- */
+/** Memory-cron queue: repeatable jobs that fan out into per-user runs. */
 const MEMORY_QUEUE_NAME = "memory-cron";
 
 export type MemoryJobData =
-  /** Repeatable trigger; handler enumerates active users and creates a run for each. */
+  /** Repeatable: one run per active user. */
   | { kind: "memory.extract.daily" }
-  /** Direct trigger (manual ad-hoc invocation) — single-user fan-out. */
+  /** Ad-hoc run for one user. */
   | { kind: "memory.extract.run"; userId: string }
-  /** Repeatable: backfill embeddings for memory_chunks written without one. */
+  /** Repeatable: embed chunks written without one. */
   | { kind: "memory.embed_sweep" }
-  /**
-   * Repeatable: drift / invariant health check (#219 PR-B). Folded into this
-   * queue rather than a 9th worker — it sweeps the same `documents`/`email_triage`
-   * data the daily extraction already reads, so a dedicated worker would buy ~$0
-   * of Railway compute while costing persistent Redis connections.
-   */
+  /** Repeatable drift health check (#219). Shares this queue to save Redis connections. */
   | { kind: "memory.drift_health_check" };
 
 let _queue: Queue<MemoryJobData> | undefined;
@@ -59,7 +49,6 @@ export async function startMemoryWorker(opts: StartMemoryWorkerOpts = {}): Promi
   if (_worker) return;
   _worker = new Worker<MemoryJobData>(MEMORY_QUEUE_NAME, processMemoryJob, {
     connection: createRedisConnection("queue"),
-    // The job is cheap (queries + enqueue); single-threaded is plenty.
     concurrency: opts.concurrency ?? 1,
   });
   _worker.on("error", (err) => {
@@ -86,7 +75,6 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
 
   switch (data.kind) {
     case "memory.extract.daily": {
-      // Single-user today, but the shape carries us forward.
       const users = await db().select({ id: userTable.id }).from(userTable);
       const scheduledFor = new Date(job.timestamp).toISOString();
       let enqueued = 0;
@@ -129,12 +117,8 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
           });
         } catch (err) {
           failed++;
-          // Only the embed (Voyage) call counts toward the poison-pill guard —
-          // record it so a genuinely un-embeddable chunk dead-letters instead of
-          // being re-embedded every sweep forever (best-effort bookkeeping).
-          // Log a bookkeeping-write failure DISTINCTLY: a persistently-failing
-          // guard write (dropped column, bad migration order) would otherwise
-          // no-op silently while the backlog re-embeds forever.
+          // Only the Voyage call counts toward the poison-pill guard. Log a failed
+          // bookkeeping write loudly, or the backlog re-embeds forever.
           await recordMemoryEmbedFailure(c.id, c.userId, err).catch((bookkeepingErr) => {
             console.error(
               `[memory:worker] memory.embed_sweep FAILED to record embed failure for ${c.id}:`,
@@ -153,12 +137,8 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
           succeeded++;
         } catch (err) {
           failed++;
-          // A DB write failure is a *persistence* error, not an embed failure —
-          // the (billed) embedding already succeeded — so it must NOT record a
-          // failure (which would increment `embedAttempts` and eventually
-          // dead-letter a perfectly embeddable chunk). Leave the row a candidate
-          // (embedding still NULL) so the next sweep retries. Mirrors the
-          // documents path in `@alfred/corpus`.
+          // A DB write failure is not an embed failure: do not count it, or a good
+          // chunk dead-letters. The next sweep retries.
           console.warn(
             `[memory:worker] memory.embed_sweep write failed for ${c.id}:`,
             toMessage(err),
@@ -174,9 +154,7 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
     }
 
     case "memory.drift_health_check": {
-      // Single-user today; the per-user fan-out carries us forward. Sweep every
-      // user, but rethrow after the loop if any check failed so BullMQ retries a
-      // dropped health_alert push.
+      // Rethrow after the loop if any check failed, so BullMQ retries the alert.
       const users = await db().select({ id: userTable.id }).from(userTable);
       let checked = 0;
       let breached = 0;
@@ -212,21 +190,21 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
   }
 }
 
-/** Public helper — also used by ad-hoc HTTP routes / smoke scripts. */
+/** Also used by ad-hoc routes and smoke scripts. */
 export async function enqueueExtractionForUser(
   userId: string,
   opts?: {
     sinceDays?: number;
     maxDocs?: number;
-    /** Manual mode for tests — bypasses the LLM call. */
+    /** Skips the LLM call. */
     mode?: "auto" | "manual";
     manualProposals?: Record<
       string,
       Array<{ key: string; value: unknown; confidence: number; rationale: string }>
     >;
-    /** Trigger context — defaults to manual when called ad-hoc. */
+    /** Defaults to manual. */
     trigger?: AgentRunTrigger;
-    /** Stable identity supplied by a retryable caller. */
+    /** Stable id from a retryable caller. */
     requestId?: string;
   },
 ): Promise<{ runId: string }> {

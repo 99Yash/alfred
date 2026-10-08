@@ -3,19 +3,9 @@ import { integrationCredentials, skills, user, userFacts } from "@alfred/db/sche
 import { and, asc, desc, eq } from "drizzle-orm";
 
 /**
- * Bundle the context the `learn-skill` distill step feeds the LLM.
- *
- * Read-only — pulls user identity + active facts + connected integrations
- * + existing skill slugs. Mirrors `collectColdStartSignals` for shape and
- * intent: do the cheap-and-deterministic gathering separately from the
- * expensive LLM call so retries don't re-query the same rows.
- *
- * Semantic recall over `memory_chunks` is deliberately deferred. At
- * single-user scale the active-facts list is small enough to inline
- * verbatim; embedding the user's prompt and top-K-querying chunks adds
- * a Voyage round-trip + an extra query for marginal value at v1. The
- * deeper context arrives via the async `skill-documentation` workflow,
- * which DOES do hybrid search across `documents` + `chunks` + memory.
+ * Read-only context for the distill step: user, active facts, connected integrations,
+ * and skill slugs. Gathered apart from the LLM call, so retries do not re-query.
+ * No memory search here; `skill-documentation` does that later.
  */
 export interface SkillLearnContext {
   userId: string;
@@ -23,15 +13,15 @@ export interface SkillLearnContext {
     name: string;
     email: string;
   };
-  /** All currently-active facts (`status = 'confirmed'`, valid window open). */
+  /** Confirmed facts with an open validity window. */
   facts: Array<{
     key: string;
     value: unknown;
     confidence: number;
   }>;
-  /** Slugs of providers the user has connected (gmail, github, …). */
+  /** E.g. gmail, github. */
   connectedIntegrations: string[];
-  /** Slugs of skills already authored — drives `@skill:<slug>` validation. */
+  /** Drives `@skill:<slug>` validation. */
   existingSkillSlugs: string[];
 }
 
@@ -46,9 +36,7 @@ export async function collectSkillLearnContext(userId: string): Promise<SkillLea
     throw new Error(`[learn-skill] user not found: ${userId}`);
   }
 
-  // Confirmed facts only — proposals are noise for the distill prompt.
-  // Cap at 200; beyond that the prompt grows past Haiku's sweet spot
-  // and the LLM starts dropping the trailing items anyway.
+  // Confirmed facts only. Capped at 200; past that the model drops trailing items.
   const facts = await db()
     .select({
       key: userFacts.key,
@@ -60,8 +48,7 @@ export async function collectSkillLearnContext(userId: string): Promise<SkillLea
     .orderBy(desc(userFacts.updatedAt))
     .limit(200);
 
-  // Distinct providers — a user with two Google accounts shouldn't see
-  // `google` twice in the registry.
+  // Distinct, so two Google accounts list `google` once.
   const integrationRows = await db()
     .selectDistinct({ provider: integrationCredentials.provider })
     .from(integrationCredentials)

@@ -1,14 +1,6 @@
 /**
- * Browser-safe MCP cross-boundary contracts: `mcp.call`, catalog search, and inspection
- * argument envelopes and the literal unions that back the persisted MCP tables
- * (`packages/db/src/schema/mcp.ts`) and the execution broker
- * (`packages/assistant/src/tool-runtime/mcp/`).
- *
- * These are the shapes the web client, the model-facing tool surface, and the
- * DB layer must all agree on. Everything that depends on the MCP SDK or
- * `node:crypto` (the raw client, the protocol, the SHA-256 ambiguity-barrier
- * hash) stays server-side in `@alfred/assistant`; only the wire-visible enums and the
- * two projected-tool argument schemas live here.
+ * Browser-safe MCP contracts: tool argument envelopes and the enums behind the MCP tables.
+ * Anything that needs the MCP SDK or `node:crypto` stays in `@alfred/assistant`.
  */
 
 import { z } from "zod";
@@ -19,11 +11,7 @@ import { OBJECT_STATE_CATEGORIES } from "./integration-objects";
 import { TOOL_RISK_TIERS } from "./tools";
 import { jsonObjectSchema, jsonValueSchema } from "./user-model";
 
-// ---------------------------------------------------------------------------
-// Connection state machine (durable half). Owned here so the DB column
-// (`mcp_connections.status`) and any future web surface share one vocabulary.
-// disconnected → connecting → ready → stale → auth_required → failed.
-// ---------------------------------------------------------------------------
+// Durable connection status (`mcp_connections.status`).
 export const mcpConnectionStatusValues = [
   "disconnected",
   "connecting",
@@ -37,11 +25,7 @@ export type McpConnectionStatus = (typeof mcpConnectionStatusValues)[number];
 
 export const mcpConnectionStatusSchema = z.enum(mcpConnectionStatusValues);
 
-// ---------------------------------------------------------------------------
-// Browser-safe mirror of the negotiated server identity. The runtime type
-// lives in `packages/assistant/src/connections/mcp/protocol.ts` (SDK-bound); this is the
-// persisted/`$type` snapshot stored on `mcp_connections.server_identity`.
-// ---------------------------------------------------------------------------
+// Snapshot of the negotiated server identity, stored on `mcp_connections.server_identity`.
 export const mcpServerIdentitySchema = z.object({
   protocolVersion: z.string(),
   serverName: z.string(),
@@ -52,13 +36,9 @@ export const mcpServerIdentitySchema = z.object({
 
 export type McpServerIdentity = z.infer<typeof mcpServerIdentitySchema>;
 
-// ---------------------------------------------------------------------------
-// Reviewed per-tool effect/retry semantics (mcp_tool_policy). These are
-// deliberately SEPARATE from the approval risk tier: a low-risk write still
-// receives ambiguous-write protection, and a reviewed read can use read-safe
-// failure handling independently of its approval tier (issue clarification #3).
-// Defaults are conservative: unknown effect handled as effectful, never retry.
-// ---------------------------------------------------------------------------
+// Reviewed per-tool effect and retry rules (`mcp_tool_policy`), separate from the risk tier:
+// a low-risk write still gets ambiguous-write protection.
+// Defaults: unknown is effectful, never retry.
 export const mcpEffectClassValues = ["read", "write", "unknown"] as const;
 
 export type McpEffectClass = (typeof mcpEffectClassValues)[number];
@@ -71,16 +51,10 @@ export type McpRetryContract = (typeof mcpRetryContractValues)[number];
 
 export const mcpRetryContractSchema = z.enum(mcpRetryContractValues);
 
-// ---------------------------------------------------------------------------
-// Operation-ledger axes (mcp_invocation). Three distinct concepts, per the
-// ambiguous-write design (docs/research/mcp-ambiguous-write-outcomes.md):
-//
-//  - attempt lifecycle: what Alfred knows it locally did. `delivery_possible`
-//    is persisted BEFORE the raw-client call so a crash mid-flight still leaves
-//    durable evidence the write is ambiguous (issue clarification #1).
-//  - effect outcome: what Alfred can prove about the remote effect.
-//  - retry disposition: what the broker may do next.
-// ---------------------------------------------------------------------------
+// Ledger axes on `mcp_invocation` (docs/research/mcp-ambiguous-write-outcomes.md):
+// lifecycle is what Alfred did, outcome is what it can prove,
+// disposition is what the broker may do next.
+// `delivery_possible` is written before the call, so a crash still marks the write ambiguous.
 export const mcpAttemptLifecycleValues = [
   "prepared",
   "delivery_possible",
@@ -103,15 +77,12 @@ export type McpRetryDisposition = (typeof mcpRetryDispositionValues)[number];
 
 export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
 
-// ---------------------------------------------------------------------------
-// Explicit recovery operations. These are safe product projections: the raw
-// staging proposal and decided input remain server-side.
-// ---------------------------------------------------------------------------
+// Recovery operations as the browser sees them. The raw staging input stays on the server.
 export const mcpRecoveryDecisionSchema = z.enum(["confirmed_succeeded", "confirmed_not_applied"]);
 
 export type McpRecoveryDecision = z.infer<typeof mcpRecoveryDecisionSchema>;
 
-/** The one request body the resolve route accepts; the HTTP layer validates with it directly. */
+/** Body of the resolve route. */
 export const mcpRecoveryDecisionBodySchema = z
   .object({ decision: mcpRecoveryDecisionSchema })
   .strict();
@@ -130,14 +101,8 @@ const mcpRecoveryOperationBaseSchema = z.object({
 });
 
 /**
- * A product recovery row is one of two exact durable states:
- *
- * - an ambiguous call that crossed the delivery boundary; or
- * - a user-authorized successor that was reserved but did not reach delivery.
- *
- * Keeping the prepared successor's outcome, disposition, and delivery timestamp
- * null is load-bearing. It proves that a restart or failed pre-claim attempt did
- * not silently classify or send the operation.
+ * Either an ambiguous call that may have been delivered, or a reserved successor that was not.
+ * The successor's null outcome and timestamps prove a restart did not send or classify it.
  */
 export const mcpRecoveryOperationSchema = z.union([
   mcpRecoveryOperationBaseSchema
@@ -164,7 +129,6 @@ export const mcpRecoveryOperationSchema = z.union([
 
 export type McpRecoveryOperation = z.infer<typeof mcpRecoveryOperationSchema>;
 
-/** Twenty keeps the card-heavy recovery view bounded while showing a useful batch. */
 export const MCP_RECOVERY_PAGE_SIZE = 20;
 
 export const mcpRecoveryCursorSchema = z.string().min(1);
@@ -182,11 +146,9 @@ export const mcpRecoveryOperationsPageInputSchema = mcpRecoveryOperationsPageQue
 export type McpRecoveryOperationsPageInput = z.infer<typeof mcpRecoveryOperationsPageInputSchema>;
 
 /**
- * One page of the recovery list. The read is pure: it never repairs a row.
- * `awaitingRepair` counts the owner's invocations whose provider phase ended
- * (the dispatcher committed the staging row) but whose broker settlement has
- * not been recorded yet. Those rows are not in `operations` until the broker's
- * local repair or boot reconciliation normalizes them.
+ * One page of the recovery list. The read never repairs a row.
+ * `awaitingRepair` counts calls that finished but have no broker settlement yet;
+ * they join `operations` after the broker repairs them.
  */
 export const mcpRecoveryOperationsPageSchema = z
   .object({
@@ -216,48 +178,20 @@ export const mcpRecoveryMutationResultSchema = z
 
 export type McpRecoveryMutationResult = z.infer<typeof mcpRecoveryMutationResultSchema>;
 
-// ---------------------------------------------------------------------------
-// Generic server connection (PRD #1004). The owner supplies the endpoint URL;
-// the server validates and probes it. The label is optional and defaults to the
-// endpoint host when omitted. `outcome` is the closed answer the add route
-// returns: a reachable no-auth server is connected on the spot, and a server
-// that answers with an authorization challenge becomes a connection in
-// `auth_required` whose id the answer carries, so the browser can walk it to
-// its consent screen.
-// ---------------------------------------------------------------------------
+// Add a server by URL. The label defaults to the endpoint host.
 export const MCP_ADD_SERVER_MAX_URL_LENGTH = 2_048;
 
 export const MCP_ADD_SERVER_MAX_LABEL_LENGTH = 100;
 
-// ---------------------------------------------------------------------------
-// Owner-supplied API key (third authentication variant, after no-auth and
-// OAuth). The owner names ONE explicit placement — a request header or a query
-// parameter — and the three facts are (kind, placed name, value). The value is
-// the only secret and never appears here after the route boundary parses it: the
-// store seals it and the runtime opens it per request.
-//
-// A placement name that the MCP transport, `fetch`, or the hop-by-hop rules
-// already own is refused, so an owner-supplied key can never shadow a header the
-// transport sets. `authorization` is deliberately NOT refused: a bearer key in
-// the standard header is the most common API-key dialect.
-// ---------------------------------------------------------------------------
+// Owner-supplied API key, placed in one header or one query parameter.
+// The store seals the value after the route parses it.
 export const MCP_API_KEY_MAX_LENGTH = 4_096;
 
 export const MCP_API_KEY_MAX_PLACEMENT_NAME_LENGTH = 128;
 
 /**
- * The headers Alfred refuses to let a stored key occupy. `host`, the framing
- * headers, and the connection headers are owned by `fetch` and the HTTP stack.
- * The MCP transport owns the rest: `mcp-session-id`, `mcp-protocol-version`,
- * the body-derived `mcp-method` and `mcp-name` are exactly the names
- * `@modelcontextprotocol/client`'s reserved set keeps a per-request carrier
- * from overriding, and `last-event-id` is the SSE resumption header. Putting
- * the key on any of them would let the transport's own value and the sent key
- * collide.
- *
- * `authorization` is deliberately absent: this variant exists to place an
- * owner-supplied key there, and no OAuth provider is built on this path to
- * contest it. Compared case-insensitively because HTTP header names are.
+ * Headers a stored key may not use, because `fetch` or the MCP transport sets them.
+ * `authorization` is allowed: a bearer key there is the usual case. Compare lowercase.
  */
 export const MCP_API_KEY_REFUSED_HEADERS = [
   "host",
@@ -279,13 +213,8 @@ export const MCP_API_KEY_REFUSED_HEADERS = [
 const MCP_API_KEY_REFUSED_HEADER_SET: ReadonlySet<string> = new Set(MCP_API_KEY_REFUSED_HEADERS);
 
 /**
- * An RFC 9110 `token`, the character set a header field name may use.
- *
- * Both arms are held to it: a header name outside it makes `Headers.set` throw
- * a bare `TypeError` at request time (a 500, because no `HostedEndpointError`
- * carries it), and a query parameter that identifies a credential placement is a
- * wire identifier too, so the token set is the conservative intersection rather
- * than free text. A refused placement is a 400 the owner can retry.
+ * RFC 9110 `token` characters. Other header names make `Headers.set` throw at request time.
+ * Query names use the same rule.
  */
 const MCP_API_KEY_PLACEMENT_NAME_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
@@ -330,20 +259,10 @@ export const mcpApiKeyAuthSchema = z
   })
   .strict();
 
-/**
- * The wire credential the create route accepts: the plaintext key exactly once.
- * The per-request transport reader that opens the sealed row is
- * `McpApiKeyCredentialReader` in `@alfred/assistant/connections/mcp`, a
- * different shape with the same job; this name stays the contract's.
- */
+/** The plaintext key, sent once to the create route. */
 export type McpApiKeyAuth = z.infer<typeof mcpApiKeyAuthSchema>;
 
-/**
- * The authentication variants the create route accepts. Today it is the API key
- * alone; no-auth is the ABSENCE of this field, and OAuth is discovered from the
- * endpoint rather than supplied. A discriminated union keeps that open for a
- * future variant without changing the body's shape.
- */
+/** No `auth` means no-auth. OAuth is discovered from the endpoint, not sent here. */
 export const mcpAddServerAuthSchema = z.discriminatedUnion("kind", [mcpApiKeyAuthSchema]);
 
 export type McpAddServerAuth = z.infer<typeof mcpAddServerAuthSchema>;
@@ -358,47 +277,21 @@ export const mcpAddServerBodySchema = z
 
 export type McpAddServerBody = z.infer<typeof mcpAddServerBodySchema>;
 
-/**
- * The one field a completed connection may be renamed to. Renaming changes the
- * display label ALONE: `instanceKey`, the endpoint definition, credentials,
- * status, scopes, and the catalog pointer are facts the owner did not ask to
- * change. The label shares `MCP_ADD_SERVER_MAX_LABEL_LENGTH` with creation so a
- * name cannot be legal to create and illegal to rename back to.
- */
+/** Rename changes only the label. It shares the create length limit. */
 export const mcpRenameConnectionBodySchema = z
   .object({ label: z.string().trim().min(1).max(MCP_ADD_SERVER_MAX_LABEL_LENGTH) })
   .strict();
 
 export type McpRenameConnectionBody = z.infer<typeof mcpRenameConnectionBodySchema>;
 
-// ---------------------------------------------------------------------------
-// First-class remote MCP servers. The record's keys ARE the provider key space,
-// exactly as `INTEGRATIONS` owns the integration slug space (ADR-0093): a
-// built-in provider is spelled once, here.
-//
-// This half is browser-safe and presentational — the name a tile shows, the
-// brand artwork it borrows, and the one line that says what connecting buys.
-// The server half (endpoint, issuer, scope baseline, protocol pins) is
-// `BUILT_IN_REGISTRY` in `@alfred/assistant`, which is keyed by this union. An
-// entry here with no definition there is a compile error, and so is the
-// reverse, so neither half can ship a provider the other does not know.
-// ---------------------------------------------------------------------------
+// Built-in MCP servers. The keys are the provider names (ADR-0093).
+// This is the display half; `BUILT_IN_REGISTRY` in `@alfred/assistant` is the server half,
+// and each must cover the other's keys or the build fails.
 export interface McpBuiltInEntry {
-  /**
-   * The registry slug whose brand artwork the tile borrows.
-   *
-   * `CatalogSlug`, not `IntegrationSlug`: only a PROVIDER entry carries brand
-   * artwork, so the wider union would admit a slug with no mark and force
-   * every tile to carry a fallback glyph for a case that cannot occur.
-   */
+  /** The slug whose logo the tile uses. Only `CatalogSlug` entries have a logo. */
   readonly slug: CatalogSlug;
-  /**
-   * The tile title. It is not the slug's display name: this names the SERVER,
-   * and one product can serve more than one (a read-only path and a read-write
-   * one are two resources).
-   */
+  /** Names the server, not the product: one product can have more than one server. */
   readonly label: string;
-  /** What connecting this server buys, in one line. */
   readonly blurb: string;
 }
 
@@ -440,34 +333,16 @@ export const BUILT_IN_MCP_CATALOG = {
   },
 } as const satisfies Record<string, McpBuiltInEntry>;
 
-/** The provider key space: the catalog's keys. Nothing else names a built-in. */
 export type BuiltInMCPProvider = keyof typeof BUILT_IN_MCP_CATALOG;
 
-/**
- * The providers in record order. `Object.keys` keeps insertion order for string
- * keys, so this is the order the catalog is written in, and the order the
- * integrations page renders.
- */
+/** In catalog order, which is also the page order. */
 export const BUILT_IN_MCP_PROVIDERS: readonly BuiltInMCPProvider[] =
-  // SAFETY: `Object.keys` types its result as `string[]`; the keys of a
-  // non-indexed literal are exactly `keyof typeof BUILT_IN_MCP_CATALOG`.
+  // SAFETY: the keys of this literal are exactly `BuiltInMCPProvider`.
   Object.keys(BUILT_IN_MCP_CATALOG) as BuiltInMCPProvider[];
 
-/**
- * Narrow a path segment to a built-in provider. The connect route takes the
- * provider from the URL, so the value is untrusted until this says otherwise.
- */
 export const isBuiltInMCPProvider = enumGuard(BUILT_IN_MCP_PROVIDERS);
 
-// ---------------------------------------------------------------------------
-// Content-block kinds (#541). The CLOSED set the MCP `ContentBlock` union
-// admits, plus an explicit `unknown` tail. The SDK validates every block
-// against this union before a result reaches Alfred, so an out-of-set `type`
-// cannot occur for a validated result; `unknown` is the documented fallback for
-// any future/degraded shape rather than an open string space. Keeping the key
-// space closed lets an audit-view reader switch on a finite set and matches the
-// repo rule that an enum-keyed map uses `z.partialRecord`, not `z.record`.
-// ---------------------------------------------------------------------------
+// MCP `ContentBlock` types, plus `unknown` for any future shape.
 export const mcpContentKindValues = [
   "text",
   "image",
@@ -481,69 +356,36 @@ export type McpContentKind = (typeof mcpContentKindValues)[number];
 
 export const mcpContentKindSchema = z.enum(mcpContentKindValues);
 
-// ---------------------------------------------------------------------------
-// Result-provenance envelope (#541). The durable, bounded record of what a
-// remote MCP server ACTUALLY returned — persisted on the invocation ledger row
-// (`mcp_invocation.result_provenance`) independently of the sanitized prose the
-// model reads (`action_stagings.execute_result`). It keeps the facts an operator
-// needs to reconstruct an effectful attempt — the server's own error signal,
-// structured-output validity, a content-kind census, and whether the model
-// projection was clipped — WITHOUT the payload itself: no block content, no
-// fetched resource links (they are counted, never dereferenced), no unbounded
-// remote text. Connection/tool/catalog provenance is NOT duplicated here — it is
-// already on the invocation row this envelope hangs off, and the audit view is
-// the join of the two.
-// ---------------------------------------------------------------------------
+// What the server returned, without the payload (`mcp_invocation.result_provenance`).
+// Counts and flags only; resource links are counted, never fetched.
 export const mcpResultProvenanceSchema = z.object({
   /** The server reported a tool problem after execution; this does not prove no effect. */
   isError: z.boolean(),
-  /** The raw result carried a `structuredContent` field at all. */
   hasStructuredContent: z.boolean(),
   /**
-   * A declared output schema was present AND the structured content validated
-   * against it. `false` covers three cases: no output schema was declared; the
-   * call was a tool-level error (validation is skipped); OR the structured
-   * output FAILED its declared schema. The failure case still records an
-   * envelope: the raw client throws `invalid_output` AFTER the response crossed
-   * the wire and carries this census on the error, so the broker persists it for
-   * the (ambiguous) outcome rather than leaving prose as the only durable copy.
+   * True only when an output schema exists and the content passed it.
+   * False also means no schema, or a tool error.
+   * An `invalid_output` error still carries this envelope.
    */
   outputSchemaValidated: z.boolean(),
-  /** Number of content blocks the raw result carried. */
   contentBlockCount: z.number().int().nonnegative(),
-  /**
-   * Census of content blocks by their MCP `type`. Keyed by the closed
-   * `ContentBlock` set (`text`/`image`/`audio`/`resource`/`resource_link`), with
-   * `unknown` as the explicit tail for any degraded/future shape. Counts only —
-   * never block content, and a returned resource link is recorded here, never
-   * dereferenced. Partial: only kinds actually present appear.
-   */
+  /** Block count per kind. Only kinds that occur appear. */
   contentKinds: z.partialRecord(mcpContentKindSchema, z.number().int().nonnegative()),
-  /** The model projection was bounded/clipped on the way out. */
+  /** The text the model saw was clipped. */
   truncated: z.boolean(),
 });
 
 export type McpResultProvenance = z.infer<typeof mcpResultProvenanceSchema>;
 
-// ---------------------------------------------------------------------------
-// Projected-tool argument envelopes. The open-ended external tool reference
-// (connection + remote name + catalog revision) rides in the ARGS, never in the
-// closed `ToolName`. The opaque MCP `arguments` object is carried as a JSON
-// record and is NOT reshaped here — the authoritative, exact-schema,
-// no-coercion validation stays in `McpRawClient.callTool`. Because `mcp.call`'s
-// external ref lives in args, `canonicalJson(input)` folds it into the generic
-// staging input hash for free, so a catalog-drifted re-proposal re-stages.
-// ---------------------------------------------------------------------------
+// The remote tool ref rides in the args, not in `ToolName`, so it is part of the staging
+// input hash and a call under a new catalog revision stages again.
+// `McpRawClient.callTool` validates `arguments`; this file does not.
 export const mcpExternalToolRefSchema = z
   .object({
     kind: z.literal("mcp"),
     connectionId: z.string().min(1),
     remoteName: z.string().min(1),
-    /**
-     * The catalog revision the model selected this tool under. A mismatch against
-     * the live catalog is a VISIBLE re-resolve signal (the raw client throws
-     * `catalog_stale`), not a silent Zod strip.
-     */
+    /** The revision the model saw. A mismatch throws `catalog_stale`. */
     catalogRevision: z.string().min(1),
   })
   .strict();
@@ -553,37 +395,21 @@ export type ExternalToolRef = z.infer<typeof mcpExternalToolRefSchema>;
 export const mcpCallInput = z
   .object({
     ...mcpExternalToolRefSchema.omit({ kind: true }).shape,
-    /**
-     * Opaque MCP arguments — a JSON object, unreshaped. `z.record` keeps all
-     * string keys (no stripping) so nothing a JSON-Schema-valid MCP call needs is
-     * lost crossing dispatch's envelope re-parse.
-     */
+    /** Passed through unchanged. A record schema keeps every key on re-parse. */
     arguments: jsonObjectSchema,
   })
   .strict();
 
 export type McpCallInput = z.infer<typeof mcpCallInput>;
 
-/**
- * Discovery is a bounded, local read of Alfred's already-validated catalog. It
- * never dumps the raw client's 1 MB / 1,000-tool ceiling into one result:
- * compact summaries by default, a bounded full descriptor only for an
- * explicitly selected `remoteName` (issue clarification #5).
- */
+/** Page cap, so one result never dumps the whole catalog (up to 1,000 tools). */
 export const MCP_LIST_TOOLS_MAX_LIMIT = 50;
 
 export const MCP_LIST_TOOLS_DEFAULT_LIMIT = 25;
 
 /**
- * How much of each tool a page carries. Two tiers only, and deliberately no
- * `"full"`: a full descriptor is bounded at 128 KB at ingest, so a page of them
- * would reinstate exactly the catalog dump clarification #5 exists to prevent.
- * The full descriptor is reachable one tool at a time, via `remoteName`.
- *
- *  - `summary` (default): name + title + clipped description — enough to choose.
- *  - `names`: name only. A survey tier for a wide catalog, where the descriptions
- *    dominate the page and the model only needs to know what exists before
- *    narrowing with `query` or asking for one descriptor.
+ * Page detail: `summary` (default) is name, title, and short description; `names` is name only.
+ * No `full` tier: a descriptor can be 128 KB, so full descriptors come one at a time via `ref`.
  */
 export const mcpListToolsDetailValues = ["names", "summary"] as const;
 
@@ -593,15 +419,11 @@ export const mcpListToolsDetailSchema = z.enum(mcpListToolsDetailValues);
 
 export const mcpToolSearchInputSchema = z
   .object({
-    /** Free-text filter over visible tool fields: name, title, description. Never the connection label. */
+    /** Matches name, title, and description, not the connection label. */
     query: z.string().max(200).optional(),
-    /** Exact owned MCP server id. */
     namespace: z.string().min(1).optional(),
-    /** Exact owned named-connection id. */
     connectionId: z.string().min(1).optional(),
-    /** Page density; see {@link mcpListToolsDetailValues}. Defaults to `summary`. */
     detail: mcpListToolsDetailSchema.optional(),
-    /** Opaque pagination cursor returned by a prior page. */
     cursor: z.string().max(512).optional(),
     limit: z.coerce.number().int().positive().max(MCP_LIST_TOOLS_MAX_LIMIT).optional(),
   })
@@ -617,11 +439,7 @@ export const mcpToolInspectInputSchema = z
 
 export type McpToolInspectInput = z.infer<typeof mcpToolInspectInputSchema>;
 
-/**
- * The same strict search-or-inspect union, represented as one top-level object
- * because model providers require every tool input JSON Schema to declare
- * `type: "object"` at the root.
- */
+/** Search or inspect as one object, because providers require a root `type: "object"`. */
 export const mcpListToolsInput = z
   .object({
     ...mcpToolSearchInputSchema.shape,
@@ -647,7 +465,6 @@ export type McpListToolsOperation =
   | { operation: "inspect"; input: McpToolInspectInput }
   | { operation: "search"; input: McpToolSearchInput };
 
-/** Parse the provider-compatible root object into its strict domain operation. */
 export function parseMcpListToolsOperation(input: unknown): McpListToolsOperation {
   const parsed = mcpListToolsInput.parse(input);
 
@@ -763,23 +580,11 @@ export const mcpToolInspectionResultSchema = z.union([
 
 export type McpToolInspectionResult = z.infer<typeof mcpToolInspectionResultSchema>;
 
-// ---------------------------------------------------------------------------
-// Exact-descriptor policy review (ADR-0088 / ADR-0096). The owner reviews ONE
-// `(connectionId, remoteName, descriptorHash)` through the tool they inspected;
-// the review is bound to the descriptor the server derived, never to one the
-// client named. There is deliberately NO `descriptorHash` and NO
-// `policyRevision` on these wire shapes: both are server derived, so "review an
-// arbitrary descriptor" and "set an arbitrary revision" are unrepresentable
-// (the tier-1 half of the binding).
-// ---------------------------------------------------------------------------
+// Policy review of one exact descriptor (ADR-0088, ADR-0096).
+// The server derives `descriptorHash` and `policyRevision`, so the client cannot send them.
 export const MCP_TOOL_POLICY_NOTE_MAX = 500;
 
-/**
- * The reviewed fields the owner supplies. `ref` names the EXACT tool the owner
- * inspected, including the `catalogRevision` they saw; the server re-derives the
- * descriptor hash under that revision and refuses a stale one rather than
- * silently binding the review to a descriptor the owner never saw.
- */
+/** `ref` carries the revision the owner saw. The server refuses a stale one. */
 export const mcpToolPolicyReviewInputSchema = z
   .object({
     ref: mcpExternalToolRefSchema,
@@ -792,7 +597,7 @@ export const mcpToolPolicyReviewInputSchema = z
 
 export type McpToolPolicyReviewInput = z.infer<typeof mcpToolPolicyReviewInputSchema>;
 
-/** The persisted review, projected. `policyRevision` is server-owned and monotonic. */
+/** `policyRevision` only goes up. */
 export const mcpToolPolicySchema = z
   .object({
     riskTier: z.enum(TOOL_RISK_TIERS),
@@ -807,17 +612,8 @@ export const mcpToolPolicySchema = z
 export type McpToolPolicy = z.infer<typeof mcpToolPolicySchema>;
 
 /**
- * Exactly one of these is true of `(connection, ref)` now.
- *
- *  - `reviewed`: the current descriptor carries a review.
- *  - `unreviewed`: the descriptor exists and has never been reviewed.
- *  - `drifted`: this tool WAS reviewed, under a different descriptor, so the
- *    floor still applies until the owner reviews the current one.
- *  - `catalog_stale`: the named revision is not the connection's current one.
- *  - `not_found`: the named tool has no descriptor in the current revision.
- *
- * A missing or foreign connection is NOT an arm: it is a 404 at the route, so
- * the union carries no value the browser could never read.
+ * `drifted`: reviewed under an older descriptor, so the default floor applies again.
+ * A missing connection is a 404, not a state.
  */
 export const mcpToolPolicyStateSchema = z.union([
   z
@@ -841,14 +637,8 @@ export const mcpToolPolicyStateSchema = z.union([
 
 export type McpToolPolicyState = z.infer<typeof mcpToolPolicyStateSchema>;
 
-// ---------------------------------------------------------------------------
-// Owner-reviewed connection health mapping (#1196). This is deliberately NOT a
-// second policy review: the row names the SAME exact descriptor identity, but
-// its payload says how one bounded read-only MCP result projects into the
-// generic object-state store. The browser and server must agree on the bounded
-// selector/token vocabulary because the owner authors it and the gatherer
-// executes it.
-// ---------------------------------------------------------------------------
+// Health mapping: how one read-only MCP result becomes object-state rows.
+// It binds to the same descriptor as the policy review but is a separate record.
 
 export const MCP_HEALTH_MAPPING_NOTE_MAX = 500;
 
@@ -866,24 +656,21 @@ export const MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX = 300;
 
 export const MCP_HEALTH_MAPPING_OBJECT_URL_MAX = 2_048;
 
-/** The one bounded title shape shared by the result parser and reducer. */
 export const mcpHealthObjectTitleSchema = z
   .string()
   .trim()
   .min(1)
   .max(MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX);
 
-/** Object links are display evidence, so only bounded HTTPS URLs cross the fold. */
+/** HTTPS only. */
 export const mcpHealthObjectUrlSchema = z
   .url()
   .max(MCP_HEALTH_MAPPING_OBJECT_URL_MAX)
   .refine((value) => value.startsWith("https://"), "Object URL must use HTTPS");
 
 /**
- * Dot-separated object keys only. This is intentionally not JSONPath: there is
- * no expression language for the owner to smuggle into a gather-time reader.
- * The empty string means the response root and is meaningful only for
- * `itemsPath`; every field path must name at least one key.
+ * Dot-separated keys, not JSONPath, so there is no expression language to inject.
+ * `""` is the response root and only makes sense for `itemsPath`.
  */
 const mcpHealthMappingPathSchema = z
   .string()
@@ -915,25 +702,15 @@ const mcpHealthStateMappingSchema = z
   .strict();
 
 /**
- * A declarative projection from one MCP result to bounded work-object rows.
- * `identityProvider` is one provider selected by the sender heuristic from the
- * finite loop-provider vocabulary; the senderless `issue` fallback is excluded.
- * The server compares the provider with the notification before comparing the
- * canonical key byte-for-byte. `itemsPath` locates an array; each field path is
- * read from one array item; and `stateMappings` translates provider tokens
- * through EXACT, case-sensitive matches into the registry vocabulary. An
- * unmapped token produces no delta.
+ * `itemsPath` finds an array; field paths read from each item.
+ * `stateMappings` match tokens exactly and case-sensitively. An unmapped token changes nothing.
  */
 export const mcpHealthMappingDefinitionSchema = z
   .object({
     itemsPath: mcpHealthMappingPathSchema,
     /**
-     * The provider selected by the sender heuristic whose deterministic
-     * loop-key vocabulary this mapping may answer. `issue` is deliberately
-     * excluded: it is the fallback for tracker-shaped text without a trusted
-     * sender, so approving it would
-     * let a human email authorize the fold. This remains explicit server data,
-     * not a hint parsed from the result.
+     * The loop-key provider this mapping answers for.
+     * Not `issue`: that is the fallback for any sender, so a human email could trigger the fold.
      */
     identityProvider: z.enum(LOOP_ENTITY_PROVIDERS).exclude(["issue"]),
     fields: z
@@ -963,7 +740,7 @@ export const mcpHealthMappingDefinitionSchema = z
           seen.add(mapping.token);
         });
       }),
-    /** Exact arguments for the approved descriptor; the MCP client validates them again. */
+    /** The MCP client validates these again at call time. */
     arguments: jsonObjectSchema.refine(
       (value) =>
         new TextEncoder().encode(JSON.stringify(value)).length <=
@@ -975,11 +752,7 @@ export const mcpHealthMappingDefinitionSchema = z
 
 export type McpHealthMappingDefinition = z.infer<typeof mcpHealthMappingDefinitionSchema>;
 
-/**
- * Approval request for one exact descriptor. `readOnly: true` is the owner's
- * explicit attestation that the inspected descriptor is a read. The server
- * never infers that claim from model text or fuzzy output.
- */
+/** `readOnly: true` is the owner's own statement that the tool only reads. */
 export const mcpHealthMappingReviewInputSchema = z
   .object({
     ref: mcpExternalToolRefSchema,
@@ -991,7 +764,6 @@ export const mcpHealthMappingReviewInputSchema = z
 
 export type McpHealthMappingReviewInput = z.infer<typeof mcpHealthMappingReviewInputSchema>;
 
-/** Browser projection of the owner-reviewed row; descriptor identity stays server-owned. */
 export const mcpHealthMappingSchema = z
   .object({
     definition: mcpHealthMappingDefinitionSchema,
@@ -1003,12 +775,7 @@ export const mcpHealthMappingSchema = z
 
 export type McpHealthMapping = z.infer<typeof mcpHealthMappingSchema>;
 
-/**
- * Exact current descriptor, no current review, a review under a drifted
- * descriptor, an unreadable persisted mapping, stale caller revision, a
- * missing descriptor, or a descriptor that is not read-only. A drifted,
- * invalid, or non-read-only row grants no runtime authority.
- */
+/** Only `reviewed` lets the mapping run. */
 export const mcpHealthMappingStateSchema = z.union([
   z
     .object({

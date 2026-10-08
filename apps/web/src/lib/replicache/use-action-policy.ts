@@ -6,13 +6,11 @@ import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
 
 export interface ActionPolicyState {
-  /** The synced policy row, or null before first pull or when no row exists. */
+  /** Null before the first pull or when no row exists. */
   policy: SyncedActionPolicy | null;
-  /** Effective mode for an integration: per-integration rule ?? user default. */
+  /** The integration's rule, else the user default. */
   modeFor: (slug: IntegrationSlug) => PolicyMode | null;
-  /** Optimistically flip one integration's mode; server confirms on pull. */
   setIntegrationMode: (slug: LoadableIntegrationSlug, mode: PolicyMode) => Promise<void>;
-  /** Optimistically flip the global default mode; server confirms on pull. */
   setDefaultMode: (mode: PolicyMode) => Promise<void>;
   loading: boolean;
   error: string | null;
@@ -20,12 +18,8 @@ export interface ActionPolicyState {
 }
 
 /**
- * Live view of the user's per-integration action policy (m13 Phase 8c).
- *
- * The row is one synced entity keyed by `userId`, so the scan yields at most
- * one value. `modeFor` derives each integration's effective mode client-side
- * via the shared `resolveIntegrationMode` helper — the same projection the
- * server dispatcher uses, so the radio shows exactly what will be enforced.
+ * The user's action policy: one row per user, so the scan yields at most one value.
+ * `modeFor` uses `resolveIntegrationMode`, the same rule the server enforces.
  */
 export function useActionPolicy(): ActionPolicyState {
   const { rep, loadError, retry } = useReplicacheStatus();

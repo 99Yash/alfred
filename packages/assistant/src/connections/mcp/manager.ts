@@ -1,31 +1,7 @@
 /**
- * MCP connection manager (PRD #540) — the layer between durable connection FACTS
- * (`mcp_connections`, via `persistence.ts`) and live, in-memory `McpRawClient`
- * instances. Connection rows are durable; the SDK client behind them is not, so
- * the manager re-hydrates a client on demand, drives connect + catalog refresh,
- * inserts the refreshed immutable revision, then promotes it only while that
- * in-memory generation remains current. The execution broker asks this manager
- * for a ready client; it never constructs one itself.
- *
- * Injection seams keep the whole path testable offline (no network/OAuth/DB):
- *  - `clientFactory` builds the `McpRawClient` for a connection row. Tests pass a
- *    factory that wires a real client to a FAKE `McpProtocolClient` (via the raw
- *    client's own `protocolFactory`), exercising real validation/bounding code
- *    without a socket.
- *  - The default factory always uses the hosted endpoint authorizer. Tests that
- *    need a local transport inject the complete `clientFactory` seam.
- *  - `persistence` lets lifecycle tests drive publication races without requiring
- *    Postgres; production always receives the module-owned default adapter.
- *
- * PRD guardrail — first real server: the intended first connection is GitHub's
- * official remote MCP server (`https://api.githubcopilot.com/mcp/readonly`,
- * Streamable HTTP). Its `tools/list` shape (snake_case tools like
- * `get_pull_request` / `list_pull_requests` — the read-only catalog carries no
- * write tool, ADR-0094 — cursor pagination, per-tool input/output JSON Schema)
- * validates this broker's interface — paginated immutable catalog revisions,
- * per-descriptor hashing, and the closed `mcp.call` projection — against a real
- * catalog rather than an imagined one. It is named before merge; the OAuth /
- * connection-creation slice actually wires it.
+ * Builds live `McpRawClient`s from `mcp_connections` rows on demand: connect,
+ * refresh the catalog, insert the revision, and promote it only while that generation is live.
+ * Tests inject `clientFactory` and `persistence` to run offline.
  */
 
 import type { ExternalToolRef } from "@alfred/contracts";
@@ -86,7 +62,7 @@ const DEFAULT_PERSISTENCE: McpConnectionManagerPersistence = {
   compareAndSetCatalogRevision,
 };
 
-/** The closed answer a rename returns, mirroring the HTTP route's three branches. */
+/** Rename result, one per HTTP route branch. */
 export type McpConnectionRenameOutcome =
   | { outcome: "renamed"; id: string; label: string }
   | { outcome: "not_found" }
@@ -95,16 +71,8 @@ export type McpConnectionRenameOutcome =
 const MAX_CATALOG_STABILIZATION_ATTEMPTS = 3;
 
 /**
- * What a disconnect writes. The revision pointer travels WITH the status,
- * because the pointer — not the status — is what the model can see.
- *
- * Both catalog readers ignore `status`: `listOwnedCurrentCatalogSlices` filters
- * on `currentCatalogRevisionId is not null`, and `resolveMcpToolIdentity` joins
- * the revision the pointer names. Clearing the status alone would leave
- * `mcp.list_tools` listing every tool of a server the owner just removed, and
- * `mcp.call` resolving against it and reopening the connection. The clear is
- * unconditional rather than a compare-and-set: a disconnect is the owner's
- * terminal instruction, not a publication race.
+ * A disconnect also clears the revision pointer: catalog readers check the
+ * pointer, not `status`. Unconditional, not compare-and-set.
  */
 const DISCONNECTED_PATCH: McpConnectionUpdate = {
   status: "disconnected",
@@ -121,12 +89,9 @@ type McpManagerCloseIntent =
   | "shutdown"
   | "failure"
   | "disconnect"
-  // Closes the client and writes no durable state: the row was just deleted, so
-  // there is nothing left to write and a status patch would target no row.
+  // Close only; the row is already deleted.
   | "removal"
-  // Closes the client and writes no durable state: the caller replaced the
-  // credential and immediately asks for a fresh generation, which writes the
-  // next status itself.
+  // Close only; the next generation writes the status.
   | "credential_replaced";
 
 interface McpManagerGeneration {
@@ -147,16 +112,8 @@ export class McpConnectionNotFoundError extends Error {
 }
 
 /**
- * The one owner of "connection row → transport auth mode" on the persisted
- * path. Reads the sealed API-key credential first; a key wins over any residual
- * OAuth pointer because the `persistApiKeyCredential` bind clears
- * `credentialId` in the same transaction (the single-credential CHECK admits
- * one). Otherwise a stored OAuth pointer yields the `oauth` arm, and a row with
- * neither credential is `none`.
- *
- * This is a deliberate tier-3 seam: the transport leaf cannot read the
- * credential store without importing `@alfred/db`, so correctness on the
- * persisted path rests on `liveClientFactory` being the only production caller.
+ * Pick the auth mode for a stored connection: API key first, then OAuth, else `none`.
+ * The client cannot import `@alfred/db`, so this is the only production resolver.
  */
 async function resolveMcpClientAuth(connection: McpConnectionWithServer): Promise<McpClientAuth> {
   const reader = await readApiKeyAuthForConnection(connection.id, connection.userId);
@@ -178,17 +135,7 @@ async function resolveMcpClientAuth(connection: McpConnectionWithServer): Promis
   return { mode: "none" };
 }
 
-/**
- * The production factory: a live client per connection row, authorized by
- * `authorization`. OAuth discovery runs before transport connect. The transport
- * itself receives only a token reader, so it cannot refresh and replay an
- * in-flight call.
- *
- * A connection carries at most one credential source (the database check
- * constraint), and `resolveMcpClientAuth` is the single reader of that fact, so
- * the API-key reader and the OAuth provider are mutually exclusive by
- * construction.
- */
+/** Production factory. The transport gets only a token reader, so it cannot refresh and replay a call. */
 function liveClientFactory(): McpClientFactory {
   const endpointAuthorizer = getMcpEndpointAuthorizer();
 
@@ -200,15 +147,9 @@ function liveClientFactory(): McpClientFactory {
       endpoint: connection.server,
       endpointAuthorizer,
       auth,
-      // The registry is the only thing that knows an endpoint serves a
-      // read-only catalog (ADR-0094) or must be held to the legacy protocol era
-      // (ADR-0095). `McpRawClient` owns both refusals; it must not reach the
-      // registry to learn the policy.
+      // ADR-0094/0095 policy from the registry; the client does not read it itself.
       ...builtInClientPolicy(connection.server.endpointUrl),
-      // The renewal callbacks describe OAuth consent, so they ride the oauth
-      // arm only: an API-key connection that gets an `insufficient_scope`
-      // response must not be sent back through a consent screen it has no
-      // authorization server for.
+      // OAuth only: an API-key connection has no consent screen to send back to.
       ...(auth.mode === "oauth"
         ? {
             onAuthorizationRequired: async () => {
@@ -239,12 +180,7 @@ export class McpConnectionManager {
   readonly #activeRevisionIds = new Map<string, string>();
   readonly #clientFactory: McpClientFactory;
   readonly #persistence: McpConnectionManagerPersistence;
-  /**
-   * Connection ids whose durable row deletion has begun. The fence is checked by
-   * BOTH `#assertAdmission` (at the entry of a request) and `#isOpenGeneration`
-   * (after every awaited step of a startup that already passed the entry check),
-   * so a client can never be opened for a row that is being deleted.
-   */
+  /** Ids being deleted. Checked at entry and after each await, so no client opens for them. */
   readonly #removals = new Set<string>();
   #shuttingDown = false;
 
@@ -253,13 +189,7 @@ export class McpConnectionManager {
     this.#persistence = options.persistence ?? DEFAULT_PERSISTENCE;
   }
 
-  /**
-   * Return a connected client whose catalog has been refreshed and published at
-   * least once. Cached per connection id for the process lifetime; a first call
-   * connects, refreshes, and persists the revision, updating connection status
-   * along the way. On any failure the client is dropped and the connection is
-   * marked `failed` with a bounded error string.
-   */
+  /** A connected client with a published catalog, cached per connection. On failure, mark the row `failed`. */
   async getReadyClient(connectionId: string, trace?: McpTraceContext): Promise<McpRawClient> {
     this.#assertAdmission(connectionId);
     await this.#waitForCatalogRefresh(connectionId);
@@ -393,8 +323,7 @@ export class McpConnectionManager {
       this.#activeRevisionIds.delete(connectionId);
       await client.close().catch(() => undefined);
       this.#assertOpenGeneration(generation);
-      // `boundedMcpErrorText`, not `toMessage`: the SDK inlines the whole upstream
-      // response body into its thrown message, and this lands in a durable column.
+      // Not `toMessage`: the SDK error holds the whole response body.
       await this.#persistence.compareAndSetCatalogRevision({
         connectionId,
         expectedCurrentRevisionId,
@@ -410,11 +339,7 @@ export class McpConnectionManager {
     }
   }
 
-  /**
-   * Refresh the catalog of an already-ready connection and publish the resulting
-   * revision. Idempotent: an unchanged catalog re-publishes to the same revision
-   * and only touches the connection's `lastConnectedAt`.
-   */
+  /** Refresh and publish the catalog. An unchanged catalog only updates `lastConnectedAt`. */
   async refreshCatalog(connectionId: string, trace?: McpTraceContext): Promise<McpCatalogSnapshot> {
     const client = await this.getReadyClient(connectionId, trace);
 
@@ -441,7 +366,7 @@ export class McpConnectionManager {
     );
   }
 
-  /** Route a validated call to a ready client. The broker owns the durable ledger around this. */
+  /** Send a validated call. The broker owns the ledger. */
   async callTool(
     ref: ExternalToolRef,
     args: unknown,
@@ -464,19 +389,9 @@ export class McpConnectionManager {
   }
 
   /**
-   * Close the live client and open a fresh generation, or leave the row exactly
-   * as it was.
-   *
-   * `false` means the connection is not the caller's (or does not exist).
-   *
-   * The restore is the point. Disconnect-then-connect is two writes, and the
-   * remote decides whether the second one lands: 20 seconds of downtime between
-   * them used to leave `status = "failed"` and a NULL revision pointer, so a
-   * user who pressed Reconnect on a working server lost its published catalog
-   * and got an error. Doing nothing was strictly better than the button. So the
-   * pre-click status and pointer are read first and written back on a throw,
-   * with the reason recorded in `lastError` — the failure is reported, and
-   * nothing that worked before the click stops working after it.
+   * Reopen the connection. On failure, restore the old status and revision
+   * pointer and record `lastError`, so a failed reconnect never loses a working catalog.
+   * `false` means not found or not the caller's.
    */
   async reconnect(connectionId: string, userId: string): Promise<boolean> {
     const before = await this.#persistence.readOwnedConnection(connectionId, userId);
@@ -498,15 +413,7 @@ export class McpConnectionManager {
     return true;
   }
 
-  /**
-   * Change only the display label of a connection the caller owns.
-   *
-   * A built-in connection is refused. Its label is reclaimed from
-   * `BUILT_IN_MCP_CATALOG` by `ensureBuiltInConnection` on every connect, so a
-   * rename would report success and then silently revert on the next connect.
-   * `not_found` covers both a nonexistent id and another owner's connection with
-   * no side effect.
-   */
+  /** Rename an owned connection. Built-ins are refused: `ensureBuiltInConnection` resets their label. */
   async rename(
     connectionId: string,
     userId: string,
@@ -532,16 +439,8 @@ export class McpConnectionManager {
   }
 
   /**
-   * Delete a connection the caller owns and close its live client.
-   *
-   * The removal fence is raised BEFORE the durable delete, so a `getReadyClient`
-   * already in flight cannot open a client for a row that is about to disappear.
-   * The client is closed (and no durable state written) only when the delete
-   * actually removed the row; `not_found` and `blocked` leave a working
-   * connection completely alone.
-   *
-   * `gate` is required: a caller that wants to skip the ambiguity barrier must
-   * spell `"none"`, so a barrier-skipping removal cannot happen by omission.
+   * Delete an owned connection. Raise the fence before the delete; close the
+   * client only if a row was removed. Skip `gate` only with an explicit `"none"`.
    */
   async remove(
     connectionId: string,
@@ -569,15 +468,8 @@ export class McpConnectionManager {
   }
 
   /**
-   * Forget the live client for a connection so the next `getReadyClient` reads
-   * its credential again and reconnects. Durable state is untouched.
-   *
-   * A ready generation holds a client whose API-key reader closed over the
-   * sealed row it read at construction, so replacing that row (a re-add with a
-   * new key) stores the new secret while the cache keeps sending the old one.
-   * `addUserMcpServer` calls this between sealing the replacement and asking
-   * for a ready client. It never overrides a disconnect or failure already
-   * closing the generation, so those terminal writes still land.
+   * Drop the cached client so the next call reads the new credential.
+   * The cached key reader still holds the old key. Never overrides a disconnect or failure.
    */
   async invalidateLiveClient(connectionId: string): Promise<void> {
     const generation = this.#generations.get(connectionId);
@@ -587,7 +479,7 @@ export class McpConnectionManager {
     await this.#closeGeneration(generation, "credential_replaced");
   }
 
-  /** Drop all live clients (e.g. on shutdown). Does not touch persisted rows. */
+  /** Drop all live clients, for shutdown. Rows are untouched. */
   async closeAll(): Promise<void> {
     this.#shuttingDown = true;
     const generations = [...this.#generations.values()];
@@ -599,9 +491,6 @@ export class McpConnectionManager {
   }
 
   async #insertCatalog(connectionId: string, snapshot: McpCatalogSnapshot): Promise<string> {
-    // The hash map, the read-only map, and the tool count are all projected
-    // INSIDE publication from these same descriptors, so this call site cannot
-    // hand the row a projection that disagrees with them (ADR-0096).
     const revision = await this.#persistence.insertCatalogRevision({
       connectionId,
       revisionHash: snapshot.revision,
@@ -647,11 +536,7 @@ export class McpConnectionManager {
     await this.#persistence.updateConnection(connectionId, patch);
   }
 
-  /**
-   * Publish only a snapshot that remained live through the DB transaction. A
-   * list-change event during publication clears the raw catalog; loop once more
-   * so the durable pointer cannot become authoritative for an invalidated view.
-   */
+  /** Publish only a snapshot still live after the transaction; a list-change event forces one more loop. */
   async #refreshAndPersistStable(
     generation: McpManagerGeneration,
     client: McpRawClient,
@@ -775,8 +660,7 @@ export class McpConnectionManager {
 
       if (client.catalog === snapshot) return prepared;
 
-      // An event won the race with pointer activation. Remove the stale door
-      // before the bounded coordinator tries the replacement generation.
+      // An event beat pointer activation. Remove the stale entry before the retry.
       await this.#persistence.compareAndSetCatalogRevision({
         connectionId,
         expectedCurrentRevisionId: revisionId,
@@ -821,8 +705,7 @@ export class McpConnectionManager {
         this.#scheduleCatalogRefresh(generation, client);
       }
     });
-    // Keep the background task observed even when no caller is waiting in
-    // `getReadyClient`; awaiters still receive the original rejection.
+    // Observe the rejection even with no waiter; awaiters still get it.
     void state.promise.catch(() => undefined);
     this.#catalogRefreshes.set(connectionId, state);
   }
@@ -846,8 +729,7 @@ export class McpConnectionManager {
 
     try {
       this.#assertOpenGeneration(generation);
-      // Fail closed while the replacement is fetched: local catalog readers
-      // must not keep serving the revision the server just invalidated.
+      // Fail closed: do not serve the invalidated revision while fetching.
       const expectedCurrentRevisionId = this.#activeRevisionIds.get(connectionId) ?? null;
       await this.#persistence.compareAndSetCatalogRevision({
         connectionId,
@@ -863,10 +745,7 @@ export class McpConnectionManager {
       await this.#refreshAndPersistStable(generation, client);
     } catch (err) {
       if (!this.#isOpenGeneration(generation)) return;
-      // Do not await this from inside the refresh promise: the generation closer
-      // waits for that promise before it performs terminal effects. A disconnect
-      // that joins meanwhile upgrades the intent and keeps the tombstone until
-      // its final durable update completes.
+      // Do not await here: the closer waits on this promise, so awaiting would deadlock.
       void this.#closeGeneration(generation, "failure", boundedMcpErrorText(err)).catch(
         () => undefined,
       );
@@ -961,10 +840,8 @@ export class McpConnectionManager {
   ): Promise<void> {
     generation.phase = "closing";
 
-    // `disconnect` and `removal` are terminal owner instructions, so they always
-    // win; a `failure` may not overwrite either (removal's row is already gone,
-    // and a late `failed` write would target no row). A `shutdown` or
-    // `credential_replaced` only takes hold when nothing more terminal is set.
+    // `disconnect` and `removal` always win; `failure` cannot override them.
+    // `shutdown` and `credential_replaced` apply only when nothing stronger is set.
     if (
       intent === "disconnect" ||
       intent === "removal" ||

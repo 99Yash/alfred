@@ -1,14 +1,6 @@
 /**
- * App-grammar Modal primitive.
- *
- * One component, two shells: a centered dialog at `sm` and up, a bottom sheet
- * below it. The mobile shell is a `vaul` drawer, so it drags to dismiss. Both
- * branches are controlled by the same `open` / `onOpenChange` pair.
- *
- * The body is the caller's: give the content its own padding (`px-6 pb-6` to
- * match the dialog's header inset). The dialog branch renders alfred's themed
- * `DialogContent`, which paints its own title and description; the sheet branch
- * renders the same two slots as a `vaul` title and description.
+ * Modal: a centered dialog at `sm` and up, a draggable `vaul` bottom sheet below.
+ * The caller pads the body (`px-6 pb-6` matches the header inset).
  */
 
 import { Drawer } from "vaul";
@@ -30,7 +22,7 @@ function getIsDesktop(): boolean {
   return window.matchMedia(DESKTOP_QUERY).matches;
 }
 
-/** Desktop is the safe default when there is no `window` to measure. */
+/** Desktop when there is no `window`. */
 function getIsDesktopServer(): boolean {
   return true;
 }
@@ -44,7 +36,7 @@ interface AppModalProps {
   onOpenChange: (open: boolean) => void;
   title: ReactNode;
   description?: ReactNode | undefined;
-  /** Extra classes on the panel. Applies to both the dialog and the sheet. */
+  /** Applies to both the dialog and the sheet. */
   className?: string | undefined;
   children: ReactNode;
 }
@@ -58,9 +50,7 @@ export function AppModal({
   children,
 }: AppModalProps) {
   const isDesktop = useIsDesktop();
-  // The sheet portals outside the `.app` subtree, so CSS token inheritance
-  // breaks. Stamp the resolved theme directly, as AppSelect and DialogContent
-  // do; React context still flows through the portal.
+  // The sheet portals outside `.app`; stamp the theme so tokens resolve.
   const themeCtx = use(AppThemeContext);
   const dataTheme = themeCtx?.resolved;
 

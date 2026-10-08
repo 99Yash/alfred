@@ -26,7 +26,7 @@ export function ConnectedAccounts({
 }) {
   const accounts = provider.connectedAccounts ?? [];
 
-  // A planned provider has no credential rows, so nothing to disconnect.
+  // A planned provider has no credentials to disconnect.
   const credentialProvider = isLiveProviderSlug(provider.slug)
     ? credentialProviderOf(provider.slug)
     : undefined;
@@ -72,10 +72,8 @@ export function ConnectedAccounts({
 }
 
 /**
- * The account is active either way; the amber variant says its Gmail push path
- * has stopped and the five-minute sweep is carrying new mail (#998). The time
- * identifies either the last receipt or the watch installation. Only Gmail carries the
- * field; every other slug reads `null` and renders the green dot.
+ * Amber: Gmail push has stopped and the five-minute poll sweep carries new mail.
+ * Only Gmail has this field; other slugs get the green dot.
  */
 function AccountStatus({ account }: { account: ConnectedAccount }) {
   if (account.pushStale) {
@@ -107,11 +105,8 @@ function AccountStatus({ account }: { account: ConnectedAccount }) {
 }
 
 /**
- * Two-step inline disconnect: the first click arms a Cancel / Confirm pair in
- * place (no modal — matches the low-friction connect flows), the second runs
- * the delete. Google is special-cased because one credential backs every
- * google_* tile, so disconnecting drops the whole Workspace grant — the armed
- * state spells that out.
+ * Two-click inline disconnect. For Google the armed state warns that one
+ * credential backs every Workspace tile.
  */
 function DisconnectControl({
   provider,

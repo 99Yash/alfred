@@ -1,9 +1,4 @@
-/**
- * The verified-pull door (#1192). Kept off the `@alfred/assistant/connections`
- * barrel for the same reason `./mcp` is: a provider's read reaches the MCP
- * live-client cache and the credential vault, which that barrel must not
- * evaluate.
- */
+/** Verified pull (#1192). Off the connections barrel because it reaches the MCP client cache. */
 
 import type { IntegrationActivityItem, ObjectStateProvider } from "@alfred/contracts";
 import { defineVerifiedPull, type VerifiedPull, type VerifiedPullTriggerItem } from "./driver";
@@ -37,27 +32,17 @@ export {
   type CurrentMcpHealthMapping,
 } from "./health";
 
-/**
- * Which verified pull each object-state provider runs at gather time. `null`
- * is the arm for a provider with a push source (or none yet), so a provider
- * added to the registry without a row here is a type error, and adding a pull
- * provider is one row here plus its implementation file — never a gather edit.
- */
+/** `null` for a provider with no pull. A new provider without a row is a type error. */
 const VERIFIED_PULLS = {
   github: null,
   sentry: null,
   railway: defineVerifiedPull(railwayVerifiedPullProvider),
   vercel: defineVerifiedPull(vercelVerifiedPullProvider),
-  // Generic MCP health reads are data-driven by owner-approved descriptors, so
-  // they run through the briefing loop verifier rather than target discovery.
+  // MCP health runs through the briefing loop verifier instead.
   mcp: null,
 } as const satisfies Record<ObjectStateProvider, VerifiedPull | null>;
 
-/**
- * Run every registered verified pull, in registry order, and return their
- * verdict lines. Each provider's pull never throws (a fault resolves to no
- * lines and leaves every loop live), so one provider cannot starve another.
- */
+/** Run every pull in registry order. A pull never throws, so one cannot starve another. */
 export async function gatherVerifiedPulls(args: {
   userId: string;
   digestItems: readonly VerifiedPullTriggerItem[];

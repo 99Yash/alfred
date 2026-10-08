@@ -3,12 +3,8 @@ import { AppCard } from "~/components/ui/v2";
 import { SectionHeading } from "./section-heading";
 
 /**
- * The render-site marker for a planned integration (ADR-0093). A planned
- * provider has no backend route and no tool, so the surfaces that imply a live
- * connection — the connected-accounts table, the approval-policy control (a
- * persisted write for a no-op integration), the trust notice, the capability
- * chips, and the raw receipt inventory — are omitted and this notice takes
- * their place.
+ * Shown for a planned integration (ADR-0093) in place of every surface that
+ * implies a live connection: it has no route and no tool yet.
  */
 export function DesignOnlyNotice({ name }: { name: string }) {
   return (

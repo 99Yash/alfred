@@ -8,12 +8,8 @@ const CONTACT_EMAIL = "yashgouravkar@gmail.com";
 const REPO_URL = "https://github.com/99Yash/alfred";
 
 /**
- * Access & verification notice — an honest callout that Alfred reads Gmail via
- * restricted scopes and therefore trips Google's "unverified app" screen, since
- * the verified badge for those scopes requires a CASA security assessment billed
- * yearly (hard to justify for a project of one). Amber-toned to read as a notice,
- * not a feature. Offers two ways in: ask for an allowlist seat, or self-host —
- * Alfred is fully open source.
+ * Restricted Gmail scopes show Google's unverified-app screen; the badge needs a
+ * yearly paid CASA assessment. Offers an allowlist seat or self-hosting.
  */
 export function AccessNotice({ className }: { className?: string }) {
   return (

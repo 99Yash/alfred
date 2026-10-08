@@ -54,31 +54,25 @@ export function Composer({
     | ((text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>)
     | undefined;
   onStopGeneration?: (() => void) | undefined;
-  /**
-   * Text to drop into the editor on demand (e.g. the artifact sidebar's
-   * "Suggest an edit"). The `nonce` lets the same scaffold re-apply on a repeat
-   * request; the editor inserts it at the caret and focuses (ADR-0075 Phase 4).
-   */
+  /** Text to insert at the caret, e.g. "Suggest an edit" (ADR-0075 Phase 4). `nonce` lets a repeat re-apply. */
   prefill?: {
     artifactTargetId: string;
     text: string;
     nonce: number;
     threadId: string | undefined;
   } | null;
-  /** Suggested next prompt shown dimmed in the empty editor; Tab accepts. */
+  /** Dimmed suggested prompt in the empty editor; Tab accepts. */
   ghostText?: string | undefined;
   onGhostAccept?: (() => void) | undefined;
   onGhostDismiss?: (() => void) | undefined;
-  /** Chat "Auto" mode state + toggle; absent hides the control. */
+  /** Chat "Auto" mode. Absent hides the control. */
   autoApprove?: boolean | undefined;
-  /** Initial policy load hasn't resolved yet — disable the toggle until we
-   *  know the current mode (the row may not exist; clicking creates it). */
+  /** Policy still loading: disable the toggle. */
   autoApprovePending?: boolean | undefined;
   onToggleAutoApprove?: (() => void) | undefined;
-  /** Model-tier picker (Auto vs Deep) state + setter. */
   tier: ChatModelTier;
   onTierChange: (tier: ChatModelTier) => void;
-  /** Pending queued messages for this thread — rendered as removable chips above the composer (#489). */
+  /** Queued messages for this thread, shown as chips (#489). */
   queued?: QueuedMessage[] | undefined;
   onRemoveQueued?: ((id: string) => void) | undefined;
 }) {
@@ -93,17 +87,12 @@ export function Composer({
   const { suggestion, mentionCandidates, visibleMentionIdx, suggestionKeyDownRef } = mention;
   const hasAttachments = attachments.items.length > 0;
   const [sending, setSending] = useState(false);
-  // File drag-over affordance. `dragDepth` counts enter/leave across nested
-  // children so moving the cursor over the editor or chips doesn't flicker the
-  // overlay off (dragleave fires for every child boundary crossed).
+  // `dragDepth` counts nested enter/leave, so crossing a child does not flicker the overlay.
   const [isDragging, setIsDragging] = useState(false);
   const dragDepth = useRef(0);
   const artifactTargetKey = `alfred:chat-artifact-target:${threadId ?? "new"}`;
 
-  // Event-driven mutable state read only at submit time stays off the render
-  // path. Seed once from the persisted draft's target (ignoring an orphaned
-  // target that has no draft) with a lazy state initializer, so the ref starts
-  // correct without a render-phase write.
+  // Read only at submit, so it stays off the render path. Ignore a target with no draft.
   const [initialArtifactTarget] = useState<string | undefined>(() =>
     initialJSON ? (safeGet(artifactTargetKey) ?? undefined) : undefined,
   );
@@ -122,9 +111,7 @@ export function Composer({
 
   const composerDisabled = disabled || sending;
 
-  // While a turn is streaming, submitting enqueues instead of being dropped
-  // (#489). Keep the composer enabled so the user can line up follow-ups; the
-  // send action distinguishes "streaming → enqueue" from "idle → start".
+  // Stays enabled while streaming, so submits queue (#489).
   const canSend =
     !composerDisabled &&
     !sending &&
@@ -139,17 +126,12 @@ export function Composer({
 
   useTypeAnywhere(editorRef, composerDisabled);
 
-  // Apply a "Suggest an edit" prefill from the artifact sidebar. Keyed on the
-  // nonce so the same scaffold re-applies on a repeat click; `insertText`
-  // focuses the editor at the caret. Skipped while the composer is disabled
-  // (pending approval) so we don't fight a parked turn.
+  // Keyed on the nonce. Skipped while disabled (pending approval).
   const appliedPrefillNonce = useRef<number | null>(null);
   useEffect(() => {
     if (!prefill || disabled || sending) return;
 
-    // Ignore a prefill created for a different thread — the Composer remounts
-    // per-thread, so without this a stale prefill would re-apply after the user
-    // navigates away from the thread it was requested in.
+    // The Composer remounts per thread; skip a prefill from another thread.
     if (prefill.threadId !== threadId) return;
 
     if (appliedPrefillNonce.current === prefill.nonce) return;
@@ -229,8 +211,7 @@ export function Composer({
       const files = Array.from(e.clipboardData.files);
 
       if (files.length === 0) return;
-      // Only intercept when the clipboard carries files (pasted image); let
-      // normal text paste fall through to the editor.
+      // Only for pasted files; text paste falls through.
       e.preventDefault();
 
       if (disabled || sending) return;
@@ -266,9 +247,7 @@ export function Composer({
         <div
           className={cn(
             "composer-frost relative overflow-hidden rounded-3xl p-2",
-            // Floating frosted-glass surface: a beveled gradient rim, backdrop
-            // blur + specular sheen, and a layered drop shadow (ported from
-            // dimension's input material, re-tokenized — see `.composer-frost`).
+            // Frosted surface (see `.composer-frost`).
             "shadow-[var(--frost-shadow)]",
             "app-focus-within transition-shadow",
             disabled && "opacity-70",
@@ -282,10 +261,7 @@ export function Composer({
           onDrop={onDrop}
           onPaste={onPaste}
         >
-          {/* Always mounted, opacity-toggled so both fade-in and fade-out run
-           * off one CSS transition (no second motion runtime). pointer-events
-           * stay off so the drop lands on the container beneath; `motion-reduce`
-           * drops the fade for users who ask for it. */}
+          {/* Always mounted, so one CSS transition fades both ways. No pointer events, so the drop lands below. */}
           <div
             aria-hidden
             className={cn(
@@ -299,9 +275,7 @@ export function Composer({
               Drop images to attach
             </span>
           </div>
-          {/* Wrap editor + controls in a positioned container so they paint
-           * above the frost surface's beveled ::before rim (positioned siblings
-           * with z-auto paint in tree order). */}
+          {/* Positioned so it paints above the frost's ::before rim. */}
           <div className="relative">
             <input
               ref={fileInputRef}
@@ -313,7 +287,7 @@ export function Composer({
               className="hidden"
               onChange={(e) => {
                 if (e.target.files) attachments.addFiles(e.target.files);
-                // Reset so picking the same file again re-fires change.
+                // So picking the same file again fires change.
                 e.target.value = "";
               }}
             />
@@ -324,10 +298,7 @@ export function Composer({
                 onRemove={attachments.remove}
               />
             ) : null}
-            {/* Keep the editor mounted (just hidden) while recording so its
-             * content survives the voice round-trip — the transcript appends to
-             * whatever was already typed instead of a remount reverting to the
-             * mount-time draft. */}
+            {/* Hidden, not unmounted, while recording, so the transcript appends to typed text. */}
             <div className={cn(mic.recording && "hidden")}>
               <TiptapComposer
                 ref={editorRef}

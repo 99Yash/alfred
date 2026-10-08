@@ -5,7 +5,6 @@ import { useEffect } from "react";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client, parseEdenBody } from "~/lib/eden";
 
-/** The first page has no cursor. */
 const INITIAL_PAGE_PARAM: string | null = null;
 
 const PAGE_SIZE = 20;
@@ -13,14 +12,8 @@ const PAGE_SIZE = 20;
 export const workflowRunHistoryKey = (workflowId: string) => ["workflow-runs", workflowId] as const;
 
 /**
- * Keyset pages of one workflow's runs, newest first (#561). The contract parse
- * in `parseEdenBody` is the boundary that proves the server shape.
- *
- * The history is a react-query read, not a synced entity, so a Replicache poke
- * alone does not refresh it. Every terminal commit rolls `lastRunAt` up onto
- * the synced `workflows` row in the same transaction and pokes; this hook
- * watches that synced field and re-fetches when it moves, so a run that just
- * finished leaves "Queued" without a window refocus.
+ * A workflow's runs, newest first. Not synced, so it refetches when the synced
+ * `lastRunAt` or `lastRunStatus` changes.
  */
 export function useWorkflowRunHistory(
   workflow: Pick<SyncedWorkflow, "id" | "lastRunAt" | "lastRunStatus">,
@@ -50,7 +43,6 @@ export function useWorkflowRunHistory(
   });
 }
 
-/** Start a fresh run of the same workflow from a terminal run's revision choice. */
 export function useReplayRun(workflowId: string) {
   const queryClient = useQueryClient();
 
@@ -71,7 +63,7 @@ export function useReplayRun(workflowId: string) {
   });
 }
 
-/** Start one manual run now. Reads are live; every external write still stages for approval. */
+/** Every external write still waits for approval. */
 export function useRunWorkflowNow(workflowId: string, workflowSlug: string) {
   const queryClient = useQueryClient();
 

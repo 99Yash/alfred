@@ -32,11 +32,7 @@ export function compareChatMessageWatermarks(
   return left.messageId < right.messageId ? -1 : 1;
 }
 
-/**
- * Postgres timestamps can retain microseconds that JavaScript Date discards.
- * Compare message-stream cursors at the driver's millisecond precision so the
- * boundary row is neither omitted nor selected again after a round trip.
- */
+/** Compare at millisecond precision: a JS Date drops the microseconds Postgres keeps. */
 function millisecondTimestamp(column: SQLWrapper) {
   return sql<Date>`date_trunc('milliseconds', ${column})`;
 }

@@ -1,38 +1,27 @@
-/**
- * Legacy dimension-grammar Button primitive.
- *
- * One pill shape (`rounded-full`) for every text button; icon-only buttons
- * are square and `rounded-lg`. Variants change fill + inset glow only.
- *
- * This remains for the dimension-styled global error fallback and the
- * development styleguide. Production app surfaces use AppButton.
- */
+/** Legacy dimension Button. Only the error fallback and the styleguide use it; the app uses AppButton. */
 
 import type { ButtonHTMLAttributes, Ref, ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
 type LegacyButtonVariant =
-  | "primary" /* purple gradient — the default CTA */
-  | "white" /* white gradient — high-emphasis non-brand CTA (Upgrade Plan) */
-  | "destructive" /* red gradient — Logout, Delete */
-  | "ghost" /* translucent white-on-dark — Manage / Connect / Share */
-  | "send"; /* gray→white disk — composer send affordance */
+  | "primary" /* purple gradient */
+  | "white" /* white gradient */
+  | "destructive" /* red gradient */
+  | "ghost" /* translucent white-on-dark */
+  | "send"; /* gray-to-white disk for the composer */
 
 type LegacyButtonSize = "sm" | "md" | "mdPlus" | "lg";
 
 interface LegacyButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: LegacyButtonVariant | undefined;
   size?: LegacyButtonSize | undefined;
-  /** Optional leading icon. */
   leading?: ReactNode | undefined;
-  /** Optional trailing icon or chip (e.g., ⌘↵). */
   trailing?: ReactNode | undefined;
-  /** Override the loading data attribute used to fade text + show spinner. */
+  /** Fades the text and shows the spinner. */
   loading?: boolean | undefined;
   ref?: Ref<HTMLButtonElement> | undefined;
 }
 
-/* Sizes — heights and horizontal padding pulled from the recon doc. */
 const SIZE = {
   sm: "h-7 px-3 text-[13px] gap-1.5",
   md: "h-8 px-3.5 text-sm gap-1.5",
@@ -40,20 +29,12 @@ const SIZE = {
   lg: "h-10 px-4 text-sm gap-2",
 } satisfies Record<LegacyButtonSize, string>;
 
-/* Variants. Each row is a complete recipe: fill, text, glow, hover, active.
- * The `frost-border` class is added via the wrapper (variants opt in below). */
 const VARIANT = {
   primary: cn(
-    /* fill */
     "bg-linear-to-b from-[#5d44df] to-[#4f37cb]",
-    /* text */
     "text-white",
-    /* hover/active — frost-border CSS handles the inset glow; this adds a
-     * subtle brightness lift on hover for the gradient itself. */
     "hover:brightness-[1.05] active:brightness-[0.95]",
-    /* disabled */
     "disabled:text-[#e0e0e0] disabled:brightness-75",
-    /* frost */
     "frost-border",
   ),
 
@@ -81,7 +62,6 @@ const VARIANT = {
   ),
 
   send: cn(
-    /* gray→white disk used on the composer send button */
     "bg-linear-to-b from-[#a5a5a5] from-[46%] to-[#e3e3e3] to-[100%]",
     "text-black",
     "hover:brightness-[1.08] active:brightness-[1.04]",
@@ -110,13 +90,12 @@ export function LegacyButton({
       disabled={disabled || loading}
       data-loading={loading || undefined}
       className={cn(
-        /* base — pill shape, font weight, transition, focus ring */
         "relative isolate inline-flex items-center justify-center",
         "rounded-full font-medium whitespace-nowrap select-none",
         "transition-[filter,background-color,box-shadow] duration-200",
         "outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-0",
         "disabled:cursor-not-allowed",
-        /* loading — fade text while keeping height stable */
+        /* fade text, keep height */
         "data-[loading=true]:cursor-wait data-[loading=true]:text-transparent",
         SIZE[size],
         VARIANT[variant],

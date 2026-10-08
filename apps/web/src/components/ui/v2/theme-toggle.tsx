@@ -1,9 +1,4 @@
-/**
- * `<AppThemeToggle>` — 3-state cycle: system → light → dark → system.
- *
- * Renders icon-only at h-8, suitable for a header corner. Icons are
- * inlined so the file stays a single-component module.
- */
+/** Cycles system → light → dark. */
 
 import { cn } from "~/lib/utils";
 import { useAppTheme, type AppThemeMode } from "./theme";

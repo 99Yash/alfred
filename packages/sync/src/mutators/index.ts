@@ -68,11 +68,7 @@ export * from "./chat";
 
 export * from "./triage-tags";
 
-/**
- * Client-side mutator bodies, keyed by the name Replicache uses to dispatch
- * push mutations. The server has a parallel map (different signatures, SQL
- * instead of k/v) identified by the same names.
- */
+/** Client mutators by Replicache name. The server map uses the same names. */
 export const clientMutators = {
   noteCreate: noteCreateClient,
   factConfirm: factConfirmClient,
@@ -105,16 +101,7 @@ export type ClientMutators = typeof clientMutators;
 
 export type MutatorName = keyof ClientMutators;
 
-/**
- * Arg schemas indexed by mutator name. The server validates push payloads
- * against these before dispatching.
- *
- * `satisfies` pins this map to `clientMutators` in both directions: a client
- * mutator with no registered schema, an orphaned schema, and a schema whose
- * output does not match the client mutator's declared args are compile errors.
- * The server registry (`packages/http/src/sync/write/index.ts`) keys off the
- * same map, so one key set governs the whole push protocol surface.
- */
+/** Push arg schemas. `satisfies` makes a missing, extra, or mismatched schema a compile error. */
 export const mutatorArgsSchemas = {
   noteCreate: noteCreateArgsSchema,
   factConfirm: factConfirmArgsSchema,

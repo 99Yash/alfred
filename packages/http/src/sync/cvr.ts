@@ -2,12 +2,11 @@ import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { IDB_KEY_NAMES, type IDBKeys } from "@alfred/sync";
 import { z } from "zod";
 
-/** One entry per row in the CVR snapshot — `v` is the row's `row_version`. */
+/** `v` is the row's `row_version`. */
 const cvrRowSchema = z.object({ v: z.number().int() });
 
 export type CVRRow = z.infer<typeof cvrRowSchema>;
 
-/** id → CVRRow for one entity. */
 const clientViewMapSchema = z.record(z.string(), cvrRowSchema);
 
 export type ClientViewMap = z.infer<typeof clientViewMapSchema>;
@@ -21,17 +20,8 @@ const idbKeySchema = z.custom<IDBKeys>((value) => {
 }, "unknown synced entity slug");
 
 /**
- * A Client-View Record — what the client had last time they pulled.
- * Diffing the current visible row set against this produces the next patch.
- *
- * `entities` is keyed by each model's persisted raw prefix (for example,
- * `"note"` and `"fact"`) so the pull
- * dispatcher can iterate generically — adding a new synced entity is one
- * line in the `SYNC_MODEL` registry plus one entry in the pull entity table.
- *
- * `clients` tracks `lastMutationId` per client at snapshot time. Pull emits
- * only the diffs so Replicache's invariant holds: if `cookie` doesn't change,
- * `lastMutationIDChanges` must be empty.
+ * What the client held at its last pull. `entities` is keyed by model prefix.
+ * Replicache rule: if the cookie does not change, `lastMutationIDChanges` must be empty.
  */
 const cvrSnapshotSchema = z.object({
   entities: z.partialRecord(idbKeySchema, clientViewMapSchema),
@@ -40,7 +30,6 @@ const cvrSnapshotSchema = z.object({
 
 export type CVRSnapshot = z.infer<typeof cvrSnapshotSchema>;
 
-/** CVR snapshots expire after 12 h of inactivity. */
 const TTL_SECONDS = 12 * 60 * 60;
 
 export class CVRStore {

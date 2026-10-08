@@ -1,11 +1,6 @@
 import type { ComponentType, SVGProps } from "react";
 
-/**
- * Model-provider brand marks + id helpers, shared by every surface that shows
- * which model served some work (the chat per-turn usage line, the settings
- * usage table). Marks are monochrome Simple Icons paths drawn in `currentColor`
- * (or an inline `color`), so a served model is recognizable at a glance.
- */
+/** Model-provider marks and id helpers for usage displays. */
 
 export type SvgIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -15,11 +10,7 @@ const AnthropicMark: SvgIcon = (props) => (
   </svg>
 );
 
-/**
- * The full-color Google "G" rather than the monochrome Gemini spark — the spark
- * reads as a generic sparkle at 12px, while the four-color G is recognized
- * instantly. Fills are fixed brand hues, so it ignores `color`/`currentColor`.
- */
+/** Four-color Google "G": the Gemini spark looks generic at 12px. Ignores `color`. */
 const GoogleMark: SvgIcon = (props) => (
   <svg viewBox="0 0 24 24" aria-hidden {...props}>
     <path
@@ -49,7 +40,7 @@ const OpenAiMark: SvgIcon = (props) => (
 
 export interface ProviderMeta {
   label: string;
-  /** Brand tint for the mark — a saturated mid-tone that reads on both themes. */
+  /** Reads on both themes. */
   tint: string;
   Icon: SvgIcon;
 }
@@ -60,7 +51,7 @@ export const PROVIDERS = {
   openai: { label: "GPT", tint: "#10a37f", Icon: OpenAiMark },
 } satisfies Record<string, ProviderMeta>;
 
-/** Boss turns run on Anthropic; anything else here degraded through `withFallback`. */
+/** Null for an unknown vendor. */
 export function providerOf(model: string): ProviderMeta | null {
   if (model.startsWith("claude")) return PROVIDERS.anthropic;
 
@@ -71,15 +62,11 @@ export function providerOf(model: string): ProviderMeta | null {
   return null;
 }
 
-/** Trim a model id's dated suffix ("claude-haiku-4-5-20251001" → "claude-haiku-4-5"). */
 function shortModel(id: string): string {
   return id.replace(/-\d{8}$/, "");
 }
 
-/**
- * The provider carries the icon, so the chip label drops the redundant vendor
- * prefix: "claude-haiku-4-5" → "haiku-4-5", "gemini-3.5-flash" → "3.5-flash".
- */
+/** The icon names the vendor, so drop its prefix: "claude-haiku-4-5" → "haiku-4-5". */
 export function modelLabel(id: string): string {
   return shortModel(id).replace(/^(claude|gemini|gpt)-/, "");
 }

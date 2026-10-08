@@ -10,11 +10,7 @@ import {
   workflowRecoveryNavigation,
 } from "@alfred/assistant/automation";
 
-/**
- * Workflow detail transports: the revalidation boundary used after
- * connect/reauthorize returns to a blocked draft, and the run history page the
- * detail page's History tab reads (#561).
- */
+/** Workflow detail: revalidate a blocked draft after a reconnect, and the run history. */
 export const workflowRoutes = new Elysia({ prefix: "/api/workflows", normalize: "typebox" })
   .use(authMacro)
   .use(requireOnboarded)

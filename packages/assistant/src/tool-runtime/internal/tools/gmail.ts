@@ -1,12 +1,4 @@
-/**
- * Gmail tools registered into the boss's tool surface.
- *
- * `gmail.search` and `gmail.read_message` are low-risk cached/read paths.
- * `gmail.send_draft` sends a plain-text email via `users.messages.send`. The
- * dispatcher only invokes `execute` on the approved-staging resume path for
- * gated tools, so the send only runs after the user (or auto-approver) signs
- * off on the proposed message. Requires the `gmail.send` scope.
- */
+/** Gmail tools. `gmail.send_draft` runs only after the staging gate approves it. */
 
 import {
   GOOGLE_SCOPE,
@@ -27,19 +19,13 @@ import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { assertGmailRecipientsAllowed } from "./gmail-recipient-policy";
 
-/**
- * Best-effort Gmail webview URL. Gmail accepts thread ids in the `#all/` path
- * and picks the active account itself, so we don't need to know which account
- * the user is viewing. Mirrors `gmailThreadUrl` in the briefing gather module.
- */
+/** Gmail picks the active account itself, so the URL needs no account index. */
 function gmailThreadUrl(threadId: string): string {
   return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
 }
 
-/** Scopes that grant Gmail read access — either readonly or the broader modify. */
 const GMAIL_READ_SCOPES = [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify] as const;
 
-/** Collapse whitespace and cap length so a search hit's preview stays a glanceable one-liner. */
 function truncateSnippet(text: string | null): string | null {
   if (!text) return null;
   const collapsed = collapseWhitespace(text);
@@ -113,15 +99,8 @@ export const gmailTools: readonly RegisteredTool[] = [
           .map((row) => [row.sourceId!, row] as const),
       );
 
-      // Gmail's `messages.list` returns only id + threadId per hit — no sender,
-      // subject, or date. For ingested messages we backfill those from the
-      // local `documents` cache for free (no extra API call). For fresh hits
-      // not yet ingested, the cache misses and the model would otherwise get a
-      // bare id with no way to tell which hit is which — so it picks blind or
-      // gives up. Fetch the headers live (metadata format = headers + snippet,
-      // no body) for just the uncached ids so every hit is identifiable. Best
-      // effort and bounded by the `gmail.search` contract's maxResults cap; a
-      // failed fetch leaves nulls rather than failing the search.
+      // `messages.list` returns only ids. Fill headers from the `documents` cache, and
+      // fetch them live for uncached hits. A failed fetch leaves nulls.
       const uncachedIds = messageIds.filter((id) => !cachedBySourceId.has(id));
       const liveBySourceId = new Map<string, ExtractedMessage>();
 
@@ -233,13 +212,8 @@ export const gmailTools: readonly RegisteredTool[] = [
         };
       }
 
-      // Not ingested. `gmail.search` hits the live Gmail API and returns
-      // provider message ids that frequently aren't in `documents` (anything
-      // not yet ingested), so a cached-only read would return not_found for
-      // every fresh search result — the model can list the ids but never read
-      // them. When we have a provider message id, fetch it live from Gmail so
-      // the search→read flow actually completes. A `documentId` that misses is
-      // a genuine not_found (it's our own id; there's nothing live to fetch).
+      // Not ingested yet, which is common for fresh search hits. Fetch a provider
+      // id live. A missed `documentId` is a real not_found.
       if (input.messageId) {
         const credential = await ctx.integrations.google.gmail.readCredential();
 
@@ -292,11 +266,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     },
     inputSchema: gmailSendDraftInput,
     execute: async (input, ctx) => {
-      // The dispatcher only invokes execute on the approved-staging resume
-      // path, so reaching here means the user (or auto-approver) signed off
-      // on the proposed message. Requires the `gmail.send` scope on the
-      // credential; pre-check so the staging records a re-consent failure
-      // before making the Gmail send request.
+      // Check the send scope first, so the staging records a re-consent failure.
       const credential = await ctx.integrations.google.gmail.sendCredential();
       await assertGmailRecipientsAllowed({
         userId: ctx.userId,

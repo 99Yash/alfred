@@ -33,19 +33,8 @@ import {
 import { cn } from "~/lib/utils";
 
 /**
- * The glyph for a tool that belongs to no integration — every `system.*` and
- * `mcp.*` tool, which have no logo to wear. One map, not two: the same glyph
- * draws the idle row and the in-flight pulse, because the pulse is a CSS class
- * on the icon rather than a different icon (see {@link RunningToolIcon}).
- *
- * The point of the map is that a reader can tell two brandless rows apart
- * without reading them — a run that searches the corpus, loads a tool, and
- * files a to-do should not draw the same wrench three times. Exhaustive over
- * the brandless tool names via `satisfies`, so a tool added to the registry
- * fails the typecheck here rather than silently falling back to the wrench.
- *
- * Tools that DO belong to an integration never reach this map: their card
- * shows the service's own logo coin instead.
+ * Glyphs for `system.*` and `mcp.*` tools, which have no logo, so brandless rows look different.
+ * The same glyph pulses in flight (a CSS class; see {@link RunningToolIcon}).
  */
 const BRANDLESS_TOOL_ICONS = {
   // The tool ladder.
@@ -76,10 +65,7 @@ const BRANDLESS_TOOL_ICONS = {
   "system.resolve_todo": CircleCheckBig,
   "system.suggest_todo": SquarePen,
 
-  // Reading. The globe is the live web; the library is the user's own corpus.
-  // Keeping them distinct is the whole point — "searched the web" and
-  // "searched your documents" are different claims about where an answer came
-  // from, and a shared glyph would blur them.
+  // Globe is the live web; library is the user's corpus. Keep them distinct: different sources.
   "system.web_search": Globe,
   "system.fetch_url": Link,
   "system.corpus_search": Library,
@@ -91,7 +77,7 @@ const BRANDLESS_TOOL_ICONS = {
   "system.append_artifact_section": ListPlus,
   "system.update_artifact": FilePen,
 
-  // MCP servers carry no registry logo of their own.
+  // MCP servers carry no registry logo.
   "mcp.call": Plug,
   "mcp.list_tools": Plug,
 } satisfies Partial<Record<ToolName, LucideIcon>>;
@@ -100,18 +86,12 @@ const ICON_BY_TOOL_NAME: ReadonlyMap<string, LucideIcon> = new Map(
   Object.entries(BRANDLESS_TOOL_ICONS),
 );
 
-/**
- * The glyph for a brandless tool, or `undefined` for a name this build does
- * not know (a web-scoped or future tool), which keeps the generic fallback.
- */
+/** `undefined` for an unknown name, which keeps the generic fallback. */
 export function brandlessToolIcon(toolName: string): LucideIcon | undefined {
   return isToolName(toolName) ? ICON_BY_TOOL_NAME.get(toolName) : undefined;
 }
 
-/**
- * Renders a tool glyph that pulses while `running` is true. The actual motion is
- * CSS so the app's `prefers-reduced-motion` block can disable it globally.
- */
+/** Pulses while `running`. CSS, so the global reduced-motion block can stop it. */
 export function RunningToolIcon({
   icon: Icon,
   running,

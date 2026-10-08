@@ -17,39 +17,15 @@ const compactorModel: LanguageModel = route("compactor").model();
 const compactorFallbackModel: LanguageModel = route("compactorFallback").model();
 
 /**
- * Replace `prior` with a structured `<run_summary>` system message and
- * pin `inFlightTail` verbatim afterward (ADR-0035). The caller — the
- * `compact-transcript` step in `userAuthoredBriefWorkflow` — feeds the
- * result back into `agent_runs.transcript`.
- *
- * Shape contract:
- *   - One metered LLM round-trip via the compactor route, falling over to its
- *     explicit fallback route only when the prior slice exceeds the
- *     primary compactor's context window.
- *   - The new system message carries NO `cacheControl` breakpoint of its
- *     own — it lands as `transcript[0]` where `decorateTranscript` owns all
- *     transcript breakpoints (and a breakpoint here would overflow
- *     Anthropic's 4-cap on a compacted tool-burst turn, silently evicting
- *     the tool-definition cache). See `buildSummaryMessage`.
- *   - `inFlightTail` is appended unchanged. The caller decides which
- *     suffix counts as "in-flight" via `state.inFlightTailStart`.
- *
- * Throws `compactor_input_too_large` when the prior slice exceeds even
- * the fallback window. The caller lets that reason surface directly.
- * Other compactor call failures are retried by the workflow and then
- * surfaced as `compactor_failed: <msg>`.
+ * Replace `prior` with one `<run_summary>` system message and keep `inFlightTail` as is (ADR-0035).
+ * The fallback route is used only when `prior` does not fit the primary window.
+ * Throws `compactor_input_too_large` when it fits neither.
  */
 export interface CompactTranscriptArgs {
   prior: AgentTranscriptMessage[];
   inFlightTail: AgentTranscriptMessage[];
-  /**
-   * Per-call attribution merged into the metered row. Caller supplies
-   * `userId` / `runId` / `stepId` / `attempt`; the compactor stamps
-   * `role: 'compactor'` and `kind: 'llm'` itself so call sites can't
-   * accidentally bucket the spend into the wrong rollup.
-   */
+  /** The compactor sets `role` and `kind` itself, so a caller cannot misfile the spend. */
   attribution: Omit<AttributedCall, "role" | "kind">;
-  /** Chat foreground compaction must stop when the user presses Stop. */
   abortSignal?: AbortSignal | undefined;
   timeoutMs?: number | undefined;
 }
@@ -60,27 +36,12 @@ export interface CompactTranscriptResult {
   raw: { text: string; inputTokens: number | undefined; outputTokens: number | undefined };
 }
 
-/**
- * Reserved output budget for the compaction round-trip. Named so the
- * model-selection fit check (`selectCompactorModel`) reserves the exact same
- * headroom it later sends as `maxOutputTokens` — the two must not drift.
- */
+/** Also reserved by the fit check, so the two cannot drift. */
 const COMPACTOR_MAX_OUTPUT_TOKENS = 2000;
 
 /**
- * Tokens that ride along in the compaction request on top of the `prior`
- * slice, which `selectCompactorModel` must reserve before comparing to a model
- * window (#371). Without this the fit check compares a bare `prior` estimate to
- * the full window and ignores everything else in the same request, so a `prior`
- * sized just under the window produces `prior + system + wrapper + output >
- * window` → a deterministic provider 400 that the workflow retries 3× and then
- * fails the run; the opposite boundary silently routes to the full-price
- * fallback. Components:
- *   - system prompt: `COMPACTOR_SYSTEM_PROMPT`, sent as `system`.
- *   - wrapper prose: the fixed prefix `transcriptPayloadMessage` wraps around
- *     the JSON payload (the JSON itself is already in the `prior` estimate).
- *   - output: the reserved `maxOutputTokens` above.
- * chars/4 mirrors `estimateTranscriptTokens`; the wrapper is a small constant.
+ * Request tokens beyond `prior`: the system prompt and the payload wrapper (#371).
+ * Without them, a `prior` just under the window gets a provider 400 on every retry.
  */
 const COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS =
   Math.ceil(COMPACTOR_SYSTEM_PROMPT.length / CHARS_PER_TOKEN) + 64;
@@ -99,8 +60,7 @@ export async function compactTranscript(
       ...(args.timeoutMs === undefined ? {} : { timeout: args.timeoutMs }),
       temperature: 0,
       instructions: COMPACTOR_SYSTEM_PROMPT,
-      // SAFETY: transcriptPayloadMessage builds one ModelMessage from the
-      // stored transcript payload.
+      // SAFETY: transcriptPayloadMessage builds one ModelMessage.
       messages: [transcriptPayloadMessage(prior)] as ModelMessage[],
     },
     {
@@ -154,13 +114,7 @@ async function selectCompactorModel(
   return chooseCompactorModel({ priorTokens, compactorWindow, fallbackWindow });
 }
 
-/**
- * Pure fit decision, split out so the window-headroom math (#371) is unit
- * testable without resolving live model windows. Reserves
- * `COMPACTOR_REQUEST_OVERHEAD_TOKENS` on top of the `prior` estimate — the
- * whole point of this function is "does the real request fit", so it must
- * account for everything the request carries beyond `prior`.
- */
+/** Pure, so the headroom math (#371) is testable without live model windows. */
 export function chooseCompactorModel(args: {
   priorTokens: number;
   compactorWindow: number;
@@ -192,19 +146,14 @@ export function chooseCompactorModel(args: {
   throw new Error("compactor_input_too_large");
 }
 
-/** Exported for the headroom regression test (#371). */
+/** Exported for tests. */
 export const compactorRequestOverheadTokens =
   COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS + COMPACTOR_MAX_OUTPUT_TOKENS;
 
 /**
- * Enforce the handoff contract: the model output must be a single
- * `<run_summary>...</run_summary>` element with every required inner
- * section present. Markdown fences and surrounding whitespace are
- * tolerated and stripped — the model occasionally wraps XML in ```xml
- * fences even when told not to. Anything else throws so the caller's
- * bounded retry loop sees it (one bad compactor sample shouldn't tank
- * the run, but a malformed envelope MUST NOT silently replace the prior
- * transcript).
+ * Require one `<run_summary>` element with every section. Strip Markdown fences, which the model
+ * adds anyway.
+ * Throw on anything else, so a bad summary is retried and never replaces the transcript.
  */
 function assertRunSummary(raw: string): string {
   const trimmed = stripCodeFences(raw).trim();
@@ -229,21 +178,9 @@ function stripCodeFences(text: string): string {
 }
 
 /**
- * Build the `<run_summary>` system message. Wrapping the model output in the
- * same XML tag the prompt instructs the model to emit
- * (`<run_summary>...</run_summary>`) would double-wrap; the prompt already
- * requires the model to emit the outer element, so we trust the model's
- * output verbatim.
- *
- * This message carries NO `cacheControl` breakpoint of its own. It lands as
- * `transcript[0]` on the compacted boss path, where `decorateTranscript`
- * (packages/ai/src/agent.ts) owns all transcript breakpoints. A dedicated
- * breakpoint here would push a compacted, tool-burst-ending turn to 5
- * breakpoints (system + summary + burst-boundary + last-message + last-tool)
- * — over Anthropic's cap of 4 — and the provider silently evicts the
- * *tool definitions* (the largest, most valuable static prefix) rather than
- * 400ing. The summary still caches: `decorateTranscript`'s moving last-message
- * breakpoint cache-writes the whole prefix (this message included) each turn.
+ * No `cacheControl` here: `decorateTranscript` owns the transcript breakpoints.
+ * A fifth breakpoint goes over Anthropic's cap of 4, and the provider then silently drops the
+ * tool-definition cache.
  */
 function buildSummaryMessage(text: string): AgentTranscriptMessage {
   return {

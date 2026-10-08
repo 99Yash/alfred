@@ -49,12 +49,8 @@ import {
 import type { NewChatAttachment } from "@alfred/db/schemas";
 
 /**
- * Turn admission: the decisions a chat send takes that outlive the response.
- * Which run exists, which `chat_attachments` rows exist, which bytes are copied,
- * and which quota counters are consumed are all settled here (ADR-0089).
- *
- * `packages/http/src/chat.ts` is the only transport in front of this.
- * It reads the request and writes the response; it takes no decision of its own.
+ * Turn admission (ADR-0089): every durable decision of a chat send is made here.
+ * `packages/http/src/chat.ts` only reads the request and writes the response.
  */
 
 const TITLE_MAX_CHARS = 80;
@@ -81,9 +77,7 @@ async function findExistingChatTurnRun(
         eq(agentRuns.userId, userId),
         eq(agentRuns.workflowSlug, CHAT_TURN_WORKFLOW_SLUG),
         eq(agentRuns.dedupKey, `chat:${userMessageId}`),
-        // Deliberately NOT `runIsNotTerminal`: this fronts the dedup-key index,
-        // whose predicate excludes only failed/cancelled so a `completed` turn
-        // still answers "already done" while a failed one stays retryable.
+        // Not `runIsNotTerminal`: the dedup index keeps `completed` runs, so a done turn reads as done.
         notInArray(agentRuns.status, ["failed", "cancelled"]),
       ),
     )
@@ -113,16 +107,8 @@ async function findExistingChatTurnRun(
 }
 
 /**
- * The id of a non-terminal chat-turn run already in flight on this thread for a
- * DIFFERENT user message, or `null` if the thread is free (or the only in-flight
- * run is this same message's — an idempotent retry, handled by
- * {@link findExistingChatTurnRun}). This is the per-thread concurrency guard
- * (#488): the client's "not streaming" submit gate is the ONLY thing stopping
- * overlapping runs today, and once the composer can auto-fire queued/steered
- * turns that gate no longer holds. The DB partial unique index
- * ({@link CHAT_THREAD_ACTIVE_RUN_INDEX}) is the race-safe boundary; this lookup
- * is the cheap fast path that rejects a busy thread before any attachment
- * copying or durable writes, and the recovery read after that index fires.
+ * The in-flight run on this thread for a different user message, or `null` (#488).
+ * A fast path in front of {@link CHAT_THREAD_ACTIVE_RUN_INDEX}, which is the race-safe guard.
  */
 async function findBlockingChatTurnRun(
   ex: DbExecutor,
@@ -135,11 +121,7 @@ async function findBlockingChatTurnRun(
     .from(agentRuns)
     .where(
       and(
-        // CHAT_THREAD_ACTIVE_RUN_INDEX's predicate, expression for expression:
-        // `chatThreadRunMatch` is generated from the index's own key
-        // expressions and `runIsNotTerminal` is the index's status filter, so
-        // this fast path and the index it fronts cannot disagree about which
-        // runs are active.
+        // Built from the index's own expressions, so the two cannot disagree.
         chatThreadRunMatch(agentRuns, { userId, threadId }),
         runIsNotTerminal(agentRuns.status),
       ),
@@ -151,8 +133,7 @@ async function findBlockingChatTurnRun(
   if (!existing) return null;
   const runUserMessageId = getPath(existing.metadata, "userMessageId");
 
-  // Same user message → this is a retry of the in-flight turn, not a busy
-  // collision; the caller's idempotent existing-run path returns it as started.
+  // The same user message is a retry, not a busy thread.
   if (runUserMessageId === userMessageId) return null;
 
   return existing.id;
@@ -186,18 +167,12 @@ async function enqueueChatTurnRunBestEffort(runId: string | null | undefined): P
   try {
     await redeliverRun(runId);
   } catch (err) {
-    // `persistChatTurnRunInTx` persisted a pending row; the agent worker's resume sweep
-    // re-enqueues pending/runnable rows, so do not tell the client the send
-    // failed after the chat turn itself is already durable.
+    // The run row is durable and the resume sweep re-enqueues it, so the send did not fail.
     console.warn("[chat] run enqueue failed; resume sweep will recover:", toMessage(err));
   }
 }
 
-/**
- * Request a stop on an in-flight chat turn: set the Redis stop flag the
- * chat-turn workflow polls while draining the model stream. Rejects a run that
- * is not a chat turn, already finished, or parked on an approval.
- */
+/** Set the Redis stop flag. Rejects a run that is not a chat turn, is finished, or waits on an approval. */
 export async function stopChatTurn(runId: string, userId: string): Promise<{ ok: true }> {
   const run = await getRun(runId, userId);
 
@@ -235,13 +210,7 @@ export interface StartChatTurnInput {
   retryAttachmentMessageId?: string | null | undefined;
 }
 
-/**
- * Admit a chat turn: validate the message + attachments, durably write the
- * accepted user turn, and start the chat-turn run (createRun inside a SAVEPOINT
- * + best-effort enqueue). Owns the busy / reuse / started outcomes and the
- * per-thread concurrency guard. The route is the only transport in front of
- * this; `chat` owns turn admission per ADR-0089.
- */
+/** Validate, write the user turn, and start its run. Returns busy, reuse, or started. */
 export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStartResponse> {
   const { userId, threadId, tier, artifactTargetId } = input;
   const userMessageId = input.userMessageId;
@@ -251,9 +220,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
   const retryAttachmentMessageId = input.retryAttachmentMessageId ?? null;
   assertAttachmentBatchAllowed(attachments);
 
-  // A turn must carry text or at least one attachment — a fresh upload
-  // or a re-attached one from a retry (image-only sends are valid: the
-  // prompt is the image).
+  // Text or at least one attachment. An image-only send is valid.
   if (content.length === 0 && attachments.length === 0 && retryAttachmentIds.length === 0) {
     throw Errors.BadRequestError("A message must have text or an attachment");
   }
@@ -268,7 +235,6 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
     throw Errors.ServiceUnavailableError("File storage isn't configured");
   }
 
-  // Thread must be the caller's (or new). Reject cross-user posts.
   const existing = await db()
     .select({ userId: chatThreads.userId, title: chatThreads.title })
     .from(chatThreads)
@@ -299,9 +265,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
     }
   }
 
-  // Reject a divergent reused message id before storage verification/copies
-  // or a new thread insert can leave side effects. Exact duplicate sends
-  // return the already-created run when one exists.
+  // Reject a reused id with different content before any side effect.
   const existingMessages = await db()
     .select({
       userId: chatMessages.userId,
@@ -325,15 +289,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
     throw Errors.ConflictError("Message id already belongs to a different chat turn");
   }
 
-  // Per-thread concurrency guard (#488): if a different turn is still in
-  // flight on this thread, don't create a second run — return a typed
-  // "busy" outcome so the client can keep this message queued and retry
-  // when that run completes. Checked here, before any attachment copies
-  // or durable writes, so a busy start has no side effects. This is the
-  // fast path; the DB partial unique index below is the race-safe
-  // backstop for two starts that both pass this check concurrently. An
-  // exact duplicate submit (same user message) is NOT busy — it falls
-  // through to the idempotent existing-run path.
+  // Busy check before any side effect (#488). The index below catches the race.
   const blockingRunId = await findBlockingChatTurnRun(db(), userId, threadId, userMessageId);
 
   if (blockingRunId) {
@@ -437,9 +393,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
   const now = new Date();
   const reuseExistingAttachmentRows = existingMessageAttachmentRows.length > 0;
 
-  // Build the fresh attachment rows before any durable chat writes.
-  // Storage verification runs inside the transaction after taking the
-  // same per-key lock as orphan cleanup.
+  // Storage is verified later, in the transaction, under the orphan-cleanup lock.
   const freshAttachmentRows: NewChatAttachment[] = [];
 
   if (!reuseExistingAttachmentRows) {
@@ -467,12 +421,8 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
     }
   }
 
-  // Faithful retry (ADR-0065): re-attach a prior message's attachments by
-  // copying their bytes under this new message's key prefix, then writing fresh
-  // rows (which sync back via pull). The bytes and any extracted text already
-  // exist, so nothing is re-uploaded — the client sent only source ids.
-  // Ownership-scoped to this user. Honors the combined per-message cap,
-  // and rejects instead of silently dropping requested attachments.
+  // Retry re-attach (ADR-0065): copy the bytes under the new message key; nothing is re-uploaded.
+  // Over the cap, reject; never drop an attachment silently.
   const retryAttachmentRows: NewChatAttachment[] = [];
 
   if (retrySources.length > 0 && !reuseExistingAttachmentRows) {
@@ -540,7 +490,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         .onConflictDoNothing();
     }
 
-    // Idempotent user-message upsert (same id the client mutator minted).
+    // Idempotent: the client mutator minted this id.
     await tx
       .insert(chatMessages)
       .values({
@@ -591,10 +541,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
       throw Errors.ConflictError("Message id already belongs to a different chat turn");
     }
 
-    // Persist attachment rows now that the owned message they reference
-    // exists. The lock makes the object check and durable row creation
-    // atomic with respect to pending-upload cleanup: cleanup either
-    // deletes first and this check fails, or observes the committed row.
+    // The lock orders this against cleanup: it deletes first and this check fails, or it sees the row.
     if (attachmentRows.length > 0 && currentAttachments.length === 0) {
       await lockChatStorageKeys(
         tx,
@@ -619,9 +566,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
       acceptedFreshAttachmentBytes = freshAttachmentRows.reduce((sum, row) => sum + row.size, 0);
     }
 
-    // Derive a title from the first message; bump the thread to the top.
-    // Fall back to the first attachment's name for an image-only opener
-    // (a fresh upload, or a re-attached image on a retry).
+    // An image-only opener takes its title from the first attachment name.
     const titleSeed =
       content.length > 0
         ? content.slice(0, TITLE_MAX_CHARS)
@@ -637,18 +582,8 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
       .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId)));
 
     try {
-      // `persistChatTurnRunInTx` scopes the insert in a SAVEPOINT (nested tx)
-      // so only the failed insert rolls back, leaving this outer tx alive for
-      // the recovery SELECTs in the catch below. The chat-turn workflow is a
-      // singleton on userMessageId, so a *concurrent* double-submit races here:
-      // both requests pass the pre-tx existing-run check (neither run exists
-      // yet), then one wins the `agent_runs` dedup-key insert and the other
-      // hits a unique violation. A unique violation ABORTS the surrounding
-      // Postgres transaction — recovering via `findExistingChatTurnRun(tx)` on
-      // an aborted tx would fail with 25P02 and 500 the loser (data was fine —
-      // one run — but the client saw an error); the savepoint is what keeps the
-      // outer tx usable. Delivery is deferred to the post-commit enqueue at the
-      // bottom of this function.
+      // A SAVEPOINT: a unique violation aborts the whole Postgres transaction, and
+      // the recovery reads in the catch would then fail with 25P02.
       const { runId } = await persistChatTurnRunInTx(tx, {
         userId: userId,
         workflowSlug: CHAT_TURN_WORKFLOW_SLUG,
@@ -668,29 +603,19 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
 
       return { outcome: "started", runId, assistantMessageId };
     } catch (err) {
-      // A unique violation here means one of two invariants collided —
-      // the savepoint rolled back only the failed insert, so the outer tx
-      // is still alive to recover. Discriminate on WHICH index tripped.
+      // Two unique indexes can trip here. Branch on which one.
       const constraint = uniqueViolationConstraint(err);
 
       if (constraint === null) throw err;
 
-      // Per-thread guard (#488): a concurrent start with a DIFFERENT user
-      // message already has a run in flight on this thread and won the
-      // race. This is the race-safe backstop for two starts that both
-      // passed the pre-tx `findBlockingChatTurnRun` check. Report busy —
-      // no second run was created — carrying the in-flight run when it's
-      // still visible so the client can await it before retrying.
+      // A different message won the race for this thread (#488).
       if (constraint === CHAT_THREAD_ACTIVE_RUN_INDEX) {
         const blockingRunId = await findBlockingChatTurnRun(tx, userId, threadId, userMessageId);
 
         return { outcome: "busy", runId: blockingRunId };
       }
 
-      // Otherwise this is a same-user-message double-submit that collided
-      // on the dedup index. Treat it as success: a run for this exact
-      // turn is already in flight, so return it instead of spawning a
-      // duplicate reply.
+      // A double submit of the same message: return the existing run.
       const existingRun = await findExistingChatTurnRun(
         tx,
         userId,
@@ -715,9 +640,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
 
   await releasePendingUploadBudget(userId, acceptedFreshAttachmentBytes);
 
-  // Only a started turn owns a run to enqueue. A busy outcome created no
-  // run — the in-flight one it points at is already enqueued by its own
-  // start — so don't re-enqueue another turn's work.
+  // A busy outcome points at another turn's run; do not enqueue it again.
   if (result.outcome === "started") {
     await enqueueChatTurnRunBestEffort(result.runId);
   }

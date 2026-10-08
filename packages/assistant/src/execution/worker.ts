@@ -11,12 +11,7 @@ import {
 } from "./service";
 import { toMessage, unrefTimer } from "@alfred/contracts";
 
-/**
- * Heartbeat cadence. Worker bumps `last_checkpoint_at` on the active run
- * every interval so the resume sweep won't reclaim it during a long step.
- * Pick a value comfortably below `STALE_RUN_LEASE_MS` so a single missed
- * heartbeat doesn't cause a false-positive reclaim.
- */
+/** Keep it well below `STALE_RUN_LEASE_MS`, so one missed beat does not cause a reclaim. */
 const HEARTBEAT_INTERVAL_MS = 10_000;
 
 const RESUME_SWEEP_INTERVAL_MS = 30_000;
@@ -27,23 +22,13 @@ let _resumeTimer: ReturnType<typeof setInterval> | undefined;
 
 export interface StartAgentWorkerOpts {
   /**
-   * Max parallel runs handled by this process. Each run is a single step at a
-   * time, and a step is mostly *waiting* — a triage classify step is a ~2s model
-   * call wrapped in a handful of short reads — so the useful ceiling is set by
-   * the DB pool, not by CPU.
-   *
-   * Required, deliberately: the composition root supplies it from
-   * `AGENT_WORKER_CONCURRENCY` (#437), and a local fallback here would be a
-   * second default for one fact — the value the pool was sized against would
-   * silently not be the value the worker ran at.
+   * Steps mostly wait on I/O, so the DB pool sets the limit, not the CPU.
+   * Required, so the value comes only from `AGENT_WORKER_CONCURRENCY`, the one the pool was sized
+   * for.
    */
   concurrency: number;
 }
 
-/**
- * Boot the worker: subscribes to the BullMQ queue, runs an immediate resume
- * sweep, then starts a periodic sweep. Returns immediately once ready.
- */
 export async function startAgentWorker(opts: StartAgentWorkerOpts): Promise<void> {
   if (_worker) return;
   const { concurrency } = opts;
@@ -51,9 +36,7 @@ export async function startAgentWorker(opts: StartAgentWorkerOpts): Promise<void
   _worker = new Worker<AgentJobData>(AGENT_QUEUE_NAME, processAgentJob, {
     connection: createRedisConnection("queue"),
     concurrency,
-    // BullMQ's stalled-job mechanism is our last-line backstop if the
-    // process dies between heartbeats. Tighter than the resume sweep so
-    // BullMQ-side retries cover most cases without waiting for the sweep.
+    // Catches a dead process sooner than the resume sweep.
     stalledInterval: 30_000,
     maxStalledCount: 1,
   });
@@ -62,8 +45,7 @@ export async function startAgentWorker(opts: StartAgentWorkerOpts): Promise<void
     console.error("[agent:worker] error:", err.message);
   });
 
-  // Immediate resume sweep — anything left mid-flight by a previous deploy
-  // gets picked up before the worker idles.
+  // Pick up runs a previous deploy left mid-flight.
   await resumeSweep();
 
   _resumeTimer = setInterval(() => {
@@ -75,12 +57,7 @@ export async function startAgentWorker(opts: StartAgentWorkerOpts): Promise<void
 
 async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
   const { runId } = job.data;
-  // A heartbeat bumps `last_checkpoint_at` so the resume sweep doesn't reclaim a
-  // live run mid-step. A sustained gap (≥ STALE_RUN_LEASE_MS) lets a still-alive
-  // worker be reclaimed → a duplicate, full-price model call on the slowest
-  // turns. Swallowing the error silently (the old `.catch(() => {})`) hid that
-  // drift entirely; log each miss with a count so an approaching reclaim is
-  // visible in the logs instead of only showing up as a surprise double-spend.
+  // Log each missed beat: enough of them cause a reclaim and a second paid model call.
   let missedHeartbeats = 0;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
 
@@ -116,8 +93,6 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
       },
     });
 
-    // If the run advanced, immediately re-enqueue so the next step picks
-    // up without waiting for a sweep — keeps short workflows snappy.
     if (outcome.kind === "advanced") {
       await enqueueRun(runId);
     }
@@ -126,24 +101,13 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
       await enqueueRun(runId, { delayMs: Math.max(0, outcome.retryAt.getTime() - Date.now()) });
     }
 
-    // Which skips are worth a log is the executor's call, not this file's — it
-    // owns the closed `RunSkipReason` set and declares the volume of each member
-    // (`SKIP_REASON_VOLUME`). A `||` chain here would have to be revisited from
-    // the outside every time that set grows.
     if (outcome.kind === "skipped" && skipReasonIsLoud(outcome.reason)) {
       console.warn(`[agent:worker] run ${runId} commit skipped: ${outcome.reason}`);
     }
 
-    // Terminal-step scratchpad snapshot (ADR-0036): when a run reaches a
-    // terminal state, persist its Redis scratchpad into `agent_run_context` so
-    // the durable record survives the 30-day key TTL. Keyed by `runId` — for a
-    // top-level boss run this captures both its `shared.*` promotes and any
-    // sub-agent `scratch.*` writes (children write into the parent run's zone);
-    // for a sub-agent child the scan is an empty no-op. Idempotent (ON CONFLICT)
-    // and best-effort: a snapshot failure must not fail the run. Failed runs are
-    // snapshotted too (#372): a run that dies with a turn-limit or tool error
-    // still holds the working memory you most want to post-mortem, and a failed
-    // run is terminal so there's no resume/double-write risk.
+    // Snapshot scratch so it outlives the Redis TTL (ADR-0036). Children write to the parent's
+    // zone,
+    // so a child's snapshot is empty. Failed runs too: that is when you want the scratch (#372).
     if (outcome.kind === "completed" || outcome.kind === "failed" || outcome.kind === "blocked") {
       try {
         await snapshotScratchToPostgres(runId);
@@ -152,11 +116,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
       }
     }
 
-    // ADR-0073: a sub-agent child just reached a terminal state — wake the
-    // parent joining it (system.await_sub_agent) and enqueue it for an
-    // immediate resume so the boss reports the real result this turn instead
-    // of polling scratch and giving up (#268). Best-effort: a non-sub-agent
-    // run or an already-moved-on parent is a no-op.
+    // Wake a parent waiting on this child (ADR-0073). A no-op for other runs.
     if (outcome.kind === "completed" || outcome.kind === "failed" || outcome.kind === "blocked") {
       try {
         const parentRunId = await signalParentOfSubAgent(runId);
@@ -183,14 +143,7 @@ async function resumeSweep(): Promise<void> {
   }
 }
 
-/**
- * Graceful shutdown:
- *  1. Stop the resume timer.
- *  2. `worker.close()` waits for active jobs to finish (per ADR-0014:
- *     "workers finish the current step (with timeout)").
- *  3. The job's finally block stops the heartbeat; in-tx commits already
- *     either landed or rolled back, so the run is consistent.
- */
+/** Waits for active steps to finish (ADR-0014). */
 export async function stopAgentWorker(): Promise<void> {
   if (_resumeTimer) {
     clearInterval(_resumeTimer);

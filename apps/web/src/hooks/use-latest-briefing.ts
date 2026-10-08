@@ -2,25 +2,16 @@ import { useQuery } from "@tanstack/react-query";
 import { client, type EdenData } from "~/lib/eden";
 
 /**
- * Most recent same-day briefing row for the signed-in user. Sent/suppressed
- * rows drive the rail footer CTA; failed rows are still returned so a manual
- * run can stop polling and clear its "Composing…" state.
- *
- * Errors collapse to `null` so the footer can fall back to its empty
- * state without exploding the rail. Derived from the route's `briefing`
- * payload so it can't drift from the server DTO (code-style §1).
+ * Latest same-day briefing. Failed rows are included so a manual run can stop polling.
+ * Errors become `null`, so the footer shows its empty state.
  */
 export type LatestBriefingSummary = NonNullable<
   EdenData<typeof client.api.me.briefings.latest.get>["briefing"]
 >;
 
 /**
- * Normalize a `date` column value to a `YYYY-MM-DD` key. Eden Treaty revives
- * ISO-ish strings in responses into `Date` objects, so `briefingDate` — typed
- * as `string` but a midnight-UTC `Date` at runtime — must be flattened back to
- * its calendar-date string. Otherwise the rail's `/briefings/$date` link
- * stringifies the `Date` via `toString()` ("Thu Jun 11 2026 …") and 404s. UTC
- * getters recover the original date (the value parses as midnight UTC).
+ * Eden revives `briefingDate` into a midnight-UTC `Date`. Flatten it back to
+ * `YYYY-MM-DD` with UTC getters, or the `/briefings/$date` link 404s.
  */
 function toDateKey(value: string | Date): string {
   if (value instanceof Date) {
@@ -48,8 +39,7 @@ export function useLatestBriefing(opts?: { poll?: boolean }) {
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     refetchOnWindowFocus: false,
-    // While an on-demand briefing is composing, poll so the chip flips to the
-    // live briefing or clears itself if the run fails.
+    // Poll while composing, so the chip flips to the briefing or clears on failure.
     refetchInterval: opts?.poll ? 10_000 : false,
   });
 }

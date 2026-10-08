@@ -22,30 +22,12 @@ import { documents, memoryExtractionStatus, user, userFacts } from "@alfred/db/s
 import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 
 /**
- * Daily memory-extraction workflow (ADR-0019, ADR-0025 #3).
+ * Daily memory-extraction workflow (ADR-0019, ADR-0025 #3): pick documents,
+ * process them, finalize with a `memory_chunks` summary.
  *
- * Steps:
- *   1. pick-documents  — query docs authored within `sinceDays` that haven't
- *                        been extracted in the last `sinceDays` window.
- *   2. process         — for each doc, run the cheap-tier extractor (or use
- *                        injected proposals in manual/test mode), call
- *                        `proposeFact` for each output, upsert the per-doc
- *                        status row.
- *   3. finalize        — write a `memory_chunks` row summarizing what landed
- *                        and finish with the run tally.
- *
- * Why a single `process` step (not a step per doc): looping back to the
- * same step id collides with the executor's `(runId, stepId, attempt)`
- * unique key on `agent_steps`. Recovery comes from the per-doc upserts
- * — a retry skips docs already marked extracted, so progress is preserved
- * even when the step fails midway through a 20-doc batch.
- *
- * Triggers:
- *   - Daily cron (`memory.extract.daily`) — primary path.
- *   - Manual: smoke scripts pass `mode: 'manual'` + `manualProposals` to
- *     bypass the LLM call without losing the workflow's persistence path.
- *   - End-of-thread / event-triggered (ADR-0019) wire in once chats and
- *     the email-triage flow exist (m9+).
+ * One `process` step, not one per doc: reusing a step id collides with the
+ * `(runId, stepId, attempt)` key on `agent_steps`. Per-doc status upserts let a
+ * retry skip finished docs. Smoke scripts pass `mode: 'manual'` to skip the LLM.
  */
 
 export interface MemoryExtractionOperationState {
@@ -56,12 +38,7 @@ export interface MemoryExtractionOperationState {
   documentIds: string[];
   startedAt: string;
   processed: number;
-  /**
-   * Loaded documents whose extractor call threw. Separated from `processed`
-   * because the two zeros they explain need different fixes (#1109): a run
-   * where every extractor call threw is an extractor bug, and before this field
-   * existed it reported the same counts as a healthy run that found nothing.
-   */
+  /** Loaded documents whose extractor call threw. An all-throw run is an extractor bug (#1109). */
   extractionErrors: number;
   proposed: number;
   blocked: number;
@@ -72,16 +49,13 @@ export async function runMemoryPickDocuments<State extends MemoryExtractionOpera
 ): Promise<StepResult<State>> {
   const cutoff = new Date(Date.now() - ctx.state.sinceDays * 24 * 60 * 60 * 1000);
 
-  // In manual mode, the smoke script tells us exactly which docs to
-  // process — bypass the freshness query so the test isn't subject
-  // to "did the doc land within the sliding window" timing.
+  // Manual mode names its docs, so it skips the time window.
   let ids: string[];
 
   if (ctx.state.mode === "manual" && ctx.state.manualProposals) {
     ids = Object.keys(ctx.state.manualProposals).slice(0, ctx.state.maxDocs);
   } else {
-    // Anti-join against memory_extraction_status: pick docs whose
-    // last extraction (if any) was before the cutoff.
+    // Anti-join: docs whose last extraction, if any, is older than the cutoff.
     const rows = await db()
       .select({ id: documents.id })
       .from(documents)
@@ -117,18 +91,14 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
   let proposed = 0;
   let blocked = 0;
 
-  // Pull the user's confirmed facts once — pass to extractor as
-  // hints so it doesn't re-propose what we already know. Cheap.
+  // Confirmed facts, passed as hints so the extractor does not re-propose them.
   const existing =
     ctx.state.mode === "auto" ? await listFactsByStatus(ctx.userId, "confirmed", 50) : [];
 
   const existingForPrompt = existing.map((f) => ({ key: f.key, value: f.value }));
 
-  // Team-graph capture (ADR-0059 P4a) rides this same per-doc loop:
-  // not-yet-captured Gmail docs increment the sender graph header-only (no
-  // LLM). Skipped in manual mode (smoke tests bypass the real doc window).
-  // Capture is gated by its OWN marker (`captured_into_graph_at`), not by
-  // extraction state, so the two stay independent.
+  // Team-graph capture (ADR-0059 P4a) rides this loop, header-only. It has its own
+  // `captured_into_graph_at` marker, independent of extraction. Auto mode only.
   const captureEnabled = ctx.state.mode === "auto";
 
   const [selfRow] = captureEnabled
@@ -137,21 +107,17 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
 
   const selfEmail = (selfRow?.email ?? "").trim().toLowerCase();
 
-  // Self-identity for the Tier-B authorship gate (#330, ADR-0079). Prefer
-  // the per-account Gmail/GitHub identities (`documents.accountId` →
-  // connected-account email/login) over the bare global `user.email`, so a
-  // work mailbox isn't matched against a personal address. Built once per
-  // run; only consulted in auto mode (manual proposals bypass the gate).
+  // Self identity for the Tier B authorship gate (#330). Per-account identities
+  // win over `user.email`, so a work mailbox is not matched to a personal address.
   const selfIdentity = captureEnabled
     ? await loadSelfIdentity(ctx.userId)
     : { emails: selfEmail ? [selfEmail] : [] };
 
   const captureContacts = new Map<string, ContactAggregate>();
-  // Docs whose headers we fold this run; stamped captured only after the
-  // increments commit (see the post-loop transaction).
+  // Stamped captured only after the post-loop increments commit.
   const capturedThisRun: string[] = [];
 
-  // Docs in this batch already folded on a prior run — skip them.
+  // Already folded on a prior run.
   const alreadyCaptured =
     captureEnabled && ctx.state.documentIds.length > 0
       ? new Set(
@@ -174,7 +140,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
     const doc = await loadDocument(docId, ctx.userId);
 
     if (!doc) {
-      // Doc disappeared between picking and processing — skip.
+      // Deleted between pick and process.
       continue;
     }
 
@@ -194,9 +160,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
         });
       } catch (err) {
         await ctx.log(`extract failed for doc=${docId}: ${toMessage(err)}`);
-        // Count it, do not just log it. The run report is the only artifact a
-        // human reads a week later, and a swallowed throw made a broken
-        // extractor indistinguishable from an empty one (#1109).
+        // Count it: a swallowed throw made a broken extractor look empty (#1109).
         extractionErrors++;
         proposals = [];
       }
@@ -210,10 +174,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
       let value: unknown = p.value;
       let sourceMeta: JsonObject = { rationale: p.rationale };
 
-      // Per-document write gate (#330): the contextual authorship check
-      // `proposeFact` can't do. Manual mode bypasses it (test fixtures);
-      // `proposeFact` still backstops canonicalization + the document
-      // allow-list either way.
+      // The authorship check `proposeFact` cannot do (#330). Manual mode skips it.
       if (ctx.state.mode === "auto") {
         const gate = gateDocumentFact({
           proposal: { key: p.key, value: p.value },
@@ -221,8 +182,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
             source: doc.source,
             metadata: doc.metadata,
             accountId: doc.accountId,
-            // The From/SENT parse happens in the injected triage adapter
-            // (ADR-0089); non-gmail docs carry no sender observation.
+            // Parsed by the injected triage adapter (ADR-0089).
             sender: doc.source === "gmail" ? sender.authorship(doc.metadata) : null,
           },
           selfIdentity,
@@ -272,11 +232,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
       else docBlocked++;
     }
 
-    // Mark the doc processed even if no proposals landed — same row
-    // updated on subsequent runs so we don't re-LLM until the
-    // extracted_at falls outside the sinceDays window. (Graph capture
-    // tracks itself separately via `captured_into_graph_at`, stamped
-    // after the post-loop increments commit — never here.)
+    // Mark processed even with no proposals, so the doc waits for the window to pass.
     await db()
       .insert(memoryExtractionStatus)
       .values({
@@ -315,13 +271,9 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
     blocked += docBlocked;
   }
 
-  // Fold the run's newly-seen correspondence into the team graph
-  // (increment, not overwrite) and stamp those docs captured — both in
-  // ONE transaction, so a failed apply rolls the stamp back too and the
-  // next run retries (at-least-once, never double-counted). Zero-yield
-  // docs (all-service senders) still get stamped so we don't rescan them.
-  // The significance re-pass runs in finalize. Best-effort: a failure
-  // here never fails the run.
+  // Increment the graph and stamp the docs in one transaction, so a failure rolls
+  // the stamp back and the next run retries. Docs with no yield are stamped too.
+  // Best effort: never fails the run.
   if (captureEnabled && capturedThisRun.length > 0) {
     try {
       const applied = await db().transaction(async (tx) => {
@@ -366,10 +318,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
 export async function runMemoryFinalize<State extends MemoryExtractionOperationState>(
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
-  // Full significance re-pass over every person entity (ADR-0059 P4a).
-  // Recency decay drifts even untouched scores day-to-day, so a full pass
-  // (not just the contacts touched this run) keeps the scalar fresh. Cheap
-  // and in-memory; skipped in manual mode. Best-effort — never fails the run.
+  // Full significance pass: recency decay moves untouched scores daily. Best effort.
   let significanceScored = 0;
 
   if (ctx.state.mode === "auto") {
@@ -382,24 +331,13 @@ export async function runMemoryFinalize<State extends MemoryExtractionOperationS
     }
   }
 
-  // Write a memory_chunk so the run leaves a recallable trace —
-  // future "what did alfred learn this week" queries hit this.
-  // Idempotent on (user, kind, content_hash) so a retry is safe.
-  // WHICH zero this run is reporting (#1109). `picked` is derived from
-  // `documentIds` rather than counted into a second state field: the pick step
-  // already writes that array and every later step carries it forward, so a
-  // parallel counter could only drift. The union is what forces the report —
-  // four of its five arms cannot be built without `picked`.
+  // A recallable `memory_chunk` trace, idempotent on content hash. The outcome
+  // names which zero this run reports (#1109).
   const outcome = summarizeMemoryExtractionRun({
     picked: ctx.state.documentIds.length,
     processed: ctx.state.processed,
-    // `?? 0` is the compatibility seam, not a redundant default: this workflow's
-    // `closure: { kind: "none" }` returns before `terminal-closure.ts` parses
-    // `stateSchema`, and the executor hands `run.state` to a step VERBATIM, so a
-    // run whose `process` step committed before this field shipped resumes with
-    // `extractionErrors` absent at runtime while typed `number`. The schema's
-    // `.default(0)` therefore never fires on this path; coercing here is what
-    // keeps Half A true across a deploy. See the item's round-2 review.
+    // Needed: a run resumed from before this field shipped has it absent, and the
+    // executor skips the schema `.default(0)` on this path.
     errors: ctx.state.extractionErrors ?? 0,
     proposed: ctx.state.proposed,
     blocked: ctx.state.blocked,
@@ -431,9 +369,7 @@ export async function runMemoryFinalize<State extends MemoryExtractionOperationS
   };
 }
 
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
+// --- helpers ---
 
 async function loadDocument(docId: string, userId: string) {
   const [row] = await db()
@@ -454,6 +390,5 @@ async function loadDocument(docId: string, userId: string) {
   return row;
 }
 
-// Silence unused-import warning if userFacts ever drops from this file.
-// (kept intentionally — schema reference for future per-key audit logic.)
+// Keeps the `userFacts` import alive.
 void userFacts;

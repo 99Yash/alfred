@@ -9,10 +9,8 @@ import { sentryIntegrationRoutes } from "./sentry-routes";
 import { vercelIntegrationRoutes } from "./vercel-routes";
 
 /**
- * One route family per credential provider (ADR-0093). A live provider the
- * registry knows with no route family, or a route family for a provider it does
- * not know, is a compile error here. The plugins are still mounted one by one
- * below so their route types reach the Eden client.
+ * One route family per live provider (ADR-0093); a gap is a compile error.
+ * Still mounted one by one below, so Eden sees the route types.
  */
 const providerRoutes = {
   google: googleIntegrationRoutes,

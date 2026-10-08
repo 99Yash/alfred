@@ -11,43 +11,27 @@ import {
 import type { GmailMessageEventReason } from "@alfred/assistant/triggers";
 
 /**
- * Reply-worthiness gate (ADR-0098). PURE — no DB, no LLM.
- *
- * The gate is deliberately NOT `category === "awaiting_reply"`. Triage keeps
- * the category honest (a cold ask IS `awaiting_reply`), and the todo rubric
- * already declines to mint a todo for it; drafting needs a HIGHER bar than
- * either, because a wrong outbound draft costs more than a wrong tag. So the
- * gate composes the facts triage already resolved deterministically — the
- * rule-16b cold-contact verdict, the todo rubric outcome, the classifier's
- * confidence and fallback state, thread reply state, sender kind, and any
- * standing instruction — into one ordered rubric. The first failing test names
- * the `no_draft` reason, so a wrong omission is as debuggable as a wrong draft.
- *
- * Two invocation modes share the structural blockers and differ on the rubric:
- *
- *   - `post_triage` (proactive) evaluates every test.
- *   - `manual` (smoke / explicit request) stops after the structural blockers.
- *     It bypasses the feature flag and the rubric — that is what "manual" is
- *     for — but it still refuses to draft a reply to a bot or to a thread the
- *     user has already answered, because no invocation makes those sensible.
+ * Reply-worthiness gate (ADR-0098). Pure: no DB, no LLM.
+ * Not just `category === "awaiting_reply"`: a wrong outbound draft costs more than a wrong
+ * tag, so the bar is higher. One ordered rubric over facts triage already resolved.
+ * The first failing test names the `no_draft` reason.
+ * `post_triage` runs every test. `manual` skips the flag and the rubric, but still
+ * refuses a bot sender or a thread the user already answered.
  */
 
-/** How a standing-instruction read for `block_reply_draft` resolved. */
+/** Result of the `block_reply_draft` instruction read. */
 export type ReplyStandingInstructionState = "none" | "suppress" | "read_failed";
 
 interface ReplyWorthinessBase {
   featureFlagEnabled: boolean;
   sender: { effectiveAuthor: EffectiveAuthor };
   thread: { inboundAuthoredAt: Date | null; lastUserReplyAt: Date | null };
-  /** Why triage ran. `reply` means the user's own outbound reply caused a re-eval. */
+  /** `reply` means the user's own reply caused a re-eval. */
   triageReason: GmailMessageEventReason | null;
   standingInstruction: ReplyStandingInstructionState;
 }
 
-/**
- * A proactive verdict always has the snapshot the classified event carried; a
- * manual one may run on a thread triage never wrote (no row → `null`).
- */
+/** A manual run may hit a thread triage never wrote, so its snapshot can be `null`. */
 export type ReplyWorthinessInput = ReplyWorthinessBase &
   (
     | { invocation: Extract<ReplyDraftInvocation, "post_triage">; triage: ReplyDraftTriageSnapshot }
@@ -65,7 +49,6 @@ function declined(reason: ReplyNoDraftReason, note: string | null = null): Reply
   return { worthy: false, reason, note };
 }
 
-/** The `no_draft` result for one reason, with the provenance the caller assembled. */
 export function noDraftResult(
   reason: ReplyNoDraftReason,
   note: string | null,
@@ -75,12 +58,8 @@ export function noDraftResult(
 }
 
 /**
- * True when the user has already answered AFTER the inbound message arrived.
- * The `reply` triage reason is the strongest signal (the re-eval fired because
- * the user sent mail in this thread); the timestamp comparison catches a reply
- * ingested before the inbound message was triaged. Missing timestamps cannot
- * prove a reply, so they fall through — a missed draft is cheaper than a wrong
- * one, but "unknown" is not "already replied".
+ * The user answered after the inbound message. Triage reason `reply` is the strongest
+ * signal; timestamps catch a reply ingested earlier. Missing timestamps prove nothing.
  */
 function userAlreadyReplied(input: ReplyWorthinessBase): boolean {
   if (input.triageReason === "reply") return true;
@@ -94,7 +73,7 @@ function userAlreadyReplied(input: ReplyWorthinessBase): boolean {
 }
 
 export function decideReplyWorthiness(input: ReplyWorthinessInput): ReplyWorthinessDecision {
-  // ── Structural blockers: hold for every invocation ──────────────────────
+  // ── Structural blockers: every invocation ──────────────────────
   if (input.sender.effectiveAuthor !== "person") {
     return declined("sender_not_person", input.sender.effectiveAuthor);
   }
@@ -103,7 +82,7 @@ export function decideReplyWorthiness(input: ReplyWorthinessInput): ReplyWorthin
 
   if (input.invocation === "manual") return { worthy: true };
 
-  // ── Proactive rubric, in evaluation order ────────────────────────────────
+  // ── Proactive rubric, in order ────────────────────────────────
   if (!input.featureFlagEnabled) return declined("feature_disabled");
 
   if (input.standingInstruction !== "none") {
@@ -122,11 +101,8 @@ export function decideReplyWorthiness(input: ReplyWorthinessInput): ReplyWorthin
     return declined("low_confidence", triage.confidence.toFixed(2));
   }
 
-  // Rule 16b: `true` is a corroborated cold contact; `null` means the graph
-  // read did not corroborate a two-way relationship (non-human, unscored, or
-  // a read failure). A proactive outbound draft needs corroboration, so both
-  // decline — under different names, because only the first is a fact about
-  // the sender.
+  // Rule 16b: `true` is a confirmed cold contact; `null` means no two-way relationship
+  // was confirmed. A draft needs confirmation, so both decline, under different reasons.
   if (triage.senderRelationshipIsCold === true) return declined("cold_sender");
 
   if (triage.senderRelationshipIsCold === null) return declined("relationship_unverified");

@@ -5,7 +5,7 @@ import type { ClientMutators } from "@alfred/sync";
 import { useReplicache, useReplicacheStatus } from "./context";
 
 export interface RecentArtifactsState {
-  /** The artifacts present in the bounded Replicache sync window, newest first. */
+  /** Newest first. */
   artifacts: SyncedArtifact[];
   loading: boolean;
   error: string | null;
@@ -13,10 +13,7 @@ export interface RecentArtifactsState {
   retry: () => void;
 }
 
-/**
- * Reactive global artifact list. The server syncs at most the newest 200
- * artifacts, so this is intentionally a recent feed rather than a full archive.
- */
+/** A recent feed, not an archive: the server syncs only the newest 200 artifacts. */
 export function useRecentArtifacts(): RecentArtifactsState {
   const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
 
@@ -53,12 +50,7 @@ export function useRecentArtifacts(): RecentArtifactsState {
   };
 }
 
-/**
- * Reactive list of one thread's agent-produced artifacts (ADR-0075), newest
- * first. Mirrors `useChatMessages` — scan the flat `artifact/` prefix,
- * zod-validate each row, filter by threadId client-side. Empty for a thread
- * the boss hasn't authored an artifact in.
- */
+/** One thread's artifacts (ADR-0075), newest first. */
 export function useThreadArtifacts(threadId: string | undefined): SyncedArtifact[] {
   const rep = useReplicache();
 
@@ -84,10 +76,7 @@ export function useThreadArtifacts(threadId: string | undefined): SyncedArtifact
   return snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.rows : [];
 }
 
-/**
- * Reactive single-artifact lookup by id — the sidebar reads the selected
- * artifact through this. Returns null while it hasn't synced yet.
- */
+/** Null until the artifact syncs. */
 export function useArtifact(artifactId: string | undefined): SyncedArtifact | null {
   const rep = useReplicache();
 

@@ -1,43 +1,14 @@
 /**
- * COMMITTED legacy repair: triage rows that point at (and labeled) the user's
- * own SENT message — ADR-0051 #7 violation (issue #306, Direction #2).
+ * Repair legacy triage rows that point at the user's own SENT message and labeled
+ * it (ADR-0051 #7, #306). The classify guard stops new cases; this fixes old rows.
  *
- * Symptom (dev DB, 2026-06-26): some `email_triage` rows have `document_id`
- * pointing at a doc that is `From: <the user>` carrying the Gmail `SENT` label,
- * and an Alfred category label was written back onto that sent message. These
- * are legacy rows: they were ingested/classified BEFORE ADR-0051 #7's sent
- * exclusion fully landed (a doc whose `SENT` label wasn't yet attached at ingest
- * slipped the fan-out filter, got classified, and was pointed + labeled).
+ *   A. The thread has an inbound doc: under the thread lock, strip Alfred labels
+ *      off the sent message, label the newest inbound doc, and repoint the row.
+ *   B. Sent-only thread: strip the labels and delete the row. A dead pointer would
+ *      hide the thread from the briefing inner join. Only a Gmail 404 counts as gone.
  *
- * Direction #1 (the use-time classify guard) shipped in PR #305 and stops all
- * NEW mis-pointings. This script repairs the rows already on file:
- *
- *   Case A — the thread has a live inbound doc:
- *     • under the triage thread lock, re-read the row to prove it still points at
- *       the same sent doc; strip Alfred labels off that sent message first; apply
- *       the row's category to the newest inbound doc; then repoint
- *       `email_triage.document_id` and persist the applied label id.
- *
- *   Case B — the thread has NO inbound doc (a sent-only thread that should never
- *   have been triaged):
- *     • under the triage thread lock, strip every Alfred label off the sent
- *       message directly. Only a structured Gmail 404 is treated as already-gone;
- *       transient auth/rate-limit/5xx failures keep the row retryable.
- *     • delete the bogus `email_triage` row. Deleting (vs. dangling the pointer)
- *       respects the briefing inner-join trap: gather inner-joins triage→docs on
- *       `document_id`, so a null/dead pointer silently buries the thread; no row
- *       at all is the clean state, and a future inbound reply re-triages fresh.
- *
- * Distinct from #211 (`isSelfAuthored`, which drops only Alfred's own
- * RESEND_FROM_EMAIL identity): this is the USER's personal Gmail outbound, which
- * relies entirely on the `SENT`-label signal (`isSentGmailMetadata`).
- *
- * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
- * `node dist/scripts/repairs/repair-sent-mislabeled-triage-committed.js` — the prod
- * image has no `tsx`/loose `@alfred/*` sources.
- *
- * Dry by default — lists the rows + planned action but touches nothing
- * (no DB writes, no Gmail calls, no token refresh). Pass `--commit` to repair.
+ * Bundled for prod. Dry by default (no DB writes, no Gmail calls, no token refresh).
+ * `--commit` repairs.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/repairs/repair-sent-mislabeled-triage-committed.js
@@ -120,7 +91,7 @@ async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[
     .orderBy(sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`);
 }
 
-/** Newest non-sent doc — mirrors the runtime live-inbound nulls-last/id tie-breaker. */
+/** Newest non-sent doc, with the same nulls-last and id tie-break as the runtime. */
 function newestInbound(docs: DocRow[]): DocRow | null {
   return docs.find((d) => !isSentGmailMetadata(d.metadata)) ?? null;
 }
@@ -397,7 +368,6 @@ async function main() {
   await warmPool();
   console.log(`# Sent-mislabel triage repair (#306) — mode=${COMMIT ? "COMMIT" : "DRY"}`);
 
-  // Single-user app, but resolve users + a per-account credential map correctly.
   const creds = await db()
     .select({
       id: integrationCredentials.id,
@@ -431,7 +401,7 @@ async function main() {
   let errors = 0;
 
   for (const userId of userIds) {
-    // Mis-pointed rows: triage row whose pointed doc is sent (flag OR SENT label).
+    // Rows whose document is sent (flag or SENT label).
     const misPointed = await db()
       .select({
         threadId: emailTriage.sourceThreadId,
@@ -470,7 +440,7 @@ async function main() {
       );
 
       if (inbound) {
-        // ---- Case A: strip sent label + apply inbound label + repoint.
+        // Case A: strip, label the inbound doc, repoint.
         console.log(
           `  → CASE A: strip sent label, apply inbound label, repoint → ${inbound.id} (authored ${inbound.authoredAt?.toISOString() ?? "?"})`,
         );
@@ -506,7 +476,7 @@ async function main() {
         continue;
       }
 
-      // ---- Case B: sent-only thread — strip label, delete the bogus row.
+      // Case B: sent-only thread. Strip, then delete the row.
       console.log(
         `  → CASE B: no inbound doc — strip Alfred label off sent msg + delete triage row`,
       );
@@ -549,7 +519,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

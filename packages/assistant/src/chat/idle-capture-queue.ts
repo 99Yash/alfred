@@ -7,41 +7,18 @@ import { startRun } from "@alfred/assistant/execution";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 
 /**
- * Chat → memory idle-debounce trigger (chat-memory-capture-v1.md, #398; D9).
- *
- * A per-thread dead-man timer: every finished chat turn (re)arms a delayed job
- * keyed by the thread. Each new turn pushes the timer out, so the job only
- * fires once the thread has been idle for `CHAT_MEMORY_IDLE_MS` — meaning the
- * whole conversation (and any correction arc) has settled before extraction
- * reads it. On fire, the worker fans out into a `chat-memory-capture` agent run
- * exactly the way the daily memory-cron fans into `memory-extraction`
- * (`../knowledge/queue.ts`) — reusing the agent executor rather than doing the
- * work inline.
- *
- * Its own lane (not the daily memory-cron queue): the access pattern is many
- * short-lived, per-thread, resettable delayed jobs, which is the
- * delayed-job-with-custom-jobId shape the sub-agent join-wake queue already
- * uses (`../agent/sub-agent-join-wake-queue.ts`), not the handful of
- * repeatables memory-cron holds.
+ * Per-thread idle debounce for chat memory capture (#398, D9). Each finished turn
+ * pushes the job out, so it fires only after the thread has been quiet for
+ * `CHAT_MEMORY_IDLE_MS`. On fire it starts a `chat-memory-capture` agent run.
  */
 export const CHAT_MEMORY_QUEUE_NAME = "chat-memory";
 
-/**
- * Slug of the agent workflow the debounce fans out into (the
- * `chatMemoryCaptureWorkflow` recipe in `./chat-memory-capture.ts`). Internal
- * (`__`-prefixed, like `__chat-turn__`) so the workflow seeder skips it: it is a
- * debounce-driven pipeline, not a user-toggleable workflow, and the worker
- * calls `startRun` on it directly.
- */
+/** `__`-prefixed so the workflow seeder skips it: not a user-toggleable workflow. */
 export const CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG = "__chat-memory-capture__";
 
-/**
- * Idle window before a thread is extracted (D9: ~10–15 min). 12 min sits in the
- * middle; a provisional default the plan flags as tunable from real data.
- */
+/** Provisional; D9 asks for 10 to 15 minutes. */
 export const CHAT_MEMORY_IDLE_MS = 12 * 60_000;
 
-/** The one job kind this queue carries: extract a specific idle thread. */
 export const chatMemoryJobDataSchema = z.object({
   kind: z.literal("chat-memory.extract"),
   userId: z.string().min(1),
@@ -55,22 +32,12 @@ let _queue: Queue<ChatMemoryJobData> | undefined;
 
 let _worker: Worker<ChatMemoryJobData> | undefined;
 
-/**
- * Per-thread primary debounce job id. BullMQ custom job ids can't contain `:`,
- * so mirror the logical `chat-memory-idle:<threadId>` with dot separators.
- * This stable id lets the scheduler replace exactly one pending job instead of
- * scanning the whole queue on every completed chat turn.
- */
+/** A stable id, so a reschedule replaces one job. BullMQ custom ids cannot contain `:`. */
 export function chatMemoryIdleJobId(threadId: string): string {
   return `chat-mem-idle.${threadId}`;
 }
 
-/**
- * Secondary job used only when the primary job is already active. A new user
- * turn during that tiny fire window must schedule one more idle pass after the
- * new turn settles; keeping a separate stable tail id gives us "latest wins"
- * without pulling an active job out from under its worker.
- */
+/** Used only while the primary job is active, so a new turn still gets a later pass. */
 export function chatMemoryIdleTailJobId(threadId: string): string {
   return `chat-mem-idle-tail.${threadId}`;
 }
@@ -138,14 +105,8 @@ export function getChatMemoryQueue(): Queue<ChatMemoryJobData> {
 }
 
 /**
- * (Re)arm the idle timer for a thread — the debounce reset. Replaces the exact
- * per-thread primary delayed job and schedules it at `CHAT_MEMORY_IDLE_MS`, so
- * each new completed assistant turn pushes extraction further out. If the
- * primary job is already active (mid-fire), we leave it alone and replace the
- * per-thread tail job instead; that closes the race where a user sends a new
- * turn while the prior idle fire is already running. Best-effort: never throws
- * into the caller (arming memory capture must not fail a chat turn), mirroring
- * the join-wake scheduler.
+ * Re-arm the thread's idle timer. If the primary job is running, replace the tail job
+ * instead. Never throws: this must not fail a chat turn.
  */
 export async function scheduleThreadIdleExtraction(args: {
   userId: string;
@@ -188,8 +149,7 @@ export async function startChatMemoryWorker(opts: StartChatMemoryWorkerOpts = {}
   if (_worker) return;
   _worker = new Worker<ChatMemoryJobData>(CHAT_MEMORY_QUEUE_NAME, processChatMemoryJob, {
     connection: createRedisConnection("queue"),
-    // Cheap (a couple of queries + an enqueue); the real work runs in the
-    // fanned-out agent run, so single-threaded is plenty.
+    // Cheap: the real work runs in the agent run.
     concurrency: opts.concurrency ?? 1,
   });
   _worker.on("error", (err) => {
@@ -220,10 +180,6 @@ async function processChatMemoryJob(job: Job<ChatMemoryJobData>): Promise<unknow
       userId: data.userId,
       workflowSlug: CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG,
       brief: "end-of-thread memory capture over an idle chat thread",
-      // The debounce fire is neither a cron nor a user action; `manual` matches
-      // the ad-hoc `enqueueExtractionForUser` precedent. The thread/message
-      // anchor is carried in metadata (as the chat-turn workflow does), where the
-      // workflow reads it.
       trigger: { kind: "manual" },
       occurrence: {
         kind: "manual",

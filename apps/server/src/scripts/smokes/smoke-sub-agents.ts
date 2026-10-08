@@ -1,12 +1,8 @@
 /**
- * Smoke test for m13 Phase 6 sub-agent spawn plumbing.
+ * Smoke test for sub-agent spawn, without running the child: one child run, parent
+ * metadata stamped, nested spawns blocked, child scratch writes in the parent's namespace.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-sub-agents.ts
- *
- * This does not wait on an LLM-backed child run. It verifies the durable
- * runtime seam: `system.spawn_sub_agent` creates exactly one child run,
- * stamps parent metadata, blocks nested spawns, and routes child scratch
- * writes into the parent run's scratchpad namespace.
  */
 
 import { randomUUID } from "node:crypto";
@@ -78,25 +74,16 @@ function assertObject(value: unknown, label: string): asserts value is Record<st
 async function main(): Promise<void> {
   await warmPool();
   registerBuiltinTools();
-  // `system.spawn_sub_agent` runs through the tool-runtime seam, so the smoke
-  // must install the agent-side handler just like the server bootstrap does.
+  // Install the same adapters the server boot installs, or the calls throw.
   registerAgentSystemToolAdapter();
-  // A spawned sub-agent may reach `system.read_chat_history`, now behind its own
-  // seam installed by chat; install it too so the smoke matches the
-  // server bootstrap and the call does not hit the boot-order throw.
   registerChatSystemToolAdapter();
-  // Register the replicache poke adapter so pokes can be emitted during the smoke.
   registerReplicachePokeAdapter();
 
   const userId = await findOrCreateSmokeUser();
   await resetSmokeRows(userId);
   await createSmokeWorkflow(userId);
 
-  // `startRun` also enqueues the parent; this smoke drives the parent manually
-  // via `dispatchToolCall` and never polls it, so the extra queued job is inert.
-  // There is no module-private create-without-enqueue door on the public facade
-  // (that door is exactly what item 09 closes), and the agent service subfile is
-  // not on `@alfred/assistant`'s exports map, so `startRun` is the migration here.
+  // `startRun` also enqueues the parent. The smoke drives it by hand, so that job is inert.
   const parent = await startRun({
     userId,
     workflowSlug: WORKFLOW_SLUG,

@@ -15,14 +15,7 @@ import { McpToolPolicyReview } from "./mcp-tool-policy";
 
 type SelectedToolRef = { readonly remoteName: string; readonly catalogRevision: string };
 
-/**
- * The one exact descriptor behind a selected hit.
- *
- * The descriptor is a `JsonObject` off the wire, so its named fields are read
- * with `getStringPath` and rendered as text. The raw object is never dumped as
- * markup: a server controls that object, and rendering it whole would let it
- * choose the page's shape.
- */
+/** Server-controlled JSON: read named fields as text, never render the object whole. */
 function McpInspectionDetail({
   inspection,
   onDismiss,
@@ -31,9 +24,7 @@ function McpInspectionDetail({
   onDismiss: () => void;
 }) {
   if (inspection.status !== "tool") {
-    // Both `not_found` and `catalog_stale` are refusals, not empty catalogs.
-    // They name the reason and leave the list in place; the owner refreshes by
-    // reopening the panel rather than reading a silently filtered list.
+    // `not_found` and `catalog_stale` are refusals, not empty catalogs; say why.
     return (
       <div className="space-y-2 rounded-lg bg-app-bg-2 p-2" role="alert">
         <p className="text-xs text-app-fg-3">{inspection.message}</p>
@@ -61,7 +52,6 @@ function McpInspectionDetail({
 }
 
 export interface McpCatalogViewProps {
-  /** The connection's persisted status, rendered above every list. */
   connectionStatus: McpConnection["status"];
   connectionLastError: string | null;
   loading: boolean;
@@ -74,26 +64,16 @@ export interface McpCatalogViewProps {
   selectedRemoteName: string | null;
   inspection: McpConnectionToolInspection | null;
   inspectionLoading: boolean;
-  /**
-   * The exact-descriptor review surface for the selected tool, or null when no
-   * descriptor is selected. It is a node rather than a prop bag so the view
-   * stays hook-free and the container owns the review's read and writes.
-   */
+  /** Review surface for the selected tool, or null. A node, so this view stays hook-free. */
   policyReview: ReactNode;
-  /** Owner-reviewed exact-descriptor projection into object-state. */
   healthMappingReview: ReactNode;
   onSelect: (tool: McpConnectionTool) => void;
   onDismissInspection: () => void;
 }
 
 /**
- * The catalog panel's presentation, without hooks.
- *
- * The container below owns the two reads; this half renders them, so the
- * loading / error / empty / populated states and every inspection arm are
- * reachable from `renderToStaticMarkup` (apps/web has no jsdom). The persisted
- * status and `lastError` sit ABOVE the list on purpose: a connection whose last
- * refresh was refused must not read as a quiet "no tools yet" (ADR-0094).
+ * The catalog view without hooks, so `renderToStaticMarkup` reaches every state (no jsdom).
+ * Status and `lastError` sit above the list, so a refused refresh never looks like "no tools" (ADR-0094).
  */
 export function McpCatalogView({
   connectionStatus,
@@ -193,13 +173,9 @@ export function McpCatalogView({
 }
 
 /**
- * One generic connection's persisted catalog.
- *
- * Two reads: a cursor page over the connection's tool list, and one exact
- * descriptor for the selected hit. Both are scoped to `connection.id` at the
- * route, so the panel cannot read another owner's catalog. The panel is mounted
- * only for `builtInProvider === null` rows (the card that owns it), so a
- * built-in's refused refresh keeps its own policy semantics (ADR-0094).
+ * One generic connection's catalog: a tool page and one exact descriptor, both
+ * scoped to `connection.id`. Generic rows only, so a built-in keeps its own
+ * refusal semantics (ADR-0094).
  */
 export function McpConnectionCatalogPanel({ connection }: { connection: McpConnection }) {
   const [selected, setSelected] = useState<SelectedToolRef | null>(null);
@@ -250,15 +226,11 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
   const tools = toolsQuery.data?.pages.flatMap((page) => page.tools) ?? [];
   const inspection = inspectQuery.data ?? null;
 
-  // The review mounts only for a descriptor that actually resolved. A
-  // `catalog_stale` or `not_found` inspection has no current descriptor to bind
-  // a review to, so the refusal is the whole surface for that selection.
+  // Only a resolved descriptor gets a review; a refusal is the whole surface.
   const policyReview =
     inspection?.status === "tool" ? (
-      // Keyed by the full tool identity, not by the connection. Two tools that
-      // share a policy state (every first review is "reviewed, revision 1")
-      // would otherwise reuse the form's local state, and a Save would write
-      // the previous tool's draft under this tool's descriptor hash.
+      // Key by tool identity: tools in the same policy state would share form
+      // state, and Save would write one tool's draft under another's hash.
       <McpToolPolicyReview
         key={`${inspection.ref.remoteName}:${inspection.ref.catalogRevision}`}
         connectionId={connectionId}

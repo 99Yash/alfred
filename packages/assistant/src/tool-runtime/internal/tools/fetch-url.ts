@@ -1,34 +1,11 @@
 /**
- * `system.fetch_url` — read a URL's contents in as sanitized text (#286,
- * ADR-0071 honest read-in). The companion to `system.web_search`: web_search
- * *discovers* sources for a question; this *reads* a page the agent already
- * holds a link to (from the user, from `read_user_context`, or a prior tool
- * result).
+ * `system.fetch_url`: read one URL in as sanitized, size-bounded text (ADR-0071).
+ * PDFs are extracted. Other binaries are refused, found by sniffing bytes, not
+ * by trusting `Content-Type`.
  *
- * Honest read-in posture — the same contract as `drive.export_file`:
- *   - text only: HTML is stripped to readable text, never streamed raw, and a
- *     binary resource (PDF/image/octet-stream) is reported honestly rather than
- *     garbled into mojibake (the #267 poison-pill failure mode). Binaries are
- *     caught by *sniffing the first bytes*, not by trusting `Content-Type` — a
- *     PDF served as `text/html` is still refused.
- *   - size-bounded: the body is *streamed* and the connection is torn down once
- *     it passes {@link MAX_FETCH_BYTES}, so a chunked response with no
- *     `Content-Length` can't blow memory; the readable text is then capped at
- *     {@link FETCH_URL_MAX_TEXT_CHARS} with a `truncated` flag the boss can surface.
- *   - NUL-safe: extraction drops control bytes and the platform dispatch-boundary
- *     sanitizer (ADR-0070) strips any residual before persist.
- *
- * SSRF safety — connect-time, not string-deep. Every socket is opened through a
- * pinned dispatcher ({@link createPinnedDispatcher}) whose DNS lookup resolves
- * the host, rejects the request if *any* resolved address falls in a loopback /
- * link-local / private / CGNAT / multicast / IPv4-mapped range, and pins the
- * connection to that validated address. The classifiers and the lookup live in
- * `connections/hosted-endpoint.ts`, shared with the MCP endpoint guard; this tool
- * owns only the model-facing sentence. Because the pin happens at the socket,
- * it covers DNS names that resolve to private space (`127.0.0.1.nip.io`),
- * IPv4-mapped IPv6, and — since redirects are followed *manually*, one validated
- * hop at a time ({@link safeRequest}) — a redirect into internal space. SNI and
- * the `Host` header keep the original hostname, so TLS still validates.
+ * SSRF: every socket goes through {@link createPinnedDispatcher}, which refuses a
+ * private address at connect time. Redirects are followed manually, one
+ * validated hop at a time ({@link safeRequest}).
  */
 
 import { Readable, type Transform } from "node:stream";
@@ -58,62 +35,42 @@ import {
   validatePublicWebUrl,
 } from "../../../connections";
 
-/** Hard cap on returned text so a large page can't blow the caller's context. */
-/** Stop reading (and tear down the socket) once a body passes this many bytes. */
+/** Stop reading and close the socket once a body passes this many bytes. */
 const MAX_FETCH_BYTES = REALTIME_PDF_EXTRACTION_LIMITS.fetchUrl.maxBytes;
 
 const FETCH_TIMEOUT_MS = 15_000;
 
-/** How many redirect hops we'll chase before giving up. */
 const MAX_REDIRECTS = 5;
 
-// A real-ish UA — some sites 403 an unknown agent. Honest about being a bot.
+// Some sites 403 an unknown agent.
 const USER_AGENT = "Mozilla/5.0 (compatible; AlfredBot/1.0; +https://github.com/99Yash/alfred)";
 
 const ACCEPT = "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5";
 
 const ACCEPT_ENCODING = "br, gzip, deflate";
 
-/**
- * Below this many non-whitespace characters, an HTML page has effectively no
- * readable copy — treated as {@link FetchUrlError.reason} `"empty_content"`
- * (#509) rather than a successful empty read.
- */
+/** Fewer non-whitespace chars than this reads as `empty_content` (#509). */
 const MIN_READABLE_CHARS = 20;
 
-/**
- * …but only when the raw markup was non-trivial. A tiny real page (a bare
- * redirect stub) is legitimately empty; a client-rendered app ships a large
- * `<script>`-heavy shell. This guards against flagging the former.
- */
+/** ...but only for markup this large, so a tiny stub page stays a normal empty read. */
 const NONTRIVIAL_HTML_BYTES = 500;
 
-/** Control bytes to drop from extracted text (keeps tab `\t` and newline `\n`). */
+/** Keeps tab and newline. */
 // eslint-disable-next-line no-control-regex -- matching control bytes is the point: we strip them.
 const CONTROL_BYTES = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 
 interface FetchUrlOk {
   ok: true;
-  /** The URL as requested. */
   url: string;
-  /** The URL the response actually came from (after any redirects). */
+  /** After redirects. */
   finalUrl: string;
-  /** The bare MIME type of the response (no charset/params). */
+  /** Bare MIME type, no params. */
   contentType: string;
-  /** The page's `<title>`, when one was present. */
   title?: string;
-  /** Sanitized, readable text (HTML stripped; plain text passed through). */
   text: string;
-  /** Character count of {@link text} after the size bound. */
   chars: number;
-  /** True when the text was cut off at {@link FETCH_URL_MAX_TEXT_CHARS}. */
   truncated: boolean;
-  /**
-   * Ordered URLs that issued a redirect on the way to {@link finalUrl} (the
-   * "from" of each hop). Present only when the request was redirected, so an
-   * `innocuous.com → 302 → attacker.com` hop is auditable in the persisted
-   * `action_stagings` row, not just the final URL.
-   */
+  /** Each redirecting URL in order, so a hop to another host is auditable. */
   redirects?: string[] | undefined;
 }
 
@@ -130,14 +87,10 @@ export interface FetchUrlError {
     | "too_large"
     | "http_error"
     | "fetch_failed"
-    // The page returned a 200 with markup but no extractable text — a
-    // client-rendered app whose content needs a browser to run its JS (#509).
-    // Distinct from a genuinely empty page so the boss can pivot/relay instead
-    // of reading silence as absence.
+    // A 200 with markup but no text: a client-rendered app (#509).
     | "empty_content";
-  /** A plain-language explanation the boss can relay to the user. */
+  /** Plain language the boss can relay to the user. */
   message: string;
-  /** Redirect hops taken before the failure, when any (see {@link FetchUrlOk.redirects}). */
   redirects?: string[] | undefined;
 }
 
@@ -147,8 +100,6 @@ export interface FetchUrlArgs {
   url: string;
   abortSignal?: AbortSignal;
 }
-
-/* ── host safety ──────────────────────────────────────────────────────── */
 
 /* ── HTML → text ──────────────────────────────────────────────────────── */
 
@@ -182,9 +133,7 @@ export function decodeEntities(input: string): string {
           ? Number.parseInt(body.slice(2), 16)
           : Number.parseInt(body.slice(1), 10);
 
-      // Reject the surrogate range (0xD800–0xDFFF): `&#xD800;` would otherwise
-      // decode to a lone surrogate, leaving invalid UTF-16 for downstream code
-      // to trip over rather than relying on the boundary sanitizer to scrub it.
+      // Reject surrogates: `&#xD800;` would decode to invalid UTF-16.
       if (
         Number.isFinite(codePoint) &&
         codePoint > 0 &&
@@ -209,43 +158,31 @@ export function decodeEntities(input: string): string {
   });
 }
 
-/**
- * Strip an HTML document to readable text. Not a full parser — a deterministic,
- * dependency-free transform tuned for "read the copy off this page": drop
- * non-content elements, turn block boundaries into line breaks, unwrap the rest,
- * decode entities, and normalize whitespace.
- */
+/** Strip HTML to readable text. A regex transform, not a parser. */
 export function htmlToText(html: string): string {
   let s = html;
 
-  // 1. Comments and CDATA.
   s = s.replace(/<!--[\s\S]*?-->/g, " ");
 
-  // 2. Elements whose *contents* are not page copy — drop tag + body wholesale.
+  // Drop elements whose contents are not page copy.
   s = s.replace(
     /<(script|style|head|noscript|svg|template|iframe|object|embed|canvas)\b[^>]*>[\s\S]*?<\/\1>/gi,
     " ",
   );
-  // The pair above needs a closing tag; a content-free element left unclosed
-  // (truncated mid-stream or malformed) would otherwise leak its body as text.
-  // Any such opening tag still here is unterminated — strip it to end of input.
+  // An unclosed script or style left here would leak its body, so strip to the end.
   s = s.replace(/<(script|style|noscript|template)\b[^>]*>[\s\S]*$/gi, " ");
 
-  // 3. List items → "- " bullets; line breaks → newlines.
   s = s.replace(/<br\s*\/?>/gi, "\n");
   s = s.replace(/<li\b[^>]*>/gi, "\n- ");
 
-  // 4. Block-level boundaries → a newline so paragraphs don't run together.
   s = s.replace(
     /<\/?(p|div|section|article|header|footer|main|nav|aside|h[1-6]|ul|ol|tr|table|blockquote|pre|figure|figcaption|dd|dt|dl)\b[^>]*>/gi,
     "\n",
   );
   s = s.replace(/<\/(td|th)>/gi, "\t");
 
-  // 5. Unwrap every remaining tag.
   s = s.replace(/<[^>]+>/g, " ");
 
-  // 6. Decode entities, then normalize whitespace.
   s = decodeEntities(s);
   s = s.replace(CONTROL_BYTES, ""); // drop control noise (boundary sanitizer also runs)
   s = s.replace(/[^\S\n]+/g, " "); // collapse runs of spaces/tabs, keep newlines
@@ -255,15 +192,12 @@ export function htmlToText(html: string): string {
   return s.trim();
 }
 
-/** Pull the `<title>` out of raw HTML (before {@link htmlToText} drops `<head>`). */
+/** Read `<title>` before {@link htmlToText} drops `<head>`. */
 function extractTitle(html: string): string | undefined {
   const m = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
 
   if (!m?.[1]) return undefined;
-  // The outer `.trim()` stays: `decodeEntities` can itself emit whitespace
-  // (`&#10;`), so an entity-encoded newline reaches the title after the fold.
-  // Folding before the decode, as this always has, leaves that newline in the
-  // middle of the title; only the ends are cleaned. Preserved, not fixed here.
+  // Quirk: folding before the decode leaves an entity newline (`&#10;`) mid-title.
   const title = decodeEntities(collapseWhitespace(m[1])).trim();
 
   return title.length > 0 ? title.slice(0, 500) : undefined;
@@ -275,7 +209,7 @@ function bareContentType(header: string | null | undefined): string {
   return (header ?? "").split(";", 1)[0]?.trim().toLowerCase() ?? "";
 }
 
-/** Content types we read in as text. Everything else is reported, not garbled. */
+/** Content types read in as text. */
 function isTextualType(mime: string): boolean {
   if (mime.startsWith("text/")) return true;
 
@@ -295,12 +229,7 @@ function isHtmlType(mime: string): boolean {
   return mime === "text/html" || mime === "application/xhtml+xml";
 }
 
-/**
- * Sniff the leading bytes for a binary resource that a `Content-Type` might be
- * lying about (a PDF served as `text/html`, etc.). Returns a best-guess MIME
- * label when the body is binary, or `null` when it reads as text. A single NUL
- * in the bounded body is the catch-all: UTF-8 text never contains one.
- */
+/** A best-guess MIME type for a binary body, or `null` for text. */
 function sniffBinaryType(bytes: Buffer): string | null {
   if (bytes.length === 0) return null;
   const has = (...sig: number[]): boolean => sig.every((b, i) => bytes[i] === b);
@@ -328,7 +257,7 @@ function sniffBinaryType(bytes: Buffer): string | null {
 
   if (has(0x00, 0x00, 0x01, 0x00)) return "image/x-icon";
 
-  // Catch-all: a NUL byte anywhere in the bounded body means it isn't UTF-8 text.
+  // UTF-8 text never contains a NUL.
   if (bytes.includes(0)) return "application/octet-stream";
 
   return null;
@@ -336,46 +265,36 @@ function sniffBinaryType(bytes: Buffer): string | null {
 
 /* ── safe HTTP transport ──────────────────────────────────────────────── */
 
-/** Normalized response handed to {@link runFetchUrl} — the seam unit tests stub. */
+/** The transport result. Tests stub this seam. */
 export interface RawResponse {
   finalUrl: string;
   status: number;
-  /** Bare MIME type (no params), lowercased. */
+  /** Bare MIME type, lowercased. */
   contentType: string;
-  /** Charset parsed from Content-Type, when supplied by the server. */
   charset: string | null;
   contentLength: number | null;
   body: AsyncIterable<Uint8Array>;
-  /** URLs that issued a redirect en route to {@link finalUrl}, in order. */
   redirectChain?: string[];
 }
 
 export type Transport = (url: string, signal: AbortSignal) => Promise<RawResponse>;
 
-/**
- * Renders a JS-heavy URL through a headless browser and returns its extracted
- * text, or `null` when rendering is unavailable (no key) or yields nothing.
- * Injectable so tests don't hit the network.
- */
+/** Render a JS-heavy URL in a headless browser. `null` when unavailable or empty. */
 type Renderer = (
   url: string,
   signal: AbortSignal,
 ) => Promise<{ text: string; title?: string } | null>;
 
 export interface FetchUrlDeps {
-  /** Injectable HTTP seam for the direct fetch (tests). Defaults to {@link safeRequest}. */
+  /** Defaults to {@link safeRequest}. */
   transport?: Transport;
-  /** Injectable render seam for the #509/#510 escalation. Defaults to Firecrawl. */
+  /** Defaults to Firecrawl. */
   render?: Renderer;
-  /**
-   * Injectable door-bound extraction seam. Defaults to
-   * `extraction({ door: "fetchUrl" })`. Tests inject the same `extract`
-   * shape the facade returns — there is no second, legacy seam.
-   */
+  /** Defaults to `extraction({ door: "fetchUrl" })`. */
   media?: Pick<Extraction, "extract">;
 }
 
-/** The slice of `undici.request` {@link safeRequest} uses — injectable for tests. */
+/** The slice of `undici.request` that {@link safeRequest} uses. */
 export interface UndiciResponseLike {
   statusCode: number;
   headers: Record<string, string | string[] | undefined>;
@@ -403,9 +322,7 @@ function asHttpRequester(fn: typeof undiciRequest): HttpRequester {
     });
 }
 
-/** Carries a {@link FetchUrlError} reason out of the transport layer. */
 export class FetchError extends Error {
-  /** Redirect hops taken before the failure, when any. Set by {@link safeRequest}. */
   redirects?: string[] | undefined;
   constructor(
     readonly reason: FetchUrlError["reason"],
@@ -420,7 +337,6 @@ export class FetchError extends Error {
 let sharedDispatcher: Dispatcher | undefined;
 
 function safeDispatcher(): Dispatcher {
-  // One page read: every phase is bounded by the tool's own deadline.
   sharedDispatcher ??= createPinnedDispatcher({
     timeouts: {
       headersMs: FETCH_TIMEOUT_MS,
@@ -434,14 +350,7 @@ function safeDispatcher(): Dispatcher {
 
 /* ── credential-bearing URLs (#293) ───────────────────────────────────── */
 
-/**
- * Full param names that always carry a secret. Matched against the param's
- * percent-decoded, lowercased name (`?Token=` and `?to%6Ben=` both normalize to
- * `token`). `key` / `code` live here as exact-name-only blunt instruments: a bare
- * `?key=`/`?code=` blocks, but `sort_key`/`country_code`/`promo_code` (where the
- * stem is only a *fragment* of a larger word) pass — see {@link CREDENTIAL_SEGMENT_STEMS}.
- */
-/** Redact credential-bearing `key=value` pairs in a raw `a=b&c=d` segment. */
+/** Redact credential-bearing pairs in a raw `a=b&c=d` segment. */
 function redactQuerySegment(segment: string): string {
   return segment
     .split("&")
@@ -464,12 +373,8 @@ function redactQuerySegment(segment: string): string {
 }
 
 /**
- * Redact credential-like values in URL userinfo plus **query and fragment** params
- * to `[REDACTED]`, keeping scheme/host/path and every non-credential param
- * verbatim. Pure string surgery (no `new URL` round-trip) so it can't throw on a
- * malformed input and never re-encodes the parts it leaves alone. The fragment is
- * covered too: an OAuth implicit-flow `#access_token=…` never reaches the wire but
- * would still be a secret sitting in a persisted audit row.
+ * Redact credentials in userinfo, query, and fragment. String surgery, so it
+ * cannot throw or re-encode. The fragment matters: `#access_token=` reaches the audit row.
  */
 export function redactCredentialUrl(raw: string): string {
   const hashIdx = raw.indexOf("#");
@@ -488,7 +393,7 @@ export function redactCredentialUrl(raw: string): string {
   return out;
 }
 
-/** Redact `user:pass@` without parsing/re-encoding the URL. */
+/** Redact `user:pass@` without re-encoding the URL. */
 function redactUrlUserinfo(base: string): string {
   const schemeIdx = base.indexOf("://");
 
@@ -530,11 +435,7 @@ function validateUrl(raw: string): URL {
   }
 }
 
-/**
- * The guard owns codes; this tool owns the sentence the model reads. The text
- * names the host, port, or scheme from the URL in hand, because "the endpoint
- * host is private" tells the model nothing about which of its URLs to fix.
- */
+/** The model-facing sentence names the host, port, or scheme so the model knows what to fix. */
 function refusalFor(error: HostedEndpointError, url: URL): FetchError {
   const shown = redactCredentialUrl(url.href);
 
@@ -565,9 +466,7 @@ function refusalFor(error: HostedEndpointError, url: URL): FetchError {
       );
     case "malformed_url":
       return new FetchError("fetch_failed", "The URL is malformed.", shown);
-    // The public-URL check never pins an origin, follows a redirect, or reads a
-    // stored credential placement; these codes belong to the MCP guard and reach
-    // here only if that check grows.
+    // MCP guard codes. The public-URL check does not raise them today.
     case "invalid_origin":
     case "invalid_placement":
     case "origin_mismatch":
@@ -588,8 +487,7 @@ function contentCharset(header: string | null | undefined): string | null {
 }
 
 async function disposeBody(body: AsyncIterable<Uint8Array>): Promise<void> {
-  // SAFETY: undici's body carries optional dump/once/destroy lifecycle
-  // methods that its published type omits.
+  // SAFETY: undici's body has optional dump/once/destroy methods its type omits.
   const disposable = body as {
     destroy?: (err?: Error) => void;
     dump?: (opts?: { limit: number; signal?: AbortSignal }) => Promise<void>;
@@ -602,14 +500,12 @@ async function disposeBody(body: AsyncIterable<Uint8Array>): Promise<void> {
 
       return;
     } catch {
-      // Best-effort cleanup; the original return reason is more useful.
+      // Best-effort cleanup.
     }
   }
 
   if (typeof disposable.destroy === "function") {
-    // Undici's BodyReadable can emit an asynchronous AbortError after destroy().
-    // This is only cleanup; swallow that event so following a redirect cannot
-    // crash the process while trying to free the previous hop's socket.
+    // Undici can emit an async AbortError after destroy(). Unhandled, it crashes the process.
     disposable.once?.("error", () => {});
     disposable.destroy();
   }
@@ -681,8 +577,7 @@ export function decodeResponseBody(
       source.destroy(err);
 
       for (const decoder of decoders) decoder.destroy(err);
-      // SAFETY: callers pass bodies whose declared type omits `destroy`;
-      // presence is probed before the call.
+      // SAFETY: the declared type omits `destroy`; presence is probed before the call.
       const destroySource = (body as { destroy?: (err?: Error) => void }).destroy;
 
       if (typeof destroySource === "function") destroySource.call(body, err);
@@ -696,12 +591,8 @@ export function decodeResponseBody(
 }
 
 /**
- * The real transport: follow redirects manually (no undici interceptor) so every
- * hop runs back through {@link validateUrl} *and* the pinning connector, then
- * return the final response with its body still streaming. The requester is
- * injectable (defaults to undici) so the manual-redirect re-validation — the
- * property that a 302 into private space is refused — is unit-testable without
- * a socket; production always pins via {@link safeDispatcher}.
+ * Follow redirects manually so every hop passes {@link validateUrl} and the
+ * pinned connector. Returns the final response with its body still streaming.
  */
 export async function safeRequest(
   initialUrl: string,
@@ -735,12 +626,11 @@ export async function safeRequest(
         },
         dispatcher: safeDispatcher(),
         signal,
-        // No maxRedirections → undici does NOT auto-follow; we chase 3xx ourselves.
+        // No maxRedirections, so undici does not follow 3xx itself.
       });
     } catch (err) {
       const chain = redirectChain.length > 0 ? [...redirectChain] : undefined;
-      // The pinned lookup refused an address at connect time. Its message names
-      // the host and the address it resolved to, which is what the model needs.
+      // The pinned lookup refused the address. Its message names host and address.
       const hosted = hostedEndpointErrorFrom(err);
 
       if (hosted?.code === "blocked_host") {
@@ -768,8 +658,6 @@ export async function safeRequest(
       const next = new URL(location, parsed);
       redirectChain.push(parsed.toString());
 
-      // Refuse a redirect that drops TLS — don't silently follow an
-      // https → http downgrade into a tamperable plaintext hop.
       if (parsed.protocol === "https:" && next.protocol === "http:") {
         const e = new FetchError(
           "blocked_host",
@@ -841,8 +729,6 @@ async function readBounded(
 
       if (typeof destroy === "function") destroy.call(body);
 
-      // The caller discards the bytes on overflow (returns `too_large`), so
-      // skip the wasted Buffer.concat of everything read so far.
       return { bytes: Buffer.alloc(0), overflow: true };
     }
 
@@ -854,14 +740,7 @@ async function readBounded(
 
 /* ── orchestration ────────────────────────────────────────────────────── */
 
-/**
- * Redact credential-bearing query/fragment values from every URL-shaped field of
- * a result before it leaves the tool. The tool owns sensitivity (#293): because
- * this happens inside `runFetchUrl`, `span.success(result)` in the dispatcher is
- * auto-redacted, and the result that flows into the transcript/persisted row
- * never carries a secret — even on the fragment path, which is fetched fine
- * (fragments aren't sent to the server) but must not be stored verbatim.
- */
+/** Redact every URL field before the result reaches a trace, transcript, or row (#293). */
 function redactFetchResult(r: FetchUrlResult): FetchUrlResult {
   const redirects = r.redirects?.map(redactCredentialUrl);
 
@@ -885,12 +764,8 @@ function redactFetchResult(r: FetchUrlResult): FetchUrlResult {
 const FIRECRAWL_TIMEOUT_MS = 30_000;
 
 /**
- * Live Firecrawl `/v1/scrape` render (#510). Runs the page in a headless browser
- * and returns extracted markdown. Returns `null` — never throws to the caller —
- * when no key is configured, the request fails, or the render is empty, so the
- * honest `empty_content` result stands. Firecrawl is a trusted first party (our
- * own key), so this bypasses the SSRF-pinned {@link safeRequest}; the arbitrary
- * user URL is the *payload*, rendered on Firecrawl's side, not a socket we open.
+ * Firecrawl `/v1/scrape` render (#510). Never throws; `null` keeps `empty_content`.
+ * Skips {@link safeRequest}: the user URL is a payload Firecrawl opens, not our socket.
  */
 const liveFirecrawlRender: Renderer = async (url, signal) => {
   const env = serverEnv();
@@ -921,7 +796,6 @@ const liveFirecrawlRender: Renderer = async (url, signal) => {
     return null;
   }
 
-  // External JSON — validate the shape we read rather than trust it (#286 posture).
   const markdown = getPath(json, "data", "markdown");
 
   if (!isNonEmptyString(markdown)) return null;
@@ -930,12 +804,7 @@ const liveFirecrawlRender: Renderer = async (url, signal) => {
   return { text: markdown, ...(isNonEmptyString(title) ? { title } : {}) };
 };
 
-/**
- * The #509/#510 escalation body: render {@link args.url}, and on a usable result
- * return it as a normal {@link FetchUrlOk} (text capped like the direct path).
- * Returns `null` when the renderer yields nothing, so the caller keeps the
- * honest `empty_content`.
- */
+/** Render the URL. `null` when the renderer yields nothing usable. */
 async function renderViaFirecrawl(
   args: FetchUrlArgs,
   deps: FetchUrlDeps,
@@ -973,17 +842,8 @@ export async function runFetchUrl(
 ): Promise<FetchUrlResult> {
   const direct = await runFetchUrlImpl(args, deps);
 
-  // #509/#510 — a JS-rendered page (x.com, LinkedIn, many SPAs) reads back
-  // empty. Escalate that one honest signal to a headless render+extract pass
-  // (Firecrawl) against the SAME URL: general, not per-host. When no renderer is
-  // configured, or it also comes back empty, the honest `empty_content` stands
-  // so the boss can relay or pivot rather than treat silence as absence.
-  //
-  // SSRF: escalation only fires on `empty_content`, which the direct fetch only
-  // returns after safeRequest already resolved + connect-pinned the host (and
-  // every redirect hop) to a public IP and got a 200 HTML shell back. So a URL
-  // that reaches Firecrawl has already cleared our host guard — a blocked/
-  // private host errors as `blocked_host` upstream and never gets here.
+  // A client-rendered page reads back empty, so try a headless render (#509/#510).
+  // SSRF: `empty_content` only follows a direct fetch that already passed the host guard.
   if (!direct.ok && direct.reason === "empty_content") {
     const rendered = await renderViaFirecrawl(args, deps);
 
@@ -1028,9 +888,7 @@ async function runFetchUrlImpl(
 
   const { finalUrl, status, contentType, contentLength } = raw;
 
-  // A 3xx reaching here already passed safeRequest's redirect-follow, so it had
-  // no Location — not a usable page. Treat anything outside 2xx as an error
-  // rather than returning a blank body (#286 review).
+  // A 3xx here had no Location.
   if (status < 200 || status >= 300) {
     await disposeBody(raw.body);
 
@@ -1044,7 +902,6 @@ async function runFetchUrlImpl(
     };
   }
 
-  // PDFs are handled specially — extract text instead of rejecting.
   const isPdf = isPdfContentType(contentType);
 
   if (contentLength != null && contentLength > MAX_FETCH_BYTES) {
@@ -1066,8 +923,7 @@ async function runFetchUrlImpl(
   try {
     ({ bytes, overflow } = await readBounded(raw.body, MAX_FETCH_BYTES));
   } catch (err) {
-    // A mid-decode error (e.g. corrupt gzip) bypasses readBounded's own
-    // destroy(), so free the socket here or it leaks (#286 review).
+    // A decode error skips readBounded's destroy(), so free the socket here.
     await disposeBody(raw.body);
     const why = toMessage(err);
 
@@ -1092,7 +948,6 @@ async function runFetchUrlImpl(
     };
   }
 
-  // Handle PDFs declared by Content-Type (already passed the earlier check).
   if (isPdf) {
     return await extractPdfFromBytes(
       bytes,
@@ -1104,8 +959,7 @@ async function runFetchUrlImpl(
     );
   }
 
-  // Sniff before decoding — a binary body with a missing or lying Content-Type
-  // would otherwise inline as mojibake (#267). PDFs are extracted to text.
+  // A missing or false Content-Type would otherwise inline binary as mojibake (#267).
   const sniffed = sniffBinaryType(bytes);
 
   if (sniffed) {
@@ -1130,9 +984,7 @@ async function runFetchUrlImpl(
     };
   }
 
-  // A generic binary Content-Type can still contain a PDF. Reject a declared
-  // binary only after bounded byte sniffing has had the chance to prove that
-  // case; otherwise `application/octet-stream` PDFs never reach extraction.
+  // After the sniff, so an `application/octet-stream` PDF still reaches extraction.
   if (contentType && !isTextualType(contentType)) {
     return {
       ok: false,
@@ -1156,13 +1008,7 @@ async function runFetchUrlImpl(
   const truncated = body.length > FETCH_URL_MAX_TEXT_CHARS;
   const text = truncated ? body.slice(0, FETCH_URL_MAX_TEXT_CHARS) : body;
 
-  // #509 — a client-rendered SPA (x.com, many JS apps) serves a 200 text/html
-  // shell that's almost all <script>, so extraction yields no readable copy. A
-  // successful-but-empty read is indistinguishable from a page that genuinely
-  // has nothing, so the boss reads "I couldn't read this" as "there's nothing
-  // here" and moves on silently. Flag it as a distinct, honest failure: the page
-  // HAD markup but no extractable text. Plain-text bodies are exempt — an empty
-  // .txt is legitimately empty, not an unrendered app.
+  // #509: a client-rendered shell must not read as an empty page. Plain text is exempt.
   if (
     looksHtml &&
     text.replace(/\s+/g, "").length < MIN_READABLE_CHARS &&
@@ -1186,7 +1032,6 @@ async function runFetchUrlImpl(
     ok: true,
     url: args.url,
     finalUrl,
-    // Report what we actually saw — never silently default unknown bytes to HTML.
     contentType: contentType || (looksHtml ? "text/html" : "text/plain"),
     ...(title ? { title } : {}),
     text,
@@ -1201,18 +1046,14 @@ function decodeText(bytes: Buffer, charset: string | null): string {
     try {
       return new TextDecoder(charset, { fatal: false }).decode(bytes);
     } catch {
-      // Unknown labels fall back to UTF-8 rather than failing a readable page.
+      // An unknown label falls back to UTF-8.
     }
   }
 
   return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
-/**
- * Extract text from PDF bytes and return a FetchUrlResult. Handles extraction
- * failures honestly — encrypted, needs-ocr, and invalid PDFs report a clear
- * error rather than silently returning nothing.
- */
+/** Extract PDF text. Encrypted, scanned, and invalid PDFs return a clear error. */
 async function extractPdfFromBytes(
   bytes: Buffer,
   url: string,
@@ -1221,9 +1062,6 @@ async function extractPdfFromBytes(
   raw: RawResponse,
   injectedMedia?: Pick<Extraction, "extract">,
 ): Promise<FetchUrlResult> {
-  // One door for prod and tests alike — tests inject the same `extract` shape
-  // the door-bound facade returns, so there is no legacy branch to keep in
-  // sync with this mapping.
   const media = injectedMedia ?? extraction({ door: "fetchUrl" });
   let mediaResult: Awaited<ReturnType<typeof media.extract>>;
 
@@ -1259,8 +1097,7 @@ async function extractPdfFromBytes(
     };
   }
 
-  // `[page N]` rendering per ADR-0091 D4; the corpus path keeps the
-  // marker-less `content` plus offsets.
+  // `[page N]` markers per ADR-0091 D4.
   const text = formatExtractedMediaText(mediaResult);
   const truncated = text.length > FETCH_URL_MAX_TEXT_CHARS;
   const finalText = truncated ? text.slice(0, FETCH_URL_MAX_TEXT_CHARS) : text;

@@ -1,43 +1,17 @@
 /**
- * The integration registry (ADR-0093): one record per integration. The record's
- * keys ARE the slug space. `IntegrationSlug` is `keyof` the record and
- * `INTEGRATION_SLUGS` is its key list, so a slug is spelled once, here, and
- * nowhere else. Every per-integration fact (name, kind, status, brand,
- * credential, passthrough, tool actions, summary line, domain) is a field on
- * the entry; every other slug-keyed table in the repo is a projection of this
- * record (`./projections`) or an exhaustive sibling keyed by a union derived
- * from it (`./slugs`).
- *
- * This module imports only `../google-scopes` and `../guards`.
- * `../tools` reads the record for tool names, so the record cannot read
- * `../tools`.
- *
- * Terminology: see `docs/reference/glossary.md`.
- *
- * The entry shapes live here rather than a `types.ts`: the registry stores the
- * `IntegrationEntry` contract (`INTEGRATIONS` is `Record<IntegrationSlug,
- * IntegrationEntry>`), so the shape and its one registered user co-change. The
- * derived unions are in `./slugs`; the transitional tables are in
- * `./projections`; the executable connectedness rule is in `./connected`.
+ * The integration registry (ADR-0093). Its keys are the slug space: spell a slug
+ * here and nowhere else. Other slug tables derive from it (`./projections`, `./slugs`).
+ * Do not import `../tools` here: `../tools` reads this record.
  */
 
 import { enumGuard } from "../guards";
 import { GOOGLE_SCOPE, type GoogleFeature, type GoogleScope } from "../google-scopes";
 
-/*
- * The entry shapes are the registry's source of truth, deliberately hand-written
- * rather than derived: `INTEGRATIONS` below is a compile-time declaration, not a
- * table or wire schema, and each `kind` arm's field set IS the contract — a
- * planned provider has no `credential`, a non-provider has no `status` field.
- */
+// Hand-written on purpose: each `kind` arm's field set is the contract.
 
 interface EntryBase {
-  /** Display name for prose a user or the model reads. */
   readonly displayName: string;
-  /**
-   * The tool actions this integration registers. `${slug}.${action}` is the
-   * tool name. A planned provider registers none; its type says so.
-   */
+  /** The tool name is `${slug}.${action}`. */
   readonly actions: readonly string[];
 }
 
@@ -55,49 +29,32 @@ export interface ChannelIntegrationEntry extends EntryBase {
 export interface PlannedIntegrationEntry extends EntryBase {
   readonly kind: "provider";
   readonly status: "planned";
-  /** Web asset key (icon, accent); the web owns the asset. */
+  /** Web asset key for the icon and accent. */
   readonly brand: string;
   readonly actions: readonly [];
 }
 
 /**
- * How a live provider's credential is stored and how "connected" is proved.
- *
- * The credential *provider* (the value in `integration_credentials.provider`
- * and the route family `/api/integrations/<provider>/...`) is not a field. It
- * is `"google"` for a `google_oauth` credential and the slug for every other
- * shape, so the record cannot pair one slug with another slug's route family.
- * Read it with `credentialProviderOf(slug)` from `./slugs`. If a provider ever
- * differs from its slug, add a field then; do not add a key space.
- *
- * - `google_oauth`: refresh-rotated OAuth grant. Connected iff an active
- *   credential carries one of `anyOfScopes`: Google's consent screen lets the
- *   user uncheck individual scopes, so row presence alone proves nothing. The
- *   web's older probe was an AND of ORs; every provider has one requirement,
- *   so the flat OR here is the same predicate.
- * - `github_app`: App installation (ADR-0052). App *permissions* never land in
- *   the credential's `scopes`, so connectedness is an active row with an
- *   `installation_id`; legacy classic-OAuth rows read as not-connected.
- * - `bearer`: one long-lived bearer token (Notion/Vercel OAuth, Sentry pasted
- *   API token). No scopes and no installation to probe: an active row IS the
- *   proof. `connect` says how the token arrives; `token_paste` renders a form,
- *   not a redirect.
+ * How a live provider stores its credential and proves "connected".
+ * The credential provider is derived, not stored: see `credentialProviderOf`.
+ * - `google_oauth`: needs one of `anyOfScopes`, because users can uncheck scopes.
+ * - `github_app`: needs an `installation_id` (ADR-0052). Old OAuth rows do not count.
+ * - `bearer`: an active row is the proof. `token_paste` shows a form, not a redirect.
  */
 export type CredentialSpec =
   | {
       readonly shape: "google_oauth";
-      /** Consent features the connect route asks for (`?features=`). */
+      /** Sent as `?features=` on connect. */
       readonly features: readonly GoogleFeature[];
-      /** Connected when an active row holds any one of these. */
       readonly anyOfScopes: readonly GoogleScope[];
     }
   | { readonly shape: "github_app" }
   | { readonly shape: "bearer"; readonly connect: "oauth" | "token_paste" };
 
-/** Transport shape of the general read-only passthrough tier (ADR-0074). */
+/** ADR-0074 read-only passthrough. */
 export type PassthroughTransportKind = "rest" | "graphql";
 
-/** `null` is a live provider with no general-invocation tier. */
+/** `null`: no passthrough tier. */
 export type PassthroughSpec = { readonly transport: PassthroughTransportKind } | null;
 
 export interface LiveIntegrationEntry extends EntryBase {
@@ -106,11 +63,11 @@ export interface LiveIntegrationEntry extends EntryBase {
   readonly brand: string;
   readonly credential: CredentialSpec;
   readonly passthrough: PassthroughSpec;
-  /** One line the model reads in the connected summary (ADR-0053). */
+  /** The model reads this in the connected summary (ADR-0053). */
   readonly summaryBlurb: string;
-  /** Append the connected account identity to the summary line (ADR-0071 F2). */
+  /** Add the account identity to the summary line (ADR-0071 F2). */
   readonly identityInSummary?: true;
-  /** Host for favicons and evidence grouping, e.g. `github.com`. */
+  /** For favicons and evidence groups. */
   readonly domain: string;
 }
 
@@ -155,13 +112,8 @@ export const INTEGRATIONS = {
       "ask_user",
     ],
   },
-  // Not loadable: not an OAuth-connectable provider with a passthrough surface,
-  // but a projection of N third-party MCP connections behind fixed actions
-  // (ADR-0018): `mcp.call` routes a remote tools/call through dispatch;
-  // `mcp.list_tools` and `mcp.inspect_tool` read the persisted catalog. The
-  // remote tool name and connection ride in the args, never in the tool name.
-  // It stays a non-`system` slug so the per-user policy gate and the ADR-0069
-  // high-tier floor still apply to it.
+  // All MCP connections behind fixed actions (ADR-0018). The remote tool goes in
+  // the args. Not `system`, so the policy gate and ADR-0069 high-tier floor apply.
   mcp: { kind: "internal", displayName: "MCP", actions: ["call", "list_tools", "inspect_tool"] },
   gmail: {
     kind: "provider",
@@ -278,8 +230,7 @@ export const INTEGRATIONS = {
     passthrough: { transport: "rest" },
     actions: ["search", "get_pull_request", "get_pull_requests", "get_issue", "request"],
     summaryBlurb: "the user's GitHub issues and pull requests",
-    // The connection whose missing identity made the boss ask "which repo?" on
-    // a self-referential question: the summary line carries the login.
+    // Without the login, the boss asked "which repo?" about the user's own work.
     identityInSummary: true,
     domain: "github.com",
   },
@@ -316,11 +267,8 @@ export const INTEGRATIONS = {
     summaryBlurb: "the user's Sentry issues and error events",
     domain: "sentry.io",
   },
-  // `planned` as a PRODUCT integration: Alfred has no REST credential for
-  // Railway or Polylane and registers no `<slug>.*` tool. The entry exists so
-  // the slug resolves and carries brand artwork, which is what the built-in
-  // MCP catalog borrows (ADR-0093). Linear is the same shape. The connection
-  // itself is real and lives on the MCP surface, not here.
+  // Railway and Polylane (and Linear) are `planned` here but connect through MCP.
+  // The entries exist for the slug and the brand art the MCP catalog uses (ADR-0093).
   railway: {
     kind: "provider",
     status: "planned",
@@ -338,23 +286,18 @@ export const INTEGRATIONS = {
   imessage: { kind: "channel", displayName: "iMessage", actions: [] },
 } as const satisfies Record<string, IntegrationEntry>;
 
-/** The id space: the record's keys. Nothing else identifies an integration. */
 export type IntegrationSlug = keyof typeof INTEGRATIONS;
 
-/**
- * The slugs in record order. `Object.keys` keeps insertion order for string
- * keys, so this order is the order the record is written in.
- */
+/** In record order. */
 export const INTEGRATION_SLUGS: readonly IntegrationSlug[] =
-  // SAFETY: `Object.keys` types its result as `string[]`; the keys of a
-  // non-indexed literal are exactly `keyof typeof INTEGRATIONS`.
+  // SAFETY: the keys of a non-indexed literal are exactly `keyof typeof INTEGRATIONS`.
   Object.keys(INTEGRATIONS) as IntegrationSlug[];
 
 export const isIntegrationSlug = enumGuard(INTEGRATION_SLUGS);
 
 export type IntegrationEntryOf<S extends IntegrationSlug> = (typeof INTEGRATIONS)[S];
 
-/** Typed index into the record: `integrationEntry("github").credential.shape` is `"github_app"`. */
+/** Keeps the per-slug literal type: `integrationEntry("github").credential.shape` is `"github_app"`. */
 export function integrationEntry<S extends IntegrationSlug>(slug: S): IntegrationEntryOf<S> {
   return INTEGRATIONS[slug];
 }

@@ -104,7 +104,7 @@ export async function createIfAbsent(
   return { ask: rowToDocumentAsk(existingRow), created: false };
 }
 
-/** Read the durable row after replay so a racing observer cannot stale the public result. */
+/** Re-read after replay so a racing observer cannot return a stale result. */
 export async function readById(userId: string, id: string): Promise<DocumentAskRow | null> {
   const rows = await db()
     .select()
@@ -117,7 +117,6 @@ export async function readById(userId: string, id: string): Promise<DocumentAskR
   return row ? rowToDocumentAsk(row) : null;
 }
 
-/** Read the active projection for one account-qualified Gmail thread. */
 export async function readActiveForThread(
   userId: string,
   accountId: string,

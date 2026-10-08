@@ -69,12 +69,7 @@ export interface McpCallEnvelope {
   outcome: "completed" | "tool_error";
   result: unknown;
   truncation?: BoundedPassthroughBody["truncation"];
-  /**
-   * Durable, payload-free record of what the server actually returned, computed
-   * here where the raw result is still in hand. The broker persists it to the
-   * invocation ledger so an effectful attempt stays reconstructable without
-   * keeping the (sanitized, model-facing) `result` as the only durable copy.
-   */
+  /** Payload-free record of what the server returned. The broker stores it in the ledger. */
   provenance: McpResultProvenance;
 }
 
@@ -87,17 +82,7 @@ export interface McpPreparedToolCall {
   ): Promise<McpCallEnvelope>;
 }
 
-/**
- * What a remote server is allowed to cost Alfred: how long one request may take
- * and how large a catalog it may present. Named as a group because it is ONE
- * concern — defending against a slow or hostile server — and because naming it
- * lets the class hold the resolved bounds apart from its wiring instead of
- * restating these three keys in a type expression at the field.
- *
- * Every field defaults (`DEFAULT_*` below). The non-tunable structural caps
- * (`MAX_CATALOG_BYTES`, schema depth/nodes) are deliberately NOT here: they are
- * invariants of the trust boundary, not per-connection settings.
- */
+/** Tunable limits against a slow or hostile server. Fixed caps like `MAX_CATALOG_BYTES` are not tunable. */
 export interface McpClientLimits {
   requestTimeoutMs?: number;
   maxCatalogPages?: number;
@@ -105,19 +90,8 @@ export interface McpClientLimits {
 }
 
 /**
- * The one authentication mode a raw client is built with.
- *
- * A connection has exactly one credential source (the `mcp_connections` single-
- * credential CHECK), so the mode is a closed union rather than two optional
- * fields that must agree. `auth` is REQUIRED on {@link McpRawClientOptions}, so
- * "this connection has no key" and "the caller forgot to resolve the key" are
- * no longer the same program: omitting the field fails `check-types`, and a new
- * arm fails every switch until it is handled.
- *
- * The union makes the mode explicit, not correct — a caller can still pass
- * `{ mode: "none" }` for a keyed connection. Production has one resolver,
- * `resolveMcpClientAuth` in `manager.ts`, so the persisted path cannot choose
- * wrongly by accident.
+ * A connection's single auth mode. Required, so a caller cannot forget it.
+ * In production only `resolveMcpClientAuth` in `manager.ts` picks it.
  */
 export type McpClientAuth =
   | { readonly mode: "none" }
@@ -126,17 +100,12 @@ export type McpClientAuth =
 
 export interface McpRawClientOptions extends McpClientLimits {
   connectionId: string;
-  /** The persisted endpoint row projection; the authorizer validates it on every connect. */
+  /** The authorizer validates this on every connect. */
   endpoint: McpEndpointConnection;
   endpointAuthorizer: McpEndpointAuthorizer;
   /** Built-in OAuth endpoint policy; absent for user-added servers. */
   oauthPolicy?: McpEndpointOAuthPolicy | undefined;
-  /**
-   * The connection's single authentication mode. In the `api_key` arm the key
-   * rides the protocol requester and NO OAuth provider is built; the `oauth` arm
-   * builds the session before connect and the HTTP transport receives only a
-   * token-only projection (so it cannot refresh and replay `tools/call`).
-   */
+  /** For `oauth`, the transport gets only the token, so it cannot refresh and replay `tools/call`. */
   auth: McpClientAuth;
   authProvider?: SdkMcpProtocolClientOptions["authProvider"];
   onAuthorizationRequired?: () => void | Promise<void>;
@@ -144,45 +113,16 @@ export interface McpRawClientOptions extends McpClientLimits {
   now?: () => number;
   protocolFactory?: (authorization: McpAuthorizedProtocol) => McpProtocolClient;
   /**
-   * Refuse the whole catalog unless EVERY descriptor asserts
-   * `annotations.readOnlyHint === true`.
-   *
-   * Injected, never looked up. This class deliberately knows nothing about
-   * Alfred's built-in registry, so the caller that knows an endpoint is a
-   * read-only protected resource decides — `liveClientFactory` spreads
-   * `builtInClientPolicy(endpointUrl)`, which is this flag and
-   * {@link McpRawClientOptions.pinLegacyProtocol} together.
-   *
-   * ADR-0094 makes read-only a property of the RESOURCE, and its residual risk
-   * is that the resource pin proves the ADDRESS and never the CATALOG. This is
-   * the condition that reads the catalog. It refuses the refresh rather than
-   * dropping the offending tool: a write tool at a read-only resource is the
-   * server breaking its own contract, and publishing every OTHER tool would
-   * hide that behind a working connection.
+   * Refuse the whole catalog unless every tool asserts `readOnlyHint === true` (ADR-0094).
+   * Refuse, not drop: a write tool here means the server broke its contract.
+   * Injected from `builtInClientPolicy`; this class does not know the registry.
    */
   readOnlyCatalog?: boolean | undefined;
-  /**
-   * Negotiate the legacy protocol era (`2025-11-25`) instead of the newest era
-   * both sides support.
-   *
-   * Injected for the same reason as {@link McpRawClientOptions.readOnlyCatalog}:
-   * only the built-in registry knows which endpoints need it. It is what makes
-   * a server's `x-mcp-header` declaration inert, so it is what lets the schema
-   * gate below admit a descriptor that carries one (ADR-0095).
-   *
-   * Both flags read `=== true`, so absent and an explicit `undefined` mean the
-   * same thing to every consumer, and the declarations say so
-   * (`exactOptionalPropertyTypes`). That is what lets the two travel as one
-   * spread of `builtInClientPolicy` without a conditional key.
-   */
+  /** Negotiate the legacy `2025-11-25` era, which makes `x-mcp-header` inert (ADR-0095). */
   pinLegacyProtocol?: boolean | undefined;
 }
 
-/**
- * The default per-request budget. Exported because the OAuth start/callback
- * routes authorize an endpoint without a raw client and must name the same
- * number rather than invent a second one.
- */
+/** Default per-request timeout. The OAuth routes use it too. */
 export const MCP_DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 const DEFAULT_MAX_CATALOG_PAGES = 100;
@@ -201,13 +141,7 @@ const MAX_SCHEMA_REGEX_CHARS = 2_048;
 
 const encoder = new TextEncoder();
 
-/**
- * MCP JSON Schema patterns are ECMA-262 regular expressions, but the server is
- * not required to spell their bracket classes in Unicode-mode-safe form. Ajv's
- * 2020-12 engine defaults to `/u`, which accepts Unicode-aware patterns. Keep
- * the dialect and all Ajv validation, but fall back to the historical
- * non-Unicode mode only when a pattern cannot compile with the requested flags.
- */
+/** Ajv compiles patterns with `/u`. Fall back to non-Unicode only for a pattern that fails to compile. */
 const MCP_SCHEMA_2020_12_URIS = new Set([
   "https://json-schema.org/draft/2020-12/schema",
   "http://json-schema.org/draft/2020-12/schema",
@@ -309,17 +243,12 @@ interface McpClientGeneration {
   closeFlight: Promise<void> | null;
 }
 
-/**
- * Model-agnostic MCP client: lifecycle, revisioned catalog, exact-schema input
- * validation, and bounded results. It deliberately knows nothing about model
- * tools, Alfred's closed builtin registry, approvals, or durable retries.
- */
+/** MCP client: lifecycle, catalog, schema validation, bounded results. No approvals, registry, or retries. */
 export class McpRawClient {
-  /** Identity + injected collaborators. The tunable bounds live on `#limits`. */
   readonly #options: Omit<McpRawClientOptions, keyof McpClientLimits | "now"> & {
     now: () => number;
   };
-  /** The same bounds with every default already applied — no `??` at the use site. */
+  /** Limits with defaults applied. */
   readonly #limits: Required<McpClientLimits>;
   readonly #schemaValidator = createSchemaValidator();
   #generation: McpClientGeneration | null = null;
@@ -335,8 +264,7 @@ export class McpRawClient {
   #cleanupTail: Promise<void> = Promise.resolve();
 
   constructor(options: McpRawClientOptions) {
-    // The destructure IS the split: bounds get their defaults, everything else is
-    // wiring. The endpoint projection is copied so a caller mutating theirs cannot move ours.
+    // Copy the endpoint so a caller's later mutation cannot change ours.
     const { requestTimeoutMs, maxCatalogPages, maxCatalogTools, now, ...wiring } = options;
     this.#options = {
       ...wiring,
@@ -365,11 +293,7 @@ export class McpRawClient {
     this.#catalogInvalidatedHandler = handler;
   }
 
-  /**
-   * Drop local catalog authority without announcing a remote change. The
-   * connection manager uses this after a durable compare-and-swap loses so the
-   * next attempt must fetch the server again instead of reusing a TTL-held view.
-   */
+  /** Forget the local catalog so the next call fetches again. Used after a lost compare-and-set. */
   invalidateCatalogAuthority(): void {
     this.#invalidateCatalog();
   }
@@ -401,9 +325,7 @@ export class McpRawClient {
       switch (auth.mode) {
         case "none":
         case "api_key":
-          // An API key rides the protocol requester and an endpoint's
-          // authorization server is never contacted, so no OAuth session is
-          // built. `none` has no credential at all.
+          // An API key never contacts an authorization server, so no OAuth session.
           break;
         case "oauth":
           oauth = auth.provider(authorized.oauth);
@@ -541,14 +463,7 @@ export class McpRawClient {
       for (const tool of page.tools) {
         assertAdmissibleToolDescriptor(tool, {
           readOnlyCatalog: this.#options.readOnlyCatalog === true,
-          // The NEGOTIATED era, never the pin. A pin that failed, or that a
-          // later edit removes, must not leave the header gate open, and this
-          // reading stays correct either way. `mirrorsParamHeaders` is the
-          // profile's own field, so a new era declares whether it mirrors
-          // instead of this line comparing an era literal. The `!== false`
-          // form is what makes an ABSENT negotiation close the gate: nothing
-          // reaches here before `#connect` publishes the generation, but the
-          // expression must not depend on that call order to be safe.
+          // Read the negotiated era, not the pin. `!== false` keeps the gate closed with no negotiation.
           mirrorsParamHeaders: generation.negotiated?.mirrorsParamHeaders !== false,
         });
         const descriptorBytes = encodedBytes(canonicalJson(tool));
@@ -599,12 +514,7 @@ export class McpRawClient {
     const sortedTools = Object.freeze(
       tools
         .map((tool) => deepFreeze(structuredClone(tool)))
-        // Deterministic code-point order, not `localeCompare`: the revision hash
-        // is a durable authority key compared across hosts/processes, and ICU
-        // collation is locale/build-dependent (small-icu vs full-icu, LANG), so
-        // the same tool set could otherwise hash differently per environment.
-        // Names are already de-duplicated, so this total order over distinct
-        // strings is all that's needed.
+        // Code-point order, not `localeCompare`: ICU collation varies by host and would change the hash.
         .sort((a, b) => compareMcpToolNames(a.name, b.name)),
     );
 
@@ -618,8 +528,7 @@ export class McpRawClient {
 
       try {
         validator = this.#schemaValidator.getValidator<JsonObject>(
-          // SAFETY: tool.inputSchema is the MCP JSON-schema envelope; the
-          // validator consumes exactly that shape.
+          // SAFETY: `inputSchema` is the MCP JSON Schema envelope the validator expects.
           tool.inputSchema as JsonSchemaType,
         );
       } catch (err) {
@@ -778,10 +687,7 @@ export class McpRawClient {
       const output = outputValidator(structuredContent);
 
       if (!output.valid) {
-        // A response DID cross the wire — the census is derivable now. Carry it
-        // on the error so the broker's ambiguous branch persists provenance
-        // (#541) rather than leaving only an error string; the effect stays
-        // unprovable, but `outputSchemaValidated: false` records exactly why.
+        // A response arrived, so attach provenance for the broker's ambiguous branch.
         throw new McpClientError(
           "invalid_output",
           `Result from MCP tool '${tool.name}' failed its declared output schema: ${output.errorMessage}`,
@@ -926,22 +832,12 @@ export class McpRawClient {
 
 const isMcpContentKind = enumGuard(mcpContentKindValues);
 
-/**
- * Map a content block to its closed census kind. The SDK validates blocks
- * against the `ContentBlock` union before they reach here, so a valid result
- * only ever yields a declared kind; `unknown` is the documented fallback for an
- * untyped or degraded shape, never an open passthrough of the server's string.
- */
+/** Map a content block to a closed kind. `unknown` is the fallback, never the server's own string. */
 function contentKindOf(block: McpProtocolCallResult["content"][number]): McpContentKind {
   return isMcpContentKind(block.type) ? block.type : "unknown";
 }
 
-/**
- * Distill the raw protocol result into the durable, payload-free provenance
- * envelope (#541). Census the content blocks by `type` and record the validity
- * facts already established above — never the block content, and a returned
- * resource link is counted, never dereferenced.
- */
+/** Count content blocks by `type` and record validity. Never stores content or follows a resource link. */
 function resultProvenance(
   result: McpProtocolCallResult,
   facts: { isToolError: boolean; outputSchemaValidated: boolean; truncated: boolean },
@@ -975,11 +871,7 @@ function deepFreeze<T>(value: T): T {
     for (const child of Object.values(value)) deepFreeze(child);
   }
 
-  // Freeze-any-reference gate (not a record guard): `structuredClone`
-  // preserves Dates and other non-plain references, and the admitted catalog
-  // must be deeply immutable, so everything indexable is frozen even when it
-  // is not a plain JSON record. Recursion above stays `isRecord`-gated
-  // because only plain records and arrays have enumerable JSON children.
+  // Freeze every object, not only plain records: `structuredClone` keeps Dates.
   if (isIndexable(value)) Object.freeze(value);
 
   return value;
@@ -988,11 +880,7 @@ function deepFreeze<T>(value: T): T {
 interface ToolAdmissionPolicy {
   /** Every descriptor must assert `annotations.readOnlyHint === true` (ADR-0094). */
   readOnlyCatalog: boolean;
-  /**
-   * The negotiated era mirrors an `x-mcp-header` declaration into a
-   * `Mcp-Param-*` request header, so a descriptor may not declare one
-   * (ADR-0095).
-   */
+  /** The negotiated era turns `x-mcp-header` into `Mcp-Param-*` headers, so refuse it (ADR-0095). */
   mirrorsParamHeaders: boolean;
 }
 
@@ -1004,11 +892,7 @@ function assertAdmissibleToolDescriptor(tool: Tool, policy: ToolAdmissionPolicy)
     );
   }
 
-  // A MISSING hint fails the same way an explicit `false` does. The MCP
-  // specification makes every annotation optional, so absence carries no claim
-  // at all, and treating "said nothing" as "is a read" is the one reading that
-  // admits a write. Alfred only ever refuses on this field, so a server cannot
-  // widen its catalog by asserting the hint (see `BuiltInDefinition.readOnlyCatalog`).
+  // A missing hint fails like `false`: annotations are optional, so silence claims nothing.
   if (policy.readOnlyCatalog && tool.annotations?.readOnlyHint !== true) {
     throw new McpClientError(
       "write_tool",
@@ -1058,14 +942,8 @@ function assertSafeSchema(
     if (!isRecord(value)) return;
 
     for (const [key, child] of Object.entries(value)) {
-      // Reject schema identity anchors outright. Alfred forbids external refs
-      // and only ever compiles inline schemas, so `$id`/`$anchor` carry no
-      // legitimate function here — but the shared Ajv instance caches compiled
-      // validators by `$id`, so a malicious server could register a permissive
-      // schema under `$id: "x"` and then have a second tool (or a later schema
-      // revision) reuse `$id: "x"` to be validated against the *cached* lenient
-      // validator instead of its own descriptor. That silently bypasses the
-      // exact-schema gate this layer exists to enforce, so we refuse the anchor.
+      // Refuse `$id`/`$anchor`: Ajv caches validators by `$id`, so a later tool
+      // could reuse a lenient cached schema instead of its own.
       if (key === "$id" || key === "$anchor") {
         throw new McpClientError(
           "invalid_schema",
@@ -1073,21 +951,8 @@ function assertSafeSchema(
         );
       }
 
-      // `x-mcp-header` makes the SDK mirror the declared argument's value into a
-      // `Mcp-Param-*` request header — a header channel a remote server authors
-      // and the model fills. Alfred has never reviewed that channel, so it
-      // refuses the keyword wherever the channel can open.
-      //
-      // The SDK opens it on the NEGOTIATED ERA alone, so the legacy era makes
-      // the declaration inert and there is nothing left to refuse. That is not
-      // a loophole; it is the whole reason a built-in may pin the legacy era
-      // (ADR-0095). GitHub declares the keyword on 21 of its 28 read-only
-      // tools, so an unconditional refusal costs Alfred the entire catalog.
-      //
-      // Admitting the keyword in the modern era is a SEPARATE decision that
-      // ADR-0095 leaves open. It needs a bound on header name and value size,
-      // and an argument that `Mcp-Param-*` cannot reach a credential,
-      // authorization, cache, proxy, or SSRF decision.
+      // `x-mcp-header` copies model-filled arguments into `Mcp-Param-*` headers, an
+      // unreviewed channel. Only the modern era does this; the legacy era is safe (ADR-0095).
       if (key === "x-mcp-header" && policy.mirrorsParamHeaders) {
         throw new McpClientError(
           "invalid_schema",

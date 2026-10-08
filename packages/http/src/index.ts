@@ -26,24 +26,10 @@ import { skillsRoutes } from "./skills";
 import { replicache } from "./sync/replicache";
 import { workflowRoutes } from "./workflows";
 
-// `@alfred/http` owns the transport layer. This is its one door — a single `.`
-// barrel, no subpaths, because a concrete `exports` entry rots silently when a
-// file moves and no repo gate reads the map (see
-// `.lessons/moving-a-file-leaves-its-exports-entry-behind-and-no-gate-catches-it.md`).
-//
-// Nothing under `src/` may import this file back. Every module named below is
-// re-exported here, so a return import closes an `index.ts -> that module ->
-// index.ts` cycle, and the order of the export lines below is the only reason
-// such a cycle boots at all — reorder them and it becomes a TDZ
-// `ReferenceError` at startup, in the package whose job is to be imported
-// first. Import the concrete sibling module instead. The `packages/http/src/**`
-// override in `.oxlintrc.json` holds the rule: it fails `pnpm lint` on the
-// `@alfred/http` specifier, on any subpath of it, and on every relative
-// spelling of this file.
-//
-// This barrel also owns the composed root `app` and its derived `App` type.
-// Importing it must stay environment-free, so the final Better Auth mount
-// delegates through a request-time wrapper instead of calling `auth()` here.
+// The package's only entry point: no subpaths, because `exports` entries rot when files move.
+// Nothing under `src/` may import this file back. The cycle boots only by export order,
+// so a reorder becomes a TDZ error at startup. `.oxlintrc.json` enforces this.
+// Importing it must read no env, so `auth()` is called per request in the mount.
 export {
   authMacro,
   errorHandler,
@@ -55,26 +41,10 @@ export {
 
 export type { SecurityHeadersOptions } from "./middleware/security-headers";
 
-// Routes. This is one barrel with no subpaths, so it is also one
-// module-evaluation unit: importing ANY binding above also evaluates every
-// route module below, and everything those modules reach, transitively. So the
-// whole graph must load with no environment variable, no database and no Redis
-// — keep module-scope side effects out of anything added here and out of
-// anything it imports.
-//
-// The detector for that load requirement is `test/barrel-load.test.ts`, which
-// exists as a file of its own so that no other test's import can quietly become
-// the thing that checks it. It is tier 4 and it covers one clause: it reports a
-// module-scope read of something that is not there, it does not prevent one.
-// Two things nothing here reports. A handle retained at module scope — a timer,
-// an open connection — is checked by no gate in this repo, because the package
-// runs its tests with `--test-force-exit`; keep them out on the strength of the
-// rule above, not on the strength of a green job. And how wide the graph
-// became: if you need that, measure the resolved-module graph on both sides of
-// your change, because an export count cannot see it and neither can the
-// package you happened to declare. Do not restate any of this as a list of what
-// the routes reach: an enumeration in this position is the one prose shape no
-// gate maintains.
+// Importing any binding loads every route below. The whole graph must load with
+// no env, DB or Redis, so keep module-scope side effects out.
+// `test/barrel-load.test.ts` catches a missing read. No gate catches a module-scope
+// timer or socket, because tests run with `--test-force-exit`.
 export { agent, approvalsRoutes, chatRoutes, meRoutes };
 
 export type { MeInboxItem, MeInboxMessage, MeLatestBriefing, MeMeetingItem } from "./me";
@@ -89,70 +59,23 @@ export {
   workflowRoutes,
 };
 
-// Realtime push. `realtime/` is a non-domain subdirectory, like `middleware/`:
-// the flat `src/<domain>.ts` layout names product domains, and SSE delivery is
-// a transport concern that several domains push through. Only the wire half
-// lives here — frame encoding, heartbeats, `Last-Event-ID` replay handoff. The
-// substrate underneath it lives on `@alfred/assistant/realtime` and this route
-// imports it. Where the line falls is not decided by counting callers: parts
-// of that substrate are reached by this route alone, and pulling them across
-// on that basis is the mistake to avoid. Two properties decide it instead.
-// A module stays out if it shares mutable state or a written invariant with a
-// background loop — a Redis bus's subscribe half and its publish half agree on
-// one `channelFor` name, and what the outbox reader can serve is bounded by
-// what the retention reaper has already deleted; split either pair across a
-// package boundary and the invariant has two owners and no checker. And a
-// module stays out if the server's lifecycle starts or stops it, because
-// ADR-0089 fixes that direction at `apps/server -> @alfred/assistant/runtime`,
-// which does not pass through transport. What is left — code that only exists
-// because a client speaks HTTP — is what belongs here.
+// Realtime: only the SSE wire half lives here. A module stays in `@alfred/assistant/realtime`
+// if it shares state with a background loop or the server starts or stops it (ADR-0089).
 export { events };
 
-// Replicache sync. `sync/` is a third non-domain subdirectory, on the same
-// rule as `middleware/` and `realtime/`: what lives here exists only because a
-// client speaks a wire protocol. Membership is decided by the two properties
-// stated above, not by counting callers — a module stays out if it shares
-// mutable state or a written invariant with a background loop, and it stays
-// out if the server's lifecycle starts or stops it. Applied to the Replicache
-// server, both properties come back negative for the whole set: the CVR store
-// is a lazy per-process cache that one request path writes and the same path
-// reads, with no reaper and no relay behind it, and nothing under `sync/` is
-// started or stopped by `apps/server`. The domain DECISIONS these adapters
-// reach for — what a fact is worth keeping, what a preference means, what a
-// workflow revision may become — all come from `@alfred/assistant`, and what
-// is left here is protocol adaptation and row-version bookkeeping. That is
-// also what ADR-0089 assigns to this package by name.
+// Replicache sync: protocol adaptation and row versions only, by the same rule.
+// Domain decisions come from `@alfred/assistant` (ADR-0089).
 export { replicache };
 
-// Not optional and not a widening of intent: `/pull` and `/push` answer with
-// these two types, so the inferred type of the root `app` names them. This
-// package has no subpath the declaration could point at, so the one root barrel
-// advertises both protocol response types with the app that uses them.
+// The inferred `App` type names these, so the barrel must export them.
 export type { PullResponse } from "./sync/pull";
 
 export type { PushResponse } from "./sync/push";
 
 /**
- * The Redis handle `/ready` probes, built on first request and kept.
- *
- * It used to build a fresh `"fail-fast"` connection per request and ping it in
- * the same tick. That is the one shape `"fail-fast"` always rejects — the
- * connection is never `ready` yet — so `checks.redis` read `"error"` on every
- * request against a perfectly healthy Redis (#127).
- *
- * Two things changed and both are load-bearing. The kind is `"command"`, so the
- * cold ping rides the offline queue to the ready connection and still settles
- * within the profile's 2 s bound when Redis is gone. And the handle is reused,
- * so the probe stops paying a TCP handshake per request and `closeRedis()` can
- * close it at shutdown.
- *
- * The accepted cost: this reports the health of a socket ioredis is already
- * auto-reconnecting, so it can answer `"ok"` where a brand-new connection would
- * fail — a Redis at its client limit, for instance. A probe on the app's own
- * connection lifetime is the more useful signal for this endpoint.
- *
- * Creation stays request-time. `let` alone holds no socket, so importing this
- * barrel still reads no environment and opens nothing.
+ * The Redis handle `/ready` pings, made on first request and reused.
+ * `"command"`, not `"fail-fast"`: a fresh fail-fast handle always rejects its first ping.
+ * It can report "ok" where a new connection would fail, e.g. at the client limit.
  */
 let readyRedisConn: BoundedRedis | undefined;
 
@@ -162,14 +85,8 @@ function readyRedis(): BoundedRedis {
   return readyRedisConn;
 }
 
-// `normalize: 'typebox'` opts out of Elysia 1.4's bundled `exact-mirror`
-// schema cleaner in favour of TypeBox's native `Value.Clean`. Elysia
-// 1.4.28 passes the wrong option key to `exact-mirror@1.0.0`
-// (`TypeCompiler` vs the expected `Compile`), so every route with a
-// `t.Optional(...)` query/body — which desugars to a Union internally —
-// logs `[exact-mirror] TypeBox's TypeCompiler is required to use Union`
-// on first hit. `Value.Clean` is slower but for a single-user app the
-// per-request cost is negligible.
+// `normalize: 'typebox'`: Elysia 1.4's `exact-mirror` cleaner logs a Union error for every
+// `t.Optional` field. TypeBox `Value.Clean` is slower but works.
 export const app = new Elysia({ name: "api", normalize: "typebox" })
   .use(errorHandler)
   .use(replicache)
@@ -241,10 +158,7 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
   .mount(async (request: Request) => {
     const response = await auth().handler(request);
 
-    // A Better Auth POST can create, update, or revoke a session. Clear after
-    // success so every present and future mutation gets the safe behavior
-    // without coordinating a route list. The boundary slash excludes near
-    // matches such as `/api/authz/...`.
+    // Any Better Auth POST can change a session. The trailing slash excludes `/api/authz/...`.
     if (
       request.method === "POST" &&
       response.ok &&

@@ -1,8 +1,6 @@
 /**
- * Live probe for the verified pull (#1094). Performs one
- * `readRailwayDeploymentStatus` against a named target (or the first
- * discovered one) and prints the parsed status, Railway MCP readiness,
- * and whether the live catalog has the three required read tools.
+ * Live probe for the verified pull (#1094). Runs one `readRailwayDeploymentStatus`
+ * and prints the status, Railway MCP readiness, and whether the required tools exist.
  *
  *   $ pnpm --filter server tsx --env-file=<main-checkout>/apps/server/.env \
  *       src/scripts/probes/probe-railway-pull.ts <userId> [projectId serviceId environmentId]
@@ -24,11 +22,7 @@ import {
   listOwnedConnections,
 } from "@alfred/assistant/connections/mcp";
 
-/**
- * Property and required names off a live tool `inputSchema`, read as
- * `unknown` at the protocol boundary. Anything unexpected reads empty, so a
- * shape change reports as a mismatch below instead of throwing here.
- */
+/** Property and required names from a live `inputSchema`. A bad shape reads as empty. */
 function summarizeInputSchema(inputSchema: unknown) {
   if (!isRecord(inputSchema)) return { properties: [], required: [] };
 
@@ -102,11 +96,8 @@ async function main(): Promise<void> {
         `required MCP reads: ${missing.length ? `missing ${missing.join(", ")}` : "available"}`,
       );
 
-      // Argument shapes, not just names: the pull calls `list-services` with
-      // `{ projectId }` and `list-deployments` with `{ projectId, serviceId,
-      // environmentId, limit }`. A renamed or newly-required property throws
-      // `invalid_arguments` on every call, so the probe fails closed here
-      // instead of the pull degrading to `unverified` forever.
+      // Check argument shapes too. A renamed or new required property would make
+      // every pull call fail and leave the status `unverified`.
       const expectedArgs = {
         "list-projects": { optional: [], required: [] },
         "list-services": { optional: [], required: ["projectId"] },

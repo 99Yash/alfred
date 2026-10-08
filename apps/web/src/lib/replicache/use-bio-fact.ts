@@ -5,35 +5,24 @@ import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth/auth-client";
 import { useReplicacheStatus } from "./context";
 
-/** The canonical fact key cold-start writes the user's bio paragraph under. */
+/** The fact key cold-start writes the bio under. */
 const BIO_KEY = "bio_summary";
 
 export interface BioFactState {
-  /** Current bio text (empty string when unset). */
+  /** Empty string when unset. */
   value: string;
-  /** True until the first Replicache subscription fires. */
   loading: boolean;
   error: string | null;
   retry: () => void;
-  /**
-   * Persist a new bio. Edits the active fact in place (supersede chain) when
-   * one exists, otherwise creates a user-authored fact. No-op while the sync
-   * client is still initializing.
-   */
+  /** Supersede the active fact, or create one. Throws while the sync client loads. */
   saveBio: (text: string) => Promise<void>;
 }
 
-/** The fact's `value` is `unknown`; bio is always a paragraph string. */
 function toText(value: FactValue | undefined): string {
   return isNonEmptyString(value) ? value : "";
 }
 
-/**
- * Live view of the user's `bio_summary` fact for the settings Background card.
- * Both `proposed` and `confirmed` facts sync, and a fact's supersede chain
- * keeps exactly one row active (`validUntil === null`) per key, so we surface
- * that single active row.
- */
+/** The active `bio_summary` fact, for the settings Background card. */
 export function useBioFact(): BioFactState {
   const { rep, loadError, retry } = useReplicacheStatus();
   const { data: session } = authClient.useSession();
@@ -53,7 +42,7 @@ export function useBioFact(): BioFactState {
   const bio = useMemo(() => {
     const active = (rows ?? []).filter((f) => f.key === BIO_KEY && f.validUntil === null);
 
-    // Prefer a confirmed row over a still-proposed one if both linger mid-pull.
+    // Mid-pull, both a confirmed and a proposed row can be active.
     return active.find((f) => f.status === "confirmed") ?? active[0] ?? null;
   }, [rows]);
 
@@ -61,8 +50,7 @@ export function useBioFact(): BioFactState {
     async (text: string): Promise<void> => {
       const trimmed = text.trim();
 
-      // Sync client not ready yet — surface a failure so the caller's catch
-      // can toast instead of reporting a phantom save.
+      // Throw so the caller toasts instead of reporting a save that did not happen.
       if (!rep || !userId) {
         throw new Error("Sync client not ready — bio not saved.");
       }
@@ -86,8 +74,7 @@ export function useBioFact(): BioFactState {
   );
 
   return {
-    // SAFETY: the synced bio row's value column holds the FactValue shape the
-    // mutators wrote; toText reads it tolerantly.
+    // SAFETY: the mutators wrote a `FactValue`; `toText` accepts anything.
     value: toText(bio?.value as FactValue | undefined),
     loading: rows === null && !loadError,
     error: loadError,

@@ -1,22 +1,6 @@
 /**
- * Identity-affiliation deterministic core (ADR-0080, #218 / `docs/plans/identity-facts-projection-v1.md`).
- *
- * The provably-correct primitives the identity-facts PROJECTION composes — kept
- * here, pure and unit-tested, because ADR-0080 invariant 3 ("deterministic core,
- * LLM at the edges") makes them the safety floor: an LLM may *propose* candidate
- * observations, but it never decides authoritative identity. Three pieces:
- *
- *   1. the DOMAIN CLASSIFIER (§4b) — a connected-account email domain into one of
- *      four employer-signal outcomes, deterministically;
- *   2. the GROUNDING-TIER ladder + authority RANKING (§5) — the closed, ordered
- *      provenance vocabulary the projection ranks candidate values by (it reads
- *      `groundingTier`, NOT the flat `source.kind="projection"` writer tag);
- *   3. the per-key GROUNDING RULE (§5) — which tier may ground which identity key
- *      (a corporate domain grounds `employer` but NOT `job_title`/`team`/`manager`;
- *      `weak_mentions` is evidence that never promotes — invariant 6).
- *
- * Pure module — no Node imports (consumed across the web boundary, same rule as
- * `user-model.ts`, from which it borrows `FactKey`).
+ * Deterministic identity-affiliation core (ADR-0080). An LLM may propose observations;
+ * these rules decide identity. Pure module: the web client imports it.
  */
 
 import { z } from "zod";
@@ -24,23 +8,15 @@ import { isValidDomain, normalizeDomain, splitEmail } from "./domain";
 import { enumGuard } from "./guards";
 import { type FactKey } from "./user-model";
 
-// ───────────────────────────────────────────────────────────────────────────
-// Domain classifier (ADR-0080 §4b) — the connected-account employer signal
-// ───────────────────────────────────────────────────────────────────────────
+// Domain classifier (ADR-0080 §4b)
 
-/**
- * The four employer-signal outcomes a domain (or full address) classifies into.
- * This is the structural gate that decides whether a `user_org_affiliation`
- * observation can ground `employer` at all — see {@link affiliationGroundingTier}.
- */
+/** Employer-signal classes for a domain or address. Only `corporate_domain` can ground `employer`. */
 export const DOMAIN_CLASSES = [
-  /** Free / personal mailbox (gmail, icloud, proton, …). No employer signal. */
   "consumer_email",
-  /** A real organization domain (oliv.ai, acme.com). Strong org affiliation; may auto-confirm `employer` when uncontradicted. */
   "corporate_domain",
-  /** School / alumni / agency / shared-hosting / disposable / personal custom. Affiliation maybe; `employer` requires corroboration. */
+  /** School, alumni, shared hosting, disposable, or personal custom domain. */
   "ambiguous_domain",
-  /** Role / service mailbox (noreply@, support@, a bounce/mailer host). Never an employer. */
+  /** Role or service mailbox, e.g. noreply@. */
   "service_or_role_account",
 ] as const;
 
@@ -48,13 +24,7 @@ export const domainClassSchema = z.enum(DOMAIN_CLASSES);
 
 export type DomainClass = (typeof DOMAIN_CLASSES)[number];
 
-/**
- * Free / consumer mailbox providers (the `consumer_email` set). This is the old
- * cold-start `CONSUMER_EMAIL_DOMAINS` list moved here, not expanded in the same
- * slice, so deduping the registry does not change cold-start behavior. A consumer
- * domain is never the subject's employer, so a `user_org_affiliation` over one
- * grounds nothing. Extend this set in a behavior-changing PR with corpus examples.
- */
+/** Free consumer mailbox domains. Cold-start reads this set too, so adding a domain changes its behavior. */
 export const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
   // Google
   "gmail.com",
@@ -80,11 +50,7 @@ export const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
   "duck.com",
 ]);
 
-/**
- * Disposable / throwaway mailbox domains — `ambiguous_domain`, never a corporate
- * signal. Kept short on purpose (a missed entry only costs a wasted corroboration
- * requirement, never a wrong `employer`); extend as real cases appear.
- */
+/** Disposable mailbox domains. Short on purpose: a miss stays ambiguous, never a wrong `employer`. */
 const DISPOSABLE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
   "mailinator.com",
   "guerrillamail.com",
@@ -98,11 +64,8 @@ const DISPOSABLE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Shared-hosting / site-builder suffixes whose child names anyone can claim
- * (`alice.github.io`, `acme.wixsite.com`). A child domain under one of these is
- * `ambiguous_domain` — the registrable domain belongs to the host, not the
- * subject's employer. Matched as a PROPER suffix only, so `github.com` itself can
- * still be a corporate employer while `alice.github.io` cannot.
+ * Hosts where anyone can claim a child name (`alice.github.io`).
+ * Proper suffix match only, so `github.com` itself can still be an employer.
  */
 const SHARED_HOSTING_SUFFIXES: readonly string[] = [
   "github.io",
@@ -122,13 +85,7 @@ const SHARED_HOSTING_SUFFIXES: readonly string[] = [
   "notion.site",
 ];
 
-/**
- * Local-part tokens that mark a NON-personal role / service / automated mailbox
- * (`noreply@`, `support@`, `billing@`). An address with one of these local parts
- * is `service_or_role_account` regardless of its domain class — it is never a
- * person whose employer we can assert. Matched on the WHOLE local part and on its
- * hyphen/dot/underscore-split tokens (so `no-reply`, `no_reply`, `team.support`).
- */
+/** Role or service local parts. Matched on the whole local part and on each `.`/`_`/`-` token. */
 const ROLE_SERVICE_LOCAL_PARTS: ReadonlySet<string> = new Set([
   "noreply",
   "no-reply",
@@ -173,59 +130,22 @@ const ROLE_SERVICE_LOCAL_PARTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Locals whose LAST separated token is a service word: the no-reply family
- * (`messages-noreply`, `jobalerts-noreply`, `notifications-noreply`) plus the
- * alert/notice family (`nse_alerts`, `waareeenergies.update`, `store-news`).
- * The mirror of a service-word PREFIX: providers prefix (`noreply-accounts@`)
- * and suffix (`messages-noreply@`) interchangeably.
- *
- * The suffix form used to fall through to `person`/`unknown`, because a local
- * part joined by `.`/`_`/`-` also reads as a first-name/last-name pair. Three
- * prod misses, measured over 319 `triage.classification` runs (2026-09-06..16):
- *   - `messages-noreply@linkedin.com`, "Reminder: … invited you to connect" —
- *     parsed `person`, tagged `awaiting_reply` off the reminder copy (#1097).
- *   - `waareeenergies.update@in.mpms.mufg.com`, "Waaree Energies Limited -
- *     Communication of deduction of Tax at Source on Dividend" — parsed
- *     `person`, tagged `action_needed`. MUFG Intime is a share registrar: the
- *     envelope is the registrar's and the ACTOR is the local part (#1100).
- *   - `nse_alerts@nse.co.in`, "Funds/Securities Balance" — parsed `person`,
- *     first pass `fyi`, escalated to `action_needed` by the
- *     `under_classification` net (#1100).
- *
- * A SEPARATOR is required, so a bare `news@`/`newsletter@`/`updates@` local
- * stays weak and a staffed `news@` mailbox at a small company is not
- * force-typed. A bare trailing `reply` (`reply@`, `replies@`) is not matched
- * for the same reason.
- *
- * This union has no `^` alternative, unlike the `NO_REPLY_SUFFIX_RE` it
- * replaced in the triage sender parser. Dropping it preserved behaviour there:
- * every bare form that branch matched (`noreply`, `no-reply`, `no_reply`,
- * `donotreply`, `do-not-reply`, `do_not_reply`) is an exact member of the
- * strong-service local set each caller tests first. Measured over the
- * 116-address prod corpus: the whole-corpus `fromKind` diff is 3 addresses,
- * 0 of them in the no-reply family and 0 of them a person.
+ * A service word as the last separated token (`messages-noreply`, `nse_alerts`, `x.update`).
+ * Without this, a joined local part parsed as a first.last person name (#1097, #1100).
+ * A separator is required, so a staffed bare `news@` mailbox is not forced to a service.
  */
 const SERVICE_WORD_SUFFIX_RE =
   /[-_.](?:no[-_]?reply|donotreply|do[-_]not[-_]reply|alerts?|notifications?|newsletters?|news|updates?)$/i;
 
 /**
- * True when the LAST separated token of a local part is a service word.
- *
- * Deliberately NOT folded into {@link isRoleServiceLocalPart}: that predicate
- * already token-splits on `[._-]`, so `noreply`, `alerts` and `updates` reach
- * it today. The real delta is `news`/`newsletter`, and widening
- * {@link classifyEmailDomain} over them is an affiliation-grounding change
- * that belongs to whoever needs it, not to a caller of this predicate.
+ * True when the last separated token of a local part is a service word.
+ * Kept out of `isRoleServiceLocalPart`: adding `news` there would change affiliation grounding.
  */
 export function hasServiceWordSuffix(localPart: string): boolean {
   return SERVICE_WORD_SUFFIX_RE.test(localPart);
 }
 
-/**
- * Apex/host-name tokens that mark a SENDING-SERVICE / bounce domain (the domain
- * itself is infrastructure, not an org the user works at): `bounce.acme.com`,
- * `email.notifications.foo.com`, `mailer.x.io`. Matched as a leading domain label.
- */
+/** First domain labels that mark mail infrastructure, e.g. `bounce.acme.com`. */
 const SERVICE_DOMAIN_LABELS: ReadonlySet<string> = new Set([
   "noreply",
   "no-reply",
@@ -249,7 +169,7 @@ const EDU_TLDS: readonly string[] = [".edu"];
 // Academic second-level domains across ccTLDs: ac.uk, edu.au, ac.in, edu.sg, …
 const EDU_SLD_PATTERN = /\.(ac|edu)\.[a-z]{2,}$/;
 
-/** Tokens in a domain that hint at school / alumni / agency / personal — `ambiguous_domain`. */
+/** Domain labels that mark a school or alumni domain. */
 const AMBIGUOUS_DOMAIN_TOKENS: readonly string[] = ["alumni", "alum", "students", "student"];
 
 function isFreeMailDomain(domain: string): boolean {
@@ -267,7 +187,6 @@ function isRoleServiceLocalPart(localPart: string): boolean {
 
   if (ROLE_SERVICE_LOCAL_PARTS.has(base)) return true;
 
-  // Any token of a delimited local part (`team.billing`, `no-reply`) being a role word.
   return base.split(/[._-]/).some((token) => ROLE_SERVICE_LOCAL_PARTS.has(token));
 }
 
@@ -293,18 +212,12 @@ function isAmbiguousDomain(domain: string): boolean {
 }
 
 export interface ConnectedAccountInput {
-  /** A connected-account email address — its local part is checked for role/service mailboxes. */
   readonly email: string;
-  /**
-   * Verified hosted/workspace domain for the account, when the provider exposes
-   * one (Google's `hd` claim). A custom domain without this corroboration is
-   * ambiguous rather than an auto-grounding employer.
-   */
+  /** Verified workspace domain (Google `hd`). Without it, a custom domain is only ambiguous. */
   readonly verifiedHostedDomain?: string | null;
 }
 
 export interface BareDomainInput {
-  /** A bare domain (used when no address is available — e.g. an org domain on its own). */
   readonly domain: string;
 }
 
@@ -315,41 +228,20 @@ function normalizeVerifiedHostedDomain(value: string | null | undefined): string
   return isValidDomain(normalized) ? normalized : null;
 }
 
-/**
- * The deprecated alias input: exactly one question per call. Each member
- * forbids the other's keys, so the old mixed literal (`{ email, domain }`)
- * does not compile — under the old shape it routed to the email half, under a
- * naive union it would route to the domain half, and that silent answer-switch
- * is precisely what the split removes.
- */
+/** Each member forbids the other's keys, so a mixed `{ email, domain }` does not compile. */
 type DeprecatedClassifyInput =
   | (ConnectedAccountInput & { readonly domain?: never })
   | (BareDomainInput & { readonly email?: never; readonly verifiedHostedDomain?: never });
 
-/** Narrows the deprecated alias input to the bare-domain question. */
 function isBareDomainInput(input: DeprecatedClassifyInput): input is BareDomainInput {
   return "domain" in input;
 }
 
 /**
- * Classify a CONNECTED ACCOUNT into its employer-signal outcome (ADR-0080 §4b).
- * DETERMINISTIC — same input always yields the same class, so a projection
- * replay converges and the class is unit-testable without a DB or LLM.
- *
- * Precedence (first match wins):
- *   1. a role/service LOCAL PART or service host  → `service_or_role_account`
- *      (checked first: `noreply@acme.com` is a service mailbox, not employment at Acme);
- *   2. a free-mail domain                         → `consumer_email`;
- *   3. an academic / alumni / shared-hosting / disposable domain → `ambiguous_domain`;
- *   4. otherwise                                  → `corporate_domain` with
- *      hosted-domain corroboration, `ambiguous_domain` without it.
- *
- * A full email address gets the stricter connected-account rule: a custom
- * non-free address is corporate only when the provider also verifies a hosted
- * domain (e.g. Google `hd`). When `hd` is present it is the verified org domain
- * even if the email claim uses an alias/secondary domain; the email local part
- * still gates role/service mailboxes. Without that corroboration, personal
- * custom domains stay ambiguous.
+ * Classify a connected account (ADR-0080 §4b). A role local part wins first:
+ * `noreply@acme.com` is not employment at Acme.
+ * A custom domain is corporate only when it is the verified hosted domain (`hd`).
+ * When `hd` is present it replaces the address domain.
  */
 export function classifyConnectedAccount(input: ConnectedAccountInput): DomainClass | null {
   const parsed = splitEmail(input.email);
@@ -372,19 +264,7 @@ export function classifyConnectedAccount(input: ConnectedAccountInput): DomainCl
   return verifiedHostedDomain === domain ? "corporate_domain" : "ambiguous_domain";
 }
 
-/**
- * Classify a BARE DOMAIN into its employer-signal outcome (ADR-0080 §4b).
- * DETERMINISTIC, same contract as {@link classifyConnectedAccount} minus the
- * address half: no local part to gate on, no hosted-domain corroboration to
- * ask for. A bare domain is treated as an org-domain candidate — the question
- * that gates a domain-wide write.
- *
- * Precedence (first match wins):
- *   1. a service host                             → `service_or_role_account`;
- *   2. a free-mail domain                         → `consumer_email`;
- *   3. an academic / alumni / shared-hosting / disposable domain → `ambiguous_domain`;
- *   4. otherwise                                  → `corporate_domain`.
- */
+/** Classify a bare domain as an org-domain candidate (ADR-0080 §4b). No `hd` check, so any other domain is corporate. */
 export function classifyBareDomain(input: BareDomainInput): DomainClass | null {
   const domain = normalizeDomain(input.domain);
 
@@ -400,12 +280,8 @@ export function classifyBareDomain(input: BareDomainInput): DomainClass | null {
 }
 
 /**
- * @deprecated Answer one question instead: {@link classifyConnectedAccount}
- * for a connected-account address, {@link classifyBareDomain} for a bare
- * domain. Kept for `user-model.ts` (another campaign's file — item 49
- * migrates it and deletes this alias). The old mixed/empty shapes
- * (`{}`, `{ email, domain }`) no longer compile; every migrated site names
- * its question.
+ * @deprecated Use {@link classifyConnectedAccount} or {@link classifyBareDomain}.
+ * `user-model.ts` still calls it.
  */
 export function classifyEmailDomain(input: DeprecatedClassifyInput): DomainClass | null {
   if (isBareDomainInput(input)) return classifyBareDomain(input);
@@ -413,7 +289,7 @@ export function classifyEmailDomain(input: DeprecatedClassifyInput): DomainClass
   return classifyConnectedAccount(input);
 }
 
-/** True iff `domain` (or the domain of an address) is a free/consumer mailbox provider. */
+/** True if a domain, or the domain of an address, is a free mail provider. */
 export function isFreeMail(domainOrEmail: string | null | undefined): boolean {
   if (!domainOrEmail) return false;
   const parsed = domainOrEmail.includes("@") ? splitEmail(domainOrEmail) : null;
@@ -422,35 +298,20 @@ export function isFreeMail(domainOrEmail: string | null | undefined): boolean {
   return isFreeMailDomain(domain);
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Grounding tiers + authority ranking (ADR-0080 §5)
-// ───────────────────────────────────────────────────────────────────────────
+// Grounding tiers (ADR-0080 §5)
 
 /**
- * The closed, ORDERED provenance vocabulary the identity projection ranks
- * candidate values by (strongest first). Projection-owned `user_facts` rows carry
- * `source.kind="projection"` as a WRITER TAG ONLY — authority is read from this
- * tier (+ the underlying observation source in `derivedFrom`), never the flat
- * `"projection"` source. That keeps a Directory-grounded employer strictly above
- * a footer-inferred one (the rejected alternative (c) in ADR-0080).
- *
- * Order IS the rank (index 0 = strongest). `weak_mentions` is the floor: it is
- * EVIDENCE, and {@link canGroundIdentityKey} never lets it promote (invariant 6).
+ * Provenance tiers, strongest first; the order is the rank.
+ * Read authority from the tier, not from `source.kind="projection"`, which only tags the writer.
  */
 export const GROUNDING_TIERS = [
-  /** Explicit `source=user` correction ("I left", "that's a client"). Highest. */
   "user_correction",
-  /** A `/settings` profile edit (`source=user`/`alfred_chat`, `user_profile_edit`). */
   "user_profile_edit",
-  /** Verified Workspace Directory org membership (the P3 reducer). */
   "directory_verified",
-  /** Current corporate-domain org affiliation from a connected account (§4a). */
   "corporate_affiliation",
-  /** The user's own signature / public profile bio they authored. */
   "self_authored_profile_or_signature",
-  /** Corroborated public research / cold-start. */
   "corroborated_public_or_cold_start",
-  /** A bare mention in third-party content. Evidence only — never promotes. */
+  /** Evidence only; never promotes (invariant 6). */
   "weak_mentions",
 ] as const;
 
@@ -458,32 +319,23 @@ export const groundingTierSchema = z.enum(GROUNDING_TIERS);
 
 export type GroundingTier = (typeof GROUNDING_TIERS)[number];
 
-/** Rank for each tier (lower = stronger), derived from {@link GROUNDING_TIERS} order. */
+/** Lower is stronger. */
 export const GROUNDING_TIER_RANK: Readonly<Record<GroundingTier, number>> =
-  // SAFETY: GROUNDING_TIERS is the closed tier tuple, so mapping it produces
-  // exactly one entry per GroundingTier; Object.fromEntries' string index
-  // erases that, and this cast restores it.
+  // SAFETY: mapping the closed tuple gives one entry per tier; fromEntries erases the key type.
   Object.fromEntries(GROUNDING_TIERS.map((tier, i) => [tier, i])) as Record<GroundingTier, number>;
 
 export function groundingTierRank(tier: GroundingTier): number {
   return GROUNDING_TIER_RANK[tier];
 }
 
-/** True iff `a` is a STRICTLY stronger grounding than `b` (lower rank wins). */
+/** True if `a` is strictly stronger than `b`. */
 export function isStrongerGrounding(a: GroundingTier, b: GroundingTier): boolean {
   return groundingTierRank(a) < groundingTierRank(b);
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Per-key grounding rule (ADR-0080 §5) — which tier may ground which key
-// ───────────────────────────────────────────────────────────────────────────
+// Per-key grounding rule (ADR-0080 §5)
 
-/**
- * The identity keys the projection OWNS (a subset of `FACT_ONTOLOGY`). Slice 1a
- * activates only `employer`; the rest land in slice 1b reusing the same reducer
- * + ranking, so the list lives here now and the slice gate (api side) decides
- * which are live. Every entry is asserted to be a real `FactKey`.
- */
+/** The identity keys the projection owns. */
 export const PROJECTION_IDENTITY_KEYS = [
   "employer",
   "job_title",
@@ -500,28 +352,12 @@ export type ProjectionIdentityKey = (typeof PROJECTION_IDENTITY_KEYS)[number];
 
 export const isProjectionIdentityKey = enumGuard(PROJECTION_IDENTITY_KEYS);
 
-/**
- * Keys a `corporate_affiliation` tier ALONE may ground (ADR-0080 §5). A corporate
- * email domain grounds `employer` and nothing else: `job_title` / `team` /
- * `manager` are NOT grounded by a domain (they need Directory, a user
- * correction/edit, a self-authored profile, or corroborated first-party
- * evidence); `location` / profile URLs need direct user-subject evidence.
- */
+/** A corporate domain grounds `employer` only, never a title, team, or manager. */
 const CORPORATE_AFFILIATION_GROUNDABLE: ReadonlySet<ProjectionIdentityKey> = new Set(["employer"]);
 
 /**
- * True iff a candidate at grounding `tier` may MATERIALIZE identity `key` (ADR-0080
- * §5). The two structural rules:
- *
- *   - `weak_mentions` grounds NOTHING — it is evidence, and "evidence-only never
- *     promotes" (invariant 6). `mentioned_company` stays raw.
- *   - `corporate_affiliation` grounds ONLY `employer` — a domain does not ground
- *     a title/team/manager/location/url.
- *
- * Every stronger/direct tier (`user_*`, `directory_verified`,
- * `self_authored_profile_or_signature`, `corroborated_public_or_cold_start`)
- * grounds any owned key; ABOUTNESS (subjectIdentity = user) is enforced
- * structurally upstream (invariant 2), not here.
+ * True if a candidate at `tier` may materialize `key` (ADR-0080 §5).
+ * The caller checks that the subject is the user (invariant 2).
  */
 export function canGroundIdentityKey(tier: GroundingTier, key: ProjectionIdentityKey): boolean {
   if (tier === "weak_mentions") return false;
@@ -531,21 +367,7 @@ export function canGroundIdentityKey(tier: GroundingTier, key: ProjectionIdentit
   return true;
 }
 
-/**
- * The grounding tier a `user_org_affiliation` observation of a given domain class
- * carries (ADR-0080 §4a/§4b), or `null` when the class grounds nothing on its own:
- *
- *   - `corporate_domain`         → `corporate_affiliation` (may auto-confirm `employer`);
- *   - `consumer_email`           → null (no employer signal);
- *   - `service_or_role_account`  → null (never an employer);
- *   - `ambiguous_domain`         → null (affiliation maybe, but `employer` needs
- *                                  corroboration — the corroboration upgrade is a
- *                                  later slice, so alone it grounds nothing now).
- *
- * Returning `null` is the "no grounding, no row" contract (invariant 1) in code:
- * absent a corporate domain, the projection materializes no `employer` from a
- * connected account.
- */
+/** The tier a `user_org_affiliation` of this class carries. `null` means no grounding, no row (invariant 1). */
 export function affiliationGroundingTier(domainClass: DomainClass): GroundingTier | null {
   return domainClass === "corporate_domain" ? "corporate_affiliation" : null;
 }

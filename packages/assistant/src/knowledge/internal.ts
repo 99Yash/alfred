@@ -1,42 +1,15 @@
 /**
- * `@alfred/assistant/knowledge/internal` — the single privileged tooling door
- * into the knowledge substrate's internals.
- *
- * The sanctioned knowledge contract (observe / recall / contextFor /
- * applyCorrection + genuinely cross-module helpers) flows out through the
- * curated barrel `./index`, published as `@alfred/assistant/knowledge`. A handful of
- * `apps/server` operational scripts (backfills / smokes) legitimately reach
- * PAST that contract to poke internal projection / policy / significance
- * helpers — a privileged tooling surface, not the general public one.
- *
- * This file is that surface: an EXPLICIT, curated, named re-export of exactly
- * the internals a committed backfill or smoke needs. It is `export { … }`, never
- * `export *`, so a new internal added to one of the owning files cannot leak
- * through here — a future tooling symbol needs its own line added below. Honors
- * ADR-0089 ("one supported interface per module"): one named door, not a
- * wildcard leak of five internal files.
- *
- * The "tooling only" restriction is gate-enforced: an oxlint
- * `no-restricted-imports` rule in `.oxlintrc.json` forbids importing this subpath
- * from anywhere outside `apps/server/src/scripts/**`, so a route or worker reaching
- * for a write-capable internal here is a red `pnpm lint`, not a silent bypass.
+ * `@alfred/assistant/knowledge/internal`: the tooling door for `apps/server`
+ * scripts. Named exports only, so a new internal cannot leak through.
+ * `.oxlintrc.json` forbids importing it outside `apps/server/src/scripts/**`.
  */
 export { backfillTeamGraph } from "./team-graph";
 
-// The row-keyed preview door for a mail contact's kind — used by the
-// committed cleanup backfill, which already holds the stored rows it is about
-// to re-kind, so an alias shared by two rows cannot borrow a sibling's stored
-// name. The address-keyed `previewContactKinds` is NOT published here: its one
-// caller (`team-graph.ts`) imports it relatively and no script needs it, so
-// publishing it would leave the next tooling script choosing between two
-// doors where the wrong choice is the exact bug round 0 probed. The
-// classifier behind both stays inside the knowledge module: `entity-graph.ts`
-// is its only importer.
+// Row-keyed, for a backfill that already holds the rows. The address-keyed
+// `previewContactKinds` is not published, so scripts cannot pick the wrong door.
 export { previewStoredContactKinds, type ContactKind } from "./entity-graph";
 
-// The ONE definition of the `entities` unique-index clash a re-kind can hit —
-// shared by the live writer and the committed cleanup backfill, so the "keep
-// the current kind, never merge two contacts" policy has a single home.
+// The one definition of the re-kind clash with the `entities` unique index.
 export { reKindWouldCollide } from "./entity-graph";
 
 export {

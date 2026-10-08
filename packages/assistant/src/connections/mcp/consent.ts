@@ -1,14 +1,4 @@
-/**
- * What one MCP connection asks its authorization server for, and whether only
- * a fresh consent screen can satisfy that ask.
- *
- * This is policy, and it lives beside the connection it reads. The HTTP route
- * (`packages/http/src/mcp.ts`) used to union the registry baseline with two
- * scope columns, decide when to force a consent, and pick the pending sentence
- * inline — three connection fields and the existence of a built-in scope
- * baseline, all known to a route whose job is the redirect. A second consent
- * door would have copied the block.
- */
+/** Which scopes an MCP connection asks for, and whether it needs a fresh consent screen. */
 
 import type { McpConnection, McpServer } from "@alfred/db/schemas";
 
@@ -22,55 +12,19 @@ export type McpConsentConnection = Pick<McpConnection, "grantedScopes" | "requir
 export interface McpConsentAsk {
   /** Every scope to request, registry baseline first. */
   readonly scopes: readonly string[];
-  /**
-   * {@link scopes} as OAuth's space-delimited `scope` parameter, empty when
-   * this connection asks for nothing.
-   */
+  /** {@link scopes} as the space-delimited OAuth `scope` parameter. */
   readonly scope: string;
-  /**
-   * True when the authorize call must land on a consent screen: either the
-   * caller demanded one, or the ask names a scope the stored grant lacks.
-   */
+  /** The caller forced consent, or the ask names a scope the grant lacks. */
   readonly forceReauthorization: boolean;
-  /**
-   * The sentence `/integrations` shows on the card while the consent is
-   * pending. The card reads `lastError`, so this is the whole report.
-   */
+  /** Shown on the integrations card (via `lastError`) while consent is pending. */
   readonly pendingMessage: string;
 }
 
 /**
- * Union the scopes this connection must request, and decide whether the
- * request needs a visible consent.
- *
- * **Why a baseline exists.** The remote server decides what its `tools/list`
- * contains from the token it is given, and GitHub's server HIDES a tool whose
- * scope the token lacks instead of failing the call. Both scope columns are
- * empty on a fresh row, so with no baseline a built-in asks for nothing,
- * GitHub issues a token with an empty scope, and the catalog comes back with
- * only the scope-free tools — one that cannot read a pull request. Nothing in
- * the protocol reports that shortfall, which is why the ask is pinned in the
- * registry (`BUILT_IN_REGISTRY[…].scopes`) instead of discovered.
- *
- * **Why the baseline is not stored.** It is derived from the endpoint on every
- * authorize, so widening it in code needs no row migration and no backfill,
- * and the two scope columns keep their one meaning: what this connection was
- * granted, and what its server demanded through an insufficient-scope
- * response. A runtime demand therefore still widens the next consent.
- *
- * **What `forceReauthorization` actually buys.** It is a belt, not the
- * mechanism. The SDK's `auth()` short-circuits only through its refresh
- * branch, and a GitHub `gho_` token carries no refresh token, so a GitHub
- * reconnect reaches the authorization server either way — and GitHub skips the
- * consent screen by itself when every scope asked for is already granted. For
- * a provider that DOES issue a refresh token, `auth()` would renew the narrow
- * token and never ask, so the flag is what makes "the ask exceeds the grant"
- * reach a consent screen at all.
- *
- * The comparison is against `grantedScopes`, which the callback writes from
- * the token response through `parseOAuthScopeList`. That parser accepts
- * GitHub's comma list; a whitespace-only split stored `repo,read:org` as ONE
- * opaque scope, and then `exceedsGrant` stayed true on every single connect.
+ * Union the registry baseline, granted, and demanded scopes.
+ * The baseline is derived, not stored: servers hide tools the token lacks scope for.
+ * Force consent when the ask exceeds the grant, or the SDK's `auth()` would just
+ * refresh the narrow token and never ask.
  */
 export function mcpConsentAsk(
   connection: McpConsentConnection,
@@ -91,9 +45,7 @@ export function mcpConsentAsk(
     scopes,
     scope: scopes.join(" "),
     forceReauthorization,
-    // Which sentence is true depends on whether a grant already exists, not on
-    // which route asked: a widened baseline over a ready connection is an
-    // additional-permissions prompt too.
+    // Depends on whether a grant exists, not on which route asked.
     pendingMessage:
       forceReauthorization && connection.grantedScopes.length > 0
         ? "Additional permissions require your consent."

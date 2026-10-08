@@ -20,47 +20,10 @@ import { createId, inList, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
 /**
- * Per-user OAuth credentials for external providers (Gmail/Calendar today,
- * Slack/Linear/etc. later). Deliberately kept separate from Better Auth's
- * `account` table — Better Auth manages the user's *identity* (sign-in
- * provider tokens), while this table manages *capability* tokens for
- * services alfred reads/writes on the user's behalf.
- *
- * Why separate:
- *  - Token-refresh policy differs (offline-access scopes, long-lived
- *    refresh tokens, per-provider quirks).
- *  - One user can connect multiple accounts of the same provider
- *    (work + personal Gmail), keyed by `account_id` (the provider's
- *    own user identifier — Google `sub`, Slack workspace+user, etc.).
- *  - Scopes evolve independently of identity scopes.
- *
- * `access_token` and `refresh_token` hold an authenticated AES-256-GCM
- * envelope, never a usable token (#453, ADR-0038 as amended). The columns stay
- * `text` because the envelope is self-describing — version, algorithm, key id,
- * nonces, and tags all live inside the stored string, so nonce and tag columns
- * would add migration surface without adding validation.
- *
- * `@alfred/db/credential-vault` owns that representation, and the three
- * persistence modules in `@alfred/integrations` (Google, GitHub, shared bearer)
- * are the only writers. Both columns are typed {@link SealedCredentialSecret},
- * which is nominal in both directions: a plaintext write does not compile,
- * because the brand is only mintable by `credentialVault().seal`, and a
- * persisted value cannot reach a provider header, a template literal, or any
- * `string` parameter without `credentialVault().open` first. A test that
- * deliberately seeds the pre-#453 plaintext shape casts, and says so at the
- * cast.
- *
- * Better Auth's `account` table cannot have the same guard: its adapter hands
- * the driver a loosely typed payload, so nothing there would typecheck against
- * a branded column. That side is enforced at runtime instead, by the
- * `encryptedAuthAdapter` decorator plus the boot gate. The asymmetry is
- * deliberate: type-level where a writer exists to type, runtime where one does
- * not.
- *
- * Why credentials and not content: a leaked row here is not a disclosure, it is
- * a transferable capability. Railway workspace tokens in particular CANNOT be
- * scoped down — one is full workspace write and can redeploy any service in a
- * shared team.
+ * Per-user capability tokens for external providers. Better Auth's `account`
+ * holds sign-in identity; this holds what Alfred uses to act for the user.
+ * Both token columns hold a sealed AES-256-GCM envelope (ADR-0038), never a usable token.
+ * The {@link SealedCredentialSecret} brand blocks a plaintext write and a raw read.
  */
 export const integrationCredentials = pgTable(
   "integration_credentials",
@@ -72,50 +35,33 @@ export const integrationCredentials = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     /**
-     * The credential provider (ADR-0093): `google` for every Google product,
-     * else the live provider's slug (`github`, `notion`, `sentry`, `vercel`).
-     * The vocabulary is derived from the integration registry, and the CHECK
-     * below holds the column to it, so a new provider is a migration.
+     * `google` for every Google product, else the live provider slug (ADR-0093).
+     * A new provider needs a migration for the CHECK.
      */
     provider: text("provider").$type<CredentialProvider>().notNull(),
-    /** Provider-side user identifier — Google `sub`, Slack `team:user`, etc. */
+    /** Provider-side user id, e.g. Google `sub`. */
     accountId: text("account_id").notNull(),
-    /** Email or display label surfaced in the UI ("dev.7@oliv.ai"). */
     accountLabel: text("account_label"),
     accessToken: text("access_token").$type<SealedCredentialSecret>().notNull(),
     refreshToken: text("refresh_token").$type<SealedCredentialSecret>(),
     tokenType: text("token_type").default("Bearer"),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
-    /** Granted scopes parsed into an array — providers vary on space vs comma separation. */
+    /** Parsed into an array because providers split scopes with spaces or commas. */
     scopes: jsonb("scopes")
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
-    /** Free-form provider-specific bag: id_token claims, raw refresh response, watch-channel ids, etc. */
     metadata: jsonb("metadata")
       .$type<JsonObject>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     /**
-     * The provider-side installation id an inbound webhook delivery names: the
-     * GitHub App installation id (ADR-0052) or the Sentry integration
-     * installation uuid. NULL for every provider that sends no webhooks and
-     * for legacy classic-OAuth GitHub rows. A delivery carries only this id,
-     * so it is the indexed join key from a delivery back to the owning
-     * credential; the lookup is always scoped by `provider` as well, because
-     * the id space is the provider's, not Alfred's.
+     * The installation id a webhook delivery names. A delivery carries only this id.
+     * Always look it up with `provider` too, because each provider owns its id space.
      */
     installationId: text("installation_id"),
     status: text("status").notNull().default("active"),
-    /**
-     * Account persona (ADR-0051, triage v3): `'work' | 'personal'`. Auto-detected
-     * from the Google `hd` (hosted-domain) claim at connect — a Workspace domain
-     * means `work`, its absence means `personal` — and user-overridable. Fed to
-     * the triage classifier as a one-line context hint. NULL until detected
-     * (legacy rows predating the column). The rich persona *policy* (what is
-     * work-urgent vs personal-urgent) is a deferred future ADR; v1 is label +
-     * plumbing only.
-     */
+    /** Detected from the Google `hd` claim at connect; the user can override it (ADR-0051). */
     persona: text("persona").$type<AccountPersona>(),
     lastRefreshedAt: timestamp("last_refreshed_at", { withTimezone: true }),
     ...lifecycle_dates,
@@ -126,28 +72,11 @@ export const integrationCredentials = pgTable(
       sql`${t.provider} IN (${inList(CREDENTIAL_PROVIDERS)})`,
     ),
     uniqueIndex("integration_credentials_unique_idx").on(t.userId, t.provider, t.accountId),
-    // Inbound webhook deliveries resolve their owning credential by installation id.
     index("integration_credentials_installation_idx").on(t.installationId),
   ],
 );
 
-/**
- * Per-(integration, sync-stream) cursor. Stores whatever the provider's
- * delta API needs as a continuation token — Gmail `historyId`, Slack
- * `cursor`, Calendar `syncToken`, GitHub `etag` etc. Kept generic via
- * `state` jsonb so each ingestor owns the shape.
- *
- *  - `last_sync_at` and `last_full_sync_at` distinguish incremental
- *    pulls from full re-ingestion (used after a watch-channel expiry
- *    or a token rotation that invalidates the cursor).
- *  - `last_fallback_insert_at` (#998) is the start of a history poll that
- *    inserted a message whose addition was not covered by a push receipt.
- *    The stale-push reader compares this observation with the last push
- *    receipt in `event_receipts` (ADR-0090 keeps push facts there).
- *  - `stream` discriminates multiple sync streams under one credential
- *    ("messages" vs "labels" vs "drafts" — we'll only use "messages"
- *    initially but the column lets us add streams without migrations).
- */
+/** Sync cursor per (credential, stream). Each ingestor owns the shape of `state`. */
 export const ingestionState = pgTable(
   "ingestion_state",
   {
@@ -166,10 +95,10 @@ export const ingestionState = pgTable(
       .notNull()
       .default(sql`'{}'::jsonb`),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
-    /** Successful webhook-driven fetch/persist completion; excludes embedding and triage. */
+    /** Webhook fetch and persist finished. Embedding and triage are not part of it. */
     lastWebhookSyncAt: timestamp("last_webhook_sync_at", { withTimezone: true }),
     lastFullSyncAt: timestamp("last_full_sync_at", { withTimezone: true }),
-    /** Start of the latest history poll that inserted mail not covered by a push receipt. */
+    /** Start of the latest poll that inserted mail no push receipt covered. Spots a stale push. */
     lastFallbackInsertAt: timestamp("last_fallback_insert_at", { withTimezone: true }),
     ...lifecycle_dates,
   },
@@ -180,109 +109,51 @@ export const ingestionState = pgTable(
 );
 
 /**
- * Durable event receipts for the trigger readiness control plane (#560).
- * Each row is one provider delivery — one Pub/Sub push, one GitHub webhook,
- * etc. — deduplicated by `(provider, provider_delivery_id)`. The table is
- * the audit trail for "did we receive this?" and the source of truth for
- * gap detection (the `coverageGap` / `lastVerifiedDelivery` signals that
- * workflow readiness reads).
- *
- * Gmail v1: `provider_delivery_id` is the Pub/Sub `message.messageId`, which
- * is stable across redeliveries. `event_type` is `gmail.message_received`.
- * `verification_result` records the OIDC outcome ('oidc_valid', 'oidc_skipped',
- * or 'oidc_failed'); an inbound webhook row records 'signature_valid', the only
- * value it can carry because an unverified body is never stored.
- * `processing_status` tracks whether the ingestion job ran and completed.
- *
- * Inbound webhook sources (ADR-0097): `provider` is the source slug from
- * `EVENT_SOURCE_ENTRIES` (`github`), `provider_delivery_id` is the key the
- * source descriptor's `dedup` rule produced, `event_type` is
- * `<slug>.<projected type>`, and `payload` holds the verified body so the
- * delivery job and any consumer can read it after the HTTP request has been
- * acknowledged. Gmail rows leave `payload` NULL because the Pub/Sub envelope
- * carries only a pointer.
- *
- * Raw receipts (ADR-0097 item 9, #988): a verified, owner-attributed delivery
- * whose kind the source's entry does not name is stored too, with `raw_kind`
- * set to the provider's own kind (`comment.created`, `issue_comment.created`),
- * `event_type = <slug>.raw`, and `provider_delivery_id = raw:<raw_kind>:<payload_hash>`. Such a
- * row is `pending` at insert, like any other receipt: the same `ingress.deliver`
- * job runs for it and publishes `<slug>.raw` with its kind (#990).
- * `raw_kind IS NULL` is the typed tier; every reader that
- * folds, briefs, or triggers on receipts uses `typedEventReceipts`.
- *
- * The full unique index on `(provider, provider_delivery_id)` deduplicates
- * redeliveries at the DB level. The webhook handler uses `onConflictDoNothing`
- * so a duplicate insert is a no-op. Failed deliveries are not retried with a
- * new row — the index prevents duplicate receipts for the same delivery.
+ * One row per provider delivery, deduplicated by `(provider, provider_delivery_id)`.
+ * The source of truth for gap detection (ADR-0090).
+ * A raw receipt (ADR-0097) is a verified delivery of a kind no entry names:
+ * `raw_kind` is set and `event_type` is `<slug>.raw`. Typed readers use `typedEventReceipts`.
  */
-// Receipts are never deleted directly. The append-only trigger (#1177, migration
-// 0134) refuses a direct DELETE outright, because Gmail push health and gap
-// detection read facts that only this table holds; the one allowed delete path is
-// the FK cascade, which fires when a `user` or `integration_credentials` row goes
-// away — this table holds those `onDelete: "cascade"` references, so it is the
-// referencing side, not the referenced one. What expires is the body and
-// only the body: `payload` is released to NULL (migration 0139), while
-// `history_id`, `delivered_at` and the `(provider, provider_delivery_id)` dedup
-// key survive, so those readers keep what they need and no summary table is
-// necessary. The trigger permits that one transition without knowing how old a
-// receipt is; the retention window is the reaper's policy, not the trigger's.
+// Append-only: a trigger rejects a direct DELETE (migration 0134).
+// Only the user or credential cascade deletes rows.
+// Retention sets only `payload` to NULL. The dedup key, `history_id`, and `delivered_at` stay.
 export const eventReceipts = pgTable(
   "event_receipts",
   {
     id: text("id")
       .primaryKey()
       .$defaultFn(() => createId("evr")),
-    /** 'google' for Gmail; the inbound source slug (`github`) for webhook sources. */
+    /** `google` for Gmail, else the webhook source slug. */
     provider: text("provider").notNull(),
-    /** Pub/Sub messageId (Gmail) or the descriptor's dedup key (X-GitHub-Delivery for GitHub). Stable across redeliveries. */
+    /** Pub/Sub messageId or the source's dedup key. Stable across redeliveries. */
     providerDeliveryId: text("provider_delivery_id").notNull(),
-    /** FK to integration_credentials — the account that owns this delivery. */
     credentialId: text("credential_id")
       .notNull()
       .references(() => integrationCredentials.id, { onDelete: "cascade" }),
-    /** Owning user, resolved from the credential at receive time. */
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /**
-     * The `<source>.<type>` domain-event name (`eventTypeName` in contracts):
-     * 'gmail.message_received', 'github.pull_request'. A raw receipt stores
-     * `<source>.raw` (`rawEventTypeName`), which no entry declares.
-     */
+    /** `<source>.<type>`, or `<source>.raw` for a raw receipt. */
     eventType: text("event_type").notNull(),
-    /**
-     * The provider's own kind of a raw receipt (ADR-0097 item 9): the delivery's
-     * `<resource>.<action>` as the provider names it, kept verbatim so the
-     * inventory can show a kind the registry has never seen. NULL on every typed
-     * receipt; this column is the tier discriminator.
-     */
+    /** The provider's own kind, verbatim, on a raw receipt. NULL means typed. */
     rawKind: text("raw_kind"),
-    /** Gmail historyId from the push notification (presence gate + cursor). */
+    /** Gmail historyId from the push. */
     historyId: text("history_id"),
-    /** Verification outcome: 'oidc_valid', 'oidc_skipped' (dev), 'oidc_failed' for Gmail; 'signature_valid' for inbound webhook rows. */
+    /**
+     * Gmail: `oidc_valid`, `oidc_skipped` (dev), or `oidc_failed`.
+     * Webhooks: always `signature_valid`, because an unverified body is never stored.
+     */
     verificationResult: text("verification_result").notNull().default("oidc_valid"),
-    /** SHA-256 hex of the raw request body for audit / re-derivation. */
+    /** SHA-256 hex of the raw body. */
     payloadHash: text("payload_hash"),
-    /**
-     * The verified JSON body of an inbound webhook delivery (ADR-0097). NULL
-     * for Gmail, whose Pub/Sub envelope is a pointer the poll job re-reads, and
-     * NULL again once a webhook body passes its retention window (migration
-     * 0139). A NULL payload therefore does not mean Gmail, so a reader must not
-     * infer the source from this column.
-     */
+    /** Verified webhook body. NULL for Gmail and after retention, so NULL does not mean Gmail. */
     payload: jsonb("payload"),
-    /**
-     * Processing state: 'pending' (received, not yet ingested), 'completed'
-     * (ingestion job ran), 'failed' (ingestion job errored).
-     */
     processingStatus: text("processing_status")
       .$type<"pending" | "completed" | "failed">()
       .notNull()
       .default("pending"),
-    /** When the provider delivered (Pub/Sub push timestamp). Defaults to DB receive time. */
+    /** Defaults to DB receive time. */
     deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull().defaultNow(),
-    /** When the ingestion job completed or failed. */
     processedAt: timestamp("processed_at", { withTimezone: true }),
     ...lifecycle_dates,
   },
@@ -294,10 +165,7 @@ export const eventReceipts = pgTable(
     uniqueIndex("event_receipts_dedup_idx").on(t.provider, t.providerDeliveryId),
     index("event_receipts_credential_idx").on(t.credentialId, t.deliveredAt),
     index("event_receipts_user_idx").on(t.userId, t.provider, t.deliveredAt),
-    // Partial on a live body so the reaper's index-driven scan tracks the live
-    // bodies, not the age of the table: a receipt leaves the index as soon as
-    // its payload expires to NULL. `event_receipts_payload_live_idx`
-    // (`packages/db/src/migrations/0139_receipt_payload_retention.sql`).
+    // Partial, so the retention reaper scans only live bodies, not the whole table.
     index("event_receipts_payload_live_idx")
       .on(t.deliveredAt)
       .where(sql`${t.payload} IS NOT NULL`),

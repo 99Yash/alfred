@@ -1,23 +1,8 @@
 /**
- * MCP OAuth (RFC 8707 resource indicators + RFC 8414 discovery + RFC 7591 DCR).
- *
- * Execution order — start (`GET /built-ins/:provider/connect` or
- * `GET /connections/:id/authorize` -> `beginAuthorization` in
- * `packages/http/src/mcp.ts`):
- *  1. `authorize()` runs SDK `auth()`: `saveDiscoveryState` (upsert
- *     `mcp_oauth_credentials`) -> `clientInformation` (DCR or built-in env
- *     client) -> `state` (Redis nonce + `mcp_oauth_authorization_attempts` row)
- *     -> `saveCodeVerifier` (sealed PKCE on that attempt) ->
- *     `redirectToAuthorization` (throws `McpOAuthAuthorizationRequiredError`,
- *     route sets `mcp_connections.status=auth_required` + 302).
- *  2. User consents at the authorization server.
- * Callback (`GET /callback` -> `completeMcpOAuthCallback`):
- *  3. `matchesState` (sha256(state) lookup) -> `discoveryState` (re-validate
- *     pinned issuer) -> `finishAuthorization` (code+verifier -> tokens via
- *     guarded fetch) -> `saveTokens` (seal tokens, set `grantedScopes`,
- *     delete attempt) -> `getReadyClient` (connect + catalog snapshot).
- * Steady state: `refreshIfNeeded` pre-delivery only; the transport holds a
- * token-only projection so it can never refresh/replay `tools/call`.
+ * MCP OAuth: RFC 8707 resources, RFC 8414 discovery, RFC 7591 dynamic registration.
+ * Start (`beginAuthorization`): discovery, client, state, PKCE verifier, then redirect.
+ * Callback: `matchesState`, re-check the issuer, `finishAuthorization`, `saveTokens`.
+ * Refresh happens only before delivery; the transport gets a token-only view, so it cannot replay `tools/call`.
  */
 import { parseOAuthScopeList } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -223,9 +208,7 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
         .update(mcpConnections)
         .set({
           credentialId: credential.id,
-          // One credential mode per connection (the CHECK in `schema/mcp.ts`):
-          // a keyed connection that authorizes OAuth drops its key pointer in
-          // this same write, and `persistApiKeyCredential` clears the inverse.
+          // One credential per connection (CHECK): OAuth drops the API key here.
           apiKeyCredentialId: null,
           authServerIdentity: input.issuer,
           updatedAt: new Date(),
@@ -371,24 +354,8 @@ function parseAuthorizationServerMetadata(
     : undefined;
 
   return {
-    // The issuer identifier travels EXACTLY as the server published it, not as
-    // `URL` would normalize it. Both RFC 8414 §2 and RFC 9207 §2.4 compare an
-    // issuer by simple string comparison, and `new URL("https://host").href`
-    // appends a path `/` that the origin-only form never had. Every built-in
-    // publishes the origin-only form, so normalizing here rewrote the value
-    // into one no server would ever echo.
-    //
-    // Only Sentry sets `authorization_response_iss_parameter_supported`, so
-    // only Sentry sends `iss` back and only Sentry reached the comparison: it
-    // expected `https://mcp.sentry.dev/` and received `https://mcp.sentry.dev`,
-    // and the callback failed with the code already in hand. The client's
-    // METADATA echo check tolerates a trailing slash and its authorization-
-    // RESPONSE check does not, which is why discovery passed and the callback
-    // did not.
-    //
-    // `validateEndpoint` above still pins the origin and `issuer.href` still
-    // has to equal it, so the raw string is proven to name the same server
-    // before it is returned.
+    // Keep the issuer string exactly as published. RFC 8414 and RFC 9207 compare
+    // it as a string, and `URL` adds a trailing `/`, which broke Sentry's `iss` check.
     issuer: parsed.issuer,
     authorization_endpoint: authorizationEndpoint.href,
     token_endpoint: tokenEndpoint.href,
@@ -524,13 +491,7 @@ export interface McpBoundOAuthSession {
 
 export type McpOAuthSessionFactory = (authorization: McpAuthorizedOAuth) => McpBoundOAuthSession;
 
-/**
- * SDK OAuth provider backed by Alfred's issuer-keyed encrypted credential row.
- *
- * The provider is used by the explicit authorization coordinator only. The MCP
- * HTTP transport receives a token-only projection, so transport recovery cannot
- * refresh or replay an in-flight `tools/call`.
- */
+/** SDK OAuth provider over the sealed credential row. The transport never sees it, only the token. */
 export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSession {
   readonly #connectionId: string;
   readonly #userId: string;
@@ -550,9 +511,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     this.#vault = options.vault ?? credentialVault();
     this.#authorization = options.authorization;
     this.redirectUrl = new URL(options.redirectUrl.href);
-    // `clientMetadata` is ONLY the RFC 7591 registration body. The SDK picks a
-    // token-endpoint auth method from client INFORMATION, not from it, so the
-    // built-in secret declares its method in `clientInformation()` below.
+    // Registration body only. The SDK reads the auth method from `clientInformation()`.
     this.clientMetadata = options.clientMetadata;
 
     if (options.clientMetadataUrl) {
@@ -606,19 +565,11 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
       };
     }
 
-    // Built-in providers whose authorization server has no DCR (#934). When
-    // `GITHUB_MCP_CLIENT_ID` is set, answer from the environment so the SDK
-    // skips `registerClient` entirely. Nothing persists this client: the
-    // environment stays canonical, so a rotated secret takes effect on the very
-    // next token exchange. `token_endpoint_auth_method` travels WITH the secret
-    // because the SDK's `selectClientAuthMethod` reads it off this object.
+    // A static client from env skips dynamic registration and is never stored.
+    // `token_endpoint_auth_method` goes here: `selectClientAuthMethod` reads it from this object.
     const resolution = this.#staticBuiltInClient(ctx?.issuer ?? credential?.issuer);
 
-    // A provider that pins a client and cannot produce one is a REFUSAL, and
-    // `undefined` here does not report it: the SDK reads that as consent to
-    // register a client of its own, against the very issuer the pin refused.
-    // Throwing is what makes the PR's "fails closed" true. `beginAuthorization`
-    // records the message on the connection, so the card states the reason.
+    // Throw, never return `undefined`: the SDK would then register against the refused issuer.
     if (resolution.kind === "unavailable") {
       throw new Error(builtInClientUnavailableMessage(resolution));
     }
@@ -860,7 +811,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     await this.authorize(options);
   }
 
-  /** Complete the callback through the exact authorization generation that discovered it. */
+  /** Complete the callback with the generation that ran discovery. */
   async finishAuthorization(
     callbackParams: URLSearchParams,
     options: McpOAuthRequestOptions = {},
@@ -904,13 +855,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   }
 
   #staticBuiltInClient(issuerHint?: string): BuiltInClientResolution {
-    // The authorized resource IS the connection's endpoint: the authorizer
-    // validated it against the stored server definition before this provider
-    // existed, so no second copy of the URL can drift from it. `this.redirectUrl`
-    // is the same href `mcpOAuthClientConfiguration` put in
-    // `clientMetadata.redirect_uris`, so a callback-relative refusal is a verdict
-    // about a URI the authorization server would really have been asked to
-    // accept, not about one re-derived from the environment.
+    // The endpoint is already validated. `redirectUrl` is the one in `redirect_uris`.
     return resolveBuiltInClient({
       endpoint: this.#authorization.resource,
       redirectUrl: this.redirectUrl,
@@ -924,40 +869,12 @@ export type McpOAuthClientConfiguration = {
   clientMetadata: OAuthClientMetadata;
 } & (
   | {
-      /**
-       * The Client Identifier URL Alfred sends as `client_id`, present only
-       * over HTTPS and always paired with `clientMetadataDocument`.
-       *
-       * A Client Identifier URL must be absolute HTTPS, so on an `http://`
-       * API base there is no URL to advertise and no document to serve. The
-       * union below carries both or neither, so a later edit cannot
-       * advertise a URL whose document names a different one — that equality
-       * is the whole check an authorization server runs.
-       */
+      /** The `client_id` URL. HTTPS only, and always paired with its document. */
       clientMetadataUrl: string;
       /**
-       * The document Alfred SERVES at `clientMetadataUrl`, which is not the
-       * same body as `clientMetadata`.
-       *
-       * RFC 7591 registration and a Client ID Metadata Document carry the
-       * same fields and differ in `client_id`: RFC 7591 defines it as a
-       * server-minted response field rather than a request field, while a
-       * CIMD requires it, set to the document's own URL. Serving one object
-       * as both is therefore always wrong for one of the two, and the served
-       * half is the wrong one.
-       *
-       * Measured on 2026-09-13 against the three built-ins that advertise
-       * `client_id_metadata_document_supported`. With `client_id` absent, Sentry's
-       * authorization server answered `500 Internal Server Error` in plain text
-       * (its `lookupClient` throws a `CimdFetchError` that the route does not
-       * catch), Linear answered `400 Invalid client. The clientId provided does
-       * not match to this client.`, and Notion accepted the request because it
-       * does not validate the document at authorize time. One defect, three error
-       * styles, so a per-provider workaround would have chased the loudest one.
-       *
-       * The type stays inline rather than becoming a named alias: Elysia infers
-       * the whole route tree, and a name this package exports but `@alfred/http`
-       * cannot reach makes that inferred type unportable (TS2883).
+       * The document served at `clientMetadataUrl`. Unlike the RFC 7591 body,
+       * it must carry `client_id` set to its own URL; without it Sentry 500s and Linear 400s.
+       * Kept inline: a named alias breaks Elysia's inferred route type (TS2883).
        */
       clientMetadataDocument: OAuthClientMetadata & { readonly client_id: string };
     }
@@ -970,11 +887,7 @@ export function mcpOAuthClientConfiguration(): McpOAuthClientConfiguration {
   const redirectUrl = new URL("/api/integrations/mcp/callback", apiBase);
   const candidateMetadataUrl = new URL("/api/integrations/mcp/client-metadata", apiBase);
 
-  // `CORS_ORIGIN` is a free-form string, not a validated URL, and RFC 7591
-  // requires `client_uri` to be a URL with an `https:` scheme when present.
-  // Omit it rather than send a value the authorization server must reject.
-  // It is informational (the client's homepage) and may be cross-origin to
-  // `client_id`; only the document's own `client_id` must equal its URL.
+  // Omit `client_uri`: `CORS_ORIGIN` is not a validated `https:` URL, as RFC 7591 requires.
   const clientUri = validatedHttpUrl(env.CORS_ORIGIN);
 
   const clientMetadata: OAuthClientMetadata = {
@@ -1027,9 +940,7 @@ export function mcpOAuthProviderForConnection(
     authorization: input.authorization,
     redirectUrl: config.redirectUrl,
     clientMetadata: config.clientMetadata,
-    // Omitted rather than passed as `undefined`: under
-    // `exactOptionalPropertyTypes` the absent key is what selects "no Client
-    // Identifier URL", and an explicit `undefined` is a different type.
+    // Omit the key: `exactOptionalPropertyTypes` rejects an explicit `undefined`.
     ...(config.clientMetadataUrl !== undefined
       ? { clientMetadataUrl: config.clientMetadataUrl }
       : {}),

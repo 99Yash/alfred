@@ -8,18 +8,13 @@ interface CodeBlockProps {
   code: string;
 }
 
-/**
- * Fenced code block: a self-contained dark card with a header (language label +
- * copy) and a soft-wrapping syntax-highlighted body. Theme-independent on
- * purpose — see the note in `syntax-highlighter.tsx`.
- */
+/** Dark code card with a language label and copy. Theme-independent; see `syntax-highlighter.tsx`. */
 export function CodeBlock({ language, code }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
 
   const onCopy = () => {
     if (copied) return;
-    // Clipboard API rejects in insecure contexts — swallow rather than throw
-    // inside a render-driven handler.
+    // Clipboard rejects in insecure contexts; do not throw from a handler.
     navigator.clipboard.writeText(code).then(
       () => {
         setCopied(true);

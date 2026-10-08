@@ -6,25 +6,9 @@ import { and, desc, eq } from "drizzle-orm";
 import { recallMemory, type RecallMemoryHit } from "@alfred/assistant/knowledge";
 
 /**
- * Gather everything the doc-compose step needs to write a richer body:
- *
- *   - the skill row + its current `distilled` revision (the v1 body),
- *   - the user's identity (for the email greeting + grounding),
- *   - all confirmed `user_facts` (the same set the distill saw, but
- *     post-Learn so newly auto-confirmed proposals are now in scope),
- *   - top-K integration-corpus hits (`search` over chunks ⨝
- *     documents) keyed on the v1 body as the query,
- *   - top-K memory-layer hits (`recallMemory` over `memory_chunks`)
- *     keyed on the same query.
- *
- * The query for both searches is the v1 body — it's already the
- * normalized/distilled form of the user's intent and gives the searcher
- * a stable retrieval signal. Using the raw user prompt would be noisier;
- * the distill step exists in part to clean that up.
- *
- * Conservative limits: 12 chunk hits + 6 memory hits. Boss-tier compose
- * is per-token; pulling more dilutes signal without changing the body
- * meaningfully at single-user scale.
+ * Context for the doc-compose step: the skill and its v1 body, the user, confirmed
+ * facts, and corpus and memory hits. Both searches use the v1 body as the query:
+ * distill already cleaned up the user's intent. Small limits, because the compose is boss-tier.
  */
 export interface SkillDocumentationContext {
   userId: string;
@@ -33,21 +17,15 @@ export interface SkillDocumentationContext {
     id: string;
     slug: string;
     name: string;
-    /** v1 (distilled) revision — the input to this doc pass. */
+    /** The v1 (distilled) revision. */
     currentRevisionId: string;
     currentBody: string;
   };
   facts: Array<{ key: string; value: unknown; confidence: number }>;
-  /**
-   * Model-facing hits only: the collect step strips the corpus `record`
-   * (provider id, account, thread) via `toModelFacingHit`, so the persisted
-   * run state below never carries credential-scoping identity. What reaches
-   * the compose prompt is then a compiler fact, not a field-picking
-   * convention.
-   */
+  /** `toModelFacingHit` strips the corpus `record`, so the run store holds no credential identity. */
   documentHits: ModelFacingHit[];
   memoryHits: RecallMemoryHit[];
-  /** Distinct `documents.source` values surfaced — drives the email's provenance line. */
+  /** Drives the email's provenance line. */
   sourceCounts: Record<string, number>;
 }
 
@@ -109,12 +87,7 @@ export async function collectSkillDocumentationContext(args: {
     .orderBy(desc(userFacts.updatedAt))
     .limit(200);
 
-  // Both searches use the v1 body verbatim as the query. Distill produced
-  // it specifically as the canonical statement of the skill's intent.
-  //
-  // Compute the embedding once before fan-out. The document and memory
-  // lookups are independent DB reads, but the embedding API call is
-  // billable and should not be duplicated inside Promise.all.
+  // Embed once: the call is billable, so do not repeat it inside Promise.all.
   const queryEmbedding = await embed(revRow.body, {
     inputType: "query",
     userId,
@@ -136,9 +109,7 @@ export async function collectSkillDocumentationContext(args: {
     }),
   ]);
 
-  // Strip the dereference plumbing before anything is held or persisted:
-  // the run store below keeps these hits as-is, so identity that must not
-  // persist must not be present here.
+  // The run store keeps these hits as-is, so strip identity now.
   const documentHits = searchHits.map(toModelFacingHit);
 
   const sourceCounts: Record<string, number> = {};

@@ -2,32 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 
 /**
- * `useMicRecording` — wrapper around `getUserMedia` + `MediaRecorder` +
- * `AnalyserNode` that records mic audio for transcription and drives a
- * waveform UI while doing it.
- *
- * Lifecycle:
- *   - call `start()` to request mic permission, open the audio graph, and
- *     begin capturing (webm/opus where supported, mp4 on Safari)
- *   - while active, `levelsRef.current` is updated each animation frame with
- *     normalised time-domain samples in `[-1, 1]` (Float32Array length 64)
- *   - call `finish()` to stop and get the recorded `Blob` back (for the
- *     transcribe endpoint), or `cancel()` to stop and discard the audio
- *
- * Levels live in a ref (not state) so the consuming canvas/SVG can poll on
- * its own RAF without forcing React renders 60x/sec. `elapsed` is state
- * because we DO want the on-screen timer to re-render once a second.
+ * Record mic audio for transcription and feed a waveform.
+ * `finish()` returns the `Blob`; `cancel()` discards it.
+ * Levels live in a ref, so the waveform repaints on its own RAF without React renders.
  */
 export function useMicRecording() {
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
 
-  // Live audio data — shared with the waveform renderer through this ref.
+  // Shared with the waveform renderer.
   const levelsRef = useRef<Float32Array | null>(null);
 
   if (levelsRef.current === null) levelsRef.current = new Float32Array(SAMPLE_COUNT);
-  // SAFETY: the branch above guaranteed current is a Float32Array.
+  // SAFETY: the branch above set current to a Float32Array.
   const initializedLevelsRef = levelsRef as React.RefObject<Float32Array>;
 
   const streamRef = useRef<MediaStream | null>(null);
@@ -63,7 +51,7 @@ export function useMicRecording() {
     setElapsed(0);
   };
 
-  /** Stop and discard the audio (the X button / unmount path). */
+  /** Stop and discard (X button, unmount). */
   const cancel = () => {
     const recorder = recorderRef.current;
 
@@ -75,11 +63,7 @@ export function useMicRecording() {
     teardown();
   };
 
-  /**
-   * Stop recording and resolve with the captured audio. Resolves null when
-   * nothing was captured (recorder never started / no data). The recorder's
-   * final chunk only arrives at `onstop`, hence the promise dance.
-   */
+  /** Resolve with the audio, or null if nothing was captured. The last chunk only arrives at `onstop`. */
   const finish = (): Promise<Blob | null> => {
     const recorder = recorderRef.current;
 
@@ -107,15 +91,13 @@ export function useMicRecording() {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        // Speech-tuned capture — same constraints dimension uses; both are
-        // no-ops where unsupported.
+        // No-ops where unsupported.
         audio: { echoCancellation: true, noiseSuppression: true },
       });
 
       streamRef.current = stream;
 
-      // Capture for transcription. Prefer opus-in-webm (Chrome/Firefox);
-      // Safari falls back to its default (mp4/AAC) when given no mimeType.
+      // Prefer opus-in-webm. Safari picks mp4/AAC when given no mimeType.
       chunksRef.current = [];
 
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -146,9 +128,7 @@ export function useMicRecording() {
 
         if (!a) return;
         a.getFloatTimeDomainData(raw);
-        // Downsample to SAMPLE_COUNT buckets — each bucket is the RMS of its
-        // slice, which reads as a smooth envelope rather than the jittery
-        // raw waveform. RMS keeps relative loudness intact.
+        // RMS per bucket gives a smooth envelope and keeps relative loudness.
         const bucketSize = Math.floor(raw.length / SAMPLE_COUNT);
         const next = new Float32Array(SAMPLE_COUNT);
 
@@ -189,7 +169,7 @@ export function useMicRecording() {
 
   useEffect(() => {
     return () => cancel();
-    // cancel closes over refs only; we intentionally run cleanup on unmount.
+    // Cleanup on unmount only; `cancel` reads refs.
   }, []);
 
   return { recording, error, elapsed, start, cancel, finish, levelsRef: initializedLevelsRef };
@@ -197,10 +177,7 @@ export function useMicRecording() {
 
 const SAMPLE_COUNT = 56;
 
-/**
- * Smooth waveform line driven by `levelsRef`. Reads via RAF — never via
- * React state — so the parent doesn't have to re-render to repaint.
- */
+/** Waveform line. Reads `levelsRef` on RAF, so the parent need not re-render. */
 export function MicWaveform({
   levelsRef,
   active,
@@ -241,8 +218,7 @@ export function MicWaveform({
       aria-hidden
       className={cn("size-full text-app-purple-3")}
     >
-      {/* Echo line — a wider, faded copy of the same path drawn first so it
-       * sits behind the sharp line and reads as a soft bloom around it. */}
+      {/* Wider faded copy behind the line, as a soft bloom. */}
       <path
         ref={echoRef}
         d=""
@@ -270,14 +246,7 @@ const VIEW_W = 1000;
 
 const VIEW_H = 80;
 
-/**
- * Build a smooth SVG `d` attribute that traces the time-domain envelope.
- *
- * Each level in `[-1, 1]` becomes a (x, y) sample; consecutive samples are
- * joined with mid-point quadratic curves so the path has no sharp angles
- * even when the envelope is noisy. The amplitude is amplified and clamped
- * because conversational audio rarely peaks past ~0.3.
- */
+/** Smooth SVG path through the levels. Amplified and clamped, as speech rarely passes ~0.3. */
 function buildWavePath(levels: Float32Array): string {
   const n = levels.length;
   const mid = VIEW_H / 2;

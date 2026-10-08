@@ -32,10 +32,7 @@ interface PassthroughMeta {
   tint: AppTint;
 }
 
-// Presentation only. The row LIST is driven by SUPPORTED_PASSTHROUGH_SLUGS
-// (contracts) so a newly-supported integration can't ship without a toggle;
-// this exhaustive Record forces it to also declare how it renders. The label
-// comes from INTEGRATION_DISPLAY_NAMES, the one home for an integration's name.
+// Exhaustive over SUPPORTED_PASSTHROUGH_SLUGS, so a new slug cannot ship without a row.
 const PASSTHROUGH_META = {
   gmail: {
     helper:
@@ -92,14 +89,7 @@ const PASSTHROUGH_META = {
   },
 } satisfies Record<SupportedPassthroughSlug, PassthroughMeta>;
 
-/**
- * General read-only API access toggles (ADR-0074 rung-a). One switch per
- * supported integration for the raw passthrough tool the boss uses to reach the
- * long tail the curated tools don't cover. **Default OFF** — a security-
- * sensitive read tier stays dark until you enable it, and stays killable per
- * integration without a deploy. Rendered from SUPPORTED_PASSTHROUGH_SLUGS so it
- * can never drift from the backend's supported set.
- */
+/** Read-only API passthrough toggles, one per integration (ADR-0074 rung-a). Default off. */
 export function PassthroughSection() {
   const { isOn, setEnabled, error, retry } = usePassthroughFlags();
 
@@ -153,9 +143,7 @@ export function PassthroughSection() {
                 agent={agent}
                 checked={isOn(slug)}
                 onChange={(next) => {
-                  // Fire-and-forget optimistic write, matching the sibling
-                  // background-agent toggle: Replicache applies locally and
-                  // rebases on the next pull; a load failure surfaces via `error`.
+                  // Optimistic: Replicache applies locally and rebases on pull.
                   void setEnabled(slug, next);
                 }}
               />

@@ -17,34 +17,16 @@ import type { RailInboxItem, RailTodoItem } from "./models";
 import { EMPTY_RAIL_DATA, type RailData } from "./rail-data";
 import type { RailTodoSuggestion } from "./todo-feed";
 
-// Module-level empties so the `?? EMPTY` fallback in `useRailData` returns a
-// referentially stable value before react-query's first fetch resolves —
-// otherwise every downstream callback / memo would churn on each render.
+// Stable empty fallbacks, so memos do not churn before the first fetch.
 const EMPTY_INBOX_PAGES: ReadonlyArray<InboxPage> = [];
 
 const EMPTY_INBOX_ITEMS: ReadonlyArray<RailInboxItem> = [];
 
-/**
- * Builds the `RailData` bundle that drives the right rail's three tabs
- * + footer CTA.
- *
- * - Inbox → `/api/me/inbox` (real Gmail data; empty when Gmail isn't
- *   connected).
- * - Meetings → `/api/me/meetings` (real Calendar data; empty when
- *   Calendar isn't connected).
- * - Latest briefing → `/api/me/briefings/latest` (drives the footer
- *   CTA's subtitle).
- *
- * Todos stays empty — there's no schema yet — which surfaces the honest
- * "add one" empty state in `TodoFeed`.
- */
+/** Data for the right rail's tabs and footer: inbox, meetings, todos, and the latest briefing. */
 export function useRailData(): RailData {
   const inbox = useInbox();
   const meetings = useMeetings();
-  // On-demand briefing: `composing` drives the footer's "Composing…" state
-  // and turns on polling so the chip flips to the live briefing when the run
-  // lands. The latest endpoint also reports failed rows, so failure clears
-  // the spinner instead of stranding the CTA.
+  // On-demand briefing: `composing` shows "Composing…" and polls until the run lands or fails.
   const [composing, setComposing] = useState(false);
   const briefing = useLatestBriefing({ poll: composing });
   const runBriefing = useRunBriefing();
@@ -83,7 +65,7 @@ export function useRailData(): RailData {
     });
   }, [runBriefing]);
 
-  // Live todos + Alfred's suggestions (ADR-0050), Replicache-synced.
+  // Live todos and suggestions (ADR-0050).
   const {
     todos: liveTodos,
     suggestions: liveSuggestions,
@@ -98,10 +80,7 @@ export function useRailData(): RailData {
 
   const todoItems = useMemo(() => liveTodos.map(toRailTodoItem), [liveTodos]);
 
-  // Dismissing a suggestion hides it immediately and only commits the
-  // (terminal) `dismissed` mutation after the undo window closes — so "Undo"
-  // is a local cancel, not a server round-trip (`dismissed` rows never sync
-  // back, so there'd be nothing to restore).
+  // Hide at once; commit `dismissed` after the undo window, so Undo is local.
   const { hiddenSuggestionIds, onDismissSuggestion } = useSuggestionDismissal(
     liveSuggestions,
     dismissTodo,
@@ -133,23 +112,14 @@ export function useRailData(): RailData {
   const onPromoteSuggestion = useCallback((id: string) => void promoteTodo(id), [promoteTodo]);
   const { tagsByThreadId, overrideTag } = useTriageTags();
 
-  // Local page index walks the cached `inbox.data.pages[]`. When the user
-  // advances past the last loaded page we kick off `fetchNextPage`; back
-  // navigation is free because the pages stay in cache.
+  // Walks the cached pages; going past the last one calls `fetchNextPage`.
   const [inboxPageIndex, setInboxPageIndex] = useState(0);
   const [selectedInboxId, setSelectedInboxId] = useState<string | null>(null);
 
-  // Stabilize array references — react-query keeps `data.pages` stable via
-  // structural sharing, but the `?? []` fallback would otherwise mint a
-  // fresh empty array on every render before the first fetch resolves,
-  // churning every downstream callback / memo that depends on it.
   const pages = useMemo(() => inbox.data?.pages ?? EMPTY_INBOX_PAGES, [inbox.data?.pages]);
   const total = pages[0]?.total ?? 0;
   const inboxPageCount = Math.max(1, Math.ceil(total / INBOX_DEFAULT_LIMIT));
-  // Clamp during render — when invalidation drops the total below the
-  // parked index (e.g. user archived items from another client), the rail
-  // shows the last valid page without a state write. Prev/next handlers
-  // read off `safeInboxPage` so a stale index can't strand the user.
+  // Clamp during render when invalidation drops the total below the current index.
   const safeInboxPage = Math.min(inboxPageIndex, inboxPageCount - 1);
 
   const rawInboxItems = useMemo(
@@ -173,11 +143,7 @@ export function useRailData(): RailData {
 
     if (target >= inboxPageCount) return;
 
-    // If we haven't fetched this page yet, fire the request — the page
-    // will land in cache and re-render with items populated. Don't gate
-    // the index advance on the fetch; React Query renders the existing
-    // (empty) page until the fetch resolves and InboxFeed surfaces the
-    // spinner in the indicator.
+    // Do not wait for the fetch; InboxFeed shows a spinner until the page lands.
     if (!pages[target]) void fetchNextPage();
     setInboxPageIndex(target);
   }, [safeInboxPage, inboxPageCount, pages, inbox.fetchNextPage]);
@@ -188,10 +154,7 @@ export function useRailData(): RailData {
 
   const onCloseInbox = useCallback(() => setSelectedInboxId(null), []);
 
-  // "Mark all read" is bulk by the page's visible-unread ids — InboxFeed
-  // computes that set and hands it to us. `useMarkInboxRead` invalidates
-  // ["me","inbox"] on success, so the rail rerenders with the rows
-  // already showing as read.
+  // `useMarkInboxRead` invalidates ["me","inbox"] on success.
   const markInboxRead = useMarkInboxRead();
   const markInboxReadMutate = markInboxRead.mutate;
 
@@ -281,7 +244,7 @@ export function useRailData(): RailData {
   );
 }
 
-/** Demanding leads, muted sinks; preserves server order within a band (stable). */
+/** Demanding first, muted last; server order within a band. */
 const ATTENTION_BAND_ORDER = {
   demanding: 0,
   normal: 1,
@@ -289,16 +252,8 @@ const ATTENTION_BAND_ORDER = {
 } satisfies Record<AttentionBand, number>;
 
 /**
- * Overlay each thread's synced triage tag onto its inbox row and compute the
- * presentation-layer attention band (ADR-0064 / #210), then order by it.
- *
- * The band is derived — never stored on the row, never a re-tag: honest
- * category × sender significance (from the tag) × cross-row recurrence decay,
- * through the same `@alfred/contracts` scorer the briefing read path uses.
- * Recurrence is a property of the *visible set*, so it's computed over the
- * whole page at once. Rows are then stable-sorted so demanding items lead and
- * recurring machine noise / low-significance cold senders sink — the honest
- * category chip on each row is unchanged.
+ * Overlay synced triage tags on inbox rows, then sort by attention band (ADR-0064 / #210).
+ * The band is derived, never stored, with the briefing's scorer. Recurrence needs the whole page.
  */
 function overlayTriageTags(
   items: ReadonlyArray<RailInboxItem>,
@@ -306,7 +261,6 @@ function overlayTriageTags(
 ): ReadonlyArray<RailInboxItem> {
   if (items.length === 0) return items;
 
-  // 1. Merge the synced tag's category/source onto each row.
   const merged = items.map((item) => {
     const tag = item.threadId ? tagsByThreadId.get(item.threadId) : undefined;
 
@@ -320,18 +274,15 @@ function overlayTriageTags(
     return { item: withTag, significanceBand: tag.senderSignificanceBand };
   });
 
-  // 2. Score the whole visible page together so recurrence (cross-row) is real.
-  //    Untriaged rows get no band (null) — never demoted on a guess.
+  // Score the page together so cross-row recurrence works. Untriaged rows get no band.
   const scored = scoreAttentionForItems(
     merged.map(({ item, significanceBand }) => ({
-      // The bare address (not the display name) is what reveals a bulk mailbox
-      // and keys the recurrence grouping.
+      // The bare address shows bulk mailboxes and keys recurrence.
       sender: item.senderAddress ?? item.sender,
       subject: item.subject,
       category: item.category ?? "fyi",
       significanceBand,
-      // Order recurrence chronologically — the rail is newest-first, so without
-      // this the latest copy of a repeated alarm would (wrongly) stay demanding.
+      // The rail is newest-first; without this the latest repeat would stay demanding.
       occurredAtMs: item.authoredAtMs,
     })),
   );
@@ -342,7 +293,6 @@ function overlayTriageTags(
     return item.attentionBand === band ? item : { ...item, attentionBand: band };
   });
 
-  // 3. Stable-sort by band (demanding → normal/untriaged → muted).
   return withBand
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {
@@ -355,7 +305,6 @@ function overlayTriageTags(
     .map(({ item }) => item);
 }
 
-/** Map a synced todo to the rail's display shape (ADR-0050). */
 function toRailTodoItem(t: SyncedTodo): RailTodoItem {
   const provider = t.sources[0]?.provider;
 
@@ -377,7 +326,7 @@ function toRailTodoItem(t: SyncedTodo): RailTodoItem {
   };
 }
 
-/** Map a `suggested` todo to the rail's suggestion shape; `assist` is the subtitle. */
+/** `assist` becomes the subtitle. */
 function toRailSuggestion(t: SyncedTodo): RailTodoSuggestion {
   return { id: t.id, label: t.name, detail: t.assist ?? "" };
 }
@@ -385,12 +334,8 @@ function toRailSuggestion(t: SyncedTodo): RailTodoSuggestion {
 const SUGGESTION_UNDO_MS = 5000;
 
 /**
- * Deferred-commit dismissal for todo suggestions. Hiding is immediate (the id
- * joins `hiddenSuggestionIds`, which the caller filters out), but the terminal
- * `todoDismiss` mutation only fires after the undo window — so "Undo" cancels
- * the pending commit locally. (`dismissed` rows never sync back, so there is no
- * server-side row to restore once committed.) A still-pending dismissal is
- * committed on unmount so navigating away doesn't silently lose it.
+ * Hide a suggestion at once; send `todoDismiss` after the undo window, so Undo is local.
+ * Dismissed rows never sync back. A pending dismissal commits on unmount.
  */
 interface SuggestionDismissal {
   hiddenSuggestionIds: ReadonlySet<string>;

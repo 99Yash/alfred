@@ -18,39 +18,17 @@ export function normalizeDecisionTraceKey(decisionKey?: string): string {
 }
 
 /**
- * Registry of durable decision-trace kinds (#219 PR-A). Maps each trace `kind`
- * to its structured payload type. `ctx.trace(kind, record)` is generic over
- * this map, so a producer cannot persist a record whose shape doesn't match the
- * kind it declares — shape drift fails the build instead of writing a malformed
- * row.
+ * Trace kind to payload type, so `ctx.trace` rejects a wrong shape at build time.
+ * Empty here: each producer adds its kind in its own module, so execution imports no payload type.
  *
- * The executor and the `agent_decision_traces` table are kind-agnostic: they
- * persist `(kind, decisionKey, record-as-jsonb)` without inspecting the
- * payload. If a domain row must commit atomically with its trace, the domain
- * store may write the same keyed trace before the executor's idempotent insert.
- *
- * This interface is deliberately EMPTY here and OPEN for augmentation: a
- * producer module declares its own kind + payload from inside its own boundary
- *
- *     // in the producing module (e.g. triage), NOT here:
- *     declare module "../agent/decision-traces" {
+ *     declare module "@alfred/assistant/execution/decision-traces" {
  *       interface DecisionTraceRegistry {
  *         "my.kind": MyPayload;
  *       }
  *     }
  *
- * so execution owns the trace *seam* without importing any product payload type
- * (that import was the last `agent -> triage` module edge; item 06 removed it).
- * triage is the first producer (ADR-0051 sender-extraction event, declared in
- * `triage/sender-extraction-event.ts`); briefing / memory-extraction /
- * cold-start adopt the same way. NEVER give this an index signature or widen an
- * entry to `unknown`: that silently disables every producer's `ctx.trace`
- * payload check, which is the whole point of the map.
+ * Never add an index signature or an `unknown` entry: that turns off every payload check.
  */
-// Declared empty on purpose: every entry is added by a producer through
-// declaration merging, and the doc comment above is the contract those producers
-// read. Neither `no-empty-interface` nor `no-empty-object-type` fires under the
-// current config, so this carries no suppression.
 export interface DecisionTraceRegistry {}
 
 export type DecisionTraceKind = keyof DecisionTraceRegistry;
@@ -58,27 +36,16 @@ export type DecisionTraceKind = keyof DecisionTraceRegistry;
 export type DecisionTraceFor<K extends DecisionTraceKind> = DecisionTraceRegistry[K];
 
 export interface DecisionTraceOptions {
-  /**
-   * Stable per-step discriminator for multiple decisions of the same `kind`.
-   * Omit only when the step emits at most one trace for that kind.
-   */
+  /** Required when a step emits more than one trace of a kind. */
   decisionKey?: string;
 }
 
-/**
- * A trace collected during a step body, awaiting persistence in the step's
- * commit transaction. Discriminated so `kind` and `record` stay correlated.
- */
+/** Discriminated, so `kind` and `record` stay matched. */
 export type DecisionTraceRecord = {
   [K in DecisionTraceKind]: { kind: K; decisionKey: string; record: DecisionTraceFor<K> };
 }[DecisionTraceKind];
 
-/**
- * The kind-agnostic shape every trace carries regardless of its registry
- * entry. The executor collects and persists traces without importing any
- * producer's payload type, so it holds them at this shape;
- * {@link DecisionTraceRecord} is the producer-facing view of the same rows.
- */
+/** The executor's view of a trace, with no producer payload type. */
 export interface DecisionTraceBase {
   kind: string;
   decisionKey: string;

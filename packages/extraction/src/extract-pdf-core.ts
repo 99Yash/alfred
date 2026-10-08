@@ -163,7 +163,7 @@ export async function extractPdfCore(
 
       if (totalCharacters > maxCharacters) {
         if (limits.truncateOnOutputExceed) {
-          // Truncate text to fit remaining budget after pages
+          // Give the text whatever budget the pages left.
           const pageChars = pdfExtractionPageCharacterCount(mutablePages);
           const remaining = Math.max(0, maxCharacters - pageChars);
           documentText = truncateTextToFit(documentText, remaining);

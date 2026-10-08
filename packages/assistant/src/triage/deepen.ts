@@ -24,7 +24,7 @@ export interface DeepenDecision {
 }
 
 export interface DeepenTriageArgs {
-  /** Optional metering attribution. The caller supplies the already-bounded user knowledge. */
+  /** Metering only. */
   userId?: string;
   document: {
     id: string;

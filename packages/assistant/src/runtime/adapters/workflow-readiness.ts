@@ -10,11 +10,8 @@ import {
 let unregisterWorkflowReadinessCheck: (() => void) | undefined;
 
 /**
- * Map the rich `workflows` readiness result into the narrow verdict the
- * execution core reads. Exhaustive over every `RuntimeReadinessResult` kind — a
- * dropped kind fails to compile at the `satisfies never` line, so the
- * defer-and-retry (`deferred`) path can never be silently lost. The core never
- * sees `newlyBlocked`; it forwards `problems` opaquely into blocked step-output.
+ * Narrow the `workflows` readiness result for the execution core. Exhaustive,
+ * so a new kind cannot silently drop the `deferred` retry path.
  */
 export function toVerdict(result: RuntimeReadinessResult): WorkflowReadinessVerdict {
   switch (result.kind) {

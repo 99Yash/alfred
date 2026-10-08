@@ -27,41 +27,19 @@ import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { normalizeDecisionTraceKey } from "@alfred/assistant/execution";
 import type { SenderExtractionEvent } from "./sender-extraction-event";
 
-/**
- * Persistence helpers for the thread-keyed triage table. The workflow owns
- * the LLM call and the Gmail label-write; this module is pure DB access.
- * One row per (userId, sourceThreadId) — classifier-authored rows update on
- * newer messages, while user-authored overrides stay pinned until the user
- * changes them again.
- */
+/** DB access for `email_triage`: one row per (user, thread). User overrides stay pinned. */
 
 /**
- * Advisory-lock key for serializing all triage work on a single Gmail thread.
- *
- * Why a lock and not a constraint (ADR-0025 follow-up): the invariant we need
- * — "a thread shows at most one alfred label" — lives in *Gmail*, an external
- * system, not in our tables. No Postgres constraint can reach it. When several
- * messages of one thread are ingested together (backfill, a pub/sub batch),
- * each fresh document fans out its own triage run; without serialization the
- * runs interleave their Gmail read→apply→strip and each leaves its own label,
- * so the thread view unions two+ tags. We use Postgres purely as the cross-run
- * mutex (same pattern as `replicache/pull` and `todos/suggest`): hold the lock
- * across the classify row-write and the label-write so they converge to a
- * single tag on the thread's canonical (most-recently-classified) message.
+ * Per-thread lock key. "One alfred label per thread" lives in Gmail, so no
+ * constraint can hold it; concurrent runs would each leave a label.
  */
 export function triageThreadLockKey(userId: string, sourceThreadId: string): string {
   return `triage:thread:${userId}:${sourceThreadId}`;
 }
 
 /**
- * Run `fn` while holding the per-thread advisory lock. Transaction-scoped
- * (`pg_advisory_xact_lock`), released on commit/rollback — concurrent runs for
- * the same thread block here and execute one at a time. DB-only callers can use
- * the transaction handle to make their writes atomic with each other; callers
- * that also do Gmail IO may ignore the handle and keep their existing pooled DB
- * calls while this transaction only parks the lock. At single-user scale
- * (worker concurrency 4, pool max 10) holding the lock across the handful of
- * Gmail round-trips is well within the connection budget.
+ * Run `fn` under the per-thread `pg_advisory_xact_lock`. Callers doing Gmail IO
+ * may ignore `tx`; the transaction then only holds the lock.
  */
 export async function withTriageThreadLock<T>(
   userId: string,
@@ -77,12 +55,7 @@ export async function withTriageThreadLock<T>(
   });
 }
 
-/**
- * DB row with `category` narrowed to the triage enum. `source` is already
- * branded on the column (`.$type<TriageTagSource>()`); every other column
- * tracks `EmailTriage` ($inferSelect). The lifecycle dates are dropped
- * deliberately — `rowToTriage` doesn't surface them.
- */
+/** `category` narrowed to the triage enum; lifecycle dates dropped. */
 export type TriageRow = Omit<EmailTriage, "category" | "createdAt" | "updatedAt"> & {
   category: TriageCategory;
 };
@@ -107,37 +80,19 @@ export interface UpsertTriageArgs {
   category: TriageCategory;
   confidence: number;
   rationale: string | null;
-  /** Validated semantic-kind proposal; never the durable ask lifecycle. */
+  /** The proposal only, never the ask lifecycle. */
   documentAsk?: DocumentAskProposal | null;
   model: string;
   runId: string | null;
   appliedLabelId?: string | null;
-  /**
-   * Classifier todo proposal + rubric trace (rule 16). Persisted on the row so a
-   * same-run `classify` retry on the reuse path can reconstruct the classification
-   * and re-mint the todo a crashed first attempt never wrote (#157). Omit/null
-   * when the model proposed no todo.
-   */
+  /** So a same-run retry can re-mint the todo (#157). */
   todoSuggestion?: TriageTodoSuggestion | null;
   todoDecision?: TriageTodoDecision | null;
-  /**
-   * Sender-significance band at classify time (ADR-0064). Persisted so the rail
-   * can demote a low-significance sender's thread within its honest category.
-   * Null/omitted when the sender is non-human / unscored / had no graph row.
-   */
+  /** For the rail's in-category demotion (ADR-0064). */
   senderSignificanceBand?: SignificanceBand | null;
-  /**
-   * Typed rule-16b cold-contact verdict at classify time (#517). Persisted so a
-   * same-run `classify` retry on the reuse path re-applies the cold-sender todo
-   * gate from the row instead of re-deriving it from observations it no longer
-   * has. Null/omitted when the sender is non-human / unscored / had no graph row.
-   */
+  /** So the reuse path can re-apply the cold-sender gate (#517). */
   senderRelationshipIsCold?: boolean | null;
-  /**
-   * Durable forensic trace for this classifier decision. Written in the same
-   * transaction as the canonical triage row so a worker crash after row write
-   * cannot leave a tag without its "why" record.
-   */
+  /** Written in the same transaction, so a tag never lacks its trace. */
   decisionTrace?:
     | {
         stepId: string;
@@ -148,40 +103,22 @@ export interface UpsertTriageArgs {
       }
     | undefined;
   /**
-   * Authored timestamp of the message this classification is for. Drives the
-   * recency guard: a run for an OLDER message in the thread must not clobber a
-   * classification already written for a NEWER one. Concurrent first-touch runs
-   * (backfill burst) race the row with `appliedLabelId` still null, so the
-   * classify-step skip guard can't catch them — this is the backstop that makes
-   * the row converge on the newest message regardless of which run writes last.
+   * Recency guard: an older message must not overwrite a newer one. The backstop
+   * for first-touch races, where `appliedLabelId` is still null.
    */
   authoredAt: Date | null;
 }
 
 export interface UpsertTriageResult {
   row: TriageRow;
-  /**
-   * False when the recency guard kept a strictly-newer stored classification
-   * (this run lost the race). Callers gate their best-effort side effects
-   * (inbox publish, sender-prior bump, todo suggestion) on this so a superseded
-   * older message doesn't emit signals for a tag that isn't canonical.
-   */
+  /** False when a newer stored row won. Gate side effects on it. */
   written: boolean;
 }
 
 /**
- * Insert or update the thread's triage row, holding the per-thread advisory
- * lock so the read-existing → recency-check → write is atomic against other
- * runs on the same thread. Re-classification on a newer message overwrites an
- * `auto` row in place; a user-pinned row, or a run for an older message
- * (different `documentId`, older `authoredAt`), is a no-op and returns the
- * stored row with `written: false`.
- *
- * `appliedLabelId` is set exactly to the caller's value when provided; otherwise
- * an auto rewrite clears it to `null`. The label-write step sets the fresh Gmail
- * id after `reconcileThreadLabel` succeeds. This keeps the column a truthful
- * "current row has been reconciled" marker instead of carrying an old label id
- * across a category/document change.
+ * Upsert under the thread lock. A user-pinned row or an older message is a no-op
+ * (`written: false`). `appliedLabelId` resets to null unless given, so it only
+ * marks the current row as reconciled.
  */
 export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriageResult> {
   const documentAsk = args.documentAsk ? documentAskProposalSchema.parse(args.documentAsk) : null;
@@ -200,17 +137,12 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
 
     const existing = existingRows[0];
 
-    // User overrides are sticky: the classifier may still run on a new inbound
-    // message, but it cannot silently replace the user's chosen category. The
-    // apply-label step re-reads this row and converges Gmail to the pinned tag.
+    // User overrides are sticky; apply-label converges Gmail to the pinned tag.
     if (existing?.source === "user") {
       return { row: rowToTriage(existing), written: false };
     }
 
-    // Recency guard: if the thread already carries a classification for a
-    // DIFFERENT, strictly-newer message, keep it. Equal timestamps fall
-    // through to overwrite (last writer wins) — a same-second reply is rare
-    // and either category is defensible; the label-write converges anyway.
+    // Keep a strictly newer message's row. Equal timestamps: last writer wins.
     if (args.authoredAt) {
       const existingDocId = existing?.documentId;
 
@@ -358,10 +290,6 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
   });
 }
 
-/**
- * Update only the `applied_label_id` on a thread's triage row — used by
- * the label-write step after Gmail's `messages.modify` succeeds.
- */
 export async function setAppliedLabelId(
   userId: string,
   sourceThreadId: string,
@@ -376,13 +304,7 @@ export async function setAppliedLabelId(
     .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, sourceThreadId)));
 }
 
-/**
- * Repoint a thread's triage row at the message that was actually labeled and
- * record the applied label in one write. Used by the relabel path when the
- * stored `document_id`'s Gmail message id has gone stale (404) and the label
- * had to be re-resolved to a live message in the thread instead (#277) — both
- * `document_id` and `applied_label_id` must then reflect that live message.
- */
+/** Repoint the row at the message actually labelled, after a stale-id 404 (#277). */
 export async function setTriageReconciledTarget(
   userId: string,
   sourceThreadId: string,
@@ -399,13 +321,6 @@ export async function setTriageReconciledTarget(
     .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, sourceThreadId)));
 }
 
-/**
- * Authored timestamp of a single document, or null if the row is absent or
- * carries no `authored_at`. The triage already-tagged guard uses this to
- * decide whether an incoming message is genuinely newer than the one the
- * thread was last classified from — i.e. a reply worth re-evaluating vs a
- * re-delivered / out-of-order / duplicate message worth skipping.
- */
 export async function getDocumentAuthoredAt(
   userId: string,
   documentId: string,
@@ -436,39 +351,17 @@ export interface TriageDocumentContext {
     authoredAt: Date | null;
     metadata: GmailDocumentMetadata;
   };
-  /** Resolved Gmail credential for the doc's account. */
   credentialId: string;
-  /**
-   * Account persona for the credential (`'work' | 'personal' | null`) — fed to
-   * the triage classifier as a one-line context hint (ADR-0051 §3). Null for
-   * legacy credentials connected before persona auto-detection.
-   */
+  /** Null for credentials connected before persona detection. */
   persona: AccountPersona | null;
   /**
-   * Minimal identity of the user whose mailbox this is (ADR-0050/0051 amendment
-   * 2026-06-09). Feeds the todo ownership-attribution gate so an action the
-   * email assigns to a named third party isn't minted as the user's todo.
-   * Deliberately just identity.
-   *
-   * The two addresses are NOT interchangeable, which is why they are separate
-   * fields rather than one best-effort `email`:
-   *
-   *  - `email` is a *hint* — the account address when we have it, the user's
-   *    primary app email otherwise. Good enough to tell a classifier "this is
-   *    probably you"; not good enough to decide anything.
-   *  - `mailboxAddress` is the *authoritative* address of the mailbox this
-   *    document came from, or `null` when we don't know it. Anything whose
-   *    correctness depends on "is this address really this mailbox" must read
-   *    this one and treat `null` as unknown.
+   * For the ownership gate (rule 16a). `email` is a hint that falls back to the
+   * primary app email. `mailboxAddress` is authoritative; null means unknown.
    */
   identity: { name: string | null; email: string | null; mailboxAddress: string | null };
 }
 
-/**
- * Load a Gmail document plus the credential id needed to write labels back.
- * Throws when the doc isn't from Gmail or the credential is gone — both are
- * unrecoverable for the workflow.
- */
+/** Null when the doc is gone. Throws when it is not Gmail or has no credential. */
 export async function loadTriageContext(
   documentId: string,
   userId: string,
@@ -490,14 +383,6 @@ export async function loadTriageContext(
     throw new Error(`[triage] document ${documentId} missing accountId`);
   }
 
-  // Both reads key only off `userId` / `doc.accountId` (already resolved), so
-  // run them on one round-trip instead of two — this is the per-classification
-  // hot path. The user row feeds the ownership-attribution gate: display name
-  // from the user row, account email from the credential's label (the precise
-  // per-account address), falling back to the user's primary email. The
-  // fallback makes `identity.email` best-effort, so the credential label is
-  // also surfaced unfallen-back as `identity.mailboxAddress` for callers that
-  // need the real thing.
   const [credRows, userRows] = await Promise.all([
     db()
       .select({

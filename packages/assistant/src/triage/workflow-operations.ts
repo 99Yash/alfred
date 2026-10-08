@@ -70,21 +70,12 @@ import { z } from "zod";
 /**
  * Email triage workflow (ADR-0025): one `email_triage` row per (user, thread),
  * steps classify → apply-label → close-loop-todos. A reply re-runs it; user
- * overrides stay pinned; apply-label strips sibling alfred labels. Owner: this file. History: ADR-0051, ADR-0050, #282, #1168. Glossary: `docs/reference/glossary.md`.
+ * overrides stay pinned.
  */
 
 /**
- * The `email-triage` run state, stated once. `email-triage.ts` hands this
- * schema to the executor as the recipe's `stateSchema`, and the step bodies
- * below constrain their `State` to the inferred type, so the persisted shape
- * and the shape the bodies read are one declaration.
- *
- * Declare it once because nothing can catch a second copy that drifts:
- * `Step.run` is a method shorthand, so its parameter is bivariant and `tsc`
- * accepts a state type that adds or widens a field; and this recipe sets
- * `closure: { kind: "none" }`, so `terminal-closure.ts` never parses the
- * state either. A hand-written twin of this shape is therefore checked by
- * neither the compiler nor the runtime (#1180 review).
+ * The run state, declared once. Never hand-write a copy: `Step.run` params are
+ * bivariant and this recipe's state is never parsed, so a drifted twin goes unchecked.
  */
 export const emailTriageStateSchema = z.object({
   documentId: z.string(),
@@ -95,28 +86,13 @@ export const emailTriageStateSchema = z.object({
   rationale: z.string().nullable().optional(),
   senderContext: senderContextSchema.optional(),
   force: z.boolean().optional(),
-  /**
-   * The whole-thread closure fact, read once by `classify` on the outbound-reply
-   * re-eval (`reason === "reply"`) and consumed by `close-loop-todos`. Present
-   * only on a reply run: every other reason neither suppresses the mint nor
-   * retracts a todo, so it pays for no read (ADR-0050).
-   */
+  /** Whole-thread closure, read by `classify` on reply runs only, used by `close-loop-todos`. */
   userAlreadyReplied: z.boolean().optional(),
 });
 
 export type EmailTriageOperationState = z.infer<typeof emailTriageStateSchema>;
 
-/**
- * Why `classify` ended a run without a classification, and the sentence each
- * reason owes the run-history row. `deriveRunOutcome` falls back to "Run
- * completed." when a `done` carries no `summary`, so a skip with no sentence
- * reads in the history as a triage that succeeded (#561).
- *
- * The keys are the reason slugs the `skipped` output carries, so this table is
- * the only place a skip reason is spelled: the `skip` helper below takes
- * `ClassifySkipReason`, and a reason absent from this table is a type error at
- * the call site.
- */
+/** Run-history sentence per skip reason. Without one, a skip reads as "Run completed." (#561). */
 const CLASSIFY_SKIP_SUMMARIES = {
   "triage-disabled": "Skipped: email tagging and action items are both off",
   "document-not-found": "Skipped: the document was deleted before the run started",
@@ -131,10 +107,6 @@ type ClassifySkipReason = keyof typeof CLASSIFY_SKIP_SUMMARIES;
 export async function runEmailTriageClassify<State extends EmailTriageOperationState>(
   ctx: StepContext<State>,
 ): Promise<StepResult<State, EmailTriageStepName>> {
-  // Every exit below ends the run without a classification. They differ only
-  // in the reason, so they share one shape: the reason names its own history
-  // sentence, and `output.skipped` keeps the shape the smoke scripts and the
-  // enqueue callers already read.
   const skip = (
     reason: ClassifySkipReason,
     extra?: { category: TriageCategory },
@@ -145,11 +117,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     output: { skipped: true, reason, ...extra },
   });
 
-  // Background-agent toggles (Settings → Features). Tagging gates the
-  // Gmail label (apply-label step); action-items gates the todo
-  // suggestion below. Both share this one classify call. When the user
-  // has switched BOTH off there's nothing to produce — skip before the
-  // document load + cheap-model call so a disabled inbox costs nothing.
+  // Tagging gates the label, action items gate the todo. Both off: skip before any cost.
   const flags = await resolveFeatureFlags(ctx.userId);
 
   if (!flags.emailTagging && !flags.actionItems) {
@@ -161,9 +129,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   const ctxData = await loadTriageContext(ctx.state.documentId, ctx.userId);
 
   if (!ctxData) {
-    // Document was deleted between enqueue and run — unrecoverable
-    // but not an error. Mark done; upstream callers can detect via
-    // `output.skipped`.
+    // Deleted between enqueue and run. Not an error.
     await ctx.log(`document gone: ${ctx.state.documentId}`);
 
     return skip("document-not-found");
@@ -172,18 +138,13 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   const sourceThreadId = ctxData.document.sourceThreadId;
 
   if (!sourceThreadId) {
-    // Gmail messages always carry a threadId — but be defensive so
-    // a malformed ingest doesn't crash the worker.
+    // Gmail always sets one; a malformed ingest must not crash the worker.
     await ctx.log(`document missing sourceThreadId: ${ctx.state.documentId}`);
 
     return skip("missing-thread-id");
   }
 
-  // Sent-doc guard (ADR-0051 #7, defense-in-depth — issue #306). The
-  // upstream fan-out excludes docs whose stored metadata already carries
-  // `SENT`, but Gmail can attach that label after our first insert. When
-  // the stored row is still ambiguous, verify the live minimal Gmail
-  // message before allowing classify.
+  // Gmail can add `SENT` after our first insert, so check live when unsure (ADR-0051 #7).
   const sentStatus = await sentDocumentStatusAtClassifyTime(ctxData);
 
   if (sentStatus.kind === "missing") {
@@ -218,25 +179,12 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 
   const senderContext = senderContextResult.context;
 
-  // Idempotency: if the thread's row was written by THIS run already,
-  // reuse the prior classification — a retry within the same attempt
-  // shouldn't re-bill the LLM. A fresh run from a reply trigger writes
-  // a new run_id and so will re-classify.
+  // A row from THIS run is reused, so a retry does not re-bill the model.
   const existing = await getTriage(ctx.userId, sourceThreadId);
 
-  // Already-tagged guard (ADR-0025 refinement). The thread re-classifies
-  // on a reply — but only on a genuinely NEWER message. A thread that
-  // already carries an applied Gmail label is skipped when the incoming
-  // message is provably not newer than the one we tagged from:
-  // re-delivered pub/sub pushes, out-of-order ingestion, and the same
-  // message picked up by a second ingestion source all land here and
-  // exit without burning a classify call or rewriting the Gmail label.
-  //
-  // We skip ONLY when (a) a label is actually applied and (b) we can
-  // prove ordering from both timestamps. If either `authored_at` is
-  // missing we can't order the messages, so we fall through and
-  // re-classify — missing a real reply is worse than an extra classify.
-  // A retry within the SAME run is handled below (reuse, never skip).
+  // Skip a labelled thread only when this message is provably not newer
+  // (re-delivered push, out-of-order ingest). Unknown order re-classifies:
+  // missing a real reply costs more than an extra call.
   if (existing && existing.runId !== ctx.runId && existing.appliedLabelId && !ctx.state.force) {
     const incomingAuthoredAt = ctxData.document.authoredAt;
 
@@ -244,20 +192,11 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       ? await getDocumentAuthoredAt(ctx.userId, existing.documentId)
       : null;
 
-    // Equal timestamps are NOT proof of duplication: Gmail Date headers
-    // are second-granular and distinct messages can share an authoredAt.
-    // A strictly-older message is provably not newer; an equal-timestamp
-    // message only counts as "not newer" when it's the SAME document we
-    // already tagged (re-delivered push / second ingestion source). A
-    // genuine reply in the same second is a different documentId and must
-    // re-classify.
+    // Date headers are per second, so an equal timestamp is not a duplicate
+    // unless it is the same document.
     const isSameStoredDocument = existing.documentId === ctx.state.documentId;
 
     const provablyNotNewer =
-      // The same stored document is by definition not newer than itself, so
-      // a re-delivered push / second ingestion source skips regardless of
-      // whether either `authored_at` is present (a missing timestamp would
-      // otherwise fall through to a wasted re-classify + stray prior bump).
       isSameStoredDocument ||
       (incomingAuthoredAt != null &&
         priorAuthoredAt != null &&
@@ -279,46 +218,23 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let model: string;
   let audit: ClassifyAudit | null = null;
   let observations: Awaited<ReturnType<typeof gatherObservations>> | null = null;
-  // Whether the canonical triage row is owned by this run. True on the
-  // reuse path, and on the new path once the recency-guarded upsert lands.
-  // Gates the post-classification side effects (hoisted below the if/else
-  // so they run on BOTH paths — see #157).
+  // This run owns the row. Gates the side effects below on both paths (#157).
   let written = false;
-  // Band the row carries. Computed on the fresh path; read back from the row
-  // on the reuse path so the `classified` event below is complete either way.
   let senderSignificanceBand: SignificanceBand | null = null;
   let todoSuggestion: ReturnType<typeof resolveTodoSuggestion> = null;
   let standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
   let standingSuppressionReadFailed = false;
   let standingSuppressionReadError: string | null = null;
-  // Two closure facts from the ONE `readGmailThreadClosure` read, both resolved
-  // before the row write so the same decision governs the mint on the fresh and
-  // reuse paths. Only the reply re-eval reads them; `close-loop-todos` reuses
-  // `userAlreadyReplied` rather than reading a second time.
-  //
-  // `userAlreadyReplied` (whole-thread: the newest message is the user's send)
-  // gates the retraction — only safe when no unanswered inbound exists.
-  // `documentRepliedAfter` (per-message: the user's newest send is newer than
-  // THIS message) gates the mint — the right question for a fresh ask that
-  // follows an older reply (P0). They coincide on the reply re-eval and diverge
-  // once a newer inbound exists, which is exactly why the mint cannot use the
-  // whole-thread form.
+  // From one closure read, on reply runs only.
+  // `userAlreadyReplied` (newest message is the user's) gates the retraction.
+  // `documentRepliedAfter` (user replied after THIS message) gates the mint.
+  // They differ once a newer inbound exists, so the mint cannot use the first.
   let userAlreadyReplied = false;
   let documentRepliedAfter = false;
   let closureReadFailed = false;
 
   const resolveTodoAndStandingSuppression = async () => {
-    // A rail todo's absolute date needs BOTH halves: the send instant and the
-    // zone it should be read in. Reading the instant in UTC — which is what this
-    // did before the timezone module owned the concept — renders an evening
-    // email in Asia/Kolkata a day early, on the one field whose whole point is
-    // that it stays true for days.
-    //
-    // Resolved HERE, not per email: `resolveTimezone` is two uncached
-    // preference `SELECT`s and this step runs once per email, while the anchor
-    // matters only when the classifier actually proposed a todo — which is also
-    // `resolveTodoSuggestion`'s own first gate. Most emails propose none, so
-    // eagerly resolving it cost 2N round-trips a batch for a value nothing read.
+    // Resolve the zone only when a todo is proposed; `resolveTimezone` hits the DB.
     const assistDateAnchor: AssistDateAnchor | null =
       authoredAt && classification.todoSuggestion
         ? { sentAt: authoredAt, timezone: await resolveTimezone(ctx.userId) }
@@ -332,17 +248,10 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     let nextDocumentRepliedAfter = false;
     let nextClosureReadFailed = false;
 
-    // The closure facts are a REPLY-REEVAL-ONLY read (ADR-0050). Gated on the
-    // reason, NOT on `nextTodoSuggestion`: the re-eval is the run whose
-    // `close-loop-todos` step may need to retract an ALREADY-live todo (minted
-    // on an earlier run), even when the model proposes no new todo. A non-reply
-    // inbound must neither pay the read nor let a prior sent message withhold a
-    // suggestion for a message the user has not answered (P0).
+    // Gate on the reason, not on a new todo: a reply run may retract an older live todo (ADR-0050).
     if (ctx.state.reason === "reply") {
       try {
-        // The closure owner reads the WHOLE thread (no `excludeDocumentId`), so
-        // a fresh inbound after an older user reply is not mistaken for a
-        // thread the user already answered.
+        // Read the whole thread, so a fresh inbound after an old reply still counts as open.
         const closure = await readGmailThreadClosure({ userId: ctx.userId, sourceThreadId });
         nextUserAlreadyReplied = closure.userHasReplied;
         nextDocumentRepliedAfter = userRepliedAfterMessage(
@@ -350,9 +259,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
           ctxData.document.authoredAt,
         );
       } catch {
-        // Best-effort like every sibling read: an unknown closure mints rather
-        // than silently withholding a suggestion the user may need, and leaves
-        // `close-loop-todos` a no-op. The next reply re-eval retries.
+        // Unknown closure mints the todo and makes `close-loop-todos` a no-op.
         nextClosureReadFailed = true;
       }
     }
@@ -388,12 +295,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       category: existing.category,
       confidence: existing.confidence,
       rationale: existing.rationale ?? "",
-      // Reconstruct the todo proposal + rubric trace from the persisted
-      // columns so `resolveTodoSuggestion` below behaves identically to
-      // the first attempt — without these the reuse path silently dropped
-      // the classifier-minted todo (#157). `?? undefined` because the
-      // classification fields are optional (a null stored value means the
-      // model proposed no todo).
+      // Without these the reuse path dropped the minted todo (#157).
       todoSuggestion: existing.todoSuggestion ?? undefined,
       todoDecision: existing.todoDecision ?? undefined,
       documentAsk:
@@ -402,11 +304,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
           : undefined,
     };
     model = existing.model;
-    // The row is already owned by this run, so its tag is canonical —
-    // mark it written so the side effects below still fire. A prior
-    // attempt of THIS run can commit the row then die before suggestTodo
-    // (stale-lease reclaim re-enters classify with the same runId), which
-    // would otherwise permanently drop the classifier-minted todo (#157).
+    // A prior attempt may have written the row and died before the side effects (#157).
     written = true;
     senderSignificanceBand = existing.senderSignificanceBand ?? null;
     ({
@@ -420,12 +318,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     } = await resolveTodoAndStandingSuppression());
     await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
   } else {
-    // Gather deterministic observations (ADR-0051 §4a) before the model
-    // call. All reads are best-effort context; built before the try so
-    // they're available for the decision trace on the fallback path too.
-    // Sender priors are read for bulk/service senders only
-    // (`senderKeyFor` returns null for humans); known-contact is the
-    // human-sender mirror (skip for bots/services — priors cover them).
+    // Before the try, so the fallback path still has them for the trace.
     observations = await gatherObservations({
       userId: ctx.userId,
       documentId: ctx.state.documentId,
@@ -459,12 +352,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       model = result.model;
       audit = result.audit;
     } catch (err) {
-      // LLM parse / network failure → default category. Better to
-      // ship a low-confidence label than block the message entirely.
-      // Persist the exception text in `rationale` so the row itself
-      // tells us why classification fell through — progress events are not
-      // the queryable triage record. `model="fallback"` is non-learnable
-      // (senderPriorWriteKeyFor skips it).
+      // A low-confidence label beats none. The error goes in `rationale` so the row
+      // says why. `senderPriorWriteKeyFor` never learns from `model="fallback"`.
       const errMsg = toMessage(err);
       await ctx.log(`classify failed; falling through to default: ${errMsg}`);
       classification = {
@@ -475,10 +364,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       model = "fallback";
     }
 
-    // Sender significance for the rail's presentation-layer demotion
-    // (ADR-0064). Read the precomputed scalar once and stash its band on
-    // the row — best-effort, null on any miss (non-human/unscored/no row),
-    // which the rail scorer treats as neutral. Never blocks classify.
+    // For the rail's demotion (ADR-0064). Null reads as neutral.
     const senderSignificance = await getSenderSignificance(
       ctx.userId,
       senderContextResult.senderAddress,
@@ -486,10 +372,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 
     senderSignificanceBand = senderSignificance?.band ?? null;
 
-    // Resolve the todo/suppression fields before the row write so the
-    // durable trace persisted with the row contains the same suppression
-    // facts the side-effect branch below consumes. Logging any read
-    // failure is deferred until after the row+trace transaction commits.
+    // Before the row write, so the stored trace holds the facts the side effects use.
     ({
       todoSuggestion,
       standingSuppression,
@@ -513,14 +396,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
             standingSuppressionReadFailed,
           });
 
-    // Recency-guarded, advisory-locked upsert. `written` is false when a
-    // concurrent run for a strictly-newer message already owns the row —
-    // this run lost the race, so it skips the side effects below (they'd
-    // emit signals for a tag that isn't canonical). If this run does win,
-    // the decision trace is written in the same transaction as the row so
-    // a crash after the row write cannot leave a tag without its "why".
-    // The apply-label step converges on the row's canonical message
-    // regardless.
+    // `written` is false when a run for a newer message owns the row; then skip
+    // the side effects. The trace commits in the same transaction as the row.
     const upserted = await upsertTriage({
       userId: ctx.userId,
       sourceThreadId,
@@ -531,15 +408,11 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       documentAsk: classification.documentAsk ?? null,
       model,
       runId: ctx.runId,
-      // Persist the todo proposal + rubric trace so a same-run retry on
-      // the reuse path can re-mint a todo this attempt is about to (#157).
+      // So a same-run retry can re-mint the todo (#157).
       todoSuggestion: classification.todoSuggestion ?? null,
       todoDecision: classification.todoDecision ?? null,
       senderSignificanceBand: senderSignificance?.band ?? null,
-      // Persist the cold-contact verdict with the row (#517 D1) so a same-run
-      // reuse re-attempt re-applies the cold-sender gate from the row instead of
-      // re-deriving it from observations it no longer has. Fresh path only —
-      // `observations` is always set here (the new-classification branch).
+      // The reuse path has no observations, so it reads this from the row (#517 D1).
       senderRelationshipIsCold: observations?.senderRelationshipIsCold ?? null,
       decisionTrace: decisionTrace
         ? {
@@ -559,19 +432,10 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
   }
 
-  // Post-classification side effects, hoisted out of the new-classification
-  // branch so they also run when classify is re-entered on the reuse path
-  // (a stale-lease reclaim that committed the row but died before getting
-  // here, #157). All are `written`-gated and either idempotent or
-  // self-healing, so re-running them on a reuse re-attempt is safe.
+  // Side effects run on both paths (#157). Each is idempotent, so a re-entry is safe.
 
-  // Open the document ask from THIS message's own validated proposal, not
-  // from `written`: an older inbound ask that loses the thread-row recency
-  // race (or a thread pinned by a user override) is still an ask. A reducer
-  // fault throws so the step retries. A same-run re-entry that committed the
-  // row rebuilds the proposal from it (the reuse path above), and one that did
-  // not re-classifies, so a failed open is never lost. Expected no-ops return
-  // normally. Mailbox work is never coupled to this retry.
+  // Not gated on `written`: an older ask that loses the row race is still an ask.
+  // A reducer fault throws so the step retries.
   const documentAskAccountId = ctxData.document.accountId;
 
   if (classification.documentAsk && documentAskAccountId) {
@@ -585,13 +449,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     if (opened.kind === "noop") await ctx.log(`document_ask: open noop reason=${opened.reason}`);
   }
 
-  // Tell the rail to re-fetch: the row's category chip just changed.
-  // Best-effort and intentionally outside `upsertTriage`'s implicit
-  // `db()` connection — the store doesn't take a `tx` arg, so the publish
-  // can't share one. The 5-min rail poll recovers a dropped frame, and a
-  // server crash between the two writes still leaves a triaged row to be
-  // picked up on the next poll. If publish itself throws, we log and
-  // continue so a transient outbox issue doesn't fail the workflow step.
+  // Best-effort and outside the row transaction. The 5-minute rail poll recovers a lost frame.
   if (written) {
     try {
       await publishEvent({
@@ -605,17 +463,11 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
   }
 
-  // Publish the fact that this run owns the thread's canonical row
-  // (`email-triage.classified`, ADR-0098). Triage imports nothing from the
-  // consumers of this event; the reply-drafting gate reacts on the domain bus
-  // and decides from the snapshot carried here, so a downstream module can
-  // never pull this step into its dependency cycle. Best-effort: the consumers
-  // are `best-effort` at the seam and a publish failure is logged, not thrown.
+  // ADR-0098: consumers decide from this snapshot, so triage imports none of them.
+  // Best-effort: a failure is logged, not thrown.
   if (written) {
-    // `satisfies`, not an annotation: the payload must also be a `JsonObject`,
-    // and the schema type carries an optional `note` (`undefined` is not JSON).
-    // The literal below normalizes it to `string | null`, and `satisfies` keeps
-    // that narrower inferred type while still proving the schema shape.
+    // `satisfies`, not an annotation: `note` is normalized to `string | null`
+    // because the payload must also be a `JsonObject`.
     const todoDecision = classification.todoDecision;
 
     const payload = {
@@ -675,37 +527,9 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     );
   }
 
-  // Sender-prior histogram write-back (ADR-0051 #2, Phase 2). Learns
-  // ONLY from Alfred's own classifications and only for bulk senders:
-  // skip human senders (`senderKeyFor` returns null) and the user's own
-  // sent mail (defensive — sent docs are excluded from the triage
-  // fan-out upstream, so this branch shouldn't see them). Skip fallback
-  // labels too: an outage/default category is not a learning signal.
-  // Best-effort: a prior write must never fail the label, which is the
-  // contract. NEW-PATH ONLY: `incrementSenderPrior` is a non-idempotent
-  // histogram bump, so a reuse re-attempt must not double-count — only
-  // the originating classification teaches it. The outbound-reply re-eval
-  // (issue #282, `reason: "reply"`) re-classifies the same inbound doc to
-  // refresh the thread tag after the user replies; it is NOT a fresh
-  // observation, so it must not re-bump the sender prior either.
-  //
-  // ONE DOCUMENT TEACHES ONCE. `force` bypasses the already-tagged skip
-  // guard above, which is the only guard that stops a second classify of a
-  // thread Alfred already tagged. A repair or backfill therefore re-runs a
-  // document that already taught the prior, and the bump is a monotone
-  // counter with no per-message dedup: the old category keeps its vote and
-  // the new category adds one, so the sender ends up with two votes from a
-  // single mail. Nothing reverses that — `incrementSenderPrior` only adds.
-  // The stored row settles the case without a new column: it was written by
-  // an EARLIER run and it names THIS document, so this document has already
-  // voted. A genuine reply carries a different `documentId`, so it still
-  // teaches.
-  //
-  // This is conservative by design. When the earlier run wrote the row but
-  // taught nothing — a `fallback` label, a null sender key, or a throw
-  // between the two writes — this skips a teach that would have been
-  // legitimate. A missing vote costs one sample out of a histogram that
-  // keeps growing; a duplicate vote is permanent.
+  // Sender-prior bump (ADR-0051 #2). It only adds, so each document teaches once:
+  // not on reuse, not on a reply re-eval, and not on a `force` re-run of a document
+  // an earlier run already stored. A missed vote is cheap; a duplicate is permanent.
   const documentAlreadyTaughtPrior = Boolean(
     existing && existing.runId !== ctx.runId && existing.documentId === ctx.state.documentId,
   );
@@ -748,23 +572,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
   }
 
-  // Real-time todo suggestion (ADR-0050 amendment 2026-06-05). The cheap
-  // classifier emits `todoSuggestion` when this mail is an actionable,
-  // context-complete commitment (rule 16); the tail step mints a
-  // `suggested` todo for the rail. `todoSuggestion` rides the final
-  // classification (the second cheap pass re-emits it; the override floor
-  // preserves it). The category gate is the floor against a stray
-  // suggestion. `suggest_todo` is idempotent on source overlap, so a
-  // re-triaged thread (or a reuse re-attempt) merges rather than
-  // duplicates, and a failed suggestion is non-fatal — the label + row
-  // are the contract. On the reuse path `classification` is reconstructed
-  // from the stored row, which carries the same `todoSuggestion`.
-  // `todoSuggestion` was resolved before the row write, using the email's
-  // send time so relative deadlines ("due tomorrow") resolve to an
-  // absolute date instead of going stale on the rail.
-  // Structural disqualifier (the cheap model won't reliably self-apply it):
-  // a GitHub PR-review thread with nothing live at stake, or Alfred's own
-  // HIL approval mail, mints no rail todo even when the model proposed one.
+  // Rail todo (ADR-0050). `suggest_todo` merges on source overlap, so a re-run
+  // does not duplicate. A failure is non-fatal: the label and row are the contract.
   const suppression = todoSuggestion
     ? todoSuppressionReason({
         sender: ctxData.document.metadata.from ?? null,
@@ -776,42 +585,19 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         ]
           .filter(Boolean)
           .join("\n"),
-        // The model's collaboration read drives the `tracker_owned` suppression
-        // (#353). Absent on the reuse path (not persisted); the task-tracker
-        // sender fallback still catches the common trackers there.
+        // Not persisted, so absent on reuse; the tracker-sender regex covers that.
         collabActivity: classification.collabActivity ?? null,
-        // Cold-sender gate (rule 16b): the final category + the typed cold-contact
-        // flag. On the fresh path it comes from the observation just gathered; on
-        // the reuse path (#157 stale-lease reclaim) `observations` is null, so read
-        // the verdict THIS run persisted on the row (#517 D1) — the gate is decided
-        // once and owned by the row, so fresh and reuse suppress identically. A cold
-        // ask that self-tagged its note is still caught on reuse by the
-        // `noteMarksFailingOutcome` backstop; this covers the arm-only case (the
-        // model proposed without the `cold_sender:` note) that the backstop cannot.
+        // On reuse there are no observations, so read the row's verdict (#517 D1).
         category: classification.category,
         isColdContact:
           observations?.senderRelationshipIsCold ??
           (reusedExistingRow ? (existing?.senderRelationshipIsCold ?? false) : false),
-        // Same-thread retraction (ADR-0050): only the outbound-reply re-eval
-        // sets this (`reason === "reply"`). The classifier can miss its rule 18
-        // (it did on the resume thread), so the deterministic thread state —
-        // never the category — withholds the suggestion here. The value is the
-        // PER-MESSAGE closure (`lastUserReplyAt > this message's authoredAt`),
-        // deliberately not the exclusion-based `observations.thread` and not the
-        // whole-thread `newestDirection`: the observation excludes the message
-        // being classified, so it read `sent` on a fresh inbound after an older
-        // reply, and the whole-thread form reads `sent` on the next-inbound
-        // re-eval for the same reason. Both withheld a todo for a message the
-        // user had not answered (P0). The closure read is independent of
-        // `observations`, so it also holds on the reuse path (#157).
+        // Per message on purpose. `observations.thread` and `newestDirection` both
+        // read `sent` on a fresh inbound after an old reply and withheld its todo.
         userRepliedAfterMessage: documentRepliedAfter,
       })
     : null;
 
-  // `written` gate: only the run that owns the canonical row proposes a
-  // todo, so a superseded older message can't mint a stray suggestion.
-  // `flags.actionItems` gate: the user can switch off action-item
-  // suggestions while keeping email tagging on (they share this classify).
   if (written && todoSuggestion && standingSuppression) {
     await ctx.log(
       `suggest_todo: suppressed reason=standing_instruction ` +
@@ -829,10 +615,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         agentRunId: ctx.runId,
         name: todoSuggestion.name,
         assist: todoSuggestion.assist,
-        // Thread ref always; plus a stable real-world `loop` ref when the
-        // subject/sender resolve one, so a recurring tracker/PR/issue loop
-        // that re-notifies on a new thread each time collapses onto this
-        // one todo instead of re-minting (#355).
+        // A `loop` ref folds a tracker that re-notifies on new threads into one todo (#355).
         sources: gmailTodoSources({
           threadId: sourceThreadId,
           subject: ctxData.document.title,
@@ -863,9 +646,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       confidence: classification.confidence,
       rationale: classification.rationale,
       senderContext,
-      // Carried to `close-loop-todos` so its retraction uses the same read the
-      // mint suppression did, with no second thread read that a newer inbound
-      // could flip between the two steps.
+      // Reused by `close-loop-todos`; a second read could see a newer inbound.
       userAlreadyReplied,
     },
     nextStep: EMAIL_TRIAGE_EDGES.classify,
@@ -873,44 +654,10 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 }
 
 /**
- * Terminal, post-label follow-up: retract the rail todos a just-handled
- * thread left open (ADR-0050 same-thread retraction, un-parked; #1168 moved
- * it after `apply-label` so the Gmail label lands before the best-effort
- * rail write).
- *
- * The outbound-reply re-eval (#282) re-classifies a thread after the user
- * sends. When the user's own message is now the newest in the thread, the
- * loop that thread opened is already on the counterparty — so any **unpromoted
- * `suggested`** todo whose Gmail-thread source is this thread is dismissed
- * rather than left sitting on the rail. A user-promoted `open` todo is left
- * untouched: the user owns it, and a holding reply is progress, not closure.
- *
- * Gated on `flags.actionItems`, symmetric with the mint: with action items
- * off, the rail is not in use and existing rows are not mutated.
- *
- * Deterministic and category-independent on purpose: the classifier can miss
- * its own rule 18 on the re-eval (it did on the resume thread) while the
- * thread state plainly says the user replied, so the close consumes the
- * `readGmailThreadClosure` fact, never the category. Gated on
- * `reason === "reply"` so the retraction runs only on the reply re-eval, not
- * on every inbound classify. The dismissal itself calls the same
- * `resolveTodosForGmailSource` helper the manual `resolve_todo` reaction calls,
- * so both agree on what "closed" means.
- *
- * The closure is read ONCE, by `classify`, and carried on the state as
- * `userAlreadyReplied`; this step consumes that value instead of re-reading.
- * A second read could see a newer inbound that landed between the steps and
- * silently no-op the retraction of a loop the user already closed, and it
- * would let the mint suppression and the retraction disagree about the same
- * fact (ADR-0050's one-owner rule).
- *
- * RAIL-ONLY AND BEST-EFFORT. The classify row is already committed and
- * the Gmail label has already converged; the todo rail is not the
- * contract. A DB blip on the thread-state read or the dismissal is
- * logged and the step still ends the run — it never un-applies or
- * blocks the label — exactly as `suggestTodo` and the sender-prior
- * bump above swallow their own failures. Any throw past the
- * sourceThreadId guard is logged and the step ends the run.
+ * After the label: on a reply run where the user's message is newest, dismiss
+ * this thread's unpromoted `suggested` todos (ADR-0050). Promoted `open` todos stay.
+ * Reads the closure fact, never the category, because the model can miss rule 18.
+ * Best-effort: a failure is logged and never touches the label.
  */
 export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOperationState>(
   ctx: StepContext<State>,
@@ -923,12 +670,7 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
     );
   }
 
-  // The run's contract is the canonical `email_triage` row plus the Gmail
-  // label itself, not `agent_runs.output`: no production reader inspects
-  // triage run output keys, so the terminal step emits none. It does owe the
-  // run-history row one sentence: `summary` is the field the history reads
-  // (`registry.ts`, `run-outcome.ts`), and triage sets none elsewhere, so a
-  // missing summary renders every triage run as "Run completed."
+  // No output keys, but the history row needs a `summary` or it reads "Run completed."
   const summarize = (tail?: string): string => {
     const category = ctx.state.category;
 
@@ -948,26 +690,15 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
     summary: summarize(summaryTail),
   });
 
-  // Two independent closure authorities can run after the label has landed:
-  // the user's outbound reply retracts the same-thread todo, while a later
-  // positive payment receipt retracts the matching payment todo. The receipt
-  // path is not a reply path — Stripe commonly gives the receipt a fresh Gmail
-  // thread — so it must not be hidden behind the old reason gate.
+  // Two closers: a user reply, and a payment receipt. A receipt often lands on a
+  // new thread, so it cannot sit behind the reply gate.
   const isPaymentTriage = ctx.state.category === "payment";
 
   if (ctx.state.reason !== "reply" && !isPaymentTriage) return done();
 
-  // Everything past this point touches the todo rail, so it is best-effort:
-  // the flag read is inside the try with the dismissal, so a DB blip here
-  // still ends the run cleanly. The Gmail label already landed — `apply-label`
-  // runs before this step (#1168) — so a rail fault cannot un-apply it.
+  // Best-effort from here, flag read included. The label already landed (#1168).
   try {
-    // Symmetric with the mint (`classify` gates `suggestTodo` on the same
-    // flag): when the user has action items off, existing rail rows are left
-    // alone — retracting the surface they opted out of is not a demotion they
-    // asked for. Resolved here like `apply-label` rather than carried from
-    // `classify`, because a setting is not a time-sensitive thread fact and a
-    // second read is cheap and non-racy.
+    // Same flag as the mint: with action items off, leave rail rows alone.
     const flags = await resolveFeatureFlags(ctx.userId);
 
     if (!flags.actionItems) {
@@ -992,19 +723,10 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
         const resolved = await resolveTodosForGmailSource({
           userId: ctx.userId,
           sourceThreadId,
-          // The state's own reason union, not an invented literal — the helper
-          // persists it as `resolved_reason` and echoes it back as `auditReason`
-          // for this log.
+          // Stored as `resolved_reason`.
           reason: ctx.state.reason,
-          // The automatic retraction has no user in the loop: attribute `system`
-          // so it stays distinguishable from a chat-agent dismissal (`agent`)
-          // and a direct UI clear (`user`).
           actor: "system",
-          // Only Alfred's unpromoted proposals. An `open` row is one the user
-          // explicitly accepted (promoted with `+`); a holding reply ("I'll send
-          // it tomorrow") is progress, not closure, so auto-dismissing it would
-          // bury the user's own commitment rather than demote a suggestion
-          // (ADR-0050's parked wording: "auto-dismiss an unpromoted suggestion").
+          // Never `open`: the user accepted it, and a holding reply is not closure.
           statuses: ["suggested"],
         });
 
@@ -1063,16 +785,9 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
     );
   }
 
-  // Email-tagging toggle (Settings → Features). When off, Alfred keeps
-  // the in-app triage row (drives the inbox chips + any action-item it
-  // already minted) but does not touch the user's Gmail labels.
-  // Every path below forwards to the terminal `close-loop-todos` step
-  // (#1168) with the state untouched: the `email_triage` row plus the
-  // Gmail label are the contract, and no production reader inspects triage
-  // run output. A provider/DB fault must not throw past this step — the run
-  // would fail terminal and the rail retraction would never run. Instead log
-  // it and forward; the `applied_label_id` column stays NULL so the next
-  // inbound re-labels by itself.
+  // Every path forwards to `close-loop-todos` (#1168). A fault must not throw:
+  // that ends the run before the retraction. `applied_label_id` stays NULL, so the
+  // next inbound re-labels.
   let flags: Awaited<ReturnType<typeof resolveFeatureFlags>>;
 
   try {
@@ -1146,35 +861,18 @@ type SentDocumentStatus =
   | { kind: "sent"; source: "live"; labelIds: readonly string[] };
 
 /**
- * Second thing this function used to do, now mostly gone (#439): the live
- * `getMessage` call also detected a document whose Gmail message no longer
- * exists, and `{ kind: "missing" }` skipped it before any paid work. Skipping
- * the round trip for provably-received mail means that detection now only
- * happens for the ambiguous minority.
- *
- * Consequence for a message expunged from Gmail between ingest and classify:
- * instead of a clean `skipped: source-message-not-found` at zero spend, the
- * classify call runs and the apply-label step 404s — where `relabelThread`
- * re-points to the newest live inbound message in the thread, or logs
- * `target-unresolvable` and leaves the thread untagged (#277). Correct
- * outcomes, one wasted classify. Trashed mail doesn't 404 (it keeps its id), so
- * this needs a *permanent* delete or a stale id inside the queue delay — rare
- * enough to trade for removing a Gmail round trip from every classify, but not
- * "nothing else changed".
+ * Checks Gmail live only when the stored row is ambiguous (#439). So a mail
+ * deleted after ingest usually wastes one classify instead of a clean `missing`
+ * skip; apply-label then handles the 404 (#277).
  */
 async function sentDocumentStatusAtClassifyTime(
   ctxData: TriageDocumentContext,
 ): Promise<SentDocumentStatus> {
   if (isSentGmailMetadata(ctxData.document.metadata)) return { kind: "sent", source: "stored" };
 
-  // Only pay the Gmail round trip when the stored "not sent" could actually be
-  // wrong (#439) — see `mayBeUnflaggedSentMail` for the disproof.
   const ambiguous = mayBeUnflaggedSentMail({
     fromHeader: ctxData.document.metadata.from ?? null,
-    // `identity.mailboxAddress`, never `identity.email`: the latter falls back
-    // to the user's primary app email, which would turn a secondary mailbox's
-    // own sent mail into "third party" and skip the guard for that whole
-    // account.
+    // Never `identity.email`: it falls back to the primary email and breaks secondary mailboxes.
     mailboxAddress: ctxData.identity.mailboxAddress,
   });
 
@@ -1200,19 +898,13 @@ async function sentDocumentStatusAtClassifyTime(
   }
 }
 
-/**
- * Assemble the deterministic observation object fed to the classifier
- * (ADR-0051 §4a). Owns the IO — sender-prior read (bulk/service senders only),
- * thread state, known-contact (human senders only), persona pass-through — then
- * delegates to the pure `assembleObservations`. Every read is best-effort: a
- * blip yields the empty/false default rather than failing the classify.
- */
+/** The IO for `assembleObservations` (ADR-0051 §4a). Every read is best-effort. */
 async function gatherObservations(args: {
   userId: string;
   documentId: string;
   sourceThreadId: string;
   document: { title: string | null; content: string; metadata: GmailDocumentMetadata };
-  /** Mailbox the document arrived on — scopes a per-account standing instruction. */
+  /** Scopes a per-account standing instruction. */
   accountId: string | null;
   persona: AccountPersona | null;
   senderContext: SenderContext;
@@ -1221,9 +913,6 @@ async function gatherObservations(args: {
   const meta = args.document.metadata;
   const labelIds = meta.labelIds ?? [];
 
-  // Read key uses the same derivation as the write key (humans → null) but no
-  // sent/fallback guard: reads are harmless and the classify step only runs on
-  // received mail anyway.
   const isHumanSender = args.senderContext.effectiveAuthor === "person";
 
   const [thread, senderKindEnabled, standing, userContext] = await Promise.all([
@@ -1238,24 +927,8 @@ async function gatherObservations(args: {
       recentMessages: [],
     })),
     triageSenderKindProjectionEnabled(args.userId).catch(() => false),
-    // The standing instruction for this sender, when one exists. Membership
-    // is derived at read time — any active suppression binds its sender — so
-    // there is no per-effect miss and no stale-row state. Read BEFORE the
-    // model call, unlike the `block_todo_suggestion`
-    // read further up this file, which runs after classify because a todo only
-    // exists once a category does. It rides this first batch because it needs
-    // nothing but `args` — a serial await here would add a round trip to the
-    // triage hot path for every mail, including the ones with no instruction.
-    // Best-effort like every sibling read here: a blip yields `null`, which is
-    // exactly "no instruction", so a database hiccup can never invent one. The
-    // reverse failure — a real instruction that a blip hides — costs the user
-    // one mis-tagged mail and is repaired by the next classify of the thread.
-    // Either way the outcome is recorded on `readFailed` (mirroring the
-    // `standingSuppressionReadFailed` sibling), so the decision trace can tell
-    // "no instruction" apart from "unknown".
-    //
-    // One unfiltered list, one in-memory match over the caller-supplied
-    // snapshot, so the prompt input costs no extra round trip.
+    // This sender's standing instruction, read before the model call. A blip
+    // reads as "none" and sets `readFailed`, so the trace can tell none from unknown.
     listActiveSuppressionInstructions(args.userId)
       .then((all) => {
         const match = findSenderSuppression(all, {
@@ -1276,16 +949,8 @@ async function gatherObservations(args: {
         };
       })
       .catch(() => ({ instruction: null, readFailed: true })),
-    // The cold-start prior about the user (ADR-0050 D1, first slice). It rides
-    // this first batch for the same reason the standing-instruction read does:
-    // it needs nothing but `args`, so a serial await would add a round trip to
-    // every classify. ONE indexed point read by chunk kind, never a memory
-    // search — #435 owns the triage latency budget and `readUserContextLine`
-    // takes no query argument, so no search is expressible here. Best-effort:
-    // a blip yields `null`, which renders as no line at all, so a database
-    // hiccup can only lose context, never invent it — but it carries a flag,
-    // because a bare null cannot tell a total read failure from the common
-    // case of a user with no cold-start chunk.
+    // Cold-start prior (ADR-0050 D1). One point read, never a memory search (#435).
+    // A flag, because null alone cannot tell a failure from no chunk.
     readUserContextLine(args.userId)
       .then((line) => ({ line, readFailed: false }))
       .catch(() => ({ line: null, readFailed: true })),
@@ -1315,10 +980,7 @@ async function gatherObservations(args: {
       userId: args.userId,
       senderAddress: args.senderAddress,
       isHumanSender: usePersonTreatment,
-      // An unexpected throw degrades to "not cold" (keep the todo) rather than the
-      // resolver's own cold default — err toward a real todo, not over-suppression.
-      // Same verdict the resolver's own read-failure path takes, so a graph read
-      // that fails inside vs outside the resolver lands identically.
+      // A throw reads as "not cold": keep the todo rather than over-suppress.
     }).catch(() => RELATIONSHIP_READ_FAILED),
   ]);
 
@@ -1352,18 +1014,7 @@ async function gatherObservations(args: {
   });
 }
 
-/**
- * The `email-triage` step set, stated once. `EmailTriageStepName` is derived
- * from these keys and threaded through every step's `StepResult`, so the
- * executor's `nextStep` values and `initialStep` are checked against the
- * actual steps rather than meeting them by convention: a name that names no
- * step is a type error, and adding a step here extends the union the bodies
- * are checked against. The workflow object consumes this record directly.
- *
- * This record states the step SET, never the order. The key order below only
- * mirrors the pipeline so the file reads top to bottom; nothing depends on it.
- * `EMAIL_TRIAGE_EDGES` is the one statement of the order.
- */
+/** The step set. The order lives in `EMAIL_TRIAGE_EDGES`, not in this key order. */
 export const emailTriageSteps = {
   classify: { id: "classify", run: runEmailTriageClassify },
   "apply-label": { id: "apply-label", run: runEmailTriageApplyLabel },
@@ -1372,15 +1023,7 @@ export const emailTriageSteps = {
 
 export type EmailTriageStepName = keyof typeof emailTriageSteps;
 
-/**
- * The `email-triage` topology, stated once: where a run enters, and which step
- * each body hands to next. `null` marks the terminal step. Read these two
- * declarations to know the whole state machine — no step body decides an edge
- * of its own, each one returns its entry from this table, and `satisfies`
- * rejects an edge that names no step and a step the table forgets.
- *
- * To reorder the pipeline, edit the table. That is the whole change.
- */
+/** Entry step and edges. `null` ends the run. To reorder the pipeline, edit only this table. */
 export const EMAIL_TRIAGE_INITIAL_STEP = "classify" satisfies EmailTriageStepName;
 
 export const EMAIL_TRIAGE_EDGES = {

@@ -36,7 +36,6 @@ import { requireOnboarded } from "./middleware/onboarding";
 
 type Decision = "approve" | "reject" | "cancel_run";
 
-/** Programmatic reason stamped on `agent_runs.error.reason` by a `cancel_run`. */
 const CANCEL_RUN_REASON = "cancelled_by_user";
 
 interface DecisionOutcome {
@@ -44,18 +43,9 @@ interface DecisionOutcome {
   decision: Decision;
   status: "approved" | "rejected";
   shouldEnqueue: boolean;
-  /**
-   * Set only by a `cancel_run` that actually cancelled: every obligation the
-   * cancel accrued that must not survive a rollback — workflow closure, ghost
-   * staging-job teardown, scratch snapshot, a woken parent boss. `cancelRunInTx`
-   * builds it; this route only has to run it once the tx commits. Never throws.
-   */
+  /** Set only by a real `cancel_run`. Run it after commit. Never throws. */
   cancelAfterCommit?: () => Promise<void>;
-  /**
-   * Approval-wait observation to emit after commit (#409). Carries the staging's
-   * bounded, PII-free timing/identity so `runtime.approval.wait` spans the
-   * request→decision wall-clock without re-reading the row post-commit.
-   */
+  /** Emitted after commit, so the span needs no second row read. */
   approvalWait?: ApprovalWaitEmit;
 }
 
@@ -68,7 +58,6 @@ interface RefreshedOutcome {
 
 interface ApprovalWaitEmit {
   runId: string;
-  /** `action_stagings.created_at` — when approval was requested. */
   startedAt: Date;
   toolName: string;
   integration: string;
@@ -76,13 +65,7 @@ interface ApprovalWaitEmit {
   outcome: ApprovalWaitOutcome;
 }
 
-/**
- * Human-in-the-loop action approvals.
- *
- * Rows remain the source of truth in `action_stagings`; this API only records
- * the user's decision, pokes Replicache so `/approvals` drops the card, and
- * wakes or cancels the parked run.
- */
+/** Records a decision on an `action_stagings` row, then wakes or cancels the parked run. */
 export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize: "typebox" })
   .use(authMacro)
   .use(requireOnboarded)
@@ -101,15 +84,12 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         const editedInput =
           body.editedInput === undefined ? undefined : jsonValueSchema.parse(body.editedInput);
 
-        // The plain-reject reason rule needs the locked row (a question needs
-        // none, see below); the cancel rule does not.
+        // The plain-reject check needs the locked row, so it runs below.
         if (decision === "cancel_run" && !reason) {
           throw Errors.BadRequestError("Rejecting an action requires a reason");
         }
 
-        // Canonicalization reads workflow and integration state. Keep those
-        // reads outside the decision transaction so the row lock covers only
-        // the atomic staging update or run wake.
+        // Read outside the transaction, so the row lock stays short.
         let workflowEdit: WorkflowApprovalEditPreparation = { kind: "not_workflow" };
 
         if (decision === "approve") {
@@ -164,9 +144,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             return { conflict: "The approval changed. Review the latest contract." };
           }
 
-          // A rejection reason is the revision note the model reads back. A
-          // question has no revision: dismissing it IS the answer (ADR-0099),
-          // so the user is not made to invent a reason to skip it.
+          // A question needs no reason: dismissal is the answer (ADR-0099).
           if (decision === "reject" && !reason && !isQuestionApproval(row.toolName)) {
             return { badRequest: "Rejecting an action requires a reason" };
           }
@@ -174,10 +152,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           const now = new Date();
 
           if (decision === "approve") {
-            // A question's edited input is the whole tool input with the
-            // user's `answers` filled in. Validate it here, so a wrong-length
-            // answer list is a 400 the card shows, not a failed row and a
-            // generic `tool_input_invalid` the model re-asks past (ADR-0099).
+            // Validate answers here, so a bad answer list is a 400 on the card (ADR-0099).
             if (isQuestionApproval(row.toolName) && editedInput !== undefined) {
               const answered = askUserDecidedInput.safeParse(editedInput);
 
@@ -191,18 +166,14 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               }
             }
 
-            // Workflow activation edits change the exact unattended contract.
-            // Rebuild the full card and require a second approval instead of
-            // waking the run with fields the user did not see.
+            // An edited workflow needs a second approval of fields the user has seen.
             if (workflowEdit.kind === "prepared" && workflowEdit.requiresReview) {
               const expiresAt = await restageWorkflowApproval(tx, row.id, workflowEdit.input);
 
               return { runId: row.runId, status: "pending", refreshed: true, expiresAt };
             }
 
-            // Match on the staging id alone: the wake already carries the kind
-            // the dispatcher wrote, and a kind re-derived here could only
-            // disagree with it (ADR-0099).
+            // Match on the staging id alone; the wake already carries the kind (ADR-0099).
             const signalOutcome = await signalRunInTx(tx, {
               runId: row.runId,
               match: { kind: "hil", approvalId: params.stagingId },
@@ -215,8 +186,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               .update(actionStagings)
               .set({
                 status: "approved",
-                // The wake authorizes dispatch. The MCP broker locks this row
-                // and requires `dispatching` before it reserves an invocation.
+                // The MCP broker requires `dispatching` before it reserves an invocation.
                 outcome: "dispatching",
                 decidedInput:
                   workflowEdit.kind === "prepared"
@@ -276,11 +246,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             .update(actionStagings)
             .set({
               status: "rejected",
-              // The effect dimension, orthogonal to `status` (#559a). The gate
-              // never called the provider, so the effect is `refused` — not
-              // `failed`, which counts as an attempt. The sibling writer
-              // `withdrawToolCallApproval` already states it; a row rejected
-              // through this route used to keep `awaiting_approval` forever.
+              // `refused`, not `failed`: the provider was never called.
               outcome: "refused",
               rejectReason: reason ?? null,
               decidedAt: now,
@@ -325,16 +291,9 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           };
         }
 
-        // Everything a `cancel_run` owes once its tx lands: the workflow's
-        // client closure (chat-turn has to persist its assistant row and emit
-        // `chat.message completed` or the streaming bubble hangs forever —
-        // #530/#531 review, D2), teardown of every gated staging the cancel
-        // bulk-rejected, the scratch snapshot, and a woken parent boss. Built
-        // by `cancelRunInTx` so this route can't fall behind the list; it
-        // never throws, so it can't fail a decision the user already made.
+        // Without it, a cancelled chat turn's streaming bubble hangs forever.
         await outcome.cancelAfterCommit?.();
-        // This route's own staging, on the plain-`reject` path where no cancel
-        // ran. Idempotent, so the cancel path re-clearing it above is harmless.
+        // Idempotent, so a repeat after a cancel is harmless.
         await removeApprovalNotificationJob(params.stagingId);
         await removeApprovalExpiryJob(params.stagingId);
 
@@ -353,9 +312,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           }
         }
 
-        // Best-effort approval-wait span (#409): the gated action's
-        // request→decision wall-clock, opened backdated to the staging's
-        // createdAt and closed now. Swallowed inside the runtime-span helper.
+        // Best effort: backdated to the staging's `createdAt`, closed now.
         if (outcome.approvalWait) {
           const wait = outcome.approvalWait;
           startApprovalWaitSpan({
@@ -387,7 +344,6 @@ function parseDecision(value: string): Decision | null {
   return null;
 }
 
-/** Build the after-commit approval-wait emission from the locked staging row. */
 function approvalWaitEmit(
   row: { runId: string; createdAt: Date; toolName: string; integration: string; riskTier: string },
   outcome: ApprovalWaitOutcome,
@@ -403,16 +359,8 @@ function approvalWaitEmit(
 }
 
 /**
- * Map a wake attempt to the conflict message the decision route reports, or
- * `null` when the run really did wake.
- *
- * `not_waiting` is a conflict, not a success. It says the run is alive but is
- * parked on nothing — it never reached this approval, or another writer has
- * already woken it. Recording the decision anyway retires the staged row while
- * the run keeps running, and the tool call it gates never receives the answer.
- * The expiry worker refuses the same case for the same reason
- * (`approval-expiry-worker.ts`, `signalOutcome !== "woken"`), so both writers
- * now agree on what a decided approval means.
+ * `null` only if the run woke. `not_waiting` is a conflict: recording the decision
+ * would retire the row while the gated tool call never gets the answer.
  */
 function signalOutcomeConflict(outcome: SignalOutcome): string | null {
   if (outcome === "woken") return null;
@@ -424,8 +372,6 @@ function signalOutcomeConflict(outcome: SignalOutcome): string | null {
   if (outcome === "wake_mismatch") return "Run is not waiting for this approval";
 
   if (outcome === "already_terminal") return "Run has already finished";
-  // A new outcome fails to compile here rather than silently reading as a
-  // successful wake.
   const unhandled: never = outcome;
 
   return unhandled;

@@ -4,7 +4,7 @@ import {
 } from "@alfred/assistant/tool-runtime/surface-adapter";
 import { clearToolRegistryForTests } from "@alfred/assistant/tool-runtime";
 
-/** One lifecycle door for tests that project registered tools through the tool runtime. */
+/** Reset the registry and the runtime cache for a test. */
 export function resetToolFixtures(): void {
   clearToolRegistryForTests();
   clearToolRuntimeCacheForTests();

@@ -10,10 +10,8 @@ import { PolicyRow } from "./policy-row";
 import { WorkflowIcon } from "./workflow-icon";
 
 /**
- * The approvals this workflow is waiting on (#561), read from the same synced
- * staging queue the `/approvals` page uses and filtered to this workflow. The
- * policy card states, per allowed integration, whether its writes run without
- * approval or wait here; it reads the real action policy, not a local switch.
+ * This workflow's pending approvals, from the same synced queue as `/approvals`.
+ * The policy card reads the real action policy per allowed integration.
  */
 export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
   const { rows, loading, error, retry } = useActionStagings();
@@ -71,7 +69,7 @@ export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
               <PolicyRow
                 key={slug}
                 label={integrationDisplayName(slug)}
-                // Fall back to the conservative `gated` while the policy row loads.
+                // `gated` while the policy row loads.
                 value={
                   (modeFor(slug) ?? "gated") === "autonomy"
                     ? "Runs without approval"

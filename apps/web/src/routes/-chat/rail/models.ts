@@ -17,12 +17,11 @@ export interface RailTodoItem {
 export interface RailInboxItem {
   id: string;
   sender: string;
-  /** Bare sender email used for bulk-sender detection and recurrence grouping. */
+  /** Bare sender email, for bulk-sender detection and recurrence. */
   senderAddress?: string | null | undefined;
   subject: string;
   preview: string;
   time: string;
-  /** Authored time as epoch ms, distinct from the localized display string. */
   authoredAtMs?: number | null | undefined;
   unread?: boolean | undefined;
   initial: string;

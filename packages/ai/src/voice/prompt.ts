@@ -1,16 +1,7 @@
 /**
- * Alfred's default writing voice — the one shared source of truth for how the
- * assistant sounds in final user-facing prose. Before this, the "tone" line was
- * hand-written per prompt and drifted; the concrete anti-"AI-writing" rules
- * below are adapted from https://github.com/conorbronsdon/avoid-ai-writing (the transferable, high-
- * signal subset — plain words, no filler/flattery, no hype, sentence variety).
- *
- * It stays static so callers with prompt caching can reuse it. Investigation
- * scratch and other internal prose deliberately omit it: evidence fidelity is
- * more important there, and the final boss applies the presentation voice.
- *
- * `voice-detector.ts` encodes the machine-checkable slice of these rules and
- * guards them in the eval lane — keep the two in step when either changes.
+ * Alfred's voice for final user-facing prose, adapted from
+ * https://github.com/conorbronsdon/avoid-ai-writing. Static, so it caches.
+ * Internal scratch omits it, to keep evidence exact. Keep in step with `voice-detector.ts`.
  */
 export const DEFAULT_VOICE_PROMPT = [
   "# Voice (default)",
